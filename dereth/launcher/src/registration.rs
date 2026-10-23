@@ -26,12 +26,18 @@ pub fn desktop_entry(exec: &Path) -> String {
 }
 
 /// Make sure the launcher's entry, the client's entry (both starting `exec`) and `icon` are in
-/// `data_home`, writing each file only when its content differs. Returns the files written.
+/// `data_home`, writing each file only when its content differs; the launcher's entry opens join
+/// links when `links` (a release's). Returns the files written.
 ///
 /// # Errors
 /// A folder or file could not be written.
-pub fn register(data_home: &Path, exec: &Path, icon: &[u8]) -> std::io::Result<Vec<PathBuf>> {
-    desktop::write_changed(&desktop::launcher_files(data_home, exec, icon))
+pub fn register(
+    data_home: &Path,
+    exec: &Path,
+    icon: &[u8],
+    links: bool,
+) -> std::io::Result<Vec<PathBuf>> {
+    desktop::write_changed(&desktop::launcher_files_with(data_home, exec, icon, links))
 }
 
 /// What the entries start: the AppImage the launcher runs from, else the launcher itself.
@@ -41,10 +47,11 @@ pub fn launcher_path() -> Option<PathBuf> {
 }
 
 /// On Linux: name the program [`APP_ID`], so the window's application id and class are that, and
-/// register the entries and the icon. A failure is reported and otherwise ignored: the launcher
-/// runs without an icon rather than not at all.
+/// register the entries and the icon, the launcher's entry opening join links for a release
+/// (`links`). A failure is reported and otherwise ignored: the launcher runs without an icon rather
+/// than not at all.
 #[cfg(target_os = "linux")]
-pub fn on_start() {
+pub fn on_start(links: bool) {
     glib::set_prgname(Some(APP_ID));
     let (Some(home), Some(exec)) = (
         desktop::data_home(&|v| std::env::var_os(v)),
@@ -52,14 +59,14 @@ pub fn on_start() {
     ) else {
         return;
     };
-    if let Err(e) = register(&home, &exec, ICON_PNG) {
+    if let Err(e) = register(&home, &exec, ICON_PNG, links) {
         eprintln!("dereth: could not register the desktop entries: {e}");
     }
 }
 
 /// Elsewhere the system reads the name and the icon from the program itself.
 #[cfg(not(target_os = "linux"))]
-pub fn on_start() {}
+pub fn on_start(_links: bool) {}
 
 #[cfg(test)]
 mod tests {
@@ -86,7 +93,7 @@ mod tests {
     fn registration_writes_the_launcher_entry_the_hidden_client_entry_and_the_icon_once() {
         let home = temp("registration");
         let exec = Path::new("/apps/Dereth.AppImage");
-        let written = register(&home, exec, ICON_PNG).unwrap();
+        let written = register(&home, exec, ICON_PNG, false).unwrap();
         let client = home.join("applications/network.dereth.dereth-client.desktop");
         assert_eq!(
             written,
@@ -110,7 +117,7 @@ mod tests {
             "{client_entry}"
         );
         // The same again writes nothing.
-        assert!(register(&home, exec, ICON_PNG).unwrap().is_empty());
+        assert!(register(&home, exec, ICON_PNG, false).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&home);
     }
 

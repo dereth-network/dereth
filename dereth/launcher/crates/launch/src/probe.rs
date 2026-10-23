@@ -135,6 +135,52 @@ mod tests {
         assert!(!is_reply(&ask));
     }
 
+    /// The hub tries a world from outside with its own copy of both probes: the same tracker login
+    /// and status-ping hello, byte for byte, the same ask for a token, and the same reading of a
+    /// world's status.
+    #[test]
+    fn the_hubs_probes_are_the_launchers() {
+        use dereth_network_protocol::probe as hub;
+        use dereth_transport::status_ping::{StatusReply, Token, WorldState};
+        assert_eq!(hub::TRACKER_LOGIN.as_slice(), request().as_slice());
+        assert_eq!(hub::status_hello(), status_hello());
+        let token = Token {
+            window: 9,
+            mac: [5; 16],
+        };
+        let reply = status_ping::token_reply(token);
+        let hub_token = hub::status_token(&reply).expect("the hub reads the token");
+        assert_eq!(Some(hub::status_ask(&hub_token)), status_ask(&reply));
+        assert_eq!(hub::status_token_reply(&hub_token), reply);
+        let status = StatusReply {
+            format_version: 1,
+            state: WorldState::Open,
+            players: 4,
+            era: "eor".into(),
+            era_table_version: 1,
+            era_features: vec![0xff, 0x0f],
+            software: "Empyrean".into(),
+            software_version: "0.3.3".into(),
+            world_name: "Loopback".into(),
+        };
+        let read = hub::Status::parse(&status.encode()).expect("the hub reads the status");
+        assert_eq!((read.state, read.players), (1, 4));
+        assert_eq!(
+            (read.software.as_str(), read.version.as_str()),
+            ("Empyrean", "0.3.3")
+        );
+        assert_eq!(read.name, "Loopback");
+        let stand_in = hub::Status {
+            state: 1,
+            players: 2,
+            software: "Empyrean".into(),
+            version: "1.0.0".into(),
+            name: "Stand-in".into(),
+        };
+        let live = status_reply(&stand_in.encode()).expect("a stand-in's answer is a status");
+        assert_eq!(live.world_name.as_deref(), Some("Stand-in"));
+    }
+
     #[test]
     fn a_packet_is_a_reply_and_noise_is_not() {
         assert!(is_reply(&request()));

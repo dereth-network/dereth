@@ -345,7 +345,7 @@ fn data_findings(input: &CheckInput<'_>, f: &mut Vec<Finding>) {
                 verdict: Verdict::Block,
                 title: "Data files don't match this world".into(),
                 detail: format!(
-                    "This world uses custom data: {}. Without them the server will turn you away after you connect.",
+                    "This world uses custom data: {}. Without them the world will turn you away after you connect.",
                     describe(&ms, false)
                 ),
                 fixes: vec![Fix::GetCustomDats(custom.url.clone()), Fix::VerifyCustomDats],
@@ -380,7 +380,7 @@ fn data_findings(input: &CheckInput<'_>, f: &mut Vec<Finding>) {
             verdict: block,
             title: "Your data files are newer than this world's".into(),
             detail: format!(
-                "{}. The server would turn you away with \"Your DAT files are newer than expected\".{assumed_note}",
+                "{}. The world would turn you away with \"Your DAT files are newer than expected\".{assumed_note}",
                 describe(&c.newer, true)
             ),
             fixes: vec![Fix::ChooseDatSet],

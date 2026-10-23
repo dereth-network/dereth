@@ -40,7 +40,7 @@ const PROBES_AT_ONCE: usize = 8;
 
 /// Ask a server whether it is up with the server-tracker login ([`dereth_launch::probe`]): three
 /// tries, 700 ms apiece. Any well-formed packet back from its address is a yes.
-fn probe_host(host: &str, port: u16) -> bool {
+pub(crate) fn probe_host(host: &str, port: u16) -> bool {
     use std::net::{ToSocketAddrs, UdpSocket};
     let Some(addr) = (host, port)
         .to_socket_addrs()
@@ -80,7 +80,7 @@ fn probe_host(host: &str, port: u16) -> bool {
 /// Ask a world's live status with the status ping ([`dereth_launch::probe::status_hello`]): the
 /// hello, then the ask with the token it brings back. Two tries for each step, 600 ms apiece.
 /// `None` when the server does not answer it, which a server other than Empyrean never does.
-fn ping_status(host: &str, port: u16) -> Option<LiveStatus> {
+pub(crate) fn ping_status(host: &str, port: u16) -> Option<LiveStatus> {
     use std::net::{ToSocketAddrs, UdpSocket};
     let addr = (host, port)
         .to_socket_addrs()
@@ -469,6 +469,16 @@ impl Backend {
         })
     }
 
+    /// The slugs of the worlds the Dereth Network's hub lists, as the list in use has them; none
+    /// while the list is another's.
+    pub fn hub_slugs(&self) -> HashSet<String> {
+        self.list
+            .worlds()
+            .iter()
+            .filter_map(|w| w.hub_slug.clone())
+            .collect()
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             worlds: self.all_worlds().collect(),
@@ -851,18 +861,6 @@ impl Backend {
                     .into(),
             );
         }
-        let key = target(&world.slug, &choice.account);
-        let password = match choice.password.clone().filter(|p| !p.is_empty()) {
-            Some(p) => p,
-            None => match self.vault.get(&key).ok().flatten() {
-                Some(p) => p,
-                None => {
-                    return LaunchOutcome::NeedPassword {
-                        message: format!("Enter the password for {}.", choice.account),
-                    };
-                }
-            },
-        };
         let dereth = choice.client == ClientKind::Dereth;
         let dat_set_id = dereth.then(|| choice.dat_set_id.clone()).flatten();
         let classic_set_id = dereth.then(|| choice.classic_set_id.clone()).flatten();
@@ -878,7 +876,56 @@ impl Backend {
                 return err(why);
             }
         }
-        let (dat_dir, classic_dat_dir) = if dereth {
+        let hosted =
+            match crate::host_publication::play_inputs(&self.folders.data, &choice.world_slug) {
+                Ok(hosted) => hosted,
+                Err(error) => return err(error),
+            };
+        if hosted.as_ref().is_some_and(|h| !h.args.is_empty()) && !dereth {
+            return err("This published world needs the Dereth client.".into());
+        }
+        // A world on the Dereth client's overlay blocklist would be refused as it starts: it is
+        // not started.
+        let blocked = hosted
+            .as_ref()
+            .and_then(|h| h.world_key.as_deref())
+            .zip(self.client_preferences.as_deref())
+            .is_some_and(|(key, prefs)| dereth_launch::interface::refuses_world(prefs, key));
+        if dereth && blocked {
+            return err("This world is on your overlay blocklist, so it can't be played.".into());
+        }
+        let key = target(&world.slug, &choice.account);
+        let password = match choice.password.clone().filter(|p| !p.is_empty()) {
+            Some(p) => p,
+            None => match self.vault.get(&key).ok().flatten() {
+                Some(p) => p,
+                None => {
+                    return LaunchOutcome::NeedPassword {
+                        message: format!("Enter the password for {}.", choice.account),
+                    };
+                }
+            },
+        };
+        if hosted.as_ref().is_some_and(|h| {
+            world
+                .endpoint
+                .as_ref()
+                .is_none_or(|e| e.address != h.host || e.port != h.port)
+        }) {
+            return err(
+                "This world's address changed. Press Play on its page in Host a world again."
+                    .into(),
+            );
+        }
+        let extra_args = hosted.as_ref().map_or_else(Vec::new, |h| h.args.clone());
+        let (dat_dir, classic_dat_dir) = if let Some(hosted) = hosted.filter(|_| dereth) {
+            let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
+            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
+            match hosted.client_dats(modern.as_deref(), classic.as_deref()) {
+                Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
+                Err(e) => return err(e),
+            }
+        } else if dereth {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
             let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
             match choices::dat_dirs_for(&world, modern.as_deref(), classic.as_deref()) {
@@ -894,7 +941,7 @@ impl Backend {
             account: &choice.account,
             dat_dir,
             classic_dat_dir,
-            extra_args: &[],
+            extra_args: &extra_args,
         };
         let plan = match plan(&req) {
             Ok(p) => p,
@@ -1205,8 +1252,35 @@ impl Backend {
         Ok(slug)
     }
 
+    pub fn open_host_world(&mut self, dir: &Path) -> Result<String, String> {
+        let definition = crate::host_runtime::read_definition(dir)?;
+        let settings = crate::host_config::Settings::from_config(
+            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
+        )?;
+        let host = if settings.bind == "0.0.0.0" {
+            "127.0.0.1".into()
+        } else {
+            settings.bind
+        };
+        let slug = self.add_custom_world(&NewServer {
+            name: settings.name,
+            host,
+            port: settings.port.to_string(),
+            ruleset: None,
+            emulator: Emulator::Empyrean,
+        })?;
+        let find = self.read_folder(&settings.dats);
+        self.add_folder(find);
+        crate::host_publication::register_player(&self.folders.data, &definition.id, &slug)?;
+        Ok(slug)
+    }
+
     /// Remove a server the player added, and every password kept for it.
     pub fn remove_custom_world(&mut self, slug: &str) {
+        if let Err(error) = crate::host_publication::forget_player(&self.folders.data, slug) {
+            self.say(error, true);
+            return;
+        }
         let targets: Vec<String> = self
             .state
             .accounts_for(slug)
@@ -2459,6 +2533,132 @@ mod tests {
             view.contains("\"kind\":\"dereth\"") && view.contains("\"default_client\":\"dereth\""),
             "{view}"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn a_host_address_change_refuses_play_before_starting_a_client_on_the_old_address() {
+        let (mut b, dir) = backend("host-address");
+        let host = b.folders.data.join("hosts/host-test");
+        std::fs::create_dir_all(&host).unwrap();
+        let settings = crate::host_config::Settings {
+            dats: dir.join("client"),
+            port: 9001,
+            ..Default::default()
+        };
+        std::fs::write(
+            host.join("empyrean.toml"),
+            settings.update_config("").unwrap(),
+        )
+        .unwrap();
+        crate::host_runtime::write_json(
+            &host.join("host.json"),
+            &crate::host_runtime::Definition {
+                id: "host-test".into(),
+                version: "1.0.0".into(),
+                program: host.join("server"),
+                wrapper: host.join("wrapper"),
+                checkout: false,
+            },
+        )
+        .unwrap();
+        let guard = std::fs::File::create(host.join("run.lock")).unwrap();
+        guard.lock().unwrap();
+        crate::host_runtime::write_json(
+            &host.join("status.json"),
+            &crate::host_runtime::Status {
+                phase: "running".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        crate::host_publication::register_player(&b.folders.data, "host-test", "eulmore").unwrap();
+        assert!(
+            matches!(b.launch(choice(Some("test"))), LaunchOutcome::Error { message } if message.contains("address changed"))
+        );
+        assert!(b.running.is_empty());
+    }
+
+    /// A published Lyceum world on the Dereth client's overlay blocklist is not started: Play says
+    /// so, before it asks for a password. Off the list, Play goes on.
+    #[test]
+    fn play_refuses_a_hosted_world_on_the_clients_overlay_blocklist() {
+        use sha2::{Digest, Sha256};
+        let (mut b, dir) = backend("host-blocked");
+        let host = b.folders.data.join("hosts/host-test");
+        let snapshot = host.join("published/snapshot-0");
+        std::fs::create_dir_all(snapshot.join("overlay")).unwrap();
+        let settings = crate::host_config::Settings {
+            dats: dir.join("client"),
+            port: 9000,
+            ..Default::default()
+        };
+        let config = settings.update_config("").unwrap();
+        let overlay = snapshot.join("overlay");
+        std::fs::write(
+            host.join("empyrean.toml"),
+            format!(
+                "{config}\n[dat_overlay]\npath = '{}'\n",
+                overlay.to_string_lossy().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+        let files = std::collections::BTreeMap::<String, String>::new();
+        crate::host_runtime::write_json(
+            &snapshot.join("publication.json"),
+            &crate::host_publication::Publication {
+                source: host.join("source.toml"),
+                key: "blocked-world".into(),
+                build: format!("{:x}", Sha256::digest(serde_json::to_vec(&files).unwrap())),
+                files,
+                ..crate::host_publication::Publication::default()
+            },
+        )
+        .unwrap();
+        crate::host_runtime::write_json(
+            &host.join("host.json"),
+            &crate::host_runtime::Definition {
+                id: "host-test".into(),
+                version: "1.0.0".into(),
+                program: host.join("server"),
+                wrapper: host.join("wrapper"),
+                checkout: false,
+            },
+        )
+        .unwrap();
+        let guard = std::fs::File::create(host.join("run.lock")).unwrap();
+        guard.lock().unwrap();
+        crate::host_runtime::write_json(
+            &host.join("status.json"),
+            &crate::host_runtime::Status {
+                phase: "running".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        crate::host_publication::register_player(&b.folders.data, "host-test", "eulmore").unwrap();
+        std::fs::create_dir_all(dir.join("settings")).unwrap();
+        std::fs::write(
+            dir.join("settings").join("overlay-blocklist.txt"),
+            "# refused\nblocked-world\n",
+        )
+        .unwrap();
+        let out = b.launch(choice(None));
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("blocklist")),
+            "{out:?}"
+        );
+        assert!(b.running.is_empty(), "no client started");
+        // Off the list, Play goes on to the password.
+        std::fs::write(
+            dir.join("settings").join("overlay-blocklist.txt"),
+            "another\n",
+        )
+        .unwrap();
+        assert!(
+            matches!(b.launch(choice(None)), LaunchOutcome::NeedPassword { .. }),
+            "past the check"
+        );
+        drop(guard);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

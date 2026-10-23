@@ -102,7 +102,7 @@
       { world_slug: "harvestgain", account: "alt1", client: "retail", last_played: 10 },
     ],
     settings: { allow_play_anyway: false, auto_update: true, discord_presence: true },
-    custom_worlds: [{ slug: "custom-1", name: "My test server", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
+    custom_worlds: [{ slug: "custom-1", name: "My test world", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
   };
   const vault = new Set(["eulmore/player", "achard/player2"]);
   // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
@@ -128,12 +128,204 @@
     description: `Added by you: ${c.host}:${c.port}`, development_status: null,
   }))];
 
+  // Empyrean and Lyceum as GitHub lists them, and what is here. `?dev=1` is a development build with
+  // its checkout's own builds.
+  const development = new URLSearchParams(location.search).has("dev");
+  const RELEASES = {
+    empyrean: { version: "0.3.3", size: 16352529, notes: "Worlds keep running through a lost connection to the hub.\n\nFixed corpses sometimes landing under the floor." },
+    lyceum: { version: "0.1.0", size: 13587452, notes: "The first release: open a world over your own data files, edit it in place, and play it.\n\nRead [the guide](https://dereth.network/lyceum/) first, or the notes at https://dereth.network/changes." },
+  };
+  const checkout = { empyrean: "C:\\code\\dereth\\target\\release\\empyrean-server.exe", lyceum: "C:\\code\\dereth\\target\\release\\lyceum-editor.exe" };
+  const components = ["empyrean", "lyceum"].map((product) => ({
+    product, installed: null, checkout: development ? checkout[product] : null, checkout_version: development ? { empyrean: "0.4.0", lyceum: "0.1.1" }[product] : null,
+    latest: null, latest_notes: "", latest_size: null,
+    offer: { kind: "none" }, checking: false, busy: false, progress: null, message: null, error: false, running: false, worlds: [],
+    home: product === "lyceum" ? "C:\\Users\\you\\Documents\\Lyceum" : null,
+  }));
+  // A Lyceum world as the backend lists it.
+  const lyWorld = (path, home, extra = {}) => ({ path, home, key: path.split("\\").slice(-2, -1)[0], era: "eor", saved: Math.floor(Date.now() / 1000) - 3 * 86400, outdated: false, facts: null, ...extra });
+  // The ACE world each era's world database is made from, as Get world database records it.
+  const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" } };
+  const offerOf = (c) => c.checkout || !c.latest ? { kind: "none" } : !c.installed ? { kind: "download", version: c.latest } : c.installed.version !== c.latest ? { kind: "update", version: c.latest } : { kind: "none" };
+  const hosts = [];
+  const hostBy = (id) => hosts.find((h) => h.id === id);
+  // The other worlds on this computer, once the page has looked: an ACE world a Windows service
+  // runs, an Empyrean world the launcher has seen run from a folder, stopped now, and an Empyrean
+  // world a Windows service runs, whose admin channel the launcher is connected to.
+  let looked = false;
+  const local = [
+    { key: "ace:c:\\ace\\config.js", software: "ace", name: "Frostfell", running: true, pid: 4120, state: "online", version: null, players: null, host: "0.0.0.0", port: 9050,
+      started: Math.floor(Date.now() / 1000) - 3 * 86400 - 7200, manager: { kind: "windows_service", name: "ACEmulator" }, ours: false, stopping: false, cannot_start: null,
+      folder: "C:\\ACE", config: "C:\\ACE\\Config.js", data: null, dats: "C:\\ACE\\Dats", log: "C:\\ACE\\ACE_Log.txt", open_accounts: true, message: null,
+      channel: false, federation_slug: null, listed: false, control: { can_control: false, can_grant: true, start_command: "sc start ACEmulator", stop_command: "sc stop ACEmulator" },
+      logs: ["2026-10-21 20:14:02 [INFO] Server is now online.", "2026-10-21 21:02:11 [INFO] Player Dalton logged in.", "2026-10-21 21:40:55 [INFO] Player Dalton logged off."] },
+    { key: "empyrean:c:\\worlds\\lakeside\\empyrean.toml", software: "empyrean", name: "Lakeside", running: false, pid: null, state: "offline", version: null, players: null, host: "0.0.0.0", port: 9010,
+      started: null, manager: null, ours: false, stopping: false, cannot_start: null,
+      folder: "C:\\Worlds\\Lakeside", config: "C:\\Worlds\\Lakeside\\empyrean.toml", data: "C:\\Worlds\\Lakeside", dats: "C:\\Turbine\\Asheron's Call", log: null, open_accounts: false, message: null, logs: [],
+      channel: false, federation_slug: null, listed: false, control: null },
+    { key: "empyrean:c:\\worlds\\coldeve\\empyrean.toml", software: "empyrean", name: "Coldeve", running: true, pid: 5212, state: "online", version: "0.3.3", players: 4, host: "0.0.0.0", port: 9020,
+      started: Math.floor(Date.now() / 1000) - 26 * 3600, manager: { kind: "windows_service", name: "Empyrean" }, ours: false, stopping: false, cannot_start: null,
+      folder: "C:\\Worlds\\Coldeve", config: "C:\\Worlds\\Coldeve\\empyrean.toml", data: "C:\\Worlds\\Coldeve", dats: "C:\\Turbine\\Asheron's Call", log: null, open_accounts: true, message: null,
+      channel: true, federation_slug: "coldeve", listed: true, control: { can_control: false, can_grant: true, start_command: "sc start Empyrean", stop_command: "sc stop Empyrean" },
+      logs: ["2026-10-22 09:00:01.204 INFO  [World Manager] Dereth Network: linked to the hub as \"coldeve\"", "2026-10-22 09:14:37.881 INFO  [World Manager] Login: player Mirelle entered the world.", "2026-10-22 09:20:02.017 INFO  [World Manager] Login: player Torvald entered the world."] },
+  ];
+  const localBy = (key) => local.find((w) => w.key === key);
+  // This computer's address, and a router that answers with documentation addresses.
+  let sharing = { lan: null, router: false, public: null, shared_address: false, forwards: [], checking: false, outside: {} };
+  // `#join`: a join link waiting, as the system hands one to the launcher.
+  let join = location.hash === "#join" ? { host: "203.0.113.7", port: 9000, name: "Kazin's world" } : null;
   const handlers = {
+    choose_host_dats: () => "C:\\Turbine\\Asheron's Call",
+    create_host: ({ settings }) => {
+      const id = `host-${hosts.length + 1}`;
+      const c = components[0];
+      hosts.push({ id, settings: { era: "eor", welcome: "", max_players: 128, max_per_address: -1, shutdown_warning: 60, log_level: "info", systems: {},
+        websocket: { enabled: false, listen: "0.0.0.0:9443", tls_certificate: "", tls_private_key: "", behind_tls_proxy: false, allowed_origins: [], public_url: "" },
+        federation: { enabled: false, slug: "" }, patching: { enabled: true, records_per_minute: 60000, bytes_per_second: 1048576 }, ...settings },
+        version: c.installed?.version ?? "0.3.3", checkout: !!c.checkout, status: { phase: "stopped", players: null, started: null }, logs: [], prepared: false, service: false, update: {}, publication: null, folder: `C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\hosts\\${id}`, busy: null, message: null, federation_slug: null, listed: false,
+        plays: { database: "era", pack: "world.pack", dat_overlay: null, content_overlay: null, published: null, network_key: false, base: null, era_bases: [] }, unpublished_changes: null });
+      return id;
+    },
+    save_host: ({ id, settings }) => {
+      const h = hostBy(id);
+      // As the backend: the game data is the kind the era plays, and a published world keeps its
+      // era and game data.
+      const needs = eras.find((e) => e.name === settings.era)?.needs ?? "modern";
+      if (h.plays.dat_overlay && (settings.era !== h.settings.era || settings.dats !== h.settings.dats)) { h.message = "The Lyceum world this world plays was built for its era and game data, so those stay as they are."; return; }
+      if (settings.federation?.enabled && !h.plays.network_key) { h.message = "Save the world's key before linking it to the Dereth Network."; return; }
+      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
+      if (settings.era !== h.settings.era && h.plays.database === "era") {
+        h.plays.pack = settings.era === "infiltration" ? "world.pack.infiltration" : "world.pack";
+        h.plays.base = h.plays.era_bases.find((b) => b.era === settings.era) ?? null;
+        h.prepared = !!h.plays.base;
+      }
+      // A published Lyceum world sends its data to Dereth players.
+      if (h.plays.published) settings = { ...settings, patching: { ...settings.patching, enabled: true } };
+      h.settings = settings;
+      h.message = h.status.phase === "running" ? "Saved. Restart the world to use the new settings." : "Saved.";
+    },
+    // As the backend: a key of the shape Empyrean reads is kept, and never sent back.
+    save_host_key: ({ id, key }) => {
+      const k = String(key ?? "").trim();
+      if (!k) throw "Paste the world's key from the Dereth Network first.";
+      if (!/^drth_[A-Za-z0-9_-]{43}$/.test(k)) throw "That is not a Dereth Network key. Paste the whole key the network gave you: it starts with drth_ and is 48 characters long.";
+      hostBy(id).plays.network_key = true;
+    },
+    prepare_host: ({ id }) => {
+      const h = hostBy(id);
+      h.prepared = true;
+      h.plays.base = BASES[h.settings.era];
+      h.plays.era_bases = [...h.plays.era_bases.filter((b) => b.era !== h.settings.era), h.plays.base];
+      h.message = "The world database is ready.";
+    },
+    start_host: ({ id }) => { const h = hostBy(id); h.status = { phase: "running", players: 2, started: Math.floor(Date.now() / 1000) - 3840 }; h.message = null; h.logs.push("Empyrean 0.3.3 starting.", "Loaded 7,421 landblocks.", "World ready: My world on port 9000.", "Login: player Aerbax entered the world.", "Login: player Kazin entered the world."); },
+    stop_host: ({ id }) => { const h = hostBy(id); h.status = { phase: "stopped", players: null, started: null }; h.logs.push("Saving characters...", "World saved and stopped."); },
+    open_host_config: () => {},
+    host_command: ({ id, line }) => {
+      const h = hostBy(id);
+      if (h.status.phase !== "running") throw "Start the world first.";
+      const said = line.startsWith("pop") ? ["Current world population: 2"] : line === "save-world" ? ["Saving 2 players and 41 landblocks...", "Saved."] : ["Done."];
+      h.logs.push(`> ${line.replace(/^(accountcreate \S+) \S+/, "$1 ***")}`, ...said);
+    },
+    reveal_host: () => {},
+    scan_local_worlds: ({ force }) => { if (force) looked = true; },
+    start_local_world: ({ key }) => { const w = localBy(key); Object.assign(w, { running: true, ours: true, state: "online", players: 0, version: "0.3.3", started: Math.floor(Date.now() / 1000), manager: { kind: "launcher" }, logs: ["Empyrean 0.3.3 starting.", "World ready: Lakeside on port 9010."] }); },
+    stop_local_world: ({ key, now }) => {
+      const w = localBy(key);
+      // A service the launcher may control is stopped by its service manager; any other world
+      // with a channel is asked over it.
+      if (w.control?.can_control && !w.ours) { w.stopping = true; w.logs.push("Shutting down..."); return; }
+      if (w.channel && !w.ours) { w.stopping = true; w.logs.push("> exit", "Shutting down..."); return; }
+      if (!w.ours) throw "The launcher did not start this world, so it leaves it alone. Stop it where it was started.";
+      if (w.stopping && now) Object.assign(w, { running: false, ours: false, stopping: false, state: "offline", manager: null }); else w.stopping = true;
+    },
+    local_command: ({ key, line }) => { const w = localBy(key); if (!w.ours && !w.channel) throw "This world takes no commands from here."; w.logs.push(`> ${line}`, line === "save-world" ? "Saved." : "Done."); },
+    allow_service_control: ({ key }) => { const w = localBy(key); w.control = { can_control: true, can_grant: false, start_command: null, stop_command: null }; },
+    check_from_outside: ({ port }) => { sharing.outside[port] = { checking: false, outcome: { kind: "answered", address: "203.0.113.7", port, reached: true, world: { name: "My world", players: 2 } } }; },
+    take_join: () => { const j = join; join = null; return j; },
+    forget_local_world: ({ key }) => { local.splice(local.findIndex((w) => w.key === key), 1); },
+    reveal_local_world: () => {},
+    open_local_world: () => "custom-1",
+    check_sharing: () => { sharing = { lan: "192.168.1.20", router: true, public: "203.0.113.7", shared_address: false, forwards: [[9000, null]], checking: false, outside: sharing.outside ?? {} }; },
+    choose_lyceum_parent: () => "D:\\Worlds",
+    new_lyceum_world: ({ name, era }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds.unshift(lyWorld(`C:\\Users\\you\\Documents\\Lyceum\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}\\world.toml`, true, { era, saved: Math.floor(Date.now() / 1000), facts: {} })); message = { kind: "info", text: "The app opens Lyceum here." }; },
+    open_host_folder: () => {},
+    remove_host: ({ id }) => { hosts.splice(hosts.findIndex((h) => h.id === id), 1); },
+    set_host_service: ({ id, enabled }) => { const h = hostBy(id); h.service = enabled; h.message = enabled ? "Runs in the background from now on." : "Runs only while the launcher is open from now on."; },
+    export_host_logs: () => {},
+    publish_host_world: ({ id, world }) => {
+      const h = hostBy(id);
+      const source = world ?? "C:\\Users\\you\\Documents\\Lyceum\\holtburg-hills\\world.toml";
+      const key = source.split("\\").slice(-2, -1)[0];
+      // As the backend: each publish of the same Lyceum world is the next version.
+      const revision = h.publication?.key === key ? h.publication.revision + 1 : 3;
+      h.publication = { source, key, packs: ["holtburg"], build: "0123456789abcdef", revision, sources: "fedcba", base: "ACE-World-Database-v0.9.295.sql" };
+      h.unpublished_changes = false;
+      h.plays.base = BASES[h.settings.era];
+      h.plays = { ...h.plays, database: "lyceum", pack: `${h.folder}\\published\\snapshot-0\\world.pack`, dat_overlay: `${h.folder}\\published\\snapshot-0\\overlay`, published: Math.floor(Date.now() / 1000) - 2 * 86400 };
+      // As the backend: publishing turns patching on.
+      h.settings.patching = { ...h.settings.patching, enabled: true };
+      h.prepared = true;
+      h.message = null;
+    },
+    unpublish_host_world: ({ id }) => {
+      const h = hostBy(id);
+      h.publication = null;
+      h.plays = { ...h.plays, database: "era", pack: "world.pack", dat_overlay: null, published: null, base: BASES[h.settings.era] };
+      h.unpublished_changes = null;
+      h.message = null;
+    },
+    open_host_world: () => "eulmore",
+    // `latest`: the demo's check finds nothing newer.
+    check_host_update: ({ id, latest }) => {
+      const h = hostBy(id);
+      h.update = latest ? { latest: h.version, message: `Empyrean ${h.version} is the newest.`, pending: false, rollback: false }
+        : { version: "0.4.0", notes: "Housing and allegiance houses.\n\nThe databases gain two tables, which the update adds.", message: "Empyrean 0.4.0 is out. Read what changed, then update.", pending: false, rollback: false };
+    },
+    // The demo's stand-in for saving the published Lyceum world in Lyceum.
+    demo_saved: ({ id }) => { hostBy(id).unpublished_changes = true; },
+    // The demo's stand-in for the hub listing a world.
+    demo_list: ({ id }) => { const h = hostBy(id); h.listed = true; h.federation_slug = "my-world"; h.settings.federation = { enabled: true, slug: "my-world" }; },
+    cancel_host_update: ({ id }) => { const h = hostBy(id); h.update.pending = false; h.update.message = "Update canceled."; },
+    approve_host_update: ({ id }) => { const h = hostBy(id); h.update.pending = true; h.update.message = `Empyrean ${h.update.version} is downloaded. It goes in the next time this world stops or starts.`; },
+    rollback_host_update: ({ id }) => { hostBy(id).update = { message: "Back on Empyrean 0.3.3, with the databases as they were before the update." }; },
+    check_components: () => {
+      for (const c of components) { const r = RELEASES[c.product]; c.latest = r.version; c.latest_notes = r.notes; c.latest_size = r.size; c.offer = offerOf(c); }
+    },
+    get_component: ({ product }) => {
+      const c = components.find((c) => c.product === product);
+      const r = RELEASES[product];
+      c.latest = r.version;
+      c.installed = { version: r.version, notes: r.notes };
+      c.message = `${product === "empyrean" ? "Empyrean" : "Lyceum"} ${r.version} is ready.`;
+      c.offer = offerOf(c);
+      if (product === "lyceum") {
+        // Two in Lyceum's folder, one made with an older Lyceum, which Upgrade brings up to date;
+        // and the sample, opened from a checkout.
+        c.worlds = [
+          lyWorld("C:\\Users\\you\\Documents\\Lyceum\\holtburg-hills\\world.toml", true, { facts: { terrain: 4, statics: 23, buildings: 2, dungeons: 1, rooms: 14, spawns: 6, weenies: 3, textures: 1, models: 0 } }),
+          lyWorld("C:\\Users\\you\\Documents\\Lyceum\\arwic-markets\\world.toml", true, { outdated: true, era: "infiltration", facts: { terrain: 0, statics: 0 } }),
+          lyWorld("C:\\code\\dereth\\lyceum\\sample\\world.toml", false, { key: "sample-world", facts: { terrain: 1, statics: 6, spawns: 1, weenies: 1, textures: 1 } }),
+        ];
+      }
+    },
+    remove_component: ({ product }) => { const c = components.find((c) => c.product === product); c.installed = null; c.offer = offerOf(c); c.message = product === "empyrean" ? "Removed Empyrean. Your worlds are kept." : "Removed Lyceum. Your worlds are kept."; },
+    open_lyceum: () => { message = { kind: "info", text: "The app opens Lyceum here." }; },
+    open_worlds_folder: () => {},
+    choose_lyceum_world: () => {},
+    upgrade_lyceum_world: ({ world }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds.find((w) => w.path === world).outdated = false; c.message = "2 source file(s) upgraded; world.lock is unchanged."; },
+    export_lyceum_world: ({ world, target }) => {
+      const c = components.find((c) => c.product === "lyceum");
+      const name = world.split("\\").slice(-2, -1)[0];
+      const server = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE" }[target];
+      c.message = `Exported ${name} for ${server} to C:\\Users\\you\\Documents\\${name}-${target}.`;
+      c.error = false;
+    },
     snapshot: () => ({
-      worlds: allWorlds(), list_state: "loaded", list_error: null, list_fetched_at: Math.floor(Date.now() / 1000) - 3600, eras, features,
+      hosts, components, local: looked ? local : [], sharing, join_waiting: !!join, worlds: allWorlds(), list_state: "loaded", list_error: null, list_fetched_at: Math.floor(Date.now() / 1000) - 3600, eras, features,
       state: structuredClone(state), dereth, running: [], job, message,
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
-      update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos",
+      update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
     }),
     refresh: () => {},
@@ -199,7 +391,7 @@
     forget_all_passwords: () => { vault.clear(); state.accounts.forEach((a) => (a.remember = false)); },
     forget_all_accounts: () => { vault.clear(); state.accounts = []; state.favourites = []; state.recent = []; },
     add_custom_world: ({ server: { name, host, port, ruleset, emulator } }) => {
-      if (!host.trim()) throw "Enter the server's host name or address.";
+      if (!host.trim()) throw "Enter the world's host name or address.";
       const p = Number(port);
       if (!(p >= 1 && p <= 65535)) throw "The port must be a number from 1 to 65535.";
       const slug = `custom-${state.custom_worlds.length + 1}`;
@@ -222,7 +414,10 @@
     pad_target: () => null,
   };
 
+  // Every command the page sends, in order, for the page's own tests to read.
+  window.demoCalls = [];
   window.demoBackend = async (cmd, args = {}) => {
+    window.demoCalls.push([cmd, structuredClone(args)]);
     const h = handlers[cmd];
     if (!h) throw `demo: no ${cmd}`;
     return structuredClone(h(args));

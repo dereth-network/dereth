@@ -230,6 +230,10 @@ pub struct World {
     /// The community list's id for the world, which never changes.
     #[serde(default)]
     pub list_id: Option<String>,
+    /// The world's slug on the Dereth Network's hub, for a world the hub's list names; `None` for
+    /// one from any other list, or added by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hub_slug: Option<String>,
     /// How settled the world says it is: `Stable`, `Development` or `Experimental`; `Test` for a
     /// world the hub lists for demonstration.
     #[serde(default)]

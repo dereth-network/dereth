@@ -39,6 +39,8 @@ dereth-primitives.workspace = true
 dereth-client-contract.workspace = true
 # A pad's state as the client reads it, so the launcher's page takes a pad as the client does.
 dereth-input.workspace = true
+# An Empyrean server's configuration, read to find where it keeps its things.
+toml.workspace = true
 
 [dev-dependencies]
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.
@@ -48,6 +50,8 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 dereth-client-runtime.workspace = true
 # The known worlds' profiles must be ones the client compiles.
 dereth-rules.workspace = true
+# The hub's copy of the two probes must be the launcher's, byte for byte.
+dereth-network-protocol.workspace = true
 
 [features]
 # Builders for synthetic dats and installs, for other crates' tests. Never in a release build.

@@ -24,13 +24,28 @@ const ui = {
   filter: null,            // the Worlds list's one rules filter: null | "pve" | "pvp"
   expanded: null,          // the Worlds list's one open row: a world's slug, or null
   folded: { custom: false, online: false, offline: true },   // the Worlds list's closed sections
-  addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, emulator, ruleset, error }
+  addServer: null,         // the Worlds list's "add a world" form, while it is open: { name, host, port, emulator, ruleset, error }
   world: null,             // the world page: { view, form, notice }
   firstRun: { step: "ask", find: null, dismissed: false },
   // The interface question: the interface picked so far (null: the one already saved, else the
   // first offered), whether it was opened from the Library, and whether the first start's question
   // was set aside after its answer could not be saved.
   iface: { pick: null, fromLibrary: false, dismissed: false },
+  serverDraft: null,       // { settings }: a new server's form, until it is made
+  serverId: null,          // the server whose page is open
+  serverEdit: null,        // { id, settings }: that server's settings, open and as edited, until saved or closed
+  keyDraft: null,          // { id, text, replacing }: a world's network key as pasted, until it is saved or its Settings close
+  localKey: null,          // the other world on this computer whose page is open
+  logFilter: {},           // per world ("host:<id>", "local:<key>"): what its log is searched for
+  cmd: {},                 // per world: its command line, { kind, text, account, password }
+  shutdownAt: {},          // per world: when a shutdown asked for from here ends, in ms
+  folds: {},               // each folding section's state, by its id, once the person has opened or shut it
+  confirmDelete: null,     // the world whose Delete world asks to be confirmed
+  lyceumDraft: null,       // { name, parent, era }: a new Lyceum world's form, until it is made
+  publishPick: {},         // per hosted world: the Lyceum world chosen to publish to it ("" for another)
+  lyOpen: null,            // the Lyceum world whose row is open, by its world file
+  lyExport: {},            // per Lyceum world: the server chosen to export it for
+  lyPublish: {},           // per Lyceum world: the hosted world chosen to publish it to
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
 };
 
@@ -102,13 +117,19 @@ function emulatorLabel(w) {
 // the world turned on or off over it, as the client reads them.
 function worldFeatures(w) {
   const era = ui.snap.eras.find((e) => e.name === (w.era || "eor")) ?? ui.snap.eras[0];
-  const f = { ...(era?.features ?? {}) };
+  const base = era?.features ?? {};
   const said = {};
   for (const part of String(w.era_features ?? "").split(",")) {
     const [k, v] = part.split("=").map((x) => (x ?? "").trim().toLowerCase());
-    if (k in f) said[k] = v === "true" || v === "on" || v === "1";
+    if (k in base) said[k] = v === "true" || v === "on" || v === "1";
   }
-  Object.assign(f, said);
+  return systemsOver(base, said);
+}
+// An era's systems, `base`, with those a world turns on or off over them, `said`, as the server
+// reads them: housing off takes apartments with it unless they are named, and apartments bring
+// housing.
+function systemsOver(base, said) {
+  const f = { ...base, ...said };
   if (said.housing === false && !("apartments" in said)) f.apartments = false;
   if (f.apartments) f.housing = true;
   return f;
@@ -152,9 +173,30 @@ async function pull() {
     ui.screen = "first-run";
     lastSnap = "";
   }
+  if (snap.join_waiting) await takeJoin();
   if (json === lastSnap) return;
   lastSnap = json;
   render();
+}
+
+// A join link came in: Worlds opens with Add world filled in from it, for the person to check and
+// add. Nothing connects until they do.
+let takingJoin = false;
+async function takeJoin() {
+  if (takingJoin) return;
+  takingJoin = true;
+  try {
+    const link = await api("take_join");
+    if (link) {
+      ui.addServer = { name: link.name, host: link.host, port: String(link.port), emulator: "unknown", ruleset: "", error: null, fromLink: true };
+      ui.screen = "worlds";
+      ui.world = null;
+      render();
+      focusSoon("srv-name");
+    }
+  } finally {
+    takingJoin = false;
+  }
 }
 
 async function act(cmd, args) {
@@ -194,6 +236,56 @@ function expireMessage(msg) {
 
 // ----- rendering -----------------------------------------------------------------------------------
 
+// Each log's place before the page is drawn anew: at its newest line, or where the person left it
+// (the line at its top, and how far into that line).
+function logPlaces() {
+  const places = {};
+  for (const el of document.querySelectorAll("#main .log[data-log]")) {
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 6;
+    let anchor = null;
+    if (!atEnd) {
+      const lines = [...el.children];
+      const top = lines.find((l) => l.offsetTop + l.offsetHeight > el.scrollTop);
+      if (top) anchor = { text: top.textContent, index: lines.indexOf(top), offset: el.scrollTop - top.offsetTop };
+    }
+    places[el.dataset.log] = { atEnd, anchor, top: el.scrollTop };
+  }
+  return places;
+}
+
+// A log at its newest line stays there as lines come; one the person scrolled up stays on the line
+// they were reading, found again however many old lines left its top.
+function keepLogPlaces(places) {
+  for (const el of document.querySelectorAll("#main .log[data-log]")) {
+    const p = places[el.dataset.log];
+    if (!p || p.atEnd) { el.scrollTop = el.scrollHeight; continue; }
+    const lines = [...el.children];
+    let line = null;
+    if (p.anchor) {
+      for (let i = Math.min(p.anchor.index, lines.length - 1); i >= 0; i -= 1) {
+        if (lines[i].textContent === p.anchor.text) { line = lines[i]; break; }
+      }
+    }
+    el.scrollTop = line ? line.offsetTop + p.anchor.offset : p.top;
+  }
+}
+
+// Whether the person is selecting in a log: pressing in it, or with text selected there. The
+// screen is not drawn anew under them meanwhile, and catches up once they let go.
+let pressedInLog = false;
+let heldForSelection = false;
+function selectingInLog() {
+  const sel = window.getSelection?.();
+  const inLog = !!sel && !sel.isCollapsed && !!sel.anchorNode?.parentElement?.closest?.("#main .log");
+  return pressedInLog || inLog;
+}
+function catchUp() {
+  if (heldForSelection && !selectingInLog()) { heldForSelection = false; render(); }
+}
+document.addEventListener("pointerdown", (ev) => { pressedInLog = !!ev.target.closest?.(".log"); });
+document.addEventListener("pointerup", () => { pressedInLog = false; catchUp(); });
+document.addEventListener("selectionchange", catchUp);
+
 // Re-rendering replaces the page, so the element being typed into is found again afterwards and the
 // caret put back where it was.
 function render() {
@@ -221,16 +313,21 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { home, worlds, world: worldPage, library, accounts, "first-run": firstRun, interface: interfacePage };
+  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
+  if (sameScreen && selectingInLog()) { heldForSelection = true; return; }
+  const openDetails = sameScreen ? [...main.querySelectorAll("details[open][id]")].map((el) => el.id) : [];
   const scrolled = sameScreen ? [...main.querySelectorAll(".scroll")].map((el) => el.scrollTop) : [];
+  const logs = sameScreen ? logPlaces() : {};
   main.innerHTML = (screens[ui.screen] ?? home)();
   main.dataset.screen = ui.screen;
+  for (const id of openDetails) { const detail = document.getElementById(id); if (detail) detail.open = true; }
   main.querySelectorAll(".scroll").forEach((el, i) => {
     if (scrolled[i] !== undefined) el.scrollTop = scrolled[i];
   });
+  keepLogPlaces(logs);
 
   if (keep) {
     const el = document.getElementById(keep.id);
@@ -245,14 +342,920 @@ function render() {
   else if (keep && document.body.classList.contains("pad")) document.getElementById(keep.id)?.classList.add("pad-focus");
 }
 
+// ----- Host a world and Build a world --------------------------------------------------------------
+//
+// Empyrean (the server) and Lyceum (the world builder) are downloaded only when asked, each its own
+// newest release; a development build uses its checkout's own builds instead. Host a world lists
+// the worlds the player hosts, each with a page of its own, and the other servers running on this
+// computer; Build a world makes Lyceum worlds and opens them in the editor.
+
+const comp = (product) => (ui.snap.components ?? []).find((c) => c.product === product);
+const TITLES = { empyrean: "Empyrean", lyceum: "Lyceum" };
+const SOFTWARE = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE" };
+// Each program's own emblem, beside its page's title and nowhere else.
+const BRAND = { empyrean: "assets/empyrean.png", lyceum: "assets/lyceum.png" };
+const brand = (product) => `<img class="brand" src="${BRAND[product]}" alt="">`;
+// Where a world's operator registers it on the Dereth Network.
+const NETWORK_REGISTER = "https://dereth.network/operators/#h-register";
+const CHEVRON_RIGHT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/><rect x="5" y="5" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/><rect x="1" y="9" width="2" height="2"/></svg>`;
+const mb = (n) => `${Math.max(1, Math.round(n / 1048576))} MB`;
+const serverBy = (id) => (ui.snap.hosts ?? []).find((h) => h.id === id);
+const localBy = (key) => (ui.snap.local ?? []).find((w) => w.key === key);
+// Whether the program is here to use: downloaded, or this checkout's build.
+const ready = (product) => { const c = comp(product); return !!(c?.installed || c?.checkout); };
+// A version as the page writes it: `v0.3.3`.
+const vee = (version) => (/^v/i.test(String(version)) ? String(version) : `v${version}`);
+// The program as it is here: its name and version, and whether it is a local build.
+function programName(product) {
+  const c = comp(product);
+  const title = TITLES[product];
+  if (c?.checkout) return `${title}${c.checkout_version ? ` ${vee(c.checkout_version)}` : ""} (Local Build)`;
+  return c?.installed ? `${title} ${vee(c.installed.version)}` : title;
+}
+// The ACE world each era's world base is.
+const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)" };
+// A world base in words: `ACE End of Retail v0.9.295`, or the era's world alone when its release
+// is not known.
+const baseName = (era, base) => `${BASE_NAMES[base?.era ?? era] ?? BASE_NAMES.eor}${base?.version ? ` ${base.version}` : ""}`;
+// Where the Dereth Network's website shows a listed world.
+const networkPage = (slug) => `https://dereth.network/worlds/?q=${encodeURIComponent(slug)}`;
+// A world's name: the folder its world.toml is in.
+const worldName = (path) => path.split(/[\\/]/).slice(-2, -1)[0] ?? path;
+const parentOf = (path) => path.split(/[\\/]/).slice(0, -1).join(path.includes("\\") ? "\\" : "/");
+// The Library's default Modern data files, which a new world and Lyceum are given.
+const defaultDats = () => ui.snap.state.dat_sets.find((s) => s.kind !== "classic" && s.origin.kind === "shared")?.path ?? null;
+const defaultClassicDats = () => ui.snap.state.dat_sets.find((s) => s.kind === "classic" && s.origin.kind === "shared")?.path ?? null;
+// A new Lyceum world's folder name, as Lyceum names worlds: lower case, words joined by hyphens.
+const folderName = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+function progressBar(progress) {
+  const [done, total] = progress;
+  const frac = total ? Math.min(1, done / total) : null;
+  return `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>
+    <div class="sub">${mb(done)}${total ? ` of ${mb(total)}` : ""}</div>`;
+}
+
+// Release notes as the page shows them: their text, with each web link (a Markdown link, or an
+// address on its own) a link that opens in the system's browser.
+function linkify(text) {
+  const out = [];
+  const re = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"])/g;
+  let at = 0;
+  for (const m of String(text ?? "").matchAll(re)) {
+    out.push(esc(text.slice(at, m.index)));
+    const url = m[2] ?? m[3];
+    out.push(`<a href="#" data-url="${esc(url)}" title="${esc(url)}">${esc(m[1] ?? url)}</a>`);
+    at = m.index + m[0].length;
+  }
+  out.push(esc(String(text ?? "").slice(at)));
+  return out.join("");
+}
+
+// The program, in one line under its page's title: what is here and the one thing to do about it.
+// Where it is stays in the line's tooltip.
+function programLine(product) {
+  const c = comp(product);
+  if (!c) return "";
+  const title = TITLES[product];
+  if (c.checkout) return `<div class="program-line"><span title="${esc(c.checkout)}">${esc(programName(product))}</span></div>`;
+  const busy = c.busy;
+  const btns = [];
+  let what;
+  if (c.installed) {
+    what = esc(programName(product));
+    if (c.offer.kind === "update") btns.push(`<button class="btn mini-btn" data-get="${product}" ${busy || c.running ? "disabled" : ""}>Update to ${esc(c.offer.version)}</button>`);
+    btns.push(`<button class="btn mini-btn" data-remove="${product}" ${busy || c.running ? "disabled" : ""} title="Remove the download. Your worlds are kept.">Remove</button>`);
+  } else {
+    what = c.checking && !c.latest ? `Asking GitHub for the newest ${title}...` : `${title} is not downloaded yet${c.latest_size ? `: ${mb(c.latest_size)}` : ""}.`;
+    btns.push(`<button class="btn" data-get="${product}" ${busy ? "disabled" : ""}>Download ${title}${c.latest ? ` ${esc(c.latest)}` : ""}</button>`);
+  }
+  const said = c.error
+    ? `<span class="bad">${esc(c.message)}</span><button class="btn mini-btn" data-act="components-retry">Try again</button>`
+    : busy ? `<span class="muted">${esc(c.message ?? "")}</span>`
+    : c.running ? `<span class="muted">${title} is open.</span>`
+    : c.offer.kind === "update" ? `<span class="warn">${title} ${esc(c.offer.version)} is out.</span>` : "";
+  const notes = c.offer.kind !== "none" ? c.latest_notes : c.installed?.notes;
+  return `<div class="program-line ${c.installed ? "" : "first"}"><span>${what}</span>${said}<span class="btns">${btns.join("")}</span></div>
+    ${busy && c.progress ? progressBar(c.progress) : ""}
+    ${notes ? `<details class="notes" id="notes-${product}"><summary>What's new${c.offer.kind !== "none" ? ` in ${esc(c.offer.version)}` : ""}</summary><pre>${linkify(notes)}</pre></details>` : ""}`;
+}
+
+const PHASES = { stopped: ["unknown", "Stopped"], starting: ["starting", "Starting"], running: ["online", "Running"], stopping: ["starting", "Stopping"], failed: ["offline", "Stopped with an error"] };
+const isRunning = (h) => ["starting", "running", "stopping"].includes(h.status.phase);
+
+// How long a world has been up, from when it started (seconds since 1970).
+function since(started) {
+  if (!started) return null;
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - started);
+  if (s < 60) return "up under a minute";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `up ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `up ${h} h ${m % 60} min`;
+  return `up ${Math.floor(h / 24)} days`;
+}
+
+// The Empyrean a world runs: its own copy's version, or this checkout's build.
+function serverVersion(h) {
+  if (!h.checkout) return `Empyrean ${vee(h.version)}`;
+  const v = comp("empyrean")?.checkout_version ?? (/^\d/.test(h.version) ? h.version : null);
+  return `Empyrean${v ? ` ${vee(v)}` : ""} (Local Build)`;
+}
+
+// A world in a line: its state, its version, who is on and how long it has been up.
+function serverFacts(h) {
+  const [, state] = PHASES[h.status.phase] ?? ["unknown", h.status.phase];
+  const up = h.status.phase === "running";
+  return [state, serverVersion(h), up && h.status.players != null ? `${h.status.players} online` : null,
+    up ? since(h.status.started) : null].filter(Boolean).join(" · ");
+}
+
+// Start, Stop, or the world database a new server needs first.
+function serverPrimary(h) {
+  const busy = !!h.busy;
+  if (isRunning(h)) return `<button class="btn" data-srv-stop="${h.id}" ${h.status.phase === "stopping" ? "disabled" : ""}>Stop</button>`;
+  if (!h.prepared) return `<button class="btn" data-srv-prepare="${h.id}" ${busy ? "disabled" : ""}>Get world database</button>`;
+  return `<button class="btn" data-srv-start="${h.id}" ${busy ? "disabled" : ""}>Start</button>`;
+}
+
+// A world on the list: its facts in a line, and under them only what it is doing now or why it
+// stopped; everything else is on its page.
+function serverRow(h) {
+  const [dot] = PHASES[h.status.phase] ?? ["unknown"];
+  const note = h.busy ?? (h.status.phase === "failed" ? h.status.message : null);
+  return `<div class="row" data-srv-open="${h.id}">${bead(dot)}
+      <div class="grow"><div class="name">${esc(h.settings.name)}</div><div class="sub">${esc(serverFacts(h))}</div>
+      ${note ? `<div class="sub ${h.status.phase === "failed" ? "bad" : ""}">${esc(note)}</div>` : ""}</div>
+      <div class="btns">${serverPrimary(h)}<button class="btn" data-srv-play="${h.id}" ${h.status.phase === "running" ? "" : "disabled"}>Play</button></div><span class="chev">${CHEVRON_RIGHT}</span></div>`;
+}
+
+// ----- the other worlds on this computer
+
+const localDot = (w) => (!w.running ? "unknown" : { online: "online", starting: "starting", offline: "offline" }[w.state] ?? "unknown");
+
+// Who started a world, in a word or two, for its row.
+function managerShort(w) {
+  const m = w.manager;
+  if (!w.running || !m) return null;
+  return { windows_service: "a Windows service", systemd: "a systemd service", launchd: "started by launchd", launcher: "started here" }[m.kind] ?? null;
+}
+
+function localFacts(w) {
+  const state = !w.running ? "Stopped" : w.state === "starting" ? "Starting" : w.state === "offline" ? "Not answering" : "Running";
+  return [state, w.software ? `${SOFTWARE[w.software]}${w.version ? ` ${w.version}` : ""}` : null,
+    w.running && w.players != null ? `${w.players} playing` : null, w.running ? since(w.started) : null, managerShort(w)].filter(Boolean).join(" · ");
+}
+
+// Who starts and stops a world, said plainly: the launcher never stops a process it did not start.
+function controlText(w) {
+  if (!w.running) return w.cannot_start ?? "Stopped. The launcher can start it from its folder.";
+  const m = w.manager ?? { kind: "elsewhere" };
+  const mine = w.control?.can_control ? " The launcher starts and stops it." : "";
+  const channel = w.channel ? " Its console takes commands from here." : "";
+  switch (m.kind) {
+    case "windows_service": return `Runs as the Windows service ${m.name}.${mine}${channel}`;
+    case "systemd": return `Runs as the ${m.user ? "user's " : ""}systemd service ${m.unit}.${mine}${channel}`;
+    case "launchd": return `Started by launchd.${channel}`;
+    case "launcher": return null;
+    default: return w.channel ? `Started outside the launcher.${channel} Stop asks it to save and stop.` : "Started outside the launcher, which leaves it alone. Stop it where it was started.";
+  }
+}
+
+function localRow(w) {
+  return `<div class="row" data-local-open="${esc(w.key)}">${bead(localDot(w))}
+      <div class="grow"><div class="name">${esc(w.name)}</div><div class="sub">${esc(localFacts(w))}</div>
+      ${w.message ? `<div class="sub bad">${esc(w.message)}</div>` : ""}</div>
+      <span class="chev">${CHEVRON_RIGHT}</span></div>`;
+}
+
+// ----- folding sections
+
+// A section that folds: open or shut as the person left it, else as the page opens it.
+function fold(id, title, body, open) {
+  const isOpen = ui.folds[id] ?? open;
+  return `<details class="fold" id="${esc(id)}" ${isOpen ? "open" : ""}><summary><h2>${title}</h2></summary><div class="fold-body">${body}</div></details>`;
+}
+document.addEventListener("toggle", (ev) => {
+  const d = ev.target;
+  if (d.classList?.contains("fold") && d.id) ui.folds[d.id] = d.open;
+}, true);
+
+// ----- connecting to a world
+
+// Whether friends elsewhere can reach the world, as far as the launcher can tell from inside.
+function reachText(port) {
+  const sh = ui.snap.sharing ?? {};
+  const pair = `UDP ports ${port} and ${port + 1}`;
+  if (sh.router && sh.shared_address) return "Your internet provider shares its address among many homes, so friends elsewhere can't reach this computer.";
+  const f = (sh.forwards ?? []).find(([p]) => p === port);
+  if (sh.router && f && f[1]) {
+    return f[1] === sh.lan ? `Your router passes port ${port} to this computer.` : `Your router passes port ${port} to another computer (${f[1]}), not this one.`;
+  }
+  if (sh.router) return `Friends elsewhere need your router to pass ${pair} to this computer. The router lists no such rule.`;
+  if (sh.checking) return "Asking your router...";
+  return `Friends elsewhere need your router to pass ${pair} to this computer. The launcher can't see your router to check.`;
+}
+
+// What the Dereth Network found when it tried the world from outside, in a line.
+function outsideText(o) {
+  if (!o) return null;
+  if (o.checking) return "Asking the Dereth Network to try it from outside...";
+  const r = o.outcome;
+  if (!r) return null;
+  switch (r.kind) {
+    case "answered": {
+      const at = `${r.address}:${r.port}`;
+      if (!r.reached) return `The Dereth Network could not reach it at ${at}. Friends elsewhere can't join yet.`;
+      const said = r.world?.name ? `: ${r.world.name}${r.world.players != null ? `, ${r.world.players} playing` : ""}` : "";
+      return `Reached from outside at ${at}${said}. Friends elsewhere can join.`;
+    }
+    case "too_soon": return `Checked a lot lately. Try again in ${Math.max(1, Math.ceil(r.seconds / 60))} min.`;
+    default: return r.message;
+  }
+}
+
+// A join link: the site's page for the world, which offers to open it in Dereth.
+function joinLink(name, host, port) {
+  const enc = (v) => encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `https://dereth.network/join#host=${enc(host)}&port=${port}&name=${enc(name)}`;
+}
+
+// Where friends connect: this computer's address on its network and on the internet, each with
+// Copy, whether friends elsewhere can reach it, a check from outside, and the link to send them.
+// `o`: { kind: "host" | "local", id, name, port, bind }.
+function connectBlock(o) {
+  if (o.port == null) return `<p class="muted small">The launcher does not know this world's port.</p>`;
+  const sh = ui.snap.sharing ?? {};
+  const others = !(o.bind === "127.0.0.1" || o.bind === "::1");
+  const local = others ? (sh.lan ? `${sh.lan}:${o.port}` : null) : `127.0.0.1:${o.port}`;
+  const outside = others && sh.public && !sh.shared_address ? `${sh.public}:${o.port}` : null;
+  const row = (label, value) => `<div class="share-row"><span class="lab">${label}</span>${value
+    ? `<span class="addr">${esc(value)}</span><button class="btn mini-btn" data-copy="${esc(value)}">Copy</button>`
+    : `<span class="muted">Not available</span>`}</div>`;
+  const reach = others ? reachText(o.port) : `Only players on this computer can join.${o.kind === "host" ? " Allow other players in Settings to share it." : ""}`;
+  const out = (sh.outside ?? {})[o.port];
+  const found = outsideText(out);
+  // What the Dereth Network found outside settles what the router could only suggest.
+  const reached = out?.outcome?.kind === "answered" && out.outcome.reached;
+  const host = outside ? sh.public : local ? local.split(":")[0] : null;
+  const link = host ? joinLink(o.name, host, o.port) : null;
+  return `${row("LOCAL ADDRESS", local)}${row("PUBLIC ADDRESS", outside)}
+    ${reached ? "" : `<p class="small muted reach">${esc(reach)}</p>`}
+    <div class="share-row"><span class="lab"></span>
+      ${others ? `<button class="btn mini-btn" data-check-outside="${o.port}" ${out?.checking ? "disabled" : ""} title="The Dereth Network tries this computer at the world's port, as a friend elsewhere would">Check from outside</button>` : ""}
+      <button class="btn mini-btn" data-copy-link="${esc(link ?? "")}" ${link ? "" : "disabled"} title="${esc(link ?? "")}">Copy link</button></div>
+    ${found ? `<p class="small reach ${reached ? "good" : ""}">${esc(found)}</p>` : ""}`;
+}
+
+// ----- the console
+
+// The command line's kinds: a plain command, and the few a host wants most.
+const COMMAND_KINDS = [["command", "empyrean>"], ["account", "Add account..."], ["message", "Message everyone..."], ["save", "Save"], ["shutdown", "Shut down in 5 minutes"]];
+
+// The world's log, searched, and under it, for a world that takes commands, its command line.
+// `o`: { kind, id, logs, commands, exportable, empty }.
+function consoleBlock(o) {
+  const target = `${o.kind}:${o.id}`;
+  const filter = ui.logFilter[target] ?? "";
+  const lines = o.logs.filter((l) => l.toLowerCase().includes(filter.toLowerCase()));
+  const log = `<div class="log" data-log="${esc(target)}">${lines.length ? lines.map((l) => `<div>${esc(l)}</div>`).join("") : `<span class="muted">${o.logs.length ? "Nothing matches." : esc(o.empty)}</span>`}</div>`;
+  const tools = `<div class="btns log-tools"><input id="log-filter-${esc(o.id)}" class="field mini-field" data-log-filter="${esc(target)}" value="${esc(filter)}" placeholder="Search the log" aria-label="Search the log">
+      ${o.exportable ? `<button class="btn mini-btn" data-srv-export="${esc(o.id)}">Save log</button>` : ""}</div>`;
+  if (!o.commands) return tools + log;
+  const c = ui.cmd[target] ?? { kind: "command", text: "", account: "", password: "" };
+  const kinds = COMMAND_KINDS.map(([k, l]) => `<option value="${k}" ${c.kind === k ? "selected" : ""}>${esc(l)}</option>`).join("");
+  const id = esc(o.id);
+  const fields = {
+    command: `<input id="cmd-${id}" class="field" data-cmd-field="text" data-cmd="${esc(target)}" value="${esc(c.text)}" placeholder="A command, as typed at the world's console" autocomplete="off">`,
+    account: `<input id="cmd-acct-${id}" class="field" data-cmd-field="account" data-cmd="${esc(target)}" value="${esc(c.account)}" placeholder="Account name" autocomplete="off">
+      <input id="cmd-pass-${id}" class="field" type="password" data-cmd-field="password" data-cmd="${esc(target)}" value="${esc(c.password)}" placeholder="Password" autocomplete="new-password">`,
+    message: `<input id="cmd-msg-${id}" class="field" data-cmd-field="text" data-cmd="${esc(target)}" value="${esc(c.text)}" placeholder="What everyone playing reads" autocomplete="off">`,
+    save: `<span class="muted small grow">Saves every player and the world now.</span>`,
+    shutdown: `<span class="muted small grow">Warns everyone playing, then saves and stops in 5 minutes.</span>`,
+  }[c.kind];
+  const shutdown = ui.shutdownAt[target];
+  const left = shutdown ? Math.max(0, Math.ceil((shutdown - Date.now()) / 60000)) : null;
+  const pending = shutdown ? `<div class="btns"><span class="warn small">Shutting down${left ? ` in about ${left} min` : ""}.</span><button class="btn mini-btn" data-shutdown-cancel="${esc(target)}">Cancel shutdown</button></div>` : "";
+  return `${tools}${log}
+    <div class="console-line"><select class="field kind-field" data-cmd-kind="${esc(target)}" aria-label="Command">${kinds}</select>${fields}<button class="btn" data-send="${esc(target)}">Send</button></div>${pending}`;
+}
+
+// ----- Host a world's pages
+
+// The game port a new world takes: the first no other world has. The game uses its port and the
+// one after it.
+function freePorts() {
+  const hosts = ui.snap.hosts ?? [];
+  let port = 9000;
+  while (hosts.some((h) => Math.abs(h.settings.port - port) < 2) || (ui.snap.local ?? []).some((w) => w.port != null && Math.abs(w.port - port) < 2)) port += 2;
+  return { port };
+}
+
+// The Library's data sets of one kind, `modern` or `classic`, which a world of an era that plays
+// that kind may be given.
+const librarySets = (kind) => (ui.snap.state.dat_sets ?? []).filter((s) => (s.kind ?? "modern") === kind && s.origin.kind !== "world");
+
+const TIP_ACCOUNTS = "If checked, anyone who connects with an unknown account name will automatically have an account created for them with that account name and the provided password.";
+const TIP_OTHERS = "If checked, anyone on your local network (or outside your local network if you have properly configured port forwarding) can connect to this world.";
+const TIP_PER_ADDRESS = "The most players at once from each unique IP address. Empty is no limit.";
+const TIP_WELCOME = "What the character screen says, line by line. Not every client shows it.";
+const TIP_PLAY = "Players can play this world in their web browser at https://play.dereth.network. The world needs a secure connection for it: a certificate and its key, or a TLS proxy in front.";
+const TIP_PROXY = "A proxy such as nginx or Cloudflare handles the secure connection. It must be the only way in.";
+const TIP_LINK = "Linked, players here can talk with, befriend and tell characters on the other worlds of the Dereth Network.";
+const TIP_SLUG = "The world's name on the Dereth Network's website, which can differ from its name here: 2 to 12 lowercase letters and digits, with hyphens between.";
+const TIP_KEY = "The key the Dereth Network gave you when you registered the world. It is kept in the world's folder.";
+const TIP_LISTEN = "The address and port browsers connect to.";
+const TIP_ORIGINS = "The web pages players may play from, one a line. No other page can connect.";
+const TIP_PUBLIC = "What browsers connect to, when a proxy changes it. Empty works it out from Listen.";
+const TIP_PORT = "Each world consumes two consecutive ports.";
+
+// The page Dereth is played from in a browser, which a world may let its players use.
+const PLAY_PAGE = "https://play.dereth.network";
+
+// A row of a form: its label on the left, its field, and a line under it when there is more to
+// say than its tooltip. A label with a tooltip shows it, and so does its field.
+const tipOf = (tip) => (tip ? ` title="${esc(tip)}"` : "");
+const formRow = (id, label, field, { note, tip } = {}) => `<label class="lab" for="${id}"${tipOf(tip)}>${label}</label>${field}${note ? `<p class="note muted">${note}</p>` : ""}`;
+const textField = (id, path, s, extra = "") => `<input id="${id}" class="field" data-srv-field="${path}" value="${esc(getField(s, path) ?? "")}" ${extra}>`;
+// A check box: its label on the left like any other, the box where a value goes, and after it a
+// few words of its own when it has them. A locked box can't be changed, and says why under it.
+const checkRow = (id, label, path, on, { tip, trail, locked, note } = {}) => `<label class="lab" for="${id}"${tipOf(tip)}>${label}</label>
+  <div class="pair box"><input type="checkbox" id="${id}" data-srv-field="${path}" ${on ? "checked" : ""}${locked ? " disabled" : ""}${tipOf(tip)}>${trail ? `<label class="trail" for="${id}"${tipOf(tip)}>${trail}</label>` : ""}</div>${note ? `<p class="note muted">${note}</p>` : ""}`;
+// The game port, and the one after it that the world takes too.
+function portTrail(port) {
+  const p = Number(port);
+  return Number.isInteger(p) && p >= 1 && p < 65535 ? `and ${p + 1}` : "";
+}
+const portRow = (id, s) => formRow(id, "PORT", `<div class="pair"${tipOf(TIP_PORT)}><input id="${id}" class="field narrow-field" type="number" min="1" max="65534" data-srv-field="port" value="${esc(s.port)}"${tipOf(TIP_PORT)}><span class="muted small">${esc(portTrail(s.port))}</span></div>`, { tip: TIP_PORT });
+// Whether a world lets other players in: it listens on more than this computer.
+const othersAllowed = (s) => s.bind !== "127.0.0.1" && s.bind !== "::1";
+
+// A new world plays the Library's default data files and lets other players in.
+function newServerDraft() {
+  const dats = defaultDats() ?? librarySets("modern")[0]?.path ?? "";
+  const names = new Set((ui.snap.hosts ?? []).map((h) => h.settings.name));
+  let name = "My world";
+  for (let n = 2; names.has(name); n += 1) name = `My world ${n}`;
+  return { settings: { name, dats, bind: "0.0.0.0", accounts: true, era: "eor", ...freePorts() } };
+}
+
+// The game data a world plays: one of the Library's sets of the kind its era is drawn from, as
+// the client's rule says (`needs`): Classic for an era before Throne of Destiny, else Modern.
+function datsField(id, s, locked) {
+  const era = eraOf(s.era);
+  const kind = era?.needs ?? "modern";
+  const sets = librarySets(kind);
+  // Only when there is nothing to choose does the screen say anything: which files to add.
+  const missing = kind === "classic" ? `${esc((era?.label ?? "This era").replace(/ \(.*\)$/, ""))} needs the 2005 game files. Add them in the Library.`
+    : "You have no end-of-retail game files yet. Add them in the Library.";
+  if (!sets.length && !locked) return `<div class="pair"><span class="warn small">${missing}</span><button class="btn" data-go="library">Library</button></div>`;
+  const known = sets.some((set) => set.path === s.dats);
+  const options = (known || !s.dats ? "" : `<option value="${esc(s.dats)}" selected>${esc(s.dats)}</option>`)
+    + sets.map((set) => `<option value="${esc(set.path)}" ${set.path === s.dats ? "selected" : ""} title="${esc(set.path)}">${esc(setName(set))}</option>`).join("");
+  return `<select id="${id}" class="field" data-srv-field="dats" ${locked ? `disabled${tipOf("Set by the Lyceum world it plays.")}` : ""}>${options}</select>`;
+}
+
+// What a new world asks: its name, its game data, its port, and two choices, laid out as its
+// Settings lay them out.
+function newWorldFields(s) {
+  return `<div class="form long-labels">
+      ${formRow("new-name", "NAME", `<input id="new-name" class="field" data-srv-field="name" value="${esc(s.name)}">`)}
+      ${formRow("new-dats", "GAME DATA", datsField("new-dats", s))}
+      ${portRow("new-port", s)}
+      ${checkRow("new-others", "ALLOW OTHER PLAYERS", "others", othersAllowed(s), { tip: TIP_OTHERS })}
+      ${checkRow("new-accounts", "AUTOMATICALLY CREATE ACCOUNTS", "accounts", s.accounts, { tip: TIP_ACCOUNTS })}
+    </div>`;
+}
+
+function serverList() {
+  const hosts = ui.snap.hosts ?? [];
+  const others = ui.snap.local ?? [];
+  const pending = ui.serverDraft
+    ? `<section class="panel pending"><header><h1>NEW WORLD</h1></header>${newWorldFields(ui.serverDraft.settings)}
+      <div class="btns end" style="margin-top:12px"><button class="btn" data-act="srv-new-cancel">Cancel</button><button class="btn" data-act="srv-create">Make world</button></div></section>`
+    : "";
+  const rows = hosts.map(serverRow).join("")
+    || `<p class="muted">${ready("empyrean") ? "No worlds yet. New world makes one." : "Download Empyrean to host a world."}</p>`;
+  const otherRows = others.length ? `<h2>OTHER WORLD SERVERS ON THIS COMPUTER</h2><div class="list">${others.map(localRow).join("")}</div>` : "";
+  return `<div class="column wide" style="height:100%">${pending}
+      <section class="panel grow"><header>${brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER</h1>${ready("empyrean") && !ui.serverDraft ? `<button class="btn" data-act="srv-new">+ New world</button>` : ""}</header>
+        <div class="scroll">${ready("empyrean") ? "" : `<p class="muted small">Run a world of your own on this computer, for you and your friends.</p>`}
+          ${programLine("empyrean")}
+          <h2>YOUR WORLD SERVERS</h2><div class="list">${rows}</div>${otherRows}</div>
+      </section>
+    </div>`;
+}
+
+// A state in words beside its dot: green when all is well, amber when there is something to do,
+// gray when it is off.
+const stateMark = (dot, words) => `<span class="state">${bead(dot)}<span>${words}</span></span>`;
+
+// Check for Updates, the Empyrean the world runs, and what the last check found: Latest, or a
+// newer version to update to.
+function updatesBlock(h) {
+  const u = h.update ?? {};
+  const offered = u.version && !u.pending;
+  const running = isRunning(h);
+  if (h.checkout) {
+    return `<div class="share-row"><button class="btn mini-btn" disabled title="A local build is never updated from a release.">Check for Updates</button><span>${esc(serverVersion(h))}</span></div>`;
+  }
+  const found = offered ? stateMark("starting", `Empyrean ${esc(vee(u.version))} is out`)
+    : u.pending ? stateMark("starting", esc(u.message ?? `Empyrean ${vee(u.version)} goes in at the next start`))
+    : u.latest && u.latest === h.version ? stateMark("online", "Latest") : "";
+  const said = !offered && !u.pending && !(u.latest && u.latest === h.version) && u.message ? `<p class="small muted">${esc(u.message)}</p>` : "";
+  return `<div class="share-row"><button class="btn mini-btn" data-srv-check="${h.id}" ${h.busy ? "disabled" : ""}>Check for Updates</button><span>${esc(serverVersion(h))}</span>${found}
+      ${offered ? `<button class="btn mini-btn" data-srv-approve="${h.id}" data-version="${esc(u.version)}" ${h.busy ? "disabled" : ""}>Update to ${esc(u.version)}</button>` : ""}
+      ${u.pending ? `<button class="btn mini-btn" data-srv-cancel-update="${h.id}" ${h.busy ? "disabled" : ""}>Cancel update</button>` : ""}
+      ${u.rollback ? `<button class="btn mini-btn" data-srv-rollback="${h.id}" ${h.busy || running ? "disabled" : ""}>Undo last update</button>` : ""}</div>
+    ${said}
+    ${offered ? `<details class="notes" id="srv-notes-${h.id}" open><summary>What's new in ${esc(u.version)}</summary><pre>${linkify(u.notes ?? "")}</pre></details>
+      <p class="muted small">The databases are backed up first. If the new version does not start, everything is put back.</p>` : ""}`;
+}
+
+// Run via System Service, or Disable System Service, and whether it runs as one.
+function serviceRow(h, running) {
+  const why = h.checkout ? "A world on a local build runs only while the launcher is open."
+    : running ? "Stop the world to change this."
+    : !h.prepared ? "Get the world database first."
+    : ui.snap.platform === "windows" ? "The world keeps running when the launcher is closed. Windows asks for administrator permission to set this up."
+    : "The world keeps running when the launcher is closed, while you are logged in.";
+  const off = running || h.busy || !h.prepared || h.checkout;
+  return `<div class="share-row"><button class="btn mini-btn" data-srv-service="${h.id}" data-enabled="${h.service ? 0 : 1}" ${off ? "disabled" : ""} title="${esc(why)}">${h.service ? "Disable System Service" : "Run via System Service"}</button>
+      ${h.service ? stateMark("online", "Active") : stateMark("unknown", "Inactive")}</div>`;
+}
+
+// List on the Dereth Network, and whether the world is listed, by its slug.
+function listRow(h) {
+  const slug = h.federation_slug;
+  const state = h.listed && slug
+    ? stateMark("online", `Listed as <a href="#" data-url="${esc(networkPage(slug))}" title="Its page on the Dereth Network">${esc(slug)}</a>`)
+    : stateMark("unknown", "Unlisted");
+  return `<div class="share-row"><button class="btn mini-btn" data-url="${NETWORK_REGISTER}" title="The Dereth Network's page for operators">List on the Dereth Network</button>${state}</div>`;
+}
+
+// Delete World, confirmed in place.
+function deleteRow(h, running) {
+  if (ui.confirmDelete === h.id) {
+    return `<div class="share-row confirm"><span class="warn">Delete ${esc(h.settings.name)}? Its characters, accounts and world database go with it.</span>
+      <button class="btn mini-btn" data-srv-delete="${h.id}">Delete World</button><button class="btn mini-btn" data-act="delete-cancel">Cancel</button></div>`;
+  }
+  const why = running ? "Stop the world first." : h.service ? "Disable the system service first." : "";
+  return `<div class="share-row"><button class="btn mini-btn" data-confirm-delete="${h.id}" ${running || h.busy || h.service ? "disabled" : ""} title="${esc(why)}">Delete World</button></div>`;
+}
+
+// The world base a world plays, in words: ACE's world for its era and the release it was made
+// from, its own world database, or nothing yet.
+function worldBase(h) {
+  const plays = h.plays ?? {};
+  if (plays.database === "own") return `The world's own: <code>${esc(plays.pack)}</code>`;
+  if (plays.database === "era" && !h.prepared) return "Not downloaded yet";
+  return esc(baseName(h.settings.era, plays.base));
+}
+
+// The Lyceum world a world plays, or that it plays its world base unmodified; and the ways to
+// publish one, publish the newest saved, or go back to the world base.
+function lyceumBlock(h, running) {
+  const p = h.publication;
+  const lyceum = ready("lyceum");
+  const busy = !!h.busy || !!comp("lyceum")?.busy;
+  const playing = p
+    ? `Lyceum world <b>${esc(p.key)}</b>${p.revision ? ` version <b>${p.revision}</b>` : ""}`
+    : "Unmodified.";
+  const why = !lyceum ? "Download Lyceum first." : running ? "Stop the world first." : "";
+  let publish;
+  if (p) {
+    const latest = h.unpublished_changes === false;
+    const next = latest ? `<b>${esc(p.key)}</b>${p.revision ? ` version <b>${p.revision}</b>` : ""} is the latest`
+      : `<b>${esc(p.key)}</b>${p.revision ? ` version <b>${p.revision + 1}</b>` : ""}`;
+    publish = `<div class="share-row"><button class="btn mini-btn" data-srv-republish="${h.id}" ${lyceum && !running && !busy && !latest ? "" : "disabled"} title="${esc(latest ? "The saved world is the one published." : why)}">Publish Latest</button><span>${next}</span></div>`;
+  } else {
+    const worlds = comp("lyceum")?.worlds ?? [];
+    const pick = ui.publishPick[h.id] ?? worlds[0]?.path ?? "";
+    const options = worlds.map((w) => `<option value="${esc(w.path)}" ${w.path === pick ? "selected" : ""} title="${esc(w.path)}">${esc(worldName(w.path))}</option>`).join("")
+      + `<option value="" ${pick === "" ? "selected" : ""}>Other...</option>`;
+    publish = `<div class="share-row"><button class="btn mini-btn" data-srv-publish="${h.id}" ${lyceum && !running && !busy ? "" : "disabled"} title="${esc(why)}">Publish Lyceum World</button>
+      <select class="field mini" data-publish-pick="${h.id}" aria-label="The Lyceum world to publish" ${lyceum ? "" : "disabled"}>${options}</select></div>`;
+  }
+  return `<div class="aligned"><div class="share-row"><span class="lab">WORLD BASE</span><span>${worldBase(h)}</span></div>
+    <div class="share-row"><span class="lab">RUNNING</span><span>${playing}</span></div>
+    ${publish}
+    <div class="share-row"><button class="btn mini-btn" data-srv-unpublish="${h.id}" ${p && !running && !h.busy ? "" : "disabled"} title="${p ? "The world goes back to its world base, and its era and game data may change again." : "It plays its world base already."}">Restore World Base</button></div>
+    ${running ? `<p class="small muted">Stop the world to publish or restore its world base.</p>` : ""}</div>`;
+}
+
+function serverPage() {
+  const h = serverBy(ui.serverId);
+  if (!h) { ui.screen = "server"; return serverList(); }
+  const [dot] = PHASES[h.status.phase] ?? ["unknown"];
+  const u = h.update ?? {};
+  const note = h.busy ?? h.status.message ?? h.message;
+  const running = isRunning(h);
+  const offered = u.version && !u.pending;
+  const advanced = `<div class="aligned">${updatesBlock(h)}
+    <div class="share-row"><button class="btn mini-btn" data-srv-folder="${h.id}" title="${esc(h.folder)}">Open world folder</button></div>
+    ${serviceRow(h, running)}
+    ${listRow(h)}
+    ${deleteRow(h, running)}</div>`;
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header><button class="btn icon-btn back" data-go="server" title="Back to your world servers">${CHEVRON_LEFT}</button><h1>${esc(h.settings.name.toUpperCase())}</h1>
+          ${serverPrimary(h)}<button class="btn" data-srv-play="${h.id}" ${h.status.phase === "running" ? "" : "disabled"}>Play</button>
+          <button class="btn" data-act="srv-settings">Settings</button></header>
+        <div class="scroll">
+          <div class="facts">${bead(dot)}<span>${esc(serverFacts(h))}</span></div>
+          ${note ? `<p class="small ${h.status.phase === "failed" ? "bad" : ""}">${esc(note)}</p>` : ""}
+          ${h.prepared ? "" : `<p class="small warn">Before its first start the world needs its world database, a one-time download. Get world database fetches it.</p>`}
+          ${offered ? `<p class="small warn">Empyrean ${esc(u.version)} is out. It is under Advanced.</p>` : ""}
+          ${fold(`fold-connect-${h.id}`, "CONNECT", connectBlock({ kind: "host", id: h.id, name: h.settings.name, port: h.settings.port, bind: h.settings.bind }), true)}
+          ${fold(`fold-console-${h.id}`, "CONSOLE", consoleBlock({ kind: "host", id: h.id, logs: h.logs, commands: h.status.phase === "running", exportable: true, empty: "Nothing yet. Empyrean's output shows here while the world runs." }), true)}
+          ${fold(`fold-lyceum-${h.id}`, "LYCEUM", lyceumBlock(h, running), !!h.publication)}
+          ${fold(`fold-advanced-${h.id}`, "ADVANCED", advanced, !!offered)}
+        </div>
+      </section>
+    </div>`;
+}
+
+// The log levels `server.log_level` takes, as the file writes them.
+const LOG_LEVELS = ["error", "warn", "info", "debug", "trace"];
+
+// A value written the same way whatever order its keys were set in, to tell edited settings from
+// the saved ones.
+const stable = (v) => Array.isArray(v) ? `[${v.map(stable).join(",")}]`
+  : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`
+  : JSON.stringify(v);
+
+// Settings as they are saved: the allowed pages one to a line, blank lines dropped.
+function cleanSettings(s) {
+  const c = structuredClone(s);
+  if (c.websocket) c.websocket.allowed_origins = (c.websocket.allowed_origins ?? []).map((o) => o.trim()).filter(Boolean);
+  return c;
+}
+
+// Sets a setting by its path in the form: `name`, or `websocket.listen`.
+function setField(s, path, v) {
+  const keys = path.split(".");
+  let o = s;
+  for (const k of keys.slice(0, -1)) o = o[k] ??= {};
+  o[keys[keys.length - 1]] = v;
+}
+const getField = (s, path) => path.split(".").reduce((o, k) => o?.[k], s);
+
+// A date from seconds since 1970, as a person writes it.
+function dateOf(seconds) {
+  const d = new Date(seconds * 1000);
+  return longDate(`${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`);
+}
+
+// The era a world is set to play: its label, the data files it is drawn from (`needs`), and its
+// own systems.
+const eraOf = (name) => ui.snap.eras.find((e) => e.name === (name || "eor")) ?? ui.snap.eras[0];
+
+// After the era changes, the game data follows it to the kind of data files the new era plays,
+// unless the files chosen are of that kind already.
+function eraChanged(s) {
+  const sets = librarySets(eraOf(s.era)?.needs ?? "modern");
+  if (!sets.some((set) => set.path === s.dats)) s.dats = (sets.find((set) => set.origin.kind === "shared") ?? sets[0])?.path ?? s.dats;
+}
+
+// A world's settings as its Settings screen edits them: a copy, with the page Dereth is played
+// from among the allowed pages of a world that names none. Like any change, that is written only
+// when the person saves.
+function editCopy(h) {
+  const s = structuredClone(h.settings);
+  s.websocket ??= {};
+  if (!(s.websocket.allowed_origins ?? []).some((o) => o.trim())) s.websocket.allowed_origins = [PLAY_PAGE];
+  return s;
+}
+
+// The network key's row: a box to paste it into and Save, or, once it is kept, only that it is.
+// A kept key is never drawn again.
+function keyField(h) {
+  const draft = ui.keyDraft?.id === h.id ? ui.keyDraft : null;
+  if (h.plays?.network_key && !draft?.replacing) {
+    return `<div class="pair"><span class="small fit">Key saved</span><button class="btn mini-btn" data-act="key-replace">Replace</button></div>`;
+  }
+  return `<div class="pair"><input id="set-fed-key" class="field" type="password" data-key-field autocomplete="off" spellcheck="false" placeholder="Paste the key from the Dereth Network" value="${esc(draft?.text ?? "")}"${tipOf(TIP_KEY)}>
+      <button class="btn mini-btn" data-act="key-save" ${draft?.text?.trim() && !h.busy ? "" : "disabled"}>Save</button>
+      ${draft?.replacing ? `<button class="btn mini-btn" data-act="key-cancel">Cancel</button>` : ""}</div>`;
+}
+
+// A world's Settings: everything that matters in its empyrean.toml, a folding section to each
+// part. The rest stays in the file, which Open empyrean.toml opens.
+function settingsPage() {
+  const h = serverBy(ui.serverId);
+  if (!h) { ui.screen = "server"; return serverList(); }
+  if (ui.serverEdit?.id !== h.id) ui.serverEdit = { id: h.id, settings: editCopy(h) };
+  const s = ui.serverEdit.settings;
+  const changed = stable(cleanSettings(s)) !== stable(cleanSettings(editCopy(h)));
+  const running = isRunning(h);
+  const plays = h.plays ?? {};
+  // A world that plays a Lyceum world keeps the era and data files it was published for, and a
+  // published one sends its data to Dereth players.
+  const locked = !!plays.dat_overlay;
+  const published = !!plays.published;
+  const era = eraOf(s.era);
+  const id = h.id;
+
+  const eras = ui.snap.eras.map((e) => `<option value="${esc(e.name)}" ${s.era === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
+  // The world base: the one it plays, or the one saving switches it to.
+  const eraChangedHere = s.era !== h.settings.era;
+  const next = eraChangedHere && plays.database === "era" ? (plays.era_bases ?? []).find((b) => b.era === s.era) : null;
+  const database = eraChangedHere && plays.database === "era" ? `Saving will switch world base to ${esc(baseName(s.era, next))}`
+    : worldBase(h);
+  const getDatabase = plays.database === "era" && !h.prepared && !eraChangedHere
+    ? `<button class="btn mini-btn" data-srv-prepare="${id}" ${running || h.busy ? "disabled" : ""}>Get world database</button>` : "";
+  const world = `<div class="form long-labels">
+      ${formRow("set-name", "NAME", textField("set-name", "name", s))}
+      ${formRow("set-era", "ERA", `<select id="set-era" class="field" data-srv-field="era" ${locked ? "disabled" : ""}${locked ? tipOf("Set by the Lyceum world it plays.") : ""}>${eras}</select>`)}
+      ${formRow("set-dats", "GAME DATA", datsField("set-dats", s, locked))}
+      <span class="lab">WORLD BASE</span><div class="pair"><span class="small">${database}</span>${getDatabase}</div>
+      ${formRow("set-welcome", "WELCOME", `<textarea id="set-welcome" class="field area" rows="3" data-srv-field="welcome" placeholder="Welcome to ${esc(s.name)}!"${tipOf(TIP_WELCOME)}>${esc(s.welcome ?? "")}</textarea>`, { tip: TIP_WELCOME })}
+      ${portRow("set-port", s)}
+    </div>`;
+
+  const players = `<div class="form long-labels">
+      ${checkRow("set-others", "ALLOW OTHER PLAYERS", "others", othersAllowed(s), { tip: TIP_OTHERS })}
+      ${s.bind !== "127.0.0.1" && s.bind !== "0.0.0.0" && s.bind !== "::1" ? `<p class="note muted">Listens on ${esc(s.bind)}, as empyrean.toml says.</p>` : ""}
+      ${checkRow("set-accounts", "AUTOMATICALLY CREATE ACCOUNTS", "accounts", s.accounts, { tip: TIP_ACCOUNTS })}
+      ${formRow("set-max", "MAXIMUM PLAYERS", `<input id="set-max" class="field narrow-field" type="number" min="1" max="10000" data-srv-field="max_players" value="${esc(s.max_players ?? 128)}">`)}
+      ${formRow("set-per", "MAXIMUM PLAYERS FROM EACH ADDRESS", `<input id="set-per" class="field narrow-field" type="number" min="1" max="10000" data-srv-field="max_per_address" value="${s.max_per_address > 0 ? esc(s.max_per_address) : ""}" placeholder="No limit"${tipOf(TIP_PER_ADDRESS)}>`, { tip: TIP_PER_ADDRESS })}
+      ${formRow("set-warn", "SHUTDOWN WARNING", `<div class="pair"><input id="set-warn" class="field narrow-field" type="number" min="0" max="99999" data-srv-field="shutdown_warning" value="${esc(s.shutdown_warning ?? 60)}"><span class="muted small">seconds</span></div>`)}
+    </div>`;
+
+  const said = s.systems ?? {};
+  const on = systemsOver(era?.features ?? {}, said);
+  const boxes = ui.snap.features.map((f) => {
+    const mine = f.name in said;
+    return `<label class="check small ${mine ? "changed" : ""}" title="${mine ? `Changed from ${esc(era?.label)}` : `As ${esc(era?.label)} has it`}"><input type="checkbox" data-srv-system="${esc(f.name)}" ${on[f.name] ? "checked" : ""}>${esc(f.label)}</label>`;
+  }).join("");
+  const systems = `<div class="features">${boxes}</div>
+    <div class="btns" style="margin-top:8px"><button class="btn mini-btn" data-act="set-systems-reset" ${Object.keys(said).length ? "" : "disabled"}>Use defaults for ${esc(era?.label)}</button></div>`;
+
+  // The endpoint on or off, and the pages that may connect to it, the page Dereth is played from
+  // among them to begin with.
+  const ws = s.websocket ?? {};
+  const origins = ws.allowed_origins ?? [];
+  const proxy = !!ws.behind_tls_proxy;
+  const websocket = `<div class="form long-labels">
+      ${checkRow("set-ws-enabled", "ENABLE WEBSOCKET CONNECTIONS", "websocket.enabled", !!ws.enabled, { tip: TIP_PLAY })}
+      ${checkRow("set-ws-proxy", "BEHIND A TLS PROXY", "websocket.behind_tls_proxy", proxy, { tip: TIP_PROXY })}
+      ${proxy ? "" : `${formRow("set-ws-cert", "CERTIFICATE", textField("set-ws-cert", "websocket.tls_certificate", s, `placeholder="The certificate file (PEM)"`))}
+        ${formRow("set-ws-key", "KEY", textField("set-ws-key", "websocket.tls_private_key", s, `placeholder="Its private key file (PEM)"`))}`}
+      ${formRow("set-ws-listen", "LISTEN", textField("set-ws-listen", "websocket.listen", s, `placeholder="0.0.0.0:9443"${tipOf(TIP_LISTEN)}`), { tip: TIP_LISTEN })}
+      ${formRow("set-ws-origins", "ALLOWED PAGES", `<textarea id="set-ws-origins" class="field area" rows="2" data-srv-field="websocket.allowed_origins" placeholder="${PLAY_PAGE}"${tipOf(TIP_ORIGINS)}>${esc(origins.join("\n"))}</textarea>`, { tip: TIP_ORIGINS })}
+      ${formRow("set-ws-public", "PUBLIC ADDRESS", textField("set-ws-public", "websocket.public_url", s, `placeholder="wss://play.example.org/ws"${tipOf(TIP_PUBLIC)}`), { tip: TIP_PUBLIC })}
+    </div>`;
+
+  const network = `<div class="form long-labels">
+      ${checkRow("set-fed-on", "LINK TO THE DERETH NETWORK", "federation.enabled", !!s.federation?.enabled, { tip: TIP_LINK })}
+      ${formRow("set-fed-slug", "SLUG", textField("set-fed-slug", "federation.slug", s, `placeholder="my-world"${tipOf(TIP_SLUG)}`), { tip: TIP_SLUG })}
+      ${formRow("set-fed-key", "KEY", keyField(h), { tip: TIP_KEY })}
+      <span></span><div class="pair"><button class="btn mini-btn" data-url="${NETWORK_REGISTER}" title="The Dereth Network's page for operators">Link this world</button>
+        ${h.listed ? `<span class="good small">Listed on the Dereth Network.</span>` : `<span class="muted small">Not listed yet.</span>`}</div>
+    </div>`;
+
+  const patching = `<details class="notes" id="set-patching-${id}"><summary>Patching</summary>
+      <div class="form long-labels" style="margin-top:8px">
+        ${checkRow("set-patch-on", "SEND TO DERETH CLIENTS", "patching.enabled", published || (s.patching?.enabled ?? true), { tip: "Sends the Lyceum world's data to a Dereth client that joins without it. Off, such a client is turned away.", locked: published, note: published ? "This is how players get the Lyceum world." : "" })}
+        ${formRow("set-patch-records", "RECORDS A MINUTE", `<input id="set-patch-records" class="field narrow-field" type="number" min="0" data-srv-field="patching.records_per_minute" value="${esc(s.patching?.records_per_minute ?? 60000)}">`)}
+        ${formRow("set-patch-bytes", "BYTES A SECOND", `<input id="set-patch-bytes" class="field narrow-field" type="number" min="1" data-srv-field="patching.bytes_per_second" value="${esc(s.patching?.bytes_per_second ?? 1048576)}">`)}
+      </div></details>`;
+  const lyceum = `${h.publication ? `<p class="small" title="${esc(h.publication.source)}">Plays the Lyceum world <b>${esc(h.publication.key)}</b>${h.publication.revision ? ` version ${h.publication.revision}` : ""}${plays.published ? `, published ${esc(dateOf(plays.published))}` : ""}.</p>`
+      : plays.dat_overlay ? `<p class="small">Plays the data overlay in <code>${esc(plays.dat_overlay)}</code>.</p>`
+      : `<p class="small muted">Plays no Lyceum world. Publish one from the world's page, under Lyceum.</p>`}
+    ${plays.content_overlay ? `<p class="small muted">Changes to its content made in the world are kept in <code>${esc(plays.content_overlay)}</code>.</p>` : ""}
+    ${plays.dat_overlay ? patching : ""}`;
+
+  const levels = LOG_LEVELS.map((v) => `<option value="${v}" ${s.log_level === v ? "selected" : ""}>${v}</option>`).join("");
+  const advanced = `<div class="form long-labels">
+      ${formRow("set-log", "LOG LEVEL", `<select id="set-log" class="field narrow-select" data-srv-field="log_level">${levels}</select>`)}
+    </div>`;
+
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header><button class="btn icon-btn back" data-act="set-close" title="Back to the world">${CHEVRON_LEFT}</button><h1>SETTINGS</h1>
+          <span class="muted small">${esc(h.settings.name)}</span>
+          <button class="btn" data-act="set-cancel" ${changed ? "" : "disabled"}>Undo changes</button>
+          <button class="btn" data-act="srv-save" ${changed && !h.busy ? "" : "disabled"}>Save</button></header>
+        <div class="scroll">
+          ${running ? `<p class="small warn">The world reads its settings when it starts: changes take effect at its next start.</p>` : ""}
+          ${h.message?.startsWith("Saved") || h.busy ? `<p class="small">${esc(h.busy ?? h.message)}</p>` : ""}
+          ${fold(`set-world-${id}`, "WORLD", world, true)}
+          ${fold(`set-players-${id}`, "PLAYERS", players, true)}
+          ${fold(`set-systems-${id}`, "ERA SYSTEMS", systems, false)}
+          ${fold(`set-websocket-${id}`, "WEBSOCKET", websocket, false)}
+          ${fold(`set-network-${id}`, "DERETH NETWORK", network, false)}
+          ${fold(`set-lyceum-${id}`, "LYCEUM WORLD", lyceum, locked)}
+          ${fold(`set-advanced-${id}`, "ADVANCED", advanced, false)}
+          <div class="btns" style="margin-top:14px"><button class="btn" data-srv-config="${id}" title="${esc(h.folder)}">Open empyrean.toml</button><span class="muted small">Everything else is in empyrean.toml.</span></div>
+        </div>
+      </section>
+    </div>`;
+}
+
+// A world the launcher found running on this computer, or remembers: what it is, who runs it, its
+// log and console, and its folders.
+function localPage() {
+  const w = localBy(ui.localKey);
+  if (!w) { ui.screen = "server"; return serverList(); }
+  const control = controlText(w);
+  const c = w.control;
+  const places = [["folder", "Folder", w.folder], ["config", w.config ? w.config.split(/[\\/]/).pop() : "Config", w.config], ["data", "Data", w.data], ["dats", "Game data", w.dats], ["log", "Log", w.log]]
+    .filter(([, , path]) => path)
+    .map(([place, label, path]) => `<button class="btn mini-btn" data-reveal-local="${esc(w.key)}" data-place="${place}" title="${esc(path)}">${esc(label)}</button>`).join("");
+  const stoppable = w.running && (w.ours || w.channel || c?.can_control);
+  const buttons = [
+    !w.running && !w.cannot_start ? `<button class="btn" data-local-start="${esc(w.key)}">Start</button>` : "",
+    stoppable ? `<button class="btn" data-local-stop="${esc(w.key)}" data-now="${w.stopping && w.ours ? 1 : 0}" title="${w.stopping && w.ours ? "Ends it at once, without saving" : "Asks it to save and stop"}">${w.stopping && w.ours ? "Stop now" : "Stop"}</button>` : "",
+    `<button class="btn" data-local-play="${esc(w.key)}" ${w.running && w.port != null && w.state !== "offline" ? "" : "disabled"}>Play</button>`,
+  ].join("");
+  const service = !c ? "" : c.can_grant
+    ? `<div class="share-row"><button class="btn mini-btn" data-allow-service="${esc(w.key)}" title="Windows asks for administrator permission once">Let the launcher start and stop this service</button></div>`
+    : !c.can_control && c.start_command ? `<p class="small muted">Start it with <code>${esc(c.start_command)}</code>${w.channel ? "" : `, and stop it with <code>${esc(c.stop_command)}</code>`}.</p>` : "";
+  const takes = (w.ours || w.channel) && !w.stopping;
+  const advanced = `${places ? `<div class="share-row">${places}</div>` : ""}
+    ${w.software === "empyrean" ? `<div class="share-row">${w.listed ? `<span class="good">Listed on the Dereth Network.</span>` : `<button class="btn mini-btn" data-url="${NETWORK_REGISTER}">List on the Dereth Network</button>`}</div>` : ""}
+    ${!w.running ? `<div class="share-row"><button class="btn mini-btn" data-local-forget="${esc(w.key)}">Forget this world</button></div>` : ""}`;
+  const empty = w.log || w.channel ? "The log is empty." : w.software === "empyrean" && !w.ours ? "Empyrean writes its log where it was started: the launcher can't see it." : "The launcher found no log.";
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header><button class="btn icon-btn back" data-go="server" title="Back to your world servers">${CHEVRON_LEFT}</button><h1>${esc(w.name.toUpperCase())}</h1>${buttons}</header>
+        <div class="scroll">
+          <div class="facts">${bead(localDot(w))}<span>${esc(localFacts(w))}</span></div>
+          ${control ? `<p class="small muted">${esc(control)}</p>` : ""}
+          ${service}
+          ${w.stopping ? `<p class="small warn">Saving and stopping.${w.ours ? " Stop now ends it at once, without saving." : ""}</p>` : ""}
+          ${w.message ? `<p class="small bad">${esc(w.message)}</p>` : ""}
+          ${fold(`fold-connect-${w.key}`, "CONNECT", connectBlock({ kind: "local", id: w.key, name: w.name, port: w.port, bind: w.host }), true)}
+          ${fold(`fold-console-${w.key}`, takes ? "CONSOLE" : "LOG", consoleBlock({ kind: "local", id: w.key, logs: w.logs, commands: takes, exportable: false, empty }), true)}
+          ${fold(`fold-advanced-${w.key}`, "ADVANCED", advanced, false)}
+        </div>
+      </section>
+    </div>`;
+}
+
+// ----- Build a world
+
+// What a Lyceum world changes, counted, as Lyceum says, in words: only what it changes at all.
+const FACT_WORDS = [
+  ["terrain", "landblock with terrain edits", "landblocks with terrain edits"],
+  ["statics", "static", "statics"],
+  ["buildings", "building", "buildings"],
+  ["dungeons", "dungeon", "dungeons"],
+  ["rooms", "room", "rooms"],
+  ["spawns", "spawn", "spawns"],
+  ["weenies", "weenie", "weenies"],
+  ["textures", "new texture", "new textures"],
+  ["models", "new model", "new models"],
+];
+function factsText(facts) {
+  const said = FACT_WORDS.filter(([k]) => facts?.[k] > 0).map(([k, one, many]) => `${facts[k]} ${facts[k] === 1 ? one : many}`);
+  return said.length ? said.join(" · ") : "Nothing changed yet.";
+}
+
+// The servers a Lyceum world is exported for.
+const EXPORT_TARGETS = [["empyrean", "Empyrean"], ["ace", "ACE"], ["gdle", "GDLE"]];
+
+// A Lyceum world's row: its name with where it is under it, and Open; opened, what it changes,
+// and the ways to export it and to publish it to a world you host.
+function lyceumRow(w, on, busy) {
+  const c = comp("lyceum");
+  const open = ui.lyOpen === w.path;
+  const hosts = ui.snap.hosts ?? [];
+  const btns = `<button class="btn" data-lyceum-world="${esc(w.path)}" ${on && !busy ? "" : "disabled"}>Open</button>
+    ${w.outdated ? `<button class="btn" data-lyceum-upgrade="${esc(w.path)}" ${on && !busy && !c.running ? "" : "disabled"} title="Bring the world's files up to this Lyceum's format, keeping a backup">Upgrade</button>` : ""}`;
+  const row = `<div class="row ly-row" data-ly-row="${esc(w.path)}"><span class="fold-mark">${open ? "▾" : "▸"}</span>
+      <div class="grow"><div class="name">${esc(worldName(w.path))}</div><div class="sub" title="${esc(w.path)}">${esc(parentOf(w.path))}</div>
+      ${w.outdated ? `<div class="sub warn">Its files are from an older Lyceum.</div>` : ""}</div>
+      <div class="btns">${btns}</div></div>`;
+  if (!open) return row;
+  const target = ui.lyExport[w.path] ?? "empyrean";
+  const exportOpts = EXPORT_TARGETS.map(([v, l]) => `<option value="${v}" ${v === target ? "selected" : ""}>${l}</option>`).join("");
+  const hostId = hosts.some((h) => h.id === ui.lyPublish[w.path]) ? ui.lyPublish[w.path] : hosts[0]?.id;
+  const host = hosts.find((h) => h.id === hostId);
+  const hostOpts = hosts.map((h) => `<option value="${esc(h.id)}" ${h.id === hostId ? "selected" : ""}>${esc(h.settings.name)}</option>`).join("");
+  const publishWhy = !hosts.length ? "Make a world in Empyrean first." : host && isRunning(host) ? `Stop ${host.settings.name} first.` : "";
+  const facts = [["ERA", eraLabel(w.era) ?? w.era], ["SAVED", w.saved ? dateOf(w.saved) : "never"]];
+  const detail = `<div class="ly-detail" data-stop>
+      <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
+      ${w.facts ? `<p class="small">${esc(factsText(w.facts))}</p>` : ""}
+      <div class="share-row"><button class="btn mini-btn" data-ly-export="${esc(w.path)}" ${on && !busy ? "" : "disabled"}>Export For</button>
+        <select class="field mini" data-ly-export-pick="${esc(w.path)}" aria-label="The server to export for">${exportOpts}</select></div>
+      <div class="share-row"><button class="btn mini-btn" data-ly-publish="${esc(w.path)}" ${on && !busy && hosts.length && !(host && isRunning(host)) && !host?.busy ? "" : "disabled"} title="${esc(publishWhy)}">Publish To</button>
+        ${hosts.length ? `<select class="field mini" data-ly-publish-pick="${esc(w.path)}" aria-label="The world you host to publish it to">${hostOpts}</select>` : `<span class="muted small">You host no worlds yet.</span>`}</div>
+    </div>`;
+  return `<div class="ly-world open">${row}${detail}</div>`;
+}
+
+function makePage() {
+  const c = comp("lyceum");
+  const on = ready("lyceum");
+  const worlds = c?.worlds ?? [];
+  const busy = c?.busy;
+  const mine = worlds.filter((w) => w.home);
+  const elsewhere = worlds.filter((w) => !w.home);
+  const rows = mine.map((w) => lyceumRow(w, on, busy)).join("")
+    || `<p class="muted">${on ? `No worlds in ${esc(c?.home ?? "Lyceum's folder")} yet. New world makes one.` : "Download Lyceum to build a world."}</p>`;
+  const others = elsewhere.length
+    ? `<h2>OPENED FROM ELSEWHERE</h2><div class="list">${elsewhere.map((w) => lyceumRow(w, on, busy)).join("")}</div>` : "";
+  let pending = "";
+  const d = ui.lyceumDraft;
+  if (d) {
+    const folder = folderName(d.name);
+    const where = d.parent ?? c?.home ?? "";
+    const eras = [["eor", "End of Retail"], ["infiltration", "Infiltration"]]
+      .map(([v, l]) => `<option value="${v}" ${(d.era ?? "eor") === v ? "selected" : ""}>${l}</option>`).join("");
+    pending = `<section class="panel pending"><header><h1>NEW WORLD</h1></header>
+      <div class="form">
+        <label class="lab" for="ly-name">NAME</label><input id="ly-name" class="field" data-ly-field="name" value="${esc(d.name)}">
+        <label class="lab" for="ly-parent">FOLDER</label>
+        <div class="pair"><input id="ly-parent" class="field" data-ly-field="parent" value="${esc(where)}"><button class="btn" data-act="ly-parent">Choose</button></div>
+        <label class="lab" for="ly-era">ERA</label>
+        <select id="ly-era" class="field" data-ly-field="era" style="max-width:260px">${eras}</select>
+      </div>
+      <div class="btns end" style="margin-top:12px"><button class="btn" data-act="ly-cancel">Cancel</button><button class="btn" data-act="ly-create" ${folder && !busy ? "" : "disabled"}>Start Building</button></div></section>`;
+  }
+  // What the last action said (an upgrade's or an export's result), but not that the download is
+  // ready, which the program's line already shows.
+  const said = c?.message && !busy && c.message !== `Lyceum ${c.installed?.version} is ready.` ? `<p class="small ${c.error ? "bad" : ""}">${esc(c.message)}</p>`
+    : busy && c?.message ? `<p class="small muted">${esc(c.message)}</p>` : "";
+  return `<div class="column wide" style="height:100%">${pending}
+      <section class="panel grow"><header>${brand("lyceum")}<h1>LYCEUM: BUILD A WORLD</h1>
+          ${on && !d ? `<button class="btn" data-act="ly-new" ${busy ? "disabled" : ""}>+ New world</button>` : ""}
+          ${on ? `<button class="btn" data-act="choose-lyceum-world" ${busy ? "disabled" : ""} title="Open any world, by its folder">Open World</button>` : ""}</header>
+        <div class="scroll">${on ? "" : `<p class="muted small">Make places, people and things with Lyceum, Dereth's world builder, then host them.</p>`}
+          ${programLine("lyceum")}${said}
+          <div class="h2-row"><h2>YOUR WORLDS</h2>${c?.home ? `<button class="btn mini-btn" data-act="lyceum-folder" title="${esc(c.home)}">Open Folder</button>` : ""}</div>
+          <div class="list">${rows}</div>${others}</div>
+      </section>
+    </div>`;
+}
+
+// The settings the form on screen edits: a new server's, or the open server's, copied when its
+// Settings open and kept until they are saved or closed.
+function srvSettings() {
+  if (ui.serverDraft && ui.screen === "server") return ui.serverDraft.settings;
+  if (ui.screen !== "server-settings") return {};
+  const h = serverBy(ui.serverId);
+  if (!h) return {};
+  if (ui.serverEdit?.id !== h.id) ui.serverEdit = { id: h.id, settings: editCopy(h) };
+  return ui.serverEdit.settings;
+}
+
+// Ask GitHub for the newest releases when a page that offers them opens, unless it was asked a
+// moment ago.
+function checkComponents(force) {
+  api("check_components", { force }).then(pull, () => {});
+}
+
+// While Host a world is open: a look at the servers on this computer every few seconds, and at
+// this computer's address and its router for the worlds' ports now and then. The backend keeps each
+// answer a while, so asking often costs nothing.
+let lastLook = 0;
+function lookAround() {
+  if (!["server", "server-page", "local-page"].includes(ui.screen) || !ui.snap) return;
+  if (Date.now() - lastLook < 8000) return;
+  lastLook = Date.now();
+  api("scan_local_worlds", { force: false }).catch(() => {});
+  const ports = [...(ui.snap.hosts ?? []).map((h) => h.settings.port), ...(ui.snap.local ?? []).map((w) => w.port).filter((p) => p != null)];
+  api("check_sharing", { ports: [...new Set(ports)].sort((a, b) => a - b), force: false }).catch(() => {});
+}
+
+// Pass `line` to a world's console: one the launcher hosts, one it started from a folder, or one
+// it reaches through its admin channel.
+async function sendCommand(target, line) {
+  const [kind, ...rest] = target.split(":");
+  const id = rest.join(":");
+  if (kind === "host") return act("host_command", { id, line });
+  return act("local_command", { key: id, line });
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  toast("Copied.");
+}
+
 function rail() {
-  const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home" }[ui.screen] ?? ui.screen;
+  const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen;
   const item = (id, label) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}">${label}</button>`;
+  // Playing first; then hosting a world (Empyrean) and building one (Lyceum); then the Library,
+  // each part apart.
+  const divider = '<div class="rail-divider" role="separator"></div>';
   return [
-    item("home", "HOME"),
+    item("home", "PLAY"),
     item("worlds", "WORLDS"),
-    item("library", "LIBRARY"),
     item("accounts", "ACCOUNTS"),
+    divider,
+    item("server", "EMPYREAN"),
+    item("make", "LYCEUM"),
+    divider,
+    item("library", "LIBRARY"),
   ].join("");
 }
 
@@ -479,7 +1482,8 @@ function worlds() {
   const emulatorOpts = EMULATORS.map(([v, l]) => `<option value="${v}" ${a?.emulator === v ? "selected" : ""}>${l}</option>`).join("");
   const rulesOpts = [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]].map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
   const form = a
-    ? `<section class="panel pending"><header><h1>ADD A SERVER</h1></header>
+    ? `<section class="panel pending"><header><h1>ADD A WORLD</h1></header>
+        ${a.fromLink ? `<p class="small muted">From a link a friend sent. Check it, then Add.</p>` : ""}
         <div class="form">
           <label class="lab" for="srv-name">NAME</label><input id="srv-name" class="field" autocomplete="off" placeholder="optional" value="${esc(a.name)}">
           <label class="lab" for="srv-host">HOST</label><input id="srv-host" class="field" autocomplete="off" placeholder="play.example.org or 203.0.113.7" value="${esc(a.host)}">
@@ -494,7 +1498,7 @@ function worlds() {
   return `<div class="column wide" style="height:100%">
       ${form}
       <section class="panel grow"><header><h1>WORLDS</h1><span class="muted small">${rows.length} worlds</span>
-        <button class="btn" data-act="server-open" title="Add a server of your own">+ Add server</button>
+        <button class="btn" data-act="server-open" title="Add a world by its address">+ Add world</button>
         <button class="btn icon-btn" data-act="refresh" title="Fetch the world list again">↻</button></header>
         <div class="btns" style="margin-bottom:12px">
           <input id="search" class="field" autocomplete="off" style="max-width:360px" placeholder="search" value="${esc(ui.search)}">
@@ -678,7 +1682,7 @@ function worldPage() {
   return `<div class="column wide">
       <section class="panel"><header><button class="btn icon-btn back" data-go="worlds" title="Back to worlds">${CHEVRON_LEFT}</button><h1>${esc(world.name.toUpperCase())}</h1>
           ${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
-          ${custom ? `<button class="btn" data-act="server-remove">Remove server</button>` : ""}</header>
+          ${custom ? `<button class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
         <div class="scroll">
           <div class="facts">${bead(world.state)}<span>${esc(facts.join("  ·  "))}</span></div>
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
@@ -983,7 +1987,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -994,7 +1998,73 @@ document.addEventListener("click", async (ev) => {
     if (e) await act("save_favourite", { favourite: { id: "", world_slug: e.world_slug, account: e.account, client: e.client, dat_set_id: e.client === "dereth" ? e.dat_set_id ?? null : null, classic_set_id: e.client === "dereth" ? e.classic_set_id ?? null : null } });
     return;
   }
-  if (d.go) { ui.screen = d.go; if (d.go === "home") ui.firstRun.dismissed = ui.firstRun.dismissed || ui.snap.state.dat_sets.length > 0; render(); return; }
+  if (d.go) {
+    ui.screen = d.go;
+    if (d.go === "home") ui.firstRun.dismissed = ui.firstRun.dismissed || ui.snap.state.dat_sets.length > 0;
+    if (d.go === "server" || d.go === "make") checkComponents(false);
+    if (d.go === "server") lastLook = 0;
+    render();
+    return;
+  }
+  // Host a world: a world's row opens its page; its buttons act on it.
+  if (d.srvOpen) { ui.serverId = d.srvOpen; ui.serverEdit = null; ui.keyDraft = null; ui.confirmDelete = null; ui.screen = "server-page"; lastLook = 0; render(); return; }
+  // The other worlds on this computer.
+  if (d.localOpen) { ui.localKey = d.localOpen; ui.screen = "local-page"; lastLook = 0; render(); return; }
+  if (d.localStart) { await act("start_local_world", { key: d.localStart }); return; }
+  if (d.localStop) { await act("stop_local_world", { key: d.localStop, now: d.now === "1" }); return; }
+  if (d.localPlay) { const slug = await act("open_local_world", { key: d.localPlay }); if (slug) await openWorld(slug); return; }
+  if (d.localForget) { await act("forget_local_world", { key: d.localForget }); ui.screen = "server"; render(); return; }
+  if (d.revealLocal) { await act("reveal_local_world", { key: d.revealLocal, place: d.place }); return; }
+  if (d.revealHost) { await act("reveal_host", { id: d.revealHost, place: d.place }); return; }
+  // Connecting: an address, the link, and a check from outside.
+  if (d.copy) { await copyText(d.copy); return; }
+  if (d.copyLink) { await copyText(d.copyLink); return; }
+  if (d.checkOutside) { await act("check_from_outside", { port: Number(d.checkOutside) }); return; }
+  if (d.allowService) { await act("allow_service_control", { key: d.allowService }); return; }
+  // The console of a world that takes commands.
+  if (d.send) { await submitCommand(d.send); return; }
+  if (d.shutdownCancel) { if ((await sendCommand(d.shutdownCancel, "cancel-shutdown")) !== undefined) { delete ui.shutdownAt[d.shutdownCancel]; render(); } return; }
+  // Build a world: a world's row opens and shuts in place, one at a time.
+  if (d.lyRow) { ui.lyOpen = ui.lyOpen === d.lyRow ? null : d.lyRow; render(); return; }
+  if (d.lyExport) { await act("export_lyceum_world", { world: d.lyExport, target: ui.lyExport[d.lyExport] ?? "empyrean", dats: defaultDats(), classic: defaultClassicDats() }); return; }
+  if (d.lyPublish) {
+    const hosts = ui.snap.hosts ?? [];
+    const id = hosts.some((h) => h.id === ui.lyPublish[d.lyPublish]) ? ui.lyPublish[d.lyPublish] : hosts[0]?.id;
+    if (id) await act("publish_host_world", { id, world: d.lyPublish });
+    return;
+  }
+  if (d.srvStart) { await act("start_host", { id: d.srvStart }); return; }
+  if (d.srvStop) { await act("stop_host", { id: d.srvStop }); return; }
+  if (d.srvPrepare) { await act("prepare_host", { id: d.srvPrepare }); return; }
+  if (d.srvPlay) { const slug = await act("open_host_world", { id: d.srvPlay }); if (slug) await openWorld(slug); return; }
+  if (d.srvConfig) { await act("open_host_config", { id: d.srvConfig }); return; }
+  if (d.srvFolder) { await act("open_host_folder", { id: d.srvFolder }); return; }
+  if (d.srvExport) { await act("export_host_logs", { id: d.srvExport }); return; }
+  if (d.srvCheck) { await act("check_host_update", { id: d.srvCheck }); return; }
+  if (d.srvCancelUpdate) { await act("cancel_host_update", { id: d.srvCancelUpdate }); return; }
+  if (d.srvApprove) { await act("approve_host_update", { id: d.srvApprove, version: d.version }); return; }
+  if (d.srvRollback) { await act("rollback_host_update", { id: d.srvRollback }); return; }
+  if (d.confirmDelete) { ui.confirmDelete = d.confirmDelete; render(); return; }
+  if (d.srvDelete) {
+    ui.confirmDelete = null;
+    await act("remove_host", { id: d.srvDelete });
+    if (!serverBy(d.srvDelete)) { ui.screen = "server"; ui.serverId = null; render(); }
+    return;
+  }
+  if (d.srvPublish) {
+    // The Lyceum world chosen beside the button; Other... asks for one.
+    const pick = ui.publishPick[d.srvPublish] ?? comp("lyceum")?.worlds?.[0]?.path ?? "";
+    await act("publish_host_world", { id: d.srvPublish, world: pick || null });
+    return;
+  }
+  if (d.srvService) { await act("set_host_service", { id: d.srvService, enabled: d.enabled === "1" }); return; }
+  if (d.srvUnpublish) { await act("unpublish_host_world", { id: d.srvUnpublish }); return; }
+  if (d.srvRepublish) { await act("publish_host_world", { id: d.srvRepublish, world: serverBy(d.srvRepublish)?.publication?.source ?? null }); return; }
+  // Build a world.
+  if (d.lyceumWorld) { await act("open_lyceum", { world: d.lyceumWorld, dats: defaultDats(), classic: defaultClassicDats() }); return; }
+  if (d.lyceumUpgrade) { await act("upgrade_lyceum_world", { world: d.lyceumUpgrade }); return; }
+  if (d.get) { await act("get_component", { product: d.get }); return; }
+  if (d.remove) { await act("remove_component", { product: d.remove }); return; }
   if (d.url) { ev.preventDefault(); await act("open_url", { url: d.url }); return; }
   if (d.home) { ui.homeSel = Number(d.home); render(); return; }
   // A row opens in place, one at a time; its ">" goes to the world's page.
@@ -1011,6 +2081,55 @@ document.addEventListener("click", async (ev) => {
   if (d.iface) { ui.iface.pick = d.iface; render(); return; }
 
   switch (d.act) {
+    case "srv-new": ui.serverDraft = newServerDraft(); render(); focusSoon("new-name"); break;
+    case "srv-settings": { const h = serverBy(ui.serverId); if (h) { ui.serverEdit = { id: h.id, settings: editCopy(h) }; ui.screen = "server-settings"; } render(); break; }
+    case "set-close": ui.serverEdit = null; ui.keyDraft = null; ui.screen = "server-page"; render(); break;
+    case "set-cancel": { const h = serverBy(ui.serverId); if (h) ui.serverEdit = { id: h.id, settings: editCopy(h) }; ui.keyDraft = null; render(); break; }
+    case "key-replace": ui.keyDraft = { id: ui.serverId, text: "", replacing: true }; render(); focusSoon("set-fed-key"); break;
+    case "key-cancel": ui.keyDraft = null; render(); break;
+    case "key-save": await saveKey(); break;
+    case "delete-cancel": ui.confirmDelete = null; render(); break;
+    case "ly-new": ui.lyceumDraft = { name: "", parent: null, era: "eor" }; render(); focusSoon("ly-name"); break;
+    case "ly-cancel": ui.lyceumDraft = null; render(); break;
+    case "ly-parent": { const where = await act("choose_lyceum_parent"); if (where) { ui.lyceumDraft.parent = where; render(); } break; }
+    case "ly-create": {
+      const draft = ui.lyceumDraft;
+      try {
+        // A world made here starts from nothing; the sample is the lyceum command's.
+        await api("new_lyceum_world", { name: draft.name, parent: draft.parent, empty: true, era: draft.era ?? "eor", dats: defaultDats(), classic: defaultClassicDats() });
+        ui.lyceumDraft = null;
+        await pull();
+        render();
+      } catch (error) { toast(String(error), true); await pull(); }
+      break;
+    }
+    case "srv-new-cancel": ui.serverDraft = null; render(); break;
+    case "srv-create": {
+      try {
+        const id = await api("create_host", { settings: ui.serverDraft.settings });
+        ui.serverDraft = null;
+        ui.serverId = id;
+        ui.screen = "server-page";
+        await pull();
+        render();
+      } catch (error) { toast(String(error), true); }
+      break;
+    }
+    case "srv-save": {
+      const edit = ui.serverEdit;
+      if (!edit) break;
+      await act("save_host", { id: edit.id, settings: cleanSettings(edit.settings) });
+      const said = serverBy(edit.id)?.message;
+      // What stopped the save, said where the person is looking; the changes stay to be fixed.
+      if (!said?.startsWith("Saved")) { if (said) toast(said, true); break; }
+      ui.serverEdit = { id: edit.id, settings: editCopy(serverBy(edit.id)) };
+      render();
+      break;
+    }
+    case "set-systems-reset": { const s = srvSettings(); s.systems = {}; render(); break; }
+    case "components-retry": checkComponents(true); break;
+    case "lyceum-folder": await act("open_worlds_folder"); break;
+    case "choose-lyceum-world": await act("choose_lyceum_world", { dats: defaultDats(), classic: defaultClassicDats() }); break;
     case "dismiss": localToast = null; await act("dismiss_message"); break;
     case "refresh": await act("refresh"); break;
     case "home-play": {
@@ -1057,6 +2176,52 @@ document.addEventListener("click", async (ev) => {
   }
 });
 
+// Send what the world's command line holds, as its kind says: a command as typed, an account made
+// (its password hidden in the log), a message to everyone, a save, or a shutdown with a warning.
+async function submitCommand(target) {
+  const c = ui.cmd[target] ?? { kind: "command", text: "", account: "", password: "" };
+  const done = () => { ui.cmd[target] = { ...c, text: "", account: "", password: "" }; render(); };
+  switch (c.kind) {
+    case "account": {
+      const account = c.account.trim();
+      if (!/^\S{1,50}$/.test(account) || !/^\S{1,100}$/.test(c.password)) { toast("An account name and a password, each without spaces.", true); return; }
+      if ((await sendCommand(target, `accountcreate ${account} ${c.password}`)) !== undefined) done();
+      return;
+    }
+    case "message": {
+      const text = c.text.trim();
+      if (!text) { toast("Type the message first.", true); return; }
+      if ((await sendCommand(target, `gamecast ${text}`)) !== undefined) done();
+      return;
+    }
+    case "save": await sendCommand(target, "save-world"); return;
+    case "shutdown": {
+      if ((await sendCommand(target, "set-shutdown-interval 300")) === undefined) return;
+      if ((await sendCommand(target, "shutdown")) !== undefined) { ui.shutdownAt[target] = Date.now() + 300000; render(); }
+      return;
+    }
+    default: {
+      const line = c.text.trim();
+      if (!line) return;
+      if ((await sendCommand(target, line)) !== undefined) done();
+    }
+  }
+}
+
+// Keep the network key pasted into a world's Settings. Once kept it is dropped from the page, which
+// says only that it is kept; a paste that is not a key is refused in plain words and stays to be
+// fixed.
+async function saveKey() {
+  const draft = ui.keyDraft;
+  if (!draft?.text?.trim()) return;
+  try {
+    await api("save_host_key", { id: draft.id, key: draft.text });
+    ui.keyDraft = null;
+  } catch (error) { toast(String(error), true); }
+  await pull();
+  render();
+}
+
 // Add the server in the form, and open its page.
 async function addServer() {
   const a = ui.addServer;
@@ -1089,8 +2254,25 @@ document.addEventListener("input", (ev) => {
 
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
+  if (t.dataset?.cmdKind) {
+    const target = t.dataset.cmdKind;
+    ui.cmd[target] = { ...(ui.cmd[target] ?? { text: "", account: "", password: "" }), kind: t.value };
+    render();
+    return;
+  }
+  if (t.tagName === "SELECT" && t.dataset?.srvField) {
+    const s = srvSettings();
+    setField(s, t.dataset.srvField, t.value);
+    if (t.dataset.srvField === "era") eraChanged(s);
+    render();
+    return;
+  }
   if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
+  if (t.tagName === "SELECT" && t.dataset.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; return; }
+  if (t.dataset.publishPick) { ui.publishPick[t.dataset.publishPick] = t.value; render(); return; }
+  if (t.dataset.lyExportPick) { ui.lyExport[t.dataset.lyExportPick] = t.value; return; }
+  if (t.dataset.lyPublishPick) { ui.lyPublish[t.dataset.lyPublishPick] = t.value; render(); return; }
   if (!ui.world) return;
   const f = ui.world.form;
   switch (t.id) {
@@ -1139,9 +2321,14 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener("keydown", async (ev) => {
   if (ev.key === "Escape") {
     if (ui.screen === "world") { ui.screen = "worlds"; render(); }
+    if (ui.screen === "server-settings") { ui.screen = "server-page"; ui.serverEdit = null; ui.keyDraft = null; render(); return; }
+    if (ui.screen === "server-page") { ui.screen = "server"; ui.serverEdit = null; ui.confirmDelete = null; render(); }
+    if (ui.screen === "local-page") { ui.screen = "server"; render(); }
     if (ui.screen === "interface" && ui.iface.fromLibrary) { ui.iface = { ...ui.iface, pick: null, fromLibrary: false }; ui.screen = "library"; render(); }
   }
   if (ev.key === "Enter" && ui.addServer && ev.target.id?.startsWith("srv-")) { await addServer(); return; }
+  if (ev.key === "Enter" && ev.target.dataset?.cmd) { await submitCommand(ev.target.dataset.cmd); return; }
+  if (ev.key === "Enter" && ev.target.dataset?.keyField !== undefined) { await saveKey(); return; }
   if (ev.key === "Enter" && ui.screen === "world" && (ev.target.id === "password" || ev.target.id === "acct-name")) {
     if (ev.target.id === "acct-name" && !ui.world.form.password) { focusSoon("password"); return; }
     const c = formChoice();
@@ -1154,15 +2341,15 @@ document.addEventListener("keydown", async (ev) => {
 // A pad moves about the page as the keyboard's Tab and Enter would, and more: the launcher reads it
 // and sends each move as a `pad` event, and the page asks it which control a move reaches. The
 // d-pad or the left stick moves the focus, the bottom face button presses the focused control, the
-// right one steps back, the shoulder buttons step through Home, Worlds, Library and Accounts, and
+// right one steps back, the shoulder buttons step through the rail's pages, and
 // the right stick scrolls the list under the focus. While the pad is in use the focus is drawn on
 // every control, rows included; the pointer moving puts the page back as it was.
 
 // Every control a click acts on, in the page's order: a row is one, and so is a button on it.
-const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface]";
+const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open]";
 
 // The sections the shoulder buttons step through, as the rail lists them.
-const PAD_SECTIONS = ["home", "worlds", "library", "accounts"];
+const PAD_SECTIONS = ["home", "worlds", "accounts", "server", "make", "library"];
 
 // The controls a pad may reach: drawn, and not disabled. The screen's own come first, so a move
 // with nothing focused starts on the screen rather than on the rail.
@@ -1241,13 +2428,14 @@ function padPress() {
 }
 
 // A step back: as Escape does where it does anything, else what is open is closed, else Worlds,
-// Library and Accounts go back to Home.
+// Library and Accounts go back to Play.
 function padBack() {
   const before = ui.screen;
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   if (ui.screen !== before) return;
   if (ui.addFind) { ui.addFind = null; render(); return; }
   if (ui.addServer) { ui.addServer = null; render(); return; }
+  if (ui.serverDraft || ui.lyceumDraft) { ui.serverDraft = null; ui.lyceumDraft = null; render(); return; }
   if (ui.screen === "worlds" && ui.expanded) {
     const row = ui.expanded;
     ui.expanded = null;
@@ -1261,7 +2449,7 @@ function padBack() {
 // The next or previous section, as its rail button opens it, with the focus on its first control.
 // The first start's screens keep to themselves.
 function padSection(by) {
-  const at = PAD_SECTIONS.indexOf(ui.screen === "world" ? "worlds" : ui.screen);
+  const at = PAD_SECTIONS.indexOf({ world: "worlds", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen);
   if (at < 0) return;
   const go = PAD_SECTIONS[(at + by + PAD_SECTIONS.length) % PAD_SECTIONS.length];
   document.querySelector(`#rail [data-go="${go}"]`)?.click();
@@ -1351,11 +2539,72 @@ async function demoJump() {
   const [what, arg] = location.hash.slice(1).split("=");
   if (!what) return;
   await pull();
-  if (what === "world") await openWorld(arg || "eulmore");
+  if (what === "server" || what === "make") {
+    // `#server` and `#make` as a first-time player sees them; `=ready` with the program
+    // downloaded; `#server=new` the new server's form; `#server=running` and `#server=update` a
+    // server's page, `#server=settings` with its settings open and `#server=console` with a
+    // message being written; `#server=others` the list with the other worlds on this computer, and
+    // `#server=service` and `#server=folder` one of their pages; `#server=lyceum` a world's page with
+    // its Lyceum section open, and `#server=published` one that plays a Lyceum world saved since;
+    // `#make=new` a new Lyceum world's form, and `#make=open` a Lyceum world's row open.
+    await api("check_components", { force: false });
+    if (arg) await api("get_component", { product: what === "server" ? "empyrean" : "lyceum" });
+    if (["lyceum", "published"].includes(arg)) await api("get_component", { product: "lyceum" });
+    if (what === "make" && arg === "open") await api("get_component", { product: "empyrean" });
+    // `#server=settings-published` a published world's settings, `#server=settings-infiltration`
+    // one being changed to Infiltration, `#server=settings-open` one with every section open and
+    // some of each filled in, and `#server=settings-plain` every section open and nothing filled.
+    const settingsShot = arg?.startsWith("settings-");
+    if (["running", "update", "published", "lyceum", "settings", "console", "others", "advanced", "delete"].includes(arg) || settingsShot || (what === "make" && arg === "open")) {
+      const id = await api("create_host", { settings: newServerDraft().settings });
+      await api("prepare_host", { id });
+      if (arg === "published" || arg === "settings-published") await api("publish_host_world", { id, world: "C:\\Users\\you\\Documents\\Lyceum\\holtburg-hills\\world.toml" });
+      if (!["published", "lyceum", "open"].includes(arg) && !settingsShot) await api("start_host", { id });
+      if (arg === "update") await api("check_host_update", { id });
+      if (arg === "advanced") { await api("check_host_update", { id, latest: true }); await window.demoBackend("demo_list", { id }); }
+      ui.serverId = id;
+    }
+    if (["others", "service", "folder", "channel"].includes(arg)) await api("scan_local_worlds", { force: true });
+    await api("check_sharing", { ports: [9000], force: false });
+    if (arg === "running") await api("check_from_outside", { port: 9000 });
+    await pull();
+    ui.screen = what;
+    if (["running", "update", "published", "lyceum", "console", "advanced", "delete"].includes(arg)) ui.screen = "server-page";
+    if (["published", "lyceum"].includes(arg)) { ui.folds[`fold-connect-${ui.serverId}`] = false; ui.folds[`fold-console-${ui.serverId}`] = false; ui.folds[`fold-lyceum-${ui.serverId}`] = true; }
+    // Saved in Lyceum since it was published: there is a newer version to publish.
+    if (arg === "published") { await window.demoBackend("demo_saved", { id: ui.serverId }); await pull(); }
+    if (what === "make" && arg === "open") { ui.screen = "make"; ui.lyOpen = comp("lyceum").worlds[0].path; }
+    if (arg === "settings" || settingsShot) { ui.serverEdit = { id: ui.serverId, settings: editCopy(serverBy(ui.serverId)) }; ui.screen = "server-settings"; }
+    if (arg === "settings-infiltration") { ui.serverEdit.settings.era = "infiltration"; eraChanged(ui.serverEdit.settings); }
+    if (arg === "settings-open") {
+      // A made-up key, kept as a pasted one is.
+      await api("save_host_key", { id: ui.serverId, key: `drth_${"0".repeat(43)}` });
+      await pull();
+      const s = ui.serverEdit.settings;
+      Object.assign(s, { welcome: "Welcome to My world!\nBe kind, and have fun.\nThe Holtburg lifestone is where we meet.\nEvents most Saturdays.", systems: { aetheria: false, spell_research: true } });
+      Object.assign(s.websocket, { enabled: true, behind_tls_proxy: true, allowed_origins: [PLAY_PAGE, "https://play.example.org"] });
+      Object.assign(s.federation, { enabled: true, slug: "my-world" });
+    }
+    if (arg === "settings-open" || arg === "settings-plain") {
+      for (const part of ["world", "players", "systems", "websocket", "network", "lyceum", "advanced"]) ui.folds[`set-${part}-${ui.serverId}`] = true;
+    }
+    if (arg === "console") { const t = `host:${ui.serverId}`; ui.cmd[t] = { kind: "account", text: "", account: "aerbax", password: "hunter22" }; ui.folds[`fold-connect-${ui.serverId}`] = false; }
+    if (arg === "advanced" || arg === "delete" || arg === "update") { ui.folds[`fold-connect-${ui.serverId}`] = false; ui.folds[`fold-console-${ui.serverId}`] = false; ui.folds[`fold-advanced-${ui.serverId}`] = true; }
+    if (arg === "delete") ui.confirmDelete = ui.serverId;
+    if (["service", "folder", "channel"].includes(arg)) { ui.localKey = (ui.snap.local ?? [])[{ service: 0, folder: 1, channel: 2 }[arg]]?.key; ui.screen = "local-page"; }
+    if (arg === "new") ui.serverDraft = newServerDraft();
+    if (what === "make" && arg === "new") ui.lyceumDraft = { name: "Holtburg Hills", parent: null, era: "eor" };
+    if (what === "make" && arg === "notes") { render(); document.getElementById("notes-lyceum")?.setAttribute("open", ""); }
+  }
+  else if (what === "world") await openWorld(arg || "eulmore");
   else if (what === "worlds" && arg === "add") {
     ui.addServer = { name: "", host: "play.example.org", port: "9000", ruleset: "PvE", error: null };
     ui.filter = "pve";
     ui.screen = "worlds";
+  }
+  else if (what === "join") {
+    // `#join`: a join link waiting, as the system hands one to the launcher; taking it opened
+    // Worlds with Add world filled in.
   }
   else if (what === "worlds" && arg) {
     // `#worlds=<slug>`: the list with that world's row open.
@@ -1381,8 +2630,71 @@ if (!window.__TAURI__) {
   document.body.insertAdjacentHTML("beforeend", `<div class="demo-flag">DEMO DATA — NOT CONNECTED</div>`);
   demoJump();
 }
+let drawnMinute = 0;
 (async function loop() {
   await pull();
   await watchLibrary();
+  lookAround();
+  // A world's page says how long it has been up, which changes by the minute.
+  const minute = Math.floor(Date.now() / 60000);
+  if (minute !== drawnMinute && (ui.screen === "server-page" || ui.screen === "local-page")) render();
+  drawnMinute = minute;
   setTimeout(loop, 1000);
 })();
+
+// The new world's form and a world's Settings, its log's search and command line, and the new
+// Lyceum world's form.
+document.addEventListener("input", (event) => {
+  const t = event.target;
+  const field = t.dataset?.srvField;
+  if (field === "others") {
+    srvSettings().bind = t.checked ? "0.0.0.0" : "127.0.0.1";
+    render();
+  } else if (field === "max_per_address") {
+    srvSettings().max_per_address = t.value.trim() === "" ? -1 : Number(t.value);
+    render();
+  } else if (field === "websocket.allowed_origins") {
+    // A page a line, kept as typed until the settings are saved.
+    srvSettings().websocket.allowed_origins = t.value.split("\n");
+    render();
+  } else if (field === "websocket.behind_tls_proxy") {
+    // Behind a proxy the world serves no certificate of its own: its boxes go, and come back as
+    // they were if the box is unchecked again.
+    const edit = ui.serverEdit;
+    const ws = edit.settings.websocket;
+    ws.behind_tls_proxy = t.checked;
+    if (t.checked) {
+      edit.tls = { tls_certificate: ws.tls_certificate, tls_private_key: ws.tls_private_key };
+      ws.tls_certificate = "";
+      ws.tls_private_key = "";
+    } else if (edit.tls) {
+      Object.assign(ws, edit.tls);
+      edit.tls = null;
+    }
+    render();
+  } else if (field && t.tagName !== "SELECT") {
+    const v = t.type === "checkbox" ? t.checked : t.type === "number" ? Number(t.value) : t.value;
+    setField(srvSettings(), field, v);
+    if (ui.screen === "server-settings" || t.type === "checkbox" || field === "port") render();
+  }
+  if (t.dataset?.keyField !== undefined) { ui.keyDraft = { ...(ui.keyDraft ?? {}), id: ui.serverId, text: t.value }; render(); }
+  // An era system turned on or off: named in the world's settings while it differs from what
+  // the era would give it.
+  const system = t.dataset?.srvSystem;
+  if (system) {
+    const s = srvSettings();
+    const said = { ...(s.systems ?? {}), [system]: t.checked };
+    const without = { ...said };
+    delete without[system];
+    if (systemsOver(eraOf(s.era)?.features ?? {}, without)[system] === t.checked) delete said[system];
+    s.systems = said;
+    render();
+  }
+  const log = t.dataset?.logFilter;
+  if (log) { ui.logFilter[log] = t.value; render(); }
+  if (t.dataset?.cmd && t.dataset.cmdField) {
+    const target = t.dataset.cmd;
+    ui.cmd[target] = { ...(ui.cmd[target] ?? { kind: "command", text: "", account: "", password: "" }), [t.dataset.cmdField]: t.value };
+  }
+  if (t.dataset?.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; if (t.dataset.lyField === "name") render(); }
+});

@@ -1225,6 +1225,7 @@ dependencies = [
  "dereth-client-runtime",
  "dereth-dat",
  "dereth-input",
+ "dereth-network-protocol",
  "dereth-primitives",
  "dereth-rules",
  "dereth-transport",
@@ -1232,6 +1233,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "toml",
 ]
 
 [[package]]

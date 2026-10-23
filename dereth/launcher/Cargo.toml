@@ -32,22 +32,34 @@ tauri-plugin-dialog = "2"
 # The launcher updates itself (and the client beside it) from the signed `latest.json` of the
 # repository's newest published Dereth release, which it finds by listing the releases.
 tauri-plugin-updater = "2"
+# Join links (`dereth://join?...`): on macOS the system hands a running app the link as an event,
+# which this plugin receives; the scheme itself is in the bundle (`plugins.deep-link` in
+# `tauri.conf.json`). On Windows and Linux the link is the program's argument.
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 # One JSON document at a time over TLS (the world directory, a status, the release list); no async runtime needed for that.
 ureq = "3"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+toml = "1"
+toml_edit = "0.25"
+ctrlc = { version = "3.5", features = ["termination"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Passwords in the login Keychain.
 keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(windows)'.dependencies]
+# The worlds already running here: the process list, a process's command line, the UDP ports each
+# process holds, and the services.
+windows-sys = { version = "0.61", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authentication_Identity", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Services", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # Passwords in Credential Manager.
 keyring = { version = "3", features = ["windows-native"] }
 # A pad on the launcher's page, read through the system's XInput, as the client reads it.
 gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
-# A Windows update is the release zip, unpacked beside the launcher and swapped in.
-zip = { version = "4", default-features = false, features = ["deflate"] }
 # The message when the WebView2 runtime is missing, shown before any web view exists. The same
 # crate the dialog plugin draws its dialogs with.
 rfd = { version = "0.16", default-features = false }
@@ -63,9 +75,11 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 glib = "0.18"
 
 [dev-dependencies]
+tempfile = "3"
 dereth-launch = { path = "crates/launch", features = ["testing"] }
 
-[target.'cfg(windows)'.dev-dependencies]
-# The tests' stand-in for the Discord app listens on a named pipe of its own, which the standard
-# library can open but not serve. Already in the lock, under the async runtime.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes"] }
+
+[profile.test-release]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true

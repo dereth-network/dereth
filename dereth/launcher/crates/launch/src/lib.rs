@@ -40,12 +40,16 @@
 //! | [`interface`] | the interface the Dereth client starts in, asked for once and written where the client reads it |
 //! | [`pad`] | a pad on the launcher's page: what each button does there, and which control a move reaches |
 //! | [`releases`] | which of the repository's GitHub releases the launcher updates from |
+//! | [`components`] | the server and the world builder, fetched when asked: which release, which file, and its checksum |
 //! | [`swap`] | putting a downloaded release in place of the running one, where no installer does |
 //! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icon |
 //! | [`vault`] | the seam to the operating system's secret store; passwords live nowhere else |
 //! | [`registry`] | the signed snapshot, and which source is trusted for which fields |
 //! | [`status`] | Empyrean's public status document |
 //! | [`probe`] | whether any server is up, asked with the server-tracker login |
+//! | [`local`] | the worlds already running on this computer, recognized from their processes, and where each keeps its configuration, data and logs, and an Empyrean world's admin channel |
+//! | [`outside`] | asking the Dereth Network's hub to try a hosted world from outside, and its answer |
+//! | [`join`] | a join link (`dereth://join?...`, or the site's page for it): a world to add, and the scheme's registration |
 //!
 //! The launcher's window is one front end over this. The web client's front page is another: it
 //! builds for `wasm32-unknown-unknown` and reaches files only where a caller hands it a path, so a
@@ -55,6 +59,7 @@
 
 pub mod check;
 pub mod choices;
+pub mod components;
 pub mod copy;
 pub mod dat;
 pub mod datset;
@@ -66,10 +71,13 @@ pub mod folders;
 pub mod hubstatus;
 pub mod install;
 pub mod interface;
+pub mod join;
 pub mod known;
 pub mod launch;
 pub mod library;
 pub mod listing;
+pub mod local;
+pub mod outside;
 pub mod pad;
 pub mod probe;
 pub mod registry;

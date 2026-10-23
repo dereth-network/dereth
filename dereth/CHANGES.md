@@ -16,6 +16,13 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - Started without the launcher, the client opens a new player in the modern interface.
 - Horizon: smaller window title bars, and sharper text and art at every scale.
+- Host your own world from the launcher, set it up, share it with a link, and run its console.
+- Host the worlds you build in Lyceum; players get each publish as a patch.
+- Update the Empyrean a world you host runs, backed up first.
+- Check from outside whether friends can reach a world you host.
+- A world link from a friend opens Add world in the launcher.
+- Empyrean's page also shows other world servers running here, and an Empyrean one's console.
+- Get Empyrean and Lyceum, and make, open and export Lyceum worlds, from the launcher.
 - A world whose data is refused now stops before you play, and says why.
 
 ## 0.4.5 (2026-10-20)

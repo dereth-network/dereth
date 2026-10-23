@@ -58,6 +58,19 @@ pub fn launcher_entry(exec: &Path) -> String {
     )
 }
 
+/// The launcher's `.desktop` entry, starting `exec`, that also opens the launcher's join links
+/// ([`crate::join`]): the link is the program's argument (`%u`), and the entry says it handles
+/// the scheme's MIME type. Only a release's launcher writes this one.
+pub fn launcher_entry_for_links(exec: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=Dereth\nComment=Worlds, accounts and the Dereth client\n\
+         Exec={} %u\nIcon={ICON_NAME}\nTerminal=false\nCategories=Game;\nMimeType={};\n\
+         StartupWMClass={LAUNCHER_APP_ID}\n",
+        exec_argument(exec),
+        crate::join::LINUX_MIME
+    )
+}
+
 /// The client window's `.desktop` entry, starting `exec`. It is there for the window's icon and
 /// name, not as a way in, so the application list does not show it.
 pub fn client_entry(exec: &Path) -> String {
@@ -110,11 +123,24 @@ pub fn entry_target(
 /// The launcher's three files, as (path, content), under `data_home`: its entry and the client's,
 /// both starting `exec`, and the icon.
 pub fn launcher_files(data_home: &Path, exec: &Path, icon: &[u8]) -> Vec<(PathBuf, Vec<u8>)> {
+    launcher_files_with(data_home, exec, icon, false)
+}
+
+/// [`launcher_files`], the launcher's entry opening join links when `links`
+/// ([`launcher_entry_for_links`]).
+pub fn launcher_files_with(
+    data_home: &Path,
+    exec: &Path,
+    icon: &[u8],
+    links: bool,
+) -> Vec<(PathBuf, Vec<u8>)> {
+    let entry = if links {
+        launcher_entry_for_links(exec)
+    } else {
+        launcher_entry(exec)
+    };
     vec![
-        (
-            entry_path(data_home, LAUNCHER_APP_ID),
-            launcher_entry(exec).into_bytes(),
-        ),
+        (entry_path(data_home, LAUNCHER_APP_ID), entry.into_bytes()),
         (
             entry_path(data_home, CLIENT_APP_ID),
             client_entry(exec).into_bytes(),

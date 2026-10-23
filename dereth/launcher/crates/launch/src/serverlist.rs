@@ -484,6 +484,7 @@ fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
 
     let mut w = World::new(slug, name);
     w.list_id = list_id;
+    w.hub_slug = text("/slug").map(str::to_owned);
     w.description = text("/description").map(str::to_owned);
     w.emulator = text("/emulator/family")
         .map(Emulator::parse)
@@ -1252,12 +1253,22 @@ mod tests {
         // The table of worlds that run a client of their own knows both, by either spelling.
         assert_eq!(from_hub[0].logon_version.as_deref(), Some("c118"));
         assert_eq!(from_hub[1].world_profile.as_deref(), Some("classicdereth"));
+        // The hub's own slug is kept, for its world alone.
+        assert_eq!(
+            from_hub
+                .iter()
+                .map(|w| w.hub_slug.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("ushores"), Some("seedsow"), Some("achard")]
+        );
+        assert!(from_list.iter().all(|w| w.hub_slug.is_none()));
         // Ids compare without regard to case; everything else is the same world.
         let same = |w: &[World]| {
             w.iter()
                 .cloned()
                 .map(|mut w| {
                     w.list_id = w.list_id.map(|id| id.to_ascii_lowercase());
+                    w.hub_slug = None;
                     w
                 })
                 .collect::<Vec<_>>()

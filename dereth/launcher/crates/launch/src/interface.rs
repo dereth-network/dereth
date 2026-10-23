@@ -188,6 +188,20 @@ pub fn save(path: &Path, choice: Interface) -> io::Result<()> {
     })
 }
 
+/// Whether the Dereth client whose preferences file is `preferences` refuses the world
+/// `world_key`'s data: the world is on its overlay blocklist, the file beside that one. A client
+/// with no blocklist refuses none.
+#[must_use]
+pub fn refuses_world(preferences: &Path, world_key: &str) -> bool {
+    use dereth_client_contract::persist::overlay_blocklist;
+    let list = preferences.parent().map_or_else(
+        || PathBuf::from(overlay_blocklist::FILE),
+        |d| d.join(overlay_blocklist::FILE),
+    );
+    std::fs::read_to_string(list)
+        .is_ok_and(|text| overlay_blocklist::parse(&text).contains(world_key))
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (the launcher's first-start interface question)

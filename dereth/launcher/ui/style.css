@@ -194,9 +194,11 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 }
 /* The scroll bar's room is kept whether it shows or not, so what is inside never changes width. */
 .scroll { overflow-y: auto; scrollbar-gutter: stable; min-height: 0; flex: 1 1 auto; padding-right: 6px; }
-.scroll::-webkit-scrollbar { width: 8px; }
-.scroll::-webkit-scrollbar-track { background: transparent; }
-.scroll::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+/* Every scroll bar of the launcher's own, a text box of several lines' included. */
+.scroll::-webkit-scrollbar, details.notes pre::-webkit-scrollbar, .log::-webkit-scrollbar, textarea.field::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-track, details.notes pre::-webkit-scrollbar-track, .log::-webkit-scrollbar-track, textarea.field::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb, details.notes pre::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb, textarea.field::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+.scroll::-webkit-scrollbar-corner, details.notes pre::-webkit-scrollbar-corner, .log::-webkit-scrollbar-corner, textarea.field::-webkit-scrollbar-corner { background: transparent; }
 
 h2 {
   margin: 18px 0 8px;
@@ -444,14 +446,30 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
 .features .check input { width: 15px; height: 15px; }
 .features .check:has(input:disabled) { cursor: default; color: var(--muted); }
 .features .check input:disabled { cursor: default; }
+/* A system a world's settings turn on or off over its era's. */
+.features .check.changed { color: var(--gold-bright); }
 
 /* ----- the world page --------------------------------------------------------------------------- */
 
 .form { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
-.form label.lab { font: 600 12px var(--display); letter-spacing: 0.14em; color: var(--gold-bright); }
+.form label.lab, .form span.lab { font: 600 12px var(--display); letter-spacing: 0.14em; color: var(--gold-bright); }
 .form .pair { display: flex; gap: 12px; align-items: center; }
+.form .pair > .small { flex: 1; }
+.form .pair > .small.fit { flex: none; }
 .form .pair > .field { flex: 1; }
+.form .pair > .field.narrow-field { flex: none; }
 .form .note { grid-column: 2; margin-top: -4px; font-size: 15px; }
+/* A world's Settings and the new world's form: the label column is wide enough for the longest
+ * label on one line, the same in every section, and no label wraps. */
+.form.long-labels { grid-template-columns: minmax(330px, max-content) minmax(0, 1fr); }
+.form.long-labels > .lab { white-space: nowrap; }
+/* A label with a tooltip says so under the pointer. */
+.form .lab[title] { cursor: help; }
+/* A check box sits where a value goes, with its few words, if any, after it. */
+.form .box { min-height: 24px; }
+.form .box input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--gold); cursor: pointer; }
+.form .box .trail { color: var(--muted); font-size: 16px; cursor: pointer; }
+.form .box .trail:hover { color: var(--text); }
 .facts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 16px; }
 .strip { display: flex; gap: 18px; flex-wrap: wrap; font-size: 16px; }
 .strip span { display: inline-flex; align-items: center; gap: 7px; }
@@ -539,3 +557,117 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
   .panel > header { min-height: 46px; margin-bottom: 10px; }
   .panel > header h1 { font-size: 19px; }
 }
+
+/* ----- Host a world and Build a world --------------------------------------------------------- */
+
+/* Between the play buttons and the two for hosting and building worlds: a gold rule one art pixel
+ * high, edged in ink like the frames so it reads over any painting, with a stud at its middle, and
+ * no more room around it than the gap between two buttons. */
+.rail-divider {
+  position: relative;
+  height: calc(var(--px) * 3);
+  margin: 2px 8px;
+}
+.rail-divider::before {
+  content: ""; position: absolute; left: 0; right: 0; top: var(--px);
+  height: var(--px);
+  background: var(--gold);
+  box-shadow: 0 var(--px) 0 var(--ink), 0 calc(var(--px) * -1) 0 var(--ink);
+}
+.rail-divider::after {
+  content: ""; position: absolute; left: 50%; top: 0;
+  width: calc(var(--px) * 3); height: calc(var(--px) * 3);
+  margin-left: calc(var(--px) * -1.5);
+  background: var(--gold-bright);
+  box-shadow: 0 0 0 var(--px) var(--ink);
+}
+
+/* A row whose buttons sit beside a line or two of what it is. */
+.row.program { align-items: flex-start; padding-top: 10px; padding-bottom: 10px; }
+.row.program .btns { padding-top: 2px; }
+.row .bar { margin: 6px 0 2px; max-width: 360px; }
+.row .chev { width: 16px; display: flex; justify-content: center; color: var(--gold); }
+.row .chev svg { width: 8px; height: 12px; shape-rendering: crispEdges; }
+.row .sub.bad, p.bad { color: #ef8a7c; }
+.btn.mini-btn { min-height: 22px; padding: 0 8px; font-size: 10px; vertical-align: middle; }
+
+/* Release notes, folded until asked for. */
+details.notes { margin-top: 4px; }
+details.notes summary { cursor: pointer; color: var(--gold); font-size: 15px; }
+details.notes summary:hover { color: var(--gold-bright); }
+details.notes pre, .log {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 220px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-small);
+  background: var(--well);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 14px/1.35 var(--body); color: var(--text);
+  user-select: text; -webkit-user-select: text;
+}
+details.notes pre a { color: var(--gold-bright); }
+/* A world's log: a line to a row, so a line the person reads can be found again as new ones come. */
+.log { position: relative; max-height: 260px; font: 12px/1.4 Consolas, "Cascadia Mono", Menlo, monospace; }
+.log > div { min-height: 1.4em; }
+.field.narrow-field { width: 120px; }
+.field.mini-field { width: 220px; height: 30px; font-size: 15px; }
+select.field.narrow-select { width: 160px; }
+/* A field of several lines: a welcome message, or a list one to a line. */
+textarea.field.area { height: auto; min-height: 60px; padding: 7px 12px; resize: vertical; font: 16px/1.4 var(--body); }
+
+/* Each program's emblem, beside its page's title. Painted, so scaled smoothly. */
+.panel > header .brand { width: 34px; height: 34px; flex: none; margin-right: -2px; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.6)); }
+
+/* The program, in one line under its page's title. */
+.program-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 30px; font-size: 16px; color: var(--muted); }
+.program-line > span:first-child { color: var(--text); }
+.program-line .btns { margin-left: auto; }
+.program-line.first { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-small); background: rgba(181, 138, 60, 0.08); }
+.program-line + .bar { margin: 6px 0 2px; max-width: 360px; }
+
+/* A section of a world's page that folds: its heading opens and shuts it. */
+details.fold > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "\25B8"; width: 14px; color: var(--gold); font-size: 18px; line-height: 1; }
+details.fold[open] > summary::before { content: "\25BE"; }
+details.fold > summary:hover h2 { color: #fff; }
+details.fold > summary h2 { margin: 16px 0 8px; }
+.fold-body { padding-bottom: 4px; }
+code { font: 14px Consolas, "Cascadia Mono", Menlo, monospace; color: var(--text); user-select: text; -webkit-user-select: text; }
+
+/* Sharing a world: a label, a value and its button on a line. */
+.share-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px; }
+.share-row .lab { width: 150px; flex: none; font: 600 12px var(--display); letter-spacing: 0.14em; color: var(--gold-bright); }
+.share-row .addr { font: 16px Consolas, "Cascadia Mono", Menlo, monospace; color: var(--text); user-select: text; -webkit-user-select: text; }
+.share-row details.notes { flex: 1 1 260px; margin: 0; }
+p.reach { margin: 2px 0 8px 160px; }
+.share-row.confirm { padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-small); background: rgba(216, 88, 74, 0.08); }
+
+/* The console: a command line, and the log under it. */
+.console-line { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.console-line .field { flex: 1; min-width: 0; height: 32px; font: 14px Consolas, "Cascadia Mono", Menlo, monospace; }
+.console-line .field.kind-field { flex: none; width: 190px; font: 15px var(--body); }
+.console-line .grow { flex: 1; }
+.log-tools { margin-top: 8px; }
+.h2-row { display: flex; align-items: center; gap: 12px; }
+.h2-row h2 { margin-right: auto; }
+
+/* A state in words beside its dot, after the button that changes it. */
+.share-row .state { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; }
+.share-row .state a { color: var(--gold-bright); }
+
+/* Lyceum's worlds: a row opens in place, like a world on the Worlds list, to what the world
+ * changes and the ways to export and publish it. */
+.ly-row .fold-mark { width: 14px; color: var(--gold); font-size: 16px; flex: none; }
+.ly-world.open { background: rgba(181, 138, 60, 0.12); border-radius: var(--radius-small); }
+.ly-world.open > .ly-row { border-bottom-color: transparent; }
+.ly-world.open > .ly-row:hover { background: none; }
+.ly-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 12px 42px; border-bottom: 1px solid var(--line); }
+.ly-detail p { margin: 0; }
+.ly-detail .strip b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 6px; }
+.ly-detail .share-row .btn { min-width: 108px; }
+
+/* A world's Lyceum and Advanced sections: each line's button or label first, and what it says of
+ * the world after it, in one column. */
+.aligned .share-row > .btn:first-child { min-width: 208px; }
+.aligned .share-row > .lab { width: 208px; }

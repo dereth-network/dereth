@@ -149,7 +149,7 @@ pub enum CustomWorldError {
 impl core::fmt::Display for CustomWorldError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
-            CustomWorldError::NoHost => "Enter the server's host name or address.",
+            CustomWorldError::NoHost => "Enter the world's host name or address.",
             CustomWorldError::BadHost => "The host cannot contain spaces, a colon or a slash.",
             CustomWorldError::BadPort => "The port must be a number from 1 to 65535.",
         })
@@ -157,6 +157,34 @@ impl core::fmt::Display for CustomWorldError {
 }
 
 impl std::error::Error for CustomWorldError {}
+
+/// A world's host as the player gives it, trimmed: a host name or an IPv4 address, with no space,
+/// colon or slash in it.
+///
+/// # Errors
+/// [`CustomWorldError::NoHost`] for none, [`CustomWorldError::BadHost`] for one that is not a host.
+pub fn custom_host(host: &str) -> Result<&str, CustomWorldError> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(CustomWorldError::NoHost);
+    }
+    if host.contains(|c: char| c.is_whitespace() || c == ':' || c == '/') {
+        return Err(CustomWorldError::BadHost);
+    }
+    Ok(host)
+}
+
+/// A world's game port as the player gives it: a number from 1 to 65535.
+///
+/// # Errors
+/// [`CustomWorldError::BadPort`] for anything else.
+pub fn custom_port(port: &str) -> Result<u16, CustomWorldError> {
+    port.trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|p| *p != 0)
+        .ok_or(CustomWorldError::BadPort)
+}
 
 /// How many recent combinations are kept.
 pub const RECENT_LIMIT: usize = 5;
@@ -402,19 +430,8 @@ impl LauncherState {
         ruleset: Option<&str>,
         emulator: Emulator,
     ) -> Result<String, CustomWorldError> {
-        let host = host.trim();
-        if host.is_empty() {
-            return Err(CustomWorldError::NoHost);
-        }
-        if host.contains(|c: char| c.is_whitespace() || c == ':' || c == '/') {
-            return Err(CustomWorldError::BadHost);
-        }
-        let port = port
-            .trim()
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p != 0)
-            .ok_or(CustomWorldError::BadPort)?;
+        let host = custom_host(host)?;
+        let port = custom_port(port)?;
         let name = if name.trim().is_empty() {
             host
         } else {

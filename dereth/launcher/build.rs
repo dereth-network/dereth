@@ -1,7 +1,7 @@
 //! Put the launcher's artwork where the web front end can load it, then let Tauri build.
 //!
-//! The paintings and the two typefaces live once, in `dereth/launcher/assets`, and the emblem and icon
-//! once, with the Dereth client. They
+//! The paintings and the two typefaces live once, in `dereth/launcher/assets`, the emblem and icon
+//! once, with the Dereth client, and Empyrean's and Lyceum's emblems with each of them. They
 //! are copied into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
 //! among them: this front end draws its frames, buttons and beads in CSS and SVG rather than
 //! cutting them out of the sprite atlas.
@@ -29,6 +29,10 @@ fn copy_tree(from: &Path, to: &Path) {
 }
 
 fn main() {
+    println!(
+        "cargo:rustc-env=DERETH_COMPONENT_TARGET={}",
+        std::env::var("TARGET").expect("Cargo target")
+    );
     let assets = Path::new("assets");
     println!("cargo:rerun-if-changed=assets");
     copy_tree(
@@ -53,6 +57,21 @@ fn main() {
         client.join("Dereth.icon/Assets/dereth.png"),
         "ui/assets/emblem.png",
     );
+    // Empyrean's and Lyceum's emblems, kept once with each program, beside the titles of Host a
+    // world and Build a world.
+    for (from, to) in [
+        (
+            "../../empyrean/server/assets/empyrean-256.png",
+            "ui/assets/empyrean.png",
+        ),
+        (
+            "../../lyceum/editor/assets/lyceum-256.png",
+            "ui/assets/lyceum.png",
+        ),
+    ] {
+        println!("cargo:rerun-if-changed={from}");
+        let _ = std::fs::copy(from, to);
+    }
     let _ = std::fs::create_dir_all("icons");
     let _ = std::fs::copy(client.join("dereth-256.png"), "icons/icon.png");
     // Windows embeds the client's own multi-size icon in the executable.

@@ -4,19 +4,33 @@
 //! what the launcher knows. Each command below is one thing the page can ask.
 //!
 //! Before the window opens, the launcher finds its folders ([`dereth_launch::folders`]) and removes
-//! what its last update set aside. On Windows it first makes sure the WebView2 runtime is there to
-//! draw the page with, and says where to get it when it is not; on Linux it registers its desktop
-//! entry and icon ([`registration`]). Once it runs, [`discord`] keeps the Discord app told of the
-//! game it started.
+//! what its last update set aside. Started with a join link while another launcher is open, it
+//! hands the link to that one and ends ([`join`]). On Windows it first makes sure the WebView2
+//! runtime is there to draw the page with, and says where to get it when it is not; on Linux it
+//! registers its desktop entry and icon ([`registration`]); a release registers the `dereth://`
+//! scheme. Once it runs, [`discord`] keeps the Discord app told of the game it started.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod component_archive;
+mod components;
 mod discord;
+mod host_config;
+mod host_publication;
+mod host_runtime;
+mod host_service;
+mod host_updates;
+mod hosts;
+mod join;
+mod local;
+mod lyceum_world;
 mod pad;
 // Only Linux registers a desktop entry; elsewhere the module is its tests and a no-op.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod registration;
+mod services;
+mod share;
 mod shortcut;
 mod update;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -42,9 +56,21 @@ struct PageSnapshot {
     #[serde(flatten)]
     snapshot: Snapshot,
     update: update::UpdateView,
+    components: Vec<components::View>,
+    hosts: Vec<hosts::View>,
+    /// The worlds already running on this computer that the launcher did not make, and those it
+    /// remembers.
+    local: Vec<local::View>,
+    /// This computer's address and what its router says, for sharing a world.
+    sharing: share::View,
+    /// A join link came in, for the page to take ([`join::take_join`]).
+    join_waiting: bool,
     version: &'static str,
     /// Whether "Create desktop shortcut" is offered on this system.
     shortcut: bool,
+    /// Whether this launcher uses its checkout's own server and editor: a development build not
+    /// started with `--downloads`.
+    development: bool,
     /// Whether the web view's developer tools are on, which is [`DEVTOOLS`]. The page leaves the
     /// web view's own right-click menu (Reload, Inspect) alone only when they are; a text box keeps its
     /// own either way.
@@ -57,17 +83,46 @@ struct PageSnapshot {
 const DEVTOOLS: bool = cfg!(debug_assertions);
 
 #[tauri::command]
-fn snapshot(b: State<'_, Shared>, u: State<'_, update::Updates>) -> PageSnapshot {
+fn snapshot(
+    b: State<'_, Shared>,
+    u: State<'_, update::Updates>,
+    c: State<'_, components::Shared>,
+    h: State<'_, hosts::Shared>,
+    l: State<'_, local::Shared>,
+    s: State<'_, share::Shared>,
+    j: State<'_, join::Pending>,
+) -> PageSnapshot {
     let update = u
         .view
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
+    let (snapshot, hub) = {
+        let backend = lock(&b);
+        (backend.snapshot(), backend.hub_slugs())
+    };
+    let mut hosts = hosts::views(&h);
+    for v in &mut hosts {
+        v.listed = hosts::listed(v.federation_slug.as_deref(), &hub);
+    }
+    let mut local = local::views(&l);
+    for v in &mut local {
+        v.listed = hosts::listed(v.federation_slug.as_deref(), &hub);
+    }
     PageSnapshot {
-        snapshot: lock(&b).snapshot(),
+        snapshot,
+        components: components::views(&c),
+        hosts,
+        local,
+        sharing: share::view(&s),
+        join_waiting: j
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some(),
         update,
         version: env!("CARGO_PKG_VERSION"),
         shortcut: shortcut::OFFERED,
+        development: components::checkout_builds(&c),
         devtools: DEVTOOLS,
     }
 }
@@ -194,6 +249,35 @@ fn set_remember(b: State<'_, Shared>, slug: String, username: String, remember: 
 #[tauri::command]
 fn add_custom_world(b: State<'_, Shared>, server: backend::NewServer) -> Cmd<String> {
     let slug = lock(&b).add_custom_world(&server)?;
+    Backend::probe(&b, vec![slug.clone()]);
+    Ok(slug)
+}
+
+/// Play on a world already running on this computer: it joins the player's own worlds, at this
+/// computer's address.
+#[tauri::command]
+fn open_local_world(b: State<'_, Shared>, l: State<'_, local::Shared>, key: String) -> Cmd<String> {
+    let view = local::views(&l)
+        .into_iter()
+        .find(|v| v.key == key)
+        .ok_or("That world is no longer here.")?;
+    let port = view
+        .port
+        .ok_or("The launcher does not know this world's port.")?;
+    let slug = lock(&b).add_custom_world(&backend::NewServer {
+        name: view.name,
+        host: dereth_launch::local::ask_at(view.host.as_deref()).to_string(),
+        port: port.to_string(),
+        ruleset: None,
+        emulator: match view.software {
+            Some(dereth_launch::local::Software::Empyrean) => {
+                dereth_launch::world::Emulator::Empyrean
+            }
+            Some(dereth_launch::local::Software::Ace) => dereth_launch::world::Emulator::Ace,
+            Some(dereth_launch::local::Software::Gdle) => dereth_launch::world::Emulator::Gdle,
+            None => dereth_launch::world::Emulator::Unknown,
+        },
+    })?;
     Backend::probe(&b, vec![slug.clone()]);
     Ok(slug)
 }
@@ -354,16 +438,102 @@ fn main() {
         print!("{}", version_text());
         return;
     }
+    #[cfg(windows)]
+    if args.len() == 3 && args[0] == "--grant-service" {
+        // The elevated half of "Let the launcher start and stop this service".
+        if let Err(error) = services::grant_elevated(&args[1], &args[2]) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    #[cfg(windows)]
+    if args.len() == 2
+        && [
+            "--host-service",
+            "--install-host-service",
+            "--remove-host-service",
+        ]
+        .contains(&args[0].as_str())
+    {
+        let dir = PathBuf::from(&args[1]);
+        let result = if args[0] == "--host-service" {
+            host_service::dispatch(dir.clone())
+        } else {
+            host_service::install_elevated(&dir, args[0] == "--remove-host-service")
+        };
+        if let Err(error) = result {
+            let _ = std::fs::write(dir.join("service-error.txt"), error);
+            std::process::exit(1);
+        }
+        return;
+    }
+    if (args.len() == 2 || args.len() == 3) && args[0] == "--run-host" {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let signal = stop.clone();
+        if let Err(error) =
+            ctrlc::set_handler(move || signal.store(true, std::sync::atomic::Ordering::SeqCst))
+        {
+            eprintln!("Could not install the host stop handler: {error}");
+            std::process::exit(1);
+        }
+        match host_runtime::run(
+            Path::new(&args[1]),
+            &stop,
+            args.get(2).and_then(|s| s.parse().ok()),
+        ) {
+            Ok(()) => return,
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if args.first().is_some_and(|a| a == "--publish-host") {
+        if args.len() != 4 {
+            eprintln!("usage: dereth --publish-host <host-folder> <world.toml> <lyceum-program>");
+            std::process::exit(2);
+        }
+        match host_publication::publish(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+        ) {
+            Ok(publication) => println!(
+                "{}",
+                serde_json::to_string(&publication).expect("publication JSON")
+            ),
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    let here = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    let folders = find_folders(&here);
+    // A join link for a launcher already open goes to that one.
+    let link = dereth_launch::join::from_args(&args).map(str::to_owned);
+    if link
+        .as_deref()
+        .is_some_and(|l| join::hand_off(&folders.data, l))
+    {
+        return;
+    }
     if !webview_present() {
         std::process::exit(1);
     }
     // On Linux, the window's application id and the desktop entry that gives it its icon.
-    registration::on_start();
-    let exe = std::env::current_exe().unwrap_or_default();
-    let here = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    registration::on_start(!components::DEVELOPMENT);
+    join::register(!components::DEVELOPMENT);
     // What the last update set aside is no longer held open by anything.
     dereth_launch::swap::clean_up(&here);
-    let folders = find_folders(&here);
+    let pending: join::Pending = std::sync::Arc::default();
+    if let Some(l) = &link {
+        join::offer(&pending, l);
+    }
+    let running = std::sync::Mutex::new(Some(join::Running::mark(&folders.data)));
     let is_release = client_beside(&here).is_some();
     let client = find_client(&here);
     // The preferences file the Dereth client reads when it is started from its own folder, which
@@ -374,10 +544,20 @@ fn main() {
         client.as_deref().and_then(Path::parent),
     );
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
+        .manage(pending)
         .manage(update::Updates::default())
+        .manage(components::new(
+            folders.data.clone(),
+            &here,
+            components::uses_checkout(components::DEVELOPMENT, &args),
+        ))
+        .manage(hosts::new(folders.data.clone()))
+        .manage(local::new(folders.data.clone()))
+        .manage(share::Shared::default())
         .setup(move |app| {
             // The window is made here rather than from the configuration so that the web view keeps
             // its cache in the launcher's data folder, not in one named after the app's identifier.
@@ -420,7 +600,42 @@ fn main() {
             // A pad moving about the page.
             pad::watch(app.handle().clone());
             app.manage(shared);
+            // Lyceum's worlds go in a Lyceum folder in the person's Documents unless they choose
+            // another; the editor's New world starts there too.
+            let documents = app.path().document_dir().ok().or_else(|| {
+                app.path()
+                    .home_dir()
+                    .ok()
+                    .map(|home| home.join("Documents"))
+            });
+            components::set_worlds_home(
+                app.state::<components::Shared>().inner(),
+                documents.map(|d| d.join(components::WORLDS_FOLDER)),
+            );
             update::check(app.handle(), is_release);
+            hosts::watch(app.state::<hosts::Shared>().inner().clone());
+            // Join links: one a second launcher leaves, and on macOS one the system hands over.
+            join::watch(app.handle().clone(), folders.data.clone());
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let pending = app.state::<join::Pending>().inner().clone();
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        join::offer(&pending, url.as_str());
+                    }
+                    if let Some(window) = handle.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                });
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let pending = app.state::<join::Pending>();
+                    for url in urls {
+                        join::offer(pending.inner(), url.as_str());
+                    }
+                }
+            }
             Ok(())
         })
         // The window is never maximized. `maximizable: false` in the configuration removes the
@@ -428,6 +643,15 @@ fn main() {
         // has no such setting, so on Linux the window manager's button and double-click, and on
         // any system a snap to the top edge, are undone here. Resizing by the edges is untouched.
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if hosts::confirm_close(
+                    window.app_handle(),
+                    &window.state::<hosts::Shared>(),
+                    &window.state::<local::Shared>(),
+                ) {
+                    api.prevent_close();
+                }
+            }
             if matches!(event, tauri::WindowEvent::Resized(_))
                 && window.is_maximized().unwrap_or(false)
             {
@@ -465,9 +689,60 @@ fn main() {
             open_url,
             create_desktop_shortcut,
             pad::pad_target,
+            components::check_components,
+            components::get_component,
+            components::remove_component,
+            components::open_lyceum,
+            components::open_worlds_folder,
+            components::choose_lyceum_world,
+            components::choose_lyceum_parent,
+            components::new_lyceum_world,
+            components::upgrade_lyceum_world,
+            components::export_lyceum_world,
+            hosts::check_host_update,
+            hosts::publish_host_world,
+            hosts::unpublish_host_world,
+            hosts::open_host_world,
+            hosts::cancel_host_update,
+            hosts::approve_host_update,
+            hosts::rollback_host_update,
+            hosts::choose_host_dats,
+            hosts::create_host,
+            hosts::prepare_host,
+            hosts::start_host,
+            hosts::stop_host,
+            hosts::save_host,
+            hosts::save_host_key,
+            hosts::open_host_config,
+            hosts::export_host_logs,
+            hosts::open_host_folder,
+            hosts::remove_host,
+            hosts::set_host_service,
+            hosts::host_command,
+            hosts::reveal_host,
+            local::scan_local_worlds,
+            local::start_local_world,
+            local::stop_local_world,
+            local::local_command,
+            local::forget_local_world,
+            local::reveal_local_world,
+            open_local_world,
+            local::allow_service_control,
+            share::check_sharing,
+            share::check_from_outside,
+            join::take_join,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("the launcher window could not start");
+    app.run(move |_, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            // No launcher is open for a join link once this one has closed.
+            running
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -554,5 +829,114 @@ mod tests {
         assert_eq!(main["maximizable"], false, "{main}");
         assert_eq!(main["resizable"], true, "{main}");
         assert_ne!(main["minimizable"], false, "{main}");
+    }
+
+    /// The text of the page's function `name`, up to the next top-level function.
+    fn page_function(name: &str) -> &'static str {
+        let page = include_str!("../ui/app.js");
+        let at = page
+            .find(&format!("\nfunction {name}("))
+            .or_else(|| page.find(&format!("\nasync function {name}(")))
+            .unwrap_or_else(|| panic!("the page has {name}"));
+        let rest = &page[at + 1..];
+        let end = ["\nfunction ", "\nasync function "]
+            .iter()
+            .filter_map(|f| rest[1..].find(f))
+            .min()
+            .map_or(rest.len(), |e| e + 1);
+        &rest[..end]
+    }
+
+    /// A world's log stays at its newest line as lines come, and stays put while the person reads
+    /// further up or selects in it: the page notes each log's place before it draws anew, and puts
+    /// it back after, and does not draw anew under a selection. (The same is driven in a browser
+    /// against the demo page; this keeps the page wired that way.)
+    #[test]
+    fn the_log_follows_its_newest_line_unless_the_person_is_reading_or_selecting_in_it() {
+        let render = page_function("render");
+        let noted = render.find("logPlaces()").expect("noted before drawing");
+        let drawn = render.find("main.innerHTML =").expect("drawn");
+        let kept = render
+            .find("keepLogPlaces(")
+            .expect("put back after drawing");
+        assert!(noted < drawn && drawn < kept, "{render}");
+        let held = render
+            .find("selectingInLog()")
+            .expect("held under a selection");
+        assert!(held < drawn, "{render}");
+        let keep = page_function("keepLogPlaces");
+        assert!(
+            keep.contains("p.atEnd") && keep.contains("el.scrollTop = el.scrollHeight"),
+            "a log at its end stays at its end: {keep}"
+        );
+        assert!(
+            keep.contains("p.anchor.text"),
+            "a log scrolled up keeps its line: {keep}"
+        );
+        let console = page_function("consoleBlock");
+        assert!(console.contains(r#"class="log" data-log="#), "{console}");
+    }
+
+    /// The emblems are on Empyrean's and Lyceum's headings, and on no button.
+    #[test]
+    fn each_emblem_is_on_its_pages_heading_and_on_no_button() {
+        let page = include_str!("../ui/app.js");
+        assert!(
+            !page.contains("rail-icon"),
+            "no emblem on the rail's buttons"
+        );
+        assert!(!page_function("rail").contains("<img"));
+        let used: Vec<&str> = page
+            .match_indices("brand(\"")
+            .map(|(at, opener)| {
+                let name = &page[at + opener.len()..];
+                &name[..name.find('"').unwrap_or(0)]
+            })
+            .collect();
+        assert_eq!(used, ["empyrean", "lyceum"], "used once each");
+        assert!(page_function("serverList")
+            .contains(r#"brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER"#));
+        assert!(page_function("makePage").contains(r#"brand("lyceum")}<h1>LYCEUM: BUILD A WORLD"#));
+    }
+
+    /// What's new shows its links as links that open in the system's browser, and it and the log
+    /// use the page's own scroll bar.
+    #[test]
+    fn whats_new_links_open_in_the_browser_and_it_and_the_log_use_the_pages_scroll_bar() {
+        let line = page_function("programLine");
+        assert!(line.contains("linkify(notes)"), "{line}");
+        let linkify = page_function("linkify");
+        assert!(
+            linkify.contains("data-url="),
+            "opened through open_url: {linkify}"
+        );
+        let style = include_str!("../ui/style.css");
+        for scrolled in [
+            "details.notes pre::-webkit-scrollbar-thumb",
+            ".log::-webkit-scrollbar-thumb",
+        ] {
+            assert!(style.contains(scrolled), "{scrolled}");
+        }
+    }
+
+    /// A join link opens Worlds with Add world filled in, for the person to add; the macOS bundle
+    /// carries the scheme.
+    #[test]
+    fn a_join_link_fills_add_world_and_the_bundle_carries_the_scheme() {
+        let take = page_function("takeJoin");
+        assert!(
+            take.contains(r#"api("take_join")"#) && take.contains("ui.addServer = {"),
+            "{take}"
+        );
+        assert!(
+            !take.contains("add_custom_world"),
+            "the person adds it: {take}"
+        );
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("the configuration");
+        assert_eq!(
+            config["plugins"]["deep-link"]["desktop"]["schemes"],
+            serde_json::json!(["dereth"])
+        );
     }
 }
