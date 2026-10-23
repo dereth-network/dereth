@@ -65,6 +65,7 @@ const CAPTURES: &[(&str, &str, usize)] = &[
     ("2010-08-15", "client_cell_1.dat", 639342),
     ("2010-09-05", "client_local_english.dat", 105),
     ("2010-09-05", "client_portal.dat", 71984),
+    ("2011-11-03", "client_portal.dat", 75126),
     ("2012-04-28", "client_portal.dat", 77264),
     ("2012-07-27", "client_cell_1.dat", 340053),
     ("2012-07-27", "client_local_english.dat", 106),

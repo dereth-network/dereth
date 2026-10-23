@@ -57,7 +57,7 @@ fn every_held_capture_keys_its_motion_tables_in_the_numbering_its_human_table_te
         .into_iter()
         .filter(|(_, n, _)| n == "portal.dat" || n == "client_portal.dat")
         .collect();
-    assert_eq!(portals.len(), 28, "every held portal capture");
+    assert_eq!(portals.len(), 29, "every held portal capture");
     let mut dropped = Vec::new();
     for (capture, _, path) in &portals {
         let tables = motion_tables(path);
