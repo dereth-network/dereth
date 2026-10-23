@@ -25,9 +25,10 @@
 //! Discord servers' channels, [`rooms`] keeps which of each world's rooms carries the Global room,
 //! which its mirrors follow, [`dms`] tells into a person's Discord direct messages and its replies
 //! back, and [`interactions`] the bot's `/dn` command, with which a person speaks in a mirror as its
-//! own character; [`forwarded`] finds a client's address behind trusted proxies; [`resolver`]
-//! looks host names up, bounded; [`text`] is the rule for the text the hub keeps; [`self_update`]
-//! installs the hub's own releases over its binary.
+//! own character; [`probe`] tries a world from outside for its host; [`forwarded`] finds a
+//! client's address behind trusted proxies; [`resolver`] looks host names up, bounded; [`text`] is
+//! the rule for the text the hub keeps; [`self_update`] installs the hub's own releases over its
+//! binary.
 
 pub mod api;
 pub mod bridge;
@@ -44,6 +45,7 @@ pub mod forwarded;
 pub mod interactions;
 pub mod operators;
 pub mod persons;
+pub mod probe;
 pub mod registry;
 pub mod resolver;
 pub mod rooms;

@@ -6,7 +6,8 @@ without logging in and without the operator serving a web page. Empyrean answers
 server ignores it.
 
 The code is `dereth_transport::status_ping` (the datagrams), `empyrean_net::status_ping` (the
-server's tokens and limits) and `dereth_launch::probe` (the launcher's two steps).
+server's tokens and limits), `dereth_launch::probe` (the launcher's two steps) and
+`dereth_network_protocol::probe` (the hub's copy, which tries a world from outside for its host).
 
 ## Summary
 

@@ -313,6 +313,15 @@ journalctl -u dereth-network-hub -f
   game port, and waits for the world to post them back over HTTPS. The machine's firewall must let
   the hub's user send UDP out; nothing comes back over UDP, so no port is opened for it. The world
   may call from any address: what it proves is that it answers at its endpoint.
+- **Trying a world from outside sends UDP too.** A world's host can ask the hub whether players
+  elsewhere reach the world (`POST /v1/probe`, which the launcher's **Check from outside** calls).
+  The hub sends a few small datagrams (at most nine) from a port the system picks to the caller's
+  own address, at the game port it names, and this time the world answers over UDP, so the
+  machine's firewall must let the hub's user send UDP out and take the answers back (a stateful
+  firewall such as `ufw` does by default; nothing is opened for it). The `--deny-fetch` ranges
+  hold here too: a caller on the basement's own address or network is refused, never tried. Each
+  caller has five tries, then one every twelve minutes; nothing is kept of them but the counts,
+  in memory.
 - **Vouching for a world.** A world that can be verified neither in game (its game port cannot be
   reached from where the hub is) nor by a page can be verified by you, once you have seen evidence
   that its operator runs it at its endpoint:
@@ -456,8 +465,10 @@ For `hub.dereth.network`:
   is. Do not use "Cache everything": a character taken out of the directory would linger.
 - **Security:** no JavaScript challenge, *I'm Under Attack* mode or Bot Fight Mode on the hub:
   world servers and the site's calls cannot answer a challenge. A WAF rate-limiting rule is fine
-  for `/v1/auth/*` and `/v1/operator*`; leave `/v1/servers/*/link`, `/v1/servers/*/verify` and
-  `/v1/servers/*/verify/answer` alone (the hub limits them itself).
+  for `/v1/auth/*` and `/v1/operator*`; leave `/v1/servers/*/link`, `/v1/servers/*/verify`,
+  `/v1/servers/*/verify/answer` and `/v1/probe` alone (the hub limits them itself). A launcher's
+  check from outside (`/v1/probe`) must reach the hub with the caller's own address as its client
+  address, as every limit already needs.
 - **The origin** (your own proxy; a tunnel opens no port, and needs neither this nor the next
   point). Let only Cloudflare reach port 443 at home (the router, or a firewall on the
   machine), from the same ranges as `cloudflare.txt`: section 3's script keeps `ufw`'s rules (each

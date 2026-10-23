@@ -18,14 +18,16 @@
 //! a world before it carries a tell to an offline character's person elsewhere), [`say`] (the line
 //! the hub asks a world to say as one of its characters, said by its person elsewhere), [`rooms`]
 //! (which of a world's own rooms carries the Global room, and which the hub mirrors into Discord),
-//! [`web`] (where a browser reaches a world) and [`challenge`] (the datagram the hub sends a
-//! world's game port when its operator verifies it in game).
+//! [`web`] (where a browser reaches a world), [`challenge`] (the datagram the hub sends a world's
+//! game port when its operator verifies it in game) and [`probe`] (the datagrams the hub sends a
+//! world's game port when its host asks the hub to try it from outside).
 
 pub mod address;
 pub mod challenge;
 pub mod directory;
 pub mod limits;
 pub mod person;
+pub mod probe;
 pub mod reach;
 pub mod rooms;
 pub mod say;

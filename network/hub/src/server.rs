@@ -152,6 +152,12 @@ pub struct HubConfig {
     /// How long a verification in game waits for the world's answer
     /// ([`crate::challenge::WAIT`]).
     pub challenge_wait: Duration,
+    /// The probes one caller may ask for ([`crate::probe::PER_CALLER`]).
+    pub probe_per_caller: Rate,
+    /// The probes the hub runs for every caller together ([`crate::probe::OVERALL`]).
+    pub probe_overall: Rate,
+    /// A probe's copies and its wait ([`crate::probe::EVERY`], [`crate::probe::WAIT`]).
+    pub probe_timing: crate::probe::Timing,
     pub limits: Limits,
     /// HTTP requests a minute from one address.
     pub http_per_minute: u32,
@@ -191,6 +197,9 @@ impl Default for HubConfig {
             challenge_lookup_deadline: crate::challenge::LOOKUP_DEADLINE,
             challenge_every: crate::challenge::EVERY,
             challenge_wait: crate::challenge::WAIT,
+            probe_per_caller: crate::probe::PER_CALLER,
+            probe_overall: crate::probe::OVERALL,
+            probe_timing: crate::probe::Timing::default(),
             limits: Limits::DEFAULT,
             http_per_minute: 180,
             wire_log: None,
@@ -388,6 +397,8 @@ pub(crate) struct Shared {
     pub(crate) resolver: crate::resolver::Resolver,
     /// The challenges of verifications in game waiting for the world's answer.
     pub(crate) challenges: crate::challenge::Waiting,
+    /// The limits on probes of a world from outside, kept in memory only.
+    pub(crate) probes: crate::probe::Limits,
     /// The Discord broker, on a hub given the bot token.
     pub(crate) broker: Option<crate::broker::Service>,
     started: Instant,
@@ -817,6 +828,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         crate::resolver::REMEMBER,
     );
     let broker = config.broker.clone().map(crate::broker::Service::new);
+    let probes = crate::probe::Limits::new(config.probe_per_caller, config.probe_overall);
     let shared = Arc::new(Shared {
         registry: Mutex::new(registry),
         linked: Mutex::new(BTreeSet::new()),
@@ -833,6 +845,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         public: Mutex::new(None),
         resolver,
         challenges: crate::challenge::Waiting::default(),
+        probes,
         broker,
         started: Instant::now(),
         next_conn: AtomicU64::new(1),
@@ -1724,6 +1737,10 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
     };
     if interactions {
         let reply = crate::interactions::handle(shared, &head.method, &head.headers, &body, ip);
+        return write_reply(&mut stream, &reply);
+    }
+    if head.path.split('?').next() == Some(crate::probe::PATH) {
+        let reply = crate::probe::handle(shared, &head.method, &body, ip);
         return write_reply(&mut stream, &reply);
     }
     if crate::api::is_api(&head.path) {

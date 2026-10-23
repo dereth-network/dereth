@@ -7,11 +7,13 @@ One implementation: `network/hub/` (`dereth-network-hub`): `registry.rs` (the re
 `community.rs` (the community list), `persons.rs` (persons: links, codes and person friends),
 `core.rs` (the routing, with no I/O), `server.rs` (the listener), `api.rs` (the
 operator API and the person routes), `challenge.rs` (the challenges verification in game sends),
+`probe.rs` (trying a world from outside for its host),
 `fetch.rs` (the hub's own outbound requests), `forwarded.rs` (client addresses behind a
 proxy), `broker.rs` (the Discord broker's client for Discord's API), `bridge.rs` (rooms
 mirrored into Discord), `rooms.rs` (which of each world's rooms carries the Global room), `dms.rs` (tells into a person's Discord and its replies back),
 `interactions.rs` (the bot's `/dn` command: a person's line said in a mirror from Discord) and
-`self_update.rs` (installing the hub's own releases). The challenge datagram itself is `dereth_network_protocol::challenge`. `network/hub/DEPLOY.md` is the deployment guide.
+`self_update.rs` (installing the hub's own releases). The challenge datagram itself is `dereth_network_protocol::challenge`, and the probe's
+datagrams `dereth_network_protocol::probe`. `network/hub/DEPLOY.md` is the deployment guide.
 
 The hub is one service: the **world registry** that the network's addresses, keys and federation
 flags come from, and the **router** that the worlds' links meet at. It listens on loopback unless
@@ -125,6 +127,7 @@ below only make it slower and costlier).
 | `GET /v1/servers/<slug>/link` (upgrade) | a world's link ([02](02-link-protocol.md)) |
 | `POST /v1/servers/<slug>/verify` | the world's half of verification in game: the hub challenges the world's game port and holds the call for its answer (key required; section 2.5) |
 | `POST /v1/servers/<slug>/verify/answer` | the world's answer to that challenge (key required; section 2.5) |
+| `POST /v1/probe` `{"port"}` | tries the caller's own address at that port from outside, and says whether a world answered there (below, "Trying a world from outside") |
 | `/v1/auth/...`, `/v1/operator...`, `/v1/reports`, `/v1/admin/...` | the operator API (section 2) |
 | `/v1/person...` | a person's own routes: its linked characters, linking one, its person friends (section 5) |
 | `GET /v1/directory/...` | the character directory: a search, a character, an allegiance's listed members (section 6) |
@@ -183,6 +186,36 @@ any refused request is. Nothing past its first 32 KiB is looked at, and it is lo
 its client address as far as those 32 KiB give one, at most once a minute for each address. Such
 an answer carries the CORS of section 2.1 only when the head's one `Origin` line was read and
 names a site origin, and none otherwise.
+
+**Trying a world from outside.** A world's host, whose own computer cannot tell whether players
+elsewhere can reach it (a router, a firewall, or an internet provider in the way), asks the hub
+to try: `POST /v1/probe` with `{"port": <the game port>}`. The hub sends the caller's own client
+address (below), at that port, two questions together, three times a second apart since UDP may
+lose any one, and waits at most 4 seconds from the first:
+
+- **the status ping** ([networking 06](../networking/06-status-ping.md)), which Empyrean answers
+  with a token and then, asked again with the token, with its status;
+- **the server-tracker login**, the account `acservertracker:jj9h26hcsggc` with no password, one
+  fixed login packet that ACE, GDLE and Empyrean all answer without making an account; any
+  well-formed packet back means a world is there. A world that answers only it is given one
+  second more to answer the status ping too.
+
+It answers `200` `{"address", "port", "reached", "world"}`: the address and port tried, whether
+anything answered there, and what the world said of itself, `{"name", "players", "software",
+"version", "state"}` (`open`, `starting`, `shutting-down` or `unknown`), or `null` when it said
+nothing more than that it is there. The address is the caller's own, so a launcher may show it.
+
+- **It cannot be aimed at anyone else.** The hub never reads an address from the call, only the
+  port; a port below 1024 or above 65535 is refused (`400`), and so is a call that is not
+  `POST` (`405`). A caller whose client address the hub would never reach on the internet (private,
+  shared, reserved, or one of the ranges its operator denies, `--deny-fetch` of section 2.5) is
+  refused (`403`). An IPv6 caller is tried over IPv6.
+- **Limits.** Each caller has five probes, then one every twelve minutes (by its client address,
+  an IPv6 one by its /64); the hub has a hundred for every caller together, then one a second; at
+  most 32 run at once. Past any of them the call is answered `429` with `Retry-After`. A refusal by
+  the hub's own limit takes nothing from the caller's.
+- **Nothing is kept** but the limits' counters, in memory: no address, port or answer is written
+  or logged.
 
 **The client address.** A request's client address is the address it came from, unless that is a
 **trusted proxy** the hub's configuration names (`--trusted-proxy`, an address or a CIDR range,
