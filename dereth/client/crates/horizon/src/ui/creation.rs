@@ -27,6 +27,10 @@ pub const HEADING: f32 = 150.0;
 /// How far the model turns for each point the pointer is dragged across it, in degrees.
 const TURN_DEGREES_PER_POINT: f32 = 0.6;
 
+/// The wizard's window's size, in layout units: the room its title bar keeps over its contents
+/// and bottom frame.
+const WINDOW: (f32, f32) = (760.0, kit::BODY_TOP + 594.0);
+
 /// The string table the creation wizard's refusals are words of.
 pub const CREATION_STRING_TABLE: u32 = 0x1000_0002;
 
@@ -410,7 +414,7 @@ impl Creation {
         self.seed(state.chargen_seeds);
         let k = p.scale;
         let (sw, sh) = p.screen;
-        let (w, h) = (760.0, 640.0);
+        let (w, h) = WINDOW;
         let mut ws = kit::WindowState {
             open: true,
             pos: Some((sw - (w + 60.0) * k, (sh - h * k) / 2.0)),
@@ -1438,10 +1442,10 @@ pub(crate) mod tests {
             assert!((k - step).abs() < 1e-4, "{screen:?} at {step}");
             // The wizard's window, at the right and centred down the screen.
             let window = Rect::new(
-                screen.0 - (760.0 + 60.0) * k,
-                (screen.1 - 640.0 * k) / 2.0,
-                760.0 * k,
-                640.0 * k,
+                screen.0 - (WINDOW.0 + 60.0) * k,
+                (screen.1 - WINDOW.1 * k) / 2.0,
+                WINDOW.0 * k,
+                WINDOW.1 * k,
             );
             let mut list = crate::draw::DrawList::default();
             let mut input = crate::ui::input::InputFrame::default();

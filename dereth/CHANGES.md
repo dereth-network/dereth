@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Started without the launcher, the client opens a new player in the modern interface.
+- Horizon: smaller window title bars, and sharper text and art at every scale.
 
 ## 0.4.5 (2026-10-20)
 

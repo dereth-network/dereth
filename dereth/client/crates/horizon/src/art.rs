@@ -81,16 +81,28 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    /// The sub-rectangle `(x, y, w, h)` of this sprite, in layout units.
+    /// The sub-rectangle `(x, y, w, h)` of this sprite, in layout units: each axis by the
+    /// sprite's own texels per unit along it, so a piece whose texels are not as many per unit
+    /// down as across is cut from its own rows.
     #[must_use]
     pub fn sub(&self, x: f32, y: f32, w: f32, h: f32) -> Self {
+        let across = if self.w > 0.0 {
+            self.src.w / self.w
+        } else {
+            self.scale
+        };
+        let down = if self.h > 0.0 {
+            self.src.h / self.h
+        } else {
+            self.scale
+        };
         Self {
             tex: self.tex,
             src: Rect::new(
-                self.src.x + x * self.scale,
-                self.src.y + y * self.scale,
-                w * self.scale,
-                h * self.scale,
+                self.src.x + x * across,
+                self.src.y + y * down,
+                w * across,
+                h * down,
             ),
             w,
             h,
@@ -532,6 +544,13 @@ impl Art {
             format: dereth_primitives::TextureFormat::Bgra8,
             levels: vec![bgra],
         })
+    }
+
+    /// The size of the interface's own piece `name`, in layout units.
+    #[must_use]
+    pub fn piece_size(&self, name: &str) -> Option<(f32, f32)> {
+        let size = self.manifest()?.pieces.get(name)?.size;
+        Some((size[0], size[1]))
     }
 
     /// The value `name` the interface lays its own pieces out by (in layout units).

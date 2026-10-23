@@ -24,6 +24,10 @@ are not affected either way. Where a piece is missing it
 draws plainly in its place. The game's own icons (items, spells, effects) are read from the game's
 data.
 
+Everything is drawn on whole pixels, and text from its font's own glyphs at their own size. A
+picture drawn at a size none of its atlases has is made at that size, with the filter the art was
+cut with, and drawn texel for texel. Every window's title bar is one height at every scale.
+
 ## Its settings
 
 The interface scale (on the Settings window's Client page) and the camera's settings (its Controls

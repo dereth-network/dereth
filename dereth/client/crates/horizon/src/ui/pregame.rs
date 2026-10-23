@@ -1022,7 +1022,7 @@ pub fn message_box(
 /// The room the own frame keeps under a box's contents, clear of its bottom plates.
 fn dialog_plates(p: &Painter<'_>) -> f32 {
     if p.art.has_piece("window.tl") {
-        22.0 * p.scale
+        22.0 * p.scale * kit::frame_scale(p)
     } else {
         0.0
     }
@@ -1039,7 +1039,7 @@ pub fn dialog_rect(p: &Painter<'_>, text: &str, offset: usize) -> Rect {
     let lines = p.wrap(&body, text.trim(), w - 90.0 * k);
     let lh = p.line_height(&body);
     #[allow(clippy::cast_precision_loss)]
-    let h = (kit::HEADER + 30.0) * k + lh * lines.len() as f32 + 60.0 * k + dialog_plates(p);
+    let h = (kit::BODY_TOP + 24.0) * k + lh * lines.len() as f32 + 60.0 * k + dialog_plates(p);
     #[allow(clippy::cast_precision_loss)]
     let shift = 24.0 * k * offset as f32;
     Rect::new(

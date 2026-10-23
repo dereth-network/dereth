@@ -110,9 +110,31 @@ impl Ctx<'_> {
 /// How much of the window behind the frame shows through the interface's own window fill.
 const OWN_FILL_ALPHA: f32 = 0.8;
 
-/// The scale a panel inside a window draws the own frame at, against a window's: slimmer bars
-/// and smaller plates, so a panel within a window does not weigh as much as the window.
-const PANEL_FRAME: f32 = 0.7;
+/// The height of a window's title bar, in layout units: one measure for every window, at every
+/// scale. The bar is where the window is dragged by, and its close button sits at its end.
+pub const TITLE_BAR: f32 = 26.0;
+
+/// How far below a window's top its contents start, in layout units: clear of its title bar.
+pub const BODY_TOP: f32 = TITLE_BAR + 6.0;
+
+/// The size of a window's title, in points.
+pub const TITLE_POINTS: f32 = 18.0;
+
+/// The style of a window's title.
+#[must_use]
+pub fn title_style(colours: &Colours) -> TextStyle {
+    TextStyle::new(Family::Heading, TITLE_POINTS, colours.heading()).edge(0xFF00_0000)
+}
+
+/// The scale the own frame is drawn at, against the layout's: the one that makes its title bar
+/// [`TITLE_BAR`] tall. A panel's frame, with no title, is drawn at the same scale.
+#[must_use]
+pub fn frame_scale(p: &Painter<'_>) -> f32 {
+    p.art
+        .piece_size("window.tl")
+        .filter(|(_, h)| *h > 0.0)
+        .map_or(1.0, |(_, h)| TITLE_BAR / h)
+}
 
 /// A window background of the interface's own art over `r`: the fill, partly clear, under the
 /// frame; with the title bar along its top when `titled`. Whether the pieces were there.
@@ -120,14 +142,11 @@ fn own_panel(p: &mut Painter<'_>, r: Rect, alpha: f32, titled: bool) -> bool {
     if !p.art.has_piece("window.tl") {
         return false;
     }
-    if !titled {
-        let scale = p.scale;
-        p.scale *= PANEL_FRAME;
-        let drawn = own_panel_at(p, r, alpha, false);
-        p.scale = scale;
-        return drawn;
-    }
-    own_panel_at(p, r, alpha, true)
+    let scale = p.scale;
+    p.scale *= frame_scale(p);
+    let drawn = own_panel_at(p, r, alpha, titled);
+    p.scale = scale;
+    drawn
 }
 
 fn own_panel_at(p: &mut Painter<'_>, r: Rect, alpha: f32, titled: bool) -> bool {
@@ -170,7 +189,7 @@ pub fn panel_inset(p: &Painter<'_>) -> (f32, f32, f32, f32) {
     let k = p.scale;
     match p.art.piece_value("window.body").filter(|v| v.len() == 4) {
         Some(v) => {
-            let k = k * PANEL_FRAME;
+            let k = k * frame_scale(p);
             (v[0] * k, v[3] * k, v[2] * k, v[3] * k)
         }
         None => (10.0 * k, 8.0 * k, 10.0 * k, 8.0 * k),
@@ -201,7 +220,7 @@ pub fn figure_inside(p: &Painter<'_>, r: Rect) -> Rect {
             .filter(|v| v.len() == 4)
             .map_or_else(
                 || vec![0.0; 4],
-                |v| v.iter().map(|d| d * k * PANEL_FRAME).collect(),
+                |v| v.iter().map(|d| d * k * frame_scale(p)).collect(),
             )
     } else {
         vec![1.0_f32.max(k); 4]
@@ -230,7 +249,7 @@ pub fn figure_ground(p: &mut Painter<'_>, r: Rect) {
     } else {
         vec![0.0; 4]
     };
-    let f = k * PANEL_FRAME;
+    let f = k * frame_scale(p);
     let inner = Rect::new(
         r.x + inset[0] * f,
         r.y + inset[1] * f,
@@ -272,7 +291,7 @@ pub fn figure_ground(p: &mut Painter<'_>, r: Rect) {
     }
     if own {
         let scale = p.scale;
-        p.scale *= PANEL_FRAME;
+        p.scale *= frame_scale(p);
         p.frame("window", "plain.", r, WHITE);
         p.scale = scale;
     } else {
@@ -288,13 +307,13 @@ pub fn panel(p: &mut Painter<'_>, r: Rect, alpha: f32) {
     p.fill(r, crate::draw::with_alpha(0xFF20_2020, alpha));
 }
 
-/// A window that moves when its header is dragged.
+/// A window that moves when its title bar is dragged.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct WindowState {
     pub open: bool,
     /// Top-left, in screen pixels; `None` until first placed.
     pub pos: Option<(f32, f32)>,
-    /// Where in the header the drag took hold.
+    /// Where in the title bar the drag took hold.
     pub grab: Option<(f32, f32)>,
     /// Seconds since it was opened, for the opening fade.
     pub opened_at: f64,
@@ -305,18 +324,15 @@ pub struct WindowState {
 /// What a window's frame reports.
 #[derive(Debug, Clone, Copy)]
 pub struct WindowOut {
-    /// The space inside the frame, below the header.
+    /// The space inside the frame, below the title bar.
     pub body: Rect,
     /// The whole window.
     pub rect: Rect,
     pub closed: bool,
 }
 
-/// The height of a window's header, in layout units.
-pub const HEADER: f32 = 40.0;
-
 /// Draw a window's frame: the background, the title in the heading font, the hairline and the
-/// close button; drag it by its header. `size` is in layout units.
+/// close button; drag it by its title bar. `size` is in layout units.
 pub fn window(
     p: &mut Painter<'_>,
     ctx: &mut Ctx<'_>,
@@ -328,8 +344,8 @@ pub fn window(
     let k = p.scale;
     let (w, h) = (size.0 * k, size.1 * k);
     let (mut x, mut y) = state.pos.unwrap_or(default_pos);
-    let header = Rect::new(x, y, w, HEADER * k);
-    // Drag by the header.
+    let header = Rect::new(x, y, w, TITLE_BAR * k);
+    // Drag by the title bar.
     if let Some((gx, gy)) = state.grab {
         if ctx.input.down[0] {
             x = ctx.input.mouse.0 - gx;
@@ -360,39 +376,57 @@ pub fn window(
     // A drop on a window lands in it, not on what is under it.
     ctx.drops.push((rect, None));
     let own = p.art.has_piece("window.tl");
+    // The own frame is drawn at the scale that makes its title bar the measure every window
+    // keeps to.
+    let f = k * frame_scale(p);
     // The own frame's title bar: the band its title and close button are centred on, and the
     // close button's place, from the window's right edge.
     let band = p
         .art
         .piece_value("window.band")
         .filter(|v| v.len() == 2 && own)
-        .map(|v| (v[0] * k, v[1] * k));
+        .map(|v| (v[0] * f, v[1] * f));
     let plate = p
         .art
         .piece_value("window.plate_tr")
         .filter(|v| v.len() == 3 && own);
-    let close = match (
+    // Where the close button takes a press, and the button drawn there at its own size.
+    let (close, button) = match (
         band,
         p.art.piece_value("window.close").filter(|v| v.len() == 2),
     ) {
-        // Over the top-right corner plate, centred on it.
+        // Over the top-right corner plate, centred on it: the whole plate takes the press.
         (Some(_), _) if plate.is_some() => {
             let v = plate.unwrap_or_default();
-            let s = v[2] * k;
-            Rect::new(
-                rect.right() - v[0] * k - s / 2.0,
-                y + v[1] * k - s / 2.0,
-                s,
-                s,
+            let s = v[2] * f;
+            let (cx, cy) = (rect.right() - v[0] * f, y + v[1] * f);
+            let b = p
+                .art
+                .piece_size("window.close.normal")
+                .map_or(s, |(bw, _)| (bw * f).min(s));
+            (
+                Rect::new(cx - s / 2.0, cy - s / 2.0, s, s),
+                Rect::new(cx - b / 2.0, cy - b / 2.0, b, b),
             )
         }
-        (Some((b0, b1)), Some(c)) => Rect::new(
-            rect.right() - c[0] * k,
-            y + (b0 + b1 - c[1] * k) / 2.0,
-            c[1] * k,
-            c[1] * k,
-        ),
-        _ => Rect::new(rect.right() - 34.0 * k, y + 8.0 * k, 24.0 * k, 24.0 * k),
+        (Some((b0, b1)), Some(c)) => {
+            let r = Rect::new(
+                rect.right() - c[0] * f,
+                y + (b0 + b1 - c[1] * f) / 2.0,
+                c[1] * f,
+                c[1] * f,
+            );
+            (r, r)
+        }
+        _ => {
+            let r = Rect::new(
+                rect.right() - (TITLE_BAR + 2.0) * k,
+                y + 2.0 * k,
+                (TITLE_BAR - 4.0) * k,
+                (TITLE_BAR - 4.0) * k,
+            );
+            (r, r)
+        }
     };
     // The opening fade and scale-up.
     let age = (ctx.time - state.opened_at).max(0.0);
@@ -410,11 +444,10 @@ pub fn window(
     if !own {
         panel(p, shown, 1.0);
     }
+    let heading = title_style(ctx.colours);
     if let (true, Some((b0, b1))) = (own, band) {
-        // The own title bar carries its ornament at its ends: the title starts past the left
-        // one, centred on the bar's band, a little smaller than the overlay's.
-        let heading =
-            TextStyle::new(Family::Heading, 20.0, ctx.colours.heading()).edge(0xFF00_0000);
+        // The own title bar carries its ornament at its ends: the title is centred on the bar's
+        // band, between them.
         p.text_in(
             &heading,
             Rect::new(x, y + b0, w, b1 - b0),
@@ -422,12 +455,10 @@ pub fn window(
             title,
         );
     } else {
-        let heading =
-            TextStyle::new(Family::Heading, 23.0, ctx.colours.heading()).edge(0xFF00_0000);
-        p.text(
+        p.text_in(
             &heading,
-            (x + 14.0 * k).round(),
-            (y + 8.0 * k).round(),
+            Rect::new(x + 14.0 * k, y, w - 14.0 * k, TITLE_BAR * k),
+            Align::Left,
             title,
         );
     }
@@ -444,7 +475,7 @@ pub fn window(
             "normal"
         };
         p.piece(&format!("window.close.{state}")).map(|b| {
-            p.sprite(&b, close, WHITE);
+            p.sprite(&b, button, WHITE);
             over
         })
     } else {
@@ -480,18 +511,23 @@ pub fn window(
     if closed {
         state.open = false;
     }
-    // The own frame's contents keep inside its side bars and clear of its bottom corner plates.
+    // The own frame's contents keep inside its side bars and clear of its bottom corner plates,
+    // and every window's below its title bar.
     let inset = p
         .art
         .piece_value("window.body")
         .filter(|v| v.len() == 4 && own)
-        .unwrap_or_else(|| vec![12.0, HEADER + 6.0, 12.0, 10.0]);
+        .map_or_else(
+            || [12.0 * k, 12.0 * k, 10.0 * k],
+            |v| [v[0] * f, v[2] * f, v[3] * f],
+        );
+    let top = BODY_TOP * k;
     WindowOut {
         body: Rect::new(
-            x + inset[0] * k,
-            y + inset[1] * k,
-            w - (inset[0] + inset[2]) * k,
-            h - (inset[1] + inset[3]) * k,
+            x + inset[0],
+            y + top,
+            w - (inset[0] + inset[1]),
+            h - top - inset[2],
         ),
         rect,
         closed,

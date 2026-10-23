@@ -140,32 +140,35 @@ impl WindowId {
         }
     }
 
-    /// The window's size in layout units, and where it opens.
+    /// The window's size in layout units, and where it opens. Its height is the room its title
+    /// bar keeps ([`kit::BODY_TOP`]) over the rest of it: its contents and its bottom frame,
+    /// which keep their size whatever the title bar's.
     pub fn geometry(self) -> ((f32, f32), (f32, f32)) {
-        match self {
-            Self::Character => ((800.0, 640.0), (240.0, 150.0)),
-            Self::Inventory => ((540.0, 560.0), (1080.0, 220.0)),
-            Self::Actions => ((570.0, 600.0), (420.0, 120.0)),
-            Self::Social => ((600.0, 500.0), (560.0, 200.0)),
-            Self::Allegiance => ((520.0, 520.0), (640.0, 160.0)),
-            Self::Map => ((562.0, 640.0), (680.0, 120.0)),
-            Self::Options => ((760.0, 600.0), (580.0, 180.0)),
-            Self::Layout => ((420.0, 300.0), (760.0, 300.0)),
-            Self::Examine => ((440.0, 560.0), (1180.0, 160.0)),
-            Self::Loot => ((440.0, 420.0), (560.0, 260.0)),
-            Self::Vendor => ((820.0, 620.0), (240.0, 140.0)),
-            Self::Trade => ((640.0, 480.0), (480.0, 200.0)),
-            Self::Journal => ((720.0, 520.0), (500.0, 160.0)),
-            Self::Book => ((520.0, 600.0), (700.0, 120.0)),
-            Self::Salvage => ((380.0, 340.0), (740.0, 260.0)),
-            Self::Maintenance => ((480.0, 300.0), (700.0, 260.0)),
-            Self::House => ((460.0, 420.0), (640.0, 180.0)),
-            Self::GameCenter => ((420.0, 500.0), (720.0, 140.0)),
-            Self::Barber => ((420.0, 420.0), (300.0, 160.0)),
-            Self::SpellInfo => ((400.0, 440.0), (1040.0, 180.0)),
-            Self::Vitae => ((420.0, 480.0), (1240.0, 120.0)),
-            Self::Burden => ((420.0, 380.0), (1240.0, 120.0)),
-        }
+        let ((w, below), at) = match self {
+            Self::Character => ((800.0, 594.0), (240.0, 150.0)),
+            Self::Inventory => ((540.0, 514.0), (1080.0, 220.0)),
+            Self::Actions => ((570.0, 554.0), (420.0, 120.0)),
+            Self::Social => ((600.0, 454.0), (560.0, 200.0)),
+            Self::Allegiance => ((520.0, 474.0), (640.0, 160.0)),
+            Self::Map => ((562.0, 594.0), (680.0, 120.0)),
+            Self::Options => ((760.0, 554.0), (580.0, 180.0)),
+            Self::Layout => ((420.0, 254.0), (760.0, 300.0)),
+            Self::Examine => ((440.0, 514.0), (1180.0, 160.0)),
+            Self::Loot => ((440.0, 374.0), (560.0, 260.0)),
+            Self::Vendor => ((820.0, 574.0), (240.0, 140.0)),
+            Self::Trade => ((640.0, 434.0), (480.0, 200.0)),
+            Self::Journal => ((720.0, 474.0), (500.0, 160.0)),
+            Self::Book => ((520.0, 554.0), (700.0, 120.0)),
+            Self::Salvage => ((380.0, 294.0), (740.0, 260.0)),
+            Self::Maintenance => ((480.0, 254.0), (700.0, 260.0)),
+            Self::House => ((460.0, 374.0), (640.0, 180.0)),
+            Self::GameCenter => ((420.0, 454.0), (720.0, 140.0)),
+            Self::Barber => ((420.0, 374.0), (300.0, 160.0)),
+            Self::SpellInfo => ((400.0, 394.0), (1040.0, 180.0)),
+            Self::Vitae => ((420.0, 434.0), (1240.0, 120.0)),
+            Self::Burden => ((420.0, 334.0), (1240.0, 120.0)),
+        };
+        ((w, kit::BODY_TOP + below), at)
     }
 }
 
@@ -777,7 +780,7 @@ impl Windows {
         work.map_or_else(
             || id.title().to_owned(),
             |t| {
-                let heading = TextStyle::new(Family::Heading, 23.0, WHITE);
+                let heading = TextStyle::new(Family::Heading, kit::TITLE_POINTS, WHITE);
                 p.fit(&heading, t, width - 120.0 * p.scale)
             },
         )

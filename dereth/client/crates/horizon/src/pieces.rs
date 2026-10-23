@@ -185,6 +185,7 @@ impl FontSize {
             .collect();
         crate::font::Font {
             point_size: self.size / factor.max(f32::EPSILON),
+            pixel_size: self.size,
             line_height: self.line_height,
             ascent: self.ascent,
             glyphs,

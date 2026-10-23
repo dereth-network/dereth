@@ -7,6 +7,7 @@ use dereth_client_contract::journal::{JournalAction, JournalPage, JournalView};
 use dereth_client_contract::UiRequest;
 use dereth_horizon::draw::Rect;
 use dereth_horizon::ui::game::GameState;
+use dereth_horizon::ui::kit::BODY_TOP;
 use dereth_horizon::ui::panels::WindowId;
 
 use crate::Harness;
@@ -36,7 +37,7 @@ fn with_notebook() -> GameState {
 /// The Journal window's body under its tabs, at a layout scale of one.
 fn body() -> Rect {
     let ((w, h), (x, y)) = WindowId::Journal.geometry();
-    Rect::new(x + 12.0, y + 46.0, w - 24.0, h - 56.0)
+    Rect::new(x + 12.0, y + BODY_TOP, w - 24.0, h - BODY_TOP - 10.0)
 }
 
 fn click(h: &mut Harness, state: &GameState, at: (f32, f32)) -> Vec<UiRequest> {

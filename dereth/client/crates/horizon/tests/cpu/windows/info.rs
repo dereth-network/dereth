@@ -5,7 +5,7 @@
 
 use dereth_client_contract::combat_mode::MAGIC;
 use dereth_horizon::ui::game::{Effect, GameState, Spell};
-use dereth_horizon::ui::kit::Drop;
+use dereth_horizon::ui::kit::{Drop, BODY_TOP};
 use dereth_horizon::ui::panels::WindowId;
 
 use crate::Harness;
@@ -90,7 +90,11 @@ fn a_right_click_on_a_spellbook_row_identifies_it_without_casting_or_choosing_it
             .pos
             .expect("the window was drawn");
     // The first row of the list, under the tabs and the search box.
-    right_click(&mut h, &state, (x + 12.0 + 60.0, y + 46.0 + 74.0 + 20.0));
+    right_click(
+        &mut h,
+        &state,
+        (x + 12.0 + 60.0, y + BODY_TOP + 74.0 + 20.0),
+    );
     assert!(h.ui.windows.is_open(WindowId::SpellInfo));
     let out = h.frame(&state);
     assert_eq!(out.identify_spell, Some(FLAME_BOLT));

@@ -48,8 +48,9 @@ impl Hud {
         let k = p.scale;
         let (sw, sh) = p.screen;
         #[allow(clippy::cast_precision_loss)]
-        // Room under the last entry, clear of the frame's foot.
-        let h = 84.0 + ENTRY_H * MENU.len() as f32;
+        // The title bar's room over the entries, and room under the last entry, clear of the
+        // frame's foot.
+        let h = kit::BODY_TOP + 38.0 + ENTRY_H * MENU.len() as f32;
         let mut state = kit::WindowState {
             open: true,
             opened_at: ctx.time - 1.0,

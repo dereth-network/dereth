@@ -382,10 +382,14 @@ fn the_overlay_hides_only_the_names_behind_the_world_and_draws_the_rest_as_befor
     });
     let mut now = harness_with(Arc::clone(&art));
     names_at_depth(&mut now);
+    // Each drawn as the first frame of an overlay of its own, so both are drawn alike.
     let mut present = NullPresentation::new(1920, 1080);
     let mut overlay = Overlay::default();
     overlay.compose(&mut present, &art, &before.list, false, &[]);
     let was = triangles(overlay.items());
+    assert_eq!(overlay.stats.upload_failures, 0, "every picture is drawn");
+    let mut present = NullPresentation::new(1920, 1080);
+    let mut overlay = Overlay::default();
     overlay.compose(&mut present, &art, &now.list, false, &[]);
     let is = triangles(overlay.items());
     assert_eq!(overlay.stats.upload_failures, 0, "every picture is drawn");

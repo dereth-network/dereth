@@ -250,13 +250,30 @@ impl Painter<'_> {
         self.art.font(style.family, style.points * self.scale)
     }
 
-    /// How much wider than its own pixels the face is drawn, to land on `style.points`.
+    /// How much wider than its own pixels the face is drawn, to land on `style.points`: not at
+    /// all when its glyphs were drawn within half a pixel of the size asked for, so the text is
+    /// drawn texel for texel; scaled only where the font has no size that near.
     fn glyph_scale(&self, face: &Face, style: &TextStyle) -> f32 {
         let wanted = style.points * self.scale;
-        if face.font.point_size > 0.0 {
-            wanted / face.font.point_size
-        } else {
+        if face.font.point_size <= 0.0 {
+            return 1.0;
+        }
+        let k = wanted / face.font.point_size;
+        if ((k - 1.0) * face.font.pixel_size).abs() <= 0.5 + 1e-3 {
             1.0
+        } else {
+            k
+        }
+    }
+
+    /// The extra space after every glyph of `style`, in screen pixels: whole pixels when the
+    /// glyphs are drawn unscaled, so they stay on whole pixels.
+    fn tracking_px(&self, style: &TextStyle, k: f32) -> f32 {
+        let t = style.tracking * self.scale;
+        if (k - 1.0).abs() < f32::EPSILON {
+            t.round()
+        } else {
+            t
         }
     }
 
@@ -270,7 +287,8 @@ impl Painter<'_> {
         let w = face.font.measure(text) as f32;
         #[allow(clippy::cast_precision_loss)]
         let n = text.chars().count() as f32;
-        w * self.glyph_scale(&face, style) + style.tracking * self.scale * (n - 1.0).max(0.0)
+        let k = self.glyph_scale(&face, style);
+        w * k + self.tracking_px(style, k) * (n - 1.0).max(0.0)
     }
 
     /// The line height of `style` in screen pixels.
@@ -290,6 +308,7 @@ impl Painter<'_> {
             return 0.0;
         };
         let k = self.glyph_scale(&face, style);
+        let tracking = self.tracking_px(style, k);
         if let Some(edge) = style.edge {
             let o = (k * 1.0).max(1.0);
             for (dx, dy) in [
@@ -302,26 +321,10 @@ impl Painter<'_> {
                 (-o, o),
                 (o, o),
             ] {
-                self.glyphs(
-                    &face,
-                    k,
-                    style.tracking * self.scale,
-                    x + dx,
-                    y + dy,
-                    text,
-                    edge,
-                );
+                self.glyphs(&face, k, tracking, x + dx, y + dy, text, edge);
             }
         }
-        self.glyphs(
-            &face,
-            k,
-            style.tracking * self.scale,
-            x,
-            y,
-            text,
-            style.colour,
-        )
+        self.glyphs(&face, k, tracking, x, y, text, style.colour)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -336,6 +339,9 @@ impl Painter<'_> {
         colour: Argb,
     ) -> f32 {
         let colour = self.a(colour);
+        // Unscaled glyphs are put on whole pixels, each texel on one pixel.
+        let native = (k - 1.0).abs() < f32::EPSILON;
+        let place = |v: f32| if native { crate::draw::whole(v) } else { v };
         let mut pen = x;
         let mut prev = None;
         for ch in text.chars() {
@@ -356,8 +362,8 @@ impl Painter<'_> {
                         f32::from(g.h),
                     );
                     let dst = Rect::new(
-                        pen,
-                        y + f32::from(g.y_offset) * k,
+                        place(pen),
+                        place(y + f32::from(g.y_offset) * k),
                         f32::from(g.w) * k,
                         f32::from(g.h) * k,
                     );
@@ -492,5 +498,54 @@ mod tests {
             small_middle - middle < 2.0,
             "the small letters sit low: {small_middle} against {middle}"
         );
+    }
+
+    /// At 100%, 125% and 150%, and shrunk to fit a short window, text is drawn from the font's
+    /// own glyphs unscaled, each texel on one pixel: every glyph as many pixels as it has texels,
+    /// on whole pixels, wherever the line was asked to start. (The font holds every whole size
+    /// these ask for.)
+    #[test]
+    fn text_is_drawn_from_its_own_glyphs_unscaled_on_whole_pixels() {
+        let art = Art::new(std::sync::Arc::new(
+            crate::pieces::Pieces::built_in().expect("the pieces built in"),
+        ));
+        let styles = [
+            TextStyle::new(Family::Body, 13.0, 0xFFFF_FFFF).edge(0xFF00_0000),
+            TextStyle::new(Family::Heading, crate::ui::kit::TITLE_POINTS, 0xFFFF_FFFF),
+            TextStyle::new(Family::BarNumbers, 20.0, 0xFFFF_FFFF),
+            TextStyle::new(Family::Numerals, 12.0, 0xFFFF_FFFF).tracking(4.0),
+        ];
+        for scale in [1.0, 1017.0 / 1080.0, 1.25, 1.5] {
+            for style in &styles {
+                let mut list = DrawList::default();
+                let mut p = Painter {
+                    list: &mut list,
+                    art: &art,
+                    scale,
+                    screen: (1920.0, 1080.0),
+                    fade: 1.0,
+                };
+                let w = p.text(style, 10.3, 20.6, "Aurelia Vale, 1,250");
+                assert!(
+                    (w - p.measure(style, "Aurelia Vale, 1,250")).abs() < 1e-3,
+                    "{style:?} at {scale}: drawn as wide as measured"
+                );
+                assert!(list.quads.len() > 10);
+                for q in &list.quads {
+                    assert!(
+                        (q.dst.w - q.src.w).abs() < 1e-3 && (q.dst.h - q.src.h).abs() < 1e-3,
+                        "{style:?} at {scale}: a glyph drawn {:?} from {:?}",
+                        q.dst,
+                        q.src
+                    );
+                    assert!(
+                        q.dst.x.fract() == 0.0 && q.dst.y.fract() == 0.0,
+                        "{style:?} at {scale}: a glyph at ({}, {})",
+                        q.dst.x,
+                        q.dst.y
+                    );
+                }
+            }
+        }
     }
 }

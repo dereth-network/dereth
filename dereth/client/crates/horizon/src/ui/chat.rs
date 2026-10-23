@@ -1401,7 +1401,7 @@ impl ChatLog {
         let groups = filter_groups(w.id);
         let (left, top, right, bottom) = kit::panel_inset(p);
         let row = 24.0 * k;
-        let title_h = 34.0 * k;
+        let title_h = kit::TITLE_BAR * k;
         let button_w = 110.0 * k;
         let gap = 8.0 * k;
         // A column as wide as its longest caption beside its box, and a gap.
@@ -1475,9 +1475,9 @@ impl ChatLog {
         let label = if float.open { "Dock" } else { "Pop Out" };
         let button = Rect::new(
             inner.right() - button_w,
-            inner.y + 3.0 * k,
+            inner.y + 2.0 * k,
             button_w,
-            title_h - 6.0 * k,
+            title_h - 4.0 * k,
         );
         self.controls.push((label.to_owned(), button));
         let pressed = kit::button(p, ctx, button, label, true);

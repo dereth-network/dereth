@@ -1210,15 +1210,14 @@ fn first_row(rows: &[Target]) -> Option<Target> {
     })
 }
 
-/// How far down a window its title bar reaches, in pixels at the usual scale: what is there (its
-/// close button) is not where the focus starts.
-const TITLE_BAR: f32 = 36.0;
-
 /// The first target in panel `layer`: its top left below the title bar, or in it when there is
 /// nothing below.
 #[must_use]
 pub fn first_in(snap: &Snapshot, layer: usize) -> Option<Target> {
-    let below = snap.layer(layer).map_or(f32::MIN, |l| l.rect.y + TITLE_BAR);
+    // What is in the title bar (its close button) is not where the focus starts.
+    let below = snap
+        .layer(layer)
+        .map_or(f32::MIN, |l| l.rect.y + crate::ui::kit::TITLE_BAR);
     let all: Vec<Target> = snap
         .targets
         .iter()

@@ -30,7 +30,10 @@ impl Glyph {
 /// A font at one size.
 #[derive(Debug, Clone, Default)]
 pub struct Font {
+    /// The size text asked for at this size is drawn from these glyphs unscaled.
     pub point_size: f32,
+    /// The size its glyphs were drawn at, in pixels.
+    pub pixel_size: f32,
     pub line_height: i32,
     pub ascent: i32,
     pub glyphs: HashMap<char, Glyph>,

@@ -8,7 +8,7 @@ use dereth_client_contract::view::SpellExamineView;
 use dereth_client_contract::UiRequest;
 use dereth_horizon::draw::Rect;
 use dereth_horizon::ui::game::{GameState, Spell};
-use dereth_horizon::ui::kit::Drop;
+use dereth_horizon::ui::kit::{Drop, BODY_TOP};
 use dereth_horizon::ui::panels::WindowId;
 
 use crate::Harness;
@@ -56,7 +56,7 @@ fn body(h: &Harness) -> Rect {
             .pos
             .expect("the window was drawn");
     let ((w, wh), _) = WindowId::Actions.geometry();
-    Rect::new(x + 12.0, y + 46.0, w - 24.0, wh - 56.0)
+    Rect::new(x + 12.0, y + BODY_TOP, w - 24.0, wh - BODY_TOP - 10.0)
 }
 
 /// The spell list's area, under the tabs and the search box.

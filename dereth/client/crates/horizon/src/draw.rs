@@ -9,8 +9,13 @@
 //! What stands in the world, a name over a body, is hidden behind the world where it stands in
 //! front: its quads carry the depth of the point they stand on, and the presentation draws them
 //! only where the world drawn this frame is farther away.
+//!
+//! Every quad is drawn on whole pixels. A picture drawn larger or smaller than its own texels is
+//! drawn from a copy made at the size it is drawn ([`crate::resample`]), texel for texel, rather
+//! than stretched on the device; the copies are made a few at a time and let go of when they go
+//! unused.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use dereth_client_contract::overlay::{
     OverlayDepth, OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture,
@@ -350,6 +355,8 @@ pub struct OverlayStats {
     pub upload_failures: u64,
     pub quads_drawn: u64,
     pub quads_clipped: u64,
+    /// Pictures made at the size they are drawn.
+    pub pictures_made: u64,
 }
 
 /// The keys this interface's pictures are uploaded under: their art ids in a range of their own,
@@ -366,18 +373,114 @@ fn key(generation: u64, slot: u64) -> u64 {
     KEY_BASE | ((generation & 0xFF_FFFF) << 32) | slot
 }
 
+/// The keys of the pictures made at the size they are drawn: a range of their own beside the
+/// art's.
+const MADE_BASE: u64 = 0x5849_5700_0000_0000;
+
+/// The key of the `n`th picture made at its drawn size in `generation`.
+fn made_key(generation: u64, n: u64) -> u64 {
+    MADE_BASE | ((generation & 0xFF_FFFF) << 32) | (n & 0xFFFF_FFFF)
+}
+
+/// How many pixels of pictures made at their drawn size one frame makes, at most: a change of
+/// scale spreads the work over a few frames, and until a picture is made it is stretched on the
+/// device.
+pub const MADE_PER_FRAME: u64 = 150_000;
+
+/// How many frames a picture made at its drawn size is kept unused before it is let go.
+const MADE_KEPT: u64 = 600;
+
+/// What a picture made at its drawn size was made from: the picture, the part of it (its edges'
+/// bits) and the size in pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct MadeFrom {
+    tex: TexId,
+    src: [u32; 4],
+    size: (u32, u32),
+}
+
+/// A picture made at its drawn size: where it was uploaded (`None` when the upload failed), and
+/// the last frame that drew it.
+#[derive(Debug, Clone, Copy)]
+struct Made {
+    texture: Option<OverlayTexture>,
+    used: u64,
+}
+
 /// A picture uploaded: its key and its size in texels.
 type Uploaded = (OverlayTexture, (u32, u32));
 
 /// The overlay: every picture uploaded so far, and this frame's batches.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Overlay {
     textures: BTreeMap<TexId, Option<Uploaded>>,
     white: Option<OverlayTexture>,
     items: Vec<OverlayItem>,
     /// Which set of art the uploads belong to.
     generation: u64,
+    /// The pictures made at the size they are drawn, and how many have been made.
+    made: HashMap<MadeFrom, Made>,
+    made_count: u64,
+    /// The pictures last frame drew at a size not yet made: one drawn at the same size again is
+    /// made, and one whose size changes every frame (a window growing as it opens) is not.
+    asked: HashMap<MadeFrom, u64>,
+    /// How many frames have been composed.
+    frame: u64,
+    /// How many pixels of pictures one frame makes at most ([`MADE_PER_FRAME`]).
+    pub made_per_frame: u64,
     pub stats: OverlayStats,
+}
+
+impl Default for Overlay {
+    fn default() -> Self {
+        Self {
+            textures: BTreeMap::new(),
+            white: None,
+            items: Vec::new(),
+            generation: 0,
+            made: HashMap::new(),
+            made_count: 0,
+            asked: HashMap::new(),
+            frame: 0,
+            made_per_frame: MADE_PER_FRAME,
+            stats: OverlayStats::default(),
+        }
+    }
+}
+
+/// `v` on the nearest whole pixel, halves upward, so a run of whole steps from any start stays
+/// whole steps apart.
+#[must_use]
+pub fn whole(v: f32) -> f32 {
+    (v + 0.5).floor()
+}
+
+/// `r` with its edges on whole pixels; one of some size never narrower than a pixel.
+fn snapped(r: Rect) -> Rect {
+    let (x0, y0) = (whole(r.x), whole(r.y));
+    let at_least = |size: f32| if size > 0.0 { 1.0 } else { 0.0 };
+    let x1 = whole(r.right()).max(x0 + at_least(r.w));
+    let y1 = whole(r.bottom()).max(y0 + at_least(r.h));
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// `q` on whole pixels: its edges and its clip's. A turned quad is left as it is.
+#[must_use]
+pub fn on_pixels(q: &Quad) -> Quad {
+    if q.turn != 0.0 {
+        return *q;
+    }
+    Quad {
+        dst: snapped(q.dst),
+        clip: q.clip.map(snapped),
+        ..*q
+    }
+}
+
+/// Whether `q` draws its picture texel for texel: as many pixels as the part of the picture it
+/// shows has texels.
+fn texel_for_texel(q: &Quad) -> bool {
+    (q.dst.w - q.src.w).abs() <= 0.01 && (q.dst.h - q.src.h).abs() <= 0.01
 }
 
 impl Overlay {
@@ -423,27 +526,41 @@ impl Overlay {
             };
             self.white = present.overlay_upload(key, &white).ok().map(|()| key);
         }
+        self.frame += 1;
+        let mut spent = 0;
         for (i, q) in list.quads.iter().enumerate() {
             while let Some((space, r, _)) = spaces.next_if(|(_, _, at)| *at <= i) {
                 self.items.push(preview(space, r));
             }
+            let mut q = on_pixels(q);
             let (texture, tex_size) = match q.tex {
-                Some(id) => match self.upload(present, art, id) {
-                    Some(u) => u,
-                    None => continue,
-                },
+                Some(id) => {
+                    let made = (q.turn == 0.0 && !texel_for_texel(&q))
+                        .then(|| self.made(present, art, &q, &mut spent))
+                        .flatten();
+                    match made {
+                        Some(made) => {
+                            q.src = Rect::new(0.0, 0.0, q.dst.w, q.dst.h);
+                            made
+                        }
+                        None => match self.upload(present, art, id) {
+                            Some(u) => u,
+                            None => continue,
+                        },
+                    }
+                }
                 None => match self.white {
                     Some(w) => (w, (1, 1)),
                     None => continue,
                 },
             };
+            let q = &q;
             let Some(vertices) = quad_vertices(q, tex_size, size) else {
                 self.stats.quads_clipped += 1;
                 continue;
             };
             // Linear filtering unless the picture is drawn texel for texel.
-            let scaled = q.tex.is_some()
-                && ((q.dst.w - q.src.w).abs() > 0.01 || (q.dst.h - q.src.h).abs() > 0.01);
+            let scaled = q.tex.is_some() && !texel_for_texel(q);
             let sampler = OverlaySampler {
                 point: !scaled,
                 wrap_u: false,
@@ -479,6 +596,94 @@ impl Overlay {
         for (space, r, _) in spaces {
             self.items.push(preview(space, r));
         }
+        self.let_go_unused(present);
+    }
+
+    /// The picture `q` draws, made at the size `q` draws it, once; `None` until it is made (this
+    /// frame's share, `spent` pixels so far, is used up) or when it cannot be.
+    fn made<P: Presentation + ?Sized>(
+        &mut self,
+        present: &mut P,
+        art: &Art,
+        q: &Quad,
+        spent: &mut u64,
+    ) -> Option<Uploaded> {
+        let id = q.tex?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a quad on whole pixels on the screen, a few thousand at most.
+        let size = (q.dst.w as u32, q.dst.h as u32);
+        if size.0 == 0 || size.1 == 0 || q.src.w <= 0.0 || q.src.h <= 0.0 {
+            return None;
+        }
+        let from = MadeFrom {
+            tex: id,
+            src: [
+                q.src.x.to_bits(),
+                q.src.y.to_bits(),
+                q.src.w.to_bits(),
+                q.src.h.to_bits(),
+            ],
+            size,
+        };
+        let frame = self.frame;
+        if let Some(made) = self.made.get_mut(&from) {
+            made.used = frame;
+            return made.texture.map(|t| (t, size));
+        }
+        let asked_before = self.asked.insert(from, frame) == Some(frame - 1);
+        if !asked_before || *spent >= self.made_per_frame {
+            return None;
+        }
+        self.asked.remove(&from);
+        let image = art.image(id)?;
+        let picture = crate::resample::resample(&image, q.src, size);
+        *spent += u64::from(size.0) * u64::from(size.1);
+        let key = OverlayTexture {
+            space: OverlaySpace::Local,
+            key: made_key(self.generation, self.made_count),
+        };
+        self.made_count += 1;
+        let data = TextureData {
+            width: picture.width,
+            height: picture.height,
+            format: TextureFormat::Bgra8,
+            levels: vec![picture.bgra],
+        };
+        let texture = present.overlay_upload(key, &data).ok().map(|()| key);
+        if texture.is_some() {
+            self.stats.pictures_made += 1;
+        } else {
+            self.stats.upload_failures += 1;
+        }
+        self.made.insert(
+            from,
+            Made {
+                texture,
+                used: frame,
+            },
+        );
+        texture.map(|t| (t, size))
+    }
+
+    /// Let go of the pictures made at their drawn size that no frame has drawn for a while.
+    fn let_go_unused<P: Presentation + ?Sized>(&mut self, present: &mut P) {
+        let frame = self.frame;
+        self.asked.retain(|_, at| *at == frame);
+        self.made.retain(|_, made| {
+            let keep = frame.saturating_sub(made.used) <= MADE_KEPT;
+            if !keep {
+                if let Some(t) = made.texture {
+                    let _ = present.overlay_release(t);
+                }
+            }
+            keep
+        });
+    }
+
+    /// How many pictures made at their drawn size are kept now.
+    #[must_use]
+    pub fn made_kept(&self) -> usize {
+        self.made.values().filter(|m| m.texture.is_some()).count()
     }
 
     /// Picture `id`, uploaded the first time it is asked for.
@@ -525,6 +730,12 @@ impl Overlay {
         if let Some(white) = self.white.take() {
             let _ = present.overlay_release(white);
         }
+        for made in std::mem::take(&mut self.made).into_values() {
+            if let Some(t) = made.texture {
+                let _ = present.overlay_release(t);
+            }
+        }
+        self.asked.clear();
         self.generation += 1;
         self.items.clear();
     }
@@ -760,5 +971,149 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, ["other", "quads", "doll", "quads"]);
+    }
+
+    /// Each corner of every quad of `items`, in pixels on a back buffer `fb` pixels across and
+    /// down, with the sampler it is drawn with.
+    fn corners(items: &[OverlayItem], fb: (f32, f32)) -> Vec<((f32, f32), OverlaySampler)> {
+        items
+            .iter()
+            .flat_map(|i| match i {
+                OverlayItem::Triangles {
+                    vertices, sampler, ..
+                } => vertices
+                    .iter()
+                    .map(|v| {
+                        (
+                            (
+                                (v.position[0] + 1.0) / 2.0 * fb.0,
+                                (1.0 - v.position[1]) / 2.0 * fb.1,
+                            ),
+                            *sampler,
+                        )
+                    })
+                    .collect(),
+                OverlayItem::Preview { .. } => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// A list of one picture, eight texels square, drawn `size` pixels square at `(x, y)`.
+    fn one_picture(art: &Art, x: f32, y: f32, size: f32) -> (DrawList, TexId) {
+        let id = art.add_image(crate::art::Image::solid(8, 8, [10, 20, 30, 255]));
+        let mut list = DrawList::default();
+        list.image(
+            id,
+            Rect::new(0.0, 0.0, 8.0, 8.0),
+            Rect::new(x, y, size, size),
+            WHITE,
+        );
+        (list, id)
+    }
+
+    /// Fills and pictures alike land on whole pixels, wherever they were asked to stand; one
+    /// thinner than a pixel is a pixel wide.
+    #[test]
+    fn every_quad_is_drawn_on_whole_pixels_and_none_thinner_than_one() {
+        let mut present = NullPresentation::new(200, 100);
+        let art = Art::empty();
+        let (mut list, _) = one_picture(&art, 10.4, 20.6, 8.0);
+        list.fill(Rect::new(30.3, 40.7, 12.2, 0.4), WHITE);
+        let mut overlay = Overlay::default();
+        overlay.compose(&mut present, &art, &list, false, &[]);
+        let corners = corners(overlay.items(), (200.0, 100.0));
+        assert_eq!(corners.len(), 12, "two quads drawn");
+        for ((x, y), _) in &corners {
+            assert!(
+                (x - x.round()).abs() < 1e-3 && (y - y.round()).abs() < 1e-3,
+                "a corner at ({x}, {y})"
+            );
+        }
+        let ys: Vec<f32> = corners[6..].iter().map(|((_, y), _)| *y).collect();
+        let tall = ys.iter().copied().fold(f32::MIN, f32::max)
+            - ys.iter().copied().fold(f32::MAX, f32::min);
+        assert!(
+            (tall - 1.0).abs() < 1e-3,
+            "the thin fill is {tall} pixels tall"
+        );
+        assert!(
+            corners[..6].iter().all(|(_, s)| s.point),
+            "the picture texel for texel"
+        );
+    }
+
+    /// A picture drawn at another size than its own is stretched on the frame it first stands at
+    /// that size, and from the next is drawn texel for texel from a copy made at that size, made
+    /// once.
+    #[test]
+    fn a_picture_drawn_at_another_size_is_drawn_from_a_copy_made_at_that_size() {
+        let mut present = NullPresentation::new(200, 100);
+        let art = Art::empty();
+        let (list, _) = one_picture(&art, 10.0, 10.0, 13.0);
+        let mut overlay = Overlay::default();
+        overlay.compose(&mut present, &art, &list, false, &[]);
+        assert!(
+            corners(overlay.items(), (200.0, 100.0))
+                .iter()
+                .all(|(_, s)| !s.point),
+            "the first frame stretches it"
+        );
+        overlay.compose(&mut present, &art, &list, false, &[]);
+        assert_eq!(overlay.stats.pictures_made, 1);
+        assert!(
+            corners(overlay.items(), (200.0, 100.0))
+                .iter()
+                .all(|(_, s)| s.point),
+            "then it is drawn texel for texel"
+        );
+        let OverlayItem::Triangles {
+            texture, vertices, ..
+        } = &overlay.items()[0]
+        else {
+            panic!("the picture's triangles");
+        };
+        assert!(vertices.iter().all(|v| v.uv[0] == 0.0 || v.uv[0] == 1.0));
+        let made = *texture;
+        for _ in 0..3 {
+            overlay.compose(&mut present, &art, &list, false, &[]);
+        }
+        assert_eq!(overlay.stats.pictures_made, 1, "made once");
+        assert_eq!(textures(overlay.items()), [made]);
+    }
+
+    /// A picture whose size changes from frame to frame (a window growing as it opens) is
+    /// stretched, not made at every size it passes through.
+    #[test]
+    fn a_picture_whose_size_changes_every_frame_is_not_made() {
+        let mut present = NullPresentation::new(200, 100);
+        let art = Art::empty();
+        let mut overlay = Overlay::default();
+        for n in 0..8 {
+            #[allow(clippy::cast_precision_loss)]
+            let (list, _) = one_picture(&art, 10.0, 10.0, 12.0 + n as f32);
+            overlay.compose(&mut present, &art, &list, false, &[]);
+        }
+        assert_eq!(overlay.stats.pictures_made, 0);
+    }
+
+    /// A copy no frame has drawn for a while is let go of, and the overlay keeps no more.
+    #[test]
+    fn a_copy_left_undrawn_for_a_while_is_let_go_of() {
+        let mut present = NullPresentation::new(200, 100);
+        let art = Art::empty();
+        let (list, _) = one_picture(&art, 10.0, 10.0, 13.0);
+        let mut overlay = Overlay::default();
+        overlay.compose(&mut present, &art, &list, false, &[]);
+        overlay.compose(&mut present, &art, &list, false, &[]);
+        assert_eq!(overlay.made_kept(), 1);
+        let released = present.counts().overlay_releases;
+        let empty = DrawList::default();
+        for _ in 0..MADE_KEPT {
+            overlay.compose(&mut present, &art, &empty, false, &[]);
+        }
+        assert_eq!(overlay.made_kept(), 1, "kept for a while");
+        overlay.compose(&mut present, &art, &empty, false, &[]);
+        assert_eq!(overlay.made_kept(), 0);
+        assert_eq!(present.counts().overlay_releases, released + 1);
     }
 }

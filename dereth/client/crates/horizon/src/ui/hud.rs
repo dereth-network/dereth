@@ -209,8 +209,9 @@ pub fn window_for_action(action: u32) -> Option<WindowId> {
     })
 }
 
-/// The HUD Layout window's size, in layout units.
-const LAYOUT_SIZE: (f32, f32) = (380.0, 200.0);
+/// The HUD Layout window's size, in layout units: the room its title bar keeps over its contents
+/// and bottom frame.
+const LAYOUT_SIZE: (f32, f32) = (380.0, kit::BODY_TOP + 154.0);
 
 /// The target bar's health for `t`: how full its channel is drawn and the number over it, or
 /// `None` for no bar. A player, a person or a creature has health, as the selection's ring marks
