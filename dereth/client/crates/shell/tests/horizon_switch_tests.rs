@@ -309,7 +309,7 @@ fn a_fresh_settings_folder_starts_in_horizon_and_a_saved_modern_choice_stays_mod
     std::fs::create_dir_all(&state).expect("a scratch settings folder");
     let prefs = state.join("prefs.ini");
 
-    // A fresh folder, as the desktop and browser clients start a player.
+    // A fresh folder, as the browser client starts a player.
     let (app, shell) = started::<NullHost>(&state, Some(NEW_PLAYER));
     let c = Client { app, shell };
     assert_eq!(

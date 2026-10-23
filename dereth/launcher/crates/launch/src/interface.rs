@@ -1,9 +1,10 @@
 //! The interface the Dereth client starts in, which the launcher asks for once.
 //!
 //! The client keeps its interface in its preferences file, `UserPreferences.ini`, as `Interface=`
-//! under `[UI]`, and a player whose file names none starts in Horizon. While the file the client
-//! will read ([`preferences_file`]) names no interface, the launcher asks which to play in,
-//! offering the three ([`OFFERED`]) with Horizon first and chosen to begin with ([`FIRST_CHOICE`]).
+//! under `[UI]`, and a client started on its own whose file names none starts in the modern
+//! interface. While the file the client will read ([`preferences_file`]) names no interface, the
+//! launcher asks which to play in, offering the three ([`OFFERED`]) with Horizon first and chosen
+//! to begin with ([`FIRST_CHOICE`]).
 //! It writes the answer into that file with the client's own reader and writer ([`save`]), every
 //! other line kept, so the client starts in it; once the file names one, the launcher never asks
 //! again. The player changes it later in the client's options, as before, or from the launcher.

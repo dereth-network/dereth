@@ -392,10 +392,13 @@ pub fn load_config(
         if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
             cfg.preferences_file = default_preferences.to_path_buf();
         }
-        // A player whose settings name no interface starts in the new player's. A run that keeps
-        // no settings (a headless run that named none) is a tool's, and keeps the modern one.
+        // A player whose settings name no interface starts in the modern interface: the launcher
+        // asks a new player once and writes the answer, so a file naming none is a client started
+        // on its own. A run that keeps no settings (a headless run that named none) is a tool's,
+        // and keeps the modern one too.
         if !cfg.preferences_file.as_os_str().is_empty() {
-            cfg.new_player_interface = Some(dereth_client_contract::options::interface::NEW_PLAYER);
+            cfg.new_player_interface =
+                Some(dereth_client_contract::options::interface::NEW_PLAYER_ON_ITS_OWN);
         }
         Ok(cfg)
     };
@@ -840,18 +843,19 @@ FullScreen=True
     }
 
     /// A run that keeps the player's settings starts a player whose settings name no interface in
-    /// Horizon; a headless run that keeps none is a tool's, and keeps the modern interface.
+    /// the modern interface, as the retail client starts; a headless run that keeps none is a
+    /// tool's, and names no new player's interface at all.
     ///
-    /// Behaviour: none (experimental Horizon interface)
+    /// Behaviour: none (this client's choice of the interface a client started on its own opens in)
     #[test]
-    fn a_players_run_starts_a_new_player_in_horizon_and_a_tools_headless_run_does_not() {
-        use dereth_client_contract::options::interface::{Interface, NEW_PLAYER};
+    fn a_players_run_started_on_its_own_starts_a_new_player_in_the_modern_interface() {
+        use dereth_client_contract::options::interface::{Interface, NEW_PLAYER_ON_ITS_OWN};
         let scratch = Scratch::new("new-player");
         let settings = scratch.0.join("client");
         let prefs = settings.join(PREFERENCES_FILE_NAME);
         let (cfg, _) = load_config(&[], &prefs, Some(&settings), None).unwrap();
-        assert_eq!(cfg.new_player_interface, Some(NEW_PLAYER));
-        assert_eq!(NEW_PLAYER, Interface::Horizon);
+        assert_eq!(cfg.new_player_interface, Some(NEW_PLAYER_ON_ITS_OWN));
+        assert_eq!(NEW_PLAYER_ON_ITS_OWN, Interface::Modern);
         let (tool, _) =
             load_config(&["--headless".to_owned()], &prefs, Some(&settings), None).unwrap();
         // Unless the environment names a settings folder outright, which such a run then keeps.

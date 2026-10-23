@@ -149,8 +149,14 @@ pub fn register() -> usize {
     ))
 }
 
-/// The interface a new player starts in: one whose preferences name none.
+/// The interface a new player starts in, one whose preferences name none: the launcher offers it
+/// first, and the browser client starts in it.
 pub const NEW_PLAYER: Interface = Interface::Horizon;
+
+/// The interface a new player starts in when the desktop client is started on its own, without
+/// the launcher (which asks the player once and writes the answer): the modern interface, the
+/// retail client's own.
+pub const NEW_PLAYER_ON_ITS_OWN: Interface = Interface::Modern;
 
 /// The interface the preferences file `ini` names, when it names one this client reads; the
 /// last such line, as the load takes the last.
