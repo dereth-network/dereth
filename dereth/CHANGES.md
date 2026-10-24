@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.6 (2026-10-24)
+
 - Started without the launcher, the client opens a new player in the modern interface.
 - Horizon: smaller window title bars, and sharper text and art at every scale.
 - Host your own world from the launcher, set it up, share it with a link, and run its console.
