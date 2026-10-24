@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.1.1 (2026-10-24)
+
 - Lyceum is faster while flying, browsing scenery and with big dungeons open.
 - Build worlds on the Infiltration (February 2005) data files, portal and cell alike.
 - Export a world for Empyrean, ACE or GDLE with `lyceum export`.
