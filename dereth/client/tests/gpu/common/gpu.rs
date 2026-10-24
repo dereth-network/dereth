@@ -10,8 +10,8 @@
 //! still let the others run and report their own failures, and the guarded data is `()`, so there
 //! is nothing a panicking holder could have left half-written.
 //!
-//! `-- --test-threads=1` is still the documented way to run this binary (`README.md`, and
-//! `cargo xtask gate` now passes it for the two crates that have a `gpu` binary). This lock is
+//! Run this binary with `-- --test-threads=1`; `cargo xtask gate` passes it for the two crates
+//! that have a `gpu` binary. This lock is
 //! what makes a *parallel* run correct rather than lucky; the flag is what keeps a run's wall
 //! clock and its output readable.
 

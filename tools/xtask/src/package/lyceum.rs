@@ -74,6 +74,7 @@ const ABOUT: (&str, &str) = ("lyceum/about.toml", "lyceum/about.hbs");
 /// tree).
 pub const DOCUMENTS: &[(&str, &str)] = &[
     ("README.md", "lyceum/README.md"),
+    ("PACKS.md", "lyceum/PACKS.md"),
     ("CHANGES.md", "lyceum/CHANGES.md"),
     ("EMPYREAN-LICENSE", "empyrean/LICENSE"),
     (

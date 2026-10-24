@@ -95,7 +95,7 @@ The release this package belongs to, with GitHub's source archives of its tag:
 
 If you run a modified version of this server for players over a network, its licence asks you to
 offer those players your modified source; set `[server] source_url` in empyrean.toml to where it
-is (README.md, \"Licence\").
+is (README.md, \"License\").
 
 
 NO GAME DATA

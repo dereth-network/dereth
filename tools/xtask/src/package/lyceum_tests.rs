@@ -91,7 +91,7 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 }
 
 /// The Windows zip holds, in one folder, the editor (which carries the icon), the command, the
-/// notices, the README and the change log, and nothing else.
+/// notices, the README, the pack reference and the change log, and nothing else.
 #[test]
 fn the_windows_zip_holds_all_four_programs_the_notices_readme_and_changes() {
     let w = target(WINDOWS);
@@ -104,6 +104,7 @@ fn the_windows_zip_holds_all_four_programs_the_notices_readme_and_changes() {
             "LICENSE",
             "LIFESTONED-LICENSE.txt",
             "NOTICE.txt",
+            "PACKS.md",
             "README.md",
             "THIRD-PARTY-LICENSES.html",
             "empyrean-import.exe",
@@ -137,6 +138,7 @@ fn the_linux_tarball_holds_all_four_programs_and_a_desktop_entry_with_its_icon()
             "LICENSE",
             "LIFESTONED-LICENSE.txt",
             "NOTICE.txt",
+            "PACKS.md",
             "README.md",
             "THIRD-PARTY-LICENSES.html",
             "empyrean-import",
@@ -201,12 +203,13 @@ fn the_macos_bundle_carries_all_four_programs_moltenvk_the_icon_and_the_notices(
             "Contents/Resources/EMPYREAN-LICENSE",
             "Contents/Resources/LIFESTONED-LICENSE.txt",
             "Contents/Resources/README.md",
+            "Contents/Resources/PACKS.md",
             "Contents/Resources/CHANGES.md",
             "Contents/_CodeSignature/CodeResources",
         ] {
             assert!(contents.contains(&need.to_owned()), "{need}");
         }
-        assert_eq!(contents.len(), 16, "{contents:?}");
+        assert_eq!(contents.len(), 17, "{contents:?}");
         assert_eq!(
             lyceum::programs(m),
             [

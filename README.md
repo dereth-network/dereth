@@ -1,228 +1,215 @@
-# dereth
+# Dereth Network
 
-**Dereth, rebuilt. A modern client, server and toolkit for Asheron's Call.**
+**Asheron's Call, rebuilt: a modern client, server and world builder.**
 
-**Dereth** is an open-source, from-scratch reimplementation of the Asheron's Call ecosystem. It includes
-**Dereth**, a modern client built to behave exactly like the final retail client (acclient
-00.00.11.6096), on the desktop and in a web browser; **Empyrean**, a Rust server descended from
-ACEmulator, which web clients reach directly over WebSocket; and a shared SDK that anyone can build new
-clients, bots and tools on. Retail behaviour is written down, tested and tied to evidence as it is
-implemented, and every deliberate departure is listed ([client](dereth/DIVERGENCES.md),
-[server](empyrean/DIVERGENCES.md)).
+The Dereth Network is an open-source reimplementation of Asheron's Call:
 
-Everything builds on Windows, Linux and macOS; the client is tested on Windows and macOS.
+- **Dereth**, a client that behaves like the final retail client, acclient 00.00.11.6096 (June
+  2015), on the desktop and in a web browser. It comes with a launcher that finds worlds and keeps
+  everything up to date.
+- **Empyrean**, a server ported from [ACE](https://github.com/ACEmulator/ACE). Web clients reach it
+  directly over WebSocket.
+- **Lyceum**, a world builder that draws a world the way the client does and exports it for
+  Empyrean, ACE or GDLE.
+- **The Dereth Network** itself: cross-world tells, friends and chat between Empyrean and ACE
+  worlds.
+- A shared SDK for building other clients, bots and tools.
 
-**No retail data files ship with this repository.** The client and the server read the original
-game's data files; obtain your own copy to run them.
+Retail behavior is written down, tested and tied to evidence, and every deliberate difference is
+listed ([client](dereth/DIVERGENCES.md), [server](empyrean/DIVERGENCES.md)).
+
+Everything builds on Windows, Linux and macOS. The client is tested on Windows and macOS.
+
+**No game data ships with this repository.** The client and the server read the original game's
+data files; you need your own copy.
 
 ## Download
 
-The repository's [releases](https://github.com/dereth-network/dereth/releases) tagged
-`dereth-v<version>` are Dereth, the launcher, with the client inside it: a zip for Windows (unzip
-anywhere and run `dereth.exe`; no installer), `Dereth.app` for macOS and an AppImage for Linux.
-Take the newest. The launcher keeps itself and the client up to date from the newest published
-one. The builds are not code-signed yet: Windows SmartScreen asks once (**More info**, **Run
-anyway**), and macOS once (**System Settings**, **Privacy & Security**, **Open Anyway**). How a
-release is made:
-[`dereth/launcher/RELEASING.md`](dereth/launcher/RELEASING.md). Empyrean's releases, tagged
-`empyrean-v<version>`, are in the same list.
+Get the newest release tagged `dereth-v<version>` from
+[releases](https://github.com/dereth-network/dereth/releases). It is the launcher with the client
+inside:
 
-## Build and run
+- **Windows:** a zip. Unzip it anywhere and run `dereth.exe`; there is no installer.
+- **macOS:** `Dereth.app`.
+- **Linux:** an AppImage.
 
-Rust 1.98 or newer. The default renderer is Vulkan, so one source tree serves all three platforms;
-at run time a Vulkan 1.2 driver is required.
+The launcher updates itself and the client, and downloads Empyrean and Lyceum when you want them.
+Their own releases are in the same list, tagged `empyrean-v<version>` and `lyceum-v<version>`.
 
-```
-cargo build --workspace
-cargo run   -p dereth-client
-```
-
-The server's own guide is [`empyrean/SETUP.md`](empyrean/SETUP.md). The web client builds and serves
-locally with `cargo xtask web`; deploying it is [`dereth/web/DEPLOY.md`](dereth/web/DEPLOY.md), and
-playing it on a server that speaks only UDP goes through
-[`dereth-web-relay`](tools/web-relay/README.md).
+The builds aren't code-signed yet. Windows SmartScreen asks once (**More info**, then **Run
+anyway**), and so does macOS (**System Settings**, **Privacy & Security**, **Open Anyway**).
 
 ## Why this exists
 
-There are already good Asheron's Call servers, and people keep making more. Most players are still using ancient retail clients unsuitable for modern Windows or non-Windows. This isn't a replacement for any of them, and it isn't a bid to be the one true anything. I'm building Dereth and
-Empyrean for me: to understand the game properly, top to bottom, and to have a modern client and server I can take wherever I want. If it's useful to you, use it. If it isn't, don't. Both are fine.
+There are already good Asheron's Call servers, and people keep making more. Most players are still
+using ancient retail clients unsuitable for modern Windows or non-Windows. This isn't a replacement
+for any of them, and it isn't a bid to be the one true anything. I'm building Dereth and Empyrean
+for me: to understand the game properly, top to bottom, and to have a modern client and server I
+can take wherever I want. If it's useful to you, use it. If it isn't, don't. Both are fine.
 
 Where it's going:
 
 - **Every era.** One client and one server that can play Asheron's Call as it was at any point from
   launch in 1999 to the end of retail in 2017, chosen by the data you load, not by which program you
   run.
-- **The old UI,** (optionally) and the classic Asheron's Call experience more generally.
-- **New ways to present it:** experiments with upgraded graphics, a stylized 2D client, Dereth on the web.
+- **The old UI**, optionally, and the classic Asheron's Call experience more generally.
+- **New ways to present it:** upgraded graphics, a stylized 2D client, Dereth on the web.
 - **A plugin and automation API,** including bots. Picture a world populated by AI-driven characters.
 - Whatever else turns out to be cool along the way.
 
+## Guides
+
+| Product | Guide |
+|---|---|
+| The launcher | [`dereth/launcher/README.md`](dereth/launcher/README.md) |
+| The web client | [`dereth/web/README.md`](dereth/web/README.md); hosting it: [`dereth/web/DEPLOY.md`](dereth/web/DEPLOY.md) |
+| The Horizon interface | [`dereth/client/crates/horizon/README.md`](dereth/client/crates/horizon/README.md) |
+| Empyrean | [`empyrean/SETUP.md`](empyrean/SETUP.md) to run a server; [`empyrean/README.md`](empyrean/README.md) for reference |
+| Lyceum | [`lyceum/README.md`](lyceum/README.md) |
+| The Dereth Network | [`network/README.md`](network/README.md); for ACE worlds, [`network/ace-mod/README.md`](network/ace-mod/README.md) |
+
+## Build and run
+
+You need Rust 1.98 or newer. The default renderer is Vulkan, so a Vulkan 1.2 driver is needed at
+run time.
+
+```
+cargo build --workspace
+cargo run -p dereth-client
+```
+
+`cargo xtask web` builds the web client and serves it on `127.0.0.1`. To play it on a server that
+speaks only UDP, run [`dereth-web-relay`](tools/web-relay/README.md).
+
 ## Layout
 
-One workspace (`Cargo.toml`, one `Cargo.lock`), four folders. A crate's folder is its package name
-without the `dereth-` or `empyrean-` prefix: `core/physics` is `dereth-physics`,
-`dereth/client/crates/ui` is `dereth-ui`, `empyrean/crates/world` is `empyrean-world`.
+One Cargo workspace. A crate's folder is usually its package name without the `dereth-`,
+`empyrean-` or `lyceum-` prefix: `core/physics` is `dereth-physics`, `empyrean/crates/world` is
+`empyrean-world`.
 
-| Folder | What it holds | Licence |
+| Folder | What it holds | License |
 |---|---|---|
-| `core/` | The shared crates: the data files, shared text (`text`), the engines, the wire and the game rules any AC client, server or tool shares, and the client SDK (`client-net`, `client-model`, `client-contract`, `client-runtime`, `audio`), with `dereth-client-sdk` its front door. | MIT |
-| `dereth/` | The products: the 3D client (`dereth/client`, with its own crates under `dereth/client/crates/`, among them `scene`, the drawn world, and `shell`, the retail front end both clients share), the web client (`dereth/web`), the launcher (`dereth/launcher`: its Tauri app, a workspace of its own, and `dereth-launch`, what it knows), the headless client and the client's test kit, with [`DIVERGENCES.md`](dereth/DIVERGENCES.md), the places the Dereth client deliberately differs from the retail client. | MIT |
-| `empyrean/` | Empyrean, the server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` binaries and the server's test kit, with its own [`LICENSE`](empyrean/LICENSE), [`README.md`](empyrean/README.md), [`SETUP.md`](empyrean/SETUP.md) and [`DIVERGENCES.md`](empyrean/DIVERGENCES.md). | AGPL-3.0-only |
-| `tools/` | Research and build tools: the capture index, the corpus tool, the web client's local relay (`web-relay`) and developer runner (`web-dev`), and the `xtask` task runner; [`tools/README.md`](tools/README.md) says what each is for and how to run it. | MIT |
+| `core/` | The shared crates: the data files, the engines, the wire protocol, the game rules and the client SDK (`dereth-client-sdk` is its front door). | MIT |
+| `dereth/` | The client (`dereth/client`, with its crates under `dereth/client/crates/`), the web client (`dereth/web`), the launcher (`dereth/launcher`, a Tauri app with a workspace of its own), the headless client and the client's test kit. | MIT |
+| `empyrean/` | The server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` programs and the server's test kit. | AGPL-3.0-only |
+| `lyceum/` | The world builder: the editor, the Foundry library and the `lyceum` command. | MIT |
+| `network/` | The Dereth Network: its protocol, hub, conformance suite and ACE mod. | MIT; the hub and the mod AGPL-3.0-only |
+| `tools/` | Developer tools: the `xtask` task runner, the capture and corpus tools, and the web client's relay and dev server. [`tools/README.md`](tools/README.md) describes each. | MIT |
+| `docs/` | The behavior specification (below). | |
+| `fixtures/` | Recorded sessions and other shared test data. | |
 
 ## Commands
 
 ```
-cargo xtask check            # while working, before each commit: the crates you changed, and the fast rules
+cargo xtask check            # while working, before each commit: the crates you changed and the fast rules
 cargo xtask ci tier0         # before pushing: exactly what CI runs; needs no game data
-cargo xtask ci tier1         # with your retail data: the data tiers and the server's real-content tier
-cargo xtask ci tier2         # on hardware: the GPU tier and the retail comparisons
+cargo xtask ci tier1         # with your game data: the data tests and the server's real-content tests
+cargo xtask ci tier2         # on hardware: the GPU tests and the retail comparisons
 cargo xtask web              # build the web client and serve it on 127.0.0.1
-cargo xtask                  # every single check and tool, grouped
+cargo xtask                  # list every check and tool
 ```
 
-Which to run when, and how to point the tests at your own data: [CONTRIBUTING.md](CONTRIBUTING.md).
-Clippy, the lints and the tests cover the client and the server crates alike; `clippy.toml` is
-shared, and all the code formats with rustfmt's defaults.
+[CONTRIBUTING.md](CONTRIBUTING.md) says which to run when and how to point the tests at your data.
+Clippy, the lints and the tests cover the client and the server alike. `clippy.toml` is shared, and
+the code is formatted with rustfmt's defaults.
 
 ## Test tiers
 
-A crate's integration tests are **one binary per tier**, not one binary per file. The tier says what
-a test needs to run, and it is the only thing the tiers say:
+Each crate's integration tests build into one binary per tier. The tier says what the tests need:
 
-| tier  | needs                                                | target              |
-|-------|------------------------------------------------------|---------------------|
-| `cpu` | nothing but the crate                                | `tests/cpu/main.rs` |
-| `dat` | game data (`DERETH_TEST_DAT_DIR`)                    | `tests/dat/main.rs` |
-| `gpu` | a graphics device and game data                      | `tests/gpu/main.rs` |
-| `local` | explicitly supplied private inputs (e.g. unscrubbed recordings) | `tests/local/main.rs` |
+| Tier | Needs | Target |
+|---|---|---|
+| `cpu` | nothing but the crate | `tests/cpu/main.rs` |
+| `dat` | game data (`DERETH_TEST_DAT_DIR`) | `tests/dat/main.rs` |
+| `gpu` | a graphics device and game data | `tests/gpu/main.rs` |
+| `local` | private inputs you supply, such as unscrubbed recordings | `tests/local/main.rs` |
 
-The tests' and tools' own variables are `DERETH_*`, and those only tests read are `DERETH_TEST_*` (the server's, `EMPYREAN_TEST_*`). The inputs a run may be given:
+Variables only tests read start with `DERETH_TEST_` (`EMPYREAN_TEST_` for the server's).
+CONTRIBUTING.md lists the ones that point at game data and world packs. The others:
 
-| variable | what it points the tests at |
+| Variable | What it does |
 |---|---|
-| `DERETH_TEST_DAT_DIR` | the game data (no default) |
-| `EMPYREAN_TEST_WORLD_PACK` | the server's built world pack ([`empyrean/SETUP.md`](empyrean/SETUP.md)) |
-| `DERETH_TEST_RENDERER` | `d3d12` or `wgpu` runs the GPU tiers on that backend instead of Vulkan |
-| `DERETH_TEST_GPU` | `software` asks every test device for a software rasteriser; by default they use the hardware GPU, and fall back to software only where there is none |
-| `DERETH_TEST_DXC_DIR` | the folder holding DXC's `dxcompiler.dll` (`bin/x64` of its Windows release), which test devices on Direct3D 12 then compile with; the GPU tier's DXC test needs it |
-| `EMPYREAN_WORLD_SQL` | ACE's world-database dump for the server's real-content tests, else the one `empyrean-import fetch` cached |
+| `DERETH_TEST_RENDERER` | `d3d12` or `wgpu` runs the GPU tests on that backend instead of Vulkan |
+| `DERETH_TEST_GPU` | `software` asks for a software rasterizer. By default tests use the hardware GPU, and software only where there is none |
+| `DERETH_TEST_DXC_DIR` | the folder holding DXC's `dxcompiler.dll`, for Direct3D 12 test devices; the GPU tier's DXC test needs it |
 | `DERETH_TEST_FFMPEG` | the FFmpeg the intro-movie test decodes with, else `ffmpeg` on `PATH` |
 | `DERETH_TEST_CAPTURES`, `DERETH_TEST_NETBLOBS`, `DERETH_TEST_CORPUS_ROOT` | recordings or a message corpus other than the ones in `fixtures/` |
 | `DERETH_TEST_GOLDEN=1` | rewrite the golden files instead of comparing against them |
 
-## Building on Windows, Linux and macOS
+## Platforms
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
-| Vulkan at run time | any GPU driver from ~2019 on (`vulkan-1.dll` ships with the driver) | the GPU's Mesa or vendor driver; `lavapipe` (`mesa-vulkan-drivers`) works headless | the Vulkan SDK from LunarG, or `brew install molten-vk vulkan-loader` |
-| native build inputs | MSVC, `rc.exe` (for the icon) | `libasound2-dev` (cpal), `pkg-config`; X11 and Wayland come through winit's pure-Rust bindings | Xcode command-line tools (cpal's CoreAudio bindings run bindgen against the SDK) |
-| shaders | compiled from `legacy.wgsl` by `naga` at device creation; no toolchain | same | same |
+| Vulkan at run time | any GPU driver from about 2019 on | the GPU's Mesa or vendor driver; `lavapipe` (`mesa-vulkan-drivers`) works headless | the Vulkan SDK from LunarG, or `brew install molten-vk vulkan-loader` |
+| To build | MSVC, and `rc.exe` for the icon | `libasound2-dev` and `pkg-config` | Xcode command-line tools |
 
-On macOS `dereth_render::vulkan` finds the loader itself (a MoltenVK bundled in the app,
-`Contents/Frameworks/libMoltenVK.dylib`, as a release carries it, then `$VULKAN_SDK/lib`,
-`/opt/homebrew/lib` and `/usr/local/lib`), so nothing needs `DYLD_LIBRARY_PATH`. Device tests use the
-machine's GPU, and a software rasteriser (`lavapipe`, SwiftShader, WARP) only where there is no GPU or
-`DERETH_TEST_GPU=software` asks for one. Cross-checking from Windows (`cargo check -p dereth-render --target
-x86_64-unknown-linux-gnu`, or `aarch64-apple-darwin`) needs only the rustup target.
+Shaders are compiled at run time, so there is no shader toolchain to install. On macOS the client
+finds the Vulkan loader itself (the MoltenVK a release bundles, then `$VULKAN_SDK/lib`,
+`/opt/homebrew/lib` and `/usr/local/lib`), so `DYLD_LIBRARY_PATH` isn't needed. To check the Linux
+or macOS build from Windows, add the rustup target and run
+`cargo check -p dereth-render --target x86_64-unknown-linux-gnu` (or `aarch64-apple-darwin`).
 
-**Three backends are built in by default:** Vulkan (the default), Direct3D 12 (Windows only) and
-`wgpu` (Metal, Vulkan or Direct3D 12 underneath; `WGPU_BACKEND` picks which, and it is the backend the
-web client uses in the browser).
+Three renderers are built in: Vulkan (the default), Direct3D 12 (Windows only) and `wgpu` (Metal,
+Vulkan or Direct3D 12 underneath, chosen by `WGPU_BACKEND`; the web client uses it too). Pick one
+with `--renderer vulkan|d3d12|wgpu` or `Renderer=` in the preferences file. One that isn't built
+in or can't create a device falls back to the default and says so.
 
-```powershell
+```
 cargo run -p dereth-client -- --renderer d3d12
-cargo run -p dereth-client -- --renderer wgpu
 ```
 
-A run picks its backend from `--renderer vulkan|d3d12|wgpu`, then `Renderer=` in the preferences
-file, then the default; a backend that is not built or cannot create a device prints a line and falls
-back. The test-only `DERETH_TEST_RENDERER=d3d12|wgpu` runs the GPU test tiers on it.
+On Direct3D 12, `wgpu` compiles shaders with FXC, which comes with Windows. Put Microsoft's
+`dxcompiler.dll`, 1.9 or newer (from `bin/x64` of a
+[DXC release](https://github.com/microsoft/DirectXShaderCompiler/releases)), beside
+`dereth-client.exe` and it uses DXC instead, which is much faster on Better Lighting's long shaders
+and can trace rays. The startup log line says which compiler it used.
 
-On Direct3D 12, `wgpu` compiles its shaders with FXC, which is part of Windows. A player who puts
-Microsoft's `dxcompiler.dll` (1.9 or newer, `bin/x64` of a release from
-<https://github.com/microsoft/DirectXShaderCompiler/releases>) beside `dereth-client.exe` gets DXC
-instead, which is several times faster on Better Lighting's long shaders and can trace rays. The
-startup line names the compiler (`… on Dx12 with FXC` or `with DXC`).
+The client can also run without a window and replay recorded input:
+[`dereth/client/INPUT-REPLAY.md`](dereth/client/INPUT-REPLAY.md).
 
-## Replaying input headlessly
+## Where the client keeps its settings
 
-The desktop executable accepts `--headless --input-replay events.txt`. It validates the entire
-UTF-8 file before starting the client, then delivers each event through the same input queue as
-the window. A replay requires `--headless`. It does not end the session; use `--frames` or the
-normal logout controls to stop it.
+Everything the player saves (`UserPreferences.ini`, key maps, UI layouts, screenshots and
+journals) lives in one folder:
 
-Each nonempty line contains a one-based frame number and an event. Frames must be in increasing
-order (equal frames are allowed and keep file order). Lines beginning with `#` are comments.
-
-```text
-# Move, press, drag, release, then type a translated character.
-100 move 120 240
-100 button left down
-105 move 220 240
-106 button left up
-120 key 0x41 0x1e down U+0061
-121 key 0x41 0x1e up
-```
-
-| Event fields after the frame | Meaning |
-|---|---|
-| `move X Y` | Pointer position in client pixels; finite decimal coordinates |
-| `button BUTTON down` or `button BUTTON up` | A transition for `left`, `right`, `middle`, `back` or `forward` |
-| `wheel NOTCHES` | Finite signed wheel distance; one detent is one notch |
-| `alt down` or `alt up` | The host's Alt modifier state |
-| `key VK SCAN down [U+HEX ...]` | A virtual key and scan code, optionally carrying translated Unicode scalars |
-| `key VK SCAN up` | Release the same key, without text |
-
-`VK` is a virtual-key number in 0..255; `SCAN` is a 16-bit set-1 scan code (including its extended
-prefix). Both accept decimal or `0x` hexadecimal. Text uses Unicode scalar values: `U+0020` is a
-space, `U+000D` is Return and `U+0016` is the translated Ctrl+V character. Supply modifier key
-transitions as well when a gesture needs them. Replay does not infer text from a keyboard layout.
-
-Events enter the input queue before their frame begins. `--capture-at 106:drag.png` captures the
-picture drawn by frame 106 on the next frame's start, so run at least 107 frames to save it. Network
-and loading times still vary: use captures to verify that the intended screen was ready before
-the gesture. The file names no controls or game requests; clicks and keys follow the active
-interface's normal routing.
-
-## Where the client writes its settings
-
-Everything the player saves (`UserPreferences.ini`, `dereth.keymap`, the UI layouts, screenshots
-and journals) lives in one directory: a `UserPreferences.ini` in the working directory wins (a
-portable install), and `-prefs <file>` (or `--prefs <file>`) moves all of them together. A
-`--headless` run that names no file uses none of them: it reads the defaults and writes nothing
-there, so a capture or a test run never changes the player's settings. The environment variable
-`DERETH_SETTINGS_DIR` names the directory outright (only `-prefs` wins over it): a script, a test
-or a second copy of the client run with it set to a folder of their own leave the player's alone,
-crash logs included. Otherwise:
-
-| platform | directory |
+| Platform | Folder |
 |---|---|
 | Windows | `%APPDATA%\Dereth\client` |
 | macOS | `~/Library/Application Support/Dereth/client` |
 | Linux and other Unix | `$XDG_CONFIG_HOME/dereth/client`, or `~/.config/dereth/client` |
 
-The launcher keeps its own settings beside it, in `launcher`. On Windows the first run **copies**
-(never moves) the original game's `Documents\Asheron's Call` folder into it, once.
-`Display.FullScreen` applies from the first screen in Horizon; in the modern and classic
-interfaces it applies when the player enters the world, and login and character select are always
-windowed. A run that fails, panics or crashes leaves its log in
-`crash-logs/dereth-client-<pid>.log` in that directory, whatever `-prefs` says, with the account,
-password and ticket values hidden; a run that ends cleanly removes its own, and only the newest 20
-are kept.
+The launcher keeps its own settings in `launcher` beside it. On Windows the client's first run
+copies (never moves) the original game's `Documents\Asheron's Call` folder in, once.
+
+These win over the default, strongest first:
+
+- `-prefs <file>` (or `--prefs`) moves everything to that file's folder.
+- `DERETH_SETTINGS_DIR` names the folder outright. Scripts, tests and a second copy of the client
+  use it to leave the player's own settings alone.
+- A `UserPreferences.ini` in the working directory makes a portable install.
+
+A `--headless` run that names no preferences file reads the defaults and writes nothing.
+
+Full screen (`Display.FullScreen`) starts at the first screen in Horizon. The modern and classic
+interfaces keep login and character select in a window and go full screen on entering the world.
+
+A run that fails, panics or crashes leaves a log in `crash-logs/dereth-client-<pid>.log` in the
+settings folder, with the account, password and ticket hidden. A clean exit removes its log, and
+only the newest 20 are kept.
 
 ## The specification
 
-[`docs/`](docs/README.md) is the specification of what the client does: the numbers, the ordering,
-the edge cases, the places where common reimplementations differ, and the test that pins each claim
-where one exists. It is a **behaviour** specification, not a map of the original binary: every
-statement is meant to be falsifiable, and each page says where its claims come from.
+[`docs/`](docs/README.md) specifies what the client does: the numbers, the ordering, the edge
+cases, where other reimplementations differ, and the test that pins each claim. It describes
+behavior, not the original program's code. Every statement is meant to be checkable, and each page
+says where its claims come from.
 
 ## License
 
-Everything outside `empyrean/` is MIT; see [`LICENSE`](LICENSE). `empyrean/`, the server, is a port
-of ACE (its earlier eras' rules of [ClassicACE](https://github.com/bDekaru/ClassicACE), bDekaru's
-fork of ACE) and is therefore **AGPL-3.0-only**; see [`empyrean/LICENSE`](empyrean/LICENSE).
+Everything is MIT except Empyrean (`empyrean/`) and the Dereth Network's hub and ACE mod, which
+are AGPL-3.0-only. Empyrean is a port of ACE, with its earlier eras' rules from
+[ClassicACE](https://github.com/bDekaru/ClassicACE), bDekaru's fork of ACE. See
+[`LICENSE`](LICENSE) and [`empyrean/LICENSE`](empyrean/LICENSE).
 
 **Dereth is an independent project, not affiliated with or endorsed by Microsoft, Turbine or any current rights holder.**
 

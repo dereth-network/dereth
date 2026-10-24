@@ -93,7 +93,7 @@ DERETH_HUB_DISCORD_CLIENT_SECRET, or the file --discord-client-secret-file names
 command line. --admin (DERETH_HUB_ADMINS) names the Discord ids that may use the admin routes
 and register game endpoints under the domain.
 The Discord broker (rooms mirrored into Discord servers' channels and, with sign-in on, tells into
-a person's Discord direct messages, for a person that turns them on, with its replies back, and
+a person's Discord direct messages, with no setting to turn on, with its replies back, and
 the bot's /dn command, with which a person speaks in a world's mirror as its own character) is on when the application's bot token is given: from the
 environment variable DERETH_HUB_DISCORD_BOT_TOKEN, or the file --discord-bot-token-file names,
 never from the command line. It is never logged. The admins mirror the Global room and network
