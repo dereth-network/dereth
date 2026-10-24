@@ -32,6 +32,11 @@ struct Fake {
     http: BTreeMap<String, Vec<Result<String, String>>>,
     /// The ports something here listens on already.
     taken: BTreeSet<u16>,
+    /// The files on other machines (`host:path`) the account that signs in there may not write:
+    /// ones root put there.
+    locked: BTreeSet<String>,
+    /// Each command of a Linux script done, as `host: command`, the tests of an `if` left out.
+    shelled: Vec<String>,
 }
 
 /// The dev hub's world list as it answers once it runs.
@@ -59,6 +64,12 @@ impl Fake {
 
     fn there(mut self, at: &str, text: &str) -> Self {
         self.remote.insert(at.to_owned(), text.to_owned());
+        self
+    }
+
+    /// `at`, on another machine, made one the account there may not write.
+    fn root_owned(mut self, at: &str) -> Self {
+        self.locked.insert(at.to_owned());
         self
     }
 
@@ -131,18 +142,42 @@ impl Fake {
     }
 
     /// One line of a shell script sent to `host`, done to the files there: the few commands the
-    /// preflight's Linux scripts use, each path quoted.
+    /// preflight's Linux scripts use, each path quoted, and `if` with its tests (`[ -e 'path' ]`,
+    /// `[ -w 'path' ]`, either with `!`, joined by `&&`), `elif` and `else`.
     fn shell(&mut self, host: &str, line: &str) -> Result<(), String> {
-        let test = regex::Regex::new(r"^if \[ -e '([^']*)' \]; then (.*?); (?:else (.*?); )?fi$")
-            .expect("a pattern");
-        if let Some(c) = test.captures(line) {
-            let there = self.on(host, &c[1]);
-            return match (there, c.get(3)) {
-                (true, _) => self.shell(host, &c[2]),
-                (false, Some(otherwise)) => self.shell(host, otherwise.as_str()),
-                (false, None) => Ok(()),
-            };
+        if let Some(body) = line.strip_prefix("if ") {
+            let body = body.strip_suffix("; fi").expect("an if ends with fi");
+            // Each branch: its test (none for `else`) and its commands.
+            let mut branches: Vec<(Option<String>, Vec<String>)> = Vec::new();
+            let mut test = None;
+            for (i, part) in body.split("; ").enumerate() {
+                if i == 0 {
+                    test = Some(part.to_owned());
+                } else if let Some(c) = part.strip_prefix("then ") {
+                    branches.push((test.take(), vec![c.to_owned()]));
+                } else if let Some(t) = part.strip_prefix("elif ") {
+                    test = Some(t.to_owned());
+                } else if let Some(c) = part.strip_prefix("else ") {
+                    branches.push((None, vec![c.to_owned()]));
+                } else {
+                    branches
+                        .last_mut()
+                        .expect("a branch")
+                        .1
+                        .push(part.to_owned());
+                }
+            }
+            for (test, commands) in branches {
+                if test.is_none_or(|t| self.holds(host, &t)) {
+                    for c in commands {
+                        self.shell(host, &c)?;
+                    }
+                    break;
+                }
+            }
+            return Ok(());
         }
+        self.shelled.push(format!("{host}: {line}"));
         let words: Vec<&str> = line
             .split('\'')
             .enumerate()
@@ -160,11 +195,17 @@ impl Fake {
                 let p = at(p);
                 self.remote
                     .retain(|k, _| *k != p && !k.starts_with(&format!("{p}/")));
+                self.locked.remove(&p);
                 Ok(())
             }
             ["mkdir", "-p", _] => Ok(()),
             ["cp", "-a", from, to] | ["cp", from, to] => {
                 let (from, to) = (at(from), at(to));
+                if self.locked.contains(&to) {
+                    return Err(format!(
+                        "cp: cannot create regular file '{to}': Permission denied"
+                    ));
+                }
                 let copied: Vec<(String, String)> = self
                     .remote
                     .iter()
@@ -183,8 +224,43 @@ impl Fake {
                 self.remote.extend(copied);
                 Ok(())
             }
+            ["chmod", "--reference", like, file] => {
+                for p in [like, file] {
+                    if !self.remote.contains_key(&at(p)) {
+                        return Err(format!("chmod: cannot stat {p}"));
+                    }
+                }
+                Ok(())
+            }
+            ["mv", "-f", from, to] => {
+                let (from, to) = (at(from), at(to));
+                let text = self
+                    .remote
+                    .remove(&from)
+                    .ok_or_else(|| format!("mv: cannot stat {from}"))?;
+                self.remote.insert(to.clone(), text);
+                // The file renamed in is the account's own.
+                self.locked.remove(&to);
+                Ok(())
+            }
             other => panic!("a command the fake does not know: {other:?}"),
         }
+    }
+
+    /// Whether the test `test` of an `if` holds on `host`.
+    fn holds(&self, host: &str, test: &str) -> bool {
+        let one = regex::Regex::new(r"^\[ (! )?-(e|w) '([^']*)' \]$").expect("a pattern");
+        test.split(" && ").all(|t| {
+            let c = one
+                .captures(t)
+                .unwrap_or_else(|| panic!("a test the fake does not know: {t}"));
+            let there = self.on(host, &c[3]);
+            let holds = match &c[2] {
+                "e" => there,
+                _ => there && !self.locked.contains(&format!("{host}:{}", &c[3])),
+            };
+            holds != c.get(1).is_some()
+        })
     }
 
     /// Whether `path` is on `host`.
@@ -301,6 +377,9 @@ impl Machine for Fake {
         let from = key(local);
         self.log.push(format!("send {from} {host}:{remote}"));
         let to = format!("{host}:{remote}");
+        if self.locked.contains(&to) {
+            return Err(format!("scp: {remote}: Permission denied"));
+        }
         let copied: Vec<(String, String)> = self
             .files
             .iter()
@@ -2251,7 +2330,20 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
             .map(|d| format!("if [ -e '/srv/emp/{d}' ]; then cp -a '/srv/emp/{d}' '{b}/db/{d}'; fi\n"))
             .collect::<String>()
     );
-    let place = "set -e\ncp '/srv/emp/empyrean-server.preflight-new' '/srv/emp/empyrean-server'\nrm -f '/srv/emp/empyrean-server.preflight-new'\n";
+    // Each file copied up beside the one it replaces, then copied over it, or renamed over it
+    // when the account may not write it.
+    let put = |l: &str| {
+        format!(
+            "if [ -e '{l}' ] && [ ! -w '{l}' ]; then chmod --reference '{l}' '{l}.preflight-new'; \
+             mv -f '{l}.preflight-new' '{l}'; else cp '{l}.preflight-new' '{l}'; \
+             rm -f '{l}.preflight-new'; fi\n"
+        )
+    };
+    let place = format!(
+        "set -e\n{}{}",
+        put("/srv/emp/empyrean-server"),
+        put("/srv/emp/empyrean.toml")
+    );
     let sent: Vec<&str> = f
         .sent
         .iter()
@@ -2263,7 +2355,7 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
         [
             "sudo -n systemctl stop empyrean",
             backup.as_str(),
-            place,
+            place.as_str(),
             "sudo -n systemctl start empyrean"
         ]
     );
@@ -2271,19 +2363,27 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
     let copied = f.at(&format!(
         "send D:/preflight/builds/empyrean-0.3.2-rc.1-x86_64-unknown-linux-gnu/empyrean-server {vm}:/srv/emp/empyrean-server.preflight-new"
     ));
-    let placed = f.at(&format!(
-        "ssh {vm} set -e\ncp '/srv/emp/empyrean-server.preflight-new'"
+    let config = f.at(&format!(
+        "send D:/preflight/remote/vm.toml {vm}:/srv/emp/empyrean.toml.preflight-new"
     ));
-    assert!(kept < copied && copied < placed);
+    let placed = f.at(&format!("ssh {vm} {place}"));
+    assert!(kept < copied && copied < config && config < placed);
+    assert!(
+        f.shelled.iter().all(|c| !c.contains("mv ")),
+        "files the account may write are copied over, keeping their owner: {:#?}",
+        f.shelled
+    );
     assert_eq!(
         f.at_remote(&at("/srv/emp/empyrean-server")),
         Some("empyrean 0.3.2-rc.1 for linux"),
         "the zigbuild's server, not this machine's"
     );
-    assert_eq!(
-        f.at_remote(&at("/srv/emp/empyrean-server.preflight-new")),
-        None
-    );
+    for left in [
+        "/srv/emp/empyrean-server.preflight-new",
+        "/srv/emp/empyrean.toml.preflight-new",
+    ] {
+        assert_eq!(f.at_remote(&at(left)), None, "{left}");
+    }
     assert_eq!(
         f.at_remote(&at(&format!("{b}/db/shard.db-wal"))),
         Some("the shard's log")
@@ -2327,10 +2427,24 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
     let before = m.inner.sent.len();
     steps::rollback(&mut m, &cfg(), &mut l).expect("rolled back");
     let f = &m.inner;
+    // Each file copied back over the one there, or, when the account may not write it, copied
+    // beside it and renamed over it; a database file the backup lacks taken out.
+    let put_back = |k: &str, l: &str| {
+        format!(
+            "[ -e '{l}' ] && [ ! -w '{l}' ]; then cp '{k}' '{l}.preflight-new'; \
+             chmod --reference '{l}' '{l}.preflight-new'; mv -f '{l}.preflight-new' '{l}'; \
+             else cp '{k}' '{l}'"
+        )
+    };
     let restore = format!(
-        "set -e\ncp '{b}/replaced' '/srv/emp/empyrean-server'\ncp '{b}/config' '/srv/emp/empyrean.toml'\n{}",
+        "set -e\nif {}; fi\nif {}; fi\n{}",
+        put_back(&format!("{b}/replaced"), "/srv/emp/empyrean-server"),
+        put_back(&format!("{b}/config"), "/srv/emp/empyrean.toml"),
         dbs.iter()
-            .map(|d| format!("if [ -e '{b}/db/{d}' ]; then cp '{b}/db/{d}' '/srv/emp/{d}'; else rm -f '/srv/emp/{d}'; fi\n"))
+            .map(|d| format!(
+                "if [ ! -e '{b}/db/{d}' ]; then rm -f '/srv/emp/{d}'; elif {}; fi\n",
+                put_back(&format!("{b}/db/{d}"), &format!("/srv/emp/{d}"))
+            ))
             .collect::<String>()
     );
     let removed = format!("set -e\nrm -rf '{b}'\n");
@@ -2359,6 +2473,62 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
         assert_eq!(f.at_remote(&at(p)), t, "{p}");
     }
     assert!(!f.on(vm, b), "the backup is gone");
+    assert!(l.worlds.is_empty());
+}
+
+#[test]
+fn a_linux_world_whose_files_root_replaced_is_installed_and_rolled_back_by_renaming_over_them() {
+    // Root put the server and the configuration there since the setup: the account may write the
+    // folder they are in, but not them.
+    let vm = "owner@vm.example.org";
+    let at = |p: &str| format!("{vm}:{p}");
+    let (server, config) = ("/srv/emp/empyrean-server", "/srv/emp/empyrean.toml");
+    let f = fake().root_owned(&at(server)).root_owned(&at(config));
+    let mut m = counting(f);
+    preflight(&mut m, &[Product::Hub, Product::Empyrean], &["vm"]).expect("preflighted");
+    // Each renamed over, given the mode of what it replaces, and never copied onto.
+    let renamed_over = |f: &Fake, from: usize| {
+        let shelled = &f.shelled[from..];
+        for l in [server, config] {
+            for c in [
+                format!("{vm}: chmod --reference '{l}' '{l}.preflight-new'"),
+                format!("{vm}: mv -f '{l}.preflight-new' '{l}'"),
+            ] {
+                assert!(shelled.contains(&c), "{c}: {shelled:#?}");
+            }
+            assert!(
+                !shelled.iter().any(
+                    |c| c.starts_with(&format!("{vm}: cp ")) && c.ends_with(&format!(" '{l}'"))
+                ),
+                "{l} copied onto: {shelled:#?}"
+            );
+            assert_eq!(f.at_remote(&at(&format!("{l}.preflight-new"))), None);
+        }
+    };
+    renamed_over(&m.inner, 0);
+    let f = &m.inner;
+    assert_eq!(
+        f.at_remote(&at(server)),
+        Some("empyrean 0.3.2-rc.1 for linux")
+    );
+    assert_eq!(
+        f.at_remote(&at(config)),
+        Some(
+            EMP_TOML
+                .replace("wss://hub.dereth.network", "wss://dev-hub.example.org")
+                .as_str()
+        )
+    );
+
+    // Root puts them there again before the rollback, which renames the backup's over them.
+    m.inner.locked.extend([at(server), at(config)]);
+    let mut l = ledger(&mut m);
+    let before = m.inner.shelled.len();
+    steps::rollback(&mut m, &cfg(), &mut l).expect("rolled back");
+    renamed_over(&m.inner, before);
+    let f = &m.inner;
+    assert_eq!(f.at_remote(&at(server)), Some("empyrean 0.3.1 for linux"));
+    assert_eq!(f.at_remote(&at(config)), Some(EMP_TOML));
     assert!(l.worlds.is_empty());
 }
 
@@ -2835,7 +3005,7 @@ Copy-Item -LiteralPath (Join-Path $backup 'config') -Destination '{BOX_MOD}\\Set
     );
     assert_eq!(restores, [mod_restore, box_emp_restore_script()]);
     assert!(
-        f.at("ssh owner@world-vm set -e\ncp '/srv/empyrean/.preflight-backup/replaced'")
+        f.at("ssh owner@world-vm set -e\nif [ -e '/srv/empyrean/empyrean-server' ]")
             < f.last("ssh owner@world-box # box-ace on world-box: put back")
     );
     assert_eq!(l.stage, Stage::Idle);

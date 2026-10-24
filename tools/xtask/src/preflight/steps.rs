@@ -1353,8 +1353,8 @@ fn install_linux(
     Ok(slug_of(w, &text))
 }
 
-/// `build` (when there is one) copied up beside `w`'s server and copied over it, which keeps the
-/// server's own mode; the configuration `text` copied up; and `w` started.
+/// `build` (when there is one) and the configuration `text` copied up beside `w`'s server and
+/// its configuration and put in their place; and `w` started.
 fn linux_put(
     m: &mut dyn Machine,
     w: &World,
@@ -1365,10 +1365,10 @@ fn linux_put(
 ) -> Result<(), String> {
     if let Some(b) = build {
         m.send(&host.ssh, &b.path, &linux::incoming(w))?;
-        m.ssh(&host.ssh, &linux::place(w))?;
     }
     m.write(local, text)?;
-    m.send(&host.ssh, local, &w.config_file())?;
+    m.send(&host.ssh, local, &linux::incoming_config(w))?;
+    m.ssh(&host.ssh, &linux::place(w, build.is_some()))?;
     m.ssh(&host.ssh, &format!("sudo -n systemctl start {}", w.service))
         .map(|_| ())
 }
