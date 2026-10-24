@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.4 (2026-10-24)
+
 - New save-world console command saves everything without stopping the world.
 - Programs on the same computer, like the launcher, can use the console.
 - Fixed logging back in right after quitting.
