@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.5 (2026-10-26)
+
 - Playtest characters are now believable players of a chosen level and heritage, with loot gear.
 - Playtest characters get gear slot by slot, better gear, starter gear and kits, previewed first.
 - Playtest characters can hold augmentations, a summoning mastery, titles and quests; backups keep them.
