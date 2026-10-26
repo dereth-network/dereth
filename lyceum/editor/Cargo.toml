@@ -1,7 +1,7 @@
 [package]
 name = "lyceum-editor"
 description = "Lyceum, the world builder: a world's packs over the player's data files, drawn as the client draws them, edited in place and saved as the packs' sources."
-version = "0.1.1" # Lyceum's own version, shared by its three crates (not the workspace's)
+version = "0.2.0" # Lyceum's own version, shared by its three crates (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
