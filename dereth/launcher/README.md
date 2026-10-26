@@ -90,7 +90,7 @@ On Windows the launcher can be driven with a pad while its window is in front:
 | d-pad or left stick | moves the focus that way |
 | A (Cross) | presses the focused control; Enter in a text box; the next choice on a list |
 | B (Circle) | steps back: closes a row or form, leaves a world's page, or goes back to Play |
-| shoulder buttons | the rail's pages in turn: Play, Worlds, Accounts, Empyrean, Lyceum, Library |
+| shoulder buttons | the rail's pages in turn: Play, Worlds, Accounts, Empyrean, Lyceum, Library, and Plugins with `--plugins` |
 | right stick | scrolls the list under the focus |
 | left and right on a list | its previous and next choice |
 
@@ -146,6 +146,20 @@ On Windows and Linux, a button beside the version under the rail creates a deskt
 Linux each start also writes the launcher's application entry (`network.dereth.dereth.desktop`
 and its icon under `$XDG_DATA_HOME`), so its window gets its name and icon.
 
+## Plugins
+
+Plugins are experimental, and off unless the launcher is started with `--plugins`: without it there
+is no **Plugins** screen, and the client is offered none. The **Plugins** screen installs plugins
+for the Dereth client from the URL of a release's zip, with its SHA-256 published beside it (`<url>.sha256`) or pasted by the
+player. A new release, and each update found by **Check for updates** (the same URL fetched
+again), waits beside the installed one until the player accepts it; one that asks for more
+permissions than the last says which, and accepting it is saying yes to them. There is no plugin
+index. Each installed plugin's zip goes to the client with `--offer-plugins`, and installing one
+never turns it on: the client lists it off until the player turns plugins on and ticks it there.
+The rules are the plugin spec's
+([`docs/plugins/packages.md`](../../docs/plugins/packages.md)); the logic is `dereth-launch`'s
+`plugins` module; the files are under the launcher's data folder, in `plugins`.
+
 ## Updates
 
 At start a release asks GitHub's API for the repository's releases and picks the newest Dereth
@@ -172,7 +186,8 @@ nearly every Windows 10 has. If it's missing, the launcher says so and links the
 ## Hosting a world: Empyrean
 
 The rail has **Play**, **Worlds** and **Accounts**; then **Empyrean** and **Lyceum**; then the
-**Library**. Most players never open the middle two, so neither program comes with the launcher.
+**Library** and, started with `--plugins`, **Plugins**. Most players never open the middle two, so neither program comes
+with the launcher.
 
 **Getting them.** Each page shows the newest version and offers **Download**, then **Update to
 <version>** when a newer one is out, and **Remove**. The launcher asks GitHub when either page opens
@@ -293,6 +308,7 @@ cargo test -p dereth-launch        # the logic crate, from the repository root
 cd dereth/launcher
 cargo run                          # the launcher, in a native window
 cargo run -- --downloads           # the same, downloading Empyrean and Lyceum as a release does
+cargo run -- --plugins             # the same, with the experimental plugins
 cargo test                         # the app's own tests
 cargo tauri build                  # the release build (`cargo install tauri-cli --version ^2 --locked`)
 ```

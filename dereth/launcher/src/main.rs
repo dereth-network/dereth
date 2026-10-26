@@ -143,6 +143,37 @@ fn restart_to_update(app: tauri::AppHandle) -> Cmd<()> {
     update::install_and_restart(&app)
 }
 
+#[tauri::command]
+async fn install_plugin(b: State<'_, Shared>, url: String, sha256: Option<String>) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || Backend::install_plugin(&shared, &url, sha256))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn update_plugins(b: State<'_, Shared>) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || Backend::update_plugins(&shared))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn accept_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    lock(&b).accept_plugin(&id)
+}
+
+#[tauri::command]
+fn discard_plugin_release(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    lock(&b).discard_plugin_release(&id)
+}
+
+#[tauri::command]
+fn remove_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    lock(&b).remove_plugin(&id)
+}
+
 /// Fetch the world list again, whatever its copy's age.
 #[tauri::command]
 fn refresh(b: State<'_, Shared>) {
@@ -536,6 +567,9 @@ fn main() {
     let running = std::sync::Mutex::new(Some(join::Running::mark(&folders.data)));
     let is_release = client_beside(&here).is_some();
     let client = find_client(&here);
+    // `--plugins`: the experimental plugins, with their page and the plugins offered to the Dereth
+    // client. Off without it.
+    let plugins_on = args.iter().any(|a| a == "--plugins");
     // The preferences file the Dereth client reads when it is started from its own folder, which
     // names the interface it starts in.
     let client_preferences = dereth_launch::interface::preferences_file(
@@ -581,14 +615,17 @@ fn main() {
                 std::env::var("DERETH_HUB_LIST").ok().as_deref(),
             );
             let (vault, name) = vault();
-            let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(Backend::new(
-                folders.clone(),
-                list_sources,
-                client.clone(),
-                vault,
-                name,
-                client_preferences.clone(),
-            )));
+            let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(
+                Backend::new(
+                    folders.clone(),
+                    list_sources,
+                    client.clone(),
+                    vault,
+                    name,
+                    client_preferences.clone(),
+                )
+                .with_plugins(plugins_on),
+            ));
             Backend::load_list(&shared);
             let ticker = shared.clone();
             std::thread::spawn(move || loop {
@@ -732,6 +769,11 @@ fn main() {
             share::check_sharing,
             share::check_from_outside,
             join::take_join,
+            install_plugin,
+            update_plugins,
+            accept_plugin,
+            discard_plugin_release,
+            remove_plugin,
         ])
         .build(tauri::generate_context!())
         .expect("the launcher window could not start");
@@ -876,6 +918,18 @@ mod tests {
         );
         let console = page_function("consoleBlock");
         assert!(console.contains(r#"class="log" data-log="#), "{console}");
+    }
+
+    /// The Plugins section is there only while plugins are on (the snapshot has them): the rail
+    /// lists it, the shoulder buttons step to it, and its screen draws; otherwise Play draws.
+    #[test]
+    fn the_plugins_section_is_there_only_while_plugins_are_on() {
+        assert!(page_function("rail")
+            .contains(r#"...(ui.snap?.plugins ? [item("plugins", "PLUGINS")] : [])"#));
+        assert!(include_str!("../ui/app.js")
+            .contains(r#"PAD_SECTIONS.filter((s) => s !== "plugins" || ui.snap.plugins)"#));
+        assert!(page_function("padSection").contains("const sections = padSections();"));
+        assert!(page_function("render").contains("plugins: ui.snap.plugins ? plugins : home"));
     }
 
     /// The emblems are on Empyrean's and Lyceum's headings, and on no button.

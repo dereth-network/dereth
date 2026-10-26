@@ -4,8 +4,9 @@
 //! a server whether it is up, the primitives crate (`dereth-primitives`), for the client's era
 //! table, the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
 //! layout, the client's contract (`dereth-client-contract`), for the client's preferences file
-//! and the interface it names, and the client's input crate (`dereth-input`), for a pad's state as
-//! the client reads it. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! and the interface it names, the client's input crate (`dereth-input`), for a pad's state as
+//! the client reads it, and the plugin packages crate (`dereth-plugin-package`), for the plugins it
+//! installs. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
@@ -79,6 +80,7 @@ pub mod listing;
 pub mod local;
 pub mod outside;
 pub mod pad;
+pub mod plugins;
 pub mod probe;
 pub mod registry;
 pub mod releases;

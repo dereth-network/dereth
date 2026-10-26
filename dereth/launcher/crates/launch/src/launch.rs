@@ -81,6 +81,12 @@ pub struct LaunchRequest<'a> {
     pub classic_dat_dir: Option<PathBuf>,
     /// Operator-supplied arguments, placed first.
     pub extra_args: &'a [String],
+    /// Where the caller wrote the world's plugin policy document, when the entry carries it
+    /// inline; a policy published at a URL is passed as the URL.
+    pub plugin_policy_file: Option<PathBuf>,
+    /// The plugin packages the launcher installed, offered to the Dereth client, which lists each
+    /// off until the player ticks it ([`crate::plugins::Shelf::offered_packages`]).
+    pub plugins: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +194,22 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                 ]);
             }
             args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
+            // The world's plugin policy, for the client's plugin host to honour and show.
+            let policy = req
+                .world
+                .plugin_policy_url()
+                .map(str::to_owned)
+                .or_else(|| {
+                    req.plugin_policy_file
+                        .as_ref()
+                        .map(|f| f.display().to_string())
+                });
+            if let Some(p) = policy {
+                args.extend([plain("--plugin-policy"), plain(p)]);
+            }
+            for p in &req.plugins {
+                args.extend([plain("--offer-plugins"), plain(p.display().to_string())]);
+            }
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
             args.extend([
@@ -302,7 +324,57 @@ mod tests {
             dat_dir: Some(PathBuf::from("/lib/eor")),
             classic_dat_dir: None,
             extra_args: &[],
+            plugin_policy_file: None,
+            plugins: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_worlds_plugin_policy_reaches_the_dereth_client_as_a_url_or_the_file_it_was_written_to() {
+        let (mut w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        w.plugin_policy = Some("https://eulmore.example/policy.toml".into());
+        let p = plan(&req(&w, &i)).unwrap();
+        assert!(p.argv("x").ends_with(&[
+            "--plugin-policy".into(),
+            "https://eulmore.example/policy.toml".into()
+        ]));
+        w.plugin_policy = Some("policy_version = 1".into());
+        let mut r = req(&w, &i);
+        assert!(!plan(&r)
+            .unwrap()
+            .argv("x")
+            .contains(&"--plugin-policy".into()));
+        r.plugin_policy_file = Some(PathBuf::from("/tmp/eulmore.toml"));
+        assert!(plan(&r)
+            .unwrap()
+            .argv("x")
+            .ends_with(&["--plugin-policy".into(), "/tmp/eulmore.toml".into()]));
+    }
+
+    #[test]
+    fn the_plugins_the_launcher_installed_are_offered_to_the_dereth_client_and_never_retail() {
+        let (w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        let mut r = req(&w, &i);
+        r.plugins = vec![
+            PathBuf::from("/p/a/current.zip"),
+            PathBuf::from("/p/b/current.zip"),
+        ];
+        let argv = plan(&r).unwrap().argv("x");
+        // Offered, to be ticked in the client; never named to load.
+        assert!(argv.ends_with(&[
+            "--offer-plugins".into(),
+            "/p/a/current.zip".into(),
+            "--offer-plugins".into(),
+            "/p/b/current.zip".into()
+        ]));
+        assert!(!argv.contains(&"--plugins".into()));
+        let retail = inst(ClientKind::Retail);
+        let mut r = req(&w, &retail);
+        r.plugins = vec![PathBuf::from("/p/a/current.zip")];
+        assert!(!plan(&r)
+            .unwrap()
+            .argv("x")
+            .contains(&"--offer-plugins".into()));
     }
 
     #[test]

@@ -23,8 +23,9 @@ A zip file's SHA-256 identifies the download, and is what a release page lists b
 
 ## Installing from a release: the launcher
 
-The launcher installs a plugin for the Dereth client from the URL of its release's zip. There is
-no index: the player brings the URL, and an update fetches the same URL again, so a release's
+The launcher, started with `--plugins`, installs a plugin for the Dereth client from the URL of its
+release's zip. Without `--plugins` it has no Plugins page and offers the client none. There is no
+index: the player brings the URL, and an update fetches the same URL again, so a release's
 "latest" link keeps a plugin current.
 
 - **The hash.** The zip's SHA-256 is read from beside it, `<url>.sha256` (a `sha256sum` line, or
@@ -36,8 +37,9 @@ no index: the player brings the URL, and an update fetches the same URL again, s
   launcher shows the permissions its manifest names. The player enables it. Nothing changes for a
   release whose zip is the one installed or already staged.
 - **Where.** Under the launcher's data folder, `plugins/plugins.json` and one folder per plugin
-  with `current.zip` and `staged.zip`. The launcher hands the client each enabled plugin's
-  `current.zip` (`--plugins`); the retail client gets none.
+  with `current.zip` and `staged.zip`. The launcher offers the client each installed plugin's
+  `current.zip` (`--offer-plugins`), which lists it off until the player ticks it; the retail
+  client gets none.
 
 ## The author's tool
 

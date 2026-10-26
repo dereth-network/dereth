@@ -328,8 +328,14 @@
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
+      plugins: [],
     }),
     refresh: () => {},
+    install_plugin: () => { throw "The demo installs no plugins."; },
+    update_plugins: () => "No plugins are installed.",
+    accept_plugin: () => { throw "The demo has no plugins."; },
+    discard_plugin_release: () => { throw "The demo has no plugins."; },
+    remove_plugin: () => { throw "The demo has no plugins."; },
     world_view: ({ slug }) => {
       const w = allWorlds().find((x) => x.slug === slug);
       if (!w) throw "That world is no longer listed.";

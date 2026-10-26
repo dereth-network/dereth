@@ -62,9 +62,9 @@ and the target they were built from.
 
 | system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
-| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
+| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html` and `plugins/` (the plugins that come with the client, off until turned on). No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
+| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources`, with the plugins that come with the client in `Contents/Resources/plugins` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
+| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client and the plugins that come with it inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
 
 Every download holds the client, so the client is not published on its own. Beside them:
 

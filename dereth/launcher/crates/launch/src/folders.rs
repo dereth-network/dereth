@@ -81,6 +81,11 @@ impl Folders {
         self.data.join(LIBRARY_DIR)
     }
 
+    /// Where the plugins the launcher installed are kept ([`crate::plugins::Shelf`]).
+    pub fn plugins(&self) -> PathBuf {
+        self.data.join("plugins")
+    }
+
     /// Where the web view keeps its cache.
     pub fn webview(&self) -> PathBuf {
         self.data.join("webview")

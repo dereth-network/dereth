@@ -17,7 +17,8 @@ const GUIDE = "https://www.accpp.net/manual-installation";
 const NOTICE_MS = 7000;
 
 const ui = {
-  screen: "home",          // home | worlds | world | library | accounts | first-run | interface
+  plugin: { url: "", sha: "", busy: false }, // the plugins screen's install form
+  screen: "home",          // home | worlds | world | library | accounts | plugins | first-run | interface
   snap: null,
   homeSel: 0,
   search: "",
@@ -314,7 +315,7 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, "first-run": firstRun, interface: interfacePage };
+  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins: ui.snap.plugins ? plugins : home, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
@@ -1257,8 +1258,8 @@ async function copyText(text) {
 function rail() {
   const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen;
   const item = (id, label) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}">${label}</button>`;
-  // Playing first; then hosting a world (Empyrean) and building one (Lyceum); then the Library,
-  // each part apart.
+  // Playing first; then hosting a world (Empyrean) and building one (Lyceum); then the Library and
+  // the plugins, each part apart.
   const divider = '<div class="rail-divider" role="separator"></div>';
   return [
     item("home", "PLAY"),
@@ -1269,6 +1270,7 @@ function rail() {
     item("make", "LYCEUM"),
     divider,
     item("library", "LIBRARY"),
+    ...(ui.snap?.plugins ? [item("plugins", "PLUGINS")] : []),
   ].join("");
 }
 
@@ -1839,6 +1841,56 @@ function accounts() {
     </div>`;
 }
 
+// ----- plugins -------------------------------------------------------------------------------------
+
+// Plugins for the Dereth client, installed from the URL of a release's zip. Plugins are
+// experimental: a new release waits until the player accepts it, and an installed plugin is off in
+// the client until the player turns it on there.
+function plugins() {
+  const p = ui.plugin;
+  const rows = (ui.snap.plugins ?? []).map((x) => {
+    const c = x.current;
+    const head = c ? `${esc(c.name)} ${esc(c.version)}` : esc(x.staged?.name ?? x.id);
+    let staged = "";
+    if (x.staged) {
+      const uses = x.staged.permissions.length ? ` — uses: ${esc(x.staged.permissions.join(", "))}` : "";
+      staged = `<div class="sub">${c ? "New release" : "Ready"}: ${esc(x.staged.version)}${uses}
+        <button class="btn" data-plugin-accept="${esc(x.id)}">Accept</button>
+        <button class="btn" data-plugin-discard="${esc(x.id)}">Discard</button></div>`;
+    }
+    return `<div class="row static"><div class="grow"><div class="name">${head} <span class="muted small">${esc(x.id)}</span></div>
+        <div class="sub">${esc(x.url)}</div>${staged}</div>
+        <div class="btns"><button class="btn" data-plugin-remove="${esc(x.id)}">Remove</button></div></div>`;
+  }).join("") || `<p class="muted">No plugins installed.</p>`;
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header><h1>PLUGINS</h1><span class="tag">EXPERIMENTAL</span><button class="btn" data-act="plugins-update" ${p.busy ? "disabled" : ""}>Check for updates</button></header>
+        <div class="form">
+          <label class="lab" for="plugin-url">ZIP</label><input id="plugin-url" class="field" type="text" placeholder="https://…/plugin.zip" spellcheck="false" autocomplete="off" value="${esc(p.url)}">
+          <label class="lab" for="plugin-sha">SHA-256</label><input id="plugin-sha" class="field" type="text" placeholder="Optional when published beside the zip" spellcheck="false" autocomplete="off" value="${esc(p.sha)}">
+        </div>
+        <div class="btns end" style="margin-top:12px"><button class="btn" data-act="plugin-install" ${p.busy || !p.url.trim() ? "disabled" : ""}>Install</button></div>
+        <p class="muted small">Plugins run in the Dereth client only, each off until you turn it on there.</p>
+        <div class="scroll"><div class="list">${rows}</div></div>
+      </section>
+    </div>`;
+}
+
+// Install or update with the form busy, and say how it went.
+async function pluginFetch(cmd, args) {
+  ui.plugin.busy = true;
+  render();
+  try {
+    const said = await api(cmd, args);
+    if (cmd === "install_plugin") ui.plugin = { url: "", sha: "", busy: false };
+    toast(said);
+  } catch (e) {
+    toast(String(e), true);
+  }
+  ui.plugin.busy = false;
+  await pull();
+  render();
+}
+
 // ----- first run -----------------------------------------------------------------------------------
 
 function firstRun() {
@@ -2000,7 +2052,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-accept],[data-plugin-discard],[data-plugin-remove]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2097,6 +2149,12 @@ document.addEventListener("click", async (ev) => {
   if (d.defaultSet) { await act("set_default_set", { id: d.defaultSet }); return; }
   if (d.resetSet) { await act("reset_set", { id: d.resetSet }); return; }
   if (d.deleteSet) { await act("delete_set", { id: d.deleteSet }); return; }
+  if (d.pluginAccept) {
+    await act("accept_plugin", { id: d.pluginAccept });
+    return;
+  }
+  if (d.pluginDiscard) { await act("discard_plugin_release", { id: d.pluginDiscard }); return; }
+  if (d.pluginRemove) { await act("remove_plugin", { id: d.pluginRemove }); return; }
   if (d.forgetAccount) { const a = ui.snap.state.accounts[Number(d.forgetAccount)]; await act("forget_account", { slug: a.world_slug, username: a.username }); return; }
   if (d.iface) { ui.iface.pick = d.iface; render(); return; }
 
@@ -2174,6 +2232,8 @@ document.addEventListener("click", async (ev) => {
     case "verify-retail": await act("verify_retail"); break;
     case "forget-retail": await act("forget_retail"); break;
     case "forget-all-accounts": await act("forget_all_accounts"); break;
+    case "plugin-install": await pluginFetch("install_plugin", { url: ui.plugin.url.trim(), sha256: ui.plugin.sha.trim() || null }); break;
+    case "plugins-update": await pluginFetch("update_plugins", {}); break;
     case "restart-update": await act("restart_to_update"); break;
     case "shortcut": { const where = await act("create_desktop_shortcut"); if (where) toast("Desktop shortcut created."); break; }
     case "server-open": ui.addServer = { name: "", host: "", port: "9000", emulator: "unknown", ruleset: "", error: null }; render(); focusSoon("srv-host"); break;
@@ -2267,6 +2327,12 @@ document.addEventListener("input", (ev) => {
   const t = ev.target;
   if (t.id === "search") { ui.search = t.value; render(); return; }
   if (ui.addServer && t.id.startsWith("srv-")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (t.id === "plugin-url" || t.id === "plugin-sha") {
+    const was = !ui.plugin.url.trim();
+    ui.plugin[t.id.slice(7)] = t.value;
+    if (was !== !ui.plugin.url.trim()) render();
+    return;
+  }
   if (!ui.world) return;
   const f = ui.world.form;
   if (t.id === "acct-name") { f.account = t.value; f.remembered = false; syncWorld(); }
@@ -2369,8 +2435,10 @@ document.addEventListener("keydown", async (ev) => {
 // Every control a click acts on, in the page's order: a row is one, and so is a button on it.
 const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open]";
 
-// The sections the shoulder buttons step through, as the rail lists them.
-const PAD_SECTIONS = ["home", "worlds", "accounts", "server", "make", "library"];
+// The sections the shoulder buttons step through, as the rail lists them (Plugins only while
+// plugins are on).
+const PAD_SECTIONS = ["home", "worlds", "accounts", "server", "make", "library", "plugins"];
+const padSections = () => PAD_SECTIONS.filter((s) => s !== "plugins" || ui.snap.plugins);
 
 // The controls a pad may reach: drawn, and not disabled. The screen's own come first, so a move
 // with nothing focused starts on the screen rather than on the rail.
@@ -2449,7 +2517,7 @@ function padPress() {
 }
 
 // A step back: as Escape does where it does anything, else what is open is closed, else Worlds,
-// Library and Accounts go back to Play.
+// Library, Accounts and Plugins go back to Play.
 function padBack() {
   const before = ui.screen;
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -2470,9 +2538,10 @@ function padBack() {
 // The next or previous section, as its rail button opens it, with the focus on its first control.
 // The first start's screens keep to themselves.
 function padSection(by) {
-  const at = PAD_SECTIONS.indexOf({ world: "worlds", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen);
+  const sections = padSections();
+  const at = sections.indexOf({ world: "worlds", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen);
   if (at < 0) return;
-  const go = PAD_SECTIONS[(at + by + PAD_SECTIONS.length) % PAD_SECTIONS.length];
+  const go = sections[(at + by + sections.length) % sections.length];
   document.querySelector(`#rail [data-go="${go}"]`)?.click();
   const first = padControls()[0];
   if (first) padFocus(first);

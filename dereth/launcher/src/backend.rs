@@ -24,6 +24,7 @@ use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
 use dereth_launch::listing::WorldList;
+use dereth_launch::plugins::{self as launcher_plugins, Fetched, Installed, Shelf};
 use dereth_launch::serverlist::{ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
@@ -124,19 +125,44 @@ fn now() -> u64 {
 /// One HTTPS GET, bounded. Plain HTTP is refused: the URLs come from configuration and the
 /// world list, and quietly downgrading either to plaintext is not a favour.
 pub fn http_get(url: &str) -> Result<Vec<u8>, String> {
+    http_get_bounded(url, 1 << 20, Duration::from_secs(8))
+}
+
+/// One HTTPS GET of at most `limit` bytes within `timeout`.
+fn http_get_bounded(url: &str, limit: u64, timeout: Duration) -> Result<Vec<u8>, String> {
     if !url.to_ascii_lowercase().starts_with("https://") {
         return Err(format!("{url}: only https is accepted"));
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(8)))
+        .timeout_global(Some(timeout))
         .build()
         .into();
     let mut resp = agent.get(url).call().map_err(|e| format!("{url}: {e}"))?;
     resp.body_mut()
         .with_config()
-        .limit(1 << 20)
+        .limit(limit)
         .read_to_vec()
         .map_err(|e| format!("{url}: {e}"))
+}
+
+/// Fetch a plugin release: the zip at `url`, and its SHA-256 from the player (`sha256`) or else
+/// from beside the zip. `None` for a sum that is not published.
+fn fetch_release(url: &str, sha256: Option<String>) -> Result<(Vec<u8>, Option<String>), String> {
+    let zip = http_get_bounded(
+        url,
+        launcher_plugins::MAX_DOWNLOAD as u64,
+        Duration::from_secs(120),
+    )?;
+    let sum = sha256.filter(|s| !s.trim().is_empty()).or_else(|| {
+        http_get_bounded(
+            &launcher_plugins::sum_url(url),
+            4096,
+            Duration::from_secs(8),
+        )
+        .ok()
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+    });
+    Ok((zip, sum))
 }
 
 /// Open an `http`/`https` URL in the browser. Operator- and list-supplied links are not
@@ -221,6 +247,9 @@ pub struct Snapshot {
     /// The interface the Dereth client starts in. `None` when the client keeps no preferences
     /// here (the system names no home), when there is nothing to ask.
     pub interface: Option<InterfaceView>,
+    /// The plugins the launcher installed for the Dereth client; none while plugins are off (the
+    /// launcher was started without `--plugins`), and the page has no Plugins section.
+    pub plugins: Option<Vec<PluginRow>>,
 }
 
 /// The interface the Dereth client starts in, and the question the launcher asks for it.
@@ -233,6 +262,13 @@ pub struct InterfaceView {
     pub offers: Vec<Offer>,
     /// The client's preferences file, where the answer is written.
     pub file: String,
+}
+
+/// One installed plugin, as the page shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginRow {
+    #[serde(flatten)]
+    pub installed: Installed,
 }
 
 /// A world page's options.
@@ -342,6 +378,10 @@ pub struct Backend {
     /// The preferences file the Dereth client reads when the launcher starts it, which names the
     /// interface it starts in ([`interface::preferences_file`]).
     client_preferences: Option<PathBuf>,
+    plugins: Shelf,
+    /// Whether the launcher was started with `--plugins`: only then does the page have its Plugins
+    /// section, and the Dereth client is offered the plugins it installed.
+    plugins_on: bool,
 }
 
 impl std::fmt::Debug for Backend {
@@ -403,7 +443,9 @@ impl Backend {
             }
         }
         let list = WorldList::new(list_sources, ListCache::load(&folders.data));
+        let plugins = Shelf::open(folders.plugins());
         Self {
+            plugins,
             folders,
             state,
             dereth,
@@ -420,7 +462,15 @@ impl Backend {
             vault,
             vault_name,
             client_preferences,
+            plugins_on: false,
         }
+    }
+
+    /// The same launcher with plugins on (it was started with `--plugins`) or off.
+    #[must_use]
+    pub fn with_plugins(mut self, on: bool) -> Self {
+        self.plugins_on = on;
+        self
     }
 
     fn save(&mut self) {
@@ -496,6 +546,15 @@ impl Backend {
             platform: std::env::consts::OS,
             library_dir: self.library_dir().display().to_string(),
             interface: self.interface_view(),
+            plugins: self.plugins_on.then(|| {
+                self.plugins
+                    .plugins
+                    .iter()
+                    .map(|p| PluginRow {
+                        installed: p.clone(),
+                    })
+                    .collect()
+            }),
         }
     }
 
@@ -935,6 +994,17 @@ impl Backend {
         } else {
             (None, None)
         };
+        // A policy written in the world's entry goes to the client as a file; one at a URL is
+        // passed as the URL.
+        let plugin_policy_file = world
+            .plugin_policy
+            .as_deref()
+            .filter(|_| world.plugin_policy_url().is_none())
+            .and_then(|doc| {
+                let f =
+                    std::env::temp_dir().join(format!("dereth-plugin-policy-{}.toml", world.slug));
+                std::fs::write(&f, doc).ok().map(|()| f)
+            });
         let req = LaunchRequest {
             world: &world,
             install: &install,
@@ -942,6 +1012,8 @@ impl Backend {
             dat_dir,
             classic_dat_dir,
             extra_args: &extra_args,
+            plugin_policy_file,
+            plugins: self.offered_plugins(),
         };
         let plan = match plan(&req) {
             Ok(p) => p,
@@ -1329,6 +1401,112 @@ impl Backend {
         self.save();
     }
 
+    /// Install a plugin from the URL of its release's zip (a thread's work: it fetches). The
+    /// release is staged; the page offers to enable it.
+    ///
+    /// # Errors
+    /// The fetch, or a check the release failed, in words for the page.
+    pub fn install_plugin(
+        shared: &Shared,
+        url: &str,
+        sha256: Option<String>,
+    ) -> Result<String, String> {
+        lock(shared).plugins_allowed()?;
+        let url = url.trim();
+        let (zip, sum) = fetch_release(url, sha256)?;
+        let mut b = lock(shared);
+        let r = b.plugins.stage(url, &zip, sum.as_deref(), None);
+        b.plugin_outcome(r)
+    }
+
+    /// Fetch each installed plugin's URL again and stage what is new (a thread's work).
+    pub fn update_plugins(shared: &Shared) -> String {
+        if let Err(e) = lock(shared).plugins_allowed() {
+            return e;
+        }
+        let list: Vec<(String, String)> = lock(shared)
+            .plugins
+            .plugins
+            .iter()
+            .map(|p| (p.id.clone(), p.url.clone()))
+            .collect();
+        let mut lines = Vec::new();
+        for (id, url) in list {
+            let line = match fetch_release(&url, None) {
+                Ok((zip, sum)) => {
+                    let mut b = lock(shared);
+                    let r = b.plugins.stage(&url, &zip, sum.as_deref(), Some(&id));
+                    b.plugin_outcome(r).unwrap_or_else(|e| format!("{id}: {e}"))
+                }
+                Err(e) => format!("{id}: {e}"),
+            };
+            lines.push(line);
+        }
+        if lines.is_empty() {
+            "No plugins are installed.".to_owned()
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    /// The installed plugins the Dereth client is offered: none while plugins are off.
+    fn offered_plugins(&self) -> Vec<PathBuf> {
+        if self.plugins_on {
+            self.plugins.offered_packages()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Plugins are off unless the launcher was started with `--plugins`.
+    fn plugins_allowed(&self) -> Result<(), String> {
+        if self.plugins_on {
+            Ok(())
+        } else {
+            Err("Plugins are off; start the launcher with --plugins.".to_owned())
+        }
+    }
+
+    fn plugin_outcome(
+        &mut self,
+        r: Result<Fetched, launcher_plugins::PluginError>,
+    ) -> Result<String, String> {
+        match r {
+            Ok(Fetched::Staged { id, version }) => Ok(format!(
+                "{id} {version} is ready; accept it, then turn it on in the client."
+            )),
+            Ok(Fetched::UpToDate { id }) => Ok(format!("{id} is up to date.")),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// Accept the staged release of `id`: the client is offered it, off until it is ticked there.
+    ///
+    /// # Errors
+    /// What stood in the way, in words for the page.
+    pub fn accept_plugin(&mut self, id: &str) -> Result<(), String> {
+        self.plugins_allowed()?;
+        self.plugins.accept_staged(id).map_err(|e| e.to_string())
+    }
+
+    /// Drop the staged release of `id`.
+    ///
+    /// # Errors
+    /// What stood in the way, in words for the page.
+    pub fn discard_plugin_release(&mut self, id: &str) -> Result<(), String> {
+        self.plugins_allowed()?;
+        self.plugins.discard_staged(id).map_err(|e| e.to_string())
+    }
+
+    /// Remove `id`.
+    ///
+    /// # Errors
+    /// What stood in the way, in words for the page.
+    pub fn remove_plugin(&mut self, id: &str) -> Result<(), String> {
+        self.plugins_allowed()?;
+        self.plugins.remove(id).map_err(|e| e.to_string())
+    }
+
     /// Every password this launcher stored. The secret store cannot be listed by prefix, so it goes
     /// account by account, which is every entry the launcher can have written.
     pub fn forget_all_passwords(&mut self) {
@@ -1434,6 +1612,53 @@ mod tests {
             "no retail client until the player adds one"
         );
         assert_eq!(v.dat_sets.len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Plugins are off unless the launcher was started with `--plugins`: until then the page has no
+    /// Plugins section, the client is offered none of the plugins installed, and nothing is
+    /// installed or changed.
+    #[test]
+    fn plugins_are_off_unless_the_launcher_was_started_with_plugins() {
+        let (mut b, dir) = backend("plugins-switch");
+        let id = "example.counter";
+        let shelf = Shelf::open(b.folders.plugins());
+        let zip = shelf.plugin_dir(id).join("current.zip");
+        std::fs::create_dir_all(zip.parent().unwrap()).unwrap();
+        std::fs::write(&zip, b"a package").unwrap();
+        let installed = Installed {
+            id: id.into(),
+            url: "https://example.invalid/counter.zip".into(),
+            current: Some(launcher_plugins::Release {
+                name: "Counter".into(),
+                version: "1.0.0".into(),
+                sha256: "0".repeat(64),
+                permissions: Vec::new(),
+            }),
+            staged: None,
+        };
+        std::fs::write(
+            b.folders.plugins().join(launcher_plugins::LIST_FILE),
+            serde_json::to_vec(&[installed]).unwrap(),
+        )
+        .unwrap();
+        b.plugins = Shelf::open(b.folders.plugins());
+
+        assert!(b.snapshot().plugins.is_none(), "no Plugins section");
+        assert!(b.offered_plugins().is_empty(), "the client is offered none");
+        assert!(b.remove_plugin(id).is_err());
+        assert_eq!(b.plugins.plugins.len(), 1, "nothing is changed");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let refused = Backend::install_plugin(&shared, "https://example.invalid/other.zip", None);
+        assert!(refused.is_err_and(|e| e.contains("--plugins")));
+
+        let b = Arc::try_unwrap(shared)
+            .unwrap()
+            .into_inner()
+            .unwrap()
+            .with_plugins(true);
+        assert_eq!(b.snapshot().plugins.map(|p| p.len()), Some(1));
+        assert_eq!(b.offered_plugins(), [zip]);
         let _ = std::fs::remove_dir_all(dir);
     }
 

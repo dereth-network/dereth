@@ -273,12 +273,25 @@ pub struct World {
     /// era suggests. `None`: the era's.
     #[serde(default)]
     pub world_base: Option<String>,
+    /// The world's plugin policy (`plugins.policy`, or `plugin_policy`): the policy document
+    /// itself, or the `https://` URL it is published at. Absent: the world publishes none, and the
+    /// Dereth client applies its defaults.
+    pub plugin_policy: Option<String>,
 }
 
 /// The logon version string every emulator requires today.
 pub const END_OF_RETAIL_NET_VERSION: &str = "1802";
 
 impl World {
+    /// Whether the world's plugin policy is published at a URL (rather than written in the entry).
+    #[must_use]
+    pub fn plugin_policy_url(&self) -> Option<&str> {
+        self.plugin_policy
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| p.starts_with("https://") && !p.contains(char::is_whitespace))
+    }
+
     /// A bare world, for tests and for `servers.txt` rows.
     pub fn new(slug: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
@@ -442,6 +455,8 @@ pub fn parse_world(row: &Value) -> Option<World> {
         .map(AccountModel::parse)
         .unwrap_or_default();
     w.signup_url = string_at(row, &["accounts", "signup_url"]);
+    w.plugin_policy =
+        string_at(row, &["plugins", "policy"]).or_else(|| string_at(row, &["plugin_policy"]));
     w.reset_url = string_at(row, &["accounts", "reset_url"]);
 
     w.status_method = str_at(row, &["status", "method"])

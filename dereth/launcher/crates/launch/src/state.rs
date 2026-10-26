@@ -28,6 +28,24 @@ use crate::install::{ClientKind, Installation};
 use crate::world::{Emulator, Endpoint, World};
 
 pub const STATE_FILE: &str = "launcher-state.json";
+
+/// Write `bytes` to `path` whole or not at all: to a temporary file beside it, synced, then
+/// renamed over it.
+///
+/// # Errors
+/// The file could not be written or renamed.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
+}
 pub const SCHEMA: u32 = 1;
 
 /// An account on one world. The password is in the vault, under [`crate::vault::target`].
@@ -313,14 +331,7 @@ impl LauncherState {
     pub fn save(&self, dir: &Path) -> io::Result<()> {
         std::fs::create_dir_all(dir)?;
         let json = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        let tmp = dir.join(format!("{STATE_FILE}.tmp"));
-        {
-            use std::io::Write;
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(&json)?;
-            f.sync_all()?;
-        }
-        std::fs::rename(&tmp, dir.join(STATE_FILE))
+        write_atomic(&dir.join(STATE_FILE), &json)
     }
 
     /// Where private dat sets go, given the launcher's data folder.
