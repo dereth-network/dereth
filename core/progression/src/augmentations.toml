@@ -1,0 +1,531 @@
+# What a character can gain beyond its build: the augmentations bought with experience, those
+# bought with luminance, the warning band for each, and the quests that grant skill credits.
+#
+# An augmentation is held as an int property of the character, `property`. One bought with
+# experience costs what its gem weenie (`gem`, class `class`) says, `AugmentationCost`; the
+# costs are the world's, so they are not written here. `max` is how many one character can
+# hold, the heritage's free one among them. `family` names a shared limit: the innate
+# attributes' ten, the resistances' two. An innate augmentation raises its attribute's innate
+# value by 5 (never past 100); a skill augmentation specializes a skill already trained, which
+# creation could not specialize.
+
+[family]
+innate = 10
+resistance = 2
+
+[[augmentation]]
+id = "reinforcement-of-the-lugians"
+name = "Reinforcement of the Lugians"
+property = 218
+gem = "gemaugmentationattstrength"
+class = 29294
+max = 10
+family = "innate"
+attribute = 1
+
+[[augmentation]]
+id = "bleearghs-fortitude"
+name = "Bleeargh's Fortitude"
+property = 219
+gem = "gemaugmentationattendurance"
+class = 29290
+max = 10
+family = "innate"
+attribute = 2
+
+[[augmentation]]
+id = "oswalds-enhancement"
+name = "Oswald's Enhancement"
+property = 220
+gem = "gemaugmentationattcoordination"
+class = 29289
+max = 10
+family = "innate"
+attribute = 4
+
+[[augmentation]]
+id = "siraluuns-blessing"
+name = "Siraluun's Blessing"
+property = 221
+gem = "gemaugmentationattquickness"
+class = 29292
+max = 10
+family = "innate"
+attribute = 3
+
+[[augmentation]]
+id = "enduring-calm"
+name = "Enduring Calm"
+property = 222
+gem = "gemaugmentationattfocus"
+class = 29291
+max = 10
+family = "innate"
+attribute = 5
+
+[[augmentation]]
+id = "steadfast-will"
+name = "Steadfast Will"
+property = 223
+gem = "gemaugmentationattself"
+class = 29293
+max = 10
+family = "innate"
+attribute = 6
+
+[[augmentation]]
+id = "ciandras-essence"
+name = "Ciandra's Essence"
+property = 224
+gem = "gemaugmentationtinkeringspecsalv"
+class = 29287
+max = 1
+skill = "Salvaging"
+
+[[augmentation]]
+id = "yoshis-essence"
+name = "Yoshi's Essence"
+property = 225
+gem = "gemaugmentationtinkeringspecitem"
+class = 29285
+max = 1
+skill = "ItemTinkering"
+
+[[augmentation]]
+id = "jibrils-essence"
+name = "Jibril's Essence"
+property = 226
+gem = "gemaugmentationtinkeringspecarmor"
+class = 29284
+max = 1
+skill = "ArmorTinkering"
+
+[[augmentation]]
+id = "celdiseths-essence"
+name = "Celdiseth's Essence"
+property = 227
+gem = "gemaugmentationtinkeringspecmagic"
+class = 29286
+max = 1
+skill = "MagicItemTinkering"
+
+[[augmentation]]
+id = "kogas-essence"
+name = "Koga's Essence"
+property = 228
+gem = "gemaugmentationtinkeringspecweap"
+class = 29288
+max = 1
+skill = "WeaponTinkering"
+
+[[augmentation]]
+id = "shadow-of-the-seventh-mule"
+name = "Shadow of the Seventh Mule"
+property = 229
+gem = "gemaugmentationpackslot"
+class = 29282
+max = 1
+effect = "pack"
+
+[[augmentation]]
+id = "might-of-the-seventh-mule"
+name = "Might of the Seventh Mule"
+property = 230
+gem = "gemaugmentationcarryingcapacityi"
+class = 29268
+max = 5
+effect = "burden"
+
+[[augmentation]]
+id = "clutch-of-the-miser"
+name = "Clutch of the Miser"
+property = 231
+gem = "gemaugmentationdeathreduceditems"
+class = 29270
+max = 3
+
+[[augmentation]]
+id = "enduring-enchantment"
+name = "Enduring Enchantment"
+property = 232
+gem = "gemaugmentationdeathspellsremain"
+class = 29271
+max = 1
+
+[[augmentation]]
+id = "critical-protection"
+name = "Critical Protection"
+property = 233
+gem = "gemaugmentationcriticaldefense"
+class = 29269
+max = 1
+
+[[augmentation]]
+id = "quick-learner"
+name = "Quick Learner"
+property = 234
+gem = "gemaugmentationbonusxp"
+class = 29267
+max = 1
+
+[[augmentation]]
+id = "ciandras-fortune"
+name = "Ciandra's Fortune"
+property = 235
+gem = "gemaugmentationbonussalvage"
+class = 29266
+max = 4
+
+[[augmentation]]
+id = "charmed-smith"
+name = "Charmed Smith"
+property = 236
+gem = "gemaugmentationluckonimbues"
+class = 29273
+max = 1
+
+[[augmentation]]
+id = "innate-renewal"
+name = "Innate Renewal"
+property = 237
+gem = "gemaugmentationfastregen"
+class = 29272
+max = 2
+
+[[augmentation]]
+id = "archmages-endurance"
+name = "Archmage's Endurance"
+property = 238
+gem = "gemaugmentationspellduration"
+class = 29283
+max = 5
+
+[[augmentation]]
+id = "enhancement-of-the-blade-turner"
+name = "Enhancement of the Blade Turner"
+property = 240
+gem = "gemaugmentationnaturalresistanceslash"
+class = 29280
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "enhancement-of-the-arrow-turner"
+name = "Enhancement of the Arrow Turner"
+property = 241
+gem = "gemaugmentationnaturalresistancepierc"
+class = 29279
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "enhancement-of-the-mace-turner"
+name = "Enhancement of the Mace Turner"
+property = 242
+gem = "gemaugmentationnaturalresistancebludg"
+class = 29275
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "caustic-enhancement"
+name = "Caustic Enhancement"
+property = 243
+gem = "gemaugmentationnaturalresistanceacid"
+class = 29274
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "fiery-enhancement"
+name = "Fiery Enhancement"
+property = 244
+gem = "gemaugmentationnaturalresistancefire"
+class = 29277
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "icy-enhancement"
+name = "Icy Enhancement"
+property = 245
+gem = "gemaugmentationnaturalresistancefrost"
+class = 29278
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "storms-enhancement"
+name = "Storm's Enhancement"
+property = 246
+gem = "gemaugmentationnaturalresistanceelectric"
+class = 29276
+max = 2
+family = "resistance"
+
+[[augmentation]]
+id = "infused-creature-magic"
+name = "Infused Creature Magic"
+property = 294
+gem = "ace41472-infusedcreaturemagic"
+class = 41472
+max = 1
+
+[[augmentation]]
+id = "infused-item-magic"
+name = "Infused Item Magic"
+property = 295
+gem = "ace41473-infuseditemmagic"
+class = 41473
+max = 1
+
+[[augmentation]]
+id = "infused-life-magic"
+name = "Infused Life Magic"
+property = 296
+gem = "ace41474-infusedlifemagic"
+class = 41474
+max = 1
+
+[[augmentation]]
+id = "infused-war-magic"
+name = "Infused War Magic"
+property = 297
+gem = "ace41475-infusedwarmagic"
+class = 41475
+max = 1
+
+[[augmentation]]
+id = "infused-void-magic"
+name = "Infused Void Magic"
+property = 328
+gem = "ace41479-infusedvoidmagic"
+class = 41479
+max = 1
+
+[[augmentation]]
+id = "eye-of-the-remorseless"
+name = "Eye of the Remorseless"
+property = 298
+gem = "ace41482-eyeoftheremorseless"
+class = 41482
+max = 1
+
+[[augmentation]]
+id = "hand-of-the-remorseless"
+name = "Hand of the Remorseless"
+property = 299
+gem = "ace41481-handoftheremorseless"
+class = 41481
+max = 1
+
+[[augmentation]]
+id = "master-of-the-steel-circle"
+name = "Master of the Steel Circle"
+property = 300
+gem = "ace41477-masterofthesteelcircle"
+class = 41477
+max = 1
+
+[[augmentation]]
+id = "master-of-the-focused-eye"
+name = "Master of the Focused Eye"
+property = 301
+gem = "ace41490-masterofthefocusedeye"
+class = 41490
+max = 1
+
+[[augmentation]]
+id = "master-of-the-five-fold-path"
+name = "Master of the Five Fold Path"
+property = 302
+gem = "ace41476-masterofthefivefoldpath"
+class = 41476
+max = 1
+
+[[augmentation]]
+id = "frenzy-of-the-slayer"
+name = "Frenzy of the Slayer"
+property = 309
+gem = "ace41478-frenzyoftheslayer"
+class = 41478
+max = 1
+
+[[augmentation]]
+id = "iron-skin-of-the-invincible"
+name = "Iron Skin of the Invincible"
+property = 310
+gem = "ace41480-ironskinoftheinvincible"
+class = 41480
+max = 1
+
+[[augmentation]]
+id = "jack-of-all-trades"
+name = "Jack of All Trades"
+property = 326
+gem = "ace43167-jackofalltrades"
+class = 43167
+max = 1
+
+# Asheron's Lesser Benediction is held as a quest stamp, not a property, and its experience is a
+# fixed cost (the server's own experience check charges it so).
+[[augmentation]]
+id = "asherons-lesser-benediction"
+name = "Asheron's Lesser Benediction"
+quest = "LesserBenedictionAug"
+cost = 2000000000
+max = 1
+
+# The auras bought with luminance, from level 200, once a character can earn it. Nalicana sells
+# `ranks` of each; a Seer sells five more of two of them, and a character follows one Seer.
+
+[luminance]
+from_level = 200
+# What a character who can earn luminance holds at most.
+maximum = 1500000
+
+[[aura]]
+id = "aura-of-the-world"
+name = "Aura of the World"
+property = 365
+ranks = 10
+
+[[aura]]
+id = "aura-of-valor"
+name = "Aura of Valor"
+property = 333
+ranks = 5
+
+[[aura]]
+id = "aura-of-protection"
+name = "Aura of Protection"
+property = 334
+ranks = 5
+
+[[aura]]
+id = "aura-of-glory"
+name = "Aura of Glory"
+property = 335
+ranks = 5
+
+[[aura]]
+id = "aura-of-temperance"
+name = "Aura of Temperance"
+property = 336
+ranks = 5
+
+[[aura]]
+id = "aura-of-aetheric-vision"
+name = "Aura of Aetheric Vision"
+property = 338
+ranks = 5
+
+[[aura]]
+id = "aura-of-mana-flow"
+name = "Aura of Mana Flow"
+property = 339
+ranks = 5
+
+[[aura]]
+id = "aura-of-mana-infusion"
+name = "Aura of Mana Infusion"
+property = 340
+ranks = 5
+
+[[aura]]
+id = "aura-of-purity"
+name = "Aura of Purity"
+property = 342
+ranks = 5
+
+[[aura]]
+id = "aura-of-the-craftsman"
+name = "Aura of the Craftsman"
+property = 343
+ranks = 5
+
+[[aura]]
+id = "aura-of-specialization"
+name = "Aura of Specialization"
+property = 344
+ranks = 0
+
+[[seer]]
+id = "shade-of-lady-adja"
+name = "Shade of Lady Adja"
+auras = [334, 344]
+
+[[seer]]
+id = "lord-tyragar"
+name = "Lord Tyragar"
+auras = [334, 336]
+
+[[seer]]
+id = "liam-of-gelid"
+name = "Liam of Gelid"
+auras = [333, 335]
+
+[[seer]]
+id = "kahiri"
+name = "Ka'hiri"
+auras = [333, 344]
+
+# The ranks a Seer sells of each aura it sells.
+[seers]
+ranks = 5
+
+# What end-of-retail characters held, by level: the augmentations they bought with experience
+# (the heritage's free one aside) and their luminance auras. Past `warn_past`, a character is
+# possible but unusual for its level, and is warned of. Below level 200 luminance cannot be earned,
+# so no aura can be held there.
+
+[[band]]
+to = 150
+typical = "0"
+warn_past = 2
+
+[[band]]
+to = 200
+typical = "0–1"
+warn_past = 8
+
+[[band]]
+to = 230
+typical = "2"
+warn_past = 12
+luminance_warn_past = 1
+
+[[band]]
+to = 260
+typical = "8"
+warn_past = 23
+luminance_warn_past = 10
+
+[[band]]
+to = 275
+typical = "31"
+warn_past = 44
+luminance_warn_past = 40
+
+# The quests that grant a skill credit, each counted as the server's skill credit check counts
+# it: once for each time it was solved, up to `solves`. A character can do it from `from_level`;
+# one that `luminance` marks is bought with luminance.
+
+[[quest_credit]]
+quest = "OswaldManualCompleted"
+name = "Oswald's skill manual"
+from_level = 90
+solves = 1
+
+[[quest_credit]]
+quest = "ArantahKill1"
+name = "Aun Ralirea's figurine"
+from_level = 80
+solves = 1
+
+[[quest_credit]]
+quest = "LumAugSkillQuest"
+name = "Nalicana's skill credits"
+from_level = 200
+solves = 2
+luminance = true

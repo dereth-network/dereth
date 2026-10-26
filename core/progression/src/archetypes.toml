@@ -1,0 +1,423 @@
+# The built-in archetypes. Each is what a player of that kind chose: the innate split (Strength,
+# Endurance, Coordination, Quickness, Focus, Self; 330 points, each 10 to 100), the skills to
+# specialize and train, most wanted first, and how the experience is shared. A skill is the data
+# files' name, spaces and case aside; `A|B` is A where the files have it, else B. An archetype
+# whose specialized skills the files lack is not offered.
+#
+# The weights are ranks: a target of weight 70 gains 70 ranks for every 100 its archetype's main
+# skill gains, until it reaches its cap. They are the ranks players of each kind had at the end of
+# retail, from level 30 to 180, as a share of their main skill's. The innate splits are the ones
+# those players chose most, and the skills the ones most of them trained, the commonest first.
+# Salvaging, which almost none of them raised, gets no share: it keeps creation's free ranks.
+
+[[archetype]]
+id = "melee-heavy"
+name = "Melee (Heavy Weapons)"
+innate = [100, 10, 100, 100, 10, 10]
+specialized = ["HeavyWeapons|Sword", "MeleeDefense"]
+trained = [
+    "Healing",
+    "ItemEnchantment",
+    "ArcaneLore",
+    "CreatureEnchantment",
+    "ManaConversion",
+    "LifeMagic",
+    "Shield",
+    "DirtyFighting",
+    "MissileDefense",
+]
+other = 0
+
+[archetype.weights]
+"HeavyWeapons|Sword" = 100
+MeleeDefense = 89
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+DirtyFighting = 60
+MissileDefense = 57
+Shield = 57
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "melee-two-handed"
+name = "Melee (Two Handed)"
+innate = [100, 10, 100, 100, 10, 10]
+specialized = ["TwoHandedCombat", "MeleeDefense"]
+trained = [
+    "ItemEnchantment",
+    "ManaConversion",
+    "Healing",
+    "ArcaneLore",
+    "LifeMagic",
+    "CreatureEnchantment",
+    "DirtyFighting",
+]
+other = 0
+
+[archetype.weights]
+TwoHandedCombat = 100
+MeleeDefense = 89
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+DirtyFighting = 60
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "melee-light"
+name = "Melee (Light Weapons)"
+innate = [100, 10, 100, 100, 10, 10]
+specialized = ["LightWeapons", "MeleeDefense"]
+trained = [
+    "Healing",
+    "ItemEnchantment",
+    "ArcaneLore",
+    "ManaConversion",
+    "LifeMagic",
+    "CreatureEnchantment",
+    "MissileDefense",
+    "Lockpick",
+]
+other = 0
+
+[archetype.weights]
+LightWeapons = 100
+MeleeDefense = 89
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+Lockpick = 60
+MissileDefense = 57
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "melee-finesse"
+name = "Melee (Finesse Weapons)"
+innate = [10, 10, 100, 100, 100, 10]
+specialized = ["FinesseWeapons", "MeleeDefense"]
+trained = [
+    "ItemEnchantment",
+    "Healing",
+    "ArcaneLore",
+    "ManaConversion",
+    "LifeMagic",
+    "CreatureEnchantment",
+    "SneakAttack",
+    "DirtyFighting",
+]
+other = 0
+
+[archetype.weights]
+FinesseWeapons = 100
+MeleeDefense = 89
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+DirtyFighting = 60
+SneakAttack = 60
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "dual-wield"
+name = "Dual Wield (Heavy Weapons)"
+innate = [100, 40, 100, 50, 20, 20]
+specialized = ["HeavyWeapons", "DualWield", "MeleeDefense"]
+trained = [
+    "ItemEnchantment",
+    "Healing",
+    "ManaConversion",
+    "CreatureEnchantment",
+    "LifeMagic",
+    "ArcaneLore",
+    "DirtyFighting",
+    "SneakAttack",
+]
+other = 0
+
+[archetype.weights]
+HeavyWeapons = 100
+MeleeDefense = 89
+DualWield = 70
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+DirtyFighting = 60
+SneakAttack = 60
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "sword-and-board"
+name = "Heavy Weapons and Shield"
+innate = [100, 10, 100, 10, 100, 10]
+specialized = ["HeavyWeapons", "Shield", "MeleeDefense"]
+trained = [
+    "ItemEnchantment",
+    "ManaConversion",
+    "Healing",
+    "CreatureEnchantment",
+    "LifeMagic",
+    "ArcaneLore",
+    "DirtyFighting",
+    "MissileDefense",
+]
+other = 0
+
+[archetype.weights]
+HeavyWeapons = 100
+MeleeDefense = 89
+Shield = 67
+Strength = 76
+Coordination = 74
+Quickness = 68
+Endurance = 66
+Focus = 62
+Self = 57
+Health = 65
+Stamina = 53
+Mana = 39
+LifeMagic = 73
+CreatureEnchantment = 70
+ItemEnchantment = 70
+ArcaneLore = 63
+ManaConversion = 63
+DirtyFighting = 60
+MissileDefense = 57
+MagicDefense = 56
+Healing = 54
+Run = 49
+Loyalty = 46
+Jump = 28
+
+[[archetype]]
+id = "archer"
+name = "Archer (Missile Weapons)"
+innate = [40, 30, 100, 100, 50, 10]
+specialized = ["MissileWeapons|Bow", "MeleeDefense"]
+trained = [
+    "ItemEnchantment",
+    "Fletching",
+    "Healing",
+    "ArcaneLore",
+    "ManaConversion",
+    "CreatureEnchantment",
+    "LifeMagic",
+    "MissileDefense",
+]
+other = 0
+
+[archetype.weights]
+"MissileWeapons|Bow" = 100
+MeleeDefense = 79
+Coordination = 73
+Strength = 66
+Endurance = 62
+Focus = 61
+Quickness = 60
+Self = 55
+Health = 62
+Stamina = 51
+Mana = 35
+CreatureEnchantment = 73
+ItemEnchantment = 64
+LifeMagic = 60
+ManaConversion = 60
+Fletching = 58
+ArcaneLore = 47
+MagicDefense = 46
+Loyalty = 40
+Healing = 38
+Run = 36
+MissileDefense = 35
+Jump = 22
+
+[[archetype]]
+id = "war-mage"
+name = "War Mage"
+innate = [10, 100, 10, 10, 100, 100]
+specialized = ["WarMagic"]
+trained = [
+    "LifeMagic",
+    "ManaConversion",
+    "CreatureEnchantment",
+    "ItemEnchantment",
+    "ArcaneLore",
+    "MeleeDefense",
+    "Summoning",
+]
+other = 0
+
+[archetype.weights]
+WarMagic = 100
+MeleeDefense = 88
+LifeMagic = 84
+CreatureEnchantment = 79
+Focus = 75
+Self = 75
+ItemEnchantment = 74
+ManaConversion = 72
+Summoning = 65
+Endurance = 64
+Strength = 64
+Quickness = 59
+Coordination = 51
+Health = 65
+Mana = 59
+Stamina = 57
+MagicDefense = 60
+Run = 58
+ArcaneLore = 44
+Loyalty = 39
+Jump = 31
+
+[[archetype]]
+id = "void-mage"
+name = "Void Mage"
+innate = [10, 100, 10, 10, 100, 100]
+specialized = ["VoidMagic"]
+trained = [
+    "LifeMagic",
+    "ManaConversion",
+    "CreatureEnchantment",
+    "ItemEnchantment",
+    "ArcaneLore",
+    "Summoning",
+    "MeleeDefense",
+]
+other = 0
+
+[archetype.weights]
+VoidMagic = 100
+MeleeDefense = 88
+LifeMagic = 84
+CreatureEnchantment = 79
+Focus = 75
+Self = 75
+ItemEnchantment = 74
+ManaConversion = 72
+Summoning = 65
+Endurance = 64
+Strength = 64
+Quickness = 59
+Coordination = 51
+Health = 65
+Mana = 59
+Stamina = 57
+MagicDefense = 60
+Run = 58
+ArcaneLore = 44
+Loyalty = 39
+Jump = 31
+
+[[archetype]]
+id = "summoner"
+name = "Summoner"
+innate = [10, 100, 10, 10, 100, 100]
+specialized = ["Summoning", "LifeMagic"]
+trained = [
+    "ManaConversion",
+    "CreatureEnchantment",
+    "ItemEnchantment",
+    "ArcaneLore",
+    "MeleeDefense",
+    "VoidMagic",
+]
+other = 0
+
+[archetype.weights]
+Summoning = 100
+MeleeDefense = 88
+LifeMagic = 84
+CreatureEnchantment = 79
+Focus = 75
+Self = 75
+ItemEnchantment = 74
+ManaConversion = 72
+VoidMagic = 50
+Endurance = 64
+Strength = 64
+Quickness = 59
+Coordination = 51
+Health = 65
+Mana = 59
+Stamina = 57
+MagicDefense = 60
+Run = 58
+ArcaneLore = 44
+Loyalty = 39
+Jump = 31

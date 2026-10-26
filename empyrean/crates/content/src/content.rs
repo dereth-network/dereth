@@ -53,9 +53,24 @@ macro_rules! world_database_api {
             fn weenie_class_ids_of_type(&self, _weenie_type_id: i32) -> Vec<u32> {
                 Vec::new()
             }
+
+            /// Not ACE (V460): death treasure `data_id` forgotten, so the next read of it reads
+            /// the database again; ACE keeps a death treasure it has read.
+            fn clear_cached_death_treasure(&self, _data_id: u32) {}
+
+            /// Not ACE (V460): every death treasure forgotten.
+            fn clear_death_treasure_cache(&self) {}
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
+            fn clear_cached_death_treasure(&self, data_id: u32) {
+                WorldDatabaseWithEntityCache::clear_cached_death_treasure(self, data_id);
+            }
+
+            fn clear_death_treasure_cache(&self) {
+                WorldDatabaseWithEntityCache::clear_death_treasure_cache(self);
+            }
+
             $( fn $name(&self $(, $arg: $ty)*) $(-> $ret)? { WorldDatabaseWithEntityCache::$name(self $(, $arg)*) } )*
 
             fn overlay(&self) -> Option<Arc<ContentOverlay>> {
@@ -84,6 +99,14 @@ macro_rules! world_database_api {
 
         impl WorldDatabase for MemContent {
             $( fn $name(&self $(, $arg: $ty)*) $(-> $ret)? { self.db().$name($($arg),*) } )*
+
+            fn clear_cached_death_treasure(&self, data_id: u32) {
+                self.db().clear_cached_death_treasure(data_id);
+            }
+
+            fn clear_death_treasure_cache(&self) {
+                self.db().clear_death_treasure_cache();
+            }
 
             fn overlay(&self) -> Option<Arc<ContentOverlay>> {
                 self.db().base().overlay().cloned()

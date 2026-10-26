@@ -123,7 +123,12 @@ pub const GATES: &[Gate] = &[
         title: "Object model + gameplay",
         // The pure rules `dereth-client-model` re-exports live in `dereth-rules`.
         // Character creation's rules are tested against both eras' creation tables in the dats.
-        crates: &["dereth-rules", "dereth-client-model", "dereth-chargen"],
+        crates: &[
+            "dereth-rules",
+            "dereth-client-model",
+            "dereth-chargen",
+            "dereth-progression",
+        ],
         harnesses: &[],
     },
     Gate {
@@ -314,6 +319,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "dereth-testkit"
         | "dereth-world-data"
         | "dereth-chargen"
+        | "dereth-progression"
         | "dereth-headless"
         | "dereth-classic-ui"
         | "dereth-classic-dat"

@@ -1,0 +1,39 @@
+[package]
+name = "dereth-progression"
+description = "A believable character of a chosen level: the level's budget from the data files, the archetypes, how the experience and credits are spent, and the checks a legitimate character passes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, which reads both
+# eras' tables from the retail dats.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The tables a build is made from: `XpTable`, `SkillTable`, `CharGen`, `Attribute2ndTable`.
+# Decoded values only; nothing here opens a file.
+dereth-assets.workspace = true
+# The heritage skill costs and the default skill classes, as character creation reads them.
+dereth-rules.workspace = true
+serde.workspace = true
+# The built-in archetypes are a TOML table.
+toml.workspace = true
+
+[dev-dependencies]
+dereth-dat = { workspace = true, features = ["test-support"] }
+# The order file's JSON, as the server reads it.
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "dat"
+path = "tests/dat.rs"
+required-features = ["retail-dats"]

@@ -10,6 +10,11 @@ publish.workspace = true
 [lib]
 doctest = false
 
+[features]
+# Tier switch only: selects the real-content test modules, which read the retail dats under
+# DERETH_TEST_DAT_DIR and fail when they are absent.
+real-content = ["empyrean-dat/real-content"]
+
 [dependencies]
 empyrean-world.workspace = true
 empyrean-common.workspace = true
@@ -20,6 +25,8 @@ empyrean-content.workspace = true
 empyrean-dat.workspace = true
 dereth-physics.workspace = true
 dereth-primitives.workspace = true
+# The playtest characters: their budget, how it is spent, and the checks they pass.
+dereth-progression.workspace = true
 empyrean-tables.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -30,6 +37,8 @@ crossterm = { version = "0.29", default-features = false, features = ["events", 
 
 [dev-dependencies]
 empyrean-testkit.workspace = true
+# The real-content tests find the retail dats as the other tiers do.
+dereth-dat = { workspace = true, features = ["test-support"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 
 [[test]]

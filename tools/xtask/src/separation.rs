@@ -56,6 +56,7 @@ pub const SHARED: &[&str] = &[
     "dereth-landscape",
     "dereth-physics",
     "dereth-primitives",
+    "dereth-progression",
     "dereth-protocol",
     "dereth-rules",
     "dereth-transport",

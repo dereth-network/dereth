@@ -255,6 +255,12 @@ password_hash_work_factor = 8
 # Rehash a password whose work factor differs from password_hash_work_factor.
 force_work_factor_migration = true
 
+# default: false (Empyrean only)
+# Let the console's import-character bring a character exported from another Empyrean
+# world into an account here. Its stats are checked; its items are taken as they are.
+# A playtest character was made, not earned: turn this on only for characters you trust.
+allow_character_import = false
+
 # ----------------------------------------------------------------------------------------------
 # [[server.preloaded_landblocks]], default: 6 entries (E74EFFFF, A9B4FFFF, DA55FFFF, 7D64FFFF, 0007FFFF, 00000000) (ACE Config.js: Server.PreloadedLandblocks).
 # The landblocks loaded (and perma-loaded) at startup; they need landblock_preloading.

@@ -3,8 +3,9 @@
 //!
 //! **Depends on** the server crates it commands (`empyrean-common`, `empyrean-entity`,
 //! `empyrean-tables`, `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`,
-//! `empyrean-world`) and the shared `dereth-primitives` and `dereth-physics`. **Used by** the
-//! server (`empyrean-server`) and, in tests, the test kit (`empyrean-testkit`).
+//! `empyrean-world`) and the shared `dereth-primitives`, `dereth-physics` and `dereth-progression`
+//! (a playtest character's build and its checks). **Used by** the server (`empyrean-server`)
+//! and, in tests, the test kit (`empyrean-testkit`).
 //!
 //! **Must never** mix Empyrean's own commands into the ported handler files: [`handlers`] is the
 //! port of ACE's handler files, one per ACE file, and [`empyrean`] holds every command that is

@@ -1328,6 +1328,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-progression"
+version = "0.0.0"
+dependencies = [
+ "dereth-assets",
+ "dereth-dat",
+ "dereth-primitives",
+ "dereth-rules",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "dereth-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1781,8 +1794,10 @@ name = "empyrean-command"
 version = "0.3.4"
 dependencies = [
  "crossterm",
+ "dereth-dat",
  "dereth-physics",
  "dereth-primitives",
+ "dereth-progression",
  "empyrean-common",
  "empyrean-content",
  "empyrean-dat",

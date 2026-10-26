@@ -293,6 +293,18 @@ When the server runs in a terminal, it reads commands at the `empyrean>> ` promp
   everything a clean shutdown saves) now, and keeps the world running. It says `Saved.` once the
   database has written it all.
 - `config-write [<path>] [-f]` writes the configuration in use as a commented `empyrean.toml`.
+- `import-character <file> <account> [<new name>]` brings a character exported from another
+  Empyrean world (a `.empyrean-character` file, as Lyceum's Characters tab writes one) into an
+  account here, under a new name if its own is taken. It is off until you set
+  `allow_character_import = true` under `[server.accounts]`. The character must be of this world's
+  era, every kind of object it holds must be in this world's database, and its stats must add up
+  as a player's do, or it is refused. Its items' own properties are not checked, and a playtest
+  character was made, not earned: import only characters you trust. An administrator's character
+  brought into a player's account becomes a player's.
+- `import-treasure <death|wielded> <id>` imports a loot table's file from the content folder
+  (`sql/treasure_death/00037.sql` and the like), and the world draws from the new rows at once.
+- `roll-treasure <id> [times]` draws a loot table (its death treasure, else its wielded treasure)
+  up to 1000 times and lists what each draw made. Nothing it makes enters the world.
 
 **The admin channel.** A program on the same computer can use the console too, which is how the
 Dereth launcher passes commands to a world it did not start, a service among them. At each start

@@ -14,6 +14,12 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Playtest characters are now believable players of a chosen level and heritage, with loot gear.
+- Playtest characters get gear slot by slot, better gear, starter gear and kits, previewed first.
+- Playtest characters can hold augmentations, a summoning mastery, titles and quests; backups keep them.
+- Playtest characters can be exported; the new import-character command brings them into another world.
+- New console commands import a loot table into a running world and test-roll it.
+
 ## 0.3.4 (2026-10-24)
 
 - New save-world console command saves everything without stopping the world.

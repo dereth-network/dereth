@@ -324,6 +324,8 @@ pub fn real_content(profile: Profile, dats: Option<&Path>) -> Vec<Report> {
         ("empyrean-world", &[], true),
         ("empyrean-testkit", &["--test", "all"], true),
         ("empyrean-server", &["--test", "all"], false),
+        // The playtest character commands, whose gear is rolled from both eras' loot.
+        ("empyrean-command", &["--test", "all"], true),
     ];
     let pack = world_pack();
     let infiltration = infiltration_pack();

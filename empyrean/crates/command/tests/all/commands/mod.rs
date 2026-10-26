@@ -8,4 +8,7 @@ pub(crate) mod empyrean_commands;
 pub(crate) mod fix_and_account_commands;
 pub(crate) mod server_performance;
 
+mod character_file;
 mod playtest_character;
+mod playtest_extras;
+mod playtest_gear;

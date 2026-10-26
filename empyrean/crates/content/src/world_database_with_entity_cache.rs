@@ -1147,6 +1147,17 @@ impl WorldDatabaseWithEntityCache {
         lock(&self.c.cached_wielded_treasure).clear();
     }
 
+    /// Not ACE (V460): death treasure `data_id` forgotten, so the next read of it reads the
+    /// database again (ACE keeps a death treasure it has read).
+    pub fn clear_cached_death_treasure(&self, data_id: u32) {
+        lock(&self.c.cached_death_treasure).remove(&data_id);
+    }
+
+    /// Not ACE (V460): every death treasure forgotten.
+    pub fn clear_death_treasure_cache(&self) {
+        lock(&self.c.cached_death_treasure).clear();
+    }
+
     // ---- inherited, unchanged ----
 
     // ACE: WorldDatabase.Exists

@@ -22,7 +22,9 @@
 //! * `Adapter/BiotaConverter.cs`, `Adapter/BiotaUpdater.cs` → [`adapter`];
 //! * `Entity/PossessedBiotas.cs` → [`entity`];
 //! * `ACE.Common/Cryptography/BCryptProvider.cs` → [`bcrypt_provider`] (over [`bcrypt`], not ACE);
-//! * the MariaDB collation of ACE's name and key columns → [`collation`] (not ACE).
+//! * the MariaDB collation of ACE's name and key columns → [`collation`] (not ACE);
+//! * a character file, which carries a character from one world to another → [`character_file`]
+//!   (not ACE).
 //!
 //! Schemas: `src/schema/shard_v001.sql` and `src/schema/auth_v001.sql` (ACE's `ShardBase.sql` and
 //! `AuthenticationBase.sql` for SQLite), each version 1 of its schema, as Empyrean 0.1.0 shipped
@@ -35,6 +37,7 @@ pub mod bcrypt;
 pub mod bcrypt_provider;
 mod blowfish_tables;
 mod cast;
+pub mod character_file;
 pub mod collation;
 pub mod entity;
 pub mod error;

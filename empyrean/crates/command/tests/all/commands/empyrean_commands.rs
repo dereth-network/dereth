@@ -12,7 +12,7 @@ use empyrean_entity::enums::AccessLevel;
 pub const REPLACED: [&str; 1] = ["reportbug"];
 
 /// Commands only Empyrean has.
-pub const EMPYREAN_NAMES: [&str; 10] = [
+pub const EMPYREAN_NAMES: [&str; 13] = [
     "emphelp",
     "empcommands",
     "empversion",
@@ -23,6 +23,9 @@ pub const EMPYREAN_NAMES: [&str; 10] = [
     "reload-dat-overlay",
     "playtest-character",
     "save-world",
+    "import-character",
+    "import-treasure",
+    "roll-treasure",
 ];
 
 /// ACE's names for Empyrean's commands: ACE's rows, listed as "Same as @<ours> (ACE's name).".

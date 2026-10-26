@@ -235,6 +235,19 @@ pub fn seed(seed: u64) {
     PORT_RNG.with(|cell| *cell.borrow_mut() = Some(DotNetRandom::new(port_seed(s))));
 }
 
+/// Runs `f` with the calling thread's generators seeded from `seed` (as [`seed`] seeds them),
+/// then puts back the ones it had, so what is drawn inside repeats for the seed and what is
+/// drawn after is as if nothing had been drawn.
+pub fn with_seed<R>(seed: u64, f: impl FnOnce() -> R) -> R {
+    let kept = RNG.with(|cell| cell.borrow_mut().take());
+    let kept_port = PORT_RNG.with(|cell| cell.borrow_mut().take());
+    self::seed(seed);
+    let out = f();
+    RNG.with(|cell| *cell.borrow_mut() = kept);
+    PORT_RNG.with(|cell| *cell.borrow_mut() = kept_port);
+    out
+}
+
 /// Reseeds the calling thread from OS entropy. Only the server binary calls this, once per
 /// thread; it is never implicit.
 pub fn seed_from_entropy() {

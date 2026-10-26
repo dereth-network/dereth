@@ -367,6 +367,13 @@ pub const SECTIONS: &[Section] = &[
                 "ForceWorkFactorMigration",
                 "Rehash a password whose work factor differs from password_hash_work_factor.",
             ),
+            e(
+                "allow_character_import",
+                "AllowCharacterImport",
+                "Let the console's import-character bring a character exported from another Empyrean\n\
+                 world into an account here. Its stats are checked; its items are taken as they are.\n\
+                 A playtest character was made, not earned: turn this on only for characters you trust.",
+            ),
         ],
     },
     Section {

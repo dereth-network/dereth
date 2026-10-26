@@ -177,6 +177,28 @@ fn seed_from_entropy_is_explicit_and_per_thread() {
 }
 
 #[test]
+fn draws_made_under_a_seed_repeat_for_it_and_leave_the_threads_own_stream_where_it_was() {
+    std::thread::spawn(|| {
+        random::seed(7);
+        let first = ThreadSafeRandom::next(0, 1_000_000);
+        let inside = |s| random::with_seed(s, || ThreadSafeRandom::next(0, 1_000_000));
+        let a = inside(42);
+        let b = inside(42);
+        assert_eq!(a, b, "the same seed draws the same");
+        let after = ThreadSafeRandom::next(0, 1_000_000);
+        random::seed(7);
+        assert_eq!(ThreadSafeRandom::next(0, 1_000_000), first);
+        assert_eq!(
+            ThreadSafeRandom::next(0, 1_000_000),
+            after,
+            "the thread's stream went on as if nothing had been drawn"
+        );
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
 fn thread_safe_random_next_is_inclusive() {
     ThreadSafeRandom::seed(3);
     let draws: Vec<i32> = (0..2000).map(|_| ThreadSafeRandom::next(1, 3)).collect();

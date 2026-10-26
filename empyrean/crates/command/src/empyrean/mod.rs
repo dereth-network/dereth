@@ -19,6 +19,12 @@
 //!   and landblocks built again from it, for a world builder's live loop.
 //! - [`save_world`]: `save-world`, a new name: every player and what the world keeps saved now, as
 //!   a clean shutdown saves them, with the world left running.
+//! - [`playtest_character`]: `playtest-character`, a new name: a world builder's playtest
+//!   characters, made from recipes, backed up, restored and exported.
+//! - [`character_file`]: `import-character`, a new name: a character exported from another world
+//!   brought into an account here, when the operator allows it.
+//! - [`treasure`]: `import-treasure` and `roll-treasure`, new names: a world builder's loot tables
+//!   imported into the running world, and one drawn without anything made in it.
 //!
 //! [`command_handlers`] is added to the table after every ported file, so a row here with an ACE
 //! command's name replaces ACE's row in its slot, and a new name is added at the end.
@@ -26,6 +32,7 @@
 //! A future Empyrean-only command goes in a file here and in [`command_handlers`]; where its
 //! behaviour is ACE's, it forwards to the ported handler rather than copying it.
 
+pub mod character_file;
 pub mod dn;
 pub mod help_commands;
 pub mod playtest_character;
@@ -33,6 +40,7 @@ pub mod reload_dat_overlay;
 pub mod report_bug;
 pub mod save_world;
 pub mod source;
+pub mod treasure;
 
 use crate::command_handler_info::CommandHandlerInfo;
 
@@ -46,5 +54,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
     all.extend(reload_dat_overlay::command_handlers());
     all.extend(playtest_character::command_handlers());
     all.extend(save_world::command_handlers());
+    all.extend(character_file::command_handlers());
+    all.extend(treasure::command_handlers());
     all
 }

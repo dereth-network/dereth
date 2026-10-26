@@ -34,6 +34,12 @@ pub struct AccountDefaults {
     /// Rehash passwords whose work factor differs from `PasswordHashWorkFactor`.
     #[serde(rename = "ForceWorkFactorMigration")]
     pub force_work_factor_migration: bool,
+
+    /// Not ACE: whether the console's `import-character` may bring a character exported from
+    /// another world into an account here (default false).
+    /// DIVERGE: V459 an extra key; ACE has no character import.
+    #[serde(rename = "AllowCharacterImport")]
+    pub allow_character_import: bool,
 }
 
 impl Default for AccountDefaults {
@@ -44,6 +50,7 @@ impl Default for AccountDefaults {
             allow_auto_account_creation: true,
             password_hash_work_factor: 8,
             force_work_factor_migration: true,
+            allow_character_import: false,
         }
     }
 }

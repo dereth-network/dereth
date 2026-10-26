@@ -1,6 +1,7 @@
 pub(crate) mod authentication;
 pub(crate) mod bcrypt;
 pub(crate) mod biota_roundtrip;
+pub(crate) mod character_file;
 pub(crate) mod characters;
 pub(crate) mod database_thread;
 pub(crate) mod kill_point_durability;

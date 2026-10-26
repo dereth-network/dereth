@@ -17,6 +17,7 @@ members = [
     "core/protocol",
     "core/rules",
     "core/chargen",
+    "core/progression",
     "core/client-net",
     "core/client-model",
     "core/client-contract",
@@ -138,6 +139,7 @@ dereth-launch = { path = "dereth/launcher/crates/launch" }
 dereth-pcap = { path = "tools/pcap" }
 dereth-physics = { path = "core/physics" }
 dereth-presentation = { path = "core/presentation" }
+dereth-progression = { path = "core/progression" }
 dereth-primitives = { path = "core/primitives" }
 dereth-protocol = { path = "core/protocol" }
 dereth-render = { path = "dereth/client/crates/render", default-features = false }
