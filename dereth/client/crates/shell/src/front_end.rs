@@ -283,7 +283,7 @@ pub(crate) struct FrontEndServices<H: Host> {
     clipboard: crate::clipboard::ClipboardBridge,
     /// The host's clipboard, which the bridge mirrors.
     host_clipboard: H::Clipboard,
-    /// The host's pad, read once a frame.
+    /// The host's pad, read once a frame; none without a window.
     gamepad: Box<dyn crate::gamepad::HostGamepad>,
     /// The pointer, held by the host during a camera drag.
     pub(crate) pointer: crate::pointer::PointerHold,
@@ -366,7 +366,12 @@ impl<H: Host> ClientShell<H> {
                 cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
                 clipboard: crate::clipboard::ClipboardBridge::default(),
                 host_clipboard: H::clipboard(),
-                gamepad: H::gamepad(),
+                // A run with no window has no one at it to hold a pad, and opens none.
+                gamepad: if hwnd.is_some() {
+                    H::gamepad()
+                } else {
+                    Box::new(crate::gamepad::NoGamepad)
+                },
                 pointer: crate::pointer::PointerHold::new(H::pointer(hwnd)),
                 scripted_pad: None,
                 ui_release: crate::gpu::UiReleaseReport::default(),
@@ -3161,6 +3166,59 @@ mod tests {
                 ..base.clone()
             }
         );
+    }
+
+    /// A pad with its south button held, whenever it is read.
+    struct HeldPad;
+
+    impl crate::gamepad::HostGamepad for HeldPad {
+        fn poll(&mut self) -> Option<crate::gamepad::PadState> {
+            let mut s = crate::gamepad::PadState::default();
+            s.set(dereth_input::pad::PadButton::South, true);
+            Some(s)
+        }
+    }
+
+    /// A host whose pad is [`HeldPad`], and nothing else under it.
+    struct PadHost;
+
+    impl Host for PadHost {
+        const BUILD_ID: &'static str = "pad-test";
+        type Clipboard = crate::clipboard::NoClipboard;
+        fn open_platform(
+            cfg: &dereth_client_runtime::config::Config,
+            events: crate::platform::window::WindowEvents,
+        ) -> Result<dereth_client_runtime::app::Platform, dereth_client_runtime::app::StartupError>
+        {
+            crate::platform::host::NullHost::open_platform(cfg, events)
+        }
+        fn local_utc_offset_secs(_: i64) -> i32 {
+            0
+        }
+        fn launch_uri(_: &str) -> i32 {
+            0
+        }
+        fn install_default_output() {}
+        fn clipboard() -> Self::Clipboard {
+            crate::clipboard::NoClipboard
+        }
+        fn cursor_images(window: Option<isize>) -> Box<dyn crate::cursor::CursorImages> {
+            crate::platform::host::NullHost::cursor_images(window)
+        }
+        fn gamepad() -> Box<dyn crate::gamepad::HostGamepad> {
+            Box::new(HeldPad)
+        }
+    }
+
+    /// A front end on a window reads the host's pad; one with no window, as a headless run has,
+    /// reads none, so the pads plugged into the machine never reach a run nobody plays.
+    #[test]
+    fn a_front_end_reads_the_hosts_pad_on_a_window_and_none_without_one() {
+        let mut windowed = ClientShell::<PadHost>::new(Some(1));
+        let held = windowed.shared.gamepad.poll().expect("the host's pad");
+        assert!(held.held(dereth_input::pad::PadButton::South));
+        let mut headless = ClientShell::<PadHost>::new(None);
+        assert_eq!(headless.shared.gamepad.poll(), None);
     }
 }
 

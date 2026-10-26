@@ -173,6 +173,22 @@ fn app_with_capture(session: &str) -> Option<(App, Vec<SessionEvent>)> {
     Some((app, events))
 }
 
+/// An application in the game phase with a recorded session applied as the client applies it:
+/// each message to the objects (the player's id, every object the session created) and then to
+/// the interface.
+fn app_with_capture_and_its_objects(session: &str) -> Option<(App, Vec<SessionEvent>)> {
+    let events = replay(session)?;
+    let mut app = app_in_gameplay(true, 4)?;
+    for e in events_in_world(&events) {
+        let _ = app.probe_mut().objects_mut().apply_event(e, LocalTime(1.0));
+        let _ = app.apply_hud_events(std::slice::from_ref(e));
+    }
+    for _ in 0..4 {
+        app.frame();
+    }
+    Some((app, events))
+}
+
 // ---------------------------------------------------------------------------------------------
 // 1. The tabbed pages — one sub-panel at a time.
 // ---------------------------------------------------------------------------------------------
@@ -754,15 +770,17 @@ fn an_item_list_element_resolves_to_the_container_it_is_showing() {
 ///
 /// This follows the child-list join: both container strips drive the one grid. The grid
 /// stops showing the player's own loose items and shows the pack's. What the pack holds comes from
-/// the capture too — the `0x0013` names the
-/// pack, and the server's contents message for it is what would fill it, so a pack whose
-/// contents this session never saw shows **empty**, which is still the right answer and is what is
-/// asserted: the grid changed and it changed to the pack.
+/// the capture too — the `0x0013` names the pack, and the objects the session created inside it
+/// fill it, which for this session's pack is none, so the grid shows it empty.
+///
+/// The grid shows the inventory's open container, which takes only a pack the world holds and
+/// knows to be the player's, so the session's objects are applied as well as its `0x0013`: the
+/// player's id and the pack's own create.
 #[test]
 fn clicking_a_side_pack_points_the_grid_at_it() {
     have_dats();
-    let (mut app, events) =
-        app_with_capture("first-login-walk-jump").expect("an app driven from the capture corpus");
+    let (mut app, events) = app_with_capture_and_its_objects("first-login-walk-jump")
+        .expect("an app driven from the capture corpus");
     let d = player_description(&events).expect("the capture's 0x0013");
     let pack = d
         .content_profiles
@@ -803,6 +821,12 @@ fn clicking_a_side_pack_points_the_grid_at_it() {
     }
     app.frame();
 
+    let held: Vec<ObjectId> = app
+        .objects()
+        .world
+        .inventory(pack)
+        .map(|i| i.items.clone())
+        .unwrap_or_default();
     let Some((_ui, screen)) = gameplay_screen(&mut app) else {
         unreachable!()
     };
@@ -814,11 +838,12 @@ fn clicking_a_side_pack_points_the_grid_at_it() {
     let grid = screen.inventory.item_list.as_ref().expect("the grid");
     let got: Vec<ObjectId> = grid.slots.iter().filter_map(|s| s.item).collect();
     // The client predicts nothing here either: the grid holds exactly what the object tables say
-    // that pack contains, which for a pack the session never opened is nothing.
+    // that pack contains, and none of the player's own items.
     assert!(
         got.iter().all(|id| *id != pack),
         "the pack must not appear inside itself: {got:?}"
     );
+    assert_eq!(got, held, "the grid holds the pack's contents");
 }
 
 // ---------------------------------------------------------------------------------------------

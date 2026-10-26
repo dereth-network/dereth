@@ -96,7 +96,8 @@ pub trait Host: 'static {
         Box::new(crate::pointer::NoPointerHold)
     }
 
-    /// The host's pad, for one front end's life; a host with none reads nothing.
+    /// The host's pad, for one front end's life, asked for only when the front end has a window;
+    /// a host with none reads nothing.
     fn gamepad() -> Box<dyn crate::gamepad::HostGamepad> {
         Box::new(crate::gamepad::NoGamepad)
     }

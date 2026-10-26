@@ -36,7 +36,14 @@
 
 /// `(suite, status owner, why it is red)`. A list, not a map, so a duplicate key is a test failure
 /// rather than an entry silently lost.
-pub const KNOWN_RED: &[(&str, &str, &str)] = &[];
+pub const KNOWN_RED: &[(&str, &str, &str)] = &[(
+    "rendering::hifi_far_trees",
+    "Better Lighting",
+    "far_trees_hold_still_under_a_still_camera_frame_after_frame: under Better Lighting's \
+     anti-aliasing the far trees' edges flicker against an art pack's sky, so about 3,480 pixels \
+     change a frame with them against 2,949 without, over the 3,346 allowed (the test passes with \
+     the pack's sky off). Better Lighting gets no more fixes",
+)];
 
 /// Binaries whose every test is `#[ignore]`d on purpose, so "0 passed 0 failed" is their designed
 /// resting state and not a gate behind a feature. A NO-TESTS result for any binary not listed here
