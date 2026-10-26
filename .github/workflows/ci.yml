@@ -158,6 +158,15 @@ jobs:
       # The bundle's third-party licences page is made by cargo-about, the version the releases use.
       - name: Install cargo-about
         run: cargo install --locked "cargo-about@0.9.2" --features cli
+      # The plugin engine (Luau) is C++ built for the browser with zig's clang and headers: the
+      # web client's dev runner names them, and cargo run directly needs the same.
+      - name: Install zig, and the plugin engine's build for the browser
+        env:
+          ZIGLANG_VERSION: 0.15.2
+        run: |
+          python3 -m pip install --user "ziglang==$ZIGLANG_VERSION"
+          zig=$(python3 -c 'import os, ziglang; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))')
+          ZIG="$zig" cargo run -q --locked -p dereth-web-dev -- --print-env >> "$GITHUB_ENV"
       - name: Clippy over the browser half
         env:
           CARGO_NET_OFFLINE: 'true'

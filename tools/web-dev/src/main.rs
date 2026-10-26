@@ -89,7 +89,7 @@ struct Options {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]"
+        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>] | --print-env"
     );
     std::process::exit(2);
 }
@@ -288,7 +288,8 @@ fn luau_vars(zig: &str, z: &Path) -> Vec<(String, String)> {
         "libc/include/any-wasi-any",
     ]
     .map(dir)
-    .join(";");
+    // The platform's path separator, as Luau's build reads the list (`std::env::split_paths`).
+    .join(if cfg!(windows) { ";" } else { ":" });
     let named = zig_command(zig);
     let clang = format!("{named} clang");
     vec![
@@ -300,6 +301,11 @@ fn luau_vars(zig: &str, z: &Path) -> Vec<(String, String)> {
         ("LUAU_INCLUDE_DIRS".into(), includes),
         ("ZIG".into(), zig.to_owned()),
     ]
+}
+
+/// `vars` as `KEY=VALUE` lines, one each.
+fn env_lines(vars: &[(String, String)]) -> String {
+    vars.iter().map(|(k, v)| format!("{k}={v}\n")).collect()
 }
 
 /// Builds the module, runs the bindgen step into `www/pkg/`, and puts the Horizon interface's art
@@ -645,6 +651,19 @@ fn answer(
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--print-env`: the environment the plugin engine's C++ is built in for the browser, as
+    // `KEY=VALUE` lines, for a build that runs cargo itself (CI's clippy over the browser half).
+    if args.iter().any(|a| a == "--print-env") {
+        let zig = std::env::var("ZIG").unwrap_or_else(|_| "zig".to_owned());
+        match luau_env(&zig) {
+            Ok(env) => print!("{}", env_lines(&env)),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]\n\n\
@@ -655,7 +674,8 @@ fn main() {
              those two); --server fills the page's server: a ws:// or wss:// URL as it is, a\n\
              host:port through dereth-web-relay on {RELAY_LISTEN}. --www serves a web client built\n\
              before from that folder, building nothing; --hub names another hub's world list (its\n\
-             /v1/servers) in the page's address."
+             /v1/servers) in the page's address. --print-env prints the environment the plugin\n\
+             engine's C++ is built in for the browser (zig's, from ZIG or the path), and stops."
         );
         return;
     }
@@ -915,6 +935,28 @@ mod tests {
                 "the engine's own build runs zig as named"
             );
         }
+    }
+
+    /// `--print-env` gives a build that runs cargo itself the same environment: one `KEY=VALUE`
+    /// line for each variable, each value on its line whole.
+    #[test]
+    fn the_printed_environment_is_every_variable_on_a_line_of_its_own() {
+        let vars = luau_vars("zig", Path::new("lib"));
+        let lines: Vec<String> = env_lines(&vars).lines().map(str::to_owned).collect();
+        assert_eq!(lines.len(), vars.len());
+        for (k, v) in &vars {
+            assert!(lines.contains(&format!("{k}={v}")), "{k}");
+        }
+    }
+
+    /// The include folders are one list in the platform's own form, which Luau's build splits
+    /// with `std::env::split_paths`: each folder comes back whole, on every system.
+    #[test]
+    fn the_include_folders_split_back_into_each_folder_on_this_system() {
+        let vars = luau_vars("zig", Path::new("lib"));
+        let dirs: Vec<PathBuf> = std::env::split_paths(var(&vars, "LUAU_INCLUDE_DIRS")).collect();
+        assert_eq!(dirs.len(), 7, "{dirs:?}");
+        assert!(dirs.iter().all(|d| d.starts_with("lib")), "{dirs:?}");
     }
 
     #[test]

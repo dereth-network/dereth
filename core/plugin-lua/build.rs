@@ -28,12 +28,12 @@ fn main() {
         .split_whitespace()
         .map(str::to_owned)
         .collect();
-    let incs: Vec<String> = std::env::var("LUAU_INCLUDE_DIRS")
-        .unwrap_or_default()
-        .split(';')
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("-I{s}"))
-        .collect();
+    // In the platform's path-list form, as Luau's own build reads it.
+    let incs: Vec<String> =
+        std::env::split_paths(&std::env::var_os("LUAU_INCLUDE_DIRS").unwrap_or_default())
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| format!("-I{}", p.display()))
+            .collect();
 
     let abi = z.join("libcxxabi/src");
     let cxx = z.join("libcxx/src");
