@@ -1060,3 +1060,111 @@ fn pending_connection_opens_progress_and_its_first_cancel_click_quits() {
         "Cancel terminates the actual App while connection is pending"
     );
 }
+
+/// A click that lands in one frame, press and release together, on Buy or on Add to List while a
+/// quantity is still being typed in the stack box: the press takes the caret out of the box, which
+/// hands the quantity over, and the release acts with that quantity rather than the one from before
+/// it.
+///
+/// Behaviour: inventory.split.a-typed-quantity-is-taken-when-the-caret-leaves-the-box
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail DATs and DERETH_CLASSIC_PORTAL"
+)]
+fn a_buy_pressed_and_released_in_one_frame_takes_the_quantity_still_being_typed() {
+    use dereth_primitives::ObjectId;
+    let (mut app, mut shell) = fixture();
+    let vendor = ObjectId(0x8000_0001);
+    let row = ObjectId(0x8000_0010);
+    {
+        let w = &mut app.probe_mut().objects_mut().world;
+        let pwd = dereth_protocol::types::PublicWeenieDesc {
+            name: "Apple".into(),
+            obj_type: 0x20,
+            value: Some(500),
+            stack_size: Some(100),
+            max_stack_size: Some(100),
+            container_id: Some(vendor),
+            ..Default::default()
+        };
+        w.shop.vendor_id = Some(vendor);
+        w.shop.stock.push(dereth_client_model::vendor::ItemProfile {
+            amount: -1,
+            iid: row,
+            pwd: pwd.clone(),
+        });
+        let mut object = dereth_client_model::weenie::Weenie::new(row);
+        object.pwd = pwd;
+        w.tables.weenies.insert(row, object);
+        w.selected = Some(row);
+        // A shop's stack starts at one of it.
+        w.split = dereth_client_model::inventory::SplitState {
+            split_size: 1,
+            max_split_size: 100,
+        };
+    }
+    batch(&mut app, &mut shell, vec![]);
+    {
+        let view = app.hud().view(app.objects());
+        let pregame = Default::default();
+        let context = Context {
+            resources: &shell.ui.resources,
+            layout: shell.ui.desktop.layout(),
+            now: dereth_primitives::LocalTime(0.0),
+            game: &view,
+            pregame: &pregame,
+            keyboard: &shell.ui.keyboard,
+            settings: &shell.ui.settings,
+            map_teleport_allowed: false,
+            classic: &shell.ui.classic,
+        };
+        assert!(shell.ui.desktop.open("vendor", &context).is_some());
+    }
+    let now = dereth_primitives::LocalTime(0.0);
+    // The stack box beside the picked row's name, the shop's Buy Item and its Add to List.
+    let (stack_box, buy, add) = ((575.0, 540.0), (769.0, 425.0), (769.0, 455.0));
+    // Everything one frame's input pass sees, in one batch.
+    let one_frame = |app: &mut App<TestShell>, shell: &mut TestShell, events: Vec<HostEvent>| {
+        shell
+            .ui
+            .window_input(&mut app.ui_context(), &events, &mut EmptyClipboard);
+        shell.ui.process_inputs(&mut app.ui_context(), now, true);
+    };
+    for (typed, button, digit, quantity) in [("5", buy, 0x35, 5_u32), ("7", add, 0x37, 7)] {
+        one_frame(&mut app, &mut shell, click(stack_box.0, stack_box.1));
+        assert_eq!(shell.ui.desktop.focused_control(), Some("stack-count"));
+        one_frame(
+            &mut app,
+            &mut shell,
+            vec![key(0x08, None), key(0x08, None), key(digit, Some(typed))],
+        );
+        shell.ui.desktop.requests.clear();
+        one_frame(&mut app, &mut shell, click(button.0, button.1));
+        let acted = if button == buy {
+            UiRequest::VendorBuySingle {
+                item: row,
+                split: quantity as i32,
+            }
+        } else {
+            UiRequest::VendorAddToBuyList {
+                item: row,
+                split: quantity as i32,
+            }
+        };
+        assert_eq!(
+            shell.ui.desktop.requests,
+            [
+                UiRequest::StackSliderChanged {
+                    split: quantity,
+                    max: 100
+                },
+                acted
+            ],
+            "the press hands the typed {typed} over and the release acts with it"
+        );
+        shell.ui.carry_out_requests(&mut app.ui_context(), now);
+        assert_eq!(app.objects().world.split.split_size, quantity);
+    }
+    app.shutdown(&mut shell);
+}

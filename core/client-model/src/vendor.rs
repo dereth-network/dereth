@@ -1041,6 +1041,14 @@ impl crate::world::World {
     /// Idempotent, which matters because the panel re-runs its item-list update on every refresh:
     /// `unit = (unit*n)/n`.
     ///
+    /// **The picked row's quantity follows the new stack at once.** The shop answers a purchase by
+    /// advertising its stock again, which puts the picked row back to a stack of one, and the
+    /// panel's next refill sizes it again in the middle of a frame. The quantity's maximum has to
+    /// move with it there and then: the toolbar reads the two together after every request, and a
+    /// maximum still at the old stack would have it set the quantity up again on every pass, each
+    /// one raising the messages that start the next, so the frame never ends. A write that leaves
+    /// the stack as it was leaves the chosen quantity alone.
+    ///
     /// Returns whether any desc was found to write.
     pub fn set_object_stack_size(&mut self, item: ObjectId, size: i32) -> bool {
         let Ok(size) = u16::try_from(size) else {
@@ -1054,6 +1062,9 @@ impl crate::world::World {
         if let Some(w) = self.weenie_mut(item) {
             Self::apply_stack_size(&mut w.pwd, size);
             wrote = true;
+        }
+        if wrote {
+            self.refresh_stack_split();
         }
         wrote
     }
@@ -2054,5 +2065,52 @@ mod tests {
             s.refusal_message(&item(1000, 0, item_type::MISC)),
             Some("That item is too valuable to sell here")
         );
+    }
+
+    /// The shop window sizing the picked row moves the quantity's maximum with the new stack
+    /// there and then, and sizing it again to the same stack leaves the quantity chosen alone.
+    ///
+    /// Behaviour: inventory.split.shared-selection-projects-before-ui
+    #[test]
+    fn sizing_the_picked_row_moves_its_quantity_with_it_at_once() {
+        let vendor = ObjectId(0x8000_0001);
+        let row = ObjectId(0x8000_0010);
+        let mut w = crate::World::new();
+        w.shop.vendor_id = Some(vendor);
+        let pwd = PublicWeenieDesc {
+            name: "Apple".into(),
+            obj_type: item_type::FOOD,
+            value: Some(5),
+            stack_size: Some(1),
+            max_stack_size: Some(100),
+            container_id: Some(vendor),
+            ..PublicWeenieDesc::default()
+        };
+        w.shop.stock.push(ItemProfile {
+            amount: -1,
+            iid: row,
+            pwd: pwd.clone(),
+        });
+        let mut object = crate::weenie::Weenie::new(row);
+        object.pwd = pwd;
+        w.tables.weenies.insert(row, object);
+        w.set_selected_object(Some(row), false, &mut crate::NullSink);
+        assert_eq!(
+            (w.split.split_size, w.split.max_split_size),
+            (1, 1),
+            "the premise: the picked row is a stack of one, as the shop advertises it"
+        );
+
+        assert!(w.set_object_stack_size(row, 100));
+        assert_eq!(
+            (w.split.split_size, w.split.max_split_size),
+            (1, 100),
+            "the maximum follows the stack the shop window set, and a shop's stack starts at one"
+        );
+
+        // The panel sizes its rows again on every refill; a quantity the player chose survives it.
+        w.split.split_size = 5;
+        assert!(w.set_object_stack_size(row, 100));
+        assert_eq!((w.split.split_size, w.split.max_split_size), (5, 100));
     }
 }

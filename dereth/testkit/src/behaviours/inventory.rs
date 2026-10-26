@@ -2331,7 +2331,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "inventory.split.shared-selection-projects-before-ui",
-        says: "A changed selected stack refreshes the shared quantity before the toolbar is drawn. Typed quantities reach item actions through live and frozen views.",
+        says: "A changed selected stack refreshes the shared quantity before the toolbar is drawn, \
+               whether the shard changed the stack or the shop window sized the picked row in the \
+               middle of a frame. Typed quantities reach item actions through live and frozen views.",
         since: THIS_CLIENT,
         divergence: "CD-015",
         evidence: Evidence::Private("AC-EVID-DEDUP-SPLIT-PROJECTION"),

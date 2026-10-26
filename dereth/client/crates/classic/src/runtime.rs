@@ -2171,6 +2171,13 @@ impl ClassicUi {
                     }
                     _ => None,
                 };
+                // A quantity the stack box handed over earlier in this batch is the one this input
+                // acts on. The windows' requests are carried out when the frame ends, so a press
+                // that takes the caret out of the box and a release on Buy that land in one frame
+                // would otherwise buy with the quantity from before the box let it go.
+                if let Some(split) = latest_stack_split(&self.desktop.requests) {
+                    self.classic.stack_split = Some(split);
+                }
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
                     resources: &self.resources,
@@ -2451,10 +2458,8 @@ impl ClassicUi {
                 dereth_client_contract::view::TargetMode::None,
             ));
         }
-        for request in &requests {
-            if let UiRequest::StackSliderChanged { split, max } = request {
-                self.classic.stack_split = Some((*split, *max));
-            }
+        if let Some(split) = latest_stack_split(&requests) {
+            self.classic.stack_split = Some(split);
         }
         let mut unowned = Vec::new();
         for request in requests {
@@ -2803,6 +2808,14 @@ fn is_ui_action(name: &str) -> bool {
                 | "ToggleHelp"
                 | "LOGOUT"
         )
+}
+
+/// The quantity the stack box last handed over among `requests`, as `(split, max)`.
+fn latest_stack_split(requests: &[UiRequest]) -> Option<(u32, u32)> {
+    requests.iter().rev().find_map(|r| match r {
+        UiRequest::StackSliderChanged { split, max } => Some((*split, *max)),
+        _ => None,
+    })
 }
 
 /// The actions this interface answers itself and the game is not to see: the shortcut bar's

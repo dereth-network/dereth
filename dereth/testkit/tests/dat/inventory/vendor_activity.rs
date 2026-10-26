@@ -8,9 +8,9 @@ use super::*;
 pub(super) const SHOPKEEPER: ObjectId = ObjectId(0x77F0_3064);
 pub(super) const RECORDED_PLAYER: ObjectId = ObjectId(0x5000_000A);
 /// The recording's own shop-opening message.
-const SHOP_OPEN_AT: usize = 4736;
+pub(super) const SHOP_OPEN_AT: usize = 4736;
 /// The shard's reply to the purchase, and to the sale.
-const AFTER_THE_BUY_AT: usize = 4748;
+pub(super) const AFTER_THE_BUY_AT: usize = 4748;
 const AFTER_THE_SALE_AT: usize = 4784;
 /// The shop's buy button, its sell list and its sell-everything button.
 const BTN_BUY: ElementId = ElementId(0x1000_00C2);

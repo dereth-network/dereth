@@ -1489,7 +1489,7 @@ fn select(c: &mut HeadlessClient, id: ObjectId) {
 }
 
 /// Put the caret in the quantity box and type, which alone commits nothing.
-fn type_a_quantity(c: &mut HeadlessClient, text: &str) {
+pub(super) fn type_a_quantity(c: &mut HeadlessClient, text: &str) {
     let h = element(c, ENTRY_BOX);
     let at = exposed_point(c, h);
     c.when(Player::Focus(at));

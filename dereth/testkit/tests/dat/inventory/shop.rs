@@ -12,8 +12,8 @@ use dereth_ui_screens::view::{ShopView, UiRequest};
 use super::{
     a_client_at_the_shop, a_gameplay_client, bound_vendor, centre, clear_requests, click,
     click_shop_tab, element_of, feedback, gameplay_root, gameplay_screen, press, pump, sellable,
-    stock_slots, take_requests, the_recorded_grocer, Shop, BTN_SELL_ALL, SELL_LIST, SELL_TAB,
-    SHOPKEEPER,
+    stock_slots, take_requests, the_recorded_grocer, Shop, AFTER_THE_BUY_AT, BTN_SELL_ALL,
+    SELL_LIST, SELL_TAB, SHOPKEEPER, SHOP_OPEN_AT,
 };
 
 // -----------------------------------------------------------------------------------------
@@ -1913,6 +1913,154 @@ pub fn the_shelf_never_scrolls_however_little_is_left_on_it() {
 }
 
 // -----------------------------------------------------------------------------------------
+// Buying a stack with its quantity still being typed, and the shop's answer to the purchase.
+// -----------------------------------------------------------------------------------------
+
+/// How long [`unless_frozen`] waits before it calls the client frozen. The whole scenario takes
+/// about a second on a desktop; this is many times what the slowest runner needs, and it is only
+/// ever a guard against a hang, never what passes the test.
+const FROZEN_AFTER: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Run `f` on a thread of its own and hand back what it returns. A frame that never ends never
+/// returns, so a frozen client fails here, naming what froze it, instead of hanging the run.
+fn unless_frozen<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    match rx.recv_timeout(FROZEN_AFTER) {
+        Ok(v) => v,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            panic!("{what} froze the client: no frame came back in {FROZEN_AFTER:?}")
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("{what} stopped short; the panic above says why")
+        }
+    }
+}
+
+/// What the purchase below found, read on the thread that drove the client.
+#[allow(clippy::struct_excessive_bools)]
+struct BoughtWhileTyping {
+    picked_a_stack: bool,
+    still_typing: bool,
+    bought_what_was_typed: bool,
+    the_answer_put_it_back_to_one: bool,
+    frames_ran_after_the_answer: bool,
+    the_quantity_follows_the_shop: bool,
+}
+
+/// Buying a stack with its quantity still in the box buys that many, and the shop's answer to the
+/// purchase leaves the client running.
+///
+/// The gestures are the player's: the food page of the recorded grocer, a real press on one of its
+/// stacks, the caret put in the quantity box and a number typed with no return, then a real press
+/// on Buy. The shard answers with the recording's own reply, which advertises the shop again and so
+/// puts the picked row back to a stack of one until the shop window sizes it again; that resize
+/// happens in the middle of a frame, and the frame has to end.
+pub fn buying_a_stack_before_its_quantity_is_confirmed_buys_that_many_and_the_answer_does_not_freeze(
+) {
+    let found = unless_frozen("the shop's answer to the purchase", || {
+        let mut c = a_client_at_the_shop();
+        let view = dereth_client_runtime::vendor_view::shop(c.view().world());
+        let page = category_for(&view, FOOD);
+        {
+            let menu = c
+                .view()
+                .expect_app()
+                .hud()
+                .panels
+                .vendor
+                .type_menu
+                .expect("the strip of categories");
+            let (ui, _root) = gameplay_root(c.app_mut());
+            let row = dereth_ui::widgets::menu::get_item(ui, menu, page).expect("the food row");
+            dereth_ui::widgets::menu::set_selected_item(ui, menu, Some(row), true);
+        }
+        c.tick(4);
+        // Not the first row: choosing the page picked that one already.
+        let (row, item) = *stock_slots(&c).get(1).expect("a second row of food");
+        let _ = pointer_click(&mut c, row, 1.0);
+        let picked_a_stack = c.view().world().selected == Some(item)
+            && c.view()
+                .world()
+                .weenie(item)
+                .and_then(|w| w.pwd.stack_size)
+                .is_some_and(|n| n >= 2);
+
+        super::split::type_a_quantity(&mut c, "5");
+        let still_typing = c.view().world().split.split_size != 5;
+        c.when(dereth_testkit::Player::Click(
+            dereth_testkit::Target::Element(dereth_ui_screens::panels::vendor::BTN_BUY),
+        ));
+        let bought_what_was_typed = c.view().outbound().iter().any(|r| {
+            matches!(r, Request::VendorBuy(m)
+                if m.vendor_id == SHOPKEEPER
+                    && m.items.len() == 1
+                    && m.items[0].iid == item
+                    && m.items[0].amount == 5)
+        });
+
+        c.when(dereth_testkit::Inbound::from_corpus(
+            "long-solo-play",
+            SHOP_OPEN_AT + 1..AFTER_THE_BUY_AT + 1,
+        ));
+        let the_answer_put_it_back_to_one = c.view().world().shop.vendor_id == Some(SHOPKEEPER)
+            && c.view().world().weenie(item).and_then(|w| w.pwd.stack_size) == Some(1);
+        let before = c.frames();
+        c.tick(4);
+        let frames_ran_after_the_answer = c.frames() == before + 4;
+        let stack = c
+            .view()
+            .world()
+            .weenie(item)
+            .and_then(|w| w.pwd.stack_size)
+            .map_or(0, u32::from);
+        let shared = c.view().world().split;
+        let shown = {
+            let (_ui, screen) = gameplay_screen(c.app_mut());
+            screen.splitter
+        };
+        let the_quantity_follows_the_shop = stack >= 2
+            && shared.max_split_size == stack
+            && (shown.split_size, shown.max_split_size)
+                == (shared.split_size, shared.max_split_size);
+        c.shutdown();
+        BoughtWhileTyping {
+            picked_a_stack,
+            still_typing,
+            bought_what_was_typed,
+            the_answer_put_it_back_to_one,
+            frames_ran_after_the_answer,
+            the_quantity_follows_the_shop,
+        }
+    });
+
+    assert!(
+        found.picked_a_stack && found.still_typing,
+        "the premise: a stack of the shop's is picked and its quantity is typed, not confirmed"
+    );
+    assert!(
+        found.bought_what_was_typed,
+        "pressing Buy takes the quantity in the box, so the purchase asks for five"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "inventory.split.a-typed-quantity-is-taken-when-the-caret-leaves-the-box",
+    );
+    assert!(
+        found.the_answer_put_it_back_to_one,
+        "the premise: the shard's answer advertises the shop again, with the row back at one"
+    );
+    assert!(
+        found.frames_ran_after_the_answer && found.the_quantity_follows_the_shop,
+        "the frames after the answer end, and the quantity follows the stack the shop window set"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "inventory.split.shared-selection-projects-before-ui",
+    );
+}
+
+// -----------------------------------------------------------------------------------------
 // The tests that run the scenarios above and check their declarations.
 // -----------------------------------------------------------------------------------------
 
@@ -1939,4 +2087,5 @@ dereth_testkit::scenarios! {
     scenario_what_a_row_stacks_to_comes_from_the_same_place_its_kind_does => what_a_row_stacks_to_comes_from_the_same_place_its_kind_does ["vendor.shelf.what-a-row-stacks-to-comes-from-the-same-place-its-kind-does"],
     scenario_the_picked_row_can_be_one_that_is_no_longer_on_the_shelf => the_picked_row_can_be_one_that_is_no_longer_on_the_shelf ["vendor.shelf.the-picked-row-can-be-one-that-is-no-longer-on-the-shelf"],
     scenario_the_shelf_never_scrolls_however_little_is_left_on_it => the_shelf_never_scrolls_however_little_is_left_on_it ["vendor.shelf.the-shelf-never-scrolls-however-little-is-left-on-it"],
+    scenario_buying_a_stack_before_its_quantity_is_confirmed_buys_that_many_and_the_answer_does_not_freeze => buying_a_stack_before_its_quantity_is_confirmed_buys_that_many_and_the_answer_does_not_freeze ["inventory.split.a-typed-quantity-is-taken-when-the-caret-leaves-the-box", "inventory.split.shared-selection-projects-before-ui"],
 }

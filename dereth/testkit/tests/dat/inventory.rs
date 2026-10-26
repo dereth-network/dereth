@@ -883,6 +883,6 @@ use vendor_activity::{
     the_purse_is_filled_from_the_players_own_coin, the_recorded_grocer,
     the_shop_says_whether_it_would_buy_what_is_carried_over_it,
     the_shop_shows_the_players_own_coin_and_follows_it,
-    while_the_shop_has_not_answered_the_refusal_still_fires, Shop, BTN_SELL_ALL, INVENTORY_PAGE,
-    RECORDED_PLAYER, SELL_LIST, SELL_TAB, SHOPKEEPER,
+    while_the_shop_has_not_answered_the_refusal_still_fires, Shop, AFTER_THE_BUY_AT, BTN_SELL_ALL,
+    INVENTORY_PAGE, RECORDED_PLAYER, SELL_LIST, SELL_TAB, SHOPKEEPER, SHOP_OPEN_AT,
 };

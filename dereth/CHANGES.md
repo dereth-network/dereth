@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Fixed the client freezing after buying a stack from a shop.
+
 ## 0.4.6 (2026-10-24)
 
 - Started without the launcher, the client opens a new player in the modern interface.
