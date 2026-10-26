@@ -2,7 +2,7 @@
   "Name": "Dereth.Network",
   "Author": "Dereth Network",
   "Description": "Cross-world tells, friends, the Global room and channels through a Dereth Network hub",
-  "Version": "0.1.3",
+  "Version": "0.1.4",
   "Enabled": true,
   "HotReload": false,
   "RegisterCommands": true
