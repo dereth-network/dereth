@@ -67,6 +67,15 @@ pub struct ObjectInfo {
     pub step_down: bool,
     /// The projectile's target.
     pub target_id: ObjectId,
+    /// The mover slides along whatever it meets, as a walking body slides along a wall, instead
+    /// of stopping where it touches, and goes on after it. Outside the client's object info: no
+    /// client mover sets it; [`crate::PhysicsWorld::glide_sphere`] does.
+    pub slides: bool,
+    /// A mover that slides ([`Self::slides`]) and is moving along the ground steps up onto a
+    /// small rise it meets, by a walking body's step up and with its own step height, instead of
+    /// sliding along it. Outside the client's object info too: no client mover sets it;
+    /// [`crate::PhysicsWorld::glide_sphere`] does, for a sphere with walkable ground under it.
+    pub steps: bool,
 }
 
 impl ObjectInfo {

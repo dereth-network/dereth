@@ -357,6 +357,7 @@ impl LandContext {
             gathered,
             objects_visual: self.objects.is_some(),
             textures: Vec::new(),
+            cells: None,
         };
         self.finish_objects(store, gpu, (lb, bx, by), prepared, cell_statics, knobs)
     }
@@ -378,6 +379,7 @@ impl LandContext {
             gathered,
             objects_visual,
             textures,
+            cells,
         } = prepared;
         // The pictures decoded off the frame, for the surfaces resolved below, and their mip
         // chains for the mip worker.
@@ -478,7 +480,7 @@ impl LandContext {
         let (env_cells, cell_statics, cell_lights) = self.bake_env_cells(
             store,
             gpu,
-            (block, lb),
+            (block, lb, cells),
             (shell_list, &shells),
             cell_statics,
             part_degrades,
@@ -568,7 +570,11 @@ impl LandContext {
         &mut self,
         store: &RetailDatStore,
         gpu: &mut Gpu,
-        (block, lb): (u16, &CellLandblock),
+        (block, lb, read): (
+            u16,
+            &CellLandblock,
+            Option<Vec<dereth_world_data::env_cells::DecodedCell>>,
+        ),
         shells: (&[dereth_assets::world::BuildInfo], &[bool]),
         want_statics: bool,
         part_degrades: bool,
@@ -584,7 +590,8 @@ impl LandContext {
         ),
         WorldError,
     > {
-        let decoded = self.cells.load_block(store, block);
+        // The cells as a bake off the frame read them, else read now.
+        let decoded = read.unwrap_or_else(|| self.cells.load_block(store, block));
         if decoded.is_empty() {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
@@ -1005,6 +1012,9 @@ pub(super) struct PreparedObjects {
     pub(super) objects_visual: bool,
     /// The pictures of their surfaces, decoded off the frame, by surface.
     pub(super) textures: Vec<(DataId, Arc<PrefetchedTexture>)>,
+    /// The block's indoor cells, read off the frame; `None` for a bake on the frame, which reads
+    /// them itself.
+    pub(super) cells: Option<Vec<dereth_world_data::env_cells::DecodedCell>>,
 }
 
 /// What stands on block `(bx, by)` (record `lb`, `mesh` its full-detail mesh, the world's

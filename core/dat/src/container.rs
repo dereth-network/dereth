@@ -602,6 +602,11 @@ impl DatFile {
         self.dir.get(&id.raw())
     }
 
+    /// The file's own records, under any overlay, shared.
+    pub(crate) fn base_dir(&self) -> Arc<BTreeMap<u32, BtEntry>> {
+        Arc::clone(&self.dir)
+    }
+
     /// Every one of the file's own entries, ascending by id, ignoring any overlay.
     pub fn base_entries(&self) -> impl Iterator<Item = (DataId, &BtEntry)> + Send + '_ {
         self.dir.iter().map(|(k, v)| (DataId(*k), v))

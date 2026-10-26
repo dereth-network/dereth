@@ -226,6 +226,39 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
         assembly.work_out_spheres();
         surfaces.extend(assembly.surfaces());
     }
+    // The surfaces of the block's indoor cells too: a dungeon's walls are most of its pictures.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let block = ((bx as u16) << 8) | (by as u16);
+    let mut models: HashSet<DataId> = HashSet::new();
+    let cells = dereth_world_data::env_cells::EnvCellLoader::new().load_block(&from.store, block);
+    for d in &cells {
+        surfaces.extend(d.cell.surfaces.iter().copied());
+        models.extend(d.cell.static_objects.iter().map(|o| o.id));
+    }
+    // And of what stands in them: each setup's parts, or the graphics object itself.
+    let mut parts: HashSet<DataId> = HashSet::new();
+    for m in models {
+        match dereth_dat::divine_type(m) {
+            Some(DbType::Setup) => {
+                if let Some(setup) = from.store.read_typed(DbType::Setup, m).ok().and_then(|b| {
+                    dereth_assets::Setup::decode_payload_in(from.store.era_of(m), m, &b).ok()
+                }) {
+                    parts.extend(setup.parts);
+                }
+            }
+            Some(DbType::GfxObj) => {
+                parts.insert(m);
+            }
+            _ => {}
+        }
+    }
+    for p in parts {
+        if let Some(o) = from.store.read_typed(DbType::GfxObj, p).ok().and_then(|b| {
+            dereth_assets::GfxObj::decode_payload_in(from.store.era_of(p), p, &b).ok()
+        }) {
+            surfaces.extend(o.surfaces);
+        }
+    }
     surfaces.sort_unstable_by_key(|id| id.0);
     surfaces.dedup();
     let textures = surfaces
@@ -243,6 +276,7 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
             gathered,
             objects_visual: false,
             textures,
+            cells: Some(cells),
         },
     })
 }
@@ -350,7 +384,8 @@ impl SceneDraw {
             || self.land.objects.is_some()
             || self.land.bakes_failed
             || self.land.bakes_on_frame.remove(&block)
-            || ws.streamer.window.viewer_block() == Some(block)
+            || (!self.cfg.viewer_block_off_frame
+                && ws.streamer.window.viewer_block() == Some(block))
         {
             return OffFrame::OnFrame;
         }

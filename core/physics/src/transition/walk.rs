@@ -25,7 +25,9 @@ pub fn step_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3) -> boo
 
     let mut amt = DEFAULT_STEP_HEIGHT;
     let mut allow = LANDING_Z;
-    if t.object_info.has(ObjectInfoState::ON_WALKABLE) {
+    // A mover that steps while it moves along the ground stands on nothing, but steps as a body
+    // on walkable ground does.
+    if t.object_info.has(ObjectInfoState::ON_WALKABLE) || t.object_info.steps {
         allow = crate::get_walkable_z();
         amt = t.object_info.step_up_height;
     }

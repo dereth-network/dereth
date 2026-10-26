@@ -691,10 +691,12 @@ impl SceneDraw {
             && previous
                 .as_ref()
                 .is_some_and(|b| b.baked && b.baked_side_cell_count == mesh.side_cell_count);
+        // A bake thrown away gives its links back once the replacement has taken its own, as the
+        // terrain's do below: a texture the two share is never taken to zero, freed and made
+        // again. The counts are the same either way; only the peak differs.
         let previous = match previous {
             Some(b) if !reuse => {
                 self.released_blocks.push(b);
-                self.release_departed_blocks(gpu);
                 None
             }
             // **The reuse arm returns its TERRAIN links even though it keeps its
@@ -876,6 +878,7 @@ impl SceneDraw {
                 },
             },
         );
+        self.release_departed_blocks(gpu);
         Ok(())
     }
 

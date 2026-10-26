@@ -91,6 +91,9 @@ pub struct CollisionInfo {
     /// [`crate::step::PhysicsNotice::MoveRestricted`]. The observable is the same script, raised
     /// on the same body, once per refused sub-step.
     pub restricted_by: Option<ObjectId>,
+    /// **Also outside the client's layout:** the surface a mover that slides along what it meets
+    /// ([`ObjectInfo::slides`]) last slid along in this step, cleared as each step begins.
+    pub slid_along: Option<Vec3>,
 }
 
 impl CollisionInfo {

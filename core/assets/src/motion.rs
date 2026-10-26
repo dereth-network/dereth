@@ -409,12 +409,85 @@ impl Decode for ClothingTable {
     }
 }
 
+impl ClothingTable {
+    /// The color schemes (palette-template keys) of the clothing table whose record is `bytes`,
+    /// in the order its file lists them, where [`Self::palette_templates`] keeps them by key.
+    /// `None` for bytes that are not a clothing table.
+    #[must_use]
+    pub fn palette_template_order(bytes: &[u8]) -> Option<Vec<u32>> {
+        fn walk(c: &mut Cursor<'_>) -> Result<Vec<u32>, AssetError> {
+            c.data_id()?;
+            let h = packable_hash_table_header(c)?;
+            for _ in 0..h.count {
+                c.data_id()?;
+                for _ in 0..c.u32()? {
+                    c.u32()?;
+                    c.data_id()?;
+                    for _ in 0..c.u32()? {
+                        c.data_id()?;
+                        c.data_id()?;
+                    }
+                }
+            }
+            let h = packable_hash_table_header(c)?;
+            let mut keys = Vec::with_capacity(usize::try_from(h.count).unwrap_or(0).min(4096));
+            for _ in 0..h.count {
+                keys.push(c.u32()?);
+                c.data_id()?;
+                for _ in 0..c.u32()? {
+                    for _ in 0..c.u32()? {
+                        c.u32()?;
+                        c.u32()?;
+                    }
+                    c.data_id()?;
+                }
+            }
+            Ok(keys)
+        }
+        walk(&mut Cursor::new(bytes)).ok()
+    }
+}
+
 /// How many entries of a later palette one colour of a palette from before Throne of Destiny is.
 const CLASSIC_PALETTE_SCALE: u32 = 8;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A clothing table's color schemes are answered in the order its file lists them, which is
+    /// not the order of their keys.
+    #[test]
+    fn a_clothing_tables_schemes_are_listed_in_its_files_order() {
+        let mut b = Vec::new();
+        let mut u = |v: u32| b.extend_from_slice(&v.to_le_bytes());
+        u(0x1000_0001); // id
+        u((1 << 16) | 1); // one setup, one bucket
+        u(0x0200_0001);
+        u(1); // one part
+        u(9);
+        u(0x0100_0009);
+        u(1); // one texture swap
+        u(0x0500_0001);
+        u(0x0500_0002);
+        u((4 << 16) | 2); // two schemes, four buckets
+        for key in [9u32, 2] {
+            u(key);
+            u(0); // no icon
+            u(1); // one palette effect
+            u(1); // one range
+            u(0x600);
+            u(0x100);
+            u(0x0F00_0000 + key);
+        }
+        let t = ClothingTable::decode_payload(DataId(0x1000_0001), &b).expect("decodes");
+        assert_eq!(
+            t.palette_templates.keys().copied().collect::<Vec<_>>(),
+            [2, 9]
+        );
+        assert_eq!(ClothingTable::palette_template_order(&b), Some(vec![9, 2]));
+        assert_eq!(ClothingTable::palette_template_order(&b[..20]), None);
+    }
 
     /// A physics-script table that lists a key twice keeps the first rows listed for it.
     #[test]

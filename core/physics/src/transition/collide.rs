@@ -47,11 +47,22 @@ pub fn slide_sphere(
         .sphere_path
         .curr_to_check_block_offset()
         .add(sphere.center.sub(curr_center));
-    let plane = if t.collision_info.contact_plane_valid {
+    let mut plane = if t.collision_info.contact_plane_valid {
         t.collision_info.contact_plane
     } else {
         t.collision_info.last_known_contact_plane
     };
+    if t.object_info.slides {
+        // A mover that slides along what it meets stands on nothing. The surface it slid along
+        // earlier in this step stands in for the plane it would stand on: meeting a second one,
+        // it slides along the line where the two meet, and stops where nothing of its move is
+        // left along that line, as in a corner.
+        let earlier = t.collision_info.slid_along.replace(normal);
+        plane = Plane {
+            normal: earlier.unwrap_or(Vec3::ZERO),
+            d: 0.0,
+        };
+    }
     let axis = normal.cross(plane.normal);
     let m2 = axis.mag2();
     if m2 >= EPSILON {
@@ -142,6 +153,21 @@ pub fn slide_sphere_from_centers(
     let sphere = t.sphere_path.global_sphere[index];
     let curr = t.sphere_path.global_curr_center[index];
     slide_sphere(t, sphere, n, curr)
+}
+
+/// A mover that steps ([`super::objectinfo::ObjectInfo::steps`]), meeting a rise whose face
+/// `normal` is no walkable ground, steps up onto it by a walking body's step up: whether it did.
+/// Where it cannot, it is left as it was, to slide along the rise.
+pub(super) fn steps_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3) -> bool {
+    if !t.object_info.steps || crate::is_valid_walkable(normal) {
+        return false;
+    }
+    if super::walk::step_up(ctx, t, normal) {
+        return true;
+    }
+    t.collision_info.contact_plane_valid = false;
+    t.collision_info.contact_plane_is_water = false;
+    false
 }
 
 /// Landing on a sphere.
@@ -387,6 +413,18 @@ pub fn sphere_intersects_sphere(
 
     if t.object_info.has(ObjectInfoState::PATH_CLIPPED) {
         if Sphere::collides_with_sphere(delta, sum) {
+            // A mover that slides along what it meets slides round the sphere, or, moving along
+            // the ground, steps up onto it where a walking body would.
+            if t.object_info.slides {
+                let mut n = t.sphere_path.global_curr_center[0].sub(obstacle.center);
+                if t.object_info.step_up_height >= (sum + EPSILON) - delta.z
+                    && !n.normalize_check_small()
+                    && steps_up(ctx, t, n)
+                {
+                    return TransitionState::Ok;
+                }
+                return slide_sphere_from_centers(t, obstacle.center, 0);
+            }
             return collide_with_point(t, obstacle.center, sum, 0);
         }
         return TransitionState::Ok;
@@ -399,6 +437,60 @@ pub fn sphere_intersects_sphere(
         return collide_with_point(t, obstacle.center, sum, 1);
     }
     TransitionState::Ok
+}
+
+/// The ground met by a mover that slides along what it meets ([`ObjectInfo::slides`]): its
+/// sphere `sphere`, in the ground's own landblock's space, is `d` into the ground's `plane`
+/// (`d` < 0) at the end of the step.
+///
+/// It never ends a step in the ground. Going into it, it slides along it, and what of the step
+/// was already in the ground, as crossing onto steeper ground or into the next landblock leaves
+/// it, is taken out along the ground's normal; moving along it or away, it is lifted out along
+/// the normal by its depth. It is never pushed along its move to where it would touch, as a
+/// viewer is: that push is the depth over how fast the move nears the ground, and a move a slide
+/// left along the ground nears it by next to nothing, so a sphere a hair into the ground would
+/// be thrown hundreds of meters. A sphere whose center was already under the ground before the
+/// step is inside it, and moves freely till it is out.
+///
+/// [`ObjectInfo::slides`]: super::objectinfo::ObjectInfo::slides
+fn glide_on_ground(
+    t: &mut Transition,
+    sphere: &Sphere,
+    plane: &Plane,
+    d: f32,
+    cell_id: CellId,
+) -> TransitionState {
+    // Where the step began, in the ground's landblock's space: the current center is in its
+    // own, which may be the next landblock's.
+    let curr = t.sphere_path.global_curr_center[0];
+    let began = curr.sub(landdefs::get_block_offset(
+        t.sphere_path.curr_pos.cell,
+        cell_id,
+    ));
+    if plane.dot_point(began) < 0.0 {
+        return TransitionState::Ok;
+    }
+    t.collision_info.collided_with_environment = true;
+    let before = t.sphere_path.global_sphere[0].center;
+    let mut result = TransitionState::Adjusted;
+    if sphere.center.sub(began).dot(plane.normal) < 0.0 {
+        let s = t.sphere_path.global_sphere[0];
+        result = slide_sphere(t, s, plane.normal, curr);
+        if result != TransitionState::Slid {
+            return result;
+        }
+    } else {
+        t.collision_info.set_collision_normal(plane.normal);
+    }
+    let left = d + t.sphere_path.global_sphere[0]
+        .center
+        .sub(before)
+        .dot(plane.normal);
+    if left < 0.0 {
+        t.sphere_path
+            .add_offset_to_check_pos(plane.normal.mul(-left));
+    }
+    result
 }
 
 /// What turns a terrain triangle into a contact
@@ -416,7 +508,9 @@ pub fn validate_walkable(
     water_depth: f32,
     cell_id: CellId,
 ) -> TransitionState {
-    if t.object_info.has(ObjectInfoState::IS_VIEWER) {
+    // A viewer that slides, stepping up, finds the ground as a walking body does.
+    let stepping = t.object_info.slides && t.sphere_path.step_down;
+    if t.object_info.has(ObjectInfoState::IS_VIEWER) && !stepping {
         let d = plane.dot_point(sphere.center) - sphere.radius;
         if d <= -EPSILON {
             let move_v = sphere.center.sub(t.sphere_path.global_curr_center[0]);
@@ -427,6 +521,9 @@ pub fn validate_walkable(
                 .begin_pos
                 .is_none_or(|p| landdefs::is_outdoors(p.cell));
             if (0.0..=1.0).contains(&f) || outdoors_begin {
+                if t.object_info.slides {
+                    return glide_on_ground(t, sphere, plane, d, cell_id);
+                }
                 t.sphere_path.add_offset_to_check_pos(move_v.mul(-f));
                 t.collision_info.set_collision_normal(plane.normal);
                 t.collision_info.collided_with_environment = true;
@@ -781,6 +878,27 @@ pub fn bsp_find_collisions(
         // The polygon test returns both a boolean and an optional polygon. The
         // gate is `returned || hit_poly.is_some()`, so a **back-facing** overlap clips the path too.
         let hit = tree.sphere_intersects_poly(&local, movement, &mut hit_poly, &mut contact_pt);
+        if t.object_info.slides {
+            // A mover that slides along what it meets slides along a polygon it moves into from
+            // in front, by the slide a walking body takes along a wall it cannot step onto. One
+            // already behind the polygon, inside what it bounds, passes, as does a back-facing
+            // overlap, as for a walking body with one sphere: what is inside something moves
+            // freely till it is out.
+            let Some(p) = hit_poly.filter(|_| hit) else {
+                return TransitionState::Ok;
+            };
+            let plane = tree.polygons[p as usize].plane;
+            if plane.dot_point(center) < 0.0 {
+                return TransitionState::Ok;
+            }
+            let n = to_world(plane.normal, t);
+            if steps_up(ctx, t, n) {
+                return TransitionState::Ok;
+            }
+            let sphere = t.sphere_path.global_sphere[0];
+            let curr = t.sphere_path.global_curr_center[0];
+            return slide_sphere(t, sphere, n, curr);
+        }
         if hit || hit_poly.is_some() {
             let Some(p) = hit_poly else {
                 // The client would dereference NULL here; a `true` return that named no polygon

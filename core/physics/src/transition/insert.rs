@@ -444,7 +444,10 @@ pub fn validate_transition(
         t.sphere_path.cache_global_sphere(None);
     }
 
-    if t.collision_info.collision_normal_valid {
+    // A mover that slides along what it meets keeps no sliding normal: each step meets the
+    // surface again and slides along it there. A body's level slide off a floor or a slope would
+    // hold it still against them.
+    if t.collision_info.collision_normal_valid && !t.object_info.slides {
         let n = t.collision_info.collision_normal;
         t.collision_info.set_sliding_normal(n);
     }
@@ -481,6 +484,13 @@ pub fn validate_transition(
                 }
             }
         }
+    }
+
+    // A mover that slides along what it meets stands on nothing: the ground a step up found under
+    // it is left with the step, so nothing after holds it to that ground or pulls it down.
+    if t.object_info.slides {
+        t.collision_info.contact_plane_valid = false;
+        t.collision_info.contact_plane_is_water = false;
     }
 
     t.collision_info.last_known_contact_plane_valid = t.collision_info.contact_plane_valid;
@@ -588,6 +598,7 @@ pub fn find_transitional_position(
         t.collision_info.sliding_normal_valid = false;
         t.collision_info.contact_plane_valid = false;
         t.collision_info.contact_plane_is_water = false;
+        t.collision_info.slid_along = None;
 
         if t.sphere_path.insert_type == InsertType::Transition {
             t.sphere_path.cell_array_valid = false;
@@ -611,8 +622,10 @@ pub fn find_transitional_position(
             t.sphere_path.add_offset_to_check_pos(global_offset);
         }
 
+        // A mover that slides along what it meets goes on past it.
         if t.collision_info.collision_normal_valid
             && t.object_info.has(ObjectInfoState::PATH_CLIPPED)
+            && !t.object_info.slides
         {
             break;
         }

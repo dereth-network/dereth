@@ -4,20 +4,23 @@
 //! **Depends on** `dereth-primitives`, the decoded tables of `dereth-assets` and, behind the
 //! default `proto` feature, `dereth-protocol`. **Used by** the client's object model
 //! (`dereth-client-model`), animation
-//! (`dereth-animation`), the modern UI (`dereth-ui-screens`), the SDK and the server
-//! (`empyrean-world`).
+//! (`dereth-animation`), the modern UI (`dereth-ui-screens`), the SDK, the server
+//! (`empyrean-world`) and the world builder (`lyceum-editor`).
 //!
 //! **Must never** hold the object model, read a file or touch the wire. The quality-reading
 //! inquiries are written against [`quality::QualityRead`], which the object model implements.
 //!
 //! It holds the XP curves and attribute raise costs, the skill formula, burden and load, vendor
 //! prices, the fellowship split, enchantment stacking ([`enchant`]), the name filter ([`taboo`]),
-//! chess, the slot tables and the character-creation credits.
+//! chess, the slot tables, the character-creation credits, and a weenie's look as a server
+//! describes it ([`appearance`]).
 
 #![doc(html_no_source)]
 
 pub mod advancement;
 pub mod allegiance;
+#[cfg(feature = "proto")]
+pub mod appearance;
 pub mod attributes;
 pub mod burden;
 /// A container's item and side-pack slot counts.

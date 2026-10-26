@@ -507,6 +507,15 @@ pub enum OverlayError {
     NotOverlay(PathBuf),
 }
 
+/// The records of the base file a [`Layer`] lies over.
+struct BaseDir(Option<Arc<BTreeMap<u32, BtEntry>>>);
+
+impl std::fmt::Debug for BaseDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} base records", self.0.as_ref().map_or(0, |d| d.len()))
+    }
+}
+
 /// One overlay container over the base file it was made against, as reads see it.
 #[derive(Debug)]
 pub struct Layer {
@@ -519,7 +528,11 @@ pub struct Layer {
     manifest: ContainerManifest,
     iterations: Vec<u32>,
     own_iterations: Vec<u32>,
-    len: usize,
+    /// How many records the file holds through the overlay, counted the first time it is asked:
+    /// a count over every record of the base, which a reopen after each edit need not wait on.
+    len: std::sync::OnceLock<usize>,
+    /// The base's records, to count them by.
+    base: BaseDir,
     /// How many reads the overlay has answered with its own record, and how many with a deletion.
     served: AtomicU64,
     hidden: AtomicU64,
@@ -587,7 +600,7 @@ impl Layer {
         for t in tombstones.iter().filter(|t| t.mask != 0) {
             families.entry(t.mask).or_default().insert(t.id & t.mask);
         }
-        let mut me = Self {
+        Ok(Self {
             path,
             file: overlay,
             tombstones,
@@ -596,17 +609,12 @@ impl Layer {
             manifest,
             iterations,
             own_iterations: own,
-            len: 0,
+            len: std::sync::OnceLock::new(),
+            base: BaseDir(Some(base.base_dir())),
             served: AtomicU64::new(0),
             hidden: AtomicU64::new(0),
             source: None,
-        };
-        let kept = base
-            .base_entries()
-            .filter(|(id, _)| !me.hides(*id) && me.record(*id).is_none())
-            .count();
-        me.len = kept + me.records().count();
-        Ok(me)
+        })
     }
 
     /// A container of the client's own records ([`crate::client_layer`]), which lies over any base
@@ -625,7 +633,8 @@ impl Layer {
             manifest,
             iterations: Vec::new(),
             own_iterations: Vec::new(),
-            len,
+            len: std::sync::OnceLock::from(len),
+            base: BaseDir(None),
             served: AtomicU64::new(0),
             hidden: AtomicU64::new(0),
             source: None,
@@ -738,13 +747,20 @@ impl Layer {
     /// How many records the file holds through the overlay.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.len
+        *self.len.get_or_init(|| {
+            let kept = self.base.0.as_deref().map_or(0, |dir| {
+                dir.keys()
+                    .filter(|id| !self.hides(DataId(**id)) && self.record(DataId(**id)).is_none())
+                    .count()
+            });
+            kept + self.records().count()
+        })
     }
 
     /// Whether the file holds no record through the overlay.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len() == 0
     }
 }
 

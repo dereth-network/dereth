@@ -117,6 +117,27 @@ fn validate_walkable_pushes_a_sunken_sphere_straight_up() {
     assert!(t.collision_info.collided_with_environment);
 }
 
+#[test]
+fn a_viewer_that_slides_finds_the_ground_under_it_in_a_step_as_a_walking_body_does() {
+    // The sphere's bottom on the ground at z = 20, probing down for a step: a plain viewer's
+    // test records no contact, one that slides records the ground it would step onto.
+    for slides in [false, true] {
+        let (mut t, block) = transition_on_flat_ground(20.0);
+        t.object_info.state = crate::globals::VIEWER_OBJECT_INFO_STATE;
+        t.object_info.slides = slides;
+        t.sphere_path.step_down = true;
+        let cell = Cell::Land {
+            id: LandblockId::new(0xA9, 0xB4).cell(1),
+            block: Arc::new(block),
+        };
+        assert_eq!(land_find_env_collisions(&mut t, &cell), TransitionState::Ok);
+        assert_eq!(
+            t.collision_info.contact_plane_valid, slides,
+            "slides {slides}"
+        );
+    }
+}
+
 /// Deep sea is a hard `COLLIDED_TS` for anything that is not a viewer or a
 /// missile — **not** "swim".
 #[test]

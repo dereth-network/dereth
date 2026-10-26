@@ -2149,6 +2149,83 @@ impl PhysicsWorld {
         from: &Position,
         to: &Position,
     ) -> Option<Transition> {
+        self.sweep(mover, state, sphere, start_cell, from, to, false, false)
+    }
+
+    /// [`Self::sweep_sphere`], but the sphere slides along what it meets instead of stopping
+    /// where it touches: the part of each step into a wall, a floor, a ceiling, a slope or an
+    /// object is taken out and the rest kept, by the slide a walking body takes along a wall it
+    /// cannot step onto, and the path goes on along the surface. Where two surfaces meet against
+    /// the move, as in a corner, nothing is left of it and the sphere stops. A sphere already
+    /// behind a polygon, inside what it bounds, passes it: it moves freely till it is out. It
+    /// never ends a step in the ground: one a step leaves a little in it, as crossing onto
+    /// steeper ground or into the next landblock can, is lifted out along the ground's normal,
+    /// and one whose center is under the ground moves freely till it is out.
+    ///
+    /// The slide follows the surface it meets whichever way it faces. A body's slide along a
+    /// wall is level, and it slides along floors by standing on them; this sphere stands on
+    /// nothing, so a level slide would hold it fast against a floor or a ceiling. It is not
+    /// the client's: no client mover takes it. A free-flying viewer does.
+    ///
+    /// Moving along the ground, the sphere steps up onto a small rise it meets, as a walking
+    /// body steps onto a stair: by the walking body's step up, with `mover`'s step height. It is
+    /// moving along the ground when walkable ground is no more than its radius under it at
+    /// `from`: a slide can leave it short of a surface it was moved at by as much as one step of
+    /// the move, and no step is longer than the radius. A rise is anything whose face, where the
+    /// sphere meets it, is too steep to walk on; floors and slopes it slides along as before. The
+    /// step puts it on the rise's top, which it has to reach over: a top no higher than its
+    /// center always, one up to its own top only when the move takes it far enough in, and a
+    /// higher one never. Once up it stands on nothing again: nothing holds it to the top or
+    /// takes it back down.
+    ///
+    /// Returns `None` as [`Self::sweep_sphere`] does.
+    pub fn glide_sphere(
+        &mut self,
+        mover: PhysHandle,
+        state: u32,
+        sphere: Sphere,
+        start_cell: CellId,
+        from: &Position,
+        to: &Position,
+    ) -> Option<Transition> {
+        let steps = self.ground_under(mover, state, sphere, start_cell, from);
+        self.sweep(mover, state, sphere, start_cell, from, to, true, steps)
+    }
+
+    /// Whether walkable ground is no more than the sphere's radius under it at `at`: the
+    /// viewer's own sweep straight down that far stops short against it.
+    fn ground_under(
+        &mut self,
+        mover: PhysHandle,
+        state: u32,
+        sphere: Sphere,
+        start_cell: CellId,
+        at: &Position,
+    ) -> bool {
+        let mut below = *at;
+        below.frame.origin.z -= sphere.radius;
+        self.sweep(mover, state, sphere, start_cell, at, &below, false, false)
+            .is_some_and(|t| {
+                let c = &t.collision_info;
+                let fell = at.frame.origin.z - t.sphere_path.curr_pos.frame.origin.z;
+                c.collision_normal_valid
+                    && crate::is_valid_walkable(c.collision_normal)
+                    && fell < sphere.radius - globals::EPSILON
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sweep(
+        &mut self,
+        mover: PhysHandle,
+        state: u32,
+        sphere: Sphere,
+        start_cell: CellId,
+        from: &Position,
+        to: &Position,
+        slides: bool,
+        steps: bool,
+    ) -> Option<Transition> {
         let idx = self.pool.make()?;
         let mut t = self.pool.take(idx);
         t.init();
@@ -2162,6 +2239,8 @@ impl PhysicsWorld {
             t.init_object(o, mover, state);
             o.state
         };
+        t.object_info.slides = slides;
+        t.object_info.steps = steps;
         // Initialize one unscaled transition sphere for the viewer. The
         // object's own `scale` is deliberately not used: the camera sphere is a world constant.
         t.sphere_path.init_sphere(&[sphere], 1.0);

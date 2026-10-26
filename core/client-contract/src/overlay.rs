@@ -106,6 +106,8 @@ pub enum PreviewSpace {
     PaperDoll,
     /// The examination portrait.
     Examine,
+    /// A tool's own, which no game screen draws: the world builder's look at one object.
+    Tool,
 }
 
 /// The one light a preview space is lit by.

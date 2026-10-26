@@ -136,6 +136,13 @@ pub struct SceneConfig {
     /// Off in the client, which has no switch: it is the world editor's view of the dungeon it is
     /// building while its camera flies outside the rooms.
     pub whole_interior: bool,
+    /// Bake the viewer's own landblock off the frame too, while the landscape streams
+    /// ([`Self::stream_budget`]): its rooms and objects then fill in over a few frames rather
+    /// than the frame waiting on them.
+    ///
+    /// Off in the client, which stands the body on its block at once: it is the world editor's,
+    /// whose camera goes into a dungeon of thousands of rooms at a click.
+    pub viewer_block_off_frame: bool,
     /// Draw the `mode == 1` **portal depth stamp**,
     /// with mask constant 7: a pre-transformed quad at the constant device depth `0.999999`,
     /// depth compare `ALWAYS`, no colour.
@@ -467,6 +474,7 @@ impl Default for SceneConfig {
             building_portals: true,
             portal_clip: true,
             whole_interior: false,
+            viewer_block_off_frame: false,
             portal_depth_stamp: true,
             portal_alpha_flush: true,
             auto_degrades: false,

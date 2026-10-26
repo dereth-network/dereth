@@ -29,7 +29,7 @@ use crate::geom::CylSphereExt;
 use crate::globals::{EPSILON, LANDING_Z, WALK_INTERP_FLOOR_STEP};
 use crate::landdefs;
 use crate::math::V3;
-use crate::transition::collide::slide_sphere;
+use crate::transition::collide::{slide_sphere, steps_up};
 use crate::transition::objectinfo::ObjectInfoState;
 use crate::transition::spherepath::InsertType;
 use crate::transition::{Transition, TransitionCtx, TransitionState};
@@ -444,6 +444,18 @@ pub fn cyl_intersects_sphere(
         // A missile: one sphere only, and no second-sphere fallback.
         if !cyl.collides_with_sphere(&s0, delta, sum) {
             return TransitionState::Ok;
+        }
+        // A mover that slides along what it meets slides round the cylinder, or, moving along
+        // the ground, steps up onto it where a walking body would.
+        if t.object_info.slides {
+            if t.object_info.step_up_height >= (s0.radius + cyl.height) - delta.z {
+                let curr = t.sphere_path.global_curr_center[0];
+                let (_, mut n) = cyl.normal_of_collision_full(curr, delta, s0.radius, sum);
+                if !n.normalize_check_small() && steps_up(ctx, t, n) {
+                    return TransitionState::Ok;
+                }
+            }
+            return slide_cyl_sphere(t, cyl, &s0, delta, sum, 0);
         }
         return cyl_collide_with_point(t, cyl, &s0, delta, sum, 0);
     }
