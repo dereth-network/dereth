@@ -119,6 +119,8 @@ pub struct Kit {
     /// Where each piece's tile, each group's header, each fit's tile and each look's row (while
     /// the list is open) were drawn last.
     pub piece_rects: Vec<(usize, egui::Rect)>,
+    /// The palette's pieces drawn so far: those scrolled into sight.
+    pub pieces_drawn: u64,
     pub group_rects: Vec<(Kind, egui::Rect)>,
     pub fit_rects: Vec<(usize, egui::Rect)>,
     /// The part of the fits' list in view, as drawn last.
@@ -1544,11 +1546,6 @@ impl EditorApp {
             s.push('\n');
             s.push_str(&t.fill("dungeon.joins_here", &[("n", &n)]));
         }
-        let look = self.kit.look;
-        if !p.looks.is_empty() && look.is_some_and(|l| !p.in_look(l)) {
-            s.push('\n');
-            s.push_str(t.get("dungeon.by_role"));
-        }
         s
     }
 
@@ -1653,10 +1650,20 @@ impl EditorApp {
                             for i in v {
                                 let (rect, r) = ui.allocate_exact_size(cell, egui::Sense::click());
                                 let chosen = self.kit.chosen == Some(*i);
-                                self.draw_piece(ui, rect, *i, 0, chosen || r.hovered(), chosen);
+                                // Only the pieces scrolled into sight are drawn, and a piece's
+                                // words worked out only under the pointer.
+                                if ui.is_rect_visible(rect) {
+                                    self.draw_piece(ui, rect, *i, 0, chosen || r.hovered(), chosen);
+                                    self.kit.pieces_drawn += 1;
+                                }
                                 self.kit.piece_rects.push((*i, rect));
-                                let tip = self.piece_tip(&pieces[*i], None);
-                                if r.on_hover_text(tip).clicked() {
+                                let r = if r.hovered() {
+                                    let tip = self.piece_tip(&pieces[*i], None);
+                                    r.on_hover_text(tip)
+                                } else {
+                                    r
+                                };
+                                if r.clicked() {
                                     out.push(UiAction::Piece(*i));
                                 }
                             }

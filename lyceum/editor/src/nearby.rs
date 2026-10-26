@@ -400,29 +400,25 @@ impl EditorApp {
         });
         ui.separator();
         self.nearby.rects.clear();
-        let row = 18.0;
-        egui::ScrollArea::vertical()
+        let area = egui::ScrollArea::vertical()
             .id_salt("nearby")
-            .auto_shrink(false)
-            .show_rows(ui, row, shown.len(), |ui, rows| {
-                for i in rows {
-                    let e = &shown[i];
-                    let chosen = e.select.is_some() && e.select == self.selection;
-                    let r = ui
-                        .horizontal(|ui| {
-                            let r = ui.selectable_label(chosen, &e.name);
-                            ui.weak(t.get(e.kind.key().0));
-                            ui.monospace(
-                                t.fill("nearby.meters", &[("n", &format!("{:.0}", e.distance))]),
-                            );
-                            r
-                        })
-                        .inner;
-                    self.nearby.rects.push((i, r.rect));
-                    if r.clicked() {
-                        out.push(UiAction::Nearby(i));
-                    }
-                }
-            });
+            .auto_shrink(false);
+        let rows = egui::Id::new("nearby rows");
+        super::seen::rows(ui, rows, area, shown.len(), |ui, i| {
+            let e = &shown[i];
+            let chosen = e.select.is_some() && e.select == self.selection;
+            let r = ui
+                .horizontal(|ui| {
+                    let r = ui.selectable_label(chosen, &e.name);
+                    ui.weak(t.get(e.kind.key().0));
+                    ui.monospace(t.fill("nearby.meters", &[("n", &format!("{:.0}", e.distance))]));
+                    r
+                })
+                .inner;
+            self.nearby.rects.push((i, r.rect));
+            if r.clicked() {
+                out.push(UiAction::Nearby(i));
+            }
+        });
     }
 }

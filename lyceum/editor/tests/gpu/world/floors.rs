@@ -12,8 +12,8 @@ use lyceum_foundry::grid::square_middle;
 use lyceum_foundry::kit::KitPiece;
 use lyceum_foundry::source::Link;
 
-use super::dungeon::{choose_doorway, keep, north_south, put_fit, REDOUBT};
-use super::{click, gpu_lock, grid_point, key, HOLTBURG};
+use crate::world::dungeon::{choose_doorway, keep, north_south, put_fit, REDOUBT};
+use crate::{click, gpu_lock, grid_point, key, HOLTBURG};
 
 /// The kit piece fit `f` sets in.
 fn fit_piece<'a>(ed: &'a EditorApp, f: &Fit) -> &'a KitPiece {
@@ -320,8 +320,8 @@ pub fn build_three_floors(ed: &mut EditorApp, shots_of: &str) -> ThreeFloors {
 fn a_dungeon_of_three_floors_is_built_with_what_fits_here_alone_its_open_top_built_on_from_above_and_its_open_floor_from_below(
 ) {
     let _g = gpu_lock();
-    let (_dir, world) = super::sample("editor-floors");
-    let mut ed = super::editor_with(&world, &["--size", "1600x1000"]);
+    let (_dir, world) = crate::sample("editor-floors");
+    let mut ed = crate::editor_with(&world, &["--size", "1600x1000"]);
     ed.wait_for_pieces();
     let built = build_three_floors(&mut ed, "floors");
     let lb = built.landblock;
@@ -332,8 +332,14 @@ fn a_dungeon_of_three_floors_is_built_with_what_fits_here_alone_its_open_top_bui
         (lower, "08-looking-up-the-tall-corridor.png"),
         (under, "09-looking-up-through-the-open-floor.png"),
     ] {
-        let m = super::dungeon::middle(&ed, lb, cell);
-        super::dungeon::put_camera(&mut ed, lb, Vec3::new(m.x, m.y - 3.0, m.z - 1.0), 0.0, 55.0);
+        let m = crate::world::dungeon::middle(&ed, lb, cell);
+        crate::world::dungeon::put_camera(
+            &mut ed,
+            lb,
+            Vec3::new(m.x, m.y - 3.0, m.z - 1.0),
+            0.0,
+            55.0,
+        );
         for _ in 0..3 {
             ed.frame();
         }
@@ -389,11 +395,11 @@ fn the_playtest_character_walks_down_through_all_three_floors_of_a_dungeon_built
 ) {
     use std::path::PathBuf;
     let _g = gpu_lock();
-    let (_dir, world) = super::sample("live-three-floors");
+    let (_dir, world) = crate::sample("live-three-floors");
     let server =
         PathBuf::from(std::env::var_os("EMPYREAN_SERVER_BIN").expect("EMPYREAN_SERVER_BIN"));
     let sql = PathBuf::from(std::env::var_os("EMPYREAN_WORLD_SQL").expect("EMPYREAN_WORLD_SQL"));
-    let mut ed = super::editor_with(
+    let mut ed = crate::editor_with(
         &world,
         &[
             "--empyrean",
@@ -438,13 +444,12 @@ fn the_playtest_character_walks_down_through_all_three_floors_of_a_dungeon_built
         .expect("a floor in the dead end");
     // A portal set on Holtburg's ground with the spawn tool, sending who uses it into the dead end.
     ed.leave_dungeon();
-    super::stone_west(&mut ed);
+    crate::stone_west(&mut ed);
     ed.mode = lyceum_editor::app::Mode::Spawn;
     for _ in 0..2 {
         ed.frame();
     }
-    let tile = ed.panels.portal_rect.expect("the portal's tile");
-    click(&mut ed, (tile.center().x, tile.center().y));
+    crate::new_portal(&mut ed, "Hideout Portal");
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
     click(
@@ -457,10 +462,14 @@ fn the_playtest_character_walks_down_through_all_three_floors_of_a_dungeon_built
             ed.selection, ed.panels.message
         );
     };
-    ed.form_edit(&lyceum_editor::app::FormEdit::Destination {
-        cell: (u32::from(lb) << 16) | u32::from(cell),
-        at: [spot.x, spot.y, spot.z],
-    })
+    let portal = ed.form_weenie().expect("the portal's weenie");
+    ed.form_edit(
+        &portal,
+        &lyceum_editor::app::FormEdit::Destination {
+            cell: (u32::from(lb) << 16) | u32::from(cell),
+            at: [spot.x, spot.y, spot.z],
+        },
+    )
     .unwrap();
     let portal = ed
         .session

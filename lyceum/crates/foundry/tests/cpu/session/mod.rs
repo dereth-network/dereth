@@ -1,7 +1,12 @@
 mod bsp;
+mod delete_weenie;
 mod edit;
 mod fit;
+mod links;
+mod loot;
 mod map;
 mod models;
+mod place_quests;
+mod quests;
 mod scratch;
 mod server_spawns;

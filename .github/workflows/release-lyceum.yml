@@ -188,8 +188,8 @@ jobs:
           # Started with no world, the editor opens its start screen; `--list-recent` prints
           # what it would show, and opens no window.
           run "$editor" --list-recent | tee start.txt
-          grep -qx "Open a world…" start.txt
-          grep -qx "New world from the sample" start.txt
+          grep -qx "Open…" start.txt
+          grep -qx "New…" start.txt
           echo "::notice::the editor's window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json

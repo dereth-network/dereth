@@ -54,7 +54,7 @@ mod panels;
 
 #[path = "form.rs"]
 mod form;
-pub use form::{quests_named, weenie_label, FormEdit};
+pub use form::{quests_named, typing_key, weenie_label, FormEdit};
 
 #[path = "embedded.rs"]
 mod embedded;
@@ -74,17 +74,73 @@ pub use dungeon::{grouped as piece_groups_of, turned, Fit, Free, Kit, Plan, Plan
 
 #[path = "dungeons.rs"]
 mod dungeons;
-pub use dungeons::{with_destination, DungeonList, InDungeon, MapMark};
+pub use dungeons::{DungeonList, InDungeon, MapMark};
 
 #[path = "flows.rs"]
 mod flows;
-pub use flows::{symbol_of, yes_no, Flow, Group as FlowGroup};
+pub use flows::{symbol_of, Flow};
+
+#[path = "appears.rs"]
+mod appears;
+pub use appears::{Appears, PAGE as APPEARS_PAGE};
+
+#[path = "collections.rs"]
+mod collections;
+pub use collections::{
+    decimal, draws as generator_draws, percents as generator_percents, rows_of as table_rows,
+    totals as generator_totals, Draw, TableRow,
+};
+
+#[path = "kinds.rs"]
+mod kinds;
+pub use kinds::{Kind, Section};
+
+#[path = "fields.rs"]
+mod fields;
+pub use fields::{field_key, shown as shown_fields, yes_no, Field as WeenieField, Page, FIELDS};
 
 #[path = "fly.rs"]
 mod fly;
 
+#[path = "editor_tab.rs"]
+mod editor_tab;
+pub use editor_tab::{Owner, WeenieEditor};
+
+#[path = "creator.rs"]
+mod creator;
+pub use creator::{Creator, NewKind};
+
+#[path = "appearance.rs"]
+mod appearance;
+pub use appearance::{
+    framing, Appearance, Drawn, LookPicker, SIDE as LOOK_SIDE, SPACE as LOOK_SPACE,
+};
+
+#[path = "pickers.rs"]
+mod pickers;
+pub use pickers::{icon_list, Picker, Pickers, UsedIcon};
+
+#[path = "definition.rs"]
+mod definition;
+pub use definition::{Definition, Drill};
+
+#[path = "emotes.rs"]
+mod emotes;
+pub use emotes::{chances as emote_chances, SetChance};
+
+#[path = "findings.rs"]
+mod findings;
+pub use findings::{key_at_line, Finding};
+
+#[path = "usages.rs"]
+mod usages;
+
 #[path = "generator.rs"]
 mod generator;
+
+#[path = "sets_off.rs"]
+mod sets_off;
+pub use sets_off::Links;
 
 #[path = "layout.rs"]
 mod layout;
@@ -107,9 +163,22 @@ mod hierarchy;
 
 #[path = "nearby.rs"]
 mod nearby;
+
+#[path = "quests_tab.rs"]
+mod quests_tab;
+
+#[path = "loot_tab.rs"]
+mod loot_tab;
+#[path = "seen.rs"]
+mod seen;
+
+#[path = "look_drag.rs"]
+mod look_drag;
 pub use crate::docks::Tab;
+pub use loot_tab::{LootAction, LootTab};
 pub use nearby::{Nearby, NearbyEntry, NearbyKind, NearbySort, REACH as NEARBY_REACH};
 pub use panels::{saved_ago, unsaved_edits};
+pub use quests_tab::{QuestAction, QuestsTab};
 
 /// The runtime's application with the editor's front end in it.
 pub type CoreApp = dereth_client_runtime::app::App<EditorShell>;
@@ -258,8 +327,6 @@ pub struct Input {
 /// The panels' state.
 #[derive(Debug, Clone)]
 pub struct Panels {
-    /// Whether the weenie tab shows every property (Advanced) under the form by what it is for.
-    pub advanced: bool,
     pub filter: String,
     pub brush: Brush,
     pub radius: f32,
@@ -296,9 +363,8 @@ pub struct Panels {
     pub place_rects: Vec<(usize, egui::Rect, egui::Rect, egui::Rect)>,
     /// What stands in the selected room, as its rows were drawn last.
     pub in_place: Vec<(Selection, egui::Rect)>,
-    /// Whether the spawn tool places a new portal; where its tile was drawn last.
-    pub portal: bool,
-    pub portal_rect: Option<egui::Rect>,
+    /// The spawn tool's New..., as drawn last.
+    pub new_button: Option<egui::Rect>,
     /// The category dropdown of the model browser, and the brush's terrain or scene dropdown,
     /// as drawn last.
     pub category_combo: Option<egui::Rect>,
@@ -308,6 +374,8 @@ pub struct Panels {
     pub category_rows: Vec<(Option<Category>, egui::Rect)>,
     pub clear_filters: Option<egui::Rect>,
     pub tag_menu: Vec<(String, egui::Rect)>,
+    /// The new tag's field of a model's right-click menu while it is open, as drawn last.
+    pub tag_field: Option<egui::Rect>,
     /// The chosen building's layout, its furniture (a variant by its place in the layout's list,
     /// or none), how many quarter turns from its example it is dropped at, and for a house,
     /// whether it is one players can buy.
@@ -363,8 +431,23 @@ pub struct WeenieEntry {
     pub weenie: Weenie,
     pub name: String,
     pub category: Category,
-    /// The setup it is drawn with, when its SQL says.
+    /// Its weenie type, and whether it makes things (generator rows, or a most at once), when its
+    /// SQL says.
+    pub weenie_type: Option<u32>,
+    pub generates: bool,
+    /// The setup it is drawn with, and its icon, when its SQL says.
     pub setup: Option<u32>,
+    pub icon: Option<u32>,
+    /// The clothing table it is dressed in, when its SQL says.
+    pub clothing_base: Option<u32>,
+    /// Its motion table, sound table and base palette, when its SQL says.
+    pub motion_table: Option<u32>,
+    pub sound_table: Option<u32>,
+    pub palette_base: Option<u32>,
+    /// What becomes of it when whoever has it dies, when its SQL says (-2: it is destroyed).
+    pub bonded: Option<i32>,
+    /// Whether a player can keep it in a pack.
+    pub keepable: bool,
     /// Whether it is a pack's own.
     pub pack: bool,
     /// Its name, its symbol or class id, and its category, in lower case: what the filter reads.
@@ -392,7 +475,16 @@ impl WeenieEntry {
             weenie,
             name,
             category,
+            weenie_type: f.kind,
+            generates: f.generates,
             setup: f.setup,
+            icon: f.icon,
+            clothing_base: f.clothing_base,
+            motion_table: f.motion_table,
+            sound_table: f.sound_table,
+            palette_base: f.palette_base,
+            bonded: f.bonded,
+            keepable: character_gear::keepable(f),
             pack,
             words,
         }
@@ -443,6 +535,22 @@ pub struct Stats {
     pub nearby_gathers: u64,
     /// Times a landblock's rooms were read to find the room the camera is in.
     pub room_reads: u64,
+    /// Times the world was checked.
+    pub checks: u64,
+    /// Times the world's dungeons were looked for on the frame.
+    pub dungeon_scans: u64,
+    /// Times where a weenie appears was gathered.
+    pub appears_gathers: u64,
+}
+
+/// A write of the scratch overlay going on off the frame: what it was for.
+#[derive(Debug)]
+struct InFlight {
+    thread: std::thread::JoinHandle<
+        Result<(usize, lyceum_foundry::scratch::Written), lyceum_foundry::error::Error>,
+    >,
+    touched: Touched,
+    checks_later: bool,
 }
 
 /// The editor.
@@ -454,7 +562,8 @@ pub struct EditorApp {
     scratch: Scratch,
     pub camera: FlyCamera,
     pub walking: bool,
-    /// Whether the flying camera stops at the ground, walls and things ([`Collider`]).
+    /// Whether the flying camera meets the ground, walls and things, sliding along them
+    /// ([`Collider`]).
     pub collide: bool,
     /// The physics world it is swept through, once it has flown.
     pub collider: Option<Collider>,
@@ -466,8 +575,16 @@ pub struct EditorApp {
     /// Where a press in the world began, until it ends as a click or a box.
     pub box_from: Option<(f32, f32)>,
     drag: Option<Drag>,
-    /// A brush stroke in progress, which the next dab joins.
+    /// A brush stroke in progress, which the next dab joins; whether a dab is being made now,
+    /// and whether the world is to be checked when the stroke ends.
     stroke: bool,
+    dabbing: bool,
+    checks_due: bool,
+    /// The scratch overlay's write going on off the frame, and whether writes go off it: in a
+    /// window, where the frame never waits on one; off screen, where each is done before the next
+    /// step, they do not.
+    writing: Option<InFlight>,
+    pub write_off_frame: bool,
     pub models: Models,
     /// The model the place tool places.
     pub model: Option<DataId>,
@@ -499,9 +616,10 @@ pub struct EditorApp {
     browser_path: Option<PathBuf>,
     saved_view: Option<FlyCamera>,
     pub hierarchy_rects: Vec<(Selection, egui::Rect)>,
-    /// The top bar's Play (or Stop) button, each tool's button and the settings' button, as last
-    /// drawn.
+    /// The top bar's Play (or Stop) button and its menu's arrow, each tool's button and the
+    /// settings' button, as last drawn.
     pub play_button: Option<egui::Rect>,
+    pub play_menu_button: Option<egui::Rect>,
     pub tool_rects: Vec<(Mode, egui::Rect)>,
     pub settings_button: Option<egui::Rect>,
     /// Whether the settings menu was open at the last pass: its button is lit only then.
@@ -518,10 +636,18 @@ pub struct EditorApp {
     base_store: Arc<dereth_dat::RetailDatStore>,
     /// Each model's picture, as the panels' texture.
     pictures: Pictures,
+    /// The icons the weenie editor's Icon picker shows, read off the frame.
+    icons: pickers::Icons,
+    /// The weenie editor's preview of its weenie's look, and its clothing, color and shade
+    /// pickers.
+    pub appearance: Appearance,
     /// The panels, and their docked layout (taken out while the panels are drawn).
     gui: crate::gui::Gui,
     dock: Option<egui_dock::DockState<Tab>>,
     dungeon_dock: Option<egui_dock::DockState<Tab>>,
+    /// The floating windows taken out of a layout while a playtest shows in the world view, each
+    /// with whether it is the dungeon mode's layout's.
+    hidden_windows: Vec<(bool, crate::docks::Hidden)>,
     /// The default layout outdoors, not yet fitted to the map: its upper right part is made as
     /// tall as the map is wide once it is laid out.
     fit_map: bool,
@@ -535,6 +661,10 @@ pub struct EditorApp {
     pub world_rect: Option<egui::Rect>,
     /// The Nearby list: what stands round the camera.
     pub nearby: Nearby,
+    /// The Quests tab.
+    pub quests: QuestsTab,
+    /// The Loot tab.
+    pub loot: LootTab,
     /// The dungeon list.
     pub dungeon_list: DungeonList,
     /// Dungeon mode: the dungeon being edited, and where the camera was before going in.
@@ -566,6 +696,9 @@ pub struct EditorApp {
     looks: BTreeMap<(PathBuf, String), (u16, Option<DataId>)>,
     /// Where each field of the weenie form was drawn last, by its key.
     pub form_fields: Vec<(String, egui::Rect)>,
+    /// The weenie editor, and the Definition pane.
+    pub editor: WeenieEditor,
+    pub definition: Definition,
     /// Where each weenie's cell is in the spawn browser, as drawn last.
     pub weenie_rects: Vec<(Weenie, egui::Rect)>,
     /// Where each terrain type's picture is in the terrain brush's list, and each scene value's
@@ -576,13 +709,18 @@ pub struct EditorApp {
     pub brush_rects: Vec<(Brush, egui::Rect)>,
     /// A selected generator's marks, as drawn last.
     pub generator_marks: GeneratorMarks,
+    /// What the selected spawn sets off and what sets it off: picked, and drawn.
+    pub links: Links,
     /// The projection the marks on the world were drawn with last.
     pub marks_view: Option<View>,
     /// What each terrain's scenes grow, read the first time the scene brush shows it.
     scenes: BTreeMap<u16, Vec<Vec<DataId>>>,
     input: Input,
     held: Held,
+    /// Where the pointer was last as the right button turns the camera, and the window's hold on
+    /// the pointer meanwhile.
     look: Option<(f32, f32)>,
+    look_drag: look_drag::LookDrag,
     ctrl: bool,
     /// The flying camera's keys (Shift among them); and whether the body is walking because
     /// Shift is held.
@@ -617,7 +755,10 @@ pub struct EditorApp {
     /// world's quests into; empty for none.
     pub gdle_quests: String,
     pub characters: crate::characters::Characters,
-    character_work: Option<character_play::Work>,
+    character_work: Option<characters_tab::Work>,
+    /// Frames counted while the Characters tab shows, for when the creatures round the camera
+    /// are gathered again.
+    place_ticks: u64,
     /// Every word the editor shows, read from the creator's file and again when it changes.
     pub text: crate::text::Text,
     /// The world being written out for a server, off the frame loop: the server, and where it
@@ -874,6 +1015,25 @@ impl EditorApp {
             terrain_colors.clone(),
         );
         let tags = Tags::read(&args.world)?;
+        let mut characters = crate::characters::Characters::open(&args.world, |class| {
+            session
+                .compiled()
+                .lock
+                .of(lyceum_foundry::symbol::Kind::Wcid)
+                .find(|(_, id)| *id == class)
+                .map(|(s, _)| s.to_owned())
+        });
+        for line in &characters.upgraded {
+            tracing::info!("{line}");
+        }
+        characters.tables = crate::characters::OwnedTables::read(session.base()).ok();
+        characters.archetypes_dir = cfg_settings.as_ref().map(|d| d.join("archetypes"));
+        characters.read_own();
+        // The window's hold on the pointer while the right button turns the camera; a headless
+        // run's holds nothing.
+        let look_drag = look_drag::LookDrag::new(dereth_desktop::cursor::desktop_pointer(
+            core.window.raw_handle(),
+        ));
         let mut app = Self {
             core,
             shell,
@@ -889,6 +1049,10 @@ impl EditorApp {
             box_from: None,
             drag: None,
             stroke: false,
+            dabbing: false,
+            writing: None,
+            write_off_frame: !args.headless,
+            checks_due: false,
             models: Models::default(),
             model: None,
             all_models,
@@ -910,6 +1074,7 @@ impl EditorApp {
             play_button: None,
             tool_rects: Vec::new(),
             settings_button: None,
+            play_menu_button: None,
             settings_open: false,
             saved: None,
             log: Vec::new(),
@@ -920,9 +1085,12 @@ impl EditorApp {
             thumbs_root,
             base_store,
             pictures: Pictures::default(),
+            icons: pickers::Icons::default(),
+            appearance: Appearance::default(),
             gui: crate::gui::Gui::new(),
             dock: Some(crate::docks::outdoors()),
             dungeon_dock: Some(crate::docks::in_dungeon()),
+            hidden_windows: Vec::new(),
             fit_map: true,
             tool_body: None,
             layout_file: cfg_settings
@@ -932,6 +1100,8 @@ impl EditorApp {
             world_rect: None,
             rooms: Vec::new(),
             nearby: Nearby::default(),
+            quests: QuestsTab::default(),
+            loot: LootTab::default(),
             dungeon_list: DungeonList::default(),
             dungeon: None,
             dungeon_block: None,
@@ -946,16 +1116,20 @@ impl EditorApp {
             spells: None,
             looks: BTreeMap::new(),
             form_fields: Vec::new(),
+            editor: WeenieEditor::default(),
+            definition: Definition::default(),
             weenie_rects: Vec::new(),
             terrain_rects: Vec::new(),
             scene_rects: Vec::new(),
             brush_rects: Vec::new(),
             generator_marks: GeneratorMarks::default(),
+            links: Links::default(),
             marks_view: None,
             scenes: BTreeMap::new(),
             input: Input::default(),
             held: Held::default(),
             look: None,
+            look_drag,
             ctrl: false,
             keys: crate::camera::FlyKeys::default(),
             shift_walking: false,
@@ -981,19 +1155,18 @@ impl EditorApp {
                 show_hints: true,
                 shelf: crate::browser_state::Shelf::All,
                 top_down: false,
-                advanced: false,
                 step: 0.5,
                 turn_step: 15.0,
                 place_drag: None,
                 place_rects: Vec::new(),
                 in_place: Vec::new(),
-                portal: false,
-                portal_rect: None,
+                new_button: None,
                 category_combo: None,
                 brush_combo: None,
                 category_rows: Vec::new(),
                 clear_filters: None,
                 tag_menu: Vec::new(),
+                tag_field: None,
                 building_layout: 0,
                 building_furnishing: Some(0),
                 building_turns: 0,
@@ -1019,8 +1192,9 @@ impl EditorApp {
                 dir: args.live_dir.clone(),
                 playtest: play::playtest_dir(&args.world),
             },
-            characters: crate::characters::Characters::open(&args.world),
+            characters,
             character_work: None,
+            place_ticks: 0,
             play_options: play::read_play_options(&play::playtest_dir(&args.world).join("client")),
             gdle_quests: String::new(),
             text,
@@ -1132,7 +1306,15 @@ impl EditorApp {
         if let (Some(path), Some(out), Some(dungeon)) =
             (&self.layout_file, &self.dock, &self.dungeon_dock)
         {
-            crate::docks::write_file(path, out, dungeon)
+            // With the windows a playtest hides, as they were.
+            let whole = |dock: &egui_dock::DockState<Tab>, in_dungeon: bool| {
+                let mut dock = dock.clone();
+                for (_, h) in self.hidden_windows.iter().filter(|(d, _)| *d == in_dungeon) {
+                    crate::docks::put_back(&mut dock, h.clone());
+                }
+                dock
+            };
+            crate::docks::write_file(path, &whole(out, false), &whole(dungeon, true))
                 .map_err(|e| format!("{}: {e}", path.display()))?;
         }
         if let (Some(w), Some(path)) = (self.window_seen, &self.ui_scale_file) {
@@ -1170,6 +1352,12 @@ impl EditorApp {
         Some(View::new(&params, block))
     }
 
+    /// The layout the panels are arranged by outdoors, as a drag of a tab or a pane's edge
+    /// changes it.
+    pub fn layout_mut(&mut self) -> Option<&mut egui_dock::DockState<Tab>> {
+        self.dock.as_mut()
+    }
+
     /// The world view's rectangle in the window's pixels, as the panels laid it out: the whole
     /// window before they have.
     #[must_use]
@@ -1188,7 +1376,7 @@ impl EditorApp {
     }
 
     /// Fly the camera for `dt` seconds with the keys held: through everything, or with
-    /// [`Self::collide`] on, stopping at the ground, walls and things.
+    /// [`Self::collide`] on, sliding along the ground, walls and things.
     fn fly(&mut self, dt: f32) {
         let from = self.camera.position;
         self.camera.fly(self.held, dt);
@@ -1366,16 +1554,32 @@ impl EditorApp {
 
     /// Bring the scratch overlay up to the edit (the records it reached, into the folder the
     /// store is not reading), lay the store over it, and build the landblocks `touched` names
-    /// again; then check the world.
+    /// again; then check the world. With [`Self::write_off_frame`] the records are written on a
+    /// thread of their own and the rest is done in the frame after they are
+    /// ([`Self::finish_write`]).
     ///
     /// # Errors
     /// An overlay that will not write or open.
     pub fn reload(&mut self, touched: &Touched) -> Result<(), String> {
-        self.cell_cache.borrow_mut().clear();
+        self.reload_with(touched, true)
+    }
+
+    /// [`Self::reload`] for `touched` with the server's own spawns there shown or hidden, the
+    /// packs as they were: the rooms, read and laid out on the grid, are left as they are.
+    fn reload_spawns(&mut self, touched: &Touched) -> Result<(), String> {
+        self.reload_with(touched, false)
+    }
+
+    fn reload_with(&mut self, touched: &Touched, edited: bool) -> Result<(), String> {
+        if edited {
+            self.cell_cache.borrow_mut().clear();
+            self.kit.look_of = None;
+            self.layout.invalidate();
+        } else {
+            self.layout.spawns_changed();
+        }
         self.ghost = None;
-        self.kit.look_of = None;
         self.dungeon_list.entrances = None;
-        self.layout.invalidate();
         self.looks = self.spawn_looks();
         if let Some(map) = self.world_map.as_mut() {
             map.redraw(
@@ -1392,10 +1596,65 @@ impl EditorApp {
                 }
             }
         }
-        let written = self
+        // A write begun before is finished first: the folders take turns.
+        self.finish_write(true)?;
+        let writing = self
             .scratch
-            .update(&self.session, &touched.landblocks)
+            .begin(&self.session, &touched.landblocks)
             .map_err(|e| e.to_string())?;
+        let checks_later = self.dabbing;
+        if self.write_off_frame {
+            // Written on a thread of its own; the world is built again from it once it is done,
+            // a frame or two later.
+            let thread = std::thread::Builder::new()
+                .name("lyceum overlay".into())
+                .spawn(move || writing.run())
+                .map_err(|e| e.to_string())?;
+            self.writing = Some(InFlight {
+                thread,
+                touched: touched.clone(),
+                checks_later,
+            });
+            return Ok(());
+        }
+        let done = writing.run();
+        self.written(done, touched, checks_later)
+    }
+
+    /// Take the scratch overlay's write going on, if any, once it is done (or, `wait`, waiting
+    /// for it), and build the world again from it.
+    ///
+    /// # Errors
+    /// The write's, or a store that will not open.
+    pub fn finish_write(&mut self, wait: bool) -> Result<(), String> {
+        if !self
+            .writing
+            .as_ref()
+            .is_some_and(|w| wait || w.thread.is_finished())
+        {
+            return Ok(());
+        }
+        let Some(w) = self.writing.take() else {
+            return Ok(());
+        };
+        let done = w.thread.join().unwrap_or_else(|_| {
+            Err(lyceum_foundry::error::Error::Dat(
+                "the overlay's write stopped".into(),
+            ))
+        });
+        self.written(done, &w.touched, w.checks_later)
+    }
+
+    /// The rest of a reload once the scratch overlay is written: the store laid over it, the
+    /// landblocks `touched` built again, and the world checked (or, `checks_later`, when the
+    /// stroke ends).
+    fn written(
+        &mut self,
+        done: Result<(usize, lyceum_foundry::scratch::Written), lyceum_foundry::error::Error>,
+        touched: &Touched,
+        checks_later: bool,
+    ) -> Result<(), String> {
+        let written = self.scratch.finish(done).map_err(|e| e.to_string())?;
         if written.whole {
             self.stats.whole_writes += 1;
         } else {
@@ -1433,6 +1692,12 @@ impl EditorApp {
             }
         }
         self.stats.reloads += 1;
+        if checks_later {
+            self.dungeon_list.entrances = None;
+            self.dungeon_list.listed = None;
+            self.checks_due = true;
+            return Ok(());
+        }
         self.recheck()
     }
 
@@ -1443,6 +1708,8 @@ impl EditorApp {
         let Some(dir) = self.core.cfg.overlay_dat_dir.clone() else {
             return Ok(());
         };
+        self.checks_due = false;
+        self.stats.checks += 1;
         self.faults = self.session.check(&dir).map_err(|e| e.to_string())?;
         // A preview standing in a statics record past the compiled ones is not a static.
         let session = &self.session;
@@ -1503,6 +1770,18 @@ impl EditorApp {
             self.hold_field_of_view(v.rect);
         }
         self.core.present.set_inset(view);
+        // The flying camera's own landblock is built off the frame as the rest are, a dungeon's
+        // rooms filling in over a few frames; the walking body's at once, to stand on.
+        let flying = !self.walking;
+        if let Some(draw) = self
+            .core
+            .present
+            .as_any_mut()
+            .downcast_mut::<Renderer>()
+            .and_then(|r| r.world_mut())
+        {
+            draw.cfg.viewer_block_off_frame = flying;
+        }
         let going = self.core.frame(&mut self.shell);
         self.core.present.set_inset(None);
         self.work = Work {
@@ -1550,6 +1829,35 @@ impl EditorApp {
             .as_any_mut()
             .downcast_mut::<Renderer>()
             .map_or(0, |r| r.world_mut_and_gpu().1.draw_calls())
+    }
+
+    /// The drawn world's textures of rebuilt or departed blocks given back to the device so far.
+    pub fn block_textures_freed(&mut self) -> u64 {
+        self.core
+            .present
+            .as_any_mut()
+            .downcast_mut::<Renderer>()
+            .and_then(|r| r.world_mut())
+            .map_or(0, |w| w.stats.block_textures_freed)
+    }
+
+    /// How many landblocks' objects the drawn world has baked on the frame and off it, and how
+    /// many of their surfaces took a picture decoded off the frame.
+    pub fn bakes(&mut self) -> ((u64, u64), u64) {
+        self.core
+            .present
+            .as_any_mut()
+            .downcast_mut::<Renderer>()
+            .and_then(|r| r.world_mut())
+            .map_or(((0, 0), 0), |w| {
+                (w.objects_baked(), w.pictures_decoded_off_frame())
+            })
+    }
+
+    /// The bytes of the panels' textures handed to the device so far.
+    #[must_use]
+    pub fn panel_texture_bytes(&self) -> u64 {
+        self.gui.texture_bytes
     }
 
     /// Run the main loop until the window closes.
@@ -1609,7 +1917,9 @@ impl EditorApp {
                         }
                     }
                     MouseButton::Right => {
-                        self.look = (pressed && !over).then_some(self.input.pointer);
+                        self.look = self
+                            .look_drag
+                            .right_button(pressed, over, self.input.pointer);
                     }
                     _ => {}
                 },
@@ -1669,6 +1979,10 @@ impl EditorApp {
 
     /// The editor's step of one frame, before the runtime's.
     fn update(&mut self) {
+        // The world built again from a write of the overlay finished since.
+        if let Err(e) = self.finish_write(false) {
+            self.panels.message = e;
+        }
         // The creator's text, read again when they save it.
         self.text.refresh();
         if let Err(e) = self.take_catalog(false) {
@@ -1677,7 +1991,7 @@ impl EditorApp {
         // The server's own spawns around the camera, as it goes.
         let shown = self.show_server_spawns_around();
         if !shown.is_empty() {
-            if let Err(e) = self.reload(&Touched {
+            if let Err(e) = self.reload_spawns(&Touched {
                 landblocks: shown,
                 sql: false,
             }) {
@@ -1689,12 +2003,15 @@ impl EditorApp {
         }
         let events = std::mem::take(&mut self.shell.inbox);
         let now = self.core.timer.local_time;
+        // The camera flies by the frame's own time: the clock's in a window, and a headless run's
+        // fixed step, so a headless run flies the same way however fast the machine draws.
+        let frame_time = self.core.timer.elapsed_time();
         #[allow(clippy::cast_possible_truncation)]
         let dt = self
             .last_time
-            .map_or(0.0, |t| (now - t) as f32)
+            .map_or(0.0, |t| (frame_time - t) as f32)
             .clamp(0.0, 0.25);
-        self.last_time = Some(now);
+        self.last_time = Some(frame_time);
         // The panels first: what they take, the world does not. The camera moves within their
         // pass, once the world view is laid out and before the marks on it are drawn, so the
         // marks and the world are drawn from the same place.
@@ -1710,6 +2027,8 @@ impl EditorApp {
         }
         let (keys, over) = (std::mem::take(&mut pass.keys), pass.over);
         self.shell.items = self.gui.paint(out, (w, h));
+        // The weenie editor's preview, put in its space before the frame draws it.
+        self.appearance_frame();
         // The dungeon piece's ghost, under the panels and the marks.
         let mut items = self.ghost_items();
         if !items.is_empty() {
@@ -1769,6 +2088,12 @@ impl EditorApp {
         } else if self.drag.is_some() || self.box_from.is_some() {
             // A drag or a box begun in the world goes on, and ends, over the panels too.
             self.world_tool();
+        }
+        // A stroke's dabs are checked together once the button is let go.
+        if self.checks_due && !self.input.down {
+            if let Err(e) = self.recheck() {
+                self.panels.message = e;
+            }
         }
         if self.input.released {
             self.drag = None;
@@ -1843,6 +2168,7 @@ impl EditorApp {
             UiAction::Select(selection) => {
                 self.selection = Some(selection);
                 self.also.clear();
+                self.links.picking = None;
                 self.show_tab(Tab::Inspector);
                 Ok(())
             }
@@ -1851,7 +2177,6 @@ impl EditorApp {
                 self.also.clear();
                 Ok(())
             }
-            UiAction::NewCopy(class, name) => self.new_copy(class, &name).map(|_| ()),
             UiAction::OpenModel(m) => {
                 // Shown in the Place tool whatever it was filtered to.
                 self.panels.filter = format!("{:#010X}", m.raw());
@@ -1914,16 +2239,6 @@ impl EditorApp {
             }
             UiAction::LiftRoom(lb, n) => self.lift_room(lb, n),
             UiAction::SetPlace(sel, lb, at, heading) => self.set_place(&sel, lb, at, heading),
-            UiAction::NewPortalTool => {
-                self.panels.portal = true;
-                self.panels.weenie = None;
-                self.mode = Mode::Spawn;
-                if matches!(self.selection, Some(Selection::Spawn { .. })) {
-                    self.selection = None;
-                    self.also.clear();
-                }
-                Ok(())
-            }
             UiAction::Floor(f) => {
                 self.choose_floor(f);
                 Ok(())
@@ -1944,17 +2259,50 @@ impl EditorApp {
                 Ok(())
             }
             UiAction::Nearby(i) => self.nearby_go(i),
-            UiAction::NewFor(flow, name) => self.new_for(flow, &name).map(|_| ()),
-            UiAction::PlaceHere(w) => self.place_one_here(&w),
-            UiAction::DestinationHere => self.destination_here(),
-            UiAction::DestinationDungeon(lb) => self.destination_dungeon(lb),
+            UiAction::Quest(a) => self.quest_action(a),
+            UiAction::Loot(a) => self.loot_action(a),
+            UiAction::NewWeenie(copy_of) => {
+                self.open_creator(copy_of);
+                Ok(())
+            }
+            UiAction::MakeWeenie => {
+                // Why it made nothing is said in the dialog.
+                let _ = self.make_weenie();
+                Ok(())
+            }
+            UiAction::DestinationHere(w) => self.destination_here(&w),
+            UiAction::DestinationDungeon(w, lb) => self.destination_dungeon(&w, lb),
+            UiAction::EditWeenie(w, field) => {
+                self.edit_weenie(&w, field);
+                Ok(())
+            }
+            UiAction::PutBackSaved(w) => self.put_back_saved(&w),
+            UiAction::PutBackServer(c) => self.put_back_server(c),
+            UiAction::DeleteWeenie(w) => self.delete_weenie(&w),
+            UiAction::EditorBack => {
+                self.editor.back();
+                Ok(())
+            }
+            UiAction::EditorForward => {
+                self.editor.forward();
+                Ok(())
+            }
+            UiAction::FindUsages(w) => {
+                self.find_usages(&w);
+                Ok(())
+            }
+            UiAction::FindingAt(w, line) => {
+                self.jump_to_line(&w, line);
+                Ok(())
+            }
+            UiAction::Link(child, target) => self.link_spawn(&child, target.as_ref()),
+            UiAction::PickLinkTarget(child) => {
+                self.links.picking = child;
+                Ok(())
+            }
             UiAction::GoToSpawn(file, guid) => {
-                if let Some(s) = self
-                    .session
-                    .spawns()
-                    .into_iter()
-                    .find(|s| s.file == file && s.guid == guid)
-                {
+                // Wherever it stands: its landblock's spawns are shown once the camera is there.
+                if let Some(s) = self.session.spawn(&file, &guid) {
                     self.selection = Some(Selection::Spawn { file, guid });
                     self.also.clear();
                     let cell = u16::try_from(s.cell & 0xFFFF).ok();
@@ -1973,8 +2321,25 @@ impl EditorApp {
                 self.name_dungeon(lb, &name)
             }
             UiAction::DungeonLook(lb, of) => self.choose_dungeon_look(lb, of),
-            UiAction::SaveCharacter => self.characters.save(),
-            UiAction::ResetCharacter => self.prepare_character(true),
+            UiAction::OpenCharacters => {
+                self.open_characters();
+                Ok(())
+            }
+            UiAction::ChooseRecipe(name) => self.characters.select(&name),
+            UiAction::NewRecipe(name) => self.new_character(&name),
+            UiAction::DeleteRecipe(name) => self.characters.delete(&name),
+            UiAction::RecipeChanged => self.characters.save(),
+            UiAction::ResetCharacter => self.reset_character(),
+            UiAction::SaveArchetype(name) => self.characters.save_own(&name).map(|_| {
+                self.characters.own_name.clear();
+                self.panels.message = self.say_with("characters.own_saved", &[("name", &name)]);
+            }),
+            UiAction::ExportCharacter => self.export_character(),
+            UiAction::ReplaceCharacter(name) => {
+                self.characters.replace_asked = None;
+                self.characters.replace_ok = Some(name);
+                self.play(&[], false).map(|_| ())
+            }
             UiAction::PlayOptions(o) => {
                 self.play_options = o;
                 play::write_play_options(&self.live_args.playtest.join("client"), o)
@@ -1988,6 +2353,11 @@ impl EditorApp {
                 Err(e) => Err(e.to_string()),
             },
             UiAction::Delete => self.delete_selected(),
+            // Escape lets go of a picking first.
+            UiAction::Deselect if self.links.picking.is_some() => {
+                self.links.picking = None;
+                Ok(())
+            }
             UiAction::Deselect => {
                 self.selection = None;
                 self.also.clear();
@@ -2063,7 +2433,8 @@ impl EditorApp {
                 Ok(())
             }
             UiAction::TagModel(m, t, on) => self.tag_model(m, &t, on),
-            UiAction::Form(e) => self.form_edit(&e),
+            UiAction::Form(w, e) => self.form_edit(&w, &e),
+            UiAction::Forms(w, e) => self.form_edits(&w, &e),
             UiAction::ShowWeenie => {
                 self.show_weenie();
                 Ok(())
@@ -2080,7 +2451,6 @@ impl EditorApp {
             }
             UiAction::Weenie(wn) => {
                 self.panels.weenie = Some(wn);
-                self.panels.portal = false;
                 self.mode = Mode::Spawn;
                 // The form shows the spawn tool's weenie, not a spawn that happens to be chosen.
                 if matches!(self.selection, Some(Selection::Spawn { .. })) {
@@ -2158,6 +2528,26 @@ impl EditorApp {
             ),
             _ => (BTreeSet::new(), 0),
         }
+    }
+
+    /// Hold the pointer by `host` while the right button turns the camera, in place of the
+    /// window's hold.
+    pub fn hold_pointer_by(&mut self, host: Box<dyn dereth_client_shell::pointer::HostPointer>) {
+        self.end_look();
+        self.look_drag = look_drag::LookDrag::new(host);
+    }
+
+    /// Whether the pointer is held while the right button turns the camera.
+    #[must_use]
+    pub fn holds_pointer(&self) -> bool {
+        self.look_drag.holds()
+    }
+
+    /// End the right button's turn of the camera, if one goes on: the pointer shown again where
+    /// it began.
+    pub(super) fn end_look(&mut self) {
+        self.look_drag.end();
+        self.look = None;
     }
 
     /// The panels' scale the monitor the window is on asks for: its scale factor, as the nearest
@@ -3109,6 +3499,9 @@ impl EditorApp {
     /// A click at `p`: what is under it selected, or `adding` (Ctrl or Shift held) a static or
     /// spawn added to the selection, or taken out of it when it is in it already.
     fn click_select(&mut self, p: (f32, f32), adding: bool) {
+        if self.pick_link_target(p) {
+            return;
+        }
         let picked = self.picked(p);
         let groupable = |s: &Selection| {
             matches!(
@@ -3379,24 +3772,16 @@ impl EditorApp {
             return Ok(());
         }
         let into = self.stroke;
-        self.apply(&Op::SetVertices(sets), into)?;
+        // The world is checked once, when the stroke ends, not after every dab.
+        self.dabbing = true;
+        let applied = self.apply(&Op::SetVertices(sets), into);
+        self.dabbing = false;
+        applied?;
         self.stroke = true;
         Ok(())
     }
 
     fn spawn_at(&mut self, p: (f32, f32)) -> Result<(), String> {
-        if self.panels.portal {
-            return match self.cell_point(p) {
-                Some((lb, cell, at, facing)) => {
-                    let (at, _) = self.snapped(lb, cell, at, facing, false, true);
-                    self.place_portal(lb, Some(cell), at)
-                }
-                None => match self.ground_at(p) {
-                    Some((lb, at)) => self.place_portal(lb, None, at),
-                    None => Ok(()),
-                },
-            };
-        }
         let weenie = self
             .panels
             .weenie
@@ -3457,14 +3842,18 @@ impl EditorApp {
             self.dock.as_ref()
         };
         dock.and_then(|d| {
-            let (node, at) = d.main_surface().find_tab(&tab)?;
-            d.main_surface()[node].get_leaf().map(|l| l.active == at)
+            let at = d.find_tab(&tab)?;
+            d[at.surface][at.node]
+                .get_leaf()
+                .map(|l| l.active == at.tab)
         })
         .unwrap_or(false)
     }
 
-    /// Tab `tab` brought forward in its dock.
+    /// Tab `tab` brought forward in its dock, its floating window put back first if a playtest
+    /// hid it.
     pub fn show_tab(&mut self, tab: Tab) {
+        self.bring_back(tab);
         let dock = if self.dungeon.is_some() {
             self.dungeon_dock.as_mut()
         } else {
@@ -3734,6 +4123,13 @@ impl EditorApp {
             self.session.learn_buildings(b);
             self.ghost = None;
         }
+        if let Some(d) = ready
+            .dungeons
+            .filter(|_| self.dungeon_list.retail.is_none())
+        {
+            self.dungeon_list.retail = Some(d);
+            self.dungeon_list.listed = None;
+        }
         self.names = ModelNames::new(&ready.placements, &self.session.weenies_by_setup());
         self.count_models();
         self.rebuild_weenies();
@@ -3764,7 +4160,7 @@ impl EditorApp {
             self.shown_around = None;
             landblocks.extend(self.show_server_spawns_around());
             if !landblocks.is_empty() {
-                self.reload(&Touched {
+                self.reload_spawns(&Touched {
                     landblocks,
                     sql: false,
                 })?;
@@ -4134,7 +4530,9 @@ impl EditorApp {
         if let Some(tab) = &s.show {
             match tab.as_str() {
                 "definition" | "weenie" => self.show_weenie(),
-                "characters" => self.characters.open = true,
+                "characters" => self.open_characters(),
+                "quests" => self.show_tab(Tab::Quests),
+                "loot" => self.show_tab(Tab::Loot),
                 other => return Err(format!("{other:?} is not a tab to show")),
             }
         }
@@ -4294,9 +4692,11 @@ impl EditorApp {
             Some(false) if s.play.is_none() => self.set_live(false)?,
             _ => {}
         }
+        if let Some(name) = &s.character {
+            self.characters.select(name)?;
+        }
         if s.reset_character == Some(true) {
-            self.prepare_character(true)?;
-            self.wait_character()?;
+            self.make_character()?;
         }
         if let Some(q) = &s.gdle_quests {
             self.gdle_quests.clone_from(q);
@@ -4414,8 +4814,6 @@ enum UiAction {
     Select(Selection),
     /// A selection made where it shows already (the dungeon's grid): no other tab brought forward.
     SelectHere(Selection),
-    /// A new weenie, a copy of a server's class, named as players will see it.
-    NewCopy(u32, String),
     /// A model chosen in the Place tool.
     OpenModel(DataId),
     /// The question before a dungeon is taken away.
@@ -4449,8 +4847,9 @@ enum UiAction {
     TagModel(DataId, String, bool),
     /// The spawn browser's category, or all.
     WeenieCategory(Option<Category>),
-    /// A change of the weenie form.
-    Form(FormEdit),
+    /// A change of a weenie's form, named by the weenie; several made together, as one step.
+    Form(Weenie, FormEdit),
+    Forms(Weenie, Vec<FormEdit>),
     /// The weenie tab brought forward.
     ShowWeenie,
     /// The camera flown to world meters.
@@ -4478,8 +4877,6 @@ enum UiAction {
     /// The selection set to a place (landblock meters of the landblock) and a heading, typed or
     /// stepped.
     SetPlace(Selection, u16, Vec3, f32),
-    /// The spawn tool placing a new portal.
-    NewPortalTool,
     /// The grid showing a floor, by its height; a floor up or down.
     Floor(f32),
     FloorStep(i32),
@@ -4490,10 +4887,25 @@ enum UiAction {
     FetchDatabase,
     Play,
     PlayOptions(play::PlayOptions),
-    SaveCharacter,
+    /// The Characters tab shown; a recipe selected, made new, deleted, changed; a character on
+    /// the server the builder said to replace.
+    OpenCharacters,
+    ChooseRecipe(String),
+    NewRecipe(String),
+    DeleteRecipe(String),
+    RecipeChanged,
+    ReplaceCharacter(String),
+    /// The selected recipe's character made from its recipe now; exported.
     ResetCharacter,
+    ExportCharacter,
+    /// The selected recipe's choices kept as the builder's own archetype of this name.
+    SaveArchetype(String),
     /// Entry of the Nearby list as shown: selected, and flown to.
     Nearby(usize),
+    /// A change asked of the Quests tab.
+    Quest(QuestAction),
+    /// A change asked of the Loot tab.
+    Loot(LootAction),
     /// Into a dungeon, in dungeon mode; a new one (near a landblock, else the camera); back out;
     /// its name and its look (the world's dungeon whose look it takes).
     EnterDungeon(u16),
@@ -4507,15 +4919,32 @@ enum UiAction {
     KeepDungeon,
     /// The selected statics and spawns copied beside themselves.
     Duplicate,
-    /// A new weenie made for what it is for, named so.
-    NewFor(Flow, String),
-    /// A spawn of the weenie where the camera is.
-    PlaceHere(Weenie),
-    /// The form's portal sent where the camera is, or into a dungeon.
-    DestinationHere,
-    DestinationDungeon(u16),
+    /// New Weenie opened, plain or a copy of a weenie; its Make it pressed.
+    NewWeenie(Option<Weenie>),
+    MakeWeenie,
+    /// A portal sent where the camera is, or into a dungeon.
+    DestinationHere(Weenie),
+    DestinationDungeon(Weenie, u16),
+    /// Edit asked of a weenie (at a field of its form, by its key): the editor opened on it.
+    EditWeenie(Weenie, Option<String>),
+    /// A weenie's file put back as saved; the pack's change of a server's class taken away.
+    PutBackSaved(Weenie),
+    PutBackServer(u32),
+    /// A pack's own weenie deleted, once nothing names it.
+    DeleteWeenie(Weenie),
+    /// The editor back to the weenie it showed before, or forward again.
+    EditorBack,
+    EditorForward,
+    /// The weenies that name a weenie, listed in the Definition pane.
+    FindUsages(Weenie),
+    /// The editor at the field a finding of its weenie's file is about, by the finding's line.
+    FindingAt(Weenie, usize),
     /// A spawn selected and flown to.
     GoToSpawn(PathBuf, String),
+    /// A spawn made to set off another, or nothing; the next click in the world picking what a
+    /// spawn sets off, or that picking let go of.
+    Link(sets_off::SpawnRef, Option<sets_off::SpawnRef>),
+    PickLinkTarget(Option<sets_off::SpawnRef>),
     /// The playtest stopped.
     StopPlay,
     /// The panels drawn at this scale (pixels to the point).
@@ -4634,5 +5063,14 @@ fn read_schema(
     }
 }
 
-#[path = "character_play.rs"]
-mod character_play;
+#[path = "characters_tab.rs"]
+mod characters_tab;
+
+#[path = "character_gear.rs"]
+mod character_gear;
+
+#[path = "character_build.rs"]
+mod character_build;
+
+#[path = "character_extras_tab.rs"]
+mod character_extras_tab;

@@ -12,7 +12,8 @@
 //! - a vertex field goes into the file of the target pack that already sets it, else into the
 //!   landblock where the vertex's local coordinates are 0 to 7, so one vertex is never set from two
 //!   files;
-//! - a spawn is one SQL file of its own, `server/sql/landblocks/XXYY <name>.sql`.
+//! - a spawn is one SQL file of its own, `server/sql/landblocks/XXYY <name>.sql`;
+//! - a link between two spawns is written with its parent ([`links`]).
 //!
 //! The files are edited in place (`toml_edit`): comments, order and the layout of everything else
 //! stay. New entries are written in one form: meters to three decimals, degrees to two, ids in
@@ -47,6 +48,8 @@ use crate::source::{self, Height, Pack, Place, Rotation, SqlFile};
 use crate::sql_ids;
 use crate::symbol;
 use crate::world::World;
+
+pub mod links;
 
 /// A weenie a spawn places: a pack's, by its symbol in full, or a class id of the server's own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -148,6 +151,15 @@ pub enum Op {
     /// Take away the server's own spawn `guid`, its change written in `file`, its landblock's
     /// override file ([`Session::override_file`]).
     RemoveServerSpawn { file: PathBuf, guid: String },
+    /// Make the spawn `guid` of `file` (a lever, a pressure plate, a door, a creature) set off the
+    /// spawn `target` (its file and guid: a door, a switch or a pressure plate), or nothing: the
+    /// link the server reads, the target its parent, written where the target is written, the
+    /// spawn marked its child where it is; the link it had before taken away ([`links`]).
+    Link {
+        file: PathBuf,
+        guid: String,
+        target: Option<(PathBuf, String)>,
+    },
     /// Write the target pack's SQL file `file` (under its `server/sql`) as `text`, or take it
     /// away: a weenie, a quest or a spawn as a form leaves it.
     WriteSql { file: PathBuf, text: Option<String> },
@@ -274,7 +286,8 @@ pub enum Op {
     },
     /// Take dropped building `index` of `landblock` (its place in the compiled building list)
     /// away: its row, so its set and rooms, its doors and outdoor statics, the spawns and statics
-    /// in its rooms, and the level ground it stood on ([`crate::drops`]).
+    /// in its rooms and in a house's basement, and the level ground it stood on
+    /// ([`crate::drops`]).
     RemoveBuilding { landblock: u16, index: usize },
     /// Several changes as one, each over what the ones before it left.
     Batch(Vec<Op>),
@@ -344,6 +357,15 @@ impl Spawn {
     }
 }
 
+/// One of the server's own spawns as its world places it: the instance, the instances it links as
+/// a generator, and the generators that link it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServerSpawn {
+    pub instance: sql_ids::Instance,
+    pub children: Vec<u32>,
+    pub parents: Vec<u32>,
+}
+
 /// A world vertex as the compiled world holds it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vertex {
@@ -362,6 +384,14 @@ pub struct Fault {
     pub warning: bool,
     /// The landblock and the landblock meters it is at.
     pub at: Option<(u16, Vec3)>,
+}
+
+/// The server's own instances by the class each places: each one's landblock and its place in
+/// that landblock's list; and those whose class is not a number.
+#[derive(Debug, Default)]
+struct RetailByClass {
+    classes: BTreeMap<u32, Vec<(u16, usize)>>,
+    others: Vec<(u16, usize)>,
 }
 
 /// A world open for editing.
@@ -387,18 +417,44 @@ pub struct Session {
     /// The server's own instances by landblock, and its generators' links: each parent's
     /// children, in the order the server lists them.
     retail_instances: BTreeMap<u16, Vec<sql_ids::Instance>>,
+    /// The server's own instances by the class each places (their landblock and place in its
+    /// list), and those of no class number; kept as they are learned.
+    retail_by_class: RetailByClass,
     retail_links: BTreeMap<u32, Vec<u32>>,
     /// The landblocks whose server spawns are shown.
     shown: BTreeSet<u16>,
     /// The server's quests and death treasures.
     retail_quests: BTreeMap<String, sql_ids::Quest>,
     retail_treasure: BTreeMap<u32, sql_ids::Treasure>,
+    /// The server's wielded treasures, and who names each loot table among its own weenies.
+    retail_wielded: BTreeMap<u32, Vec<sql_ids::WieldedItem>>,
+    retail_loot_uses: BTreeMap<u32, Vec<(u32, sql_ids::LootUse)>>,
+    /// The packs' loot tables, read from their files the first time they are wanted after a
+    /// change.
+    pack_loot: std::cell::OnceCell<crate::loot::PackLoot>,
+    /// The file that writes each weenie, and whether it is the target pack's (the last pack's
+    /// first file that writes it): read the first time it is wanted after a change.
+    weenie_files: std::cell::OnceCell<std::collections::HashMap<Weenie, (PathBuf, bool)>>,
+    /// Who names each of the server's classes among its own weenies, and each body part's
+    /// typical row.
+    retail_uses: BTreeMap<u32, Vec<(u32, sql_ids::Use)>>,
+    retail_body_parts: BTreeMap<u32, Vec<(String, String)>>,
+    /// Who names each quest among the server's own weenies, by the quest as registered.
+    retail_quest_uses: BTreeMap<String, sql_ids::QuestNamers>,
     /// The server's names, which the checks of the packs' SQL read when given.
     schema: Option<crate::content::Schema>,
-    /// How many times a landblock's cells were read.
+    /// How many times a landblock's cells were read, and how many of the server's own
+    /// instances were read as spawns.
     cell_reads: std::cell::Cell<u64>,
+    server_reads: std::cell::Cell<u64>,
     /// The world's buildings, when the session was given them: what a drop copies.
     buildings: Option<crate::buildings::Catalog>,
+    /// Every link between spawns, gathered the first time it is wanted after a change.
+    link_table: std::cell::OnceCell<links::Table>,
+    /// What the packs' SQL says of the server's classes it writes again, and of its own weenies
+    /// by symbol: read the first time it is wanted after a change.
+    pack_class_facts: std::cell::OnceCell<BTreeMap<u32, sql_ids::WeenieFacts>>,
+    pack_weenie_facts: std::cell::OnceCell<BTreeMap<String, sql_ids::WeenieFacts>>,
 }
 
 /// What a spawn makes as a generator: how far around it scatters what it makes, each profile
@@ -416,8 +472,8 @@ pub struct Generator {
     /// Int 81 and 82, `MaxGeneratedObjects` and `InitGeneratedObjects`.
     pub most: Option<i32>,
     pub first: Option<i32>,
-    /// Int 142, `GeneratorTimeType`: 1 always, 2 between set times, 3 during an event, 4 at
-    /// night, 5 by day.
+    /// Int 142, `GeneratorTimeType`: 1 between its set times (Int 143 and 144), 3 during its
+    /// event, 4 at night, 5 by day; unset, or any other value, always.
     pub time: Option<i32>,
     /// The guids (as [`Session::spawns`] writes them) of the instances it owns.
     pub children: Vec<String>,
@@ -445,6 +501,14 @@ pub struct Profile {
     /// Its share of the draw, as the generator's running total writes it (`probability`), or
     /// `-1` for always.
     pub probability: Option<f32>,
+}
+
+impl Profile {
+    /// Whether it makes treasure: its `class` is then a loot table's id, not a weenie's.
+    #[must_use]
+    pub const fn makes_treasure(&self) -> bool {
+        self.place & sql_ids::TREASURE_PLACE != 0
+    }
 }
 
 /// The generator weenie SQL `doc` describes: its properties and profiles (no children).
@@ -494,6 +558,31 @@ pub fn generator_of(doc: &crate::content::SqlDoc) -> Generator {
         });
     }
     g
+}
+
+/// Everywhere a weenie is named ([`Session::named_anywhere`]): its spawns, the weenies that name
+/// it and how, and the wielded loot tables that hold it, by id.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Named {
+    pub spawns: Vec<Spawn>,
+    pub by: Vec<(Weenie, sql_ids::Use)>,
+    pub loot: Vec<u32>,
+}
+
+impl Named {
+    /// Whether nothing names it.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.spawns.is_empty() && self.by.is_empty() && self.loot.is_empty()
+    }
+
+    /// How many places name it: each spawn, each weenie that names it (once however many ways),
+    /// and each table.
+    #[must_use]
+    pub fn places(&self) -> usize {
+        let by: std::collections::HashSet<&Weenie> = self.by.iter().map(|(w, _)| w).collect();
+        self.spawns.len() + by.len() + self.loot.len()
+    }
 }
 
 /// A portal standing in the world that leads into a dungeon: its spawn's guid, its landblock and
@@ -551,11 +640,11 @@ pub fn guid_text(g: u32) -> String {
     format!("0x{g:08X}")
 }
 
-/// One server spawn an override file changes: written again whole (with the instances its
-/// generator links), or taken away.
+/// One server spawn an override file changes: written again whole (with the instances it links,
+/// each guid as written: a number, or a token of the pack's own spawn), or taken away.
 #[derive(Clone, Debug)]
 enum Override {
-    Placed(sql_ids::Instance, Vec<u32>),
+    Placed(sql_ids::Instance, Vec<String>),
     Removed { link_child: bool },
 }
 
@@ -569,12 +658,13 @@ impl Overrides {
     /// What `text` (an override file, or none yet) changes.
     fn read(text: &str) -> Self {
         let mut entries = BTreeMap::new();
-        let mut links: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut links: BTreeMap<u32, Vec<String>> = BTreeMap::new();
         let mut unlinked: BTreeSet<u32> = BTreeSet::new();
         sql_ids::rows(text, |row| {
             if row.table == "landblock_instance_link" {
-                let g = |c: &str| row.get(c).and_then(sql_ids::number);
-                if let (Some(p), Some(c)) = (g("parent_GUID"), g("child_GUID")) {
+                let parent = row.get("parent_GUID").and_then(sql_ids::number);
+                if let (Some(p), Some(c)) = (parent, row.get("child_GUID")) {
+                    let c = sql_ids::number(c).map_or_else(|| c.trim().to_owned(), guid_text);
                     links.entry(p).or_default().push(c);
                 }
             }
@@ -656,7 +746,7 @@ impl Overrides {
                         );
                         let rows: Vec<String> = children
                             .iter()
-                            .map(|c| format!("({guid}, {}, '{today}')", guid_text(*c)))
+                            .map(|c| format!("({guid}, {c}, '{today}')"))
                             .collect();
                         out.push_str(&rows.join("\n     , "));
                         out.push_str(";\n");
@@ -1007,6 +1097,24 @@ fn remove_table(doc: &mut DocumentMut, key: &str, k: usize) {
     }
 }
 
+/// The rows of `doc` that add, move or take away a static in one of `cells`, removed.
+fn unwrite_cell_statics(doc: &mut DocumentMut, cells: &BTreeSet<u16>) {
+    let in_cells = |t: &Table| {
+        int(t, "cell")
+            .and_then(|c| u16::try_from(c).ok())
+            .is_some_and(|c| cells.contains(&c))
+    };
+    for key in ["add-cell-static", "move-cell-static", "remove-cell-static"] {
+        while let Some(k) = doc
+            .get(key)
+            .and_then(Item::as_array_of_tables)
+            .and_then(|rows| rows.iter().position(in_cells))
+        {
+            remove_table(doc, key, k);
+        }
+    }
+}
+
 /// A table that starts a new entry of an array, set off by a blank line.
 fn entry() -> Table {
     let mut t = Table::new();
@@ -1079,7 +1187,7 @@ pub fn outdoor_cell(x: f32, y: f32) -> u32 {
 
 /// A token's symbol, qualified for the pack whose file names it: `{{wcid:guide}}` in pack
 /// `holtburg` is `holtburg:guide`. `None` for a value that is no token.
-fn token_symbol(pack: &str, v: &str) -> Option<String> {
+pub(crate) fn token_symbol(pack: &str, v: &str) -> Option<String> {
     let inner = v.trim().strip_prefix("{{")?.strip_suffix("}}")?;
     let (_, sym) = inner.split_once(':')?;
     symbol::qualify(pack, sym.trim()).ok()
@@ -1138,13 +1246,25 @@ impl Session {
             today: today(),
             retail: BTreeMap::new(),
             retail_instances: BTreeMap::new(),
+            retail_by_class: RetailByClass::default(),
             retail_links: BTreeMap::new(),
             shown: BTreeSet::new(),
             retail_quests: BTreeMap::new(),
             retail_treasure: BTreeMap::new(),
+            retail_wielded: BTreeMap::new(),
+            retail_loot_uses: BTreeMap::new(),
+            pack_loot: std::cell::OnceCell::new(),
+            weenie_files: std::cell::OnceCell::new(),
+            retail_uses: BTreeMap::new(),
+            retail_body_parts: BTreeMap::new(),
+            retail_quest_uses: BTreeMap::new(),
             schema: None,
             cell_reads: std::cell::Cell::new(0),
+            server_reads: std::cell::Cell::new(0),
             buildings: None,
+            link_table: std::cell::OnceCell::new(),
+            pack_class_facts: std::cell::OnceCell::new(),
+            pack_weenie_facts: std::cell::OnceCell::new(),
         })
     }
 
@@ -1178,6 +1298,13 @@ impl Session {
     #[must_use]
     pub fn cells_read(&self) -> u64 {
         self.cell_reads.get()
+    }
+
+    /// How many of the server's own instances were read as spawns ([`Self::spawns`],
+    /// [`Self::appearances`]): the work a listing does, counted.
+    #[must_use]
+    pub fn server_spawns_read(&self) -> u64 {
+        self.server_reads.get()
     }
 
     /// The world.
@@ -1233,14 +1360,134 @@ impl Session {
         self.retail.extend(content.weenies);
         for i in content.instances {
             if let Ok(lb) = u16::try_from(i.cell >> 16) {
-                self.retail_instances.entry(lb).or_default().push(i);
+                let list = self.retail_instances.entry(lb).or_default();
+                let at = (lb, list.len());
+                match sql_ids::number(&i.weenie) {
+                    Some(c) => self.retail_by_class.classes.entry(c).or_default().push(at),
+                    None => self.retail_by_class.others.push(at),
+                }
+                list.push(i);
             }
         }
         for (parent, child) in content.links {
             self.retail_links.entry(parent).or_default().push(child);
         }
+        self.link_table = std::cell::OnceCell::new();
         self.retail_quests.extend(content.quests);
         self.retail_treasure.extend(content.treasure);
+        self.retail_wielded.extend(content.wielded);
+        self.retail_loot_uses.extend(content.loot_uses);
+        // Learned again, a class's users are the database's as read last.
+        self.retail_uses.extend(content.uses);
+        self.retail_body_parts.extend(content.body_parts);
+        self.retail_quest_uses.extend(content.quest_uses);
+    }
+
+    /// The typical row of body part `key` among the server's weenies, every column but its own
+    /// id and its weenie's, as written: `None` before the server's database is learned, or for a
+    /// part none of its weenies has.
+    #[must_use]
+    pub fn typical_body_part(&self, key: u32) -> Option<&[(String, String)]> {
+        self.retail_body_parts.get(&key).map(Vec::as_slice)
+    }
+
+    /// Every weenie whose create list, generator or emotes name weenie `w`, and how: the packs'
+    /// weenies as their files have them (a later pack's file of a weenie over an earlier's), and
+    /// the server's own as its database has them, but for a server's weenie a pack writes again,
+    /// whose pack's file stands for it.
+    #[must_use]
+    pub fn uses_of(&self, w: &Weenie) -> Vec<(Weenie, sql_ids::Use)> {
+        let as_weenie = |pack: &str, v: &str| match sql_ids::number(v) {
+            Some(c) => Some(Weenie::Class(c)),
+            None => token_symbol(pack, v).map(Weenie::Symbol),
+        };
+        let mut out = Vec::new();
+        let mut written: std::collections::HashSet<Weenie> = std::collections::HashSet::new();
+        for p in self.packs.iter().rev() {
+            for f in &p.sql {
+                let uses = sql_ids::class_uses(&f.text);
+                let owners: Vec<Weenie> = sql_ids::weenie_facts(&f.text)
+                    .keys()
+                    .filter_map(|k| as_weenie(&p.name, k))
+                    .collect();
+                if owners.iter().any(|o| written.contains(o)) {
+                    continue;
+                }
+                for u in uses {
+                    if as_weenie(&p.name, &u.names).as_ref() != Some(w) {
+                        continue;
+                    }
+                    if let Some(by) = as_weenie(&p.name, &u.by) {
+                        out.push((by, u.how));
+                    }
+                }
+                written.extend(owners);
+            }
+        }
+        if let Weenie::Class(c) = w {
+            for (by, how) in self.retail_uses.get(c).into_iter().flatten() {
+                if !written.contains(&Weenie::Class(*by)) {
+                    out.push((Weenie::Class(*by), *how));
+                }
+            }
+        }
+        out
+    }
+
+    /// Everywhere weenie `w` is named but by itself: its spawns in the world, the weenies whose
+    /// create lists, generators and emotes name it ([`Self::uses_of`]), and the wielded loot tables
+    /// that hold it.
+    #[must_use]
+    pub fn named_anywhere(&self, w: &Weenie) -> Named {
+        Named {
+            spawns: self.appearances(w),
+            by: self
+                .uses_of(w)
+                .into_iter()
+                .filter(|(by, _)| by != w)
+                .collect(),
+            loot: self.loot_holding(w),
+        }
+    }
+
+    /// The change that takes the pack being edited's own weenie `w` away: its file, as one step.
+    ///
+    /// # Errors
+    /// One of the server's weenies (a pack's change of one is put back instead), another pack's,
+    /// one whose file writes other weenies too, or one still named anywhere.
+    pub fn weenie_removal(&self, w: &Weenie) -> Result<Op, Error> {
+        let Weenie::Symbol(sym) = w else {
+            return Err(Error::Refused(
+                "the server's weenies are not deleted; a pack's change of one is put back".into(),
+            ));
+        };
+        let (file, mine) = self
+            .weenie_file(w)
+            .ok_or_else(|| Error::Refused(format!("no file of the packs writes {sym}")))?;
+        if !mine {
+            return Err(Error::Refused(format!(
+                "{sym} is another pack's: it is deleted in that pack"
+            )));
+        }
+        let others = self.packs[self.target]
+            .sql
+            .iter()
+            .find(|f| f.path == file)
+            .map_or(0, |f| sql_ids::weenie_facts(&f.text).len());
+        if others > 1 {
+            return Err(Error::Refused(format!(
+                "{} writes {others} weenies: it is changed by hand",
+                file.display()
+            )));
+        }
+        let named = self.named_anywhere(w);
+        if !named.is_empty() {
+            return Err(Error::Refused(format!(
+                "{sym} is still used in {} place(s)",
+                named.places()
+            )));
+        }
+        Ok(Op::WriteSql { file, text: None })
     }
 
     /// Check the packs' SQL against the server's names `schema` too.
@@ -1303,16 +1550,66 @@ impl Session {
         )
     }
 
-    /// The server's death treasure of treasure type `id`.
+    /// Every quest the server's database registers, by name.
     #[must_use]
-    pub fn treasure(&self, id: u32) -> Option<&sql_ids::Treasure> {
-        self.retail_treasure.get(&id)
+    pub fn server_quests(&self) -> &BTreeMap<String, sql_ids::Quest> {
+        &self.retail_quests
+    }
+
+    /// Who names each quest among the server's own weenies, by the quest as registered
+    /// ([`crate::content_check::quest_key`]), as its database has them.
+    #[must_use]
+    pub fn server_quest_uses(&self) -> &BTreeMap<String, sql_ids::QuestNamers> {
+        &self.retail_quest_uses
+    }
+
+    /// The death treasure of treasure type `id` as it stands: a pack's (a later pack's over an
+    /// earlier's), else the server's.
+    #[must_use]
+    pub fn treasure(&self, id: u32) -> Option<sql_ids::Treasure> {
+        self.pack_loot()
+            .death
+            .get(&id)
+            .map(|(t, _)| t.clone())
+            .or_else(|| self.retail_treasure.get(&id).cloned())
+    }
+
+    /// Every death treasure of the world as it stands, by its id: the packs' and the server's.
+    #[must_use]
+    pub fn treasures(&self) -> BTreeMap<u32, sql_ids::Treasure> {
+        let mut out = self.retail_treasure.clone();
+        out.extend(
+            self.pack_loot()
+                .death
+                .iter()
+                .map(|(id, (t, _))| (*id, t.clone())),
+        );
+        out
     }
 
     /// Every death treasure the server's database holds, by its id.
     #[must_use]
-    pub fn treasures(&self) -> &BTreeMap<u32, sql_ids::Treasure> {
+    pub fn server_treasures(&self) -> &BTreeMap<u32, sql_ids::Treasure> {
         &self.retail_treasure
+    }
+
+    /// Every wielded treasure the server's database holds, by its id, each one's rows in order.
+    #[must_use]
+    pub fn server_wielded(&self) -> &BTreeMap<u32, Vec<sql_ids::WieldedItem>> {
+        &self.retail_wielded
+    }
+
+    /// Who names each loot table among the server's own weenies, by the table's id, as its
+    /// database has them.
+    #[must_use]
+    pub fn server_loot_uses(&self) -> &BTreeMap<u32, Vec<(u32, sql_ids::LootUse)>> {
+        &self.retail_loot_uses
+    }
+
+    /// The packs' loot tables, as their files stand now.
+    pub(crate) fn pack_loot(&self) -> &crate::loot::PackLoot {
+        self.pack_loot
+            .get_or_init(|| crate::loot::PackLoot::read(&self.packs, &self.compiled.lock))
     }
 
     /// Whether the session knows what server weenie `class` is drawn with.
@@ -1331,15 +1628,140 @@ impl Session {
     /// the server), else the server's own.
     #[must_use]
     pub fn class_facts(&self, class: u32) -> Option<sql_ids::WeenieFacts> {
-        self.pack_classes()
-            .remove(&class)
-            .or_else(|| self.retail.get(&class).cloned())
+        self.pack_class_facts()
+            .get(&class)
+            .or_else(|| self.retail.get(&class))
+            .cloned()
+    }
+
+    /// The creatures the spawns standing in `landblocks` are, and those their generators make:
+    /// what the SQL says of each (its level and death treasure among it), once for each spawn or
+    /// profile.
+    pub fn creatures_in(&mut self, landblocks: &BTreeSet<u16>) -> Vec<sql_ids::WeenieFacts> {
+        const CREATURE: u32 = 10;
+        let pack_weenies = self.pack_weenies();
+        let facts = |s: &Self, pack: usize, w: &str| -> Option<sql_ids::WeenieFacts> {
+            if let Some(c) = sql_ids::number(w) {
+                return s.class_facts(c);
+            }
+            let name = &s.packs.get(pack)?.name;
+            pack_weenies.get(&token_symbol(name, w)?).cloned()
+        };
+        let mut out = Vec::new();
+        let spawns: Vec<Spawn> = self
+            .spawns()
+            .into_iter()
+            .filter(|s| landblocks.contains(&s.landblock()))
+            .collect();
+        for s in &spawns {
+            out.extend(facts(self, s.pack, &s.weenie));
+            if let Some(g) = self.generator(s) {
+                for p in g.profiles.iter().filter(|p| !p.makes_treasure()) {
+                    for _ in 0..p.max.clamp(1, 8) {
+                        out.extend(facts(self, s.pack, &p.class));
+                    }
+                }
+            }
+        }
+        out.retain(|f| f.kind == Some(CREATURE) && f.level.is_some());
+        out
+    }
+
+    /// The quests a place checks: those the portals standing in `landblocks` (and those their
+    /// generators make) let only their holders through, and those the emotes of what stands there
+    /// test; and, for a dungeon, those of every portal that leads into landblock `into`. Each quest
+    /// once, in the order found, with the name of the first thing that checks it.
+    pub fn quests_checked_in(
+        &mut self,
+        landblocks: &BTreeSet<u16>,
+        into: Option<u16>,
+    ) -> Vec<(String, String)> {
+        const PORTAL: u32 = 7;
+        let pack_weenies = self.pack_weenies();
+        let classes = self.pack_classes();
+        // A pack's copy of a server class over the server's own, as `class_facts` takes it.
+        let facts = |s: &Self, pack: usize, w: &str| -> Option<sql_ids::WeenieFacts> {
+            if let Some(c) = sql_ids::number(w) {
+                return classes.get(&c).or_else(|| s.retail.get(&c)).cloned();
+            }
+            let name = &s.packs.get(pack)?.name;
+            pack_weenies.get(&token_symbol(name, w)?).cloned()
+        };
+        let mut found: Vec<sql_ids::WeenieFacts> = Vec::new();
+        let spawns: Vec<Spawn> = self
+            .spawns()
+            .into_iter()
+            .filter(|s| landblocks.contains(&s.landblock()))
+            .collect();
+        for s in &spawns {
+            found.extend(facts(self, s.pack, &s.weenie));
+            if let Some(g) = self.generator(s) {
+                for p in g.profiles.iter().filter(|p| !p.makes_treasure()) {
+                    found.extend(facts(self, s.pack, &p.class));
+                }
+            }
+        }
+        if let Some(lb) = into {
+            let leads = |f: &sql_ids::WeenieFacts| {
+                f.kind == Some(PORTAL) && f.destination.is_some_and(|d| d >> 16 == u32::from(lb))
+            };
+            found.extend(
+                self.retail
+                    .iter()
+                    .filter(|(c, f)| !classes.contains_key(c) && leads(f))
+                    .map(|(_, f)| f.clone()),
+            );
+            found.extend(classes.values().filter(|f| leads(f)).cloned());
+            found.extend(pack_weenies.values().filter(|f| leads(f)).cloned());
+        }
+        let mut out: Vec<(String, String)> = Vec::new();
+        for f in found {
+            let who = f.name.clone().unwrap_or_default();
+            for q in f.quest_restriction.iter().chain(&f.tests_quests) {
+                let key = crate::content_check::quest_key(q);
+                if !key.is_empty()
+                    && !out
+                        .iter()
+                        .any(|(n, _)| crate::content_check::quest_key(n) == key)
+                {
+                    out.push((
+                        q.split('@').next().unwrap_or(q).trim().to_owned(),
+                        who.clone(),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// Every quest the world registers, by name: the packs' and the server's own, once each.
+    #[must_use]
+    pub fn quest_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.retail_quests.keys().cloned().collect();
+        for p in &self.packs {
+            for f in &p.sql {
+                out.extend(sql_ids::quests_in(&f.text).into_keys());
+            }
+        }
+        out.sort_by_key(|n| n.to_lowercase());
+        out.dedup_by_key(|n| n.to_lowercase());
+        out
     }
 
     /// The server classes the packs write again, and what their SQL says of each (a later
     /// pack's over an earlier's).
     #[must_use]
     pub fn pack_classes(&self) -> BTreeMap<u32, sql_ids::WeenieFacts> {
+        self.pack_class_facts().clone()
+    }
+
+    /// [`Self::pack_classes`], read once for each change of the packs' SQL.
+    fn pack_class_facts(&self) -> &BTreeMap<u32, sql_ids::WeenieFacts> {
+        self.pack_class_facts
+            .get_or_init(|| self.read_pack_classes())
+    }
+
+    fn read_pack_classes(&self) -> BTreeMap<u32, sql_ids::WeenieFacts> {
         let mut out = BTreeMap::new();
         for p in &self.packs {
             for f in &p.sql {
@@ -1407,41 +1829,47 @@ impl Session {
             .collect();
         // The server's own beyond the landblocks shown.
         let seen: BTreeSet<String> = out.iter().map(|e| e.guid.clone()).collect();
-        let mut taken: BTreeSet<u32> = BTreeSet::new();
-        for p in &self.packs {
-            for f in &p.sql {
-                taken.extend(
-                    sql_ids::instances(&f.text)
-                        .iter()
-                        .filter_map(|i| sql_ids::number(&i.guid)),
-                );
-                taken.extend(
-                    sql_ids::deleted_instances(&f.text)
-                        .iter()
-                        .filter_map(|g| sql_ids::number(g)),
-                );
+        let taken = self.server_taken();
+        // Only the instances of a class that leads in, in the order the server lists them.
+        let by_class = &self.retail_by_class;
+        let leading: BTreeSet<u32> = self
+            .retail
+            .iter()
+            .filter(|(c, f)| !classes.contains_key(c) && into(f))
+            .chain(classes.iter().filter(|(_, f)| into(f)))
+            .map(|(c, _)| *c)
+            .collect();
+        let mut places: Vec<(u16, usize)> = leading
+            .iter()
+            .filter_map(|c| by_class.classes.get(c))
+            .flatten()
+            .chain(&by_class.others)
+            .copied()
+            .collect();
+        places.sort_unstable();
+        for (at, i) in places.iter().filter_map(|(at, k)| {
+            self.retail_instances
+                .get(at)
+                .and_then(|l| l.get(*k))
+                .map(|i| (at, i))
+        }) {
+            let Some(g) = sql_ids::number(&i.guid).filter(|g| !taken.contains(g)) else {
+                continue;
+            };
+            let guid = guid_text(g);
+            if seen.contains(&guid) {
+                continue;
             }
-        }
-        for (at, list) in &self.retail_instances {
-            for i in list {
-                let Some(g) = sql_ids::number(&i.guid).filter(|g| !taken.contains(g)) else {
-                    continue;
-                };
-                let guid = guid_text(g);
-                if seen.contains(&guid) {
-                    continue;
-                }
-                let Some(to) = leads_in(self.target, &i.weenie) else {
-                    continue;
-                };
-                out.push(Entrance {
-                    guid,
-                    landblock: *at,
-                    at: Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
-                    cell: i.cell,
-                    to,
-                });
-            }
+            let Some(to) = leads_in(self.target, &i.weenie) else {
+                continue;
+            };
+            out.push(Entrance {
+                guid,
+                landblock: *at,
+                at: Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
+                cell: i.cell,
+                to,
+            });
         }
         out
     }
@@ -1458,18 +1886,35 @@ impl Session {
     /// the pack's file of its symbol, or of a server class the pack writes again.
     #[must_use]
     pub fn weenie_file(&self, w: &Weenie) -> Option<(PathBuf, bool)> {
+        self.weenie_files
+            .get_or_init(|| self.read_weenie_files())
+            .get(w)
+            .cloned()
+    }
+
+    /// The file that writes each weenie: the last pack's first.
+    fn read_weenie_files(&self) -> std::collections::HashMap<Weenie, (PathBuf, bool)> {
+        let mut out = std::collections::HashMap::new();
         for (pi, p) in self.packs.iter().enumerate().rev() {
-            for f in &p.sql {
-                let writes = sql_ids::weenie_facts(&f.text).keys().any(|k| match w {
-                    Weenie::Class(c) => sql_ids::number(k) == Some(*c),
-                    Weenie::Symbol(s) => token_symbol(&p.name, k).as_deref() == Some(s.as_str()),
-                }) && f.text.contains("INSERT INTO `weenie` (");
-                if writes {
-                    return Some((f.path.clone(), pi == self.target));
+            for f in p
+                .sql
+                .iter()
+                .filter(|f| f.text.contains("INSERT INTO `weenie` ("))
+            {
+                for k in sql_ids::weenie_facts(&f.text).into_keys() {
+                    let w = match sql_ids::number(&k) {
+                        Some(c) => Weenie::Class(c),
+                        None => match token_symbol(&p.name, &k) {
+                            Some(s) => Weenie::Symbol(s),
+                            None => continue,
+                        },
+                    };
+                    out.entry(w)
+                        .or_insert_with(|| (f.path.clone(), pi == self.target));
                 }
             }
         }
-        None
+        out
     }
 
     /// The weenie the packs' SQL file `path` writes, when it writes one.
@@ -1492,6 +1937,24 @@ impl Session {
     /// The SQL text of `path` as the session holds it now.
     pub fn sql_text(&mut self, path: &Path) -> Option<String> {
         self.text(path)
+    }
+
+    /// The SQL text of `path` as it was last read from the disk or saved: `None` for a file the
+    /// disk did not have.
+    pub fn saved_sql_text(&mut self, path: &Path) -> Option<String> {
+        if let Some(d) = self.disk.get(path) {
+            return d.clone();
+        }
+        self.text(path)
+    }
+
+    /// Whether the session's text of `path` differs from the disk's.
+    #[must_use]
+    pub fn sql_unsaved(&self, path: &Path) -> bool {
+        match (self.texts.get(path), self.disk.get(path)) {
+            (Some(t), Some(d)) => t != d,
+            _ => false,
+        }
     }
 
     /// The file a new weenie of the pack being edited with symbol `name` is written in, and its
@@ -1539,6 +2002,12 @@ impl Session {
     /// What the packs' own weenies are, by symbol (`pack:name`), as their SQL says.
     #[must_use]
     pub fn pack_weenies(&self) -> BTreeMap<String, sql_ids::WeenieFacts> {
+        self.pack_weenie_facts
+            .get_or_init(|| self.read_pack_weenies())
+            .clone()
+    }
+
+    fn read_pack_weenies(&self) -> BTreeMap<String, sql_ids::WeenieFacts> {
         let mut out: BTreeMap<String, sql_ids::WeenieFacts> = BTreeMap::new();
         for p in &self.packs {
             for f in &p.sql {
@@ -1549,12 +2018,35 @@ impl Session {
                     let e = out.entry(sym).or_default();
                     e.name = x.name.or(e.name.take());
                     e.setup = x.setup.or(e.setup);
+                    e.icon = x.icon.or(e.icon);
+                    e.motion_table = x.motion_table.or(e.motion_table);
+                    e.sound_table = x.sound_table.or(e.sound_table);
+                    e.palette_base = x.palette_base.or(e.palette_base);
                     e.kind = x.kind.or(e.kind);
                     e.stuck = x.stuck.or(e.stuck);
                     e.attackable = x.attackable.or(e.attackable);
                     e.generator_radius = x.generator_radius.or(e.generator_radius);
+                    e.generates |= x.generates;
                     e.destination = x.destination.or(e.destination);
                     e.destination_at = x.destination_at.or(e.destination_at);
+                    e.level = x.level.or(e.level);
+                    e.death_treasure = x.death_treasure.or(e.death_treasure);
+                    e.wielded_treasure = x.wielded_treasure.or(e.wielded_treasure);
+                    e.burden = x.burden.or(e.burden);
+                    e.unit_burden = x.unit_burden.or(e.unit_burden);
+                    e.max_stack = x.max_stack.or(e.max_stack);
+                    e.holds = x.holds.or(e.holds);
+                    e.locations = x.locations.or(e.locations);
+                    if x.wield.iter().any(|v| *v != 0) {
+                        e.wield = x.wield;
+                    }
+                    e.augmentation_cost = x.augmentation_cost.or(e.augmentation_cost);
+                    e.quest_restriction = x.quest_restriction.or(e.quest_restriction.take());
+                    for q in x.tests_quests {
+                        if !e.tests_quests.contains(&q) {
+                            e.tests_quests.push(q);
+                        }
+                    }
                 }
             }
         }
@@ -1839,6 +2331,14 @@ impl Session {
         crate::walk::cell_at(&self.cells(lb), p, &|id| self.environment(id))
     }
 
+    /// The indoor cell of landblock `lb` a body let go at point `p` (landblock meters) comes to
+    /// stand in, and the height of the floor it stands on: down through any opening in a floor
+    /// to the floor under it ([`crate::walk::landing`]).
+    #[must_use]
+    pub fn landing(&self, lb: u16, p: Vec3) -> Option<(u16, f32)> {
+        crate::walk::landing(&self.cells(lb), p, &|id| self.environment(id))
+    }
+
     /// The world's own dungeons: every landblock of the files whose first cell is a dungeon's,
     /// with its number of cells ([`crate::dungeons::retail`]). A read of every landblock record,
     /// to be kept.
@@ -2094,10 +2594,71 @@ impl Session {
             .collect()
     }
 
-    /// Every spawn the packs' SQL places, with the setup each is drawn with when the session
-    /// knows it.
+    /// Every spawn the packs' SQL places, and the server's own in the landblocks shown, with the
+    /// setup each is drawn with when the session knows it.
     #[must_use]
     pub fn spawns(&self) -> Vec<Spawn> {
+        let classes = self.pack_classes();
+        let mut out = self.pack_spawns(&classes);
+        // The server's own in the landblocks shown, but those a pack writes again or takes away.
+        let taken = self.server_taken();
+        for lb in &self.shown {
+            for i in self.retail_instances.get(lb).into_iter().flatten() {
+                out.extend(self.server_spawn(*lb, i, &taken, &classes));
+            }
+        }
+        out
+    }
+
+    /// Every spawn of weenie `w` in the world: the packs' (as [`Self::spawns`] lists them) and,
+    /// for a server class, the server's own in every landblock, shown or not, but those a pack
+    /// writes again or takes away; by landblock. Only the server's instances of the class are
+    /// read, through the index kept as they are learned.
+    #[must_use]
+    pub fn appearances(&self, w: &Weenie) -> Vec<Spawn> {
+        let classes = self.pack_classes();
+        let mut out: Vec<Spawn> = self
+            .pack_spawns(&classes)
+            .into_iter()
+            .filter(|s| self.spawn_weenie(s).as_ref() == Some(w))
+            .collect();
+        if let Weenie::Class(c) = w {
+            let taken = self.server_taken();
+            for (lb, k) in self.retail_by_class.classes.get(c).into_iter().flatten() {
+                if let Some(i) = self.retail_instances.get(lb).and_then(|l| l.get(*k)) {
+                    out.extend(self.server_spawn(*lb, i, &taken, &classes));
+                }
+            }
+        }
+        out.sort_by_key(Spawn::landblock);
+        out
+    }
+
+    /// Spawn `guid` of `file`, wherever it stands: a pack's, or one of the server's own in any
+    /// landblock, shown or not (`file` is then its landblock's override file).
+    #[must_use]
+    pub fn spawn(&self, file: &Path, guid: &str) -> Option<Spawn> {
+        let classes = self.pack_classes();
+        if let Some(s) = self
+            .pack_spawns(&classes)
+            .into_iter()
+            .find(|s| s.file == file && s.guid == guid)
+        {
+            return Some(s);
+        }
+        let lb = self.override_landblock(file)?;
+        let g = sql_ids::number(guid)?;
+        let i = self
+            .retail_instances
+            .get(&lb)?
+            .iter()
+            .find(|i| sql_ids::number(&i.guid) == Some(g))?;
+        self.server_spawn(lb, i, &self.server_taken(), &classes)
+    }
+
+    /// Every spawn the packs' SQL places, the packs' classes `classes` ([`Self::pack_classes`])
+    /// giving a server class's setup where a pack writes it again.
+    fn pack_spawns(&self, classes: &BTreeMap<u32, sql_ids::WeenieFacts>) -> Vec<Spawn> {
         let mut setups: BTreeMap<String, u32> = BTreeMap::new();
         for p in &self.packs {
             for f in &p.sql {
@@ -2108,20 +2669,15 @@ impl Session {
                 }
             }
         }
-        let classes = self.pack_classes();
-        let class_setup = |c: u32| {
-            classes
-                .get(&c)
-                .or_else(|| self.retail.get(&c))
-                .and_then(|f| f.setup)
-        };
         let mut out = Vec::new();
         for (pi, p) in self.packs.iter().enumerate() {
             for f in &p.sql {
                 for i in sql_ids::instances(&f.text) {
                     let setup = match token_symbol(&p.name, &i.weenie) {
                         Some(sym) => setups.get(&sym).copied(),
-                        None => sql_ids::number(&i.weenie).and_then(class_setup),
+                        None => {
+                            sql_ids::number(&i.weenie).and_then(|c| self.class_setup(classes, c))
+                        }
                     };
                     let [w, x, y, z] = i.angles;
                     // A pack's cell, named by its symbol: the number the lockfile gave it.
@@ -2153,7 +2709,20 @@ impl Session {
                 }
             }
         }
-        // The server's own in the landblocks shown, but those a pack writes again or takes away.
+        out
+    }
+
+    /// The setup server class `c` is drawn with: a pack's copy of it (among `classes`), else
+    /// the server's own.
+    fn class_setup(&self, classes: &BTreeMap<u32, sql_ids::WeenieFacts>, c: u32) -> Option<u32> {
+        classes
+            .get(&c)
+            .or_else(|| self.retail.get(&c))
+            .and_then(|f| f.setup)
+    }
+
+    /// The guids of the server's own spawns the packs write again or take away.
+    fn server_taken(&self) -> BTreeSet<u32> {
         let mut taken: BTreeSet<u32> = BTreeSet::new();
         for p in &self.packs {
             for f in &p.sql {
@@ -2169,29 +2738,37 @@ impl Session {
                 );
             }
         }
-        for lb in &self.shown {
-            for i in self.retail_instances.get(lb).into_iter().flatten() {
-                let Some(g) = sql_ids::number(&i.guid).filter(|g| !taken.contains(g)) else {
-                    continue;
-                };
-                let [w, x, y, z] = i.angles;
-                out.push(Spawn {
-                    pack: self.target,
-                    file: self.override_file(*lb),
-                    guid: guid_text(g),
-                    weenie: i.weenie.clone(),
-                    cell: i.cell,
-                    frame: Frame::new(
-                        Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
-                        Quat::new(w, x, y, z),
-                    ),
-                    setup: sql_ids::number(&i.weenie).and_then(class_setup).map(DataId),
-                    line: 0,
-                    server: true,
-                });
-            }
-        }
-        out
+        taken
+    }
+
+    /// The server's own instance `i` of landblock `lb` as a spawn, unless a pack writes it again
+    /// or takes it away (its guid among `taken`): counted as read either way.
+    fn server_spawn(
+        &self,
+        lb: u16,
+        i: &sql_ids::Instance,
+        taken: &BTreeSet<u32>,
+        classes: &BTreeMap<u32, sql_ids::WeenieFacts>,
+    ) -> Option<Spawn> {
+        self.server_reads.set(self.server_reads.get() + 1);
+        let g = sql_ids::number(&i.guid).filter(|g| !taken.contains(g))?;
+        let [w, x, y, z] = i.angles;
+        Some(Spawn {
+            pack: self.target,
+            file: self.override_file(lb),
+            guid: guid_text(g),
+            weenie: i.weenie.clone(),
+            cell: i.cell,
+            frame: Frame::new(
+                Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
+                Quat::new(w, x, y, z),
+            ),
+            setup: sql_ids::number(&i.weenie)
+                .and_then(|c| self.class_setup(classes, c))
+                .map(DataId),
+            line: 0,
+            server: true,
+        })
     }
 
     /// The landblocks a weenie of one of `classes` stands in: among the server's own spawns,
@@ -2237,7 +2814,8 @@ impl Session {
         } else if let Weenie::Class(c) = &w {
             g.radius = self.retail.get(c).and_then(|f| f.generator_radius);
         }
-        if let Some(guid) = sql_ids::number(&s.guid) {
+        // A door's, a switch's or a pressure plate's links are what sets it off, not what it owns.
+        if let Some(guid) = sql_ids::number(&s.guid).filter(|_| !self.can_be_set_off(s)) {
             let mut kids: Vec<u32> = self.retail_links.get(&guid).cloned().unwrap_or_default();
             kids.sort_unstable();
             kids.dedup();
@@ -2281,6 +2859,18 @@ impl Session {
     /// in it whole as the server has it (its generator's links too), unless the file has it.
     fn overridden(&self, lb: u16, text: &str, guid: u32) -> Result<String, Error> {
         let mut o = Overrides::read(text);
+        self.override_entry(lb, &mut o, guid)?;
+        Ok(o.render(lb, &self.today, &|w| self.weenie_name(w)))
+    }
+
+    /// The server's own spawn `guid` of landblock `lb` as override file `o` writes it: put in
+    /// whole as the server has it (the instances it links too), unless the file has it.
+    fn override_entry<'a>(
+        &self,
+        lb: u16,
+        o: &'a mut Overrides,
+        guid: u32,
+    ) -> Result<&'a mut Override, Error> {
         if let std::collections::btree_map::Entry::Vacant(e) = o.entries.entry(guid) {
             let i = self
                 .retail_instances
@@ -2292,10 +2882,49 @@ impl Session {
                         guid_text(guid)
                     ))
                 })?;
-            let children = self.retail_links.get(&guid).cloned().unwrap_or_default();
-            e.insert(Override::Placed(i.clone(), children));
+            e.insert(Override::Placed(i.clone(), self.retail_children(guid)));
         }
-        Ok(o.render(lb, &self.today, &|w| self.weenie_name(w)))
+        o.entries
+            .get_mut(&guid)
+            .ok_or_else(|| Error::Refused(format!("no spawn {}", guid_text(guid))))
+    }
+
+    /// The server's own spawn `guid` of landblock `lb` as its world places it, with its links;
+    /// `None` for a spawn the server does not place there.
+    #[must_use]
+    pub fn server_own_spawn(&self, lb: u16, guid: u32) -> Option<ServerSpawn> {
+        let instance = self
+            .retail_instances
+            .get(&lb)?
+            .iter()
+            .find(|i| sql_ids::number(&i.guid) == Some(guid))?
+            .clone();
+        let mut children = self.retail_links.get(&guid).cloned().unwrap_or_default();
+        let mut parents: Vec<u32> = self
+            .retail_links
+            .iter()
+            .filter(|(_, kids)| kids.contains(&guid))
+            .map(|(p, _)| *p)
+            .collect();
+        // A database learned twice lists each link twice.
+        children.sort_unstable();
+        children.dedup();
+        parents.sort_unstable();
+        Some(ServerSpawn {
+            instance,
+            children,
+            parents,
+        })
+    }
+
+    /// The instances the server's own spawn `guid` links, as an override file writes them.
+    fn retail_children(&self, guid: u32) -> Vec<String> {
+        self.retail_links
+            .get(&guid)
+            .into_iter()
+            .flatten()
+            .map(|c| guid_text(*c))
+            .collect()
     }
 
     /// The name the SQL gives weenie `w` (a class id or a symbol's token), when it gives one.
@@ -2344,7 +2973,12 @@ impl Session {
 
     /// Put `texts` in place of the files' texts, and read them into the target pack again.
     fn set_texts(&mut self, texts: &BTreeMap<PathBuf, Option<String>>) -> Result<(), Error> {
+        self.weenie_files = std::cell::OnceCell::new();
         let sql_dir = self.pack_dir().join("server").join("sql");
+        self.pack_loot = std::cell::OnceCell::new();
+        self.link_table = std::cell::OnceCell::new();
+        self.pack_class_facts = std::cell::OnceCell::new();
+        self.pack_weenie_facts = std::cell::OnceCell::new();
         for (path, text) in texts {
             if !self.disk.contains_key(path) {
                 self.disk
@@ -2988,7 +3622,9 @@ impl Session {
                 let g = sql_ids::number(guid).ok_or_else(|| {
                     Error::Refused(format!("{guid} is not one of the server's spawns"))
                 })?;
-                let now = self.text(file).unwrap_or_default();
+                // What it sets off, and what sets it off, let go of it.
+                let gone = self.spawn(file, guid);
+                let now = self.current(file, out).unwrap_or_default();
                 let mut o = Overrides::read(&now);
                 let link_child = self
                     .retail_instances
@@ -3000,17 +3636,27 @@ impl Session {
                     file.clone(),
                     Some(o.render(lb, &self.today, &|w| self.weenie_name(w))),
                 );
+                if let Some(s) = gone {
+                    self.draft_unlinked(&s, out)?;
+                }
             }
             Op::RemoveSpawn { file } => {
                 let text = self.spawn_file(file)?;
-                let n = sql_ids::instances(&text).len();
-                if n > 1 {
+                let placed = sql_ids::instances(&text);
+                if placed.len() > 1 {
                     return Err(Error::Refused(format!(
-                        "{} places {n} spawns; it is taken away only whole, by hand",
-                        file.display()
+                        "{} places {} spawns; it is taken away only whole, by hand",
+                        file.display(),
+                        placed.len()
                     )));
                 }
+                if let Some(s) = placed.first().and_then(|i| self.spawn(file, &i.guid)) {
+                    self.draft_unlinked(&s, out)?;
+                }
                 out.insert(file.clone(), None);
+            }
+            Op::Link { file, guid, target } => {
+                self.draft_link(file, guid, target.as_ref(), out)?;
             }
             Op::WriteSql { file, text } => {
                 let dir = self.pack_dir().join("server").join("sql");
@@ -4497,20 +5143,7 @@ impl Session {
                 ))
             })?;
         remove_table(&mut doc, "add-building", k);
-        let in_rooms = |t: &Table| {
-            int(t, "cell")
-                .and_then(|c| u16::try_from(c).ok())
-                .is_some_and(|c| rooms.contains(&c))
-        };
-        for key in ["add-cell-static", "move-cell-static", "remove-cell-static"] {
-            while let Some(k) = doc
-                .get(key)
-                .and_then(Item::as_array_of_tables)
-                .and_then(|rows| rows.iter().position(in_rooms))
-            {
-                remove_table(&mut doc, key, k);
-            }
-        }
+        unwrite_cell_statics(&mut doc, rooms);
         if doc
             .get("add-building")
             .and_then(Item::as_array_of_tables)
@@ -4522,12 +5155,14 @@ impl Session {
         Ok(())
     }
 
-    /// Copied dungeon `bare`'s row taken out of the target pack's file of landblock `lb`.
+    /// Copied dungeon `bare`'s row taken out of the target pack's file of landblock `lb`, with
+    /// the rows that add, move or take away statics in its cells `cells`.
     pub(crate) fn unwrite_dungeon(
         &mut self,
         out: &mut BTreeMap<PathBuf, Option<String>>,
         lb: u16,
         bare: &str,
+        cells: &BTreeSet<u16>,
     ) -> Result<(), Error> {
         let path = self.edits_file(lb);
         let mut doc = self.doc(&path, out)?;
@@ -4540,6 +5175,7 @@ impl Session {
                 ))
             })?;
         remove_table(&mut doc, "add-dungeon", k);
+        unwrite_cell_statics(&mut doc, cells);
         if doc
             .get("add-dungeon")
             .and_then(Item::as_array_of_tables)
@@ -4917,6 +5553,16 @@ impl Session {
                 .collect(),
             world_quests: learned,
             schema: self.schema.clone(),
+            loot_tables: learned.then(|| {
+                let packs = self.pack_loot();
+                self.retail_treasure
+                    .keys()
+                    .chain(self.retail_wielded.keys())
+                    .chain(packs.death.keys())
+                    .chain(packs.wielded.keys())
+                    .copied()
+                    .collect()
+            }),
             ..Default::default()
         };
         for x in crate::content_check::check_packs(&self.packs, &self.compiled, &self.base, &known)

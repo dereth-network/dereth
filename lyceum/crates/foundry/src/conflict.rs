@@ -15,6 +15,7 @@
 //! | `weenie 1234` | a weenie class: every row of it, as ACE's export writes a class whole |
 //! | `spawn 0x7A9B4001` | an instance: its row, and its links to the instances it owns |
 //! | `quest drudgekills` | a quest's registration, by its name in lower case |
+//! | `death-treasure 37`, `wielded-treasure 37` | a loot table, every row of it |
 //!
 //! Sources that set an item alike agree. Set differently, the item is a conflict, and a build
 //! stops with one report of every conflict: the item, and each pack, file and line with what it
@@ -96,6 +97,12 @@ pub fn spawn_item(guid: u32) -> String {
 #[must_use]
 pub fn quest_item(name: &str) -> String {
     format!("quest {}", crate::content_check::quest_key(name))
+}
+
+/// A loot table's item.
+#[must_use]
+pub fn loot_item(kind: crate::loot::LootKind, id: u32) -> String {
+    format!("{}-treasure {id}", kind.word())
 }
 
 /// One source that sets an item: its pack, where, and what it sets.
@@ -232,6 +239,7 @@ impl Scope {
         let bad = || {
             format!(
                 "{text:?} is not an item: record <id>, weenie <class>, spawn <guid>, quest <name>, \
+                 death-treasure <id>, wielded-treasure <id>, \
                  landblock <XXYY>, vertex <x>,<y> <field>, static <XXYY> <index or symbol>, \
                  building <XXYY> <index>, cell <XXYY> <cell>, cell-static <XXYY> <cell> <index>, \
                  or a new record's kind and symbol"
@@ -252,6 +260,12 @@ impl Scope {
             ["weenie", c] => crate::sql_ids::number(c).map(weenie_item),
             ["spawn", g] => crate::sql_ids::number(g).map(spawn_item),
             ["quest", _, ..] => Some(quest_item(text.trim().split_at(5).1)),
+            ["death-treasure", id] => {
+                crate::sql_ids::number(id).map(|n| loot_item(crate::loot::LootKind::Death, n))
+            }
+            ["wielded-treasure", id] => {
+                crate::sql_ids::number(id).map(|n| loot_item(crate::loot::LootKind::Wielded, n))
+            }
             ["vertex", xy, field] => {
                 let field = field.to_ascii_lowercase();
                 xy.split_once(',')
@@ -382,6 +396,7 @@ pub(crate) enum SqlKey {
     Weenie(u32),
     Spawn(u32),
     Quest(String),
+    Loot(crate::loot::LootKind, u32),
 }
 
 impl SqlKey {
@@ -390,6 +405,7 @@ impl SqlKey {
             Self::Weenie(c) => weenie_item(*c),
             Self::Spawn(g) => spawn_item(*g),
             Self::Quest(q) => quest_item(q),
+            Self::Loot(k, id) => loot_item(*k, *id),
         }
     }
 }
@@ -449,7 +465,7 @@ fn short(table: &str) -> &str {
 /// list, told apart by their place.
 fn key_columns(table: &str) -> Option<&'static [&'static str]> {
     Some(match table {
-        "weenie" | "landblock_instance" | "quest" => &[],
+        "weenie" | "landblock_instance" | "quest" | "treasure_death" => &[],
         "weenie_properties_int"
         | "weenie_properties_int64"
         | "weenie_properties_bool"
@@ -473,13 +489,14 @@ fn key_columns(table: &str) -> Option<&'static [&'static str]> {
 
 /// The columns that are no part of what a row sets: the database's own ids and dates, and the
 /// item's own id.
-const NOT_SET: [&str; 7] = [
+const NOT_SET: [&str; 8] = [
     "id",
     "object_Id",
     "class_Id",
     "emote_Id",
     "guid",
     "parent_GUID",
+    "treasure_Type",
     "last_Modified",
 ];
 
@@ -501,7 +518,10 @@ fn row_key(table: &str, columns: &[String], values: &[String]) -> Option<SqlKey>
         "landblock_instance" => number("guid").map(SqlKey::Spawn),
         "landblock_instance_link" => number("parent_GUID").map(SqlKey::Spawn),
         "quest" => get(columns, values, "name").map(|n| SqlKey::Quest(plain(n))),
-        _ => None,
+        t => crate::loot::LootKind::ALL
+            .into_iter()
+            .find(|k| k.table() == t)
+            .and_then(|k| number("treasure_Type").map(|id| SqlKey::Loot(k, id))),
     }
 }
 
@@ -530,6 +550,12 @@ fn deleted(statement: &str) -> Option<(SqlKey, String)> {
         ("landblock_instance", "guid") => SqlKey::Spawn(number()?),
         ("landblock_instance_link", "parent_guid" | "child_guid") => SqlKey::Spawn(number()?),
         ("quest", "name") => SqlKey::Quest(value),
+        (t, "treasure_type") => SqlKey::Loot(
+            crate::loot::LootKind::ALL
+                .into_iter()
+                .find(|k| k.table() == t)?,
+            number()?,
+        ),
         _ => return None,
     };
     Some((key, table.to_owned()))

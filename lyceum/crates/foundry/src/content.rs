@@ -657,6 +657,49 @@ impl SqlDoc {
             .collect()
     }
 
+    /// The table row `r` is a row of.
+    #[must_use]
+    pub fn table_of(&self, r: RowRef) -> Option<&str> {
+        self.insert(r.piece).map(|s| s.table.as_str())
+    }
+
+    /// Every row, in order, with the line its values start on as the document renders (counted
+    /// from 1).
+    #[must_use]
+    pub fn row_lines(&self) -> Vec<(RowRef, usize)> {
+        let lines = |s: &str| s.bytes().filter(|b| *b == b'\n').count();
+        let mut line = 1;
+        let mut out = Vec::new();
+        for (piece, p) in self.pieces.iter().enumerate() {
+            match p {
+                Piece::Text(t) => line += lines(t),
+                Piece::Insert(s) => {
+                    line += lines(&s.head);
+                    for (row, r) in s.rows.iter().enumerate() {
+                        if row > 0 {
+                            line += lines(&r.sep);
+                        }
+                        out.push((RowRef { piece, row }, line));
+                        line += lines(&r.render());
+                    }
+                    line += lines(&s.tail);
+                }
+            }
+        }
+        out
+    }
+
+    /// The row whose values start on line `line` (counted from 1), else the last that starts
+    /// before it.
+    #[must_use]
+    pub fn row_at_line(&self, line: usize) -> Option<RowRef> {
+        let rows = self.row_lines();
+        rows.iter()
+            .find(|(_, l)| *l == line)
+            .or_else(|| rows.iter().rev().find(|(_, l)| *l < line))
+            .map(|(r, _)| *r)
+    }
+
     /// The value of `column` in row `r`, as written (its padding trimmed).
     #[must_use]
     pub fn raw(&self, r: RowRef, column: &str) -> Option<&str> {
@@ -1014,6 +1057,18 @@ impl SqlDoc {
     /// Add an emote set of `category` (as written, with its comment) after the last one (or in
     /// ACE's order), with `fields` set and no actions. Answers its place in [`Self::emote_sets`].
     pub fn add_emote_set(&mut self, category: &str, fields: &[(&str, String)]) -> usize {
+        self.add_emote_set_after(None, category, fields)
+    }
+
+    /// Add an emote set as [`Self::add_emote_set`] does, but right after set `after` and its
+    /// actions when there is one (`None`, or a set past the last: after the last). Answers its
+    /// place in [`Self::emote_sets`].
+    pub fn add_emote_set_after(
+        &mut self,
+        after: Option<usize>,
+        category: &str,
+        fields: &[(&str, String)],
+    ) -> usize {
         let mut values: Vec<(&str, String)> = vec![
             ("category", category.to_owned()),
             ("probability", "1".into()),
@@ -1045,13 +1100,17 @@ impl SqlDoc {
         );
         row.sep = String::new();
         s.rows.push(row);
-        // After the last set's actions, else where the table goes.
-        let at = match self.emote_sets().last() {
-            Some(last) => last.actions.unwrap_or(last.emote.piece) + 1,
+        // After that set's actions (else the last's), else where the table goes.
+        let sets = self.emote_sets();
+        let before = after.and_then(|a| sets.get(a)).or_else(|| sets.last());
+        let at = match before {
+            Some(b) => b.actions.unwrap_or(b.emote.piece) + 1,
             None => self.place_for("weenie_properties_emote"),
         };
+        // Its place: after every set written before it.
+        let index = sets.iter().filter(|e| e.emote.piece < at).count();
         self.put(at, vec![Piece::Insert(s)]);
-        self.emote_sets().len() - 1
+        index
     }
 
     /// Take emote set `index` away, with its actions.
@@ -1286,44 +1345,60 @@ impl Schema {
     }
 }
 
-/// A kind of blank weenie a form can start from, and the world database's class it is copied
-/// from.
+/// A kind of blank weenie a form can start from, the world database's class it is copied from,
+/// and what that class is: its weenie type, and for a kind told apart by it, its item type. Every
+/// era's world database has the class, as that kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blank {
     pub kind: &'static str,
     pub class: u32,
+    pub weenie_type: u32,
+    pub item_type: Option<u32>,
+}
+
+impl Blank {
+    const fn of(kind: &'static str, class: u32, weenie_type: u32) -> Self {
+        Self {
+            kind,
+            class,
+            weenie_type,
+            item_type: None,
+        }
+    }
 }
 
 /// The blanks: one class of each kind, copied and stripped ([`template`] with `blank`).
-pub const BLANKS: [Blank; 7] = [
+pub const BLANKS: [Blank; 12] = [
+    // A town crier: a creature that cannot be attacked.
+    Blank::of("NPC", 5773, 10),
+    // A drudge skulker.
+    Blank::of("creature", 7, 10),
+    // A gem.
+    Blank::of("item", 280, 1),
+    Blank::of("door", 278, 19),
+    // The portal to Alfreth Dungeon.
+    Blank::of("portal", 371, 7),
+    Blank::of("chest", 143, 20),
+    // A long sword.
     Blank {
-        kind: "NPC",
-        class: 5773,
+        item_type: Some(1),
+        ..Blank::of("melee weapon", 351, 6)
+    },
+    // A leather cuirass and a shirt: both clothing to the server, armor and clothes by item type.
+    Blank {
+        item_type: Some(2),
+        ..Blank::of("armor", 50, 2)
     },
     Blank {
-        kind: "creature",
-        class: 7,
+        item_type: Some(4),
+        ..Blank::of("clothing", 130, 2)
     },
-    Blank {
-        kind: "item",
-        class: 280,
-    },
-    Blank {
-        kind: "door",
-        class: 278,
-    },
-    Blank {
-        kind: "portal",
-        class: 371,
-    },
-    Blank {
-        kind: "chest",
-        class: 143,
-    },
-    Blank {
-        kind: "sign",
-        class: 459,
-    },
+    // A drudge generator: an unseen marker that makes things around it.
+    Blank::of("generator", 381, 1),
+    // A road sign ("Arwic: 1 mile").
+    Blank::of("sign", 459, 1),
+    // A lever.
+    Blank::of("switch", 285, 26),
 ];
 
 /// The tables a blank leaves out: what the class says and does, carries and spawns.
@@ -1519,6 +1594,75 @@ pub fn template(world: &str, class: u32, name: &str, blank: bool) -> Option<Stri
 #[must_use]
 pub fn override_of(world: &str, class: u32) -> Option<String> {
     copy(world, class, &class.to_string(), None, false)
+}
+
+/// A pack's file of one weenie (`text`, its class id a number or a token) written again as a new
+/// weenie of the pack being edited named `name`: wherever the weenie names itself as the owner of
+/// a row, its class id is `{{wcid:<name>}}`, and its class name is `name`. Every other row and
+/// line is kept as written. Copied from another pack (`from`), each symbol it names without a
+/// pack is named with that pack, so it still names what it named there. `None` for text that
+/// writes no weenie.
+#[must_use]
+pub fn renamed(text: &str, name: &str, from: Option<&str>) -> Option<String> {
+    let text = from.map_or_else(|| text.to_owned(), |pack| with_pack(text, pack));
+    let mut doc = SqlDoc::parse(&text);
+    let old = doc.class()?;
+    let token = format!("{{{{wcid:{name}}}}}");
+    for piece in 0..doc.pieces.len() {
+        let Some((weenie, rows)) = doc
+            .insert(piece)
+            .map(|s| (s.table == "weenie", s.rows.len()))
+        else {
+            continue;
+        };
+        let owner = if weenie { "class_Id" } else { "object_Id" };
+        for row in 0..rows {
+            let r = RowRef { piece, row };
+            if doc.cell(r, owner).as_deref() == Some(old.as_str()) {
+                doc.set_cell(r, owner, &token);
+                if weenie {
+                    doc.set_cell(r, "class_Name", &quote(name));
+                }
+            }
+        }
+    }
+    // The statement that clears the class before it is written.
+    let (was, now) = (
+        format!("`class_Id` = {old};"),
+        format!("`class_Id` = {token};"),
+    );
+    for p in &mut doc.pieces {
+        if let Piece::Text(t) = p {
+            if t.contains(&was) {
+                *t = t.replace(&was, &now);
+            }
+        }
+    }
+    Some(doc.render())
+}
+
+/// `text` with the symbol of each `{{kind:symbol}}` that names no pack named with `pack`.
+fn with_pack(text: &str, pack: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("{{") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 2..];
+        let Some(j) = after.find("}}") else {
+            out.push_str(&rest[i..]);
+            return out;
+        };
+        let inner = &after[..j];
+        match inner.split_once(':') {
+            Some((kind, sym)) if !sym.contains(':') => {
+                out.push_str(&format!("{{{{{}:{pack}:{}}}}}", kind.trim(), sym.trim()));
+            }
+            _ => out.push_str(&format!("{{{{{inner}}}}}")),
+        }
+        rest = &after[j + 2..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Class `class`'s rows of `world`, its class id written as `token`, its class name as `name`

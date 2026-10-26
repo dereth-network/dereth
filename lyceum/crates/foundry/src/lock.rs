@@ -15,6 +15,9 @@
 //!
 //! [cell]
 //! "sample:hall@A9B4" = 0xA9B4018A
+//!
+//! [treasure]
+//! "sample:drudge-loot" = 100000
 //! ```
 //!
 //! Ids are per world: one world's lockfile says nothing about another's. A symbol keeps its id as

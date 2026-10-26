@@ -5,7 +5,9 @@
 //! Alt-Tab read it out of the executable before any of our code runs; `lyceum-256.png` is the
 //! window's icon on the window systems that take one as pixels (`Product::ICON_PNG`), and
 //! `lyceum.icns` is the macOS application bundle's. They are made from the two pictures beside
-//! them: `lyceum-small.png` for 48 pixels and down, `lyceum-main.png` for the rest.
+//! them: `lyceum-small.png` for 48 pixels and down, `lyceum-main.png` for the rest. `Lyceum.icon`
+//! is the layered icon macOS 26 draws itself, from `lyceum-main.png`; the release package compiles
+//! it into the bundle where Xcode is installed.
 
 use std::path::PathBuf;
 

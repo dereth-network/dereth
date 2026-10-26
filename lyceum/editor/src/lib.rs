@@ -10,7 +10,9 @@
 //! the terminal it borrows and the system's error box (`dereth-console`),
 //! the device input's events (`dereth-input`), ids, frames and textures (`dereth-primitives`),
 //! the client's physics the flying camera collides through (`dereth-physics`) and the ground's
-//! mesh its scenery stands on (`dereth-terrain`),
+//! mesh its scenery stands on (`dereth-terrain`), a playtest character's build and checks
+//! (`dereth-progression`), a weenie's look as a server describes it (`dereth-rules`) and as the
+//! client applies it to the parts (`dereth-animation`),
 //! its panels (`egui`, docked with `egui_dock`, with `egui_extras`' tables), and for the model
 //! browser's pictures the files a model is read from (`dereth-dat`), its parts
 //! (`dereth-world-data`), the preview's light (`dereth-world-render`) and the cached pictures'
@@ -36,6 +38,7 @@
 //! | [`gizmo`] | the move and turn handles: where they are drawn and what a drag on one does |
 //! | [`gui`] | the panels' toolkit: egui, fed the window's events and drawn through the overlay |
 //! | [`live`] | the editor's own server on the loopback: started, and each change pushed to it |
+//! | [`look`] | a weenie's look, read from its SQL and the data files, for the editor's preview |
 //! | [`programs`] | where the editor finds its bundled server programs |
 //! | [`script`] | the scripted mode's steps |
 //! | [`shell`] | the front end the runtime calls: the window's events and the overlay |
@@ -47,12 +50,15 @@ pub mod args;
 pub mod browser_state;
 pub mod camera;
 pub mod catalog;
+pub mod character_extras;
 pub mod characters;
 pub mod database;
 pub mod docks;
 pub mod gizmo;
 pub mod gui;
+pub mod kits;
 pub mod live;
+pub mod look;
 pub mod place;
 pub mod programs;
 pub mod script;

@@ -9,12 +9,17 @@
 //!
 //! The pictures are read and drawn on a thread of their own ([`Worker`]), on its own device, so
 //! the editor's frame never waits on one: a picture asked for is shown in a later frame.
+//!
+//! The worker also draws a setup dressed in an object description, as the client dresses one a
+//! server describes ([`Worker::get_look`]): the weenie editor's clothing pictures. Those are kept
+//! by a key the asker gives, which names the setup and the description.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 
+use dereth_animation::parts::ObjDesc;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, TextureData, TextureFormat, Vec3};
 use dereth_render::camera::Viewport;
@@ -28,6 +33,11 @@ pub const SIZE: u32 = 48;
 const YAW: f32 = 35.0;
 const PITCH: f32 = -24.0;
 
+/// The pictures' field of view, in radians, and their light: its strength and its direction.
+pub const FOV: f32 = 0.6;
+pub const LIGHT: f32 = 2.0;
+pub const LIGHT_DIRECTION: Vec3 = Vec3::new(0.3, 1.9, 0.65);
+
 /// How many pictures are asked of the worker at most before it has answered: a list scrolled
 /// past quickly leaves little behind to draw.
 const IN_FLIGHT: usize = 16;
@@ -40,10 +50,32 @@ struct Thumbs {
     dir: PathBuf,
 }
 
+/// What a picture is of: a model, or a setup dressed in a description (by the asker's key).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Key {
+    Model(u32),
+    Look(u64),
+}
+
+/// A picture asked of the worker.
+enum Ask {
+    Model(u32),
+    Look(u64, DataId, ObjDesc),
+}
+
+impl Ask {
+    fn key(&self) -> Key {
+        match self {
+            Self::Model(id) => Key::Model(*id),
+            Self::Look(key, ..) => Key::Look(*key),
+        }
+    }
+}
+
 /// A picture the worker answers with: read from the cache, or drawn; `None` for a model that
 /// will not draw.
 struct Answer {
-    id: u32,
+    key: Key,
     picture: Option<TextureData>,
     drawn: bool,
 }
@@ -51,13 +83,13 @@ struct Answer {
 /// The pictures of one set of files, read and drawn on a thread of their own and held here as
 /// they come back.
 pub struct Worker {
-    asks: Option<mpsc::Sender<u32>>,
+    asks: Option<mpsc::Sender<Ask>>,
     answers: mpsc::Receiver<Result<Answer, String>>,
     thread: Option<std::thread::JoinHandle<()>>,
     dir: PathBuf,
-    ready: BTreeMap<u32, TextureData>,
-    failed: BTreeSet<u32>,
-    asked: BTreeSet<u32>,
+    ready: BTreeMap<Key, TextureData>,
+    failed: BTreeSet<Key>,
+    asked: BTreeSet<Key>,
     /// Why there are no pictures, when the device would not open.
     pub problem: Option<String>,
     /// How many pictures were drawn, and how many read from the cache.
@@ -82,7 +114,7 @@ impl Worker {
     #[must_use]
     pub fn open(store: Arc<RetailDatStore>, backend: Backend, root: &Path) -> Self {
         let dir = folder(root, &store);
-        let (asks, asked) = mpsc::channel::<u32>();
+        let (asks, asked) = mpsc::channel::<Ask>();
         let (answer, answers) = mpsc::channel();
         let at = dir.clone();
         let thread = std::thread::Builder::new()
@@ -95,9 +127,17 @@ impl Worker {
                         return;
                     }
                 };
-                for id in asked {
-                    let (picture, drawn) = thumbs.picture(DataId(id));
-                    if answer.send(Ok(Answer { id, picture, drawn })).is_err() {
+                for ask in asked {
+                    let key = ask.key();
+                    let (picture, drawn) = thumbs.picture(ask);
+                    if answer
+                        .send(Ok(Answer {
+                            key,
+                            picture,
+                            drawn,
+                        }))
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -126,23 +166,42 @@ impl Worker {
     /// Model `id`'s picture, when it has come back. One not yet asked for is asked for while
     /// `budget` lasts (and taken from it) and the worker is not too far behind.
     pub fn get(&mut self, id: DataId, budget: &mut u32) -> Option<&TextureData> {
+        self.fetch(Ask::Model(id.raw()), budget)
+    }
+
+    /// The picture of `setup` dressed in `objdesc`, kept by `key` (which the asker makes to name
+    /// the two), when it has come back; asked for as [`Self::get`] asks.
+    pub fn get_look(
+        &mut self,
+        key: u64,
+        setup: DataId,
+        objdesc: &ObjDesc,
+        budget: &mut u32,
+    ) -> Option<&TextureData> {
+        if self.ready.contains_key(&Key::Look(key)) {
+            return self.ready.get(&Key::Look(key));
+        }
+        self.fetch(Ask::Look(key, setup, objdesc.clone()), budget)
+    }
+
+    fn fetch(&mut self, ask: Ask, budget: &mut u32) -> Option<&TextureData> {
         self.take_answers();
-        let raw = id.raw();
-        if !self.ready.contains_key(&raw)
-            && !self.failed.contains(&raw)
-            && !self.asked.contains(&raw)
+        let key = ask.key();
+        if !self.ready.contains_key(&key)
+            && !self.failed.contains(&key)
+            && !self.asked.contains(&key)
             && *budget > 0
             && self.asked.len() < IN_FLIGHT
             && self.problem.is_none()
         {
             if let Some(asks) = &self.asks {
-                if asks.send(raw).is_ok() {
+                if asks.send(ask).is_ok() {
                     *budget -= 1;
-                    self.asked.insert(raw);
+                    self.asked.insert(key);
                 }
             }
         }
-        self.ready.get(&raw)
+        self.ready.get(&key)
     }
 
     /// Wait until every picture asked for has come back.
@@ -164,7 +223,7 @@ impl Worker {
     fn take(&mut self, a: Result<Answer, String>) {
         match a {
             Ok(a) => {
-                self.asked.remove(&a.id);
+                self.asked.remove(&a.key);
                 match a.picture {
                     Some(p) => {
                         if a.drawn {
@@ -172,10 +231,10 @@ impl Worker {
                         } else {
                             self.read += 1;
                         }
-                        self.ready.insert(a.id, p);
+                        self.ready.insert(a.key, p);
                     }
                     None => {
-                        self.failed.insert(a.id);
+                        self.failed.insert(a.key);
                     }
                 }
             }
@@ -235,10 +294,10 @@ impl Thumbs {
         let mut space = PreviewSpace::new(assets);
         space.set_light(
             dereth_world_render::lighting::LightType::Directional,
-            2.0,
-            Vec3::new(0.3, 1.9, 0.65),
+            LIGHT,
+            LIGHT_DIRECTION,
         );
-        space.mode.set_fov(0.6);
+        space.mode.set_fov(FOV);
         Ok(Self {
             gpu,
             space,
@@ -247,14 +306,17 @@ impl Thumbs {
         })
     }
 
-    /// Model `id`'s picture, read from the cache, else drawn and kept there; and whether it was
+    /// The picture asked for, read from the cache, else drawn and kept there; and whether it was
     /// drawn. `None` for a model that will not draw.
-    fn picture(&mut self, id: DataId) -> (Option<TextureData>, bool) {
-        let path = self.dir.join(format!("{:08X}.png", id.raw()));
+    fn picture(&mut self, ask: Ask) -> (Option<TextureData>, bool) {
+        let path = self.dir.join(match &ask {
+            Ask::Model(id) => format!("{id:08X}.png"),
+            Ask::Look(key, ..) => format!("look-{key:016X}.png"),
+        });
         if let Some(p) = read_png(&path) {
             return (Some(p), false);
         }
-        match self.draw(id) {
+        match self.draw(&ask) {
             Ok(Some(p)) => {
                 let _ = write_png(&path, &p);
                 (Some(p), true)
@@ -263,14 +325,19 @@ impl Thumbs {
         }
     }
 
-    /// Draw model `id` and read the picture back. `None` for a model that will not load.
-    fn draw(&mut self, id: DataId) -> Result<Option<TextureData>, String> {
+    /// Draw what is asked and read the picture back. `None` for a model that will not load.
+    fn draw(&mut self, ask: &Ask) -> Result<Option<TextureData>, String> {
         self.space.remove_all_objects();
-        let Some(i) = self
-            .space
-            .add_model(&self.store, &mut self.gpu, id)
-            .map_err(|e| e.to_string())?
-        else {
+        let added = match ask {
+            Ask::Model(id) => self
+                .space
+                .add_model(&self.store, &mut self.gpu, DataId(*id)),
+            Ask::Look(_, setup, objdesc) => {
+                self.space
+                    .add_object_dressed(&self.store, &mut self.gpu, *setup, Some(objdesc))
+            }
+        };
+        let Some(i) = added.map_err(|e| e.to_string())? else {
             return Ok(None);
         };
         let bb = self
@@ -292,24 +359,7 @@ impl Thumbs {
         .max(0.1)
             * 0.5;
         let fov = self.space.mode.fov_radians;
-        let distance = radius / dereth_primitives::num::math::sinf(fov * 0.5) * 1.05;
-        let look = dereth_client_runtime::camera::FreeCamera::new(
-            Vec3::ZERO,
-            YAW.to_radians(),
-            PITCH.to_radians(),
-        );
-        let f = look.forward();
-        let eye = Vec3::new(
-            center.x - f.x * distance,
-            center.y - f.y * distance,
-            center.z - f.z * distance,
-        );
-        self.space.mode.view_frame = dereth_client_runtime::camera::FreeCamera::new(
-            eye,
-            YAW.to_radians(),
-            PITCH.to_radians(),
-        )
-        .frame();
+        self.space.mode.view_frame = camera(center, radius, fov, 1.0);
         let side = SIZE * 2;
         self.gpu.begin_frame().map_err(|e| e.to_string())?;
         let drawn = self.space.draw(
@@ -328,6 +378,27 @@ impl Thumbs {
         let image = self.gpu.capture().map_err(|e| e.to_string())?;
         Ok(Some(halve(&image.bgra, image.width, image.height)))
     }
+}
+
+/// The camera a picture is seen from: from the south-west and a little above, looking at
+/// `center`, far enough that a ball of `radius` about it fills a field of view `fov` high, and
+/// then `nearer` times nearer.
+#[must_use]
+pub fn camera(center: Vec3, radius: f32, fov: f32, nearer: f32) -> dereth_primitives::Frame {
+    let distance = radius / dereth_primitives::num::math::sinf(fov * 0.5) * 1.05 / nearer.max(0.01);
+    let look = dereth_client_runtime::camera::FreeCamera::new(
+        Vec3::ZERO,
+        YAW.to_radians(),
+        PITCH.to_radians(),
+    );
+    let f = look.forward();
+    let eye = Vec3::new(
+        center.x - f.x * distance,
+        center.y - f.y * distance,
+        center.z - f.z * distance,
+    );
+    dereth_client_runtime::camera::FreeCamera::new(eye, YAW.to_radians(), PITCH.to_radians())
+        .frame()
 }
 
 /// `bgra` (`w` by `h`) at half its size, each pixel the mean of four, opaque.

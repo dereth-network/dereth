@@ -24,9 +24,9 @@ use lyceum_foundry::script::Action as Edit;
 
 const HOLTBURG: u16 = 0xA9B4;
 
-mod classic;
-mod dungeon;
-mod floors;
+mod characters;
+mod weenies;
+mod world;
 
 /// One device at a time in this binary.
 fn gpu_lock() -> MutexGuard<'static, ()> {
@@ -1816,6 +1816,18 @@ fn the_place_tool_filters_by_several_kinds_at_once_stars_favorites_tags_by_right
         .expect("the tag in the menu");
     click(&mut ed, (check.center().x, check.center().y));
     assert!(ed.tags.of(other).iter().any(|g| g == "standing"));
+    // The menu stays open: a new tag typed into it, and Enter gives it and closes the menu.
+    ed.frame();
+    let field = ed
+        .panels
+        .tag_field
+        .expect("the menu still open, with its new tag's field");
+    type_in(&mut ed, field, "mossy", true);
+    assert!(ed.tags.of(other).iter().any(|g| g == "mossy"));
+    assert!(
+        ed.panels.tag_field.is_none(),
+        "closed once the tag is added"
+    );
     // Set on the stone where the pointer meets it: off the ground, on the stone.
     ed.choose_model(dereth_primitives::DataId(0x0200_040B))
         .unwrap();
@@ -2030,6 +2042,83 @@ fn type_into(ed: &mut EditorApp, key: &str, text: &str) {
         .find(|(k, _)| k == key)
         .unwrap_or_else(|| panic!("no field {key}"))
         .1;
+    type_in(ed, r, text, true);
+}
+
+/// A spawn of weenie `w` set down on the ground in Holtburg, as the spawn tool sets one down, as
+/// one step.
+fn spawn_of(ed: &mut EditorApp, w: &lyceum_foundry::edit::Weenie) {
+    let z = ed.session.ground(HOLTBURG, 84.0, 84.0).unwrap();
+    ed.edit(&Edit::Op(lyceum_foundry::edit::Op::PlaceSpawn {
+        landblock: HOLTBURG,
+        weenie: w.clone(),
+        origin: Vec3::new(84.0, 84.0, z),
+        heading: 0.0,
+    }))
+    .unwrap();
+}
+
+/// Server class `class` written again by the pack, as its first change in the editor writes it,
+/// and the editor opened on it.
+fn change_in_world(ed: &mut EditorApp, class: u32) {
+    ed.copy_class(class).unwrap();
+    ed.open_editor(lyceum_foundry::edit::Weenie::Class(class));
+}
+
+/// The rect drawn for `key` among `list`.
+fn drawn(list: &[(String, egui::Rect)], key: &str) -> egui::Rect {
+    list.iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("{key} drawn"))
+}
+
+/// A right click on the mark of field `key` changed from the server's, and its menu's Put back.
+fn put_back_by_mark(ed: &mut EditorApp, key: &str) {
+    let mark = drawn(&ed.editor.changed_marks, key);
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(mark.center().x),
+        y: f64::from(mark.center().y),
+    });
+    for pressed in [true, false] {
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+        ed.frame();
+    }
+    for _ in 0..4 {
+        ed.frame();
+    }
+    let button = ed.editor.put_back_button.expect("its menu's Put back");
+    click(ed, (button.center().x, button.center().y));
+    ed.frame();
+}
+
+/// A new portal named `name`, made from the spawn tool's New... as a plain portal: the spawn tool
+/// places it next. The editor that opens on it is closed again, clear of the world view.
+fn new_portal(ed: &mut EditorApp, name: &str) {
+    let new = ed.panels.new_button.expect("the spawn tool's New...");
+    click(ed, (new.center().x, new.center().y));
+    ed.frame();
+    assert!(ed.editor.creator.open, "the dialog");
+    ed.editor.creator.kind = lyceum_editor::app::NewKind::Portal;
+    ed.editor.creator.copy = false;
+    ed.frame();
+    let field = ed.editor.creator.name_field.expect("its name");
+    type_in(ed, field, name, false);
+    let make = ed.editor.creator.make_button.expect("Make it");
+    click(ed, (make.center().x, make.center().y));
+    assert!(!ed.editor.creator.open, "{:?}", ed.editor.creator.problem);
+    ed.editor.open = false;
+    for _ in 0..2 {
+        ed.frame();
+    }
+}
+
+/// Type `text` into the field drawn at `r`: a click into it, everything in it chosen, the text,
+/// and Enter when `enter`.
+fn type_in(ed: &mut EditorApp, r: egui::Rect, text: &str, enter: bool) {
     click(ed, (r.center().x, r.center().y));
     let k = |vk, pressed, t: Option<&str>| HostEvent::KeyboardInput {
         key: dereth_input::keys::Key::new(vk, 0),
@@ -2046,9 +2135,11 @@ fn type_into(ed: &mut EditorApp, key: &str, text: &str) {
         ed.queue(k(0x30, false, None));
     }
     ed.frame();
-    ed.queue(k(0x0D, true, None));
-    ed.queue(k(0x0D, false, None));
-    ed.frame();
+    if enter {
+        ed.queue(k(0x0D, true, None));
+        ed.queue(k(0x0D, false, None));
+        ed.frame();
+    }
     ed.frame();
 }
 
@@ -2063,8 +2154,6 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
         &world,
         &["--schema", schema.to_str().unwrap(), "--size", "1280x1000"],
     );
-    // Every property, under Advanced.
-    ed.panels.advanced = true;
     let guide = ed
         .session
         .spawns()
@@ -2082,14 +2171,36 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
     for _ in 0..3 {
         ed.frame();
     }
-    assert_eq!(
-        ed.form_weenie(),
-        Some(lyceum_foundry::edit::Weenie::Symbol(
-            "holtburg:guide".into()
-        ))
-    );
-    for key in ["string:1", "int:25", "did:1"] {
-        assert!(ed.form_fields.iter().any(|(k, _)| k == key), "{key}");
+    let guide_w = lyceum_foundry::edit::Weenie::Symbol("holtburg:guide".into());
+    assert_eq!(ed.form_weenie(), Some(guide_w.clone()));
+    // The Definition pane changes nothing: its fields are the editor's.
+    assert!(ed.form_fields.is_empty());
+    ed.open_editor(guide_w.clone());
+    for _ in 0..2 {
+        ed.frame();
+    }
+    // Its pages: Basic first; the level on its creature's page, as it sets one; every property
+    // under Advanced.
+    use lyceum_editor::app::{Page, Section};
+    let has = |ed: &EditorApp, key: &str| ed.form_fields.iter().any(|(k, _)| k == key);
+    assert_eq!(ed.editor.page, Page::Section(Section::Basic));
+    assert!(has(&ed, "string:1") && has(&ed, "did:1") && !has(&ed, "int:25"));
+    for (page, key) in [
+        (Page::Section(Section::Creature), "int:25"),
+        (Page::Advanced, "int:93"),
+        (Page::Section(Section::Basic), "string:1"),
+    ] {
+        let r = ed
+            .editor
+            .page_rects
+            .iter()
+            .find(|(p, _)| *p == page)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{page:?} listed"));
+        click(&mut ed, (r.center().x, r.center().y));
+        ed.frame();
+        assert_eq!(ed.editor.page, page);
+        assert!(has(&ed, key), "{page:?}: {key}");
     }
     let file = ed
         .session
@@ -2100,15 +2211,21 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
         .0;
     // Typed into the Name field, the SQL takes it, as one step.
     type_into(&mut ed, "string:1", "Gribble the Bold");
+    // Closed, the editor shows the world view under it again.
+    ed.editor.open = false;
+    ed.frame();
     let text = ed.session.sql_text(&file).unwrap();
     assert!(text.contains("1, 'Gribble the Bold') /* Name */"), "{text}");
     assert_eq!(ed.session.history(), (1, 0));
     // So does the Level, set by the form's own edit.
-    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::Int,
-        id: 25,
-        value: Some("12".into()),
-    })
+    ed.form_edit(
+        &guide_w,
+        &lyceum_editor::app::FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::Int,
+            id: 25,
+            value: Some("12".into()),
+        },
+    )
     .unwrap();
     let text = ed.session.sql_text(&file).unwrap();
     assert!(text.contains("25,         12) /* Level */"), "{text}");
@@ -2119,11 +2236,14 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
         .project(Vec3::new(o.x + at.x, o.y + at.y, at.z + 1.0))
         .unwrap();
     let before = capture(&mut ed, dir.path());
-    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::DataId,
-        id: 1,
-        value: Some("0x02000DD2".into()),
-    })
+    ed.form_edit(
+        &guide_w,
+        &lyceum_editor::app::FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::DataId,
+            id: 1,
+            value: Some("0x02000DD2".into()),
+        },
+    )
     .unwrap();
     ed.frame();
     let moved = ed
@@ -2140,11 +2260,14 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
     );
     // A value that is not one is refused, and nothing changes.
     assert!(ed
-        .form_edit(&lyceum_editor::app::FormEdit::Property {
-            kind: lyceum_foundry::content::PropertyKind::Int,
-            id: 25,
-            value: Some("twelve".into()),
-        })
+        .form_edit(
+            &guide_w,
+            &lyceum_editor::app::FormEdit::Property {
+                kind: lyceum_foundry::content::PropertyKind::Int,
+                id: 25,
+                value: Some("twelve".into()),
+            }
+        )
         .is_err());
     assert_eq!(ed.session.history(), (3, 0));
     // A spell added, its chance set, and taken away again.
@@ -2162,24 +2285,33 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
             .collect::<Vec<_>>()
     };
     use lyceum_editor::app::FormEdit;
-    ed.form_edit(&FormEdit::AddRow {
-        table: "weenie_properties_spell_book".into(),
-        values: vec![("spell".into(), "1".into())],
-    })
+    ed.form_edit(
+        &guide_w,
+        &FormEdit::AddRow {
+            table: "weenie_properties_spell_book".into(),
+            values: vec![("spell".into(), "1".into())],
+        },
+    )
     .unwrap();
     assert_eq!(spells(&mut ed), [("1".to_owned(), "2".to_owned())]);
-    ed.form_edit(&FormEdit::Cell {
-        table: "weenie_properties_spell_book".into(),
-        row: 0,
-        column: "probability".into(),
-        value: "2.5".into(),
-    })
+    ed.form_edit(
+        &guide_w,
+        &FormEdit::Cell {
+            table: "weenie_properties_spell_book".into(),
+            row: 0,
+            column: "probability".into(),
+            value: "2.5".into(),
+        },
+    )
     .unwrap();
     assert_eq!(spells(&mut ed), [("1".to_owned(), "2.5".to_owned())]);
-    ed.form_edit(&FormEdit::RemoveRow {
-        table: "weenie_properties_spell_book".into(),
-        row: 0,
-    })
+    ed.form_edit(
+        &guide_w,
+        &FormEdit::RemoveRow {
+            table: "weenie_properties_spell_book".into(),
+            row: 0,
+        },
+    )
     .unwrap();
     assert!(spells(&mut ed).is_empty());
     for _ in 0..3 {
@@ -2194,6 +2326,310 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
         .find(|s| s.guid == guide.guid)
         .unwrap();
     assert_eq!(back.setup, Some(dereth_primitives::DataId(0x0200_07DD)));
+}
+
+#[test]
+fn the_editor_stays_on_its_weenie_as_the_selection_moves_and_edit_opens_a_servers_weenie_at_once() {
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-names-its-weenie");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_SPAWN).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
+    let guide = Weenie::Symbol("holtburg:guide".into());
+    let drudge = Weenie::Class(90005);
+    let guide_file = ed.session.weenie_file(&guide).unwrap().0;
+    ed.open_editor(guide.clone());
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(ed.editor.open);
+    // The server's drudge selected: the Definition pane follows it, the editor stays.
+    let spawn = ed
+        .session
+        .spawns()
+        .into_iter()
+        .find(|s| s.server)
+        .expect("the server's drudge");
+    ed.selection = Some(Selection::Spawn {
+        file: spawn.file.clone(),
+        guid: spawn.guid.clone(),
+    });
+    ed.show_tab(lyceum_editor::app::Tab::Definition);
+    ed.frame();
+    assert_eq!(ed.form_weenie(), Some(drudge.clone()));
+    assert_eq!(ed.editor.weenie(), Some(&guide));
+    // Typed into the editor's Name field and left: the guide takes it, the drudge nothing.
+    type_into(&mut ed, "string:1", "Gribble the Bold");
+    let text = ed.session.sql_text(&guide_file).unwrap();
+    assert!(text.contains("1, 'Gribble the Bold') /* Name */"), "{text}");
+    assert!(
+        ed.session.weenie_file(&drudge).is_none(),
+        "the drudge unchanged"
+    );
+    assert_eq!(ed.session.history(), (1, 0));
+    // Edit on the server's drudge opens it in the editor at once, after the guide, as the
+    // server has it: nothing is written yet.
+    ed.edit_weenie(&drudge, None);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(ed.editor.open && ed.tab_in_front(lyceum_editor::app::Tab::Editor));
+    assert_eq!(ed.editor.weenie(), Some(&drudge));
+    assert!(ed.session.weenie_file(&drudge).is_none(), "nothing written");
+    assert_eq!(ed.session.history(), (1, 0));
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("weenie-editor").join("opens-at-once.png"),
+    )
+    .unwrap();
+    // Its first change: the pack writes the server's class again with it, as one step.
+    type_into(&mut ed, "string:1", "Drudge Lurker");
+    let (file, mine) = ed
+        .session
+        .weenie_file(&drudge)
+        .unwrap_or_else(|| panic!("the pack's change: {}", ed.panels.message));
+    assert!(mine && file.ends_with("server/sql/weenies/90005 Drudge Skulker.sql"));
+    assert!(ed
+        .session
+        .sql_text(&file)
+        .unwrap()
+        .contains("'Drudge Lurker'"));
+    assert_eq!(ed.session.history(), (2, 0));
+    assert_eq!(ed.editor.weenie(), Some(&drudge));
+    assert_eq!(
+        ed.owner_of(&drudge),
+        lyceum_editor::app::Owner::ChangedIn {
+            pack: "holtburg".into(),
+            mine: true
+        }
+    );
+    ed.frame();
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("weenie-editor").join("changed-in-world.png"),
+    )
+    .unwrap();
+    // Back to the guide, and forward again.
+    let back = ed.editor.back_button.expect("Back");
+    click(&mut ed, (back.center().x, back.center().y));
+    assert_eq!(ed.editor.weenie(), Some(&guide));
+    ed.frame();
+    let fwd = ed.editor.forward_button.expect("Forward");
+    click(&mut ed, (fwd.center().x, fwd.center().y));
+    assert_eq!(ed.editor.weenie(), Some(&drudge));
+    // The server's put back: the pack's file goes, as one step, and comes again on undo.
+    ed.put_back_server(90005).unwrap();
+    assert!(ed.session.weenie_file(&drudge).is_none());
+    assert_eq!(ed.owner_of(&drudge), lyceum_editor::app::Owner::Server);
+    assert_eq!(ed.session.history(), (3, 0));
+    ed.edit(&Edit::Undo).unwrap();
+    assert!(ed.session.weenie_file(&drudge).is_some());
+    assert!(ed.put_back_server(1).is_err(), "not changed in this world");
+}
+
+#[test]
+fn the_definition_heads_words_end_before_its_buttons_at_any_pane_width_and_scale() {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-definition-head");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_SPAWN).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
+    ed.look_at(HOLTBURG, Vec3::new(60.0, 60.0, 80.0), 12.0, 0.0, -20.0);
+    ed.frame();
+    let spawn = ed
+        .session
+        .spawns()
+        .into_iter()
+        .find(|s| s.server)
+        .expect("the server's drudge");
+    ed.selection = Some(Selection::Spawn {
+        file: spawn.file.clone(),
+        guid: spawn.guid.clone(),
+    });
+    ed.show_tab(lyceum_editor::app::Tab::Definition);
+    // Wide at 100%, then a narrow pane at 150%: "Creature · class 90005 · the server's" is
+    // longer than the narrow pane has room for.
+    for (name, (w, h), scale) in [("wide", (1280, 1000), 1.0), ("narrow", (900, 800), 1.5)] {
+        ed.resize(w, h);
+        ed.set_ui_scale(scale);
+        for _ in 0..3 {
+            ed.frame();
+        }
+        let words = ed.definition.head_words.expect("the head's words");
+        let from = ed.definition.head_words_from.expect("where they start");
+        let edit = ed.definition.edit_button.expect("Edit");
+        assert!(
+            words.max.x <= edit.min.x,
+            "{name}: the words {words:?} run under Edit {edit:?}"
+        );
+        assert!(
+            words.min.x >= from - 0.5,
+            "{name}: the words {words:?} start before {from}, over the picture"
+        );
+        #[allow(clippy::cast_precision_loss)] // a window's width
+        let window = w as f32 / ed.ui_scale();
+        assert!(edit.max.x <= window, "{name}: Edit {edit:?} in the window");
+        capture(&mut ed, dir.path());
+        std::fs::copy(
+            dir.path().join("frame.png"),
+            shots("weenie-editor").join(format!("head-{name}.png")),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn plays_menu_is_an_arrow_drawn_beside_play_in_the_bars_icon_color() {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-play-menu");
+    let mut ed = editor(&world);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let play = ed.play_button.expect("Play");
+    let arrow = ed.play_menu_button.expect("Play's menu");
+    assert!(arrow.min.x >= play.max.x - 1.0, "{arrow:?} beside {play:?}");
+    assert!((arrow.center().y - play.center().y).abs() < 1.0);
+    assert!(arrow.width() < play.width(), "a narrow button: {arrow:?}");
+    // Its triangle is drawn in the middle, in the icons' light color over the dark bar.
+    let s = ed.ui_scale();
+    let shot = capture(&mut ed, dir.path());
+    let lit = |p: [u8; 3]| p.iter().copied().max().unwrap_or(0);
+    let middle = pixel(&shot, arrow.center().x * s, arrow.center().y * s);
+    let side = pixel(&shot, (arrow.min.x + 1.5) * s, arrow.center().y * s);
+    assert!(lit(middle) > 150, "the triangle: {middle:?}");
+    assert!(lit(side) < 100, "the bar beside it: {side:?}");
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("play-menu").join("bar.png"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_editors_head_words_end_before_its_buttons_at_any_width_and_scale() {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-editor-head");
+    let sql = dir.path().join("server.sql");
+    // A name longer than the editor is wide.
+    std::fs::write(
+        &sql,
+        SERVER_SPAWN.replace(
+            "'Drudge Skulker'",
+            "'Drudge Skulker, Who Lurks in the Hills West of Holtburg and Waits for the Unwary'",
+        ),
+    )
+    .unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
+    let drudge = lyceum_foundry::edit::Weenie::Class(90005);
+    ed.server_class_now(90005).unwrap().expect("its rows");
+    ed.open_editor(drudge);
+    // Wide at 100%, then narrow at 150%: the name is cut short before Back either way.
+    for (name, (w, h), scale) in [("wide", (1280, 1000), 1.0), ("narrow", (900, 800), 1.5)] {
+        ed.resize(w, h);
+        ed.set_ui_scale(scale);
+        for _ in 0..3 {
+            ed.frame();
+        }
+        let words = ed.editor.head_words.expect("the head's words");
+        let back = ed.editor.back_button.expect("Back");
+        assert!(
+            words.max.x <= back.min.x,
+            "{name}: the words {words:?} run under Back {back:?}"
+        );
+        let forward = ed.editor.forward_button.expect("Forward");
+        assert!(back.max.x <= forward.min.x, "{name}: Back before Forward");
+        capture(&mut ed, dir.path());
+        std::fs::copy(
+            dir.path().join("frame.png"),
+            shots("weenie-editor").join(format!("editor-head-{name}.png")),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn the_editor_keeps_its_place_across_dungeon_mode_and_puts_a_weenie_back_as_saved() {
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-dungeon-mode");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_SPAWN).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
+    let guide = Weenie::Symbol("holtburg:guide".into());
+    let file = ed.session.weenie_file(&guide).unwrap().0;
+    let saved = ed.session.sql_text(&file).unwrap();
+    ed.edit_weenie(&guide, Some("int:25".into()));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(ed.editor.open && ed.tab_in_front(lyceum_editor::app::Tab::Editor));
+    // Opened at the level: its page shown.
+    assert_eq!(
+        ed.editor.page,
+        lyceum_editor::app::Page::Section(lyceum_editor::app::Section::Creature)
+    );
+    assert!(ed.form_fields.iter().any(|(k, _)| k == "int:25"));
+    // Into a dungeon and out: the editor is drawn in both layouts, on its weenie and page.
+    ed.enter_dungeon(0x019E).unwrap();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(ed.editor.open);
+    assert!(ed.form_fields.iter().any(|(k, _)| k == "int:25"));
+    ed.leave_dungeon();
+    ed.form_fields.clear();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(ed.editor.open && ed.editor.weenie() == Some(&guide));
+    assert!(ed.form_fields.iter().any(|(k, _)| k == "int:25"));
+    // Changed, then put back as saved: one step, undone like any other.
+    ed.form_edit(
+        &guide,
+        &lyceum_editor::app::FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::Int,
+            id: 25,
+            value: Some("12".into()),
+        },
+    )
+    .unwrap();
+    assert!(ed.session.sql_unsaved(&file));
+    ed.put_back_saved(&guide).unwrap();
+    assert_eq!(ed.session.sql_text(&file).unwrap(), saved);
+    assert!(!ed.session.sql_unsaved(&file));
+    assert_eq!(ed.session.history(), (2, 0));
+    ed.edit(&Edit::Undo).unwrap();
+    assert!(ed
+        .session
+        .sql_text(&file)
+        .unwrap()
+        .contains("25,         12)"));
+    // A copy of the server's drudge, from the menus' Make a copy, named: a new weenie of the
+    // pack, in the editor.
+    ed.panels.weenie = Some(Weenie::Class(90005));
+    ed.open_creator(Some(Weenie::Class(90005)));
+    ed.editor.creator.name = "Drudge Sneak".into();
+    ed.make_weenie().unwrap();
+    let made = Weenie::Symbol("holtburg:drudge-sneak".into());
+    assert_eq!(ed.editor.weenie(), Some(&made), "{}", ed.panels.message);
+    assert!(ed.session.weenie_file(&made).is_some_and(|(_, mine)| mine));
+    assert!(ed.session.weenie_file(&Weenie::Class(90005)).is_none());
 }
 
 #[test]
@@ -2238,11 +2674,14 @@ fn a_server_class_is_shown_as_it_is_and_its_first_edit_makes_the_packs_copy_whic
     );
     assert_eq!(ed.session.history(), (0, 0));
     // The first edit makes the pack's copy, with the edit in it: one step.
-    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::DataId,
-        id: 1,
-        value: Some("0x02000DD2".into()),
-    })
+    ed.form_edit(
+        &class,
+        &lyceum_editor::app::FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::DataId,
+            id: 1,
+            value: Some("0x02000DD2".into()),
+        },
+    )
     .unwrap();
     let (file, mine) = ed.session.weenie_file(&class).expect("the pack's copy");
     assert!(mine && file.ends_with("server/sql/weenies/90005 Drudge Skulker.sql"));
@@ -2451,7 +2890,7 @@ fn the_weenie_forms_emote_tree_adds_sets_and_actions_orders_them_and_takes_them_
     assert_eq!(start.len(), 1);
     assert_eq!(start[0].1.len(), 1);
     use lyceum_editor::app::FormEdit;
-    let edit = |ed: &mut EditorApp, e: FormEdit| ed.form_edit(&e).unwrap();
+    let edit = |ed: &mut EditorApp, e: FormEdit| ed.form_edit(&w, &e).unwrap();
     // An action by the server's name of its type, said, then made the first.
     edit(
         &mut ed,
@@ -2486,6 +2925,7 @@ fn the_weenie_forms_emote_tree_adds_sets_and_actions_orders_them_and_takes_them_
         &mut ed,
         FormEdit::AddEmoteSet {
             category: "1".into(),
+            after: None,
         },
     );
     edit(
@@ -2518,10 +2958,13 @@ fn the_weenie_forms_emote_tree_adds_sets_and_actions_orders_them_and_takes_them_
     assert_eq!(tree(&mut ed), start);
     // A type the server has no name for, by name, is refused.
     assert!(ed
-        .form_edit(&FormEdit::AddAction {
-            set: 0,
-            kind: "Dance".into(),
-        })
+        .form_edit(
+            &w,
+            &FormEdit::AddAction {
+                set: 0,
+                kind: "Dance".into(),
+            }
+        )
         .is_err());
 }
 
@@ -2546,17 +2989,23 @@ fn the_weenie_forms_quests_say_where_they_are_registered_and_its_treasure_says_w
     use lyceum_editor::app::FormEdit;
     // Two quest actions: one names the server's quest, one a quest of no one's.
     for (n, quest) in [(1, "HoltburgWell@A9B4"), (2, "GribbleGreeted")] {
-        ed.form_edit(&FormEdit::AddAction {
-            set: 0,
-            kind: "22".into(),
-        })
+        ed.form_edit(
+            &w,
+            &FormEdit::AddAction {
+                set: 0,
+                kind: "22".into(),
+            },
+        )
         .unwrap();
-        ed.form_edit(&FormEdit::Action {
-            set: 0,
-            action: n,
-            column: "message".into(),
-            value: quest.into(),
-        })
+        ed.form_edit(
+            &w,
+            &FormEdit::Action {
+                set: 0,
+                action: n,
+                column: "message".into(),
+                value: quest.into(),
+            },
+        )
         .unwrap();
     }
     let text = ed.session.sql_text(&file).unwrap();
@@ -2566,38 +3015,50 @@ fn the_weenie_forms_quests_say_where_they_are_registered_and_its_treasure_says_w
     assert!(at.is_none() && q.min_delta == 3600 && q.max_solves == 1);
     assert!(ed.session.quest("GribbleGreeted").is_none());
     // Registered in the pack, then made a daily quest.
-    ed.form_edit(&FormEdit::RegisterQuest {
-        name: "GribbleGreeted".into(),
-    })
+    ed.form_edit(
+        &w,
+        &FormEdit::RegisterQuest {
+            name: "GribbleGreeted".into(),
+        },
+    )
     .unwrap();
     let (_, at) = ed.session.quest("GribbleGreeted").expect("the pack's");
     let qfile = at.expect("in the pack's file");
     assert!(qfile.ends_with("server/sql/quests/GribbleGreeted.sql"));
-    ed.form_edit(&FormEdit::Quest {
-        name: "GribbleGreeted".into(),
-        column: "min_Delta".into(),
-        value: "86400".into(),
-    })
+    ed.form_edit(
+        &w,
+        &FormEdit::Quest {
+            name: "GribbleGreeted".into(),
+            column: "min_Delta".into(),
+            value: "86400".into(),
+        },
+    )
     .unwrap();
     assert_eq!(
         ed.session.quest("GribbleGreeted").unwrap().0.min_delta,
         86400
     );
     assert!(
-        ed.form_edit(&FormEdit::Quest {
-            name: "HoltburgWell".into(),
-            column: "min_Delta".into(),
-            value: "1".into(),
-        })
+        ed.form_edit(
+            &w,
+            &FormEdit::Quest {
+                name: "HoltburgWell".into(),
+                column: "min_Delta".into(),
+                value: "1".into(),
+            }
+        )
         .is_err(),
         "the server's quest is not the pack's to change"
     );
     // Its death treasure, set by number, is the server's tier 2.
-    ed.form_edit(&FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::DataId,
-        id: 35,
-        value: Some("4".into()),
-    })
+    ed.form_edit(
+        &w,
+        &FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::DataId,
+            id: 35,
+            value: Some("4".into()),
+        },
+    )
     .unwrap();
     let t = ed.session.treasure(4).expect("the server's treasure");
     assert_eq!((t.tier, t.magic), (2, (50, 2, 3)));
@@ -2622,8 +3083,6 @@ fn the_checks_list_what_the_weenie_names_that_the_world_does_not_have() {
             schema.to_str().unwrap(),
         ],
     );
-    // Every property, under Advanced.
-    ed.panels.advanced = true;
     ed.panels.weenie = Some(lyceum_foundry::edit::Weenie::Symbol(
         "holtburg:guide".into(),
     ));
@@ -2644,6 +3103,7 @@ fn the_checks_list_what_the_weenie_names_that_the_world_does_not_have() {
     };
     let before = faults(&ed);
     use lyceum_editor::app::FormEdit;
+    let guide = lyceum_foundry::edit::Weenie::Symbol("holtburg:guide".into());
     // A class the world has is fine; one it has not, a spell the table has not, and a
     // property the server has no name for are faults, each naming the guide's file.
     for (table, key, value) in [
@@ -2651,17 +3111,23 @@ fn the_checks_list_what_the_weenie_names_that_the_world_does_not_have() {
         ("weenie_properties_create_list", "weenie_Class_Id", "999999"),
         ("weenie_properties_spell_book", "spell", "99999"),
     ] {
-        ed.form_edit(&FormEdit::AddRow {
-            table: table.into(),
-            values: vec![(key.into(), value.into())],
-        })
+        ed.form_edit(
+            &guide,
+            &FormEdit::AddRow {
+                table: table.into(),
+                values: vec![(key.into(), value.into())],
+            },
+        )
         .unwrap();
     }
-    ed.form_edit(&FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::Int,
-        id: 777,
-        value: Some("1".into()),
-    })
+    ed.form_edit(
+        &guide,
+        &FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::Int,
+            id: 777,
+            value: Some("1".into()),
+        },
+    )
     .unwrap();
     let new: Vec<String> = faults(&ed)
         .into_iter()
@@ -3087,8 +3553,9 @@ fn fitting_square(ed: &mut EditorApp, lb: u16, i: usize) -> Option<(f32, f32)> {
     Some(lyceum_foundry::grid::square_middle(s))
 }
 
-/// The server's blanks the "New ..." flows start from: an NPC, a creature, an item, a door, a
-/// portal and a chest, as plain as the server's own.
+/// The server's blanks New Weenie starts from: an NPC, a creature, an item, a door, a portal, a
+/// chest, a long sword, a cuirass, a shirt, a generator, a sign and a lever, as plain as the
+/// server's own.
 const SERVER_BLANKS: &str = "\
 INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
 VALUES (5773, 'npcblank', 10, '2005-02-09 10:00:00')
@@ -3096,31 +3563,55 @@ VALUES (5773, 'npcblank', 10, '2005-02-09 10:00:00')
      , (280, 'itemblank', 1, '2005-02-09 10:00:00')
      , (278, 'doorblank', 19, '2005-02-09 10:00:00')
      , (371, 'portalblank', 7, '2005-02-09 10:00:00')
-     , (143, 'chestblank', 20, '2005-02-09 10:00:00');
+     , (143, 'chestblank', 20, '2005-02-09 10:00:00')
+     , (351, 'swordblank', 6, '2005-02-09 10:00:00')
+     , (50, 'armorblank', 2, '2005-02-09 10:00:00')
+     , (130, 'clothingblank', 2, '2005-02-09 10:00:00')
+     , (381, 'generatorblank', 1, '2005-02-09 10:00:00')
+     , (459, 'signblank', 1, '2005-02-09 10:00:00')
+     , (285, 'switchblank', 26, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)
+VALUES (351, 1, 1), (50, 1, 2), (130, 1, 4), (381, 81, 1), (381, 82, 1);
 INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
 VALUES (5773, 1, 'Townsperson'), (7, 1, 'Drudge'), (280, 1, 'Trinket'), (278, 1, 'Door')
-     , (371, 1, 'Portal'), (143, 1, 'Chest');
+     , (371, 1, 'Portal'), (143, 1, 'Chest'), (351, 1, 'Long Sword'), (50, 1, 'Cuirass')
+     , (130, 1, 'Shirt'), (381, 1, 'Generator'), (459, 1, 'Sign'), (459, 16, 'A sign.')
+     , (285, 1, 'Lever');
 INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
 VALUES (5773, 1, 0x02000001), (7, 1, 0x020007DD), (280, 1, 0x02000181), (278, 1, 0x02000DD2)
-     , (371, 1, 0x020001B3), (143, 1, 0x0200040B);
+     , (371, 1, 0x020001B3), (143, 1, 0x0200040B), (351, 1, 0x02000065), (50, 1, 0x020001A6)
+     , (130, 1, 0x020000D4), (381, 1, 0x0200026B), (459, 1, 0x02000610), (285, 1, 0x020004B5);
 INSERT INTO `treasure_death` (`treasure_Type`, `tier`, `loot_Quality_Mod`, `unknown_Chances`, `item_Chance`, `item_Min_Amount`, `item_Max_Amount`, `item_Treasure_Type_Selection_Chances`, `magic_Item_Chance`, `magic_Item_Min_Amount`, `magic_Item_Max_Amount`, `magic_Item_Treasure_Type_Selection_Chances`, `mundane_Item_Chance`, `mundane_Item_Min_Amount`, `mundane_Item_Max_Amount`, `mundane_Item_Type_Selection_Chances`, `last_Modified`)
 VALUES (4, 1, 0, 19, 100, 1, 1, 8, 50, 0, 1, 8, 100, 0, 2, 8, '2005-02-09 10:00:00');
 ";
 
 #[test]
-fn each_new_flow_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_is_placed_here() {
-    use lyceum_editor::app::Flow;
+fn each_new_kind_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_is_placed_here() {
+    use lyceum_editor::app::{Kind, NewKind, Page, Section};
     let _g = gpu_lock();
     let (dir, world) = sample("editor-flows");
     let sql = dir.path().join("server.sql");
     std::fs::write(&sql, SERVER_BLANKS).unwrap();
     let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
     stone_west(&mut ed);
-    for flow in Flow::ALL {
-        let name = format!("Test {}", flow.key().replace('_', " "));
+    for (n, kind) in NewKind::ALL.into_iter().enumerate() {
+        let name = format!("Test {}", kind.key().replace('_', " "));
+        let steps = ed.session.history().0;
         let w = ed
-            .new_for(flow, &name)
-            .unwrap_or_else(|e| panic!("{flow:?}: {e}"));
+            .new_plain(kind, &name)
+            .unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+        // The server's database is read for the first and kept: the rest are made without its
+        // file.
+        if n == 0 {
+            std::fs::remove_file(&sql).unwrap();
+        }
+        // One step, a quest giver's quest registered in it.
+        assert_eq!(ed.session.history().0, steps + 1, "{kind:?}");
+        assert!(
+            ed.editor.open && ed.editor.weenie() == Some(&w),
+            "the editor on it"
+        );
+        assert_eq!(ed.panels.weenie.as_ref(), Some(&w), "the spawn tool's");
         let (file, mine) = ed.session.weenie_file(&w).unwrap();
         assert!(mine);
         let text = ed.session.sql_text(&file).unwrap();
@@ -3131,23 +3622,70 @@ fn each_new_flow_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_i
                 .map(lyceum_foundry::content::unquote),
             Some(name.clone())
         );
-        assert_eq!(Flow::of(&doc), flow, "{text}");
-        // Its SQL passes every check the pack makes of its content.
+        assert_eq!(Kind::of(&doc), kind.kind(), "{text}");
+        if kind == NewKind::Sign {
+            assert_eq!(
+                doc.property(lyceum_foundry::content::PropertyKind::String, 16)
+                    .as_deref()
+                    .map(lyceum_foundry::content::unquote),
+                Some(name.clone()),
+                "a sign reads its name"
+            );
+        }
+        // Its SQL passes every check the pack makes of its content, but that a plain portal leads
+        // nowhere until its card says where.
         let stem = file.file_stem().unwrap().to_string_lossy().into_owned();
         let said: Vec<_> = ed
             .faults
             .iter()
             .filter(|f| f.text.contains(&stem))
+            .filter(|f| {
+                !(kind == NewKind::Portal && f.warning && f.text.contains("no destination"))
+            })
             .collect();
-        assert!(said.is_empty(), "{flow:?}: {said:#?}\n{text}");
-        // The form by what it is for draws, and one is placed where the camera is.
+        assert!(said.is_empty(), "{kind:?}: {said:#?}\n{text}");
+        // The form by what it is for draws, and one is set down in the world.
         ed.frame();
+        // What an NPC and a quest giver say is on their Emotes page, a line each: the greeting;
+        // the ask after the quest, the thanks, the stamp and what it asks.
+        let lines: &[&str] = match kind {
+            NewKind::Talker => &["action:0:0"],
+            NewKind::QuestGiver => &["action:0:0", "action:1:0", "action:2:0", "action:2:1"],
+            _ => &[],
+        };
+        if !lines.is_empty() {
+            ed.editor.page = Page::Section(Section::Emotes);
+            for _ in 0..2 {
+                ed.frame();
+            }
+            for k in lines {
+                assert!(
+                    ed.editor.row_buttons.iter().any(|(r, _)| r == k),
+                    "{kind:?}: {k}"
+                );
+            }
+            capture(&mut ed, dir.path());
+            std::fs::copy(
+                dir.path().join("frame.png"),
+                shots("new-weenies").join(format!("{}-emotes.png", kind.key())),
+            )
+            .unwrap();
+            ed.editor.page = Page::default();
+        }
         assert!(ed.spawns_of(&w).is_empty());
-        ed.place_one_here(&w).unwrap();
-        assert_eq!(ed.spawns_of(&w).len(), 1, "{flow:?}");
+        spawn_of(&mut ed, &w);
+        assert_eq!(ed.spawns_of(&w).len(), 1, "{kind:?}");
     }
+    assert!(matches!(ed.session.quest("a-favor"), Some((_, Some(_)))));
     // A copy of the server's portal, named as typed: it is listed by that name, not its symbol.
-    let copy = ed.new_copy(371, "Coolest Dungeon").unwrap();
+    let copy = ed
+        .new_copy(&lyceum_foundry::edit::Weenie::Class(371), "Coolest Dungeon")
+        .unwrap();
+    assert_eq!(
+        ed.server_database_reads(),
+        1,
+        "the server's database read once"
+    );
     assert_eq!(
         copy,
         lyceum_foundry::edit::Weenie::Symbol("holtburg:coolest-dungeon".into())
@@ -3158,16 +3696,19 @@ fn each_new_flow_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_i
     let portal = lyceum_foundry::edit::Weenie::Symbol("holtburg:test-portal".into());
     ed.panels.weenie = Some(portal.clone());
     ed.selection = None;
-    ed.destination_dungeon(0x019E).unwrap();
+    ed.destination_dungeon(&portal, 0x019E).unwrap();
     let (file, _) = ed.session.weenie_file(&portal).unwrap();
     assert!(ed.session.sql_text(&file).unwrap().contains("0x019E0100"));
     let vendor = lyceum_foundry::edit::Weenie::Symbol("holtburg:test-vendor".into());
     ed.panels.weenie = Some(vendor.clone());
-    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::Int,
-        id: 74,
-        value: Some("8".into()),
-    })
+    ed.form_edit(
+        &vendor,
+        &lyceum_editor::app::FormEdit::Property {
+            kind: lyceum_foundry::content::PropertyKind::Int,
+            id: 74,
+            value: Some("8".into()),
+        },
+    )
     .unwrap();
     ed.show_weenie();
     // Room to see the whole form.
@@ -3192,6 +3733,1448 @@ fn each_new_flow_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_i
         shots("flows").join("quest-giver.png"),
     )
     .unwrap();
+}
+
+/// The server's weenies of several kinds: a drudge placed in Holtburg, a sword, a hauberk and a
+/// chest that spawns.
+const SERVER_KINDS: &str = "\
+INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90005, 'drudgeskulker', 10, '2005-02-09 10:00:00')
+     , (90011, 'longsword', 6, '2005-02-09 10:00:00')
+     , (90012, 'hauberk', 2, '2005-02-09 10:00:00')
+     , (90013, 'chest', 20, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90005, 1, 'Drudge Skulker'), (90011, 1, 'Longsword'), (90012, 1, 'Chainmail Hauberk')
+     , (90013, 1, 'Chest');
+INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
+VALUES (90005, 1, 0x020007DD), (90011, 1, 0x02000181), (90012, 1, 0x02000181)
+     , (90013, 1, 0x0200040B);
+INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)
+VALUES (90005, 25, 5), (90005, 2, 3), (90005, 146, 120)
+     , (90011, 1, 1), (90011, 9, 1048576), (90011, 44, 14), (90011, 45, 1), (90011, 48, 44)
+     , (90011, 49, 40), (90011, 158, 7), (90011, 159, 1), (90011, 160, 15), (90011, 19, 450)
+     , (90011, 5, 270)
+     , (90012, 1, 2), (90012, 9, 1536), (90012, 4, 3072), (90012, 28, 120), (90012, 19, 900)
+     , (90013, 81, 3), (90013, 82, 1), (90013, 6, 120), (90013, 38, 100);
+INSERT INTO `weenie_properties_float` (`object_Id`, `type`, `value`)
+VALUES (90005, 31, 20), (90005, 64, 1), (90005, 65, 0.5), (90005, 66, 0.75), (90005, 13, 0.9)
+     , (90011, 22, 0.5), (90011, 62, 1.1), (90011, 29, 1.05)
+     , (90012, 13, 1), (90012, 14, 0.8), (90012, 15, 1.2), (90012, 16, 0.6), (90012, 17, 0.5)
+     , (90012, 18, 0.6), (90012, 19, 0.4)
+     , (90013, 41, 300), (90013, 43, 5);
+INSERT INTO `weenie_properties_bool` (`object_Id`, `type`, `value`)
+VALUES (90005, 19, True), (90013, 3, True), (90013, 35, True);
+INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, `last_Modified`)
+VALUES (0x7A9B4050, 90005, 0xA9B40011, 60, 60, 0, 1, 0, 0, 0, False, '2019-05-16 00:00:00');
+";
+
+/// The server's names for what the kinds above set, as `empyrean-import schema` writes them.
+const SCHEMA_KINDS: &str = r#"{"properties":{"int":{"25":"Level","2":"CreatureType","44":"Damage","158":"WieldRequirements","160":"WieldDifficulty"},"float":{"13":"ArmorModVsSlash","64":"ResistSlash"},"string":{"1":"Name"},"did":{"1":"Setup"}},"enums":{"Skill":{"44":"HeavyWeapons","45":"LightWeapons"},"CreatureType":{"3":"Drudge"},"PaletteTemplate":{"39":"Black"}}}"#;
+
+#[test]
+fn each_kind_of_weenie_shows_its_own_sections_and_a_change_from_the_servers_is_marked_and_put_back()
+{
+    use lyceum_editor::app::{Drill, FormEdit, Page, Section, Tab};
+    use lyceum_foundry::content::{PropertyKind, SqlDoc};
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-kinds");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_KINDS).unwrap();
+    let schema = dir.path().join("schema.json");
+    std::fs::write(&schema, SCHEMA_KINDS).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--schema",
+            schema.to_str().unwrap(),
+            "--size",
+            "1600x1000",
+        ],
+    );
+    let shots = shots("weenie-kinds");
+    let page_at = |ed: &EditorApp, page: Page| {
+        ed.editor
+            .page_rects
+            .iter()
+            .find(|(p, _)| *p == page)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{page:?} listed"))
+    };
+    let has = |ed: &EditorApp, key: &str| ed.form_fields.iter().any(|(k, _)| k == key);
+    // Each kind: the Definition pane's lists, the editor's pages, and the page that is its own.
+    let wielding = Page::Section(Section::Wearing);
+    for (class, name, lists, pages, page, keys) in [
+        (
+            90011,
+            "sword",
+            &[Drill::Spells, Drill::Appears, Drill::UsedBy][..],
+            &[
+                Section::Basic,
+                Section::Appearance,
+                Section::Wearing,
+                Section::Weapon,
+                Section::Magic,
+                Section::Emotes,
+            ][..],
+            Page::Section(Section::Weapon),
+            &["int:44", "float:22", "int:49", "float:62", "float:29"][..],
+        ),
+        (
+            90012,
+            "armor",
+            &[Drill::Spells, Drill::Appears, Drill::UsedBy][..],
+            &[
+                Section::Basic,
+                Section::Appearance,
+                Section::Wearing,
+                Section::Magic,
+                Section::Emotes,
+            ][..],
+            Page::Section(Section::Wearing),
+            &[
+                "int:28",
+                "float:13",
+                "float:14",
+                "float:15",
+                "float:16",
+                "float:17",
+                "float:18",
+                "float:19",
+                "float:165",
+            ][..],
+        ),
+        (
+            90013,
+            "chest",
+            &[Drill::Holds, Drill::Spawns, Drill::Appears, Drill::UsedBy][..],
+            &[
+                Section::Basic,
+                Section::Lock,
+                Section::Holds,
+                Section::Spawns,
+                Section::Emotes,
+            ][..],
+            Page::Section(Section::Spawns),
+            &["int:81", "int:82", "float:41", "float:43"][..],
+        ),
+        (
+            90005,
+            "creature",
+            &[
+                Drill::Wields,
+                Drill::Skills,
+                Drill::BodyParts,
+                Drill::Spells,
+                Drill::Emotes,
+                Drill::Appears,
+                Drill::UsedBy,
+            ][..],
+            &[
+                Section::Basic,
+                Section::Appearance,
+                Section::Creature,
+                Section::Attributes,
+                Section::Skills,
+                Section::BodyParts,
+                Section::Protection,
+                Section::Magic,
+                Section::Holds,
+                Section::Emotes,
+            ][..],
+            Page::Section(Section::Creature),
+            &["int:25", "int:146", "float:31", "float:64", "float:65"][..],
+        ),
+    ] {
+        let w = Weenie::Class(class);
+        ed.server_class_now(class).unwrap().expect("its rows");
+        ed.selection = None;
+        ed.panels.weenie = Some(w.clone());
+        ed.editor.open = false;
+        ed.show_tab(Tab::Definition);
+        for _ in 0..3 {
+            ed.frame();
+        }
+        let drawn: Vec<Drill> = ed.definition.drill_rects.iter().map(|(d, _)| *d).collect();
+        assert_eq!(drawn, lists, "{name}: the pane's lists");
+        capture(&mut ed, dir.path());
+        std::fs::copy(
+            dir.path().join("frame.png"),
+            shots.join(format!("{name}-definition.png")),
+        )
+        .unwrap();
+        // The editor lists its pages, then Advanced; its own page shows its fields.
+        ed.open_editor(w.clone());
+        for _ in 0..2 {
+            ed.frame();
+        }
+        let listed: Vec<Page> = ed.editor.page_rects.iter().map(|(p, _)| *p).collect();
+        let want: Vec<Page> = pages
+            .iter()
+            .map(|s| Page::Section(*s))
+            .chain([Page::Advanced])
+            .collect();
+        assert_eq!(listed, want, "{name}: the editor's pages");
+        let r = page_at(&ed, page);
+        click(&mut ed, (r.center().x, r.center().y));
+        ed.frame();
+        for key in keys {
+            assert!(has(&ed, key), "{name}: {key}");
+        }
+        capture(&mut ed, dir.path());
+        std::fs::copy(
+            dir.path().join("frame.png"),
+            shots.join(format!("{name}-editor.png")),
+        )
+        .unwrap();
+        // A sword's wielding needs a level: the level asked for, no skill.
+        if class == 90011 {
+            let r = page_at(&ed, wielding);
+            click(&mut ed, (r.center().x, r.center().y));
+            ed.frame();
+            assert!(has(&ed, "int:160") && !has(&ed, "int:159"));
+        }
+        assert_eq!(
+            ed.session.history(),
+            (0, 0),
+            "{name}: looking changes nothing"
+        );
+    }
+    // The drudge changed in this world: its level differs from the server's, and is marked on
+    // its field and its page.
+    let drudge = Weenie::Class(90005);
+    change_in_world(&mut ed, 90005);
+    ed.form_edit(
+        &drudge,
+        &FormEdit::Property {
+            kind: PropertyKind::Int,
+            id: 25,
+            value: Some("7".into()),
+        },
+    )
+    .unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert_eq!(ed.editor.page, Page::Section(Section::Creature));
+    let marked: Vec<&str> = ed
+        .editor
+        .changed_marks
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect();
+    assert_eq!(marked, ["int:25"]);
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots.join("creature-changed.png"),
+    )
+    .unwrap();
+    // Put back by a right click on its mark: the server's level, as one step.
+    let mark = ed.editor.changed_marks[0].1;
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(mark.center().x),
+        y: f64::from(mark.center().y),
+    });
+    for pressed in [true, false] {
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+        ed.frame();
+    }
+    for _ in 0..4 {
+        ed.frame();
+    }
+    let button = ed.editor.put_back_button.expect("its menu's Put back");
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots.join("creature-put-back.png"),
+    )
+    .unwrap();
+    click(&mut ed, (button.center().x, button.center().y));
+    ed.frame();
+    let (file, _) = ed.session.weenie_file(&drudge).unwrap();
+    let doc = SqlDoc::parse(&ed.session.sql_text(&file).unwrap());
+    assert_eq!(doc.property(PropertyKind::Int, 25).as_deref(), Some("5"));
+    assert_eq!(ed.session.history(), (3, 0), "copied, changed, put back");
+    assert!(ed.editor.changed_marks.is_empty());
+    // The pack's guide, an NPC: its emotes' page opens on its rows.
+    ed.open_editor(Weenie::Symbol("holtburg:guide".into()));
+    ed.frame();
+    let r = page_at(&ed, Page::Section(Section::Emotes));
+    click(&mut ed, (r.center().x, r.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    capture(&mut ed, dir.path());
+    std::fs::copy(dir.path().join("frame.png"), shots.join("npc-emotes.png")).unwrap();
+    assert!(has(&ed, "emote:0:chance"), "its first set, with its chance");
+}
+
+#[test]
+fn an_armors_equipment_page_ticks_its_dropdowns_a_step_each_and_puts_a_wield_need_back_unset() {
+    use lyceum_editor::app::{FormEdit, Page, Section};
+    use lyceum_foundry::content::{bare, PropertyKind, SqlDoc};
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-equipment");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_KINDS).unwrap();
+    let schema = dir.path().join("schema.json");
+    std::fs::write(&schema, SCHEMA_KINDS).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--schema",
+            schema.to_str().unwrap(),
+            "--size",
+            "1600x1000",
+        ],
+    );
+    let shots = shots("weenie-kinds");
+    let armor = Weenie::Class(90012);
+    ed.server_class_now(90012).unwrap().expect("its rows");
+    change_in_world(&mut ed, 90012);
+    ed.editor.page = Page::Section(Section::Wearing);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let int = |ed: &mut EditorApp, id: u32| -> Option<i64> {
+        let (file, _) = ed.session.weenie_file(&armor).unwrap();
+        SqlDoc::parse(&ed.session.sql_text(&file).unwrap())
+            .property(PropertyKind::Int, id)
+            .and_then(|v| bare(&v).trim().parse().ok())
+    };
+    // Its protection is on its equipment's page, and what it covers is a dropdown too.
+    let has = |ed: &EditorApp, key: &str| ed.form_fields.iter().any(|(k, _)| k == key);
+    assert!(has(&ed, "int:28") && has(&ed, "float:13"));
+    drawn(&ed.editor.add_buttons, "int:4");
+    // Where it is worn: a dropdown of check boxes that stays open while two are ticked, a step
+    // each.
+    assert_eq!(int(&mut ed, 9), Some(1536));
+    let steps = ed.session.history().0;
+    let combo = drawn(&ed.editor.add_buttons, "int:9");
+    click(&mut ed, (combo.center().x, combo.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    for bit in [0x0000_0001_u32, 0x0000_0100] {
+        let r = drawn(&ed.editor.picker_rows, &format!("int:9:{bit:08X}"));
+        click(&mut ed, (r.center().x, r.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+    }
+    assert_eq!(int(&mut ed, 9), Some(1536 | 0x101));
+    assert_eq!(ed.session.history().0, steps + 2, "a step each");
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots.join("armor-worn-on.png"),
+    )
+    .unwrap();
+    // Closed by a click beside it, it counts what is ticked.
+    let page = ed
+        .editor
+        .page_rects
+        .iter()
+        .find(|(p, _)| *p == Page::Section(Section::Wearing))
+        .map(|(_, r)| *r)
+        .expect("its page listed");
+    click(&mut ed, (page.center().x, page.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(
+        !ed.editor
+            .picker_rows
+            .iter()
+            .any(|(k, _)| k.starts_with("int:9:")),
+        "closed"
+    );
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots.join("armor-equipment.png"),
+    )
+    .unwrap();
+    // Needing level 3 to wield, which the server's armor leaves unset: put back by its mark's
+    // menu, the need and its level taken away as one step, its "of" left as it was, unset.
+    ed.form_edits(
+        &armor,
+        &[
+            FormEdit::Property {
+                kind: PropertyKind::Int,
+                id: 158,
+                value: Some("7".into()),
+            },
+            FormEdit::Property {
+                kind: PropertyKind::Int,
+                id: 160,
+                value: Some("3".into()),
+            },
+        ],
+    )
+    .unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let steps = ed.session.history().0;
+    put_back_by_mark(&mut ed, "flow:wield_needs");
+    assert_eq!(ed.session.history().0, steps + 1, "{}", ed.panels.message);
+    assert_eq!((int(&mut ed, 158), int(&mut ed, 160)), (None, None));
+    ed.frame();
+    assert!(!ed
+        .editor
+        .changed_marks
+        .iter()
+        .any(|(k, _)| k == "flow:wield_needs"));
+}
+
+#[test]
+fn advanced_adds_a_property_and_a_tables_row_by_its_boxes_and_add_each_as_one_step() {
+    use lyceum_editor::app::Page;
+    use lyceum_foundry::content::{PropertyKind, SqlDoc};
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-advanced-add");
+    let schema = dir.path().join("schema.json");
+    std::fs::write(&schema, SCHEMA).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--schema", schema.to_str().unwrap(), "--size", "1600x1100"],
+    );
+    let guide = Weenie::Symbol("holtburg:guide".into());
+    ed.open_editor(guide.clone());
+    ed.editor.page = Page::Advanced;
+    // Every property and table, those its other pages show too.
+    ed.editor.advanced_all = true;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let doc = |ed: &mut EditorApp| {
+        let (file, _) = ed.session.weenie_file(&guide).unwrap();
+        SqlDoc::parse(&ed.session.sql_text(&file).unwrap())
+    };
+    let into = |ed: &mut EditorApp, key: &str, text: &str, enter: bool| {
+        let r = drawn(&ed.form_fields, key);
+        type_in(ed, r, text, enter);
+    };
+    // A fold opened or closed by a click on its heading, drawn until it has finished opening
+    // or closing, so what is under it stands still.
+    let fold = |ed: &mut EditorApp, key: &str| {
+        let (r, was) = ed
+            .editor
+            .folds
+            .iter()
+            .find(|(k, ..)| k == key)
+            .map(|(_, r, o)| (*r, *o))
+            .unwrap_or_else(|| panic!("{key} drawn"));
+        click(ed, (r.center().x, r.center().y));
+        let done = if was > 0.5 { 0.0 } else { 1.0 };
+        for _ in 0..10_000 {
+            if ed
+                .editor
+                .folds
+                .iter()
+                .any(|(k, _, o)| k == key && (*o - done).abs() < f32::EPSILON)
+            {
+                return;
+            }
+            ed.frame();
+        }
+        panic!("{key} never finished");
+    };
+    // A property by its number, then one by the server's name of it, Enter in its value adding
+    // each.
+    into(&mut ed, "add:int:name", "146", false);
+    into(&mut ed, "add:int:value", "120", true);
+    assert_eq!(
+        doc(&mut ed).property(PropertyKind::Int, 146).as_deref(),
+        Some("120")
+    );
+    into(&mut ed, "add:int:name", "Level", false);
+    into(&mut ed, "add:int:value", "12", true);
+    assert_eq!(
+        doc(&mut ed).property(PropertyKind::Int, 25).as_deref(),
+        Some("12")
+    );
+    assert_eq!(ed.session.history(), (2, 0));
+    // A name the server has no property of is said so, and nothing changes.
+    into(&mut ed, "add:int:name", "Bogus", false);
+    into(&mut ed, "add:int:value", "1", true);
+    assert!(ed.panels.message.contains("Bogus"), "{}", ed.panels.message);
+    assert_eq!(ed.session.history(), (2, 0));
+    // Folded away, the tables' rows come into view.
+    for kind in ["int", "did"] {
+        fold(&mut ed, kind);
+    }
+    // A spell by its id and chance.
+    fold(&mut ed, "weenie_properties_spell_book");
+    into(
+        &mut ed,
+        "add:weenie_properties_spell_book:spell",
+        "1",
+        false,
+    );
+    into(
+        &mut ed,
+        "add:weenie_properties_spell_book:probability",
+        "2.5",
+        true,
+    );
+    let d = doc(&mut ed);
+    let book = d.rows("weenie_properties_spell_book");
+    assert_eq!(book.len(), 1);
+    assert_eq!(
+        (d.cell(book[0], "spell"), d.cell(book[0], "probability")),
+        (Some("1".into()), Some("2.5".into()))
+    );
+    // What it carries, by its wcid and Add; a wcid that is none is refused.
+    fold(&mut ed, "weenie_properties_spell_book");
+    fold(&mut ed, "weenie_properties_create_list");
+    into(
+        &mut ed,
+        "add:weenie_properties_create_list:weenie_Class_Id",
+        "bogus",
+        true,
+    );
+    assert_eq!(ed.session.history(), (3, 0), "{}", ed.panels.message);
+    into(
+        &mut ed,
+        "add:weenie_properties_create_list:weenie_Class_Id",
+        "{{wcid:guide}}",
+        false,
+    );
+    let add = drawn(&ed.editor.add_buttons, "add:weenie_properties_create_list");
+    click(&mut ed, (add.center().x, add.center().y));
+    ed.frame();
+    let d = doc(&mut ed);
+    let list = d.rows("weenie_properties_create_list");
+    assert_eq!(
+        d.cell(*list.last().unwrap(), "weenie_Class_Id").as_deref(),
+        Some("{{wcid:guide}}")
+    );
+    // A table with no editor of its own: a palette, every column by its own name.
+    fold(&mut ed, "weenie_properties_create_list");
+    fold(&mut ed, "weenie_properties_palette");
+    into(
+        &mut ed,
+        "add:weenie_properties_palette:sub_Palette_Id",
+        "0x04000BEF",
+        false,
+    );
+    into(&mut ed, "add:weenie_properties_palette:length", "12", true);
+    let d = doc(&mut ed);
+    let palette = d.rows("weenie_properties_palette");
+    assert_eq!(palette.len(), 1);
+    assert_eq!(
+        ["sub_Palette_Id", "offset", "length"].map(|c| d.cell(palette[0], c)),
+        [
+            Some("0x04000BEF".into()),
+            Some("0".into()),
+            Some("12".into())
+        ]
+    );
+    assert_eq!(ed.session.history(), (5, 0));
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("weenie-editor").join("advanced-add.png"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn new_weenie_makes_a_plain_one_or_a_copy_of_any_weenie_as_typed_and_the_editor_opens_on_it() {
+    use lyceum_editor::app::NewKind;
+    use lyceum_foundry::content::{unquote, PropertyKind, SqlDoc};
+    use lyceum_foundry::edit::Weenie;
+    let _g = gpu_lock();
+    let (dir, world) = sample("editor-creator");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_BLANKS).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
+    let guide = Weenie::Symbol("holtburg:guide".into());
+    let shot = |ed: &mut EditorApp, name: &str| {
+        capture(ed, dir.path());
+        std::fs::copy(dir.path().join("frame.png"), shots("new-weenie").join(name)).unwrap();
+    };
+    let center = |r: Option<egui::Rect>| {
+        let r = r.expect("drawn");
+        (r.center().x, r.center().y)
+    };
+    let text_of = |ed: &mut EditorApp, w: &Weenie| {
+        let file = ed.session.weenie_file(w).expect("its file").0;
+        ed.session.sql_text(&file).unwrap()
+    };
+    // Plain: a sign, named as typed.
+    // Laid out over the window once it is measured: a frame to size it, one to draw it.
+    let open = |ed: &mut EditorApp, copy_of: Option<Weenie>| {
+        ed.open_creator(copy_of);
+        for _ in 0..3 {
+            ed.frame();
+        }
+        assert!(ed.editor.creator.open);
+    };
+    open(&mut ed, None);
+    assert!(!ed.editor.creator.copy);
+    ed.editor.creator.kind = NewKind::Sign;
+    let name = ed.editor.creator.name_field.unwrap();
+    type_in(&mut ed, name, "Holtburg: 2 miles", false);
+    assert_eq!(ed.editor.creator.name, "Holtburg: 2 miles");
+    shot(&mut ed, "plain.png");
+    let steps = ed.session.history().0;
+    let at = center(ed.editor.creator.make_button);
+    click(&mut ed, at);
+    let sign = Weenie::Symbol("holtburg:holtburg-2-miles".into());
+    assert!(!ed.editor.creator.open, "{:?}", ed.editor.creator.problem);
+    assert_eq!(ed.session.history().0, steps + 1);
+    assert_eq!(ed.editor.weenie(), Some(&sign));
+    assert_eq!(ed.panels.weenie.as_ref(), Some(&sign), "the spawn tool's");
+    let doc = SqlDoc::parse(&text_of(&mut ed, &sign));
+    assert_eq!(
+        doc.property(PropertyKind::String, 16).map(|v| unquote(&v)),
+        Some("Holtburg: 2 miles".into())
+    );
+    // The name taken: said in the dialog, which stays open, and nothing is written.
+    open(&mut ed, None);
+    let name = ed.editor.creator.name_field.unwrap();
+    type_in(&mut ed, name, "Holtburg: 2 miles", true);
+    assert!(ed.editor.creator.open && ed.editor.creator.problem.is_some());
+    shot(&mut ed, "taken.png");
+    assert_eq!(ed.session.history().0, steps + 1);
+    let at = center(ed.editor.creator.cancel_button);
+    click(&mut ed, at);
+    assert!(!ed.editor.creator.open);
+    // A copy of the pack's guide, from its menu: listed first, named as it is until renamed.
+    open(&mut ed, Some(guide.clone()));
+    let c = &ed.editor.creator;
+    assert!(c.copy && c.of.as_ref() == Some(&guide));
+    assert_eq!(c.kind, NewKind::Talker, "listed among its own kind, an NPC");
+    assert_eq!(c.name, "Gribble the Painted");
+    assert_eq!(c.rows.first().map(|(w, _)| w), Some(&guide), "shown first");
+    let name = ed.editor.creator.name_field.unwrap();
+    type_in(&mut ed, name, "Gribble Twin", false);
+    shot(&mut ed, "copy.png");
+    let at = center(ed.editor.creator.make_button);
+    click(&mut ed, at);
+    let twin = Weenie::Symbol("holtburg:gribble-twin".into());
+    assert_eq!(
+        ed.editor.weenie(),
+        Some(&twin),
+        "{:?}",
+        ed.editor.creator.problem
+    );
+    let text = text_of(&mut ed, &twin);
+    let doc = SqlDoc::parse(&text);
+    assert_eq!(doc.class().as_deref(), Some("{{wcid:gribble-twin}}"));
+    assert_eq!(
+        doc.property(PropertyKind::String, 1).map(|v| unquote(&v)),
+        Some("Gribble Twin".into())
+    );
+    assert_eq!(doc.emote_sets().len(), 1, "its emotes copied");
+    assert!(text.contains("{{surface-texture:stripes}}"), "{text}");
+    assert!(
+        !text.contains("Gribble, a drudge"),
+        "the guide's own comment"
+    );
+    let entry = ed.weenies.iter().find(|e| e.weenie == twin).unwrap();
+    assert_eq!(entry.name, "Gribble Twin");
+    // A copy of a server's class, chosen from the list by its kind and a search.
+    open(&mut ed, None);
+    ed.editor.creator.kind = NewKind::MeleeWeapon;
+    let at = center(ed.editor.creator.copy_button);
+    click(&mut ed, at);
+    assert!(ed.editor.creator.copy);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    shot(&mut ed, "copy-list.png");
+    ed.editor.creator.search = "long".into();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let sword = Weenie::Class(351);
+    let row = ed
+        .editor
+        .creator
+        .rows
+        .iter()
+        .find(|(w, _)| *w == sword)
+        .map(|(_, r)| *r);
+    let at = center(row);
+    click(&mut ed, at);
+    assert_eq!(ed.editor.creator.of.as_ref(), Some(&sword));
+    let name = ed.editor.creator.name_field.unwrap();
+    type_in(&mut ed, name, "Fine Sword", true);
+    let fine = Weenie::Symbol("holtburg:fine-sword".into());
+    assert_eq!(
+        ed.editor.weenie(),
+        Some(&fine),
+        "{:?}",
+        ed.editor.creator.problem
+    );
+    assert!(text_of(&mut ed, &fine).contains("'fine-sword', 6,"));
+    assert!(
+        ed.session.weenie_file(&sword).is_none(),
+        "the server's own unchanged"
+    );
+    assert_eq!(
+        ed.server_database_reads(),
+        1,
+        "the server's database read once"
+    );
+    ed.frame();
+    shot(&mut ed, "made.png");
+}
+
+/// The server's drudge with lists of every kind (a wield made always, a set drawn by chance, a
+/// spell, attributes, vitals, a skill and two body parts), a camp spawning three things, and the
+/// things they name.
+const SERVER_LISTS: &str = "\
+INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90020, 'drudgelister', 10, '2005-02-09 10:00:00')
+     , (90021, 'camp', 1, '2005-02-09 10:00:00')
+     , (90011, 'longsword', 6, '2005-02-09 10:00:00')
+     , (90012, 'hauberk', 2, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90020, 1, 'Drudge Lister'), (90021, 1, 'Camp'), (90011, 1, 'Longsword')
+     , (90012, 1, 'Chainmail Hauberk');
+INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
+VALUES (90020, 1, 0x020007DD), (90011, 1, 0x02000181), (90012, 1, 0x02000181);
+INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)
+VALUES (90020, 25, 5), (90021, 81, 3), (90021, 82, 1);
+INSERT INTO `weenie_properties_create_list` (`object_Id`, `destination_Type`, `weenie_Class_Id`, `stack_Size`, `palette`, `shade`, `try_To_Bond`)
+VALUES (90020, 2, 90011, 1, 0, 0, False)
+     , (90020, 10, 90012, 1, 0, 0.5, False)
+     , (90020, 10, 0, 1, 0, 0.5, False);
+INSERT INTO `weenie_properties_spell_book` (`object_Id`, `spell`, `probability`)
+VALUES (90020, 1, 2.05);
+INSERT INTO `weenie_properties_attribute` (`object_Id`, `type`, `init_Level`, `level_From_C_P`, `c_P_Spent`)
+VALUES (90020, 1, 40, 0, 0), (90020, 2, 40, 0, 0);
+INSERT INTO `weenie_properties_attribute_2nd` (`object_Id`, `type`, `init_Level`, `level_From_C_P`, `c_P_Spent`, `current_Level`)
+VALUES (90020, 1, 30, 0, 0, 50);
+INSERT INTO `weenie_properties_skill` (`object_Id`, `type`, `level_From_P_P`, `s_a_c`, `p_p`, `init_Level`, `resistance_At_Last_Check`, `last_Used_Time`)
+VALUES (90020, 6, 0, 2, 0, 50, 0, 0);
+INSERT INTO `weenie_properties_body_part` (`object_Id`, `key`, `d_Type`, `d_Val`, `d_Var`, `base_Armor`, `armor_Vs_Slash`, `armor_Vs_Pierce`, `armor_Vs_Bludgeon`, `armor_Vs_Cold`, `armor_Vs_Fire`, `armor_Vs_Acid`, `armor_Vs_Electric`, `armor_Vs_Nether`, `b_h`, `h_l_f`, `m_l_f`, `l_l_f`, `h_r_f`, `m_r_f`, `l_r_f`, `h_l_b`, `m_l_b`, `l_l_b`, `h_r_b`, `m_r_b`, `l_r_b`)
+VALUES (90020, 0, 4, 2, 0.75, 10, 10, 10, 10, 10, 10, 10, 10, 0, 1, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0)
+     , (90020, 1, 4, 3, 0.75, 20, 20, 20, 20, 20, 20, 20, 20, 0, 2, 0.44, 0.17, 0, 0.44, 0.17, 0, 0.44, 0.17, 0, 0.44, 0.17, 0);
+INSERT INTO `weenie_properties_generator` (`object_Id`, `probability`, `weenie_Class_Id`, `delay`, `init_Create`, `max_Create`, `when_Create`, `where_Create`, `stack_Size`, `palette_Id`, `shade`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`)
+VALUES (90021, 0.25, 90020, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90021, 0.5, 90011, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90021, 1, 90012, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+";
+
+/// The server's names for the lists above, as `empyrean-import schema` writes them.
+const SCHEMA_LISTS: &str = r#"{"properties":{"int":{"25":"Level"}},"enums":{"Skill":{"6":"MeleeDefense","15":"MagicDefense"},"RegenerationType":{"1":"Destruction","2":"PickUp"},"RegenLocationType":{"2":"Scatter","4":"Specific"},"Attribute":{"1":"Strength","2":"Endurance"},"Vital":{"1":"MaxHealth"}}}"#;
+
+#[test]
+fn a_weenies_lists_take_chances_shares_and_spells_by_name_and_are_put_back_as_the_servers() {
+    use lyceum_editor::app::{Page, Section, Tab, TableRow};
+    use lyceum_foundry::content::SqlDoc;
+    use lyceum_foundry::edit::Weenie;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-lists");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_LISTS).unwrap();
+    let schema = dir.path().join("schema.json");
+    std::fs::write(&schema, SCHEMA_LISTS).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--schema",
+            schema.to_str().unwrap(),
+            "--size",
+            "1600x1000",
+        ],
+    );
+    let shots = shots("weenie-lists");
+    let shoot = |ed: &mut EditorApp, name: &str| {
+        capture(ed, dir.path());
+        std::fs::copy(dir.path().join("frame.png"), shots.join(name)).unwrap();
+    };
+    let page = |ed: &mut EditorApp, s: Section| {
+        let r = ed
+            .editor
+            .page_rects
+            .iter()
+            .find(|(p, _)| *p == Page::Section(s))
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{s:?} listed"));
+        click(ed, (r.center().x, r.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+        assert_eq!(ed.editor.page, Page::Section(s));
+    };
+    let rows_of = |ed: &mut EditorApp, w: &Weenie, table: &str| -> Vec<TableRow> {
+        let (file, _) = ed.session.weenie_file(w).expect("the pack's file");
+        let doc = SqlDoc::parse(&ed.session.sql_text(&file).unwrap());
+        lyceum_editor::app::table_rows(&doc, table)
+    };
+    let drudge = Weenie::Class(90020);
+    ed.server_class_now(90020).unwrap().expect("its rows");
+    change_in_world(&mut ed, 90020);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    // What it wields, in Creature under what it has equipped: one always, then a set: the
+    // hauberk at 50% and nothing at 50%.
+    page(&mut ed, Section::Creature);
+    shoot(&mut ed, "wields.png");
+    // Whether each drops when it dies: the set's treasure does, the one wielded always does not;
+    // what makes nothing is not marked.
+    assert_eq!(
+        ed.editor.drop_marks,
+        [
+            ("list:wields:0".to_owned(), false),
+            ("list:wields:1".to_owned(), true)
+        ]
+    );
+    type_into(&mut ed, "list:wields:1:chance", "80");
+    let list = rows_of(&mut ed, &drudge, "weenie_properties_create_list");
+    let shades: Vec<(f64, f64)> = list
+        .iter()
+        .map(|r| {
+            (
+                r.number("weenie_Class_Id").unwrap(),
+                r.number("shade").unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shades,
+        [(90011.0, 0.0), (90012.0, 0.8), (0.0, 0.2)],
+        "{list:?}"
+    );
+    // More than the set has room for: refused, saying how much it can have.
+    let steps = ed.session.history();
+    type_into(&mut ed, "list:wields:1:chance", "120");
+    assert_eq!(ed.session.history(), steps, "nothing changed");
+    assert!(ed.panels.message.contains("100"), "{}", ed.panels.message);
+    // Marked changed from the server's; put back by its mark's menu.
+    ed.frame();
+    let mark = ed
+        .editor
+        .changed_marks
+        .iter()
+        .find(|(k, _)| k == "flow:wields")
+        .map(|(_, r)| *r)
+        .expect("the wields marked changed");
+    shoot(&mut ed, "wields-changed.png");
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(mark.center().x),
+        y: f64::from(mark.center().y),
+    });
+    for pressed in [true, false] {
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+        ed.frame();
+    }
+    for _ in 0..4 {
+        ed.frame();
+    }
+    let button = ed.editor.put_back_button.expect("its menu's Put back");
+    click(&mut ed, (button.center().x, button.center().y));
+    ed.frame();
+    let back: Vec<f64> = rows_of(&mut ed, &drudge, "weenie_properties_create_list")
+        .iter()
+        .map(|r| r.number("shade").unwrap())
+        .collect();
+    assert_eq!(back, [0.0, 0.5, 0.5]);
+    assert!(!ed
+        .editor
+        .changed_marks
+        .iter()
+        .any(|(k, _)| k == "flow:wields"));
+    // Its Add… opens a picker that stays open while its search is clicked into and typed in; a
+    // weenie clicked in it is added. The page is scrolled to its end first, where the Add… is in
+    // view.
+    let add = drawn(&ed.editor.add_buttons, "list:wields:add");
+    hover(&mut ed, (add.center().x, add.min.y - 100.0));
+    for _ in 0..10 {
+        ed.queue(HostEvent::MouseWheel { notches: -1.0 });
+        ed.frame();
+    }
+    let add = drawn(&ed.editor.add_buttons, "list:wields:add");
+    click(&mut ed, (add.center().x, add.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let search = ed.editor.picker_search_field.expect("its search");
+    type_in(&mut ed, search, "drudge", false);
+    assert!(
+        ed.editor.picker_search_field.is_some(),
+        "still open after a click into its search"
+    );
+    assert_eq!(ed.editor.picker_search, "drudge");
+    shoot(&mut ed, "wields-add.png");
+    let (token, row) = ed
+        .editor
+        .picker_rows
+        .first()
+        .cloned()
+        .expect("drudges listed");
+    click(&mut ed, (row.center().x, row.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(
+        ed.editor.picker_search_field.is_none(),
+        "closed on a choice"
+    );
+    let list = rows_of(&mut ed, &drudge, "weenie_properties_create_list");
+    assert_eq!(list.len(), 4);
+    assert!(list
+        .iter()
+        .any(|r| r.get("weenie_Class_Id") == Some(token.as_str())));
+    ed.edit(&Edit::Undo).unwrap();
+    // A spell added by name from the picker: its book grows by one.
+    page(&mut ed, Section::Magic);
+    let add = ed
+        .editor
+        .add_buttons
+        .iter()
+        .find(|(k, _)| k == "spell:add")
+        .map(|(_, r)| *r)
+        .expect("Add a spell");
+    click(&mut ed, (add.center().x, add.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    shoot(&mut ed, "spell-picker.png");
+    let (spell, row) = ed
+        .editor
+        .picker_rows
+        .first()
+        .cloned()
+        .expect("spells listed");
+    click(&mut ed, (row.center().x, row.center().y));
+    ed.frame();
+    let book = rows_of(&mut ed, &drudge, "weenie_properties_spell_book");
+    assert_eq!(book.len(), 2);
+    assert_eq!(book[1].get("spell"), Some(spell.as_str()));
+    // The first spell's chance to cast, in percent: written as the server reads it.
+    type_into(&mut ed, "spell:0:chance", "30");
+    let book = rows_of(&mut ed, &drudge, "weenie_properties_spell_book");
+    assert!((book[0].number("probability").unwrap() - 2.3).abs() < 1e-9);
+    shoot(&mut ed, "spells.png");
+    // An attribute and a body part's damage typed in; a vital it lacks made.
+    page(&mut ed, Section::Attributes);
+    type_into(&mut ed, "attribute:1", "150");
+    type_into(&mut ed, "vital:3:base", "80");
+    let attributes = rows_of(&mut ed, &drudge, "weenie_properties_attribute");
+    assert_eq!(attributes[0].get("init_Level"), Some("150"));
+    let vitals = rows_of(&mut ed, &drudge, "weenie_properties_attribute_2nd");
+    assert_eq!(vitals.len(), 2);
+    assert_eq!(vitals[1].get("type"), Some("3"));
+    assert_eq!(vitals[1].get("current_Level"), Some("80"));
+    shoot(&mut ed, "attributes.png");
+    page(&mut ed, Section::Skills);
+    shoot(&mut ed, "skills.png");
+    page(&mut ed, Section::BodyParts);
+    type_into(&mut ed, "part:0:d_Val", "20");
+    let parts = rows_of(&mut ed, &drudge, "weenie_properties_body_part");
+    assert_eq!(parts[0].get("d_Val"), Some("20"));
+    shoot(&mut ed, "body-parts.png");
+    // The camp's spawns: shares in percent; the first made 50%, the others keeping theirs among
+    // them, written back as running totals.
+    let camp = Weenie::Class(90021);
+    ed.server_class_now(90021).unwrap().expect("its rows");
+    change_in_world(&mut ed, 90021);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    page(&mut ed, Section::Spawns);
+    type_into(&mut ed, "spawn:0:share", "50");
+    let totals: Vec<f64> = rows_of(&mut ed, &camp, "weenie_properties_generator")
+        .iter()
+        .map(|r| r.number("probability").unwrap())
+        .collect();
+    let shares: Vec<f64> =
+        lyceum_editor::app::generator_percents(&lyceum_editor::app::generator_draws(&totals))
+            .into_iter()
+            .flatten()
+            .collect();
+    let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
+    assert!(
+        near(shares[0], 50.0) && near(shares[1], 50.0 / 3.0) && near(shares[2], 100.0 / 3.0),
+        "{totals:?} {shares:?}"
+    );
+    assert!(near(totals[2], 1.0), "{totals:?}");
+    shoot(&mut ed, "spawns.png");
+    // When the first is made again: when it dies, then once it is gone again, each a step; the
+    // others' rows written as they were.
+    let when = |ed: &mut EditorApp| -> Vec<Option<String>> {
+        rows_of(ed, &camp, "weenie_properties_generator")
+            .iter()
+            .map(|r| r.get("when_Create").map(str::to_owned))
+            .collect()
+    };
+    let before = when(&mut ed);
+    for (choice, want) in [("death", "4"), ("gone", "1")] {
+        let steps = ed.session.history().0;
+        let combo = drawn(&ed.editor.add_buttons, "spawn:0:when");
+        click(&mut ed, (combo.center().x, combo.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+        if choice == "death" {
+            shoot(&mut ed, "spawn-when.png");
+        }
+        let row = drawn(&ed.editor.picker_rows, &format!("spawn:0:when:{choice}"));
+        click(&mut ed, (row.center().x, row.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+        let now = when(&mut ed);
+        assert_eq!(now[0].as_deref(), Some(want), "{choice}");
+        assert_eq!(now[1..], before[1..]);
+        assert_eq!(ed.session.history().0, steps + 1, "{choice}: one step");
+    }
+    // Choosing what it says already writes nothing.
+    let steps = ed.session.history();
+    let combo = drawn(&ed.editor.add_buttons, "spawn:1:when");
+    click(&mut ed, (combo.center().x, combo.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let row = drawn(&ed.editor.picker_rows, "spawn:1:when:gone");
+    click(&mut ed, (row.center().x, row.center().y));
+    ed.frame();
+    assert_eq!(ed.session.history(), steps);
+    // The Definition pane lists its wields with their chances.
+    ed.selection = None;
+    ed.panels.weenie = Some(drudge.clone());
+    ed.editor.open = false;
+    ed.show_tab(Tab::Definition);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let wields = ed
+        .definition
+        .drill_rects
+        .iter()
+        .find(|(d, _)| *d == lyceum_editor::app::Drill::Wields)
+        .map(|(_, r)| *r)
+        .expect("its wields counted");
+    click(&mut ed, (wields.center().x, wields.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    shoot(&mut ed, "definition-wields.png");
+}
+
+/// A server's database for the emotes, the findings and Find usages, as a dump writes its emotes
+/// (each action naming its set by the set's row id): a greeter who says one of two things when
+/// used and gives a longsword for a hauberk, a camp that spawns in two sets, a drudge that wields
+/// the hauberk, and three more drudges' heads.
+const SERVER_EMOTES: &str = "\
+INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90040, 'greeter', 10, '2005-02-09 10:00:00')
+     , (90041, 'camp', 1, '2005-02-09 10:00:00')
+     , (90042, 'drudgewielder', 10, '2005-02-09 10:00:00')
+     , (90043, 'drudgea', 10, '2005-02-09 10:00:00')
+     , (90044, 'drudgeb', 10, '2005-02-09 10:00:00')
+     , (90045, 'drudgec', 10, '2005-02-09 10:00:00')
+     , (90011, 'longsword', 6, '2005-02-09 10:00:00')
+     , (90012, 'hauberk', 2, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90040, 1, 'Greeter'), (90041, 1, 'Camp'), (90042, 1, 'Drudge Wielder')
+     , (90011, 1, 'Longsword'), (90012, 1, 'Chainmail Hauberk');
+INSERT INTO `weenie_properties_bool` (`object_Id`, `type`, `value`)
+VALUES (90040, 19, False);
+INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
+VALUES (90040, 1, 0x020007DD), (90042, 1, 0x020007DD), (90011, 1, 0x02000181)
+     , (90012, 1, 0x02000181);
+INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)
+VALUES (90041, 81, 2), (90041, 82, 1);
+INSERT INTO `weenie_properties_create_list` (`object_Id`, `destination_Type`, `weenie_Class_Id`, `stack_Size`, `palette`, `shade`, `try_To_Bond`)
+VALUES (90042, 2, 90012, 1, 0, 0, False);
+INSERT INTO `weenie_properties_generator` (`object_Id`, `probability`, `weenie_Class_Id`, `delay`, `init_Create`, `max_Create`, `when_Create`, `where_Create`, `stack_Size`, `palette_Id`, `shade`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`)
+VALUES (90041, 0.5, 90040, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90041, 1, 90011, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90041, 0.2, 90012, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90041, 1, 90042, 180, 1, 1, 1, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO `weenie_properties_body_part` (`object_Id`, `key`, `d_Type`, `d_Val`, `d_Var`, `base_Armor`, `armor_Vs_Slash`, `armor_Vs_Pierce`, `armor_Vs_Bludgeon`, `armor_Vs_Cold`, `armor_Vs_Fire`, `armor_Vs_Acid`, `armor_Vs_Electric`, `armor_Vs_Nether`, `b_h`, `h_l_f`, `m_l_f`, `l_l_f`, `h_r_f`, `m_r_f`, `l_r_f`, `h_l_b`, `m_l_b`, `l_l_b`, `h_r_b`, `m_r_b`, `l_r_b`)
+VALUES (90042, 1, 4, 3, 0.75, 20, 20, 20, 20, 20, 20, 20, 20, 0, 2, 0.44, 0.17, 0, 0.44, 0.17, 0, 0.44, 0.17, 0, 0.44, 0.17, 0)
+     , (90043, 0, 4, 7, 0.5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 1, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0)
+     , (90044, 0, 4, 7, 0.5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 1, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0)
+     , (90045, 0, 4, 9, 0.5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 1, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0, 0.33, 0, 0);
+INSERT INTO `weenie_properties_emote` (`id`, `object_Id`, `category`, `probability`, `weenie_Class_Id`, `style`, `substyle`, `quest`, `vendor_Type`, `min_Health`, `max_Health`)
+VALUES (1, 90040, 7, 0.5, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (2, 90040, 7, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (3, 90040, 6, 1, 90012, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO `weenie_properties_emote_action` (`id`, `emote_Id`, `order`, `type`, `delay`, `extent`, `motion`, `message`, `weenie_Class_Id`, `stack_Size`)
+VALUES (1, 1, 0, 10, 0, 1, NULL, 'Hello.', NULL, NULL)
+     , (2, 2, 0, 10, 0, 1, NULL, 'Well met.', NULL, NULL)
+     , (3, 3, 0, 3, 0, 1, NULL, NULL, 90011, 1);
+";
+
+/// The server's names for the emotes above, as `empyrean-import schema` writes them.
+const SCHEMA_EMOTES: &str = r#"{"properties":{"int":{"81":"MaxGeneratedObjects","82":"InitGeneratedObjects"},"string":{"1":"Name","16":"LongDesc"}},"enums":{"EmoteCategory":{"6":"Give","7":"Use"},"EmoteType":{"3":"Give","5":"Motion","10":"Tell"},"MotionCommand":{"318767229":"BowDeep"},"RegenerationType":{"1":"Destruction"},"RegenLocationType":{"2":"Scatter"}}}"#;
+
+/// Type `lines` into the field of several lines `key` of weenie `w`'s form, Enter between them,
+/// and keep them with Ctrl+Enter: the field asked for, which takes the keyboard, and everything in
+/// it chosen first.
+fn type_lines(ed: &mut EditorApp, w: &lyceum_foundry::edit::Weenie, key: &str, lines: &[&str]) {
+    ed.editor.focus = Some((w.clone(), key.to_owned()));
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert!(
+        ed.form_fields.iter().any(|(k, _)| k == key),
+        "no field {key}"
+    );
+    let k = |vk, pressed, t: Option<&str>| HostEvent::KeyboardInput {
+        key: dereth_input::keys::Key::new(vk, 0),
+        pressed,
+        text: t.map(str::to_owned),
+    };
+    ed.queue(k(0x11, true, None));
+    ed.queue(k(0x41, true, Some("\u{1}")));
+    ed.queue(k(0x41, false, None));
+    ed.queue(k(0x11, false, None));
+    ed.frame();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            ed.queue(k(0x0D, true, None));
+            ed.queue(k(0x0D, false, None));
+        }
+        for c in line.chars() {
+            ed.queue(k(0x30, true, Some(&c.to_string())));
+            ed.queue(k(0x30, false, None));
+        }
+        ed.frame();
+    }
+    ed.queue(k(0x11, true, None));
+    ed.queue(k(0x0D, true, None));
+    ed.queue(k(0x0D, false, None));
+    ed.queue(k(0x11, false, None));
+    ed.frame();
+    ed.frame();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn emotes_read_as_lines_with_their_chances_a_finding_goes_to_its_field_and_find_usages_lists_who_names_a_weenie(
+) {
+    use lyceum_editor::app::{emote_chances, typing_key, Drill, Page, Section, Tab, TableRow};
+    use lyceum_foundry::content::{unquote, PropertyKind, SqlDoc};
+    use lyceum_foundry::edit::Weenie;
+    use lyceum_foundry::sql_ids::Use;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-emotes-usages");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_EMOTES).unwrap();
+    let schema = dir.path().join("schema.json");
+    std::fs::write(&schema, SCHEMA_EMOTES).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--schema",
+            schema.to_str().unwrap(),
+            "--size",
+            "1600x1000",
+        ],
+    );
+    let shots = shots("weenie-emotes");
+    let shoot = |ed: &mut EditorApp, name: &str| {
+        capture(ed, dir.path());
+        std::fs::copy(dir.path().join("frame.png"), shots.join(name)).unwrap();
+    };
+    let page = |ed: &mut EditorApp, s: Section| {
+        let r = ed
+            .editor
+            .page_rects
+            .iter()
+            .find(|(p, _)| *p == Page::Section(s))
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{s:?} listed"));
+        click(ed, (r.center().x, r.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+        assert_eq!(ed.editor.page, Page::Section(s));
+    };
+    let at = |list: &[(String, egui::Rect)], key: &str| {
+        list.iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{key} drawn"))
+    };
+    let press = |ed: &mut EditorApp, r: egui::Rect| {
+        click(ed, (r.center().x, r.center().y));
+        for _ in 0..2 {
+            ed.frame();
+        }
+    };
+    let doc_of = |ed: &mut EditorApp, w: &Weenie| {
+        let (file, _) = ed.session.weenie_file(w).expect("the pack's file");
+        SqlDoc::parse(&ed.session.sql_text(&file).unwrap())
+    };
+    let open = |ed: &mut EditorApp, class: u32| {
+        ed.server_class_now(class).unwrap().expect("its rows");
+        change_in_world(ed, class);
+        for _ in 0..2 {
+            ed.frame();
+        }
+    };
+    let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+
+    // The greeter's emotes: two greetings, each half the time, and its answer to a hauberk.
+    let greeter = Weenie::Class(90040);
+    open(&mut ed, 90040);
+    page(&mut ed, Section::Emotes);
+    shoot(&mut ed, "emotes.png");
+    let chances = |ed: &mut EditorApp| -> Vec<f64> {
+        emote_chances(&doc_of(ed, &greeter))
+            .iter()
+            .map(|c| c.chance)
+            .collect()
+    };
+    let c = chances(&mut ed);
+    assert!(
+        near(c[0], 0.5) && near(c[1], 0.5) && near(c[2], 1.0),
+        "{c:?}"
+    );
+    for k in ["action:0:0", "action:1:0", "action:2:0"] {
+        at(&ed.editor.row_buttons, k);
+    }
+    // The first made 30%: the other keeps its 50%, and 20% of the time it says nothing.
+    type_into(&mut ed, "emote:0:chance", "30");
+    let c = chances(&mut ed);
+    assert!(near(c[0], 0.3) && near(c[1], 0.5), "{c:?}");
+    // More than there is room for: refused, saying how much it can have.
+    let steps = ed.session.history();
+    type_into(&mut ed, "emote:1:chance", "80");
+    assert_eq!(ed.session.history(), steps, "nothing changed");
+    assert!(ed.panels.message.contains("70"), "{}", ed.panels.message);
+    // Another greeting, from Add emotes for: it takes the 20% that said nothing, written beside
+    // the other two before the answer to a hauberk.
+    ed.frame();
+    let add = at(&ed.editor.add_buttons, "emote:add");
+    press(&mut ed, add);
+    let used = at(&ed.editor.picker_rows, "emote-category:7");
+    press(&mut ed, used);
+    let c = chances(&mut ed);
+    assert_eq!(c.len(), 4);
+    assert!(near(c[2], 0.2), "{c:?}");
+    let doc = doc_of(&mut ed, &greeter);
+    let categories: Vec<String> = doc
+        .emote_sets()
+        .iter()
+        .map(|s| doc.cell(s.emote, "category").unwrap())
+        .collect();
+    assert_eq!(categories, ["7", "7", "7", "6"]);
+    // A bow added to the first greeting by its kind, and its words typed over two lines.
+    let add = at(&ed.editor.add_buttons, "emote:0:add-action");
+    press(&mut ed, add);
+    let bow = at(&ed.editor.picker_rows, "action-kind:5");
+    press(&mut ed, bow);
+    let doc = doc_of(&mut ed, &greeter);
+    let first = doc.emote_sets()[0];
+    let types: Vec<String> = doc
+        .actions(&first)
+        .iter()
+        .map(|a| doc.cell(*a, "type").unwrap())
+        .collect();
+    assert_eq!(types, ["10", "5"]);
+    let line = at(&ed.editor.row_buttons, "action:0:0");
+    press(&mut ed, line);
+    type_lines(
+        &mut ed,
+        &greeter,
+        "action:0:0:message",
+        &["Hello there.", "Welcome to the camp."],
+    );
+    let doc = doc_of(&mut ed, &greeter);
+    let said = doc
+        .cell(doc.actions(&doc.emote_sets()[0])[0], "message")
+        .unwrap();
+    assert_eq!(unquote(&said), "Hello there.\nWelcome to the camp.");
+    shoot(&mut ed, "emote-open.png");
+    // Changed from the server's, the emotes are put back whole by their mark's menu.
+    let mark = at(&ed.editor.changed_marks, "flow:emotes");
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(mark.center().x),
+        y: f64::from(mark.center().y),
+    });
+    for pressed in [true, false] {
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+        ed.frame();
+    }
+    for _ in 0..4 {
+        ed.frame();
+    }
+    let button = ed.editor.put_back_button.expect("its menu's Put back");
+    press(&mut ed, button);
+    let c = chances(&mut ed);
+    assert_eq!(c.len(), 3, "{c:?}");
+    assert!(near(c[0], 0.5) && near(c[1], 0.5));
+    assert!(!ed
+        .editor
+        .changed_marks
+        .iter()
+        .any(|(k, _)| k == "flow:emotes"));
+    // Its description, written over two lines and kept with Ctrl+Enter.
+    page(&mut ed, Section::Basic);
+    type_lines(
+        &mut ed,
+        &greeter,
+        "string:16",
+        &["A greeter of the camp.", "Mostly harmless."],
+    );
+    let doc = doc_of(&mut ed, &greeter);
+    assert_eq!(
+        doc.property(PropertyKind::String, 16)
+            .map(|v| unquote(&v))
+            .as_deref(),
+        Some("A greeter of the camp.\nMostly harmless.")
+    );
+    shoot(&mut ed, "description.png");
+    // The Definition pane says its emotes the same way, read only.
+    ed.selection = None;
+    ed.panels.weenie = Some(greeter.clone());
+    ed.show_tab(Tab::Definition);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let emotes = ed
+        .definition
+        .drill_rects
+        .iter()
+        .find(|(d, _)| *d == Drill::Emotes)
+        .map(|(_, r)| *r)
+        .expect("its emotes counted");
+    press(&mut ed, emotes);
+    assert_eq!(ed.definition.drill_of(&greeter), Some(Drill::Emotes));
+    shoot(&mut ed, "definition-emotes.png");
+
+    // The camp: made to make more at the start than it keeps at most, warned of in the footer,
+    // whose finding goes to the field.
+    let camp = Weenie::Class(90041);
+    open(&mut ed, 90041);
+    page(&mut ed, Section::Spawns);
+    type_into(&mut ed, "int:82", "5");
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let finding = ed
+        .weenie_findings(&camp)
+        .into_iter()
+        .find(|f| f.warning && f.text.contains("makes 5 at the start"))
+        .expect("the warning");
+    shoot(&mut ed, "findings.png");
+    page(&mut ed, Section::Basic);
+    let row = ed
+        .editor
+        .finding_rows
+        .iter()
+        .find(|(l, _)| *l == finding.line)
+        .map(|(_, r)| *r)
+        .expect("the finding in the footer");
+    press(&mut ed, row);
+    assert_eq!(ed.editor.page, Page::Section(Section::Spawns));
+    assert!(
+        ed.panels
+            .form_typing
+            .contains_key(&typing_key(&camp, "int:82")),
+        "the field it is about has the keyboard"
+    );
+    // Its spawns in two sets: a share that would join them is refused, saying so.
+    page(&mut ed, Section::Spawns);
+    shoot(&mut ed, "spawn-sets.png");
+    let steps = ed.session.history();
+    type_into(&mut ed, "spawn:2:share", "80");
+    assert_eq!(ed.session.history(), steps, "nothing changed");
+    assert!(ed.panels.message.contains("set 2"), "{}", ed.panels.message);
+
+    // The drudge's new head: as the server's drudges typically have it.
+    let wielder = Weenie::Class(90042);
+    open(&mut ed, 90042);
+    page(&mut ed, Section::BodyParts);
+    let add = at(&ed.editor.add_buttons, "part:add");
+    press(&mut ed, add);
+    let head = at(&ed.editor.picker_rows, "part:0");
+    press(&mut ed, head);
+    let parts: Vec<TableRow> =
+        lyceum_editor::app::table_rows(&doc_of(&mut ed, &wielder), "weenie_properties_body_part");
+    let new = parts
+        .iter()
+        .find(|r| r.number("key") == Some(0.0))
+        .expect("a head");
+    assert_eq!(new.number("d_Val"), Some(7.0), "{new:?}");
+    assert_eq!(new.number("h_l_f"), Some(0.33));
+
+    // Find usages: the hauberk is answered to by the greeter, spawned by the camp (the pack's
+    // copies of both) and wielded by the server's drudge.
+    let hauberk = Weenie::Class(90012);
+    let mut found: Vec<(Weenie, Use)> = ed.usages_of(&hauberk).to_vec();
+    found.sort_by_key(|(w, _)| format!("{w:?}"));
+    assert_eq!(
+        found,
+        [
+            (
+                Weenie::Class(90040),
+                Use::Emote {
+                    category: 6,
+                    action: None
+                }
+            ),
+            (Weenie::Class(90041), Use::Generator),
+            (Weenie::Class(90042), Use::CreateList { destination: 2 }),
+        ]
+    );
+    ed.selection = None;
+    ed.panels.weenie = Some(hauberk.clone());
+    ed.editor.open = false;
+    ed.show_tab(Tab::Definition);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let used = ed
+        .definition
+        .drill_rects
+        .iter()
+        .find(|(d, _)| *d == Drill::UsedBy)
+        .map(|(_, r)| *r)
+        .expect("what names it, counted");
+    press(&mut ed, used);
+    assert_eq!(ed.definition.drill_of(&hauberk), Some(Drill::UsedBy));
+    shoot(&mut ed, "used-by.png");
+    // From the editor's menu, the pane is brought to the weenie asked about.
+    let sword = Weenie::Class(90011);
+    ed.find_usages(&sword);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert_eq!(ed.form_weenie(), Some(sword.clone()));
+    assert_eq!(ed.definition.drill_of(&sword), Some(Drill::UsedBy));
+    assert_eq!(
+        ed.usages_of(&sword).len(),
+        2,
+        "the greeter's gift and the camp"
+    );
 }
 
 /// Hold key `vk` until the camera stops moving (no millimeter in ten frames), or for at most
@@ -3220,9 +5203,27 @@ fn fly_until_still(ed: &mut EditorApp, vk: usize, cap: u32) -> Vec3 {
     ed.camera.position
 }
 
+/// Hold key `vk` for `frames` frames: where the camera was before and after each.
+fn fly_for(ed: &mut EditorApp, vk: usize, frames: u32) -> Vec<Vec3> {
+    let k = |pressed| HostEvent::KeyboardInput {
+        key: dereth_input::keys::Key::new(vk, 0),
+        pressed,
+        text: None,
+    };
+    ed.queue(k(true));
+    let mut trail = vec![ed.camera.position];
+    for _ in 0..frames {
+        ed.frame();
+        trail.push(ed.camera.position);
+    }
+    ed.queue(k(false));
+    ed.frame();
+    trail
+}
+
 #[test]
-fn with_collide_on_the_flying_camera_stops_at_a_house_and_the_ground_and_flies_through_with_it_off()
-{
+fn with_collide_on_the_flying_camera_slides_along_a_house_into_its_doorway_and_with_it_off_flies_through_the_house(
+) {
     let _gpu = gpu_lock();
     let (_dir, world) = sample("editor-collide");
     let mut ed = editor(&world);
@@ -3239,50 +5240,41 @@ fn with_collide_on_the_flying_camera_stops_at_a_house_and_the_ground_and_flies_t
     };
     aim(&mut ed);
     ed.collide = true;
-    let stopped = fly_until_still(&mut ed, 0x57, 600);
-    let y = stopped.y - o.y;
+    let trail = fly_for(&mut ed, 0x57, 120);
+    let end = ed.camera.position;
+    // It met the house's front, slid along it, and went in by the doorway, whose door it passes:
+    // it is in one of the house's rooms, against its far wall.
+    let aside = trail
+        .iter()
+        .map(|p| (p.x - start.x).abs())
+        .fold(0.0, f32::max);
     assert!(
-        y > 25.0 && y < 37.5 - 1.0,
-        "stopped at the house's wall, south of its middle: y {y}"
+        aside > 1.0,
+        "slid aside along the front, {aside} m: {end:?}"
     );
+    let room = ed.camera_cell().map(|(c, _)| c.0);
     assert!(
-        (stopped.x - start.x).abs() < 0.5,
-        "it slid no way: {stopped:?}"
+        room.is_some_and(|c| c >> 16 == u32::from(HOLTBURG) && c & 0xFFFF >= 0x100),
+        "in a room of the house: {room:x?} at {end:?}"
+    );
+    let y = end.y - o.y;
+    assert!(y > 37.5 && y < 37.5 + 8.0, "at its far wall: y {y}");
+    let n = trail.len();
+    assert!(
+        (trail[n - 11].y - end.y).abs() < 1e-3,
+        "still there: {:?} then {end:?}",
+        trail[n - 11]
     );
     let c = ed.collider.as_ref().expect("the camera's world");
     assert!(c.stopped > 0 && c.blocks.contains(&HOLTBURG), "{c:?}");
-    // Off, the same flight goes into the house and through it.
+    // Off, the same flight goes into the house and out through its far wall.
     aim(&mut ed);
     ed.collide = false;
-    let k = |pressed| HostEvent::KeyboardInput {
-        key: dereth_input::keys::Key::new(0x57, 0),
-        pressed,
-        text: None,
-    };
-    ed.queue(k(true));
-    for _ in 0..600 {
-        ed.frame();
-        if ed.camera.position.y - o.y > 37.5 + 2.0 {
-            break;
-        }
-    }
-    ed.queue(k(false));
-    ed.frame();
+    let off = fly_for(&mut ed, 0x57, 60);
     assert!(
-        ed.camera.position.y - o.y > 37.5 + 2.0,
+        off.last().unwrap().y - o.y > 37.5 + 12.0,
         "{:?}",
-        ed.camera.position
-    );
-    // Down onto open ground with it on: it stops on the ground, never under it.
-    let g = ed.session.ground(HOLTBURG, 120.0, 110.0).unwrap();
-    ed.camera.position = Vec3::new(o.x + 120.0, o.y + 110.0, g + 3.0);
-    ed.camera.pitch = -0.5;
-    ed.collide = true;
-    ed.frame();
-    let down = fly_until_still(&mut ed, 0x10, 600);
-    assert!(
-        down.z > g + lyceum_editor::app::FLY_RADIUS - 0.05 && down.z < g + 1.0,
-        "on the ground at {g}: {down:?}"
+        off.last()
     );
 }
 
@@ -3583,6 +5575,261 @@ fn a_hidden_list_and_the_rooms_round_the_camera_are_not_worked_out_again_every_f
         .count();
     let outlines = ed.layout.side_outlines;
     assert!(outlines > 0 && outlines < rooms, "{outlines} of {rooms}");
+}
+
+#[test]
+fn a_brush_stroke_is_checked_once_when_it_ends_and_keeps_the_ground_s_textures() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-stroke-work");
+    let mut ed = editor(&world);
+    let z = ed.session.ground(HOLTBURG, 150.0, 40.0).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(150.0, 40.0, z), 50.0, 0.0, -50.0);
+    ed.mode = lyceum_editor::app::Mode::Terrain;
+    ed.panels.brush = Brush::Raise(1);
+    ed.panels.radius = 10.0;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let o = pick::block_origin(HOLTBURG);
+    let at = |ed: &EditorApp, x: f32| {
+        let g = ed.session.ground(HOLTBURG, x, 40.0).unwrap();
+        ed.view()
+            .unwrap()
+            .project(Vec3::new(o.x + x, o.y + 40.0, g))
+            .unwrap()
+    };
+    let (checks, reloads, freed) = (ed.stats.checks, ed.stats.reloads, ed.block_textures_freed());
+    let p = at(&ed, 140.0);
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(p.0),
+        y: f64::from(p.1),
+    });
+    ed.queue(HostEvent::MouseInput {
+        button: MouseButton::Left,
+        pressed: true,
+    });
+    ed.frame();
+    for i in 1..6 {
+        let p = at(&ed, 140.0 + 4.0 * i as f32);
+        ed.queue(HostEvent::CursorMoved {
+            x: f64::from(p.0),
+            y: f64::from(p.1),
+        });
+        ed.frame();
+    }
+    // Every dab redrew the ground, and none checked the world.
+    assert!(
+        ed.stats.reloads >= reloads + 3,
+        "{} dabs",
+        ed.stats.reloads - reloads
+    );
+    assert_eq!(ed.stats.checks, checks);
+    ed.queue(HostEvent::MouseInput {
+        button: MouseButton::Left,
+        pressed: false,
+    });
+    ed.frame();
+    ed.frame();
+    // Let go: checked once; one step to undo.
+    assert_eq!(ed.stats.checks, checks + 1);
+    assert_eq!(ed.session.history(), (1, 0));
+    // The landblock built again over every dab gave back none of its textures: each was taken
+    // again by the new build before the old one let it go.
+    assert_eq!(ed.block_textures_freed(), freed);
+}
+
+#[test]
+fn the_grid_and_the_floors_from_the_south_are_drawn_once_until_what_they_show_changes() {
+    use lyceum_editor::app::Tab;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-grid-work");
+    let mut ed = editor_with(&world, &["--size", "1600x1000"]);
+    ed.wait_for_pieces();
+    ed.enter_dungeon(0x019E).unwrap();
+    ed.show_tab(Tab::Grid);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let (grid, side, bytes) = (
+        ed.layout.grid_drawings,
+        ed.layout.side_drawings,
+        ed.panel_texture_bytes(),
+    );
+    assert!(grid > 0 && side > 0);
+    // Idle: neither is drawn again, nothing of theirs goes to the device, and each is one
+    // picture on the overlay, not its rooms' triangles.
+    for _ in 0..10 {
+        ed.frame();
+    }
+    assert_eq!(
+        (
+            ed.layout.grid_drawings,
+            ed.layout.side_drawings,
+            ed.panel_texture_bytes()
+        ),
+        (grid, side, bytes)
+    );
+    let held = ed.work.overlay_vertices;
+    // The dungeon's pieces offered in the Tool tab: only those scrolled into sight are drawn.
+    let drawn = ed.kit.pieces_drawn;
+    ed.frame();
+    let offered = ed.kit.piece_rects.len() as u64;
+    let one_frame = ed.kit.pieces_drawn - drawn;
+    assert!(
+        one_frame > 0 && one_frame < offered,
+        "{one_frame} of {offered} drawn"
+    );
+    // As drawn shape by shape, as the pictures are made: the same pixels, but where two
+    // triangles' edges cross a pixel's middle and the device and the picture round it apart.
+    let pictured = capture(&mut ed, dir.path());
+    ed.layout.live_panels = true;
+    ed.frame();
+    let live = capture(&mut ed, dir.path());
+    let shapes = ed.work.overlay_vertices;
+    assert!(
+        held + 10_000 < shapes,
+        "{held} corners held, {shapes} drawn live"
+    );
+    let differ = pictured
+        .2
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(live.2.as_chunks::<4>().0)
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 2))
+        .count();
+    let all = pictured.2.len() / 4;
+    println!("{differ} of {all} pixels differ");
+    assert!(differ * 1000 < all, "{differ} of {all} pixels differ");
+    ed.layout.live_panels = false;
+    ed.frame();
+    // Panned by less than its margin: the picture slides, drawn again neither; past it, drawn
+    // again once. Slid, it is still what the panel would draw.
+    let grid = ed.layout.grid_drawings;
+    let zoom = ed.layout.zoom;
+    let pan = |ed: &mut EditorApp, points: f32| {
+        let (x, y) = ed.layout.center.unwrap();
+        ed.layout.center = Some((x + points / zoom, y));
+    };
+    pan(&mut ed, 10.0);
+    ed.frame();
+    assert_eq!(ed.layout.grid_drawings, grid);
+    let slid = capture(&mut ed, dir.path());
+    ed.layout.live_panels = true;
+    ed.frame();
+    let live = capture(&mut ed, dir.path());
+    ed.layout.live_panels = false;
+    let differ = slid
+        .2
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(live.2.as_chunks::<4>().0)
+        .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 2))
+        .count();
+    assert!(differ * 1000 < all, "slid: {differ} of {all} pixels differ");
+    let width = ed.layout.rect.unwrap().width();
+    pan(&mut ed, width);
+    ed.frame();
+    assert_eq!(ed.layout.grid_drawings, grid + 1);
+    // Zoomed: the grid is drawn again, once; the floors from the south are as they were.
+    let grid = ed.layout.grid_drawings;
+    ed.layout.zoom *= 1.25;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert_eq!(ed.layout.grid_drawings, grid + 1);
+    assert_eq!(ed.layout.side_drawings, side);
+}
+
+#[test]
+fn in_a_window_a_dungeon_s_rooms_are_baked_off_the_frame_their_pictures_decoded_there_too() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-rooms-off-frame");
+    let cache = Path::new(env!("CARGO_TARGET_TMPDIR")).join("editor-cache");
+    let argv: Vec<String> = [
+        world.to_str().unwrap(),
+        "--dats",
+        dereth_dat::testing::dat_dir().to_str().unwrap(),
+        "--headless",
+        "--size",
+        "1200x800",
+        "--landblock",
+        "A9B4",
+        "--no-weenies",
+        "--thumbnails",
+        cache.to_str().unwrap(),
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    let args = lyceum_editor::args::parse(&argv).unwrap();
+    let mut cfg = lyceum_editor::args::runtime_config(&args).unwrap();
+    // As a window builds the world: a few milliseconds a frame.
+    cfg.stream_budget_ms = Some(lyceum_editor::args::STREAM_BUDGET_MS);
+    let mut ed = EditorApp::open(&args, cfg).unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let ((on_frame, off_frame), decoded) = ed.bakes();
+    ed.enter_dungeon(0x019E).unwrap();
+    // The dungeon's block, the camera's own now, is baked off the frame, its rooms' pictures
+    // with it; the frames go on meanwhile. (A guard against a hang, not a time.)
+    let mut frames = 0;
+    while ed.bakes().0 .1 == off_frame {
+        ed.frame();
+        frames += 1;
+        assert!(frames < 100_000, "the dungeon's block was never baked");
+    }
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let ((on, off), now) = ed.bakes();
+    assert_eq!(on, on_frame, "no block baked on the frame");
+    assert!(off > off_frame);
+    assert!(
+        now > decoded + 10,
+        "{} pictures decoded off the frame",
+        now - decoded
+    );
+}
+
+#[test]
+fn the_dungeons_are_found_off_the_frame_and_an_edit_is_written_off_it_in_a_window() {
+    use lyceum_editor::app::Tab;
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-off-frame-work");
+    let mut ed = editor(&world);
+    ed.wait_for_names().unwrap();
+    // The Dungeons tab shown: its list was found with the model names, off the frame.
+    ed.show_tab(Tab::Dungeons);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert!(ed.dungeons().iter().any(|d| d.landblock == 0x019E));
+    assert_eq!(ed.stats.dungeon_scans, 0);
+    // In a window, an edit's records are written off the frame: the world is built again from
+    // them once they are, and not before.
+    ed.write_off_frame = true;
+    let reloads = ed.stats.reloads;
+    ed.edit(&Edit::Op(lyceum_foundry::edit::Op::PlaceStatic {
+        landblock: HOLTBURG,
+        model: dereth_primitives::DataId(0x0200_040B),
+        at: lyceum_foundry::source::Place {
+            x: 60.0,
+            y: 60.0,
+            z: lyceum_foundry::source::Height::Ground,
+        },
+        rotation: lyceum_foundry::source::Rotation::Heading(0.0),
+        name: None,
+    }))
+    .unwrap();
+    assert_eq!(
+        ed.stats.reloads, reloads,
+        "not built again before the write is done"
+    );
+    ed.finish_write(true).unwrap();
+    assert_eq!(ed.stats.reloads, reloads + 1);
 }
 
 #[test]
@@ -3982,6 +6229,121 @@ fn the_window_resizes_freely_during_a_playtest_and_the_game_follows_the_world_vi
 }
 
 #[test]
+fn a_playtest_hides_the_floating_windows_over_the_world_view_and_stopping_it_puts_them_back() {
+    use lyceum_editor::app::Tab;
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("embedded-windows");
+    let mut ed = editor(&world);
+    assert!(ed.frame());
+    // The Characters tab opens floating over the world view.
+    ed.open_characters();
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    assert!(ed.characters_open());
+    let docked = ed.tab_in_front(Tab::Inspector);
+    let settings = world.parent().unwrap().join("play-settings");
+    let args = vec![
+        "--no-connect".to_owned(),
+        "--headless".to_owned(),
+        "--dat-dir".to_owned(),
+        dereth_dat::testing::dat_dir().display().to_string(),
+    ];
+    ed.start_embedded(&args, &settings).unwrap();
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    assert!(!ed.characters_open() && ed.hides(Tab::Characters));
+    assert_eq!(
+        ed.tab_in_front(Tab::Inspector),
+        docked,
+        "a docked tab stays"
+    );
+    ed.stop_play();
+    assert!(ed.frame());
+    assert!(ed.characters_open() && !ed.hides(Tab::Characters));
+}
+
+#[test]
+fn the_dungeons_list_beside_the_world_view_fills_it_to_the_bottom() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("dungeon-list-fills");
+    // A tall window, where rows taken to be taller than they are stopped the list short.
+    let mut ed = editor_with(&world, &["--size", "1000x1400"]);
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    let body = ed
+        .world_rect
+        .expect("the world view, whose part the list shares");
+    ed.show_tab(lyceum_editor::app::Tab::Dungeons);
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    let rows = &ed.dungeon_list.rects;
+    assert!(rows.len() > 40, "{}", rows.len());
+    let bottom = rows
+        .iter()
+        .map(|(_, r)| r.bottom())
+        .fold(f32::MIN, f32::max);
+    assert!(bottom >= body.bottom(), "{bottom} in {body:?}");
+}
+
+#[test]
+fn a_right_drag_over_the_world_view_holds_the_pointer_and_one_over_the_panels_does_not() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    /// A hold that says what it was asked.
+    struct Asked(Rc<RefCell<Vec<String>>>);
+    impl dereth_client_shell::pointer::HostPointer for Asked {
+        fn capture(&mut self, at: (f64, f64)) -> bool {
+            self.0.borrow_mut().push(format!("hold {at:?}"));
+            true
+        }
+        fn release(&mut self, at: (f64, f64)) {
+            self.0.borrow_mut().push(format!("show {at:?}"));
+        }
+    }
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("look-hold");
+    let mut ed = editor(&world);
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    ed.hold_pointer_by(Box::new(Asked(Rc::clone(&asked))));
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    let w = ed.world_rect.expect("the world view");
+    let right = |ed: &mut EditorApp, at: (f32, f32), pressed| {
+        ed.queue(HostEvent::CursorMoved {
+            x: f64::from(at.0),
+            y: f64::from(at.1),
+        });
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+        assert!(ed.frame());
+    };
+    let middle = (w.center().x.round(), w.center().y.round());
+    right(&mut ed, middle, true);
+    assert!(ed.holds_pointer());
+    right(&mut ed, (middle.0 + 40.0, middle.1), false);
+    assert!(!ed.holds_pointer());
+    let (x, y) = (f64::from(middle.0), f64::from(middle.1));
+    assert_eq!(
+        *asked.borrow(),
+        [format!("hold {:?}", (x, y)), format!("show {:?}", (x, y))]
+    );
+    // Over the panels beside the world view: no turn, and nothing held.
+    asked.borrow_mut().clear();
+    let panel = (w.max.x + 40.0, w.center().y);
+    right(&mut ed, panel, true);
+    assert!(!ed.holds_pointer());
+    right(&mut ed, panel, false);
+    assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
+}
+
+#[test]
 fn the_panels_scale_with_the_ui_scale_and_ctrl_keys_step_it() {
     let _gpu = gpu_lock();
     let (_dir, world) = sample("ui-scale");
@@ -4365,14 +6727,23 @@ fn a_portal_is_placed_like_any_spawn_its_card_sends_it_into_a_dungeon_or_here_an
     );
     stone_west(&mut ed);
     ed.wait_for_names().unwrap();
-    // The spawn tool lists a Portal; placed on the ground, it goes nowhere yet.
+    // A portal is made with the spawn tool's New..., beside the count of what it lists; placed
+    // on the ground, it goes nowhere yet.
     ed.mode = lyceum_editor::app::Mode::Spawn;
     for _ in 0..2 {
         ed.frame();
     }
-    let tile = ed.panels.portal_rect.expect("the portal's tile");
-    click(&mut ed, (tile.center().x, tile.center().y));
-    assert!(ed.panels.portal && ed.panels.weenie.is_none());
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("spawn-tool").join("new.png"),
+    )
+    .unwrap();
+    new_portal(&mut ed, "Hideout Portal");
+    assert!(matches!(
+        ed.panels.weenie,
+        Some(lyceum_foundry::edit::Weenie::Symbol(_))
+    ));
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
     click(
@@ -4393,6 +6764,7 @@ fn a_portal_is_placed_like_any_spawn_its_card_sends_it_into_a_dungeon_or_here_an
             .unwrap()
     };
     assert_eq!(ed.portal_destination(&spawn(&ed)), Some(None));
+    let portal = ed.form_weenie().expect("the portal's weenie");
     ed.frame();
     capture(&mut ed, dir.path());
     std::fs::copy(
@@ -4401,12 +6773,12 @@ fn a_portal_is_placed_like_any_spawn_its_card_sends_it_into_a_dungeon_or_here_an
     )
     .unwrap();
     // Its card sends it into a dungeon, at its drop point: the outdoor portal's destination.
-    ed.destination_dungeon(0x019E).unwrap();
+    ed.destination_dungeon(&portal, 0x019E).unwrap();
     let (cell, _) = ed.drop_point(0x019E).unwrap();
     assert_eq!(ed.portal_destination(&spawn(&ed)), Some(Some(cell)));
     assert_eq!(cell, 0x019E_0114);
     // Or where the camera is.
-    ed.destination_here().unwrap();
+    ed.destination_here(&portal).unwrap();
     let to = ed.portal_destination(&spawn(&ed)).flatten().unwrap();
     assert_eq!(to >> 16, u32::from(HOLTBURG));
     assert!(to & 0xFFFF < 0x0100, "outdoors: {to:#010X}");
@@ -4532,7 +6904,12 @@ fn a_servers_generator_is_explained_from_its_own_rows_with_nothing_copied() {
     };
     let sql = dir.path().join("server.sql");
     std::fs::write(&sql, SERVER_GENERATOR.replace("ZZ", &z.to_string())).unwrap();
-    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
+    // A window tall enough for the generator's entries to be in the Definition pane's view: an
+    // entry out of its view is not drawn.
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x1000"],
+    );
     ed.look_at(HOLTBURG, Vec3::new(60.0, 60.0, z + 1.0), 30.0, 0.0, -40.0);
     for _ in 0..3 {
         ed.frame();
@@ -4563,10 +6940,28 @@ fn a_servers_generator_is_explained_from_its_own_rows_with_nothing_copied() {
     assert_eq!((b.when, b.place), (1, 4));
     let shares = lyceum_editor::app::generator_shares(&g.profiles);
     assert!((shares[0].unwrap() - 25.0).abs() < 1e-3 && (shares[1].unwrap() - 75.0).abs() < 1e-3);
-    ed.show_tab(lyceum_editor::app::Tab::Inspector);
+    // The Definition pane counts what it spawns, and opens into the generator's account.
+    ed.show_tab(lyceum_editor::app::Tab::Definition);
     for _ in 0..3 {
         ed.frame();
     }
+    let camp = lyceum_foundry::edit::Weenie::Class(90100);
+    let spawns = ed
+        .definition
+        .drill_rects
+        .iter()
+        .find(|(d, _)| *d == lyceum_editor::app::Drill::Spawns)
+        .map(|(_, r)| *r)
+        .expect("its spawns counted");
+    click(&mut ed, (spawns.center().x, spawns.center().y));
+    assert_eq!(
+        ed.definition.drill_of(&camp),
+        Some(lyceum_editor::app::Drill::Spawns)
+    );
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert_eq!(ed.panels.spawn_rows.len(), 2, "each entry listed");
     // Shown, with nothing written into the pack.
     assert!(ed
         .session
@@ -4961,7 +7356,7 @@ fn a_cottage_dropped_from_the_place_tool_is_refused_on_a_taken_land_cell_moved_w
     assert!(!g.allowed());
     assert_eq!(g.plan.as_ref().unwrap().taken, Some(8));
     let (_, words) = ed.ghost_note.clone().expect("words beside the ghost");
-    assert_eq!(words, ["Another building stands in this land cell."]);
+    assert_eq!(words, ["Another building is already in this cell."]);
     let img = capture(&mut ed, dir.path());
     let cell = land_cell(g.at.0, g.at.1);
     assert!(
@@ -4974,7 +7369,7 @@ fn a_cottage_dropped_from_the_place_tool_is_refused_on_a_taken_land_cell_moved_w
     assert!(!ed.session.compiled().dropped.contains_key(&HOLTBURG));
     assert_eq!(
         ed.panels.message,
-        "Another building stands in this land cell."
+        "Another building is already in this cell."
     );
     // Over a free land cell of Holtburg: green; a click drops it there, and selects it. It has room
     // to move east by its arrow: no other building's land or ground there that it may not stand on.
@@ -5169,7 +7564,7 @@ fn a_house_drops_as_one_players_can_buy_unless_its_card_says_otherwise_and_a_til
         .unwrap()
         .model;
     ed.mode = Mode::Place;
-    // A cottage's card: "A house players can buy", checked.
+    // A cottage's card: "Purchasable", checked.
     ed.choose_model(dereth_primitives::DataId(COTTAGE)).unwrap();
     for _ in 0..3 {
         ed.frame();
@@ -5498,13 +7893,13 @@ fn a_cottage_dropped_in_the_editor_is_walked_into_through_its_door_by_the_playte
 }
 
 #[test]
-fn with_collide_on_a_camera_held_inside_a_wall_passes_through_till_it_is_clear_and_then_stops_again(
-) {
+fn with_collide_on_a_camera_put_inside_a_wall_goes_on_through_it_and_once_clear_meets_it_again() {
     let _gpu = gpu_lock();
     let (_dir, world) = sample("editor-unstick");
     let mut ed = editor(&world);
     let o = pick::block_origin(HOLTBURG);
-    // Flown north at the house at (79.5, 37.5) till it stops at its south wall.
+    // Flown north at the house at (79.5, 37.5): it slides in by its doorway and stops at the far
+    // wall of the room inside.
     let z = ed.session.ground(HOLTBURG, 79.5, 20.0).unwrap();
     ed.camera.position = Vec3::new(o.x + 79.5, o.y + 20.0, z + 1.5);
     ed.camera.yaw = 0.0;
@@ -5517,43 +7912,39 @@ fn with_collide_on_a_camera_held_inside_a_wall_passes_through_till_it_is_clear_a
     let again = fly_until_still(&mut ed, 0x57, 30);
     assert!((again.y - wall.y).abs() < 0.01, "{again:?} at {wall:?}");
     assert!(!ed.collider.as_ref().unwrap().passing());
-    // Put inside the wall, as a click on the map can: it goes on, through the wall.
+    // Put inside the wall, as a click on the map can: it goes on, through the wall and out.
     ed.camera.position = Vec3::new(wall.x, wall.y + 0.3, wall.z);
     if let Some(c) = ed.collider.as_mut() {
         c.lost();
     }
     ed.frame();
-    let k = |pressed| HostEvent::KeyboardInput {
-        key: dereth_input::keys::Key::new(0x57, 0),
-        pressed,
-        text: None,
-    };
-    ed.queue(k(true));
-    // However far each frame takes it, it passes till it is clear, then stops passing.
-    let mut passed = false;
-    for _ in 0..600 {
-        ed.frame();
-        let passing = ed.collider.as_ref().unwrap().passing();
-        passed |= passing;
-        if passed && !passing {
-            break;
-        }
-    }
-    ed.queue(k(false));
-    ed.frame();
-    assert!(passed, "it passed through");
+    let through = fly_for(&mut ed, 0x57, 30);
+    let out = *through.last().unwrap();
     assert!(
-        ed.camera.position.y > wall.y + 0.3,
-        "through the wall: {:?} from {wall:?}",
-        ed.camera.position
+        out.y > wall.y + 3.0,
+        "through the wall and out: {out:?} from {wall:?}"
     );
-    // Clear of it, it stops at things again: inside the house, at its north wall.
     assert!(!ed.collider.as_ref().unwrap().passing());
-    let north = fly_until_still(&mut ed, 0x57, 600);
+    // Clear of it, it meets things again: lowered, it comes to rest on the ground, never under.
+    let down = fly_for(&mut ed, 0x10, 60);
+    let r = lyceum_editor::app::FLY_RADIUS;
+    for p in &down {
+        let under = ed.session.ground(HOLTBURG, p.x - o.x, p.y - o.y).unwrap();
+        assert!(
+            p.z > under + r - 0.05,
+            "never under the ground: {p:?} over {under}"
+        );
+    }
+    let end = *down.last().unwrap();
+    let under = ed
+        .session
+        .ground(HOLTBURG, end.x - o.x, end.y - o.y)
+        .unwrap();
     assert!(
-        north.y - o.y < 37.5 + 12.0 && !ed.collider.as_ref().unwrap().passing(),
-        "stopped inside the house: {north:?}"
+        end.z < under + r + 0.35,
+        "on the ground at {under}: {end:?}"
     );
+    assert!(!ed.collider.as_ref().unwrap().passing());
 }
 
 /// A door of the server's, drawn with the model of Holtburg's house doors.

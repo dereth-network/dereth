@@ -1544,7 +1544,7 @@ mod houses {
     use lyceum_foundry::compile;
     use lyceum_foundry::dats::DatSet;
     use lyceum_foundry::drops::{self, Template};
-    use lyceum_foundry::edit::{Op, Session};
+    use lyceum_foundry::edit::{Op, Session, Weenie};
     use lyceum_foundry::source::Rotation;
     use lyceum_foundry::sql_ids::{self, ServerContent};
     use lyceum_foundry::symbol::Kind as Sym;
@@ -2384,6 +2384,244 @@ mod houses {
             .edits
             .iter()
             .all(|e| e.dungeon_copies.is_empty() && e.drops.is_empty()));
+    }
+
+    /// The world database's big switch: a lever.
+    const LEVER: u32 = 2609;
+
+    /// The spawn the session's SQL writes as `guid`.
+    fn spawn_of(s: &Session, guid: &str) -> lyceum_foundry::edit::Spawn {
+        s.spawns()
+            .into_iter()
+            .find(|x| x.guid == guid)
+            .unwrap_or_else(|| panic!("no spawn {guid}"))
+    }
+
+    /// What spawn `guid` sets off, by its guid.
+    fn sets_off(s: &Session, guid: &str) -> Option<String> {
+        s.sets_off(&spawn_of(s, guid)).map(|x| x.guid)
+    }
+
+    /// Whether the file of spawn `guid` marks it a link's child.
+    fn marked(s: &mut Session, guid: &str) -> bool {
+        let file = spawn_of(s, guid).file;
+        let text = s.sql_text(&file).unwrap();
+        sql_ids::instances(&text)
+            .iter()
+            .find(|i| i.guid.trim() == guid)
+            .unwrap_or_else(|| panic!("{} places no {guid}", file.display()))
+            .link_child
+    }
+
+    /// Spawn `child` made to set off spawn `target`, each by its guid.
+    fn link(s: &mut Session, child: &str, target: &str) {
+        let (c, t) = (spawn_of(s, child), spawn_of(s, target));
+        s.apply(&Op::Link {
+            file: c.file,
+            guid: c.guid,
+            target: Some((t.file, t.guid)),
+        })
+        .unwrap();
+    }
+
+    /// A lever the pack places in landblock `lb` at `at`: outdoors, or in its cell `cell`. Its guid.
+    fn lever(s: &mut Session, lb: u16, cell: Option<u16>, at: Vec3) -> String {
+        let weenie = Weenie::Class(LEVER);
+        let op = match cell {
+            None => Op::PlaceSpawn {
+                landblock: lb,
+                weenie,
+                origin: at,
+                heading: 0.0,
+            },
+            Some(cell) => Op::PlaceSpawnInCell {
+                landblock: lb,
+                cell,
+                weenie,
+                origin: at,
+                heading: 0.0,
+            },
+        };
+        let file = s.apply(&op).unwrap().spawned.unwrap();
+        s.spawns()
+            .into_iter()
+            .find(|x| x.file == file)
+            .unwrap()
+            .guid
+    }
+
+    #[test]
+    fn a_dropped_houses_links_follow_its_move_and_let_go_when_it_is_taken_away() {
+        let (_dir, mut s) = session("houses-links");
+        // The server's weenies, so that its doors and a lever are known for what they set off.
+        s.learn_server(ServerContent {
+            weenies: content().weenies.clone(),
+            ..ServerContent::default()
+        });
+        let (lb, x, y, heading) = (0xA0A8, 84.0, 84.0, 90.0);
+        let name = drop_house(&mut s, VILLA, lb, x, y, heading);
+        let index = s.compiled().dropped[&lb][0].1;
+        let b = basement_landblock(&s, &name, lb);
+        let was = s.statics(lb).unwrap().buildings[index].frame;
+        let doors = |s: &Session, lb: u16| -> Vec<lyceum_foundry::edit::Spawn> {
+            s.spawns()
+                .into_iter()
+                .filter(|x| !x.server && x.landblock() == lb && s.can_be_set_off(x))
+                .collect()
+        };
+        // Its front door, a spawn of its own; two doors of its basement, written with its house.
+        let front = doors(&s, lb).first().expect("a front door").guid.clone();
+        let below = doors(&s, b);
+        assert!(below.len() >= 2, "{below:?}");
+        let (first, second) = (below[0].clone(), below[1].clone());
+        assert_eq!(first.file, second.file);
+        // A lever on the grass opens the front door; one in the basement opens its first door,
+        // which opens the second.
+        let outside = lever(&mut s, lb, None, Vec3::new(160.0, 160.0, was.origin.z));
+        let room = u16::try_from(first.cell & 0xFFFF).unwrap();
+        let inside = lever(&mut s, b, Some(room), first.frame.origin);
+        link(&mut s, &outside, &front);
+        link(&mut s, &inside, &first.guid);
+        link(&mut s, &first.guid, &second.guid);
+        let holds = |s: &mut Session| {
+            assert_eq!(sets_off(s, &outside), Some(front.clone()));
+            assert_eq!(sets_off(s, &inside), Some(first.guid.clone()));
+            assert_eq!(sets_off(s, &first.guid), Some(second.guid.clone()));
+            let by: Vec<String> = s
+                .set_off_by(&spawn_of(s, &first.guid))
+                .into_iter()
+                .map(|x| x.guid)
+                .collect();
+            assert_eq!(by, std::slice::from_ref(&inside));
+            for g in [&outside, &inside, &first.guid] {
+                assert!(marked(s, g), "{g} is marked a link's child");
+            }
+            // As built, the server reads each link by its numbers.
+            let n = |g: &str| s.spawn_number(&spawn_of(s, g)).unwrap();
+            let links = placed(s).0.links;
+            for (p, c) in [
+                (&front, &outside),
+                (&first.guid, &inside),
+                (&second.guid, &first.guid),
+            ] {
+                assert!(links.contains(&(n(p), n(c))), "{p} links {c}");
+            }
+        };
+        holds(&mut s);
+        // Two land cells west: its front door goes with it, and its house is written again.
+        let door_was = spawn_of(&s, &front).frame;
+        let op = s
+            .move_building(
+                lb,
+                index,
+                [x - 48.0, y, was.origin.z],
+                Rotation::Heading(heading),
+            )
+            .unwrap();
+        s.apply(&op).unwrap();
+        assert!(!same_frame(&spawn_of(&s, &front).frame, &door_was));
+        holds(&mut s);
+        assert_saved_builds_the_same(&mut s);
+        // Taken away, it lets go of what it linked: the lever on the grass stands alone, and the
+        // one in its basement goes with it.
+        let index = s.compiled().dropped[&lb][0].1;
+        s.apply(&Op::RemoveBuilding {
+            landblock: lb,
+            index,
+        })
+        .unwrap();
+        assert_eq!(sets_off(&s, &outside), None);
+        assert!(!marked(&mut s, &outside), "{outside} stands alone");
+        assert!(s.spawns().iter().all(|x| x.guid != inside), "{inside}");
+    }
+
+    /// The first room of landblock `lb` a pack's drop or dungeon copy holds: its number and the
+    /// origin of its cell.
+    fn first_room(s: &Session, lb: u16) -> (u16, Vec3) {
+        let room = *s.compiled().rooms[&lb].values().next().unwrap();
+        (room, s.cells(lb)[&room].frame.origin)
+    }
+
+    #[test]
+    fn a_dropped_house_taken_away_takes_what_was_placed_in_its_rooms_and_its_basement_with_it() {
+        let (_dir, mut s) = session("houses-spawns-removed");
+        // The server's weenies, so that a lever is known for what it sets off.
+        s.learn_server(ServerContent {
+            weenies: content().weenies.clone(),
+            ..ServerContent::default()
+        });
+        let lb = 0xA0A8;
+        let name = drop_house(&mut s, VILLA, lb, 84.0, 84.0, 90.0);
+        let index = s.compiled().dropped[&lb][0].1;
+        let b = basement_landblock(&s, &name, lb);
+        let z = s.statics(lb).unwrap().buildings[index].frame.origin.z;
+        // A lever in one of its rooms, which sets off one on the grass; one in its basement, with
+        // a static beside it.
+        let (room, at) = first_room(&s, lb);
+        let upstairs = lever(&mut s, lb, Some(room), at);
+        let (cellar, at) = first_room(&s, b);
+        let downstairs = lever(&mut s, b, Some(cellar), at);
+        s.apply(&Op::AddCellStatic {
+            landblock: b,
+            cell: cellar,
+            model: DataId(0x0200_040B),
+            at: [at.x, at.y, at.z],
+            rotation: Rotation::Heading(0.0),
+        })
+        .unwrap();
+        let outside = lever(&mut s, lb, None, Vec3::new(160.0, 160.0, z));
+        link(&mut s, &upstairs, &outside);
+        let placed: Vec<lyceum_foundry::edit::Spawn> = [&upstairs, &downstairs]
+            .into_iter()
+            .map(|g| spawn_of(&s, g))
+            .collect();
+        assert_eq!(placed[1].landblock(), b);
+        let adds = |s: &Session| -> usize {
+            s.packs()[s.target()]
+                .edits
+                .iter()
+                .map(|e| e.cell_adds.len())
+                .sum()
+        };
+        assert_eq!(adds(&s), 1);
+        let steps = s.history().0;
+        s.apply(&Op::RemoveBuilding {
+            landblock: lb,
+            index,
+        })
+        .unwrap();
+        assert_eq!(s.history().0, steps + 1, "one step");
+        assert!(s.cells(b).is_empty(), "the basement goes with it");
+        for p in &placed {
+            assert!(
+                s.spawns().iter().all(|x| x.guid != p.guid),
+                "{} goes with the house",
+                p.guid
+            );
+            assert!(
+                s.packs()[s.target()].sql.iter().all(|f| f.path != p.file),
+                "{} is taken away",
+                p.file.display()
+            );
+        }
+        assert!(
+            s.spawns().iter().all(|x| x.server || x.landblock() != b),
+            "nothing of the pack is left where its basement was"
+        );
+        assert_eq!(adds(&s), 0, "the static in its basement goes with it");
+        // The lever on the grass stays, and lets go of what set it off.
+        assert!(s.set_off_by(&spawn_of(&s, &outside)).is_empty());
+        assert_saved_builds_the_same(&mut s);
+        // Undone, all are back where they were, the link with them.
+        s.undo().unwrap();
+        assert!(!s.cells(b).is_empty());
+        assert_eq!(adds(&s), 1);
+        for p in &placed {
+            let now = spawn_of(&s, &p.guid);
+            assert_eq!((&now.file, now.cell), (&p.file, p.cell), "{}", p.guid);
+            assert!(same_frame(&now.frame, &p.frame), "{}", p.guid);
+        }
+        assert_eq!(sets_off(&s, &upstairs), Some(outside.clone()));
     }
 
     #[test]

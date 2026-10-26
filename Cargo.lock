@@ -2932,6 +2932,7 @@ dependencies = [
 name = "lyceum-editor"
 version = "0.1.1"
 dependencies = [
+ "dereth-animation",
  "dereth-assets",
  "dereth-client-contract",
  "dereth-client-model",
@@ -2943,7 +2944,10 @@ dependencies = [
  "dereth-input",
  "dereth-physics",
  "dereth-primitives",
+ "dereth-progression",
+ "dereth-protocol",
  "dereth-render",
+ "dereth-rules",
  "dereth-scene",
  "dereth-terrain",
  "dereth-ui-screens",
@@ -2956,8 +2960,10 @@ dependencies = [
  "glam",
  "lyceum-foundry",
  "png",
+ "rusqlite",
  "serde",
  "serde_json",
+ "skrifa 0.48.0",
  "toml",
  "tracing",
 ]

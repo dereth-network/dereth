@@ -94,8 +94,15 @@ pub const FONTS: &[(&str, &str, &str)] = &[(
     "dereth/client/crates/classic-fonts/fonts/OFL.txt",
 )];
 
-/// The macOS bundle's icon.
+/// The macOS bundle's icon for every macOS before 26, with its own picture for the small sizes.
 pub const ICNS: &str = "lyceum/editor/assets/lyceum.icns";
+
+/// The layered icon macOS 26 draws itself (its square, glass and shading), compiled into the
+/// bundle's `Assets.car` where Xcode is installed.
+pub const ICON: &str = "lyceum/editor/assets/Lyceum.icon";
+
+/// The name of the icon inside `Assets.car`: the `.icon`'s own name.
+const ICON_NAME: &str = "Lyceum";
 
 /// The picture the Linux desktop entry names, the one the editor's window carries.
 pub const ICON_PNG: &str = "lyceum/editor/assets/lyceum-256.png";
@@ -201,14 +208,30 @@ pub fn contents(target: Target) -> Vec<String> {
     files
 }
 
+/// What the release file's archive may hold besides [`contents`]: the compiled layered icon, which
+/// only a machine with Xcode makes.
+pub fn optional_contents(target: Target) -> Vec<String> {
+    match target.os {
+        Os::Mac => vec!["Contents/Resources/Assets.car".to_owned()],
+        Os::Windows | Os::Linux => Vec::new(),
+    }
+}
+
 /// The numeric core of a version (`0.2.0` of `0.2.0-rc.1`), the form a bundle's version takes.
 fn version_core(version: &str) -> &str {
     version.split('-').next().unwrap_or(version)
 }
 
-/// The macOS bundle's `Info.plist`: its name, identifier, version, executable and icon.
-pub fn info_plist(version: &str) -> String {
+/// The macOS bundle's `Info.plist`: its name, identifier, version, executable and icon. With
+/// `composed`, the bundle holds the compiled layered icon too, which `CFBundleIconName` names and
+/// macOS 26 looks for first; every macOS reads `CFBundleIconFile`.
+pub fn info_plist(version: &str, composed: bool) -> String {
     let v = version_core(version);
+    let icon_name = if composed {
+        format!("\n\t<key>CFBundleIconName</key>\n\t<string>{ICON_NAME}</string>")
+    } else {
+        String::new()
+    };
     let floor = format!("{}.{}", targets::MACOS_FLOOR.0, targets::MACOS_FLOOR.1);
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -224,7 +247,7 @@ pub fn info_plist(version: &str) -> String {
 	<key>CFBundleExecutable</key>
 	<string>{EDITOR}</string>
 	<key>CFBundleIconFile</key>
-	<string>lyceum.icns</string>
+	<string>lyceum.icns</string>{icon_name}
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -659,9 +682,10 @@ impl Job<'_> {
                     &self.ws.join(ICNS),
                     &tree.join("Contents/Resources/lyceum.icns"),
                 )?;
+                let composed = self.compose_icon(&tree.join("Contents/Resources"))?;
                 write(
                     &tree.join("Contents/Info.plist"),
-                    info_plist(self.version).as_bytes(),
+                    info_plist(self.version, composed).as_bytes(),
                 )?;
                 // Four bytes of classic Mac OS that the Finder still reads before the plist.
                 write(&tree.join("Contents/PkgInfo"), b"APPL????")?;
@@ -671,6 +695,28 @@ impl Job<'_> {
     }
 
     /// Sign the bundle at `app` ([`codesign_runs`]) and verify it as the system will.
+    /// [`ICON`] compiled into `resources/Assets.car` with Xcode's `actool`, when it is here and
+    /// compiles it; the bundle keeps [`ICNS`] either way, for every earlier macOS. Whether it did.
+    fn compose_icon(&self, resources: &Path) -> Result<bool, String> {
+        if !crate::bundle::actool_is_installed() {
+            println!("package: no actool (Xcode) here; {APP} has its flat icon only");
+            return Ok(false);
+        }
+        let work = self.stage.join("icon");
+        fresh_dir(&work)?;
+        let floor = format!("{}.{}", targets::MACOS_FLOOR.0, targets::MACOS_FLOOR.1);
+        let source = self.ws.join(ICON);
+        if !crate::bundle::actool_compile(self.ws, &source, ICON_NAME, &floor, &work) {
+            println!(
+                "package: actool could not compile {}; {APP} has its flat icon only",
+                source.display()
+            );
+            return Ok(false);
+        }
+        copy(&work.join("Assets.car"), &resources.join("Assets.car"))?;
+        Ok(true)
+    }
+
     fn sign_bundle(&self, app: &Path) -> Result<(), String> {
         let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
         let path = app.display().to_string();
@@ -701,7 +747,13 @@ impl Job<'_> {
         let t = self.target;
         let allowed = contents(t);
         let staged = guard::staged_entries(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let findings = guard::scan_tree(&staged, &allowed, &[], FILE_CAP, TOTAL_CAP);
+        let findings = guard::scan_tree(
+            &staged,
+            &allowed,
+            &optional_contents(t),
+            FILE_CAP,
+            TOTAL_CAP,
+        );
         if !findings.is_empty() {
             return Err(format!(
                 "the deny scan refused {}:\n  {}",
@@ -806,7 +858,13 @@ fn written_entries(path: &Path, target: Target, version: &str) -> Result<Vec<Ent
 /// The deny scan of a written release file.
 pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
     let entries = written_entries(path, target, version)?;
-    let findings = guard::scan_tree(&entries, &contents(target), &[], FILE_CAP, TOTAL_CAP);
+    let findings = guard::scan_tree(
+        &entries,
+        &contents(target),
+        &optional_contents(target),
+        FILE_CAP,
+        TOTAL_CAP,
+    );
     if findings.is_empty() {
         Ok(())
     } else {

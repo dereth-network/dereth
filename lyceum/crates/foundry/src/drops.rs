@@ -34,7 +34,7 @@
 //! the packs under it and the world make it (but where another drop stands), and its doors,
 //! outdoor statics, the spawns and statics in its rooms and the spawns over it carried. **Taken
 //! away** ([`Op::RemoveBuilding`]), its row goes, and with it its rooms, doors, outdoor statics,
-//! what stands in its rooms, and its level ground. Each is one step.
+//! what stands in its rooms and in a house's basement, and its level ground. Each is one step.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -1906,7 +1906,8 @@ impl Session {
     /// level as high over it as its template stands; the ground it stood on given back to what
     /// the packs under it and the world make it (but where another drop stands); its row written
     /// anew; its doors, outdoor statics, and the spawns and statics in its rooms and the spawns
-    /// over it carried. One step.
+    /// over it carried, with what they link; a house's spawns written again whole, keeping what
+    /// was linked to them. One step.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn move_dropped(
         &mut self,
@@ -2061,6 +2062,11 @@ impl Session {
                 let (files, _, more) = self.house_files(&at, h, *kind).map_err(Error::Refused)?;
                 applied.warnings.extend(more);
                 for (file, text) in files {
+                    // What was linked and marked in it stays so.
+                    let text = match self.sql_text(&file) {
+                        Some(old) => crate::edit::links::carry_links(&old, &text, self.stamp()),
+                        None => text,
+                    };
                     ops.push(Op::WriteSql {
                         file,
                         text: Some(text),
@@ -2128,9 +2134,10 @@ impl Session {
     }
 
     /// Dropped building `index` of landblock `lb` (any building of its set) taken away: its row,
-    /// so its set and its rooms; its doors and outdoor statics; the spawns in its rooms and the
-    /// rows that add or move statics there; and the ground it stood on given back to what the
-    /// packs under it and the world make it (but where another drop stands). One step.
+    /// so its set and its rooms; its doors and outdoor statics; the spawns in its rooms and in a
+    /// house's basement, and the rows that add or move statics there; and the ground it stood on
+    /// given back to what the packs under it and the world make it (but where another drop
+    /// stands). What its spawns set off, and what set them off, let go of them. One step.
     ///
     /// # Errors
     /// One of the world's own buildings, another pack's drop, or a spawn's file that places
@@ -2184,6 +2191,13 @@ impl Session {
             .flat_map(|(gx, gy)| [(*gx, *gy, Field::Height), (*gx, *gy, Field::Scene)])
             .collect();
         let rooms = self.drop_rooms(lb, &name);
+        // A house's basement, a dungeon of a landblock of its own: there, its name in full and
+        // its cells.
+        let below = basement.filter(|_| !row.house.is_empty()).map(|(b, _)| {
+            let full = basement_name(&name, lb);
+            let cells = self.drop_rooms(b, &full);
+            (b, full, cells)
+        });
         let mut ops = Vec::new();
         if !unset.is_empty() {
             ops.push(Op::UnsetVertices(unset));
@@ -2202,8 +2216,19 @@ impl Session {
             landblock: lb,
             which,
         }));
+        // What its house's spawns set off, and what sets them off, let go of them.
+        let gone: Vec<crate::edit::Spawn> = self
+            .spawns()
+            .into_iter()
+            .filter(|s| !s.server && house_files.contains(&s.file))
+            .collect();
+        // The spawns in its rooms and its basement's cells.
+        let mut spawns = self.drop_spawns(lb, &name, &places, &rooms, false);
+        if let Some((b, full, cells)) = &below {
+            spawns.extend(self.drop_spawns(*b, full, &[], cells, false));
+        }
         let mut files: Vec<std::path::PathBuf> = Vec::new();
-        for s in self.drop_spawns(lb, &name, &places, &rooms, false) {
+        for s in spawns {
             if !files.contains(&s.file) && !house_files.contains(&s.file) {
                 files.push(s.file);
             }
@@ -2215,12 +2240,15 @@ impl Session {
                 .map(|file| Op::WriteSql { file, text: None }),
         );
         let mut texts = BTreeMap::new();
+        for s in &gone {
+            self.draft_unlinked(s, &mut texts)?;
+        }
         for op in &ops {
             self.draft_into(op, &mut texts)?;
         }
         self.unwrite_drop(&mut texts, lb, &bare, &rooms)?;
-        if let (false, Some((b, _))) = (row.house.is_empty(), basement) {
-            self.unwrite_dungeon(&mut texts, b, &basement_name(&bare, lb))?;
+        if let Some((b, _, cells)) = &below {
+            self.unwrite_dungeon(&mut texts, *b, &basement_name(&bare, lb), cells)?;
         }
         self.apply_texts(texts)
     }

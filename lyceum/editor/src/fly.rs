@@ -1,8 +1,13 @@
 //! Flying that obeys collision: the camera as a small sphere swept through the client's own
 //! physics, as the client sweeps its camera, against the ground, the walls and floors of
 //! buildings' and dungeons' cells, buildings and every static and scenery object but doors, which
-//! it passes through, open or closed. It still flies: there is no gravity, and nothing steps it
-//! down.
+//! it passes through, open or closed. What it flies into it slides along, as a walking body
+//! slides along a wall: the part of the move into the surface is taken out and the rest kept, so
+//! it glides along walls, floors, ceilings and slopes, and stops only where two surfaces meet
+//! against the move, as in a corner. Moving along the ground or a floor, it steps up onto a small
+//! rise it meets, a stair, a sill or a curb, as a walking body does, with a walking body's step
+//! height. It still flies: there is no gravity, it stands on nothing, and nothing takes it back
+//! down after a step.
 //!
 //! The physics world is a body's, as the client's is: the body is built and never placed or
 //! drawn, and only its world is used. Each landblock round the camera is given to it as the
@@ -41,9 +46,13 @@ pub struct Collider {
     cell: Option<(CellId, Vec3)>,
     /// Held fast inside something: passing through till it is clear.
     passing: bool,
-    /// Sweeps run, and how many stopped short of where the camera was flying to.
+    /// Sweeps run, and how many ended short of where the camera was flying to: stopped, or slid
+    /// along something.
     pub sweeps: u64,
     pub stopped: u64,
+    /// Sweeps whose end was farther off than any sweep can take the camera ([`thrown`]), and
+    /// which left it where it was.
+    pub thrown: u64,
 }
 
 impl std::fmt::Debug for Collider {
@@ -52,8 +61,29 @@ impl std::fmt::Debug for Collider {
             .field("blocks", &self.blocks)
             .field("sweeps", &self.sweeps)
             .field("stopped", &self.stopped)
+            .field("thrown", &self.thrown)
             .finish_non_exhaustive()
     }
+}
+
+/// How far past where any sweep can take the camera a sweep's end may be, in meters: room for
+/// rounding and for the lifts out of the ground.
+const THROW: f32 = 1.0;
+
+/// Whether a sweep that ended at `here`, flown from `from` to `to` by a body that steps up `step`
+/// meters, took the camera farther than any sweep can. A slide only shortens a move, so across
+/// the ground it ends no farther off than its flight; a step up lifts it, by no more than twice
+/// the step height for each of the sweep's steps, so up or down it ends no farther off than its
+/// flight and those lifts. One that ends more than [`THROW`] past either, or nowhere, is not
+/// believed.
+fn thrown(from: Vec3, to: Vec3, here: Vec3, step: f32) -> bool {
+    let asked = to.sub(from).magnitude();
+    let d = here.sub(from);
+    let across = (d.x * d.x + d.y * d.y).sqrt();
+    // The sweep's steps, each no longer than the sphere's radius.
+    let steps = (asked / RADIUS).floor() + 1.0;
+    let lifts = asked + steps * 2.0 * step;
+    !(across.is_finite() && d.z.is_finite()) || across > asked + THROW || d.z.abs() > lifts + THROW
 }
 
 /// A landblock's south-west corner, in world meters.
@@ -97,6 +127,7 @@ impl Collider {
             passing: false,
             sweeps: 0,
             stopped: 0,
+            thrown: 0,
         })
     }
 
@@ -162,11 +193,12 @@ impl Collider {
     }
 
     /// Sweep the camera's sphere from `from` to `to` (world meters), starting in the cell
-    /// `indoor` when it is in one of a building's or a dungeon's: where it stops. A camera whose
-    /// start the sphere does not fit (in a wall when collision was turned on) moves freely, so
-    /// it is never held. A camera held fast inside something, a step no way taking it anywhere,
-    /// passes through, as a body does after a portal, until it is clear of it; then it stops at
-    /// things again.
+    /// `indoor` when it is in one of a building's or a dungeon's: where it ends, slid along what
+    /// it met or stepped up onto a small rise. A camera whose start the sphere does not fit (in a wall when collision was turned
+    /// on) moves freely, so it is never held. A camera inside something, which the client's own
+    /// camera could step no way from, passes through, as a body does after a portal, until it
+    /// is clear of it; then it meets things again. A sweep that would take it farther than any
+    /// sweep can ([`thrown`]) leaves it where it was.
     pub fn sweep(&mut self, from: Vec3, to: Vec3, indoor: Option<CellId>) -> Vec3 {
         if self.passing {
             self.cell = None;
@@ -185,16 +217,25 @@ impl Collider {
             return to;
         };
         self.sweeps += 1;
-        let Some((cell, here)) = self.sweep_in(start, from, to) else {
+        let Some((cell, here)) = self.sweep_in(start, from, to, true) else {
             self.cell = None;
             return to;
         };
+        let step = self
+            .body
+            .world
+            .get(self.body.handle)
+            .map_or(0.0, dereth_physics::PhysicsObj::step_up_height);
+        if thrown(from, to, here, step) {
+            self.thrown += 1;
+            self.cell = Some((start, from));
+            return from;
+        }
         if here.sub(to).magnitude() > 1e-3 {
             self.stopped += 1;
-            if here.sub(from).magnitude() < 1e-3
-                && to.sub(from).magnitude() > 1e-3
-                && self.held_fast(start, from)
-            {
+            // Inside a wall the sphere may still slide along its faces: whether it is held is
+            // asked of the client's own camera sweep, which stops at the first face it meets.
+            if to.sub(from).magnitude() > 1e-3 && self.held_fast(start, from) {
                 self.passing = true;
                 self.cell = None;
                 return to;
@@ -211,7 +252,8 @@ impl Collider {
     }
 
     /// Whether the sphere at `p`, in cell `start`, is held fast inside something: a short step
-    /// each way along each axis takes it nowhere. (Against a wall, a step away still goes.)
+    /// each way along each axis, stopped where it touches as the client's camera is, takes it
+    /// nowhere. (Against a wall, a step away still goes.)
     fn held_fast(&mut self, start: CellId, p: Vec3) -> bool {
         const STEP: f32 = 0.05;
         [
@@ -224,18 +266,32 @@ impl Collider {
         ]
         .into_iter()
         .all(|d| {
-            self.sweep_in(start, p, p.add(d))
+            self.sweep_in(start, p, p.add(d), false)
                 .is_some_and(|(_, here)| here.sub(p).magnitude() < 1e-3)
         })
     }
 
-    /// The sphere swept from `from` to `to`, starting in cell `start`: the cell it ends in and
-    /// where (world meters); `None` when its start does not fit.
-    fn sweep_in(&mut self, start: CellId, from: Vec3, to: Vec3) -> Option<(CellId, Vec3)> {
+    /// The sphere swept from `from` to `to`, starting in cell `start`, sliding along what it
+    /// meets (`glide`) or stopping where it touches, as the client's camera does: the cell it
+    /// ends in and where (world meters); `None` when its start does not fit.
+    fn sweep_in(
+        &mut self,
+        start: CellId,
+        from: Vec3,
+        to: Vec3,
+        glide: bool,
+    ) -> Option<(CellId, Vec3)> {
         let lb = u16::try_from(start.0 >> 16).unwrap_or(0);
         let o = origin_of(lb);
         let at = |p: Vec3| Position::new(start, Frame::new(p.sub(o), Quat::IDENTITY));
-        let t = self.body.world.sweep_sphere(
+        let world = &mut self.body.world;
+        let sweep = if glide {
+            dereth_physics::PhysicsWorld::glide_sphere
+        } else {
+            dereth_physics::PhysicsWorld::sweep_sphere
+        };
+        let t = sweep(
+            world,
             self.body.handle,
             VIEWER_OBJECT_INFO_STATE,
             dereth_client_runtime::camera::viewer_sphere(),
@@ -262,6 +318,25 @@ mod tests {
             kind: Some(kind),
             ..WeenieFacts::default()
         }
+    }
+
+    #[test]
+    fn a_sweep_is_believed_across_the_ground_to_its_flight_and_up_to_its_steps_lifts_and_not_to_a_place_far_off(
+    ) {
+        // A walking body's step height, and two meters south: seven steps of the sweep.
+        let step = 0.6;
+        let from = Vec3::new(100.0, 100.0, 50.0);
+        let to = Vec3::new(100.0, 98.0, 50.0);
+        let far = |here| thrown(from, to, here, step);
+        // Slid short, stepped up a few times on the way, or lifted out of the ground.
+        assert!(!far(Vec3::new(100.0, 99.0, 50.3)));
+        assert!(!far(Vec3::new(100.0, 98.0, 53.5)));
+        assert!(!far(Vec3::new(100.1, 97.9, 50.2)));
+        // Tens of meters on along the slope it was gliding up, across or up, or nowhere.
+        assert!(far(Vec3::new(100.0, 64.0, 71.0)));
+        assert!(far(Vec3::new(100.0, 96.5, 50.0)));
+        assert!(far(Vec3::new(100.0, 98.0, 62.0)));
+        assert!(far(Vec3::new(f32::NAN, 98.0, 50.0)));
     }
 
     #[test]

@@ -8,29 +8,40 @@ use lyceum_foundry::sql_ids::{weenie_facts, WeenieFacts};
 /// A dump's rows: no column lists, the tables' own; bools as a dump writes its bits.
 const DUMP: &str = "\
 CREATE TABLE `weenie` (`class_Id` int, `class_Name` varchar(100), `type` int, `last_Modified` datetime);
-INSERT INTO `weenie` VALUES (5,'guard',10,'2005-02-09 10:00:00'),(6,'statue',1,'2005-02-09 10:00:00');
+INSERT INTO `weenie` VALUES (5,'guard',10,'2005-02-09 10:00:00'),(6,'statue',1,'2005-02-09 10:00:00'),(7,'drudge-generator',1,'2005-02-09 10:00:00'),(8,'linkmonstergen',1,'2005-02-09 10:00:00');
 CREATE TABLE `weenie_properties_bool` (`id` int, `object_Id` int, `type` smallint, `value` bit(1));
 INSERT INTO `weenie_properties_bool` VALUES (1,5,1,'\u{1}'),(2,5,19,'\\0'),(3,6,1,'\u{1}');
 CREATE TABLE `weenie_properties_string` (`id` int, `object_Id` int, `type` smallint, `value` text);
 INSERT INTO `weenie_properties_string` VALUES (4,5,1,'Holtburg Guard'),(5,6,1,'Statue of Asheron\\'s Ward');
 CREATE TABLE `weenie_properties_d_i_d` (`id` int, `object_Id` int, `type` smallint, `value` int);
-INSERT INTO `weenie_properties_d_i_d` VALUES (6,5,1,33554433),(7,5,2,150994945),(8,6,1,33556000);
+INSERT INTO `weenie_properties_d_i_d` VALUES (6,5,1,33554433),(7,5,2,150994945),(8,6,1,33556000),(10,5,35,449),(22,5,8,100667445);
+CREATE TABLE `weenie_properties_int` (`id` int, `object_Id` int, `type` smallint, `value` int);
+INSERT INTO `weenie_properties_int` VALUES (9,5,25,40),(11,5,1,16),(12,7,81,1),(14,6,5,9000),(15,6,9,1048576),(16,6,11,100),(17,6,13,90),(18,6,6,24),(19,6,158,7),(20,6,160,180),(21,6,272,250),(23,6,33,-2);
+CREATE TABLE `weenie_properties_generator` (`id` int, `object_Id` int, `probability` float, `weenie_Class_Id` int);
+INSERT INTO `weenie_properties_generator` VALUES (13,8,-1,5);
 ";
 
 #[test]
-fn a_dumps_weenie_rows_say_its_name_setup_type_and_flags() {
+fn a_dumps_weenie_rows_say_its_name_setup_icon_type_flags_level_death_treasure_bond_and_whether_it_makes_things(
+) {
     let f = weenie_facts(DUMP);
     assert_eq!(
         f.get("5"),
         Some(&WeenieFacts {
             name: Some("Holtburg Guard".into()),
             setup: Some(0x0200_0001),
+            motion_table: Some(0x0900_0001),
+            icon: Some(0x0600_1035),
             kind: Some(10),
             stuck: Some(true),
             attackable: Some(false),
             generator_radius: None,
             destination: None,
             destination_at: None,
+            level: Some(40),
+            death_treasure: Some(449),
+            generates: false,
+            ..WeenieFacts::default()
         })
     );
     assert_eq!(
@@ -38,15 +49,36 @@ fn a_dumps_weenie_rows_say_its_name_setup_type_and_flags() {
         Some(&WeenieFacts {
             name: Some("Statue of Asheron's Ward".into()),
             setup: Some(33_556_000),
+            clothing_base: None,
+            motion_table: None,
+            sound_table: None,
+            palette_base: None,
+            icon: None,
             kind: Some(1),
             stuck: Some(true),
             attackable: None,
             generator_radius: None,
             destination: None,
             destination_at: None,
+            level: None,
+            death_treasure: None,
+            wielded_treasure: None,
+            generates: false,
+            burden: Some(9000),
+            unit_burden: Some(90),
+            max_stack: Some(100),
+            bonded: Some(-2),
+            holds: Some(24),
+            locations: Some(0x0010_0000),
+            wield: [7, 0, 180, 0, 0, 250, 0, 0, 0, 0, 0, 0],
+            augmentation_cost: None,
+            quest_restriction: None,
+            tests_quests: Vec::new(),
         })
     );
-    assert_eq!(f.len(), 2);
+    // A generator by its most at once, and one by its generator rows alone.
+    assert!(f["7"].generates && f["8"].generates);
+    assert_eq!(f.len(), 4);
 }
 
 #[test]

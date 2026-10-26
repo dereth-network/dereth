@@ -148,6 +148,40 @@ fn an_emote_set_and_its_actions_are_added_ordered_and_taken_away() {
     assert!(!doc.render().contains("SET @parent_id"));
 }
 
+#[test]
+fn an_emote_set_added_after_another_is_written_right_after_it_and_its_actions() {
+    let text = guide();
+    let mut doc = SqlDoc::parse(&text);
+    // Two more sets: one at the end, then one after the first, between them.
+    let refuse = doc.add_emote_set("1 /* Refuse */", &[]);
+    assert_eq!(refuse, 1);
+    doc.add_action(1, 0, &[("type", "10 /* Tell */".into())]);
+    let another = doc.add_emote_set_after(Some(0), "7 /* Use */", &[]);
+    assert_eq!(another, 1);
+    doc.add_action(1, 0, &[("type", "8 /* Say */".into())]);
+    let reread = SqlDoc::parse(&doc.render());
+    let sets = reread.emote_sets();
+    let categories: Vec<String> = sets
+        .iter()
+        .map(|s| reread.cell(s.emote, "category").unwrap())
+        .collect();
+    assert_eq!(categories, ["7", "7", "1"]);
+    // Each keeps its own actions.
+    let types = |i: usize| -> Vec<String> {
+        reread
+            .actions(&sets[i])
+            .iter()
+            .map(|a| reread.cell(*a, "type").unwrap())
+            .collect()
+    };
+    assert_eq!(types(1), ["8"]);
+    assert_eq!(types(2), ["10"]);
+    assert_eq!(types(0).len(), 1);
+    // After none, or past the last: at the end.
+    assert_eq!(doc.add_emote_set_after(None, "3 /* Death */", &[]), 3);
+    assert_eq!(doc.add_emote_set_after(Some(99), "3 /* Death */", &[]), 4);
+}
+
 /// A world database in a dump's layout: two classes, one with an emote of two actions.
 const WORLD: &str = "\
 CREATE TABLE `weenie` (
@@ -234,6 +268,57 @@ fn a_class_of_the_world_database_is_copied_with_its_emotes_tied_to_their_actions
 }
 
 #[test]
+fn a_packs_weenie_copied_under_a_new_name_names_itself_so_and_keeps_every_other_row() {
+    let text = guide();
+    let copy = content::renamed(&text, "gribble-twin", None).unwrap();
+    let doc = SqlDoc::parse(&copy);
+    assert_eq!(doc.class().as_deref(), Some("{{wcid:gribble-twin}}"));
+    assert!(!copy.contains("{{wcid:guide}}"), "{copy}");
+    assert!(copy.contains("DELETE FROM `weenie` WHERE `class_Id` = {{wcid:gribble-twin}};"));
+    assert!(
+        copy.contains("VALUES ({{wcid:gribble-twin}}, 'gribble-twin', 10, '2026-10-18 00:00:00')")
+    );
+    // Every row as it was, its owner aside.
+    let original = SqlDoc::parse(&text);
+    for kind in PropertyKind::ALL {
+        assert_eq!(doc.properties(kind), original.properties(kind), "{kind:?}");
+    }
+    assert_eq!(doc.emote_sets().len(), 1);
+    assert_eq!(
+        doc.actions(&doc.emote_sets()[0]).len(),
+        original.actions(&original.emote_sets()[0]).len()
+    );
+    assert_eq!(
+        copy.replace("gribble-twin", "guide")
+            .replace("'guide', 10", "'sample-gribble', 10"),
+        text,
+        "nothing else written again"
+    );
+    // From another pack: what it names of that pack is named with it, its own name aside.
+    let copy = content::renamed(&text, "gribble-twin", Some("holtburg")).unwrap();
+    assert!(
+        copy.contains("{{surface-texture:holtburg:stripes}}"),
+        "{copy}"
+    );
+    assert!(!copy.contains("{{surface-texture:stripes}}"));
+    assert_eq!(
+        SqlDoc::parse(&copy).class().as_deref(),
+        Some("{{wcid:gribble-twin}}")
+    );
+    // A server's class a pack writes again, by its number: the same.
+    let class = content::template(WORLD, 7, "x", false)
+        .unwrap()
+        .replace("{{wcid:x}}", "7");
+    let copy = content::renamed(&class, "skulker", None).unwrap();
+    assert!(!copy.contains("(7,") && !copy.contains("= 7;"), "{copy}");
+    assert_eq!(
+        SqlDoc::parse(&copy).class().as_deref(),
+        Some("{{wcid:skulker}}")
+    );
+    assert!(content::renamed("/* nothing */\n", "x", None).is_none());
+}
+
+#[test]
 fn a_weenie_written_by_a_form_is_numbered_and_filled_as_a_build_fills_it_and_undone() {
     let f = Fixture::new("content-write");
     let world = f.world();
@@ -274,6 +359,40 @@ fn a_weenie_written_by_a_form_is_numbered_and_filled_as_a_build_fills_it_and_und
 }
 
 #[test]
+fn a_weenie_file_is_told_from_its_saved_text_until_it_is_saved_again() {
+    let f = Fixture::new("content-saved-text");
+    let world = f.world();
+    let mut s = Session::open(&world, &f.dats(), None).unwrap();
+    let file = f.path().join("sample/server/sql/weenies/skulker.sql");
+    let text = content::template(WORLD, 7, "skulker", false).unwrap();
+    // New: the disk has none of it.
+    s.apply(&Op::WriteSql {
+        file: file.clone(),
+        text: Some(text.clone()),
+    })
+    .unwrap();
+    assert!(s.sql_unsaved(&file));
+    assert_eq!(s.saved_sql_text(&file), None);
+    s.save().unwrap();
+    assert!(!s.sql_unsaved(&file));
+    assert_eq!(s.saved_sql_text(&file).as_deref(), Some(text.as_str()));
+    // Changed, the saved text is still the disk's; written back, it is as saved.
+    s.apply(&Op::WriteSql {
+        file: file.clone(),
+        text: Some(format!("{text}\n")),
+    })
+    .unwrap();
+    assert!(s.sql_unsaved(&file));
+    assert_eq!(s.saved_sql_text(&file).as_deref(), Some(text.as_str()));
+    s.apply(&Op::WriteSql {
+        file: file.clone(),
+        text: Some(text.clone()),
+    })
+    .unwrap();
+    assert!(!s.sql_unsaved(&file));
+}
+
+#[test]
 fn actions_after_an_emote_statement_of_several_rows_are_its_first_rows() {
     // `LAST_INSERT_ID()` after a statement of several rows is its first row's id.
     let doc = SqlDoc::parse(
@@ -287,4 +406,31 @@ fn actions_after_an_emote_statement_of_several_rows_are_its_first_rows() {
     assert_eq!(sets.len(), 2);
     assert_eq!(doc.actions(&sets[0]).len(), 2);
     assert!(doc.actions(&sets[1]).is_empty());
+}
+
+#[test]
+fn each_row_is_found_by_the_line_it_starts_on() {
+    let text = "/* a weenie */\nINSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES (9, 'thing', 10, '2005-02-09 10:00:00');\n\nINSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)\nVALUES (9, 25, 5) /* Level */\n     , (9, 81, 3);\n";
+    let doc = SqlDoc::parse(text);
+    let lines: Vec<(String, usize)> = doc
+        .row_lines()
+        .into_iter()
+        .map(|(r, l)| (doc.table_of(r).unwrap().to_owned(), l))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            ("weenie".to_owned(), 3),
+            ("weenie_properties_int".to_owned(), 6),
+            ("weenie_properties_int".to_owned(), 7),
+        ]
+    );
+    let r = doc.row_at_line(7).unwrap();
+    assert_eq!(doc.cell(r, "type").as_deref(), Some("81"));
+    assert_eq!(
+        doc.row_at_line(4),
+        doc.row_at_line(3),
+        "the row before a blank line"
+    );
+    assert_eq!(doc.row_at_line(1), None);
 }

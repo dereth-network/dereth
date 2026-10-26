@@ -156,6 +156,23 @@ fn the_overlay_kept_edit_by_edit_holds_what_a_whole_write_holds_record_for_recor
     assert!(reverted >= 1, "the spawn's statics record is gone again");
     let touched = s.redo().unwrap();
     check(&s, &mut scratch, &touched.landblocks);
+    // Written again for the same landblocks, unchanged since: each folder catches up once, and
+    // after that holds every record as it is and writes none.
+    for _ in 0..2 {
+        check(&s, &mut scratch, &touched.landblocks);
+    }
+    let again = check(&s, &mut scratch, &touched.landblocks);
+    assert_eq!((again.put, again.reverted), (0, 0), "{again:?}");
+    assert!(again.kept > 0);
+    // Written on another thread, begun and finished on this one: the same folder.
+    let touched = s.undo().unwrap();
+    let writing = scratch.begin(&s, &touched.landblocks).unwrap();
+    let done = std::thread::spawn(move || writing.run()).join().unwrap();
+    let w = scratch.finish(done).unwrap();
+    assert_eq!(scratch.dir(), w.dir);
+    let whole = f.path().join("whole-thread");
+    s.write_scratch(&whole).unwrap();
+    assert_eq!(held(&w.dir), held(&whole));
 }
 
 #[test]

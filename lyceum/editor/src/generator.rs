@@ -1,14 +1,26 @@
 //! A generator explained in plain words, as the inspector shows a selected spawn that is one: how
 //! many it keeps and makes at first, how far it spawns, how often and how soon, and what it spawns
-//! (each entry by name, with its picture; a click shows its weenie). Every line names the server's
-//! field it reads in its tooltip.
+//! (each entry by name, with its picture; a click shows its weenie).
 //! A server's own generator is read from the server's database, as it is: nothing is copied.
 
 use dereth_primitives::DataId;
-use lyceum_foundry::content::SqlDoc;
 use lyceum_foundry::edit::{generator_of, Generator, Profile, Spawn, Weenie};
 
 use super::EditorApp;
+
+/// The key of the words saying when a generator whose time is `time` (Int 142) works: between
+/// its set times, during its event, at night or by day. None for one that works always, unset or
+/// any other value.
+#[must_use]
+pub const fn works_when(time: Option<i32>) -> Option<&'static str> {
+    match time {
+        Some(1) => Some("generator.time_defined"),
+        Some(3) => Some("generator.time_event"),
+        Some(4) => Some("generator.time_night"),
+        Some(5) => Some("generator.time_day"),
+        _ => None,
+    }
+}
 
 /// Each entry's share of the draw, in percent, from the running totals the profiles write
 /// (`None` for an entry made always, written `-1`). A total lower than the one before it starts
@@ -43,8 +55,8 @@ impl EditorApp {
         if g.as_ref().is_none_or(|g| g.profiles.is_empty()) {
             if let Some(Weenie::Class(c)) = self.session.spawn_weenie(s) {
                 if self.session.weenie_file(&Weenie::Class(c)).is_none() {
-                    if let Some(Some(text)) = self.server_class(c) {
-                        let mut full = generator_of(&SqlDoc::parse(&text));
+                    if let Some(Some(doc)) = self.server_doc_of(c) {
+                        let mut full = generator_of(&doc);
                         if let Some(known) = g {
                             full.children = known.children;
                             full.radius = full.radius.or(known.radius);
@@ -68,37 +80,23 @@ impl EditorApp {
         let t = self.text.table();
         ui.separator();
         ui.strong(t.get("generator.title"));
-        ui.label(t.get("generator.about"));
-        let tip = |key: &str| t.get(key).to_owned();
         if g.most.is_some() || g.first.is_some() {
             let most = g
                 .most
                 .map_or_else(|| t.get("generator.no_limit").to_owned(), |n| n.to_string());
-            ui.label(t.fill("generator.most", &[("n", &most)]))
-                .on_hover_text(tip("generator.how_many_tip"));
-            ui.label(t.fill("generator.first", &[("n", &g.first.unwrap_or(0))]))
-                .on_hover_text(tip("generator.how_many_tip"));
+            ui.label(t.fill("generator.most", &[("n", &most)]));
+            ui.label(t.fill("generator.first", &[("n", &g.first.unwrap_or(0))]));
         }
         if let Some(r) = g.radius {
-            ui.label(t.fill("generator.radius", &[("m", &format!("{r:.1}"))]))
-                .on_hover_text(tip("generator.radius_tip"));
+            ui.label(t.fill("generator.radius", &[("m", &format!("{r:.1}"))]));
         }
         if let Some(s) = g.interval {
-            ui.label(t.fill("generator.refill", &[("s", &format!("{s:.0}"))]))
-                .on_hover_text(tip("generator.refill_tip"));
+            ui.label(t.fill("generator.refill", &[("s", &format!("{s:.0}"))]));
         }
         let delay = g.initial_delay.filter(|d| *d > 0.0).unwrap_or(0.0);
-        ui.label(t.fill("generator.start_after", &[("s", &format!("{delay:.0}"))]))
-            .on_hover_text(tip("generator.start_tip"));
-        if let Some(key) = match g.time {
-            Some(2) => Some("generator.time_defined"),
-            Some(3) => Some("generator.time_event"),
-            Some(4) => Some("generator.time_night"),
-            Some(5) => Some("generator.time_day"),
-            _ => None,
-        } {
-            ui.label(t.get(key))
-                .on_hover_text(tip("generator.time_tip"));
+        ui.label(t.fill("generator.start_after", &[("s", &format!("{delay:.0}"))]));
+        if let Some(key) = works_when(g.time) {
+            ui.label(t.get(key));
         }
         if !g.children.is_empty() {
             ui.label(t.fill("generator.owns", &[("n", &g.children.len())]));
@@ -110,63 +108,77 @@ impl EditorApp {
         let shares = shares(&g.profiles);
         let mut budget = super::PICTURES_A_FRAME;
         self.panels.spawn_rows.clear();
-        for (i, p) in g.profiles.iter().enumerate() {
-            let class = lyceum_foundry::sql_ids::number(&p.class);
-            let name = self.class_name(&p.class).unwrap_or_else(|| p.class.clone());
-            let weenie = self.weenie_written(&p.class);
-            let setup = class
-                .and_then(|c| self.session.class_facts(c))
-                .and_then(|f| f.setup)
-                .or_else(|| {
-                    weenie
-                        .as_ref()
-                        .and_then(|w| self.weenie_entry(w))
-                        .and_then(|w| w.setup)
-                });
-            ui.push_id(("profile", i), |ui| {
-                ui.horizontal(|ui| {
-                    if let Some(id) = setup.and_then(|s| self.picture(DataId(s), &mut budget)) {
-                        ui.add(egui::Image::new((id, egui::vec2(32.0, 32.0))));
-                    }
-                    ui.vertical(|ui| {
-                        let r = ui.add(egui::Link::new(&name));
-                        self.panels.spawn_rows.push(r.rect);
-                        if r.clicked() {
-                            if let Some(w) = weenie.clone() {
-                                out.push(super::UiAction::Weenie(w));
-                                out.push(super::UiAction::ShowWeenie);
+        let id = egui::Id::new("generator profiles");
+        super::seen::blocks(
+            ui,
+            id,
+            g.profiles.len(),
+            40.0,
+            |_| false,
+            |ui, i| {
+                let p = &g.profiles[i];
+                let class =
+                    lyceum_foundry::sql_ids::number(&p.class).filter(|_| !p.makes_treasure());
+                let name = self.class_name(&p.class).unwrap_or_else(|| p.class.clone());
+                let weenie = self
+                    .weenie_written(&p.class)
+                    .filter(|_| !p.makes_treasure());
+                let setup = class
+                    .and_then(|c| self.session.class_facts(c))
+                    .and_then(|f| f.setup)
+                    .or_else(|| {
+                        weenie
+                            .as_ref()
+                            .and_then(|w| self.weenie_entry(w))
+                            .and_then(|w| w.setup)
+                    });
+                ui.push_id(("profile", i), |ui| {
+                    ui.horizontal(|ui| {
+                        if let Some(id) = setup.and_then(|s| self.picture(DataId(s), &mut budget)) {
+                            ui.add(egui::Image::new((id, egui::vec2(32.0, 32.0))));
+                        }
+                        ui.vertical(|ui| {
+                            // An entry that makes treasure names a loot table, not a weenie.
+                            if p.makes_treasure() {
+                                let r = self.treasure_link(ui, &p.class, out);
+                                self.panels.spawn_rows.push(r.rect);
+                            } else {
+                                let r = ui.add(egui::Link::new(&name));
+                                self.panels.spawn_rows.push(r.rect);
+                                if r.clicked() {
+                                    if let Some(w) = weenie.clone() {
+                                        out.push(super::UiAction::Weenie(w));
+                                        out.push(super::UiAction::ShowWeenie);
+                                    }
+                                }
                             }
-                        }
-                        let most = if p.max < 0 {
-                            t.get("generator.no_limit").to_owned()
-                        } else {
-                            p.max.to_string()
-                        };
-                        let mut words =
-                            t.fill("generator.count", &[("first", &p.init), ("most", &most)]);
-                        if let Some(d) = p.delay.filter(|d| *d > 0.0) {
-                            words
-                                .push_str(&t.fill("generator.again", &[("s", &format!("{d:.0}"))]));
-                        }
-                        if let Some(share) = shares[i].filter(|s| *s < 99.5) {
-                            words.push_str(
-                                &t.fill("generator.chance", &[("n", &format!("{share:.0}"))]),
-                            );
-                        }
-                        ui.weak(words).on_hover_text(format!(
-                            "{}\n{}\n{}",
-                            tip("generator.count_tip"),
-                            tip("generator.again_tip"),
-                            tip("generator.chance_tip")
-                        ));
+                            let most = if p.max < 0 {
+                                t.get("generator.no_limit").to_owned()
+                            } else {
+                                p.max.to_string()
+                            };
+                            let mut words =
+                                t.fill("generator.count", &[("first", &p.init), ("most", &most)]);
+                            if let Some(d) = p.delay.filter(|d| *d > 0.0) {
+                                words.push_str(
+                                    &t.fill("generator.again", &[("s", &format!("{d:.0}"))]),
+                                );
+                            }
+                            if let Some(share) = shares[i].filter(|s| *s < 99.5) {
+                                words.push_str(
+                                    &t.fill("generator.chance", &[("n", &format!("{share:.0}"))]),
+                                );
+                            }
+                            ui.weak(words);
+                        });
                     });
                 });
-            });
-        }
+            },
+        );
     }
 
     /// The weenie a generator's entry names as written: a class id, or a pack weenie's token.
-    fn weenie_written(&self, written: &str) -> Option<Weenie> {
+    pub(super) fn weenie_written(&self, written: &str) -> Option<Weenie> {
         let w = written.trim();
         if let Some(c) = lyceum_foundry::sql_ids::number(w) {
             return Some(Weenie::Class(c));
@@ -209,5 +221,20 @@ mod tests {
         // A total lower than the one before starts again.
         let s = shares(&[profile(Some(0.5)), profile(Some(0.5))]);
         assert!((s[0].unwrap() - 100.0).abs() < 1e-3 && s[1].unwrap().abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_generator_between_set_times_says_so_and_one_the_server_runs_always_says_nothing() {
+        assert_eq!(works_when(Some(1)), Some("generator.time_defined"));
+        assert_eq!(works_when(Some(3)), Some("generator.time_event"));
+        for always in [None, Some(0), Some(2), Some(6)] {
+            assert_eq!(works_when(always), None, "{always:?}");
+        }
+        let t = crate::text::read(crate::text::BUILT_IN).unwrap();
+        for time in 1..=5 {
+            if let Some(key) = works_when(Some(time)) {
+                assert!(t.contains_key(key), "{key}");
+            }
+        }
     }
 }

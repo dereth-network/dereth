@@ -8,6 +8,7 @@
 //! | `{{wcid:guide}}` | the weenie class id, in decimal |
 //! | `{{guid:guide@A9B4}}` | the id of an instance placed in landblock `A9B4`, in hex |
 //! | `{{cell:hall@A9B4}}` | the id of the pack's indoor cell `hall` of landblock `A9B4`, in hex |
+//! | `{{treasure:drudge-loot}}` | a loot table's id (a death or a wielded treasure's), in decimal |
 //! | `{{surface-texture:stripes}}` | a record's id, in hex (also `render-surface`, `surface`) |
 //!
 //! A symbol without a pack is the file's own pack's. A token that does not read stops the build
@@ -54,7 +55,7 @@ pub fn tokens(path: &Path, pack: &str, text: &str) -> Result<Vec<Token>, Error> 
             Error::source(
                 &at,
                 format!(
-                    "{kind:?} is not a kind: wcid, guid, cell, render-surface, surface-texture or surface"
+                    "{kind:?} is not a kind: wcid, guid, cell, treasure, render-surface, surface-texture or surface"
                 ),
             )
         })?;

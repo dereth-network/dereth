@@ -47,7 +47,7 @@ its settings folder; `lyceum-editor --write-text` writes every line to start fro
 ## The editor
 
 The world view takes the left three quarters of the window. On the right are the Tool, Map,
-Nearby, Hierarchy and Dungeons tabs, and below them Inspector, Definition (the selected weenie)
+Nearby, Hierarchy, Dungeons, Quests and Loot tabs, and below them Inspector, Definition (the selected weenie)
 and Log (the checks' findings and every status message). Choosing a tool brings the Tool tab
 forward. Any tab can be dragged elsewhere.
 
@@ -57,8 +57,10 @@ last set it with the buttons or the wheel. Settings picks the playtest's interfa
 flying, the key hints and the UI scale. The status bar shows the landblock and position, the
 Collision and View switches, and the unsaved edits or when you last saved.
 
-With Collision on, the camera stops at the ground, walls and objects, as the client's camera does,
-but passes through doors. Ctrl+D (or Duplicate) copies the selection beside itself.
+With Collision on, the camera slides along the ground, walls and objects, as a walking character
+slides along a wall, stops in corners, and passes through doors. Low along the ground it steps over
+small lips and up stairs, as a character does, and stays at the height it stepped to. Ctrl+D (or
+Duplicate) copies the selection beside itself.
 
 ### Weenies
 
@@ -69,6 +71,69 @@ floats over the world view, docks anywhere and closes with its ×. It stays on i
 selection moves, with Back and Forward through the weenies it has shown, and its menu makes new
 weenies or puts one back as saved. Editing one of the server's weenies asks first: change it in
 this world, so every copy changes, or make a copy of your own.
+
+### Loot
+
+The Loot tab lists every loot table: death treasures (what a creature drops) and wielded
+treasures (what it is made wearing and wielding), the server's and the packs'. Each shows whose it
+is, what it gives and how many weenies use it. Open one to see its fields and every weenie that
+drops it, wields it or makes it as a generator's treasure; a click opens that weenie. A server's
+table is changed with Change it in this world (the pack gets its own copy) and Put back the
+server's. New death table and New wielded table make tables of the pack's own, and Make a copy
+copies one, each named as typed beside it (the pack names it by that symbol, and the build numbers
+it); Delete takes the pack's own away once nothing uses it.
+
+A death treasure's tier, quality, heritage and each group's chance, least, most and mix are set in
+place, each mix by what it makes. A wielded treasure is shown in sets, as the server draws them:
+each entry's chance in its set in percent, what each set makes nothing at, and under an entry the
+sets drawn when it is made. With Live running, Roll it has the editor's world draw the table, making
+nothing, and lists what it would make. A generator's treasure entry shows as the loot table it
+names, and opens it in the tab. In the weenie editor, a creature's Loot (in Items) and Wielded loot
+(in Creature, over what it has equipped) choose its tables, each with a link to the tab.
+
+### Characters
+
+Characters, opened from Play's ▾, lists the world's playtest characters, one recipe each in
+`characters/<name>.toml` beside the world. The top row chooses the recipe and acts on its
+character: Play As, Reset, Delete and Export. Under it are the recipe's heritage, gender, level
+(with the levels of the monsters around the camera), archetype (Heavy, Light, Finesse or Two
+Handed melee, Dual Wield, Heavy Weapons and Shield, Archer, War Mage, Void Mage, Summoner), Save as
+archetype, and where it starts. The server makes a character a player of that level could have:
+the level's real experience and skill credits, spent as the archetype spends them, and gear like
+the place's loot that it can wield. The archetypes share their ranks as players of each kind did
+at the end of retail. The line under them says whether its numbers add up.
+
+Build shows the skill credits and experience, then the attributes and vitals with their values, or
+every skill as untrained (U), trained (T) or specialized (S) with its value. Tweak changes the
+innate attributes and the weights the ranks are spent by. Save as archetype keeps the recipe's
+choices as your own archetype, with your settings, so every world offers it.
+
+Items chooses the gear: for its level (loot of the tier its level hunts, or the place's when
+higher), Better (a tier up, with jewelry and a cloak), a chosen tier, Starter, or None; and the
+kit. With Live on, it shows the gear the server rolls for the recipe before anything is made, and
+each slot can be rolled again or filled with the weenie chosen in the spawn browser; Play As and
+Reset make what it shows. The character also carries its kit and what is added under Carried: Add
+picks from the weenies a player can keep in a pack, or drag one from the spawn browser onto Items.
+Start at puts it at the camera, in front of the selected object, at the dungeon's entrance, or
+where it was left.
+
+Augments lists each augmentation with what its gem costs in this world's database; that experience
+comes out of the build's. It says how many characters of the level had at the end of retail, and
+warns past that, without refusing. From level 200 a character can earn luminance and buy auras
+from Nalicana and one Seer. Quests holds the titles it has (the first is shown), Quest skill
+credits, and the quests it has solved; the quests the dungeon's portals and the place's NPCs check
+are listed under them, each a click from being added.
+
+Play As plays as the character chosen. The server makes a new character itself, with no trip
+through the creation screens. It makes the character again when its recipe changed; otherwise it
+carries on as it was left, with what it found and learned. Reset makes it from its recipe now.
+Another heritage or gender gives the character a new body where it stood. Templates from earlier
+versions become recipes the first time a world opens, without their typed values.
+
+Export writes the character, as the editor's server holds it, to
+`export/characters/<name>.empyrean-character` in the world's output folder. Another Empyrean world
+imports it with its console's `import-character`, when its operator allows imports, after checking
+the character's era, items and stats.
 
 ### Placing scenery
 
@@ -126,10 +191,10 @@ the game's menus. Play resumes the character, and stopping Live ends the session
 
 While Live runs, each edit is published when the drag or brush stroke ends, and Undo publishes too.
 The server and the client take the same numbered overlay, and only the affected landblocks are
-rebuilt. A publish that fails reports its error and restores the previous content.
+rebuilt. A server's weenie, quest, loot table or spawn put back is the server's own again at once.
+A publish the server or the client refuses reports its error and leaves the world as it was.
 
-The playtest character's template is `characters/<name>.json` beside the world. A new character
-uses it on first Play; an existing one keeps its progress. The server keeps its databases in
+The playtest characters are in Characters (above). The server keeps its databases in
 `.playtest/world` beside the world (`--live-dir` picks another), and a second editor can't open the
 same playtest folder while its server runs.
 
@@ -238,8 +303,8 @@ earlier export. A `README.txt` there says where each part goes and what players 
 | For | What it writes |
 |---|---|
 | Empyrean | `world.pack`, the era's world database with the world's content in it; `overlay/`, the world's changes to the data files; `sql/`, the world's content |
-| ACE | `dats/`, the changed data files, baked; `sql/`, the world's content laid out as ACE's content folder |
-| GDLE | `dats/`, as for ACE; `json/`, the world's weenies and spawn maps as GDLE's files; `quests.json`, the quests the world adds or changes |
+| ACE | `dats/`, the changed data files, baked; `sql/`, the world's content laid out as ACE's content folder (its loot tables to load with MySQL) |
+| GDLE | `dats/`, as for ACE; `json/`, the world's weenies and spawn maps as GDLE's files; `quests.json`, the quests the world adds or changes; `wieldedTreasure.json` and `treasureLoot.json`, its loot tables, to merge into GDLE's own |
 
 Empyrean and GDLE exports run `empyrean-import` (from `--empyrean`, or beside `lyceum`) over the
 era's world database: `--world-sql`, else the newest in the download cache, downloaded if there is

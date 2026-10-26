@@ -14,6 +14,14 @@ use crate::pieces::{mismatch, opening};
 /// How far below a cell's middle the walk looks for its floor, in meters.
 pub const FLOOR_REACH: f32 = 60.0;
 
+/// How much nearer than a floor an opening must be to be fallen through, in meters: one that
+/// meets the floor at its edge is not.
+const EDGE: f32 = 0.01;
+
+/// How high above the floor a standing body's middle is, where the game finds the room it is
+/// in: its lowest sphere's middle, in meters.
+const STANDING_MIDDLE: f32 = 0.5;
+
 /// One thing the walk found wrong with a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
@@ -397,20 +405,37 @@ pub fn cell_shapes(
         else {
             continue;
         };
-        out.push(CellShape {
-            index: *index,
-            seen_outside: cell.flags & 1 != 0,
-            frame: cell.frame,
-            planes: cs
-                .cell_bsp
-                .nodes
-                .iter()
-                .filter_map(|n| n.plane)
-                .map(|p| (p.normal, p.d))
-                .collect(),
-        });
+        out.push(shape(*index, cell, cs));
     }
     out
+}
+
+/// Cell `cell` (of piece `cs`, at `index`) as its cell tree bounds it.
+fn shape(index: u16, cell: &EnvCell, cs: &dereth_assets::geometry::CellStruct) -> CellShape {
+    CellShape {
+        index,
+        seen_outside: cell.flags & 1 != 0,
+        frame: cell.frame,
+        planes: cs
+            .cell_bsp
+            .nodes
+            .iter()
+            .filter_map(|n| n.plane)
+            .map(|p| (p.normal, p.d))
+            .collect(),
+    }
+}
+
+/// Whether cell `cell` (of piece `cs`) extends over point `p` (landblock meters): the box its
+/// corners span holds it.
+fn extent_holds(cell: &EnvCell, cs: &dereth_assets::geometry::CellStruct, p: Vec3) -> bool {
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for v in &cs.vertex_array.vertices {
+        let q = localtoglobal(&cell.frame, v.position);
+        lo = [lo[0].min(q.x), lo[1].min(q.y), lo[2].min(q.z)];
+        hi = [hi[0].max(q.x), hi[1].max(q.y), hi[2].max(q.z)];
+    }
+    !(p.x < lo[0] || p.x > hi[0] || p.y < lo[1] || p.y > hi[1] || p.z < lo[2] || p.z > hi[2])
 }
 
 /// The cell of `cells` (a landblock's, by index) that point `p` (landblock meters) stands in, and
@@ -430,13 +455,7 @@ pub fn cell_at(
         let Some(cs) = e.cells.get(usize::from(cell.cell_struct)) else {
             continue;
         };
-        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-        for v in &cs.vertex_array.vertices {
-            let q = localtoglobal(&cell.frame, v.position);
-            lo = [lo[0].min(q.x), lo[1].min(q.y), lo[2].min(q.z)];
-            hi = [hi[0].max(q.x), hi[1].max(q.y), hi[2].max(q.z)];
-        }
-        if p.x < lo[0] || p.x > hi[0] || p.y < lo[1] || p.y > hi[1] || p.z < lo[2] || p.z > hi[2] {
+        if !extent_holds(cell, cs, p) {
             continue;
         }
         let Some(placed) = place(cell, &e) else {
@@ -452,6 +471,120 @@ pub fn cell_at(
         }
     }
     best
+}
+
+/// The cell of `cells` (a landblock's, by index) that a body let go at point `p` (landblock
+/// meters) comes to stand in, and the height of the floor it stands on: from the room the point
+/// is in, straight down to the nearest floor, going through any opening in a floor on the way
+/// into the room under it. A point over a floor of its own room lands there; a point in an open
+/// shaft lands on the floor at its bottom.
+///
+/// Rooms are told apart as the game tells them: the room a point is in is the one whose cell tree
+/// holds it (where none does, those whose extent holds it, as [`cell_at`] takes them), and the
+/// room a body standing on a floor is in is the one that holds its middle, which on a ramp or the
+/// line between two rooms need not be the room the floor belongs to.
+#[must_use]
+pub fn landing(
+    cells: &BTreeMap<u16, EnvCell>,
+    p: Vec3,
+    env: &dyn Fn(DataId) -> Option<Environment>,
+) -> Option<(u16, f32)> {
+    let mut envs: BTreeMap<DataId, Option<Environment>> = BTreeMap::new();
+    let mut placed: BTreeMap<u16, Placed> = BTreeMap::new();
+    let mut shapes = Vec::new();
+    // The rooms over the point, each with whether its cell tree holds it.
+    let mut over = Vec::new();
+    for (c, cell) in cells {
+        let e = envs
+            .entry(cell.environment)
+            .or_insert_with(|| env(cell.environment));
+        let Some(e) = e.as_ref() else { continue };
+        let Some(cs) = e.cells.get(usize::from(cell.cell_struct)) else {
+            continue;
+        };
+        let s = shape(*c, cell, cs);
+        if extent_holds(cell, cs, p) {
+            over.push((*c, s.holds(p)));
+        }
+        shapes.push(s);
+        if let Some(at) = place(cell, e) {
+            placed.insert(*c, at);
+        }
+    }
+    // Of those rooms (those that hold it first), the floor nearest under the point.
+    let land = |held: bool| {
+        over.iter()
+            .filter(|(_, h)| *h || !held)
+            .filter_map(|(c, _)| land_below(&placed, *c, p, &mut BTreeSet::new()))
+            .fold(None, nearest)
+    };
+    let (floor, z) = land(true).or_else(|| land(false))?;
+    let middle = Vec3::new(p.x, p.y, z + STANDING_MIDDLE);
+    let holds = |s: &&CellShape| s.holds(middle);
+    let room = if shapes
+        .iter()
+        .filter(|s| s.index == floor)
+        .any(|s| holds(&s))
+    {
+        floor
+    } else {
+        shapes.iter().find(holds).map_or(floor, |s| s.index)
+    };
+    Some((room, z))
+}
+
+/// Of a landing found so far and `next`, the one on the higher floor (the first found, of two
+/// as high).
+fn nearest(best: Option<(u16, f32)>, next: (u16, f32)) -> Option<(u16, f32)> {
+    if best.is_none_or(|(_, b)| next.1 > b) {
+        Some(next)
+    } else {
+        best
+    }
+}
+
+/// Where straight down from `from` in cell `here` a body comes to stand: the cell whose floor it
+/// meets first, through the openings on the way, and the floor's height. `None` when it meets no
+/// floor, or goes out through an opening to the outdoors.
+fn land_below(
+    placed: &BTreeMap<u16, Placed>,
+    here: u16,
+    from: Vec3,
+    path: &mut BTreeSet<u16>,
+) -> Option<(u16, f32)> {
+    let at = placed.get(&here)?;
+    if !path.insert(here) {
+        return None;
+    }
+    let solid = at
+        .solid
+        .iter()
+        .filter_map(|q| down_hit(q, from))
+        .fold(f32::MAX, f32::min);
+    // Only an opening in a floor is fallen through, not a doorway in a wall; and a floor that an
+    // opening meets at its edge, where the place is, is stood on.
+    let openings = || at.portals.iter().filter(|(_, q)| q.n.z.abs() >= 0.5);
+    let opening = openings()
+        .filter_map(|(_, q)| down_hit(q, from))
+        .fold(f32::MAX, f32::min);
+    let found = if solid <= opening + EDGE {
+        (solid < f32::MAX).then_some((here, from.z - solid))
+    } else {
+        openings()
+            .filter_map(|(to, q)| Some(((*to)?, down_hit(q, from)?)))
+            .filter(|(_, d)| *d + EDGE < solid)
+            .filter_map(|(to, d)| {
+                land_below(
+                    placed,
+                    to,
+                    Vec3::new(from.x, from.y, from.z - d - 0.01),
+                    path,
+                )
+            })
+            .fold(None, nearest)
+    };
+    path.remove(&here);
+    found
 }
 
 /// How far along a ray from `from` going `dir` (of length one) it meets `p`; `None` when it

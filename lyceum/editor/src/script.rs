@@ -20,7 +20,8 @@
 //! `pitch` in degrees) or `look_at` (the camera put `distance` meters from a point, looking at it);
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
-//! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`);
+//! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`,
+//! `characters`, `quests` or `loot`);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
 //! world's dungeon whose look it takes, `0163`); `piece` (the dungeon kit's, by its label,
@@ -134,7 +135,9 @@ pub struct Step {
     pub export: Option<lyceum_foundry::export::Target>,
     /// GDLE's own quests.json, which an export for GDLE merges the world's quests into.
     pub gdle_quests: Option<String>,
-    /// Apply the selected character template after logout, keeping a recovery snapshot.
+    /// The character recipe selected, which `play` plays as.
+    pub character: Option<String>,
+    /// Make the selected recipe's character from its recipe now, as Reset does.
     pub reset_character: Option<bool>,
     /// The client started in it with these switches, waited for.
     pub play: Option<Vec<String>>,
@@ -394,6 +397,10 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
     }
     s.edit = table(t, "edit")?.cloned();
     s.live = t.get("live").and_then(toml::Value::as_bool);
+    s.character = t
+        .get("character")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
     s.reset_character = t.get("reset_character").and_then(toml::Value::as_bool);
     s.export = match t.get("export") {
         Some(v) => Some(
@@ -567,6 +574,7 @@ live = true
 export_gdle = true
 gdle_quests = "server/quests.json"
 reset_character = true
+character = "Level Eighty"
 new_weenie = { name = "Gate Guard", from = 1154, blank = true }
 
 [[step]]
@@ -582,6 +590,7 @@ live = false
         assert_eq!(s[0].export, Some(lyceum_foundry::export::Target::Gdle));
         assert_eq!(s[0].gdle_quests.as_deref(), Some("server/quests.json"));
         assert_eq!(s[0].reset_character, Some(true));
+        assert_eq!(s[0].character.as_deref(), Some("Level Eighty"));
         assert_eq!(
             s[1].play.as_deref(),
             Some(&["--headless".to_owned(), "--linger".into(), "20".into()][..])

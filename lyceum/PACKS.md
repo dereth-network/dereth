@@ -217,12 +217,17 @@ id goes:
 |---|---|
 | `{{wcid:guide}}` | the weenie's class id (decimal) |
 | `{{guid:guide@A9B4}}` | an instance's id in landblock A9B4 (hex) |
+| `{{treasure:drudge-hoard}}` | a loot table's id (decimal), from 100000 up |
 | `{{surface-texture:stripes}}` | a record's id (hex); also `render-surface`, `surface` |
 
 Write a spawn as one instance (`DELETE FROM landblock_instance WHERE guid = ...`), not a whole
-landblock, so the landblock's other instances stay. `lyceum template --world <sql> --class <n>
---name <symbol>` starts a new weenie's SQL from an existing class. The built SQL goes to Empyrean
-(`empyrean-import --patches <out>/sql`) or into ACE's content folder.
+landblock, so the landblock's other instances stay. A link between two spawns of one landblock is a
+row of `landblock_instance_link` written after its parent's rows, the child marked `is_Link_Child`:
+a lever or a pressure plate linked as the child of a door, a switch or a pressure plate sets it off,
+and a creature does through an Activate step of its emotes.
+`lyceum template --world <sql> --class <n> --name <symbol>` starts a new weenie's SQL from an
+existing class. The built SQL goes to Empyrean (`empyrean-import --patches <out>/sql`) or into
+ACE's content folder.
 
 ## Edits as text
 
@@ -278,7 +283,10 @@ house = false                    # a house as a plain building; left out, one pl
 An edit changes the pack's files in place, keeping everything it doesn't touch, comments included.
 A new static gets a name (`static-1`) so later edits can find it. A vertex goes into the file that
 already sets it, else the landblock where it is 0 to 7 from the corner. A spawn is a file of its
-own, `server/sql/landblocks/A8B4 guide.sql`.
+own, `server/sql/landblocks/A8B4 guide.sql`. A loot table is a file of its own too: a server's
+changed in the pack by its kind and id, `server/sql/treasure_death/00037.sql` or
+`server/sql/treasure_wielded/00037.sql`, and a new one by its name,
+`server/sql/treasure_death/drudge-hoard.sql`, its id the symbol `{{treasure:drudge-hoard}}`.
 
 A dropped building comes with its doors from the world database, the steps and porches most of its
 copies have (statics named after it, `cottage-1-outdoor-0`), level ground at the height under its
@@ -304,6 +312,7 @@ them with its checks and refuses an edit that would make a new one.
 | `weenie 1234` | a weenie class, compared row by row (its date aside) |
 | `spawn 0x7A9B4001` | an instance and its links |
 | `quest drudgekills` | a quest's registration |
+| `death-treasure 37`, `wielded-treasure 37` | a loot table, every row of it |
 
 A world says which pack wins:
 

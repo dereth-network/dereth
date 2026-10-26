@@ -1676,3 +1676,63 @@ fn retails_dungeons_stack_floors_six_meters_apart_from_the_arrival_and_close_eve
     // Most dungeons of several floors join them by stairs, many by drops as well.
     assert!(joined_by["stairs"] + joined_by["stairs and drops"] > joined_by["drops"] * 5);
 }
+
+/// Sand Caves: its portals drop players over an open shaft, twelve meters above its floor.
+const SAND_CAVES: u16 = 0x5760;
+
+/// How far over a dungeon's drop point the editor's camera goes in, in meters.
+const EYE: f32 = 1.6;
+
+/// From the camera at the drop point of every retail dungeon whose portals drop into a room, a
+/// body let go lands on a floor in the dungeon: under a room with a floor of its own, that floor;
+/// down an open shaft, the floor at its bottom. Sand Caves drops players into a shaft, so its
+/// drop point's own room has no floor under it, and nothing there is the landscape.
+#[test]
+fn from_the_camera_at_every_retail_dungeons_drop_point_a_body_lands_on_a_floor_down_open_shafts_too(
+) {
+    let (_dir, world) = super::sample::sample("drop-point-landings");
+    let mut s = Session::open(&world, &dereth_dat::testing::dat_dir(), None).unwrap();
+    s.learn_weenies(&std::fs::read_to_string(world_sql()).unwrap());
+    let (cell, at) = s.drop_point(SAND_CAVES).expect("Sand Caves' portals");
+    assert_eq!(
+        cell, 0x5760_0133,
+        "the room its portals name, at the shaft's bottom"
+    );
+    let eye = Vec3::new(at.x, at.y, at.z + EYE);
+    assert_eq!(
+        s.cell_at(SAND_CAVES, eye),
+        None,
+        "no floor in the camera's own room"
+    );
+    let (room, floor) = s.landing(SAND_CAVES, eye).expect("a floor down the shaft");
+    assert_eq!(room, 0x0133);
+    assert!((floor + 18.0).abs() < 1e-3, "{floor}");
+
+    let (mut rooms, mut shafts) = (0, Vec::new());
+    for lb in s.retail_dungeons().keys() {
+        let Some((cell, at)) = s.drop_point(*lb) else {
+            continue;
+        };
+        if cell >> 16 != u32::from(*lb) || cell & 0xFFFF < 0x100 {
+            continue;
+        }
+        rooms += 1;
+        let eye = Vec3::new(at.x, at.y, at.z + EYE);
+        let landed = s.landing(*lb, eye);
+        assert!(
+            landed.is_some(),
+            "{lb:04X}: nothing to land on under {at:?}"
+        );
+        match s.cell_at(*lb, eye) {
+            Some((_, own)) => assert_eq!(landed.map(|(_, z)| z), Some(own), "{lb:04X}"),
+            None => shafts.push(*lb),
+        }
+    }
+    println!(
+        "{rooms} retail dungeons drop into a room; at {} the camera there is over an open \
+         shaft: {shafts:04X?}",
+        shafts.len()
+    );
+    assert!(rooms > 800, "{rooms}");
+    assert!(shafts.contains(&SAND_CAVES), "{shafts:04X?}");
+}

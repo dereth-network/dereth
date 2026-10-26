@@ -266,6 +266,7 @@ fn run_validate(args: &Args) -> ExitCode {
                 Err(e) => return fail(&e),
             };
             known.world_classes = Some(content::classes(&text).into_keys().collect());
+            known.loot_tables = Some(sql_ids::loot_ids(&text).into_iter().collect());
             known.quests.extend(
                 content_check::quests(&text)
                     .iter()
@@ -279,6 +280,9 @@ fn run_validate(args: &Args) -> ExitCode {
                     .iter()
                     .map(|q| content_check::quest_key(q)),
             );
+            if let Some(tables) = known.loot_tables.as_mut() {
+                tables.extend(sql_ids::loot_ids(t));
+            }
         }
         if let Some(p) = args.path("schema") {
             match read(&p).map(|t| content::Schema::read(&t)) {

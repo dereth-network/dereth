@@ -12,6 +12,39 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+- Definition shows a weenie read only; Edit opens it in its own Editor tab.
+- Each kind of weenie gets its own sections, with many more fields.
+- Portals list who may use them; flag fields are dropdowns of check boxes.
+- Fields changed from the server's are marked; a right click puts one back.
+- Choose a weenie's model and icon from pictures.
+- The weenie editor shows how a weenie looks, and picks clothing, colors and shade by sight.
+- New Characters tab: choose a level, archetype, heritage and skills, then Play As.
+- Characters: see and reroll the gear before playing, replace any slot, kits and carried items.
+- Characters: augmentations, luminance, summoning mastery, titles and quest flags, including those a place checks.
+- Characters: export a character for another world.
+- The character builder is faster and laid out in tabs, with Reset beside Play As.
+- New Weenie: start from a plain one of 14 kinds, or copy any weenie.
+- Edit what a weenie carries, spawns and casts, with chances in percent.
+- Edit a creature's attributes, vitals, skills and body parts.
+- Emotes read as plain lines, each set with its chance of running.
+- The editor lists a weenie's problems; a click goes to the field.
+- Find usages shows what carries, spawns or gives a weenie.
+- A pack's own weenies can be deleted once nothing uses them.
+- Descriptions and speech are written in boxes of several lines.
+- A Quests tab lists every quest, where it's used, and changes, renames or removes them.
+- A Treasure tab lists every loot table, where it's used, and edits them.
+- Levers, pressure plates, doors and creatures can be linked to what they set off.
+- The spawn tool's New... makes every weenie, portals included.
+- With Collision on, the flying camera slides along walls and floors and steps over small lips.
+- Generators that run between set times get From and Until date fields.
+- Pickers for palettes, sound and motion tables; long lists are fast.
+- The pointer hides while turning the camera, and Play hides windows over the view.
+- On macOS 26, Lyceum's icon is drawn in the system's own style, as Dereth's is.
+- Fixed the grid and handles stopping short of the world view's edges above 100% UI scale.
+- Fixed Play As stalling in some dungeons.
+- Fixed Live losing server weenies, quests and spawns after Put back or a refused edit.
+- Fixed a removed house leaving behind what was placed in its basement.
+
 ## 0.1.1 (2026-10-24)
 
 - Lyceum is faster while flying, browsing scenery and with big dungeons open.

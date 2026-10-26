@@ -527,7 +527,7 @@ impl Screen {
         out.push(t.get("start.open").to_owned());
         out.push(t.get("start.new").to_owned());
         out.push(format!(
-            "{}: {}",
+            "{} {}",
             t.get("start.client"),
             self.dats.as_ref().map_or_else(
                 || t.get("start.not_chosen").to_owned(),
@@ -589,7 +589,7 @@ impl Screen {
         });
         ui.add_space(10.0);
         ui.horizontal(|ui| {
-            ui.label(format!("{}:", t.get("start.client")));
+            ui.label(t.get("start.client"));
             ui.label(self.dats.as_ref().map_or_else(
                 || t.get("start.not_chosen").to_owned(),
                 |d| d.display().to_string(),
@@ -1088,14 +1088,26 @@ mod tests {
             std::slice::from_ref(&world),
             "a world no longer there is not shown"
         );
-        let t = Text::built_in();
-        let lines = s.lines(&t.table());
+        let table = Text::built_in().table();
+        let lines = s.lines(&table);
         assert_eq!(lines[0], "Recent worlds");
         assert!(lines[1].ends_with("world.toml"));
-        assert!(lines.contains(&"Open a world…".to_owned()), "{lines:?}");
         assert!(
-            lines.contains(&"New world from the sample".to_owned()),
+            lines.contains(&table.get("start.open").to_owned()),
             "{lines:?}"
+        );
+        assert!(
+            lines.contains(&table.get("start.new").to_owned()),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines.last(),
+            Some(&format!(
+                "{} {}",
+                table.get("start.client"),
+                client.display()
+            )),
+            "the DAT folder's label as the text writes it, then the folder"
         );
         s.act(Action::Recent(world.clone()));
         assert_eq!(

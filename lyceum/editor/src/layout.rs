@@ -239,7 +239,7 @@ pub struct Layout {
     pub side_zoom: f32,
     pub side_pan: (f32, f32),
     /// Parts from above, by environment and part; their spaces; the landblock's rooms.
-    plans: BTreeMap<(u32, u16), Option<PiecePlan>>,
+    plans: BTreeMap<(u32, u16), Option<std::rc::Rc<PiecePlan>>>,
     spaces: BTreeMap<(u32, u16), Option<Space>>,
     rooms: Option<(u16, std::rc::Rc<BTreeMap<u16, Solid>>)>,
     /// The floor players arrive on, and the lids, as last worked out.
@@ -256,6 +256,59 @@ pub struct Layout {
     pub marked_ways: Vec<(Link, egui::Pos2)>,
     /// The room outlines the floors seen from the south drew last.
     pub side_outlines: usize,
+    /// The rooms on the grid and the floors seen from the south, as last drawn into a picture,
+    /// with what they were drawn for; and how many times each was.
+    grid_drawing: Option<(GridKey, (f32, f32), crate::gui::Picture)>,
+    side_drawing: Option<(SideKey, crate::gui::Picture)>,
+    /// Each room seen from the south, for the landblock and the edits it was worked out for.
+    side_boxes: Option<((u16, u64), SideBoxes)>,
+    pub grid_drawings: u64,
+    pub side_drawings: u64,
+    /// Draw the grid and the floors seen from the south shape by shape every frame, as the
+    /// pictures are made: what a picture is compared against.
+    pub live_panels: bool,
+}
+
+/// What the grid's rooms are drawn for: the dungeon, the edits made in it, the floor shown, the
+/// view's place and zoom, the rooms selected and lifted, and the panel's place and scale.
+#[derive(Clone, Debug, PartialEq)]
+struct GridKey {
+    landblock: u16,
+    revision: u64,
+    floor: u32,
+    zoom: u32,
+    rect: [u32; 4],
+    scale: u32,
+    selected: Vec<u16>,
+    lifted: Vec<u16>,
+}
+
+/// How far past each side of the grid its picture reaches, as a part of the panel's width and
+/// height: a pan within it slides the picture rather than drawing it again.
+const GRID_MARGIN: f32 = 0.25;
+
+/// A room seen from the south: its west and east ends, and the heights of its floor and top.
+type SideBox = (f32, f32, f32, f32);
+
+/// A dungeon's rooms seen from the south.
+type SideBoxes = std::rc::Rc<Vec<SideBox>>;
+
+/// What the floors seen from the south are drawn for.
+#[derive(Clone, Debug, PartialEq)]
+struct SideKey {
+    landblock: u16,
+    revision: u64,
+    floors: Vec<u32>,
+    shown: u32,
+    rect: [u32; 4],
+    scale: u32,
+    /// The zoom and the pan.
+    view: [u32; 3],
+}
+
+/// A rectangle's corners, as bits a key compares exactly.
+fn rect_bits(r: egui::Rect) -> [u32; 4] {
+    [r.min.x, r.min.y, r.max.x, r.max.y].map(f32::to_bits)
 }
 
 impl std::fmt::Debug for Layout {
@@ -278,6 +331,14 @@ impl Layout {
         self.ghost = None;
         self.marks = None;
         self.revision += 1;
+    }
+
+    /// Forget what the spawns shown change: where players arrive, the ghost and the marks; the
+    /// rooms are as they were.
+    pub fn spawns_changed(&mut self) {
+        self.arrival = None;
+        self.ghost = None;
+        self.marks = None;
     }
 
     /// As a dungeon is gone into: the view fitted to it again, the floor players arrive on shown.
@@ -417,14 +478,15 @@ impl EditorApp {
     }
 
     /// Part `(env, piece)` from above, read once.
-    fn piece_plan(&mut self, env: DataId, piece: u16) -> Option<PiecePlan> {
+    fn piece_plan(&mut self, env: DataId, piece: u16) -> Option<std::rc::Rc<PiecePlan>> {
         if let Some(p) = self.layout.plans.get(&(env.raw(), piece)) {
             return p.clone();
         }
         let plan = self
             .session
             .environment(env)
-            .and_then(|e| PiecePlan::of(&e, piece));
+            .and_then(|e| PiecePlan::of(&e, piece))
+            .map(std::rc::Rc::new);
         self.layout.plans.insert((env.raw(), piece), plan.clone());
         plan
     }
@@ -1011,7 +1073,6 @@ impl EditorApp {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(18, 20, 24));
         self.layout.rect = Some(rect);
         let cells = self.cells_of(lb);
         // The first time: about the camera, near enough to see the rooms round it.
@@ -1035,53 +1096,6 @@ impl EditorApp {
                 cy - (p.y - rect.center().y) / zoom,
             )
         };
-        // The grid's squares: a line at each square's edge.
-        let grid_line = egui::Stroke::new(1.0, egui::Color32::from_gray(38));
-        let (wx0, wy1) = to_world(rect.min);
-        let (wx1, wy0) = to_world(rect.max);
-        if self.layout.zoom * PITCH >= 4.0 {
-            #[allow(clippy::cast_possible_truncation)]
-            for gx in ((wx0 / PITCH).floor() as i32)..=((wx1 / PITCH).ceil() as i32) {
-                #[allow(clippy::cast_precision_loss)]
-                let x = to_screen(Vec3::new((gx as f32 + 0.5) * PITCH, 0.0, 0.0)).x;
-                painter.line_segment(
-                    [egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)],
-                    grid_line,
-                );
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            for gy in ((wy0 / PITCH).floor() as i32)..=((wy1 / PITCH).ceil() as i32) {
-                #[allow(clippy::cast_precision_loss)]
-                let y = to_screen(Vec3::new(0.0, (gy as f32 + 0.5) * PITCH, 0.0)).y;
-                painter.line_segment(
-                    [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
-                    grid_line,
-                );
-            }
-        }
-        // The rooms: the floor shown solid, those under it dim, those over it faded out; the
-        // selected room's whole piece lit.
-        let draw_plan = |painter: &egui::Painter,
-                         plan: &PiecePlan,
-                         f: &Frame,
-                         fill: egui::Color32,
-                         line: egui::Color32| {
-            for poly in &plan.floors {
-                let pts: Vec<egui::Pos2> = poly
-                    .iter()
-                    .map(|p| to_screen(localtoglobal(f, *p)))
-                    .collect();
-                painter.add(egui::Shape::convex_polygon(
-                    pts.clone(),
-                    fill,
-                    egui::Stroke::NONE,
-                ));
-                painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.0, line)));
-            }
-        };
-        let pointer = response.hover_pos();
-        let mut under: Option<u16> = None;
-        let mut joined: Vec<(Vec3, Vec3)> = Vec::new();
         let lifted: Vec<u16> = self
             .layout
             .moving
@@ -1097,75 +1111,178 @@ impl EditorApp {
         };
         // The lids are not drawn: the openings they close are, as free ones.
         let lids = self.lids(lb).cells();
-        for (n, c) in cells.iter() {
-            if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 || lids.contains(n) {
-                continue;
-            }
-            let Some(plan) = self.piece_plan(c.environment, c.cell_struct) else {
-                continue;
-            };
-            let low = c.frame.origin.z + plan.low;
-            let on_floor = (low - shown).abs() <= FLOOR_BAND;
-            let (fill, line) = if lifted.contains(n) {
-                (
-                    egui::Color32::from_rgba_unmultiplied(120, 120, 140, 30),
-                    egui::Color32::from_rgb(240, 200, 90),
-                )
-            } else if on_floor {
-                (
-                    if selected.contains(n) {
-                        egui::Color32::from_rgb(70, 90, 120)
-                    } else {
-                        egui::Color32::from_gray(78)
-                    },
-                    egui::Color32::from_gray(170),
-                )
-            } else if low < shown {
-                (egui::Color32::from_gray(40), egui::Color32::from_gray(70))
-            } else {
-                (
-                    egui::Color32::from_rgba_unmultiplied(120, 120, 140, 18),
-                    egui::Color32::from_rgba_unmultiplied(150, 150, 170, 40),
-                )
-            };
-            draw_plan(&painter, &plan, &c.frame, fill, line);
-            if on_floor {
-                for (a, b) in &plan.doorways {
-                    joined.push((localtoglobal(&c.frame, *a), localtoglobal(&c.frame, *b)));
+        // The squares, the rooms and the doorways joining them, drawn once into a picture and
+        // shown as it is until what they show changes.
+        let key = GridKey {
+            landblock: lb,
+            revision: self.layout.revision,
+            floor: shown.to_bits(),
+            zoom: zoom.to_bits(),
+            rect: rect_bits(painter.clip_rect()),
+            scale: ui.ctx().pixels_per_point().to_bits(),
+            selected: selected.clone(),
+            lifted: lifted.clone(),
+        };
+        // Where the picture was drawn from: panned since by less than its margin, it slides.
+        let margin = rect.size() * GRID_MARGIN;
+        let slid = |at: (f32, f32)| egui::vec2((at.0 - cx) * zoom, (cy - at.1) * zoom);
+        let fresh = matches!(&self.layout.grid_drawing, Some((k, at, _))
+        if *k == key && {
+            let d = slid(*at);
+            d.x.abs() <= margin.x - 1.0 && d.y.abs() <= margin.y - 1.0
+        });
+        let live = self.layout.live_panels;
+        if !fresh || live {
+            // The picture reaches past the panel by its margin; drawn live, the panel alone.
+            let outer = if live { rect } else { rect.expand2(margin) };
+            let mut shapes = vec![egui::Shape::rect_filled(
+                outer,
+                0.0,
+                egui::Color32::from_rgb(18, 20, 24),
+            )];
+            // The grid's squares: a line at each square's edge.
+            let grid_line = egui::Stroke::new(1.0, egui::Color32::from_gray(38));
+            let (wx0, wy1) = to_world(outer.min);
+            let (wx1, wy0) = to_world(outer.max);
+            if zoom * PITCH >= 4.0 {
+                #[allow(clippy::cast_possible_truncation)]
+                for gx in ((wx0 / PITCH).floor() as i32)..=((wx1 / PITCH).ceil() as i32) {
+                    #[allow(clippy::cast_precision_loss)]
+                    let x = to_screen(Vec3::new((gx as f32 + 0.5) * PITCH, 0.0, 0.0)).x;
+                    shapes.push(egui::Shape::line_segment(
+                        [egui::pos2(x, outer.min.y), egui::pos2(x, outer.max.y)],
+                        grid_line,
+                    ));
                 }
-                // The room under the pointer: a point on the edge between two of its floor's
-                // polygons is in it too.
-                if let Some(p) = pointer {
-                    let w = to_world(p);
-                    let hit = plan.floors.iter().any(|poly| {
-                        let pts: Vec<(f32, f32)> = poly
-                            .iter()
-                            .map(|v| {
-                                let g = localtoglobal(&c.frame, *v);
-                                (g.x, g.y)
-                            })
-                            .collect();
-                        [
-                            (0.0, 0.0),
-                            (0.05, 0.05),
-                            (-0.05, 0.05),
-                            (0.05, -0.05),
-                            (-0.05, -0.05),
-                        ]
+                #[allow(clippy::cast_possible_truncation)]
+                for gy in ((wy0 / PITCH).floor() as i32)..=((wy1 / PITCH).ceil() as i32) {
+                    #[allow(clippy::cast_precision_loss)]
+                    let y = to_screen(Vec3::new(0.0, (gy as f32 + 0.5) * PITCH, 0.0)).y;
+                    shapes.push(egui::Shape::line_segment(
+                        [egui::pos2(outer.min.x, y), egui::pos2(outer.max.x, y)],
+                        grid_line,
+                    ));
+                }
+            }
+            // The rooms: the floor shown solid, those under it dim, those over it faded out; the
+            // selected room's whole piece lit.
+            let mut joined: Vec<(Vec3, Vec3)> = Vec::new();
+            for (n, c) in cells.iter() {
+                if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 || lids.contains(n)
+                {
+                    continue;
+                }
+                let Some(plan) = self.piece_plan(c.environment, c.cell_struct) else {
+                    continue;
+                };
+                let low = c.frame.origin.z + plan.low;
+                let on_floor = (low - shown).abs() <= FLOOR_BAND;
+                let (fill, line) = if lifted.contains(n) {
+                    (
+                        egui::Color32::from_rgba_unmultiplied(120, 120, 140, 30),
+                        egui::Color32::from_rgb(240, 200, 90),
+                    )
+                } else if on_floor {
+                    (
+                        if selected.contains(n) {
+                            egui::Color32::from_rgb(70, 90, 120)
+                        } else {
+                            egui::Color32::from_gray(78)
+                        },
+                        egui::Color32::from_gray(170),
+                    )
+                } else if low < shown {
+                    (egui::Color32::from_gray(40), egui::Color32::from_gray(70))
+                } else {
+                    (
+                        egui::Color32::from_rgba_unmultiplied(120, 120, 140, 18),
+                        egui::Color32::from_rgba_unmultiplied(150, 150, 170, 40),
+                    )
+                };
+                // A room wholly off the panel is not drawn.
+                let reach = egui::Rect::from_points(
+                    &plan
+                        .floors
                         .iter()
-                        .any(|(dx, dy)| inside(&pts, (w.0 + dx, w.1 + dy)))
-                    });
-                    if hit {
-                        under = Some(*n);
+                        .flatten()
+                        .map(|p| to_screen(localtoglobal(&c.frame, *p)))
+                        .collect::<Vec<_>>(),
+                );
+                if reach.expand(2.0).intersects(outer) {
+                    plan_shapes(&mut shapes, &plan, &c.frame, &to_screen, fill, line);
+                }
+                if on_floor {
+                    for (a, b) in &plan.doorways {
+                        joined.push((localtoglobal(&c.frame, *a), localtoglobal(&c.frame, *b)));
                     }
                 }
             }
+            for (a, b) in joined {
+                shapes.push(egui::Shape::line_segment(
+                    [to_screen(a), to_screen(b)],
+                    egui::Stroke::new(2.0, egui::Color32::from_gray(120)),
+                ));
+            }
+            if live {
+                painter.extend(shapes);
+            } else {
+                let old = self.layout.grid_drawing.take().map(|(_, _, p)| p);
+                let picture = crate::gui::Picture::draw(ui.ctx(), outer, shapes, old);
+                self.layout.grid_drawing = Some((key, (cx, cy), picture));
+                self.layout.grid_drawings += 1;
+            }
         }
-        for (a, b) in joined {
-            painter.line_segment(
-                [to_screen(a), to_screen(b)],
-                egui::Stroke::new(2.0, egui::Color32::from_gray(120)),
-            );
+        if let Some((_, at, picture)) = self.layout.grid_drawing.as_ref().filter(|_| !live) {
+            picture.show_moved(&painter, slid(*at));
+        }
+        let draw_plan = |painter: &egui::Painter,
+                         plan: &PiecePlan,
+                         f: &Frame,
+                         fill: egui::Color32,
+                         line: egui::Color32| {
+            let mut shapes = Vec::new();
+            plan_shapes(&mut shapes, plan, f, &to_screen, fill, line);
+            painter.extend(shapes);
+        };
+        // The room under the pointer, of the floor shown: a point on the edge between two of
+        // its floor's polygons is in it too.
+        let pointer = response.hover_pos();
+        let mut under: Option<u16> = None;
+        if let Some(p) = pointer {
+            let w = to_world(p);
+            for (n, c) in cells.iter() {
+                if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 || lids.contains(n)
+                {
+                    continue;
+                }
+                let Some(plan) = self.piece_plan(c.environment, c.cell_struct) else {
+                    continue;
+                };
+                if (c.frame.origin.z + plan.low - shown).abs() > FLOOR_BAND {
+                    continue;
+                }
+                let hit = plan.floors.iter().any(|poly| {
+                    let pts: Vec<(f32, f32)> = poly
+                        .iter()
+                        .map(|v| {
+                            let g = localtoglobal(&c.frame, *v);
+                            (g.x, g.y)
+                        })
+                        .collect();
+                    [
+                        (0.0, 0.0),
+                        (0.05, 0.05),
+                        (-0.05, 0.05),
+                        (0.05, -0.05),
+                        (-0.05, -0.05),
+                    ]
+                    .iter()
+                    .any(|(dx, dy)| inside(&pts, (w.0 + dx, w.1 + dy)))
+                });
+                if hit {
+                    under = Some(*n);
+                }
+            }
         }
         // The open doorways of the floor shown: dots, the one chosen ringed.
         let lifting: Vec<String> = self
@@ -1399,39 +1516,7 @@ impl EditorApp {
         out: &mut Vec<UiAction>,
     ) {
         let painter = ui.painter_at(side);
-        painter.rect_filled(side, 0.0, egui::Color32::from_rgb(26, 28, 34));
-        painter.line_segment(
-            [side.left_top(), side.left_bottom()],
-            egui::Stroke::new(1.0, egui::Color32::from_gray(70)),
-        );
-        let cells = self.cells_of(lb);
-        let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::new();
-        for c in cells.values() {
-            if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 {
-                continue;
-            }
-            let Some(plan) = self.piece_plan(c.environment, c.cell_struct) else {
-                continue;
-            };
-            let (mut x0, mut x1) = (f32::MAX, f32::MIN);
-            for poly in &plan.floors {
-                for p in poly {
-                    let g = localtoglobal(&c.frame, *p);
-                    x0 = x0.min(g.x);
-                    x1 = x1.max(g.x);
-                }
-            }
-            if x0 > x1 {
-                x0 = c.frame.origin.x - 2.0;
-                x1 = c.frame.origin.x + 2.0;
-            }
-            boxes.push((
-                x0,
-                x1,
-                c.frame.origin.z + plan.low,
-                c.frame.origin.z + plan.high,
-            ));
-        }
+        let boxes = self.side_boxes(lb);
         let lo_z = floors.iter().copied().fold(shown, f32::min);
         let hi_z = floors.iter().copied().fold(shown, f32::max) + 6.0;
         let (x0, x1, z0, z1) = boxes.iter().fold((f32::MAX, f32::MIN, lo_z, hi_z), |a, b| {
@@ -1452,6 +1537,71 @@ impl EditorApp {
                 inner.center().y - (z - mz) * s,
             )
         };
+        // The floors and the rooms' outlines, drawn once into a picture and shown as it is until
+        // what they show changes.
+        let key = SideKey {
+            landblock: lb,
+            revision: self.layout.revision,
+            floors: floors.iter().map(|f| f.to_bits()).collect(),
+            shown: shown.to_bits(),
+            rect: rect_bits(painter.clip_rect()),
+            scale: ui.ctx().pixels_per_point().to_bits(),
+            view: [zoom, px, pz].map(f32::to_bits),
+        };
+        let fresh = matches!(&self.layout.side_drawing, Some((k, _)) if *k == key);
+        let live = self.layout.live_panels;
+        if !fresh || live {
+            let mut shapes = vec![
+                egui::Shape::rect_filled(side, 0.0, egui::Color32::from_rgb(26, 28, 34)),
+                egui::Shape::line_segment(
+                    [side.left_top(), side.left_bottom()],
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(70)),
+                ),
+            ];
+            for f in floors {
+                let band = egui::Rect::from_two_pos(at(x0, *f), at(x1, *f + FLOOR_BAND.max(3.0)));
+                let lit = (f - shown).abs() < 0.01;
+                shapes.push(egui::Shape::rect_filled(
+                    band.expand2(egui::vec2(6.0, 0.0)),
+                    0.0,
+                    if lit {
+                        egui::Color32::from_rgba_unmultiplied(90, 120, 170, 60)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(80, 80, 90, 25)
+                    },
+                ));
+            }
+            // Rooms in a line north to south stand on one another seen from the south: each
+            // outline is drawn once.
+            let mut drawn = std::collections::HashSet::new();
+            self.layout.side_outlines = 0;
+            for (bx0, bx1, bz0, bz1) in boxes.iter() {
+                let r = egui::Rect::from_two_pos(at(*bx0, *bz0), at(*bx1, *bz1));
+                #[allow(clippy::cast_possible_truncation)] // a point on screen, to an eighth of one
+                let key = [r.min.x, r.min.y, r.max.x, r.max.y].map(|v| (v * 8.0).round() as i32);
+                if !drawn.insert(key) {
+                    continue;
+                }
+                self.layout.side_outlines += 1;
+                shapes.push(egui::Shape::rect_stroke(
+                    r,
+                    0.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(150)),
+                    egui::StrokeKind::Inside,
+                ));
+            }
+            if live {
+                painter.extend(shapes);
+            } else {
+                let old = self.layout.side_drawing.take().map(|(_, p)| p);
+                let picture = crate::gui::Picture::draw(ui.ctx(), painter.clip_rect(), shapes, old);
+                self.layout.side_drawing = Some((key, picture));
+                self.layout.side_drawings += 1;
+            }
+        }
+        if let Some((_, picture)) = self.layout.side_drawing.as_ref().filter(|_| !live) {
+            picture.show(&painter);
+        }
         let response = ui.interact(
             side,
             ui.id().with("floors side"),
@@ -1487,45 +1637,59 @@ impl EditorApp {
                 self.layout.side_zoom = now;
             }
         }
-        for f in floors {
-            let band = egui::Rect::from_two_pos(at(x0, *f), at(x1, *f + FLOOR_BAND.max(3.0)));
-            let lit = (f - shown).abs() < 0.01;
-            painter.rect_filled(
-                band.expand2(egui::vec2(6.0, 0.0)),
-                0.0,
-                if lit {
-                    egui::Color32::from_rgba_unmultiplied(90, 120, 170, 60)
-                } else {
-                    egui::Color32::from_rgba_unmultiplied(80, 80, 90, 25)
-                },
-            );
-            if response.clicked()
-                && response
+        // A click on a floor's band shows it.
+        if response.clicked() {
+            for f in floors {
+                let band = egui::Rect::from_two_pos(at(x0, *f), at(x1, *f + FLOOR_BAND.max(3.0)));
+                if response
                     .interact_pointer_pos()
                     .is_some_and(|p| band.expand2(egui::vec2(6.0, 2.0)).contains(p))
-            {
-                out.push(UiAction::Floor(*f));
+                {
+                    out.push(UiAction::Floor(*f));
+                }
             }
         }
-        // Rooms in a line north to south stand on one another seen from the south: each outline
-        // is drawn once.
-        let mut drawn = std::collections::HashSet::new();
-        self.layout.side_outlines = 0;
-        for (bx0, bx1, bz0, bz1) in boxes {
-            let r = egui::Rect::from_two_pos(at(bx0, bz0), at(bx1, bz1));
-            #[allow(clippy::cast_possible_truncation)] // a point on screen, to an eighth of one
-            let key = [r.min.x, r.min.y, r.max.x, r.max.y].map(|v| (v * 8.0).round() as i32);
-            if !drawn.insert(key) {
+    }
+
+    /// Each room of landblock `lb` seen from the south: its east-west reach and the heights of
+    /// its floor and its top; worked out once till the next edit.
+    fn side_boxes(&mut self, lb: u16) -> SideBoxes {
+        if let Some((at, boxes)) = &self.layout.side_boxes {
+            if *at == (lb, self.layout.revision) {
+                return std::rc::Rc::clone(boxes);
+            }
+        }
+        let cells = self.cells_of(lb);
+        let mut boxes: Vec<SideBox> = Vec::new();
+        for c in cells.values() {
+            if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 {
                 continue;
             }
-            self.layout.side_outlines += 1;
-            painter.rect_stroke(
-                r,
-                0.0,
-                egui::Stroke::new(1.0, egui::Color32::from_gray(150)),
-                egui::StrokeKind::Inside,
-            );
+            let Some(plan) = self.piece_plan(c.environment, c.cell_struct) else {
+                continue;
+            };
+            let (mut x0, mut x1) = (f32::MAX, f32::MIN);
+            for poly in &plan.floors {
+                for p in poly {
+                    let g = localtoglobal(&c.frame, *p);
+                    x0 = x0.min(g.x);
+                    x1 = x1.max(g.x);
+                }
+            }
+            if x0 > x1 {
+                x0 = c.frame.origin.x - 2.0;
+                x1 = c.frame.origin.x + 2.0;
+            }
+            boxes.push((
+                x0,
+                x1,
+                c.frame.origin.z + plan.low,
+                c.frame.origin.z + plan.high,
+            ));
         }
+        let boxes = std::rc::Rc::new(boxes);
+        self.layout.side_boxes = Some(((lb, self.layout.revision), std::rc::Rc::clone(&boxes)));
+        boxes
     }
 }
 
@@ -1541,6 +1705,30 @@ fn wheel(ui: &egui::Ui) -> f32 {
             })
             .sum::<f32>()
     })
+}
+
+/// The shapes of part `plan` placed at `f` on the grid: each floor polygon filled with `fill` and
+/// outlined with `line`.
+fn plan_shapes(
+    shapes: &mut Vec<egui::Shape>,
+    plan: &PiecePlan,
+    f: &Frame,
+    to_screen: &dyn Fn(Vec3) -> egui::Pos2,
+    fill: egui::Color32,
+    line: egui::Color32,
+) {
+    for poly in &plan.floors {
+        let pts: Vec<egui::Pos2> = poly
+            .iter()
+            .map(|p| to_screen(localtoglobal(f, *p)))
+            .collect();
+        shapes.push(egui::Shape::convex_polygon(
+            pts.clone(),
+            fill,
+            egui::Stroke::NONE,
+        ));
+        shapes.push(egui::Shape::closed_line(pts, egui::Stroke::new(1.0, line)));
+    }
 }
 
 /// Whether point `p` is inside polygon `poly` (both from above).

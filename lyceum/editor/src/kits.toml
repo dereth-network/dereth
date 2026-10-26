@@ -1,0 +1,56 @@
+# The kits a playtest character can carry besides its gear: what a player of that kind took
+# hunting. Each item is a server class and how many, for the levels from `from` to `to` (both
+# kept); a kit `with` another carries that one's items too. An item the world's database lacks
+# is left out, so a kit serves every era.
+
+[[kit]]
+id = "adventurer"
+name = "Adventurer"
+items = [
+    # Healing kits, better ones for higher levels.
+    { class = 629, count = 5, to = 29 },               # Adept Healing Kit
+    { class = 631, count = 5, from = 30, to = 79 },    # Excellent Healing Kit
+    { class = 632, count = 5, from = 80, to = 149 },   # Peerless Healing Kit
+    { class = 9229, count = 5, from = 150 },           # Treated Healing Kit
+    # Health and stamina potions.
+    { class = 377, count = 10, to = 49 },              # Potion of Healing
+    { class = 378, count = 10, to = 49 },              # Stamina Potion
+    { class = 2458, count = 10, from = 50 },           # Health Elixir
+    { class = 2470, count = 10, from = 50 },           # Stamina Elixir
+    # Food.
+    { class = 259, count = 10 },                       # Bread
+    # Pyreals, then trade notes.
+    { class = 273, count = 1000, to = 49 },            # Pyreal
+    { class = 2625, count = 5, from = 50, to = 125 },  # Trade Note (10,000)
+    { class = 2627, count = 5, from = 126 },           # Trade Note (100,000)
+]
+
+[[kit]]
+id = "mage"
+name = "Mage"
+with = "adventurer"
+items = [
+    { class = 379, count = 10, to = 49 },              # Mana Potion
+    { class = 2461, count = 10, from = 50 },           # Mana Elixir
+    # Mana stones to draw mana, and charges to give it.
+    { class = 2435, count = 2 },                       # Mana Stone
+    { class = 4614, count = 3, to = 99 },              # Moderate Mana Charge
+    { class = 4615, count = 3, from = 100, to = 179 }, # High Mana Charge
+    { class = 4616, count = 3, from = 180 },           # Great Mana Charge
+    # The scarab of the highest spells its level casts, and tapers.
+    { class = 686, count = 50, to = 14 },              # Copper Scarab
+    { class = 687, count = 50, from = 15, to = 39 },   # Gold Scarab
+    { class = 690, count = 50, from = 40, to = 99 },   # Pyreal Scarab
+    { class = 8897, count = 50, from = 100, to = 179 },# Platinum Scarab
+    { class = 37155, count = 50, from = 180 },         # Mana Scarab
+    { class = 20631, count = 300 },                    # Prismatic Taper
+]
+
+[[kit]]
+id = "archer"
+name = "Archer"
+with = "adventurer"
+items = [
+    { class = 300, count = 1000, to = 59 },            # Arrow
+    { class = 5304, count = 1000, from = 60 },         # Greater Arrow
+]

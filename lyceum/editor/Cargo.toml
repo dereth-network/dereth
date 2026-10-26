@@ -17,7 +17,7 @@ vulkan = ["dereth-render/vulkan", "dereth-scene/vulkan", "dereth-client-shell/vu
 wgpu = ["dereth-render/wgpu", "dereth-scene/wgpu", "dereth-client-shell/wgpu"]
 d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12"]
 # Tier switch only: no code is gated on it. It selects the `gpu` test binary, which opens the
-# retail dats under $DERETH_TEST_DAT_DIR and a device.
+# retail dats under $DERETH_TEST_DAT_DIR and a device, and the `cpu` tests that read the dats.
 retail-dats = []
 # Explicit loopback integration checks need the built server/importer and a world SQL dump.
 live-server-tests = ["retail-dats"]
@@ -50,6 +50,12 @@ dereth-physics.workspace = true
 dereth-terrain.workspace = true
 # The model browser's names: the region record, and the world map's places, where a town is.
 dereth-assets.workspace = true
+# Play As: a believable character of a level, worked out as the server works it out.
+dereth-progression.workspace = true
+# The weenie editor's preview: a weenie's look as a server describes it, and the description the
+# client applies to its parts.
+dereth-animation.workspace = true
+dereth-rules = { workspace = true, features = ["proto"] }
 dereth-ui-screens.workspace = true
 dereth-world-render.workspace = true
 png.workspace = true
@@ -73,6 +79,12 @@ embed-resource = "3"
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }
 dereth-render = { workspace = true, features = ["mock", "test-support"] }
+# Which characters the panels' fonts have glyphs for.
+skrifa.workspace = true
+# What the editor's own server stored of a playtest character, read back by the live tests.
+rusqlite = { workspace = true, features = ["collation"] }
+# The recorded sessions' object descriptions, which the preview's looks are checked against.
+dereth-protocol.workspace = true
 
 [lints]
 workspace = true

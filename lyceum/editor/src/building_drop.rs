@@ -414,7 +414,6 @@ impl EditorApp {
                 }
                 self.panels.house_box = Some(r.rect);
             }
-            ui.weak(t.get("place.building_help"));
             if !doors_known {
                 ui.weak(t.get("place.no_doors"));
             }

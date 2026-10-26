@@ -33,11 +33,14 @@ pub enum Kind {
     Guid,
     /// A new indoor cell's id, `0xXXYYnnnn` in its landblock.
     Cell,
+    /// A loot table's id, numbered in the server's content: a death treasure's or a wielded
+    /// treasure's, which share their ids.
+    Treasure,
 }
 
 impl Kind {
     /// Every kind, in the order the lockfile lists them.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::GfxObj,
         Self::Setup,
         Self::Environment,
@@ -48,6 +51,7 @@ impl Kind {
         Self::Wcid,
         Self::Guid,
         Self::Cell,
+        Self::Treasure,
     ];
 
     /// How sources and the lockfile write the kind.
@@ -64,6 +68,7 @@ impl Kind {
             Self::Wcid => "wcid",
             Self::Guid => "guid",
             Self::Cell => "cell",
+            Self::Treasure => "treasure",
         }
     }
 
@@ -86,15 +91,15 @@ impl Kind {
             Self::RenderSurface => Some((0x0600_0000, 0x06EF_FFFF)),
             Self::SurfaceTexture => Some((0x0500_0000, 0x05FF_FFFF)),
             Self::Surface => Some((0x0800_0000, 0x0800_FFFF)),
-            Self::Wcid | Self::Guid | Self::Cell => None,
+            Self::Wcid | Self::Guid | Self::Cell | Self::Treasure => None,
         }
     }
 
-    /// Whether ids of this kind are written in hexadecimal: every kind but the weenie class,
-    /// which ACE's own SQL writes in decimal.
+    /// Whether ids of this kind are written in hexadecimal: every kind but the weenie class and
+    /// the loot table, which ACE's own SQL writes in decimal.
     #[must_use]
     pub const fn hex(self) -> bool {
-        !matches!(self, Self::Wcid)
+        !matches!(self, Self::Wcid | Self::Treasure)
     }
 
     /// Whether this kind is a record in the data files.

@@ -3,8 +3,8 @@
 //! | for | what it writes |
 //! |---|---|
 //! | Empyrean | `world.pack`, the world database of the world's era with the world's content in it, built by the server's import tool; `overlay/`, what the world changes in the data files; `sql/`, its content as ACE's SQL, one file per object |
-//! | ACE | `dats/`, the data files the world changes with its changes written in ([`crate::bake`]); `sql/`, its content laid out as ACE's content folder |
-//! | GDLE | `dats/`, as for ACE; `json/`, its content as GDLE's files (the import tool's `gdle`), with `quests.json`, the quests the world adds or changes, merged into the server's own `quests.json` when it is given |
+//! | ACE | `dats/`, the data files the world changes with its changes written in ([`crate::bake`]); `sql/`, its content laid out as ACE's content folder, its loot tables under `treasure_death` and `treasure_wielded` (which ACE takes through MySQL) |
+//! | GDLE | `dats/`, as for ACE; `json/`, its content as GDLE's files (the import tool's `gdle`), with `quests.json`, the quests the world adds or changes, merged into the server's own `quests.json` when it is given, and its loot tables as GDLE's own lists: `wieldedTreasure.json`, and `treasureLoot.json` for the `loot` list of GDLE's `treasureTables.json` |
 //!
 //! Each export also writes a `README.txt` that says where the files go and what players need. A
 //! retail client reads only plain files: its players need the baked files, or a server that patches
@@ -419,8 +419,9 @@ fn write_sql(
 /// name, then the file's path in the pack's `server/sql`; `text`, its text) goes in a server's
 /// content folder, and the import that takes it: a weenie by its class id (`<class> <name>.sql`),
 /// a landblock's by its landblock (`<XXYY> <pack> <name>.sql`, so two packs' files of one
-/// landblock do not meet), a quest by its name. `None` for a file a server's import does not
-/// take by its kind.
+/// landblock do not meet), a quest by its name, a loot table by its kind and id (`<id> <name>.sql`
+/// for one a pack names by a symbol). `None` for a file a server's import does not take by its
+/// kind.
 #[must_use]
 pub fn content_place(rel: &Path, text: &str) -> Option<(PathBuf, String)> {
     let mut parts = rel.components();
@@ -459,7 +460,22 @@ pub fn content_place(rel: &Path, text: &str) -> Option<(PathBuf, String)> {
             Path::new("sql").join("quests").join(name),
             format!("import-sql quest {stem}"),
         )),
-        _ => None,
+        // A loot table by its kind and id: `00037.sql`, a table the pack names by a symbol
+        // `100000 drudge-loot.sql`.
+        folder => {
+            let kind = crate::loot::LootKind::of_folder(folder)?;
+            let id = *crate::sql_ids::loot_ids(text).first()?;
+            let number = format!("{id:05}");
+            let file = if stem == number {
+                format!("{number}.sql")
+            } else {
+                format!("{number} {stem}.sql")
+            };
+            Some((
+                Path::new("sql").join(folder).join(file),
+                format!("import-treasure {} {id}", kind.word()),
+            ))
+        }
     }
 }
 
@@ -664,7 +680,7 @@ fn write(
             bake(overlay, dats, out, &mut wrote)?;
             let n = write_sql(sql, out, ace_place)?;
             wrote.push(format!("{}: {n} file(s)", out.join("sql").display()));
-            ace_readme(key)
+            ace_readme(key, &Loot::of(sql))
         }
         Target::Gdle => {
             let importer = importer(opts)?;
@@ -692,7 +708,9 @@ fn write(
                 run(importer, &args)?;
                 wrote.extend(gdle_layout(&json, &mut quests)?);
             }
-            gdle_readme(key, &quests)
+            let loot = Loot::of(sql);
+            wrote.extend(gdle_loot(&loot, &json)?);
+            gdle_readme(key, &quests, &loot)
         }
     };
     let path = out.join("README.txt");
@@ -787,6 +805,140 @@ fn gdle_layout(json: &Path, quests: &mut Quests) -> Result<Vec<String>, Error> {
     Ok(wrote)
 }
 
+/// The loot tables a world's content writes, its ids filled in: each death treasure and each
+/// wielded treasure's rows, by id.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Loot {
+    pub death: BTreeMap<u32, crate::sql_ids::Treasure>,
+    pub wielded: BTreeMap<u32, Vec<crate::sql_ids::WieldedItem>>,
+}
+
+impl Loot {
+    /// The tables of the filled SQL `sql`.
+    #[must_use]
+    pub fn of(sql: &BTreeMap<PathBuf, String>) -> Self {
+        let mut out = Self::default();
+        for text in sql.values().filter(|t| t.contains("treasure_")) {
+            out.death.extend(crate::sql_ids::death_treasures_in(text));
+            out.wielded.extend(crate::sql_ids::wielded_in(text));
+        }
+        out
+    }
+
+    /// Whether it holds none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.death.is_empty() && self.wielded.is_empty()
+    }
+
+    /// Its tables' ids, each kind's in order, as a README lists them.
+    fn listed(&self) -> String {
+        let ids = |m: Vec<u32>| m.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+        let mut parts = Vec::new();
+        if !self.death.is_empty() {
+            parts.push(format!(
+                "death treasure {}",
+                ids(self.death.keys().copied().collect())
+            ));
+        }
+        if !self.wielded.is_empty() {
+            parts.push(format!(
+                "wielded treasure {}",
+                ids(self.wielded.keys().copied().collect())
+            ));
+        }
+        parts.join("; ")
+    }
+}
+
+/// Write the world's loot tables in `json` as GDLE's own files have them: `wieldedTreasure.json`
+/// (its wielded treasures) and `treasureLoot.json` (its death treasures, the entries of the
+/// `loot` list of GDLE's `treasureTables.json`), each a list of `key` and `value`. Answers a line
+/// for each file written.
+fn gdle_loot(loot: &Loot, json: &Path) -> Result<Vec<String>, Error> {
+    use serde_json::json;
+    // A single-precision number as its own digits: 0.6, not 0.6000000238418579.
+    let f = |v: f32| -> serde_json::Value {
+        format!("{v}")
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number)
+    };
+    let mut wrote = Vec::new();
+    let mut write = |name: &str, list: Vec<serde_json::Value>| -> Result<(), Error> {
+        if list.is_empty() {
+            return Ok(());
+        }
+        std::fs::create_dir_all(json).map_err(|e| Error::io(json, e))?;
+        let path = json.join(name);
+        let n = list.len();
+        let text = serde_json::to_string_pretty(&serde_json::Value::Array(list))
+            .map_err(|e| Error::Refused(e.to_string()))?;
+        std::fs::write(&path, text).map_err(|e| Error::io(&path, e))?;
+        wrote.push(format!("{}: {n} table(s)", path.display()));
+        Ok(())
+    };
+    let wielded: Vec<serde_json::Value> = loot
+        .wielded
+        .iter()
+        .map(|(id, rows)| {
+            let value: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    let u = r.unknown;
+                    json!({
+                        "WeenieClassId": crate::sql_ids::number(&r.weenie).unwrap_or(0),
+                        "PaletteId": r.palette,
+                        "Unknown1": u[0],
+                        "Shade": f(r.shade),
+                        "StackSize": r.stack,
+                        "StackSizeVariance": f(r.variance),
+                        "Probability": f(r.probability),
+                        "Unknown3": u[1],
+                        "Unknown4": u[2],
+                        "Unknown5": u[3],
+                        "SetStart": i32::from(r.set_start),
+                        "HasSubSet": i32::from(r.has_sub_set),
+                        "ContinuesPreviousSet": i32::from(r.continues),
+                        "Unknown9": u[4],
+                        "Unknown10": u[5],
+                        "Unknown11": u[6],
+                        "Unknown12": u[7],
+                    })
+                })
+                .collect();
+            json!({"key": id, "value": value})
+        })
+        .collect();
+    write("wieldedTreasure.json", wielded)?;
+    let death: Vec<serde_json::Value> = loot
+        .death
+        .iter()
+        .map(|(id, t)| {
+            json!({"key": id, "value": {
+                "tier": t.tier,
+                "qualityMod": f(t.quality),
+                "unkChance": t.heritage,
+                "chance": t.items.0,
+                "min": t.items.1,
+                "max": t.items.2,
+                "typeChance": t.kinds.0,
+                "magicChance": t.magic.0,
+                "magicMin": t.magic.1,
+                "magicMax": t.magic.2,
+                "magicTypeChance": t.kinds.1,
+                "mundaneChance": t.mundane.0,
+                "mundaneMin": t.mundane.1,
+                "mundaneMax": t.mundane.2,
+                "mundaneTypeChance": t.kinds.2,
+            }})
+        })
+        .collect();
+    write("treasureLoot.json", death)?;
+    Ok(wrote)
+}
+
 /// What a retail player needs, said once for every export.
 const RETAIL_PLAYERS: &str = "\
 Retail players: their client reads only its own data files, never an overlay. They need the
@@ -842,7 +994,17 @@ Dereth players: Empyrean sends a Dereth client the overlay when it connects.
     )
 }
 
-fn ace_readme(key: &str) -> String {
+fn ace_readme(key: &str, loot: &Loot) -> String {
+    let loot = if loot.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nThe loot tables ({}) are in sql/treasure_death and sql/treasure_wielded.\n\
+             /import-sql does not take them: load each into the world database with MySQL, as\n\
+             above, then start the server again, since it keeps the tables it has read.\n",
+            loot.listed()
+        )
+    };
     format!(
         "{key}, a Lyceum world, exported for ACE.
 
@@ -862,7 +1024,7 @@ admin, type
 or load each file into the world database with MySQL:
 
   mysql -u <user> -p ace_world < <file>
-
+{loot}
 Players: the client needs the same data files as the server. Give players the files in dats/
 to copy over a copy of their own. ACE can patch their files instead: set EnableDATPatching
 under DDD in Config.js.
@@ -870,7 +1032,7 @@ under DDD in Config.js.
     )
 }
 
-fn gdle_readme(key: &str, quests: &Quests) -> String {
+fn gdle_readme(key: &str, quests: &Quests, loot: &Loot) -> String {
     let (listed, merge) = match &quests.given {
         Some(given) => {
             let mut said = format!(
@@ -926,16 +1088,37 @@ fn gdle_readme(key: &str, quests: &Quests) -> String {
             names.join("\n")
         )
     };
+    // The loot tables, each file's entries to merge into GDLE's own.
+    let mut files = String::new();
+    let mut tables = String::new();
+    if !loot.wielded.is_empty() {
+        files.push_str(
+            "\n  json/wieldedTreasure.json  the wielded treasures this world adds or changes",
+        );
+        tables.push_str(
+            "\n\nMerge json/wieldedTreasure.json into Data/json/wieldedTreasure.json: each of its \
+             entries in place\nof the entry with the same key, or added.",
+        );
+    }
+    if !loot.death.is_empty() {
+        files.push_str(
+            "\n  json/treasureLoot.json     the death treasures this world adds or changes",
+        );
+        tables.push_str(
+            "\n\nMerge json/treasureLoot.json into the \"loot\" list of Data/json/treasureTables.json: \
+             each of its\nentries in place of the entry with the same key, or added.",
+        );
+    }
     format!(
         "{key}, a Lyceum world, exported for GDLE.
 
   dats/             the end-of-retail data files this world changes, with its changes written in
   json/weenies/     this world's weenies
   json/spawnMaps/   the spawns of each landblock this world changes
-  json/quests.json  {listed}
+  json/quests.json  {listed}{files}
 
 The server: copy the files in dats/ over a copy of the end-of-retail data files GDLE reads.
-{merge}
+{merge}{tables}
 
 Players: the client needs the same data files as the server. Give players the files in dats/
 to copy over a copy of their own.
@@ -1110,6 +1293,35 @@ era = \"infiltration\"
                 "import-sql quest GribbleGreeted".into()
             ))
         );
+        let table = |id: u32| {
+            crate::loot::death_text(
+                &id.to_string(),
+                &crate::loot::plain_death(),
+                "2026-10-25 00:00:00",
+            )
+        };
+        assert_eq!(
+            content_place(Path::new("holtburg/treasure_death/00037.sql"), &table(37)),
+            Some((
+                PathBuf::from("sql/treasure_death/00037.sql"),
+                "import-treasure death 37".into()
+            ))
+        );
+        // A table the pack names by a symbol: its id, as the build numbered it, first.
+        assert_eq!(
+            content_place(
+                Path::new("holtburg/treasure_wielded/drudge-loot.sql"),
+                &table(100_000).replace("treasure_death", "treasure_wielded")
+            ),
+            Some((
+                PathBuf::from("sql/treasure_wielded/100000 drudge-loot.sql"),
+                "import-treasure wielded 100000".into()
+            ))
+        );
+        assert_eq!(
+            content_place(Path::new("holtburg/treasure_death/notes.sql"), "-- none"),
+            None
+        );
         assert_eq!(content_place(Path::new("holtburg/recipes/x.sql"), ""), None);
         assert_eq!(
             content_place(Path::new("weenies/x.sql"), ""),
@@ -1129,6 +1341,70 @@ era = \"infiltration\"
             ace_place(Path::new("holtburg/landblocks/A9B4 guide.sql"), ""),
             PathBuf::from("sql/landblocks/A9B4 holtburg guide.sql")
         );
+    }
+
+    /// A world's loot tables, filled: GDLE gets them as its own two lists, each entry by its
+    /// table's id, and the READMEs of GDLE and ACE say where they go; a world without any writes
+    /// neither list and says nothing of them.
+    #[test]
+    fn the_loot_tables_go_to_gdle_as_its_own_lists_and_ace_is_told_to_load_them() {
+        use crate::loot::{death_text, plain_death, wielded_text};
+        use crate::sql_ids::WieldedItem;
+        let dir = scratch("gdle-loot");
+        let club = WieldedItem {
+            weenie: "309".into(),
+            probability: 0.6,
+            set_start: true,
+            has_sub_set: true,
+            ..WieldedItem::default()
+        };
+        let sql: BTreeMap<PathBuf, String> = [
+            (
+                PathBuf::from("p/treasure_death/100000.sql"),
+                death_text("100000", &plain_death(), "2026-10-25 00:00:00"),
+            ),
+            (
+                PathBuf::from("p/treasure_wielded/00037.sql"),
+                wielded_text("37", &[club], "2026-10-25 00:00:00", &|_| None),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let loot = Loot::of(&sql);
+        let json = dir.join("json");
+        let wrote = gdle_loot(&loot, &json).unwrap();
+        assert_eq!(wrote.len(), 2, "{wrote:?}");
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(json.join(name)).unwrap()).unwrap()
+        };
+        let w = read("wieldedTreasure.json");
+        assert_eq!(w[0]["key"], 37);
+        assert_eq!(w[0]["value"][0]["WeenieClassId"], 309);
+        assert_eq!(w[0]["value"][0]["HasSubSet"], 1);
+        assert_eq!(w[0]["value"][0]["Probability"], 0.6, "its own digits");
+        let d = read("treasureLoot.json");
+        assert_eq!(d[0]["key"], 100_000);
+        assert_eq!(d[0]["value"]["tier"], 1);
+        assert_eq!(d[0]["value"]["mundaneTypeChance"], 7);
+        let readme = gdle_readme("w", &Quests::default(), &loot);
+        assert!(
+            readme.contains("json/wieldedTreasure.json into Data/json/wieldedTreasure.json")
+                && readme.contains("the \"loot\" list of Data/json/treasureTables.json"),
+            "{readme}"
+        );
+        let ace = ace_readme("w", &loot);
+        assert!(
+            ace.contains("death treasure 100000; wielded treasure 37")
+                && ace.contains("/import-sql does not take them"),
+            "{ace}"
+        );
+        // None: nothing written, nothing said.
+        assert!(gdle_loot(&Loot::default(), &dir.join("none"))
+            .unwrap()
+            .is_empty());
+        assert!(!dir.join("none").exists());
+        assert!(!ace_readme("w", &Loot::default()).contains("loot"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1244,7 +1520,7 @@ era = \"infiltration\"
             "{wrote:?}"
         );
         assert_eq!(alone, Quests::default());
-        let readme = gdle_readme("w", &alone);
+        let readme = gdle_readme("w", &alone, &Loot::default());
         assert!(
             readme.contains("the quests this world adds or changes")
                 && readme.contains("--gdle-quests <file>"),
@@ -1304,7 +1580,7 @@ era = \"infiltration\"
             !json.join("quests-removed.json").exists(),
             "the README says it; the file goes"
         );
-        let readme = gdle_readme("w", &quests);
+        let readme = gdle_readme("w", &quests, &Loot::default());
         for said in [
             "json/quests.json over\nData/json/quests.json",
             &format!("{} with this world's quests merged in", given.display()),
@@ -1319,7 +1595,7 @@ era = \"infiltration\"
             removed: vec!["OldQuest".into()],
             ..Quests::default()
         };
-        let readme = gdle_readme("w", &alone);
+        let readme = gdle_readme("w", &alone, &Loot::default());
         for said in [
             "take out the entries of the\nquests this world removes, below",
             "\n\nQuests this world removes:\n  OldQuest\n",

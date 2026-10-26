@@ -4,7 +4,8 @@
 //! once); unless the command line named its own SQL, the weenies of the server database
 //! `empyrean-import fetch` keeps in the user's cache folder; and every building the world places,
 //! with the doors that database stands at them ([`lyceum_foundry::buildings`]), kept beside the
-//! placements by the files' and the database's fingerprints.
+//! placements by the files' and the database's fingerprints; and the world's own dungeons, so the
+//! Dungeons tab opens at once.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -28,15 +29,19 @@ pub struct Ready {
     pub server: ServerContent,
     /// Every building the world places, what a drop copies; `None` when the files do not open.
     pub buildings: Option<Buildings>,
+    /// The world's own dungeons, by landblock, with their rooms; `None` when the files do not
+    /// open.
+    pub dungeons: Option<std::collections::BTreeMap<u16, u32>>,
     /// The database read, and what went wrong, if anything did.
     pub database: Option<PathBuf>,
     pub problem: Option<String>,
 }
 
-/// The gathering, running.
+/// The gathering, running, and whether it reads a server database.
 #[derive(Debug)]
 pub struct Catalog {
     rx: Option<Receiver<Ready>>,
+    database: bool,
 }
 
 impl Catalog {
@@ -54,6 +59,7 @@ impl Catalog {
         colors: Vec<[u8; 3]>,
     ) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
+        let reads = database.is_some();
         let spawned = std::thread::Builder::new()
             .name("model names".into())
             .spawn(move || {
@@ -69,9 +75,21 @@ impl Catalog {
             });
         if let Err(e) = spawned {
             tracing::warn!("the model browser names no models: {e}");
-            return Self { rx: None };
+            return Self {
+                rx: None,
+                database: false,
+            };
         }
-        Self { rx: Some(rx) }
+        Self {
+            rx: Some(rx),
+            database: reads,
+        }
+    }
+
+    /// Whether it reads a server database, and has not finished.
+    #[must_use]
+    pub fn reading_database(&self) -> bool {
+        self.database && self.rx.is_some()
     }
 
     /// What it found, once it has finished (once: `None` after).
@@ -201,6 +219,10 @@ fn gather(
             Err(e) => problem = Some(format!("{}: {e}", path.display())),
         }
     }
+    let dungeons = opened
+        .as_ref()
+        .ok()
+        .map(|set| lyceum_foundry::dungeons::retail(&|id| set.cell.read(id).ok(), set.era));
     let doors = doors.or(database.as_deref());
     let buildings = opened.ok().map(|set| {
         let file = buildings_file(cache, &set, doors);
@@ -223,6 +245,7 @@ fn gather(
         map,
         server,
         buildings,
+        dungeons,
         database,
         problem,
     }

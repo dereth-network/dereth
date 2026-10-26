@@ -10,6 +10,10 @@
 //! on the panels, gives them back to the editor while the game plays on. The pointer's image is
 //! the game's while it has them and is over the view, and the editor's arrow everywhere else.
 //!
+//! **Windows.** The editor's floating windows over the world view are hidden while the game plays
+//! there, and come back where they were when it stops; docked tabs stay. A tab shown meanwhile
+//! brings its window back.
+//!
 //! **Stopping** shuts the game down as the client does on exit: it logs off and disconnects, and
 //! its world, interface, sound, cursors and pointer hold go with it. Playing again starts afresh.
 use std::cell::RefCell;
@@ -27,7 +31,7 @@ use dereth_input::host::HostEvent;
 use dereth_input::keys::MouseButton;
 use dereth_primitives::{Inset, Viewport};
 
-use super::EditorApp;
+use super::{EditorApp, Tab};
 
 /// The desktop host the game would have on its own.
 type Desktop = dereth_desktop::Desktop<crate::Lyceum>;
@@ -358,8 +362,65 @@ impl EditorApp {
             corner: None,
         });
         self.held = super::Held::default();
-        self.look = None;
+        self.end_look();
+        self.clear_view();
         Ok(())
+    }
+
+    /// Take the floating windows over the world view out of the layout shown, as a playtest
+    /// starts there: the game is seen whole, and its clicks are its own.
+    fn clear_view(&mut self) {
+        let Some(view) = self.world_rect else {
+            return;
+        };
+        let in_dungeon = self.dungeon.is_some();
+        let dock = if in_dungeon {
+            self.dungeon_dock.as_mut()
+        } else {
+            self.dock.as_mut()
+        };
+        let Some(dock) = dock else {
+            return;
+        };
+        let ctx = self.gui.ctx.clone();
+        let drawn = |i| ctx.memory(|m| m.area_rect(crate::docks::window_id(i)));
+        for h in crate::docks::take_windows_over(dock, view, drawn) {
+            self.hidden_windows.push((in_dungeon, h));
+        }
+    }
+
+    /// Put back the floating windows a playtest hid, as they were.
+    fn restore_view(&mut self) {
+        for (in_dungeon, h) in std::mem::take(&mut self.hidden_windows) {
+            self.put_back_window(in_dungeon, h);
+        }
+    }
+
+    /// Put back the floating window a playtest hid that holds `tab`, if one does.
+    pub(super) fn bring_back(&mut self, tab: Tab) {
+        if let Some(at) = self.hidden_windows.iter().position(|(_, h)| h.holds(tab)) {
+            let (in_dungeon, h) = self.hidden_windows.remove(at);
+            self.put_back_window(in_dungeon, h);
+        }
+    }
+
+    /// Whether a floating window a playtest hid holds `tab`.
+    #[must_use]
+    pub fn hides(&self, tab: Tab) -> bool {
+        self.hidden_windows.iter().any(|(_, h)| h.holds(tab))
+    }
+
+    /// Put `h` back in its layout; kept hidden while that layout is being drawn.
+    fn put_back_window(&mut self, in_dungeon: bool, h: crate::docks::Hidden) {
+        let dock = if in_dungeon {
+            self.dungeon_dock.as_mut()
+        } else {
+            self.dock.as_mut()
+        };
+        match dock {
+            Some(dock) => crate::docks::put_back(dock, h),
+            None => self.hidden_windows.push((in_dungeon, h)),
+        }
     }
 
     pub(super) fn play_resident_blocks(&self) -> std::collections::BTreeSet<u16> {
@@ -459,6 +520,23 @@ impl EditorApp {
         play.game
             .objects
             .physics_state(dereth_primitives::ObjectId(guid))
+    }
+
+    /// The playtest character as its client knows it: its level, and how many enchantments are
+    /// on it.
+    #[cfg(feature = "live-server-tests")]
+    #[must_use]
+    pub fn play_character(&self) -> Option<(i32, usize)> {
+        let world = &self.playing.as_ref()?.game.objects.world;
+        let q = world.weenie(world.player?)?.qualities.as_ref()?;
+        Some((q.inq_int(25), q.enchantments.enchantments_in_effect().len()))
+    }
+
+    /// An int property of the connected player, as the game holds it (0 when it has none).
+    pub fn play_int(&self, id: u32) -> Option<i32> {
+        let world = &self.playing.as_ref()?.game.objects.world;
+        let q = world.weenie(world.player?)?.qualities.as_ref()?;
+        Some(q.inq_int(id))
     }
 
     /// The connected player's identity and the last live overlay it adopted.
@@ -963,7 +1041,8 @@ impl EditorApp {
         self.core.present.set_inset(None);
         SHARED.with(|s| *s.borrow_mut() = Shared::default());
         self.held = super::Held::default();
-        self.look = None;
+        self.end_look();
+        self.restore_view();
     }
 }
 

@@ -79,8 +79,20 @@ impl TabViewer for Viewer<'_> {
             Tab::Dungeons => t.get("tabs.dungeons").into(),
             Tab::Nearby => t.get("tabs.nearby").into(),
             Tab::Definition => t.get("tabs.definition").into(),
+            Tab::Editor => match self
+                .app
+                .editor
+                .weenie()
+                .and_then(|w| self.app.weenie_entry(w))
+            {
+                Some(e) => t.fill("tabs.editor_of", &[("name", &e.name)]).into(),
+                None => t.get("tabs.editor").into(),
+            },
             Tab::Inspector => t.get("tabs.inspector").into(),
             Tab::Hierarchy => t.get("tabs.hierarchy").into(),
+            Tab::Characters => t.get("tabs.characters").into(),
+            Tab::Quests => t.get("quests.tab").into(),
+            Tab::Loot => t.get("loot.tab").into(),
             Tab::Log => {
                 let n = self.app.faults.len();
                 if n == 0 {
@@ -110,15 +122,21 @@ impl TabViewer for Viewer<'_> {
             Tab::Grid => self.app.grid_ui(ui, out),
             Tab::Dungeons => self.app.dungeons_tab(ui, out),
             Tab::Nearby => self.app.nearby_tab(ui, out),
-            Tab::Definition => self.app.weenie_tab(ui, out),
+            Tab::Definition => self.app.definition_tab(ui, out),
+            Tab::Editor => self.app.editor_tab(ui, out),
             Tab::Inspector => filled(ui, "inspector", |ui| self.app.inspector_tab(ui, out)),
             Tab::Hierarchy => filled(ui, "hierarchy", |ui| self.app.hierarchy_tab(ui, out)),
             Tab::Log => filled(ui, "log", |ui| self.app.log_tab(ui, out)),
+            // Its tabs scroll on their own, each the tab's whole width.
+            Tab::Characters => self.app.characters_tab(ui, out),
+            Tab::Quests => self.app.quests_tab(ui, out),
+            Tab::Loot => self.app.loot_tab(ui, out),
         }
     }
 
-    fn is_closeable(&self, _tab: &Tab) -> bool {
-        false
+    /// Only the optional tabs close: every other tab is always in the layout.
+    fn is_closeable(&self, tab: &Tab) -> bool {
+        crate::docks::OPTIONAL.contains(tab)
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
@@ -175,8 +193,10 @@ impl EditorApp {
         } else {
             self.dock.take().unwrap_or_else(crate::docks::outdoors)
         };
+        // The editor, when open, in whichever layout is shown.
+        let editor_shown = self.editor_tab_in(&mut dock);
         DockArea::new(&mut dock)
-            .show_close_buttons(false)
+            .show_close_buttons(true)
             .show_leaf_close_all_buttons(false)
             .show_leaf_collapse_buttons(false)
             .show_inside(
@@ -186,6 +206,10 @@ impl EditorApp {
                     pass: &mut pass,
                 },
             );
+        // Closed with its ×, or still open.
+        if editor_shown {
+            self.editor.open = crate::docks::holds(&dock, Tab::Editor);
+        }
         if in_dungeon {
             self.dungeon_dock = Some(dock);
         } else {
@@ -205,10 +229,11 @@ impl EditorApp {
                 marks_layer,
                 egui::emath::TSTransform::from_scaling(1.0 / scale),
             );
-            let marks = ui
-                .ctx()
-                .layer_painter(marks_layer)
-                .with_clip_rect(egui::Rect::from_min_max(rect.min * scale, rect.max * scale));
+            // Clipped to the world view in pixels alone: a layer's painter starts clipped to the
+            // window in points, which at a scale over 100% would cut the marks off short of the
+            // view's right and bottom edges.
+            let mut marks = ui.ctx().layer_painter(marks_layer);
+            marks.set_clip_rect(egui::Rect::from_min_max(rect.min * scale, rect.max * scale));
             let painter = ui
                 .ctx()
                 .layer_painter(egui::LayerId::background())
@@ -235,8 +260,8 @@ impl EditorApp {
                 );
             }
         }
-        self.character_panel(ui.ctx(), &mut pass.actions);
         self.delete_dungeon_question(ui.ctx(), &mut pass.actions);
+        self.creator_dialog(ui.ctx(), &mut pass.actions);
         pass
     }
 
@@ -265,6 +290,7 @@ impl EditorApp {
         let t = self.text.table();
         egui::ScrollArea::horizontal()
             .id_salt("mode-bar")
+            .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let in_dungeon = self.dungeon.is_some();
@@ -332,6 +358,7 @@ impl EditorApp {
                         if play.clicked() {
                             out.push(UiAction::Play);
                         }
+                        self.play_menu(ui, out);
                     }
                     let live = tip(
                         tool_button(ui, Icon::Live, up || starting, true),
@@ -357,6 +384,35 @@ impl EditorApp {
                     self.speed_control(ui, out);
                 });
             });
+    }
+
+    /// Play's menu, a small arrow beside it: the world's character recipes, the one Play plays
+    /// as ticked, and the Characters tab.
+    fn play_menu(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        use egui::containers::menu::MenuButton;
+        let t = self.text.table();
+        let (r, _) = MenuButton::from_button(
+            egui::Button::selectable(false, "").min_size(egui::vec2(MENU_ARROW_WIDTH, BUTTON.y)),
+        )
+        .ui(ui, |ui| {
+            for name in &self.characters.names {
+                if ui.radio(self.characters.name == *name, name).clicked() {
+                    out.push(UiAction::ChooseRecipe(name.clone()));
+                    ui.close();
+                }
+            }
+            if !self.characters.names.is_empty() {
+                ui.separator();
+            }
+            if ui.button(t.get("top.characters")).clicked() {
+                out.push(UiAction::OpenCharacters);
+                ui.close();
+            }
+        });
+        let color = ui.style().interact_selectable(&r, false).fg_stroke.color;
+        draw_icon(ui.painter(), r.rect, Icon::Menu, color);
+        self.play_menu_button = Some(r.rect);
+        tip(r, t.get("top.play_menu_tip"));
     }
 
     /// The settings: the playtest's interface, walking or flying, the key hints, and the panels'
@@ -568,9 +624,9 @@ impl EditorApp {
                     self.session
                         .weenie_of_file(std::path::Path::new(&format!("{p}.sql")))
                 }) {
-                    // A weenie's finding: its form.
-                    out.push(UiAction::Weenie(w));
-                    out.push(UiAction::ShowWeenie);
+                    // A weenie's finding: the editor on it.
+                    out.push(UiAction::Weenie(w.clone()));
+                    out.push(UiAction::EditWeenie(w, None));
                 }
             }
         }
@@ -606,14 +662,22 @@ impl EditorApp {
             }
         });
         let list = self.spawn_list();
+        // New..., and how many are shown, right-aligned.
         ui.horizontal(|ui| {
-            ui.label(t.fill(
-                "spawn.shown",
-                &[("n", &list.len()), ("all", &self.weenies.len())],
-            ));
-            if self.naming() {
-                ui.weak(t.get("spawn.reading"));
+            let new = ui.button(t.get("spawn.new"));
+            self.panels.new_button = Some(new.rect);
+            if new.clicked() {
+                out.push(UiAction::NewWeenie(None));
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(t.fill(
+                    "spawn.shown",
+                    &[("n", &list.len()), ("all", &self.weenies.len())],
+                ));
+                if self.naming() {
+                    ui.weak(t.get("spawn.reading"));
+                }
+            });
         });
         if self.session.server_weenies().is_empty() && !self.naming() {
             ui.weak(t.get("spawn.only_packs"));
@@ -626,21 +690,6 @@ impl EditorApp {
         let rows = list.len().div_ceil(columns);
         let mut budget = super::PICTURES_A_FRAME;
         self.weenie_rects.clear();
-        // A new portal, placed like any spawn: its own weenie, its destination on its card.
-        ui.horizontal(|ui| {
-            let picture = self
-                .session
-                .class_facts(super::dungeons::PORTAL_BLANK)
-                .and_then(|f| f.setup)
-                .and_then(|s| self.picture(DataId(s), &mut budget));
-            let (r, rect) =
-                picker_cell(ui, cell, picture, t.get("spawn.portal"), self.panels.portal);
-            self.panels.portal_rect = Some(rect);
-            if r.on_hover_text(t.get("spawn.portal_tip")).clicked() {
-                out.push(UiAction::NewPortalTool);
-            }
-        });
-        ui.separator();
         egui::ScrollArea::vertical()
             .id_salt("weenies")
             .auto_shrink(false)
@@ -654,6 +703,8 @@ impl EditorApp {
                             let chosen = self.panels.weenie.as_ref() == Some(&w.weenie);
                             let (r, rect) = picker_cell(ui, cell, picture, &w.name, chosen);
                             self.weenie_rects.push((w.weenie.clone(), rect));
+                            // Dragged onto the Characters tab, it is given to the character.
+                            r.dnd_set_drag_payload(w.weenie.clone());
                             let id = match &w.weenie {
                                 Weenie::Symbol(s) => s.rsplit(':').next().unwrap_or(s).to_owned(),
                                 Weenie::Class(c) => t.fill("spawn.class", &[("id", c)]),
@@ -794,6 +845,8 @@ impl EditorApp {
         let mut budget = super::PICTURES_A_FRAME;
         self.picture_rects.clear();
         self.picture_stars.clear();
+        self.panels.tag_menu.clear();
+        self.panels.tag_field = None;
         egui::ScrollArea::vertical().auto_shrink(false).show_rows(
             ui,
             cell.y + 4.0,
@@ -898,8 +951,11 @@ impl EditorApp {
         if s.clicked() {
             out.push(UiAction::Favorite(m));
         }
-        // Its tags, on a right click: each to take away or give, and a new one.
-        r.context_menu(|ui| {
+        // Its tags, on a right click: each to take away or give, and a new one. It stays open
+        // while it is used; a click outside it, Escape, or a new tag added closes it.
+        let menu = egui::Popup::context_menu(&r)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        menu.show(|ui| {
             ui.strong(t.get("models.tags"));
             self.panels.tag_menu.clear();
             for (g, _) in self.tags.all() {
@@ -916,6 +972,7 @@ impl EditorApp {
                     .hint_text(t.get("models.tag_hint"))
                     .desired_width(120.0),
             );
+            self.panels.tag_field = Some(field.rect);
             let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if (entered || ui.small_button(t.get("models.tag_add")).clicked())
                 && !self.panels.new_tag.trim().is_empty()
@@ -941,11 +998,7 @@ impl EditorApp {
             ui.monospace(format!("{:#010X}", m.raw()));
             let c = self.names.category(m).name();
             let kind = t.or(&format!("categories.{c}"), c);
-            ui.label(if nearby {
-                t.fill("models.kind_nearby", &[("kind", &kind)])
-            } else {
-                kind.to_owned()
-            });
+            ui.label(kind);
             if !tags.is_empty() {
                 ui.label(
                     tags.iter()
@@ -1744,8 +1797,11 @@ impl EditorApp {
                 }
                 if let Some(to) = self.portal_destination(&s) {
                     let at = self.portal_destination_at(&s);
-                    self.destination_card(ui, to, at, out);
+                    if let Some(w) = self.session.spawn_weenie(&s) {
+                        self.destination_card(ui, &w, to, at, out);
+                    }
                 }
+                self.links_card(ui, &s, out);
                 ui.horizontal(|ui| {
                     if ui.button(t.get("inspector.its_weenie")).clicked() {
                         out.push(UiAction::ShowWeenie);
@@ -1761,9 +1817,6 @@ impl EditorApp {
                         out.push(UiAction::Duplicate);
                     }
                 });
-                if let Some(g) = self.spawn_generator(&s) {
-                    self.generator_card(ui, &g, out);
-                }
             }
         }
     }
@@ -1980,6 +2033,7 @@ impl EditorApp {
     fn destination_card(
         &mut self,
         ui: &mut egui::Ui,
+        w: &Weenie,
         to: Option<u32>,
         at: Option<Vec3>,
         out: &mut Vec<UiAction>,
@@ -2022,12 +2076,8 @@ impl EditorApp {
         });
         ui.horizontal(|ui| {
             ui.label(t.get("fields.set_destination"));
-            if ui
-                .button(t.get("fields.destination_here"))
-                .on_hover_text(t.get("fields.destination_here_about"))
-                .clicked()
-            {
-                out.push(UiAction::DestinationHere);
+            if ui.button(t.get("fields.destination_here")).clicked() {
+                out.push(UiAction::DestinationHere(w.clone()));
             }
             egui::ComboBox::from_id_salt("portal destination")
                 .selected_text(t.get("fields.destination_dungeon"))
@@ -2035,7 +2085,7 @@ impl EditorApp {
                 .show_ui(ui, |ui| {
                     for d in &dungeons {
                         if ui.selectable_label(false, self.dungeon_name(d)).clicked() {
-                            out.push(UiAction::DestinationDungeon(d.landblock));
+                            out.push(UiAction::DestinationDungeon(w.clone(), d.landblock));
                         }
                     }
                 });
@@ -2095,10 +2145,13 @@ impl EditorApp {
         // A selected generator: the ground it scatters over, the places it makes things at,
         // and lines to what it owns.
         self.generator_marks = super::GeneratorMarks::default();
+        self.links.lines.clear();
         if let Some(s) = self.selected_spawn() {
             if let Some(g) = self.session.generator(&s) {
                 self.draw_generator(painter, &view, &s, &g);
             }
+            // What it sets off, and what sets it off.
+            self.draw_links(painter, &view, &s);
         }
         // The rest of a selection of several: their boxes and marks.
         for s in self.also.clone() {
@@ -2487,10 +2540,15 @@ enum Icon {
     Lower,
     Flatten,
     Smooth,
+    /// A menu's arrow, pointing down.
+    Menu,
 }
 
 /// The size of a button of the bar of tools.
 const BUTTON: egui::Vec2 = egui::vec2(30.0, 28.0);
+
+/// The width of a menu's arrow beside the button it belongs to.
+const MENU_ARROW_WIDTH: f32 = 16.0;
 
 /// `r` with `text` as its tooltip, enabled or not.
 fn tip(r: egui::Response, text: &str) -> egui::Response {
@@ -2639,6 +2697,10 @@ fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui:
                 painter.line_segment([c + d * 6.0, c + d * 9.5], egui::Stroke::new(2.5, color));
             }
         }
+        Icon::Menu => {
+            // A small triangle pointing down.
+            fill(vec![p(-4.5, -2.5), p(4.5, -2.5), p(0.0, 3.0)]);
+        }
         Icon::Save => {
             // A disk: its outline, its shutter and its label.
             painter.rect_stroke(
@@ -2698,7 +2760,7 @@ fn model_link(ui: &mut egui::Ui, t: &crate::text::Table, m: DataId, out: &mut Ve
     let r = ui.add(egui::Link::new(
         t.fill("inspector.model", &[("id", &format!("{:#010X}", m.raw()))]),
     ));
-    if r.on_hover_text(t.get("inspector.model_tip")).clicked() {
+    if r.clicked() {
         out.push(UiAction::OpenModel(m));
     }
 }
@@ -2767,7 +2829,7 @@ fn picker_cell(
     chosen: bool,
 ) -> (egui::Response, egui::Rect) {
     let side = crate::thumbs::SIZE as f32;
-    let (rect, r) = ui.allocate_exact_size(cell, egui::Sense::click());
+    let (rect, r) = ui.allocate_exact_size(cell, egui::Sense::click_and_drag());
     let at = egui::Rect::from_min_size(
         egui::pos2(rect.center().x - side / 2.0, rect.min.y),
         egui::vec2(side, side),

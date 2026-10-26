@@ -221,6 +221,82 @@ fn two_packs_changing_one_spawn_or_one_quest_differently_conflict() {
 }
 
 #[test]
+fn two_packs_writing_one_loot_table_differently_conflict_and_an_override_settles_it() {
+    use lyceum_foundry::loot::{death_text, plain_death, wielded_text};
+    use lyceum_foundry::sql_ids::WieldedItem;
+    let f = Fixture::new("conflict-loot");
+    let w = world(&f, &["a", "b"], "");
+    let death = |tier: i32| {
+        let t = lyceum_foundry::sql_ids::Treasure {
+            tier,
+            ..plain_death()
+        };
+        death_text("37", &t, "2026-10-25 00:00:00")
+    };
+    let wielded = |p: f32| {
+        let r = WieldedItem {
+            weenie: "309".into(),
+            probability: p,
+            set_start: true,
+            ..WieldedItem::default()
+        };
+        wielded_text("37", &[r], "2026-10-25 00:00:00", &|_| None)
+    };
+    f.write("a/server/sql/treasure_death/00037.sql", &death(2));
+    f.write("b/server/sql/treasure_death/00037.sql", &death(3));
+    f.write("a/server/sql/treasure_wielded/00037.sql", &wielded(0.5));
+    f.write("b/server/sql/treasure_wielded/00037.sql", &wielded(0.5));
+    let c = conflicts(&f, &w);
+    assert_eq!(
+        summary(&c),
+        ["death-treasure 37: a, b"],
+        "the same rows agree"
+    );
+    assert!(
+        c[0].claims[0].sets.contains("tier = 2"),
+        "{}",
+        c[0].claims[0].sets
+    );
+    // b wins it: its file is built, a's left out.
+    let w = world(
+        &f,
+        &["a", "b"],
+        "\n[[override]]\npack = \"b\"\nover = \"a\"\nitems = [\"death-treasure 37\"]\n",
+    );
+    build(&f, &w).unwrap();
+    let sql = f.out().join("sql");
+    assert!(!sql.join("a/treasure_death/00037.sql").exists());
+    assert!(sql.join("b/treasure_death/00037.sql").is_file());
+}
+
+#[test]
+fn two_packs_each_naming_a_new_loot_table_alike_get_two_ids_and_no_conflict() {
+    use lyceum_foundry::loot::{death_text, plain_death, NEW_ID};
+    let f = Fixture::new("conflict-loot-symbols");
+    let w = world(&f, &["a", "b"], "");
+    let rich = death_text("{{treasure:rich}}", &plain_death(), "2026-10-25 00:00:00");
+    f.write("a/server/sql/treasure_death/rich.sql", &rich);
+    f.write("b/server/sql/treasure_death/rich.sql", &rich);
+    build(&f, &w).expect("a:rich and b:rich are two tables");
+    let sql = f.out().join("sql");
+    let id_of = |p: &str| {
+        let text = std::fs::read_to_string(sql.join(p)).unwrap();
+        assert!(!text.contains("{{"), "numbered: {text}");
+        lyceum_foundry::sql_ids::loot_ids(&text)
+    };
+    let mut ids = id_of("a/treasure_death/rich.sql");
+    ids.extend(id_of("b/treasure_death/rich.sql"));
+    ids.sort_unstable();
+    assert_eq!(ids, [NEW_ID, NEW_ID + 1]);
+    // The lockfile keeps them.
+    let lock = lyceum_foundry::lock::Lock::read(&f.path().join("world.lock")).unwrap();
+    assert_eq!(
+        lock.get(lyceum_foundry::symbol::Kind::Treasure, "a:rich"),
+        Some(NEW_ID)
+    );
+}
+
+#[test]
 fn an_override_settles_a_conflict_the_build_takes_the_winners_and_lists_what_it_overrode() {
     let f = Fixture::new("conflict-override");
     // a wins class 1234, the record and everything of landblock 0101; b wins everything else.

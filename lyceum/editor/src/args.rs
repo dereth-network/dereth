@@ -74,6 +74,9 @@ pub struct Args {
     pub captures: Vec<(u64, PathBuf)>,
 }
 
+/// How long a windowed editor's frame may spend building the landscape, in milliseconds.
+pub const STREAM_BUDGET_MS: u32 = 4;
+
 /// The usage line, for a command line that does not read.
 pub const USAGE: &str = "\
 lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--pack <name>]
@@ -280,6 +283,13 @@ impl Args {
         }
         if self.headless {
             v.push("--headless".into());
+        } else {
+            // In a window the landscape is built a few milliseconds a frame, nearest first, and
+            // its textures' mip chains and its objects off the frame, as a connected client builds
+            // it, so loading or rebuilding the world never stops the frame. A run off screen builds
+            // everything at once, so what it captures is the same on every machine.
+            v.push("--stream-budget-ms".into());
+            v.push(STREAM_BUDGET_MS.to_string());
         }
         v
     }
@@ -303,6 +313,26 @@ mod tests {
 
     fn args(s: &[&str]) -> Result<Args, String> {
         parse(&s.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_window_builds_the_world_a_little_each_frame_and_a_run_off_screen_all_at_once() {
+        let windowed = args(&["w.toml"]).unwrap();
+        let cfg = runtime_config(&windowed).unwrap();
+        assert_eq!(
+            cfg.scene_config().stream_budget,
+            Some(std::time::Duration::from_millis(u64::from(
+                STREAM_BUDGET_MS
+            )))
+        );
+        let headless = args(&["w.toml", "--headless"]).unwrap();
+        assert_eq!(
+            runtime_config(&headless)
+                .unwrap()
+                .scene_config()
+                .stream_budget,
+            None
+        );
     }
 
     #[test]

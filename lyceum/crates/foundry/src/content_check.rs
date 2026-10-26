@@ -3,20 +3,28 @@
 //! - **Types:** each property's value is of its table's type, and each property id is one the
 //!   server's schema has for that type (when the schema is known).
 //! - **Classes:** every class an emote action, a generator profile or a create-list row names is a
-//!   pack's weenie (`{{wcid:...}}`) or a class of the world database (when it is known).
+//!   pack's weenie (`{{wcid:...}}`) or a class of the world database (when it is known). A
+//!   generator's treasure entry names a loot table instead, as a death treasure (data id 35) and a
+//!   wielded treasure (data id 32) do: one the packs and the world do not have is a warning (when
+//!   the world's are known), as the server makes nothing of it.
 //! - **Quests** (warnings, as the server stamps an unregistered quest too): every quest a quest
 //!   action names is registered, in a pack's `quest` rows or the world database's; and a quest a
 //!   pack registers is used. An emote set's `quest` is the label a quest or test action answers
 //!   to, not a quest, and is not looked up.
 //! - **Spells:** every spell a spell book or an action names is in the files' spell table.
+//! - **What the server does otherwise** (warnings, as they stop nothing): a generator that makes
+//!   more at the start than it keeps at most at once, which the server raises its most to; a
+//!   portal with no destination, which sends no one anywhere; a wield requirement with no
+//!   minimum, which anyone meets; and a set a creature draws by chance whose chances pass 100%,
+//!   whose last entry the server makes only for what is left of the 100%.
 //!
 //! Each finding names the file and the line its row starts on. The checks read rows, not
 //! weenies, so they run as well over a whole world database as over a pack's files.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::content::{unquote, PropertyKind, Schema};
+use crate::content::{bare, unquote, PropertyKind, Schema};
 use crate::error::Loc;
 use crate::sql_ids::{self, Lines};
 
@@ -41,6 +49,10 @@ pub struct Known {
     pub world_quests: bool,
     /// The spell table's spells, when the files are known.
     pub spells: Option<BTreeSet<u32>>,
+    /// Every loot table's id, the packs' and the world database's, death and wielded alike, when
+    /// the world database's are known; and the symbols of the tables the packs name so, in full.
+    pub loot_tables: Option<BTreeSet<u32>>,
+    pub loot_symbols: BTreeSet<String>,
     /// The server's names.
     pub schema: Option<Schema>,
 }
@@ -122,8 +134,24 @@ pub fn check(
         }
         known.spells.as_ref().map(|s| s.contains(&n))
     };
+    let mut weenies: BTreeMap<String, WeenieRows> = BTreeMap::new();
     sql_ids::rows(text, |row| {
         let table = row.table;
+        gather(&mut weenies, row);
+        if table == "weenie_properties_d_i_d" {
+            let what = match row.get("type").and_then(sql_ids::number) {
+                Some(35) => Some("its death treasure"),
+                Some(32) => Some("its wielded treasure"),
+                _ => None,
+            };
+            if let Some(f) = what.and_then(|w| missing_loot(row, "value", w, pack, known)) {
+                warnings.push(Finding {
+                    at: Loc::new(path, lines.at(row.at)),
+                    text: f,
+                    warning: true,
+                });
+            }
+        }
         if let Some(kind) = PropertyKind::of_table(table) {
             let (Some(ty), Some(v)) = (row.get("type"), row.get("value")) else {
                 return;
@@ -191,12 +219,29 @@ pub fn check(
                 }
             }
             "weenie_properties_generator" => {
-                class(
-                    "weenie_Class_Id",
-                    "a generator profile",
-                    &mut lines,
-                    &mut fault,
-                );
+                let place = row.get("where_Create").and_then(sql_ids::number);
+                if place.is_some_and(|p| p & sql_ids::TREASURE_PLACE != 0) {
+                    if let Some(f) = missing_loot(
+                        row,
+                        "weenie_Class_Id",
+                        "a generator's treasure entry",
+                        pack,
+                        known,
+                    ) {
+                        warnings.push(Finding {
+                            at: Loc::new(path, lines.at(row.at)),
+                            text: f,
+                            warning: true,
+                        });
+                    }
+                } else {
+                    class(
+                        "weenie_Class_Id",
+                        "a generator profile",
+                        &mut lines,
+                        &mut fault,
+                    );
+                }
             }
             "weenie_properties_create_list" => {
                 class(
@@ -221,6 +266,219 @@ pub fn check(
         }
     });
     out.extend(warnings);
+    let mut lines = Lines::new(text);
+    for w in weenies.values() {
+        for (at, text) in w.warnings() {
+            out.push(Finding {
+                at: Loc::new(path, lines.at(at)),
+                text,
+                warning: true,
+            });
+        }
+    }
+}
+
+/// What a row whose `column` names a loot table (`what` of it) says when the packs and the world
+/// do not have it, the world's being known.
+fn missing_loot(
+    row: &sql_ids::Row<'_>,
+    column: &str,
+    what: &str,
+    pack: &str,
+    known: &Known,
+) -> Option<String> {
+    let v = row.get(column)?.trim();
+    // A pack's own table, by its symbol: one a pack holds.
+    if let Some(inner) = v.strip_prefix("{{").and_then(|s| s.strip_suffix("}}")) {
+        let (kind, sym) = inner.split_once(':')?;
+        if kind.trim() != crate::symbol::Kind::Treasure.name() {
+            return None;
+        }
+        let sym = crate::symbol::qualify(pack, sym.trim()).ok()?;
+        return (!known.loot_symbols.contains(&sym)).then(|| {
+            format!(
+                "{}: {what} names loot table {sym}, which no pack has",
+                row.table
+            )
+        });
+    }
+    let id = sql_ids::number(v).filter(|id| *id != 0)?;
+    known
+        .loot_tables
+        .as_ref()
+        .is_some_and(|t| !t.contains(&id))
+        .then(|| {
+            format!(
+                "{}: {what} names loot table {id}, which no pack has and the world does not have",
+                row.table
+            )
+        })
+}
+
+/// The weenie types of the creatures, which draw what they carry by chance.
+const CREATURES: [u32; 9] = [10, 11, 12, 15, 41, 60, 61, 69, 71];
+
+/// A portal's weenie type.
+const PORTAL: u32 = 7;
+
+/// Each wield requirement's property and its minimum's.
+const WIELD_NEEDS: [(u32, u32); 4] = [(158, 160), (270, 272), (273, 275), (276, 278)];
+
+/// What one weenie's rows say, as the checks of a weenie as a whole read them: each with where
+/// its row starts.
+#[derive(Default)]
+struct WeenieRows {
+    /// Its weenie type.
+    kind: Option<(u32, usize)>,
+    ints: BTreeMap<u32, (i64, usize)>,
+    /// Whether it has a destination, or one set from where it stands.
+    destination: bool,
+    /// Its create list's rows, in order: destination, shade.
+    creates: Vec<(u32, f64, usize)>,
+}
+
+/// What `row` says of its weenie, added to `weenies`.
+fn gather(weenies: &mut BTreeMap<String, WeenieRows>, row: &sql_ids::Row<'_>) {
+    let owner = if row.table == "weenie" {
+        "class_Id"
+    } else {
+        "object_Id"
+    };
+    let Some(w) = row.get(owner).map(str::trim) else {
+        return;
+    };
+    let number = |c: &str| row.get(c).and_then(|v| sql_ids::number(&bare(v)));
+    match row.table {
+        "weenie" => {
+            if let Some(t) = number("type") {
+                weenies.entry(w.to_owned()).or_default().kind = Some((t, row.at));
+            }
+        }
+        "weenie_properties_int" => {
+            let v = row
+                .get("value")
+                .and_then(|v| bare(v).trim().parse::<i64>().ok());
+            if let (Some(id), Some(v)) = (number("type"), v) {
+                weenies
+                    .entry(w.to_owned())
+                    .or_default()
+                    .ints
+                    .insert(id, (v, row.at));
+            }
+        }
+        "weenie_properties_position" => {
+            if matches!(number("position_Type"), Some(2 | 26)) {
+                weenies.entry(w.to_owned()).or_default().destination = true;
+            }
+        }
+        "weenie_properties_create_list" => {
+            let shade = row
+                .get("shade")
+                .and_then(|v| bare(v).trim().parse::<f64>().ok());
+            weenies.entry(w.to_owned()).or_default().creates.push((
+                number("destination_Type").unwrap_or(0),
+                shade.unwrap_or(0.0),
+                row.at,
+            ));
+        }
+        _ => {}
+    }
+}
+
+/// A chance, 0 to 1, as a percent the findings say: at most two places.
+fn percent(p: f64) -> String {
+    let s = format!("{:.2}", p * 100.0);
+    s.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
+impl WeenieRows {
+    /// The warnings of the weenie as a whole, each with where its row starts.
+    fn warnings(&self) -> Vec<(usize, String)> {
+        let Some((kind, weenie_at)) = self.kind else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let int = |id: u32| self.ints.get(&id).copied();
+        // More at the start than at most at once: the server keeps the start's as its most.
+        if let (Some((most, _)), Some((first, at))) = (int(81), int(82)) {
+            if most > 0 && first > most {
+                out.push((
+                    at,
+                    format!(
+                        "weenie_properties_int: it makes {first} at the start but keeps at most \
+                         {most} at once, so the server keeps at most {first}"
+                    ),
+                ));
+            }
+        }
+        if kind == PORTAL && !self.destination {
+            out.push((
+                weenie_at,
+                "weenie: a portal with no destination, which the server sends no one through"
+                    .to_owned(),
+            ));
+        }
+        // A skill, an attribute, a vital, a level, a training or a number property of at least
+        // nothing: everyone has that much.
+        for (need, least) in WIELD_NEEDS {
+            if let Some((what @ 1..=9, at)) = int(need) {
+                if int(least).is_none_or(|(n, _)| n == 0) {
+                    out.push((
+                        at,
+                        format!(
+                            "weenie_properties_int: wield requirement {what} has no minimum, so \
+                             anyone may wield it"
+                        ),
+                    ));
+                }
+            }
+        }
+        if CREATURES.contains(&kind) {
+            out.extend(self.sets_past_whole());
+        }
+        out
+    }
+
+    /// The rows of a creature's lists (what it wields; what it drops) that take a set drawn by
+    /// chance past 100%, as the server adds the chances up in its own single precision.
+    fn sets_past_whole(&self) -> Vec<(usize, String)> {
+        const CONTAIN: u32 = 1;
+        const WIELD: u32 = 2;
+        const TREASURE: u32 = 8;
+        let wields = |d: u32| d & WIELD != 0;
+        let drops = |d: u32| d & CONTAIN != 0 || (d & TREASURE != 0 && d & WIELD == 0);
+        let mut out = Vec::new();
+        for list in [&wields as &dyn Fn(u32) -> bool, &drops] {
+            let mut total = 0.0f32;
+            for (d, shade, at) in self.creates.iter().filter(|(d, _, _)| list(*d)) {
+                if d & TREASURE == 0 || *shade == 0.0 {
+                    continue;
+                }
+                if total >= 1.0 {
+                    total = 0.0;
+                }
+                let before = total;
+                #[allow(clippy::cast_possible_truncation)] // the server's own single precision
+                {
+                    total += *shade as f32;
+                }
+                if total > 1.0 + 1e-4 {
+                    out.push((
+                        *at,
+                        format!(
+                            "weenie_properties_create_list: a set drawn by chance adds up to \
+                             {}%, but the server stops at 100%, so this entry is made {}% of \
+                             the time, not {}%",
+                            percent(f64::from(total)),
+                            percent(1.0 - f64::from(before)),
+                            percent(*shade)
+                        ),
+                    ));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// The warnings for the quests pack files register (`registered`, each with where) that no
@@ -273,6 +531,15 @@ pub fn check_packs(
         for f in &p.sql {
             let mut lines = Lines::new(&f.text);
             sql_ids::rows(&f.text, |row| {
+                // A table a pack names by its symbol.
+                if matches!(row.table, "treasure_death" | "treasure_wielded") {
+                    let sym = row
+                        .get("treasure_Type")
+                        .and_then(|v| v.trim().strip_prefix("{{treasure:"))
+                        .and_then(|v| v.strip_suffix("}}"))
+                        .and_then(|v| crate::symbol::qualify(&p.name, v.trim()).ok());
+                    known.loot_symbols.extend(sym);
+                }
                 if row.table == "quest" {
                     if let Some(n) = row.get("name") {
                         registered.push((Loc::new(&f.path, lines.at(row.at)), unquote(n)));

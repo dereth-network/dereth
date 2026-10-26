@@ -268,6 +268,7 @@ fn highest_in(base: &DatSet, lo: u32, hi: u32) -> u32 {
 /// - A record's id is the lowest above the highest the base files hold in the kind's span that
 ///   neither the files, the overlay so far nor the lockfile holds.
 /// - A weenie class id is the lowest from `wcid_start` the lockfile does not hold.
+/// - A loot table's id is the lowest from [`crate::loot::NEW_ID`] the lockfile does not hold.
 /// - An instance's id is `0x7XXYYnnn` in its landblock, from `nnn = 0xFFF` down, that the lockfile
 ///   does not hold.
 /// - A new cell's id is `0xXXYYnnnn` in its landblock, the next after the base's cells there and
@@ -335,6 +336,16 @@ pub fn number(
                     id = id
                         .checked_add(1)
                         .ok_or_else(|| Error::Refused("no weenie class id is left".into()))?;
+                }
+                id
+            }
+            Kind::Treasure => {
+                let held: BTreeSet<u32> = lock.of(Kind::Treasure).map(|(_, id)| id).collect();
+                let mut id = crate::loot::NEW_ID;
+                while held.contains(&id) {
+                    id = id
+                        .checked_add(1)
+                        .ok_or_else(|| Error::Refused("no loot table id is left".into()))?;
                 }
                 id
             }
@@ -2112,10 +2123,13 @@ pub fn refresh_sql(
     let (tokens, mut wanted) = sql_symbols(packs, &defined)?;
     wanted.extend(cell_symbols(packs, None));
     let mut lock = lock.clone();
-    // The cells keep the numbers their records were made with.
-    for (symbol, id) in c.lock.of(Kind::Cell) {
-        if lock.get(Kind::Cell, symbol).is_none() {
-            lock.insert(Kind::Cell, symbol, id);
+    // The cells keep the numbers their records were made with, and the loot tables the numbers
+    // they were first given, which the editor knows them by.
+    for kind in [Kind::Cell, Kind::Treasure] {
+        for (symbol, id) in c.lock.of(kind) {
+            if lock.get(kind, symbol).is_none() {
+                lock.insert(kind, symbol, id);
+            }
         }
     }
     c.numbered = number(&mut lock, &wanted, base, &c.imported, world.wcid_start)?;

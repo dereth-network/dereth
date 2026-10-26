@@ -120,3 +120,73 @@ fn a_spawn_in_a_cell_the_files_do_not_hold_stops_the_build() {
         "{faults:?}"
     );
 }
+
+/// A dump's create list, generator, emotes and actions, and its body parts: no column lists, as
+/// a dump writes them.
+const USES: &str = "\
+CREATE TABLE `weenie_properties_create_list` (`id` int, `object_Id` int, `destination_Type` tinyint, `weenie_Class_Id` int, `stack_Size` int, `palette` tinyint, `shade` float, `try_To_Bond` bit(1));
+INSERT INTO `weenie_properties_create_list` VALUES (1,10,2,7,1,0,0,'\0'),(2,11,1,0,1,0,0.5,'\0');
+CREATE TABLE `weenie_properties_generator` (`id` int, `object_Id` int, `probability` float, `weenie_Class_Id` int);
+INSERT INTO `weenie_properties_generator` VALUES (3,12,-1,7);
+CREATE TABLE `weenie_properties_emote` (`id` int, `object_Id` int, `category` int, `probability` float, `weenie_Class_Id` int);
+INSERT INTO `weenie_properties_emote` VALUES (40,13,6,1,7),(41,14,7,1,NULL);
+CREATE TABLE `weenie_properties_emote_action` (`id` int, `emote_Id` int, `order` int, `type` int, `weenie_Class_Id` int);
+INSERT INTO `weenie_properties_emote_action` VALUES (5,41,0,3,7),(6,40,0,10,NULL);
+CREATE TABLE `weenie_properties_body_part` (`id` int, `object_Id` int, `key` smallint, `d_Type` int, `d_Val` int);
+INSERT INTO `weenie_properties_body_part` VALUES (7,10,0,4,1),(8,11,0,4,2),(9,12,0,4,2),(10,13,1,4,9);
+";
+
+#[test]
+fn every_class_a_create_list_a_generator_or_an_emote_names_is_found_with_whose_row_names_it() {
+    use lyceum_foundry::sql_ids::{class_uses, server_content, Use};
+    let uses: Vec<(String, String, Use)> = class_uses(USES)
+        .into_iter()
+        .map(|u| (u.by, u.names, u.how))
+        .collect();
+    assert_eq!(
+        uses,
+        [
+            ("10".into(), "7".into(), Use::CreateList { destination: 2 }),
+            ("12".into(), "7".into(), Use::Generator),
+            (
+                "13".into(),
+                "7".into(),
+                Use::Emote {
+                    category: 6,
+                    action: None
+                }
+            ),
+            (
+                "14".into(),
+                "7".into(),
+                Use::Emote {
+                    category: 7,
+                    action: Some(3)
+                }
+            ),
+        ],
+        "class 0 and NULL name nothing; an action's weenie is its set's"
+    );
+    // An export's action names its set by the set written last.
+    let export = "INSERT INTO `weenie_properties_emote` (`object_Id`, `category`, `probability`)\nVALUES ({{wcid:guide}}, 7, 1);\nSET @parent_id = LAST_INSERT_ID();\nINSERT INTO `weenie_properties_emote_action` (`emote_Id`, `order`, `type`, `weenie_Class_Id`)\nVALUES (@parent_id, 0, 3, {{wcid:stamp}});\n";
+    let u = class_uses(export);
+    assert_eq!(u.len(), 1);
+    assert_eq!(
+        (u[0].by.as_str(), u[0].names.as_str()),
+        ("{{wcid:guide}}", "{{wcid:stamp}}")
+    );
+    // Read with the rest of the server's content: who names each class, and each body part's
+    // commonest row.
+    let c = server_content(USES);
+    assert_eq!(c.uses[&7].len(), 4);
+    assert_eq!(c.uses[&7][0], (10, Use::CreateList { destination: 2 }));
+    let head = &c.body_parts[&0];
+    assert!(
+        head.iter().any(|(k, v)| k == "d_Val" && v == "2"),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|(k, _)| k == "id" || k == "object_Id"));
+    assert!(c.body_parts[&1]
+        .iter()
+        .any(|(k, v)| k == "d_Val" && v == "9"));
+}

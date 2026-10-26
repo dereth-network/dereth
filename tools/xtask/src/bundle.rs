@@ -196,34 +196,7 @@ fn install_icon(root: &Path, target: &Path, resources: &Path) -> Result<IconForm
         return Ok(IconForm::Fallback);
     }
 
-    let partial = built.join("partial-info.plist");
-    let ok = run(
-        root,
-        "xcrun",
-        &[
-            "actool",
-            "--output-format",
-            "human-readable-text",
-            "--notices",
-            "--warnings",
-            "--app-icon",
-            APP_NAME,
-            "--output-partial-info-plist",
-            &partial.to_string_lossy(),
-            "--target-device",
-            "mac",
-            "--platform",
-            "macosx",
-            // The same floor the plist claims, so the compiler makes what that claim needs: the
-            // layered icon for macOS 26 and the flat one for everything older.
-            "--minimum-deployment-target",
-            MINIMUM_MACOS,
-            "--compile",
-            &built.to_string_lossy(),
-            &source.to_string_lossy(),
-        ],
-    );
-    if !ok {
+    if !actool_compile(root, &source, APP_NAME, MINIMUM_MACOS, &built) {
         return Err(format!("actool could not compile {}", source.display()));
     }
     // Both outputs, because they are for different systems: `Assets.car` is what macOS 26 reads,
@@ -306,9 +279,47 @@ fn quiet(program: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Compile the layered icon `source` (an `.icon` named `name`) with Xcode's `actool` into `out`:
+/// `Assets.car`, which macOS 26 draws the icon from, and `<name>.icns` beside it for every earlier
+/// system. `minimum` is the floor the bundle's plist claims, so the compiler makes what that claim
+/// needs. Whether it compiled.
+pub(crate) fn actool_compile(
+    root: &Path,
+    source: &Path,
+    name: &str,
+    minimum: &str,
+    out: &Path,
+) -> bool {
+    let partial = out.join("partial-info.plist");
+    run(
+        root,
+        "xcrun",
+        &[
+            "actool",
+            "--output-format",
+            "human-readable-text",
+            "--notices",
+            "--warnings",
+            "--app-icon",
+            name,
+            "--output-partial-info-plist",
+            &partial.to_string_lossy(),
+            "--target-device",
+            "mac",
+            "--platform",
+            "macosx",
+            "--minimum-deployment-target",
+            minimum,
+            "--compile",
+            &out.to_string_lossy(),
+            &source.to_string_lossy(),
+        ],
+    )
+}
+
 /// Whether Xcode's asset compiler is on this machine. `xcrun --find` is the question the
 /// toolchain answers for itself, and it answers it without compiling anything.
-fn actool_is_installed() -> bool {
+pub(crate) fn actool_is_installed() -> bool {
     std::process::Command::new("xcrun")
         .args(["--find", "actool"])
         .stdout(std::process::Stdio::null())

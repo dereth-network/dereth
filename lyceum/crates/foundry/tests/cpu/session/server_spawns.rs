@@ -1,4 +1,4 @@
-//! Behaviour: none (tooling: the server's own spawns in the world editor: shown, moved and taken away through a pack's override file)
+//! Behaviour: none (tooling: the server's own spawns in the world editor: shown, moved and taken away through a pack's override file, and given as the server places them)
 
 use dereth_primitives::Vec3;
 use lyceum_foundry::edit::{Op, Session};
@@ -121,6 +121,33 @@ fn the_servers_own_spawns_are_shown_and_a_move_or_a_removal_is_written_into_the_
 }
 
 #[test]
+fn the_servers_own_spawn_is_given_as_its_world_places_it_with_its_links_both_ways() {
+    let f = Fixture::new("server-own-spawn");
+    let mut s = Session::open(&f.world(), &f.dats(), None).unwrap();
+    s.learn_weenies(SERVER);
+    let g = s.server_own_spawn(HOME, 0x7001_0000).unwrap();
+    assert_eq!(
+        (g.instance.weenie.as_str(), g.instance.cell),
+        ("1154", 0x0101_0019)
+    );
+    assert!((g.instance.origin[0] - 84.0067).abs() < 1e-4 && !g.instance.link_child);
+    assert_eq!(g.children, [0x7001_0001]);
+    assert!(g.parents.is_empty());
+    let c = s.server_own_spawn(HOME, 0x7001_0001).unwrap();
+    assert!(c.instance.link_child && c.children.is_empty());
+    assert_eq!(c.parents, [0x7001_0000]);
+    // Learned again, each link once.
+    s.learn_weenies(SERVER);
+    assert_eq!(
+        s.server_own_spawn(HOME, 0x7001_0000).unwrap().children,
+        [0x7001_0001]
+    );
+    // None it does not place, nor in another landblock.
+    assert!(s.server_own_spawn(HOME, 0x7001_0009).is_none());
+    assert!(s.server_own_spawn(0x0102, 0x7001_0000).is_none());
+}
+
+#[test]
 fn a_server_generator_says_its_radius_and_the_instances_linked_to_it() {
     let f = Fixture::new("server-generator");
     let mut s = Session::open(&f.world(), &f.dats(), None).unwrap();
@@ -142,6 +169,79 @@ INSERT INTO `weenie_properties_float` VALUES (9,1154,43,12.5);
     );
     let child = spawns.iter().find(|x| x.guid == CHILD).unwrap();
     assert_eq!(s.generator(child), None, "the drudge makes nothing");
+}
+
+#[test]
+fn a_server_weenie_appears_in_every_landblock_shown_or_not_but_where_a_pack_took_it_away() {
+    use lyceum_foundry::edit::{Spawn, Weenie};
+    let f = Fixture::new("appearances");
+    let mut s = Session::open(&f.world(), &f.dats(), None).unwrap();
+    s.set_today("2026-10-24 00:00:00");
+    // The drudge in two landblocks more, one of them a dungeon's room, and a thousand of the
+    // generator across the world.
+    let (far, deep) = (0x0505u16, 0x0606u16);
+    let row = |guid: u32, class: u32, cell: u32| {
+        format!("({guid},{class},{cell},10,10,0,1,0,0,0,'\\0','2019-05-16 00:00:00')")
+    };
+    let mut rows = vec![
+        row(0x7050_5000, 7924, 0x0505_0001),
+        row(0x7060_6000, 7924, 0x0606_0100),
+    ];
+    rows.extend((0..1000u32).map(|k| row(0x7100_0000 + k, 1154, ((0x1000 + k) << 16) | 1)));
+    s.learn_weenies(&format!(
+        "{SERVER}INSERT INTO `landblock_instance` VALUES {};\n",
+        rows.join(",")
+    ));
+    let drudge = Weenie::Class(7924);
+    let lbs = |a: &[Spawn]| a.iter().map(Spawn::landblock).collect::<Vec<_>>();
+    // None of its landblocks shown, every one of the server's is listed, and only its own are
+    // read, not the world's.
+    let read = s.server_spawns_read();
+    let a = s.appearances(&drudge);
+    assert_eq!(lbs(&a), [HOME, far, deep]);
+    assert_eq!(s.server_spawns_read() - read, 3, "its own three read");
+    assert!(a
+        .iter()
+        .all(|x| x.server && x.file == s.override_file(x.landblock())));
+    assert_eq!(a[2].cell, 0x0606_0100);
+    assert!(s.spawns().is_empty(), "none shown");
+    // Found by its file and guid though its landblock is not shown.
+    let found = s.spawn(&a[1].file, &a[1].guid).expect("the far one");
+    assert_eq!((found.cell, found.server), (0x0505_0001, true));
+    // The pack takes the far one away and writes the room's again, moved: the far one is gone,
+    // the room's listed once, as the pack's.
+    s.apply(&Op::RemoveServerSpawn {
+        file: a[1].file.clone(),
+        guid: a[1].guid.clone(),
+    })
+    .unwrap();
+    s.apply(&Op::MoveSpawn {
+        file: a[2].file.clone(),
+        guid: a[2].guid.clone(),
+        origin: Vec3::new(12.0, 10.0, 0.0),
+        heading: 0.0,
+    })
+    .unwrap();
+    // And places one of its own in another landblock.
+    s.apply(&Op::PlaceSpawn {
+        landblock: 0x0102,
+        weenie: drudge.clone(),
+        origin: Vec3::new(20.0, 20.0, 94.0),
+        heading: 0.0,
+    })
+    .unwrap();
+    let a = s.appearances(&drudge);
+    assert_eq!(lbs(&a), [HOME, 0x0102, deep]);
+    assert!(a[0].server && !a[1].server && !a[2].server);
+    assert!((a[2].frame.origin.x - 12.0).abs() < 1e-3);
+    assert_eq!(
+        s.spawn(&a[1].file, &a[1].guid).map(|x| x.cell),
+        Some(a[1].cell)
+    );
+    let gone = s.override_file(far);
+    assert!(s.spawn(&gone, "0x70505000").is_none(), "taken away");
+    // The generator's thousand are its own.
+    assert_eq!(s.appearances(&Weenie::Class(1154)).len(), 1001);
 }
 
 #[test]
@@ -172,4 +272,46 @@ fn a_weenie_stands_in_the_landblocks_of_the_servers_spawns_of_it_and_the_packs()
     })
     .unwrap();
     assert_eq!(s.landblocks_standing(&set(&[7924])), lbs(&[HOME, 0x0102]));
+}
+
+#[test]
+fn who_names_a_weenie_is_the_servers_own_and_the_packs_and_a_packs_change_stands_for_the_servers() {
+    use lyceum_foundry::edit::Weenie;
+    use lyceum_foundry::sql_ids::Use;
+    let f = Fixture::new("server-uses");
+    // The server's generator makes its drudge, and its body parts are learned with it.
+    let mut s = Session::open(&f.world(), &f.dats(), None).unwrap();
+    s.learn_weenies(&format!(
+        "{SERVER}\
+CREATE TABLE `weenie_properties_generator` (`id` int, `object_Id` int, `probability` float, `weenie_Class_Id` int);
+INSERT INTO `weenie_properties_generator` VALUES (1,1154,-1,7924);
+CREATE TABLE `weenie_properties_body_part` (`id` int, `object_Id` int, `key` smallint, `d_Type` int, `d_Val` int);
+INSERT INTO `weenie_properties_body_part` VALUES (1,7924,0,4,3);
+"
+    ));
+    let drudge = Weenie::Class(7924);
+    assert_eq!(s.uses_of(&drudge), [(Weenie::Class(1154), Use::Generator)]);
+    assert!(s
+        .typical_body_part(0)
+        .is_some_and(|r| r.iter().any(|(k, v)| k == "d_Val" && v == "3")));
+    assert!(s.typical_body_part(1).is_none());
+    // A pack's weenie wields it; the pack's change of the generator makes it no more.
+    let (file, _) = s.new_weenie_file("guard").unwrap();
+    s.apply(&Op::WriteSql {
+        file,
+        text: Some("DELETE FROM `weenie` WHERE `class_Id` = {{wcid:guard}};\nINSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES ({{wcid:guard}}, 'guard', 10, '2005-02-09 10:00:00');\nINSERT INTO `weenie_properties_create_list` (`object_Id`, `destination_Type`, `weenie_Class_Id`, `stack_Size`, `palette`, `shade`, `try_To_Bond`)\nVALUES ({{wcid:guard}}, 2, 7924, 1, 0, 0, False);\n".into()),
+    })
+    .unwrap();
+    s.apply(&Op::WriteSql {
+        file: s.class_file(1154, "gen"),
+        text: Some("DELETE FROM `weenie` WHERE `class_Id` = 1154;\nINSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES (1154, 'gen', 1, '2005-02-09 10:00:00');\n".into()),
+    })
+    .unwrap();
+    assert_eq!(
+        s.uses_of(&drudge),
+        [(
+            Weenie::Symbol("sample:guard".into()),
+            Use::CreateList { destination: 2 }
+        )]
+    );
 }

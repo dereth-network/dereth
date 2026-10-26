@@ -3,7 +3,7 @@
 //! started in it at the camera (the Play button). And the world written out for a server
 //! (Empyrean, ACE or GDLE, as a script asks), off the frame loop.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::live::{program, Live, LiveSetup, Starting};
@@ -321,25 +321,20 @@ impl EditorApp {
         (self.live.is_some(), self.starting.is_some())
     }
 
-    fn went_live(&mut self, mut live: Live) -> Result<(), String> {
+    fn went_live(&mut self, live: Live) -> Result<(), String> {
         tracing::info!(
             "the editor's world is up on 127.0.0.1:{} in {}",
             live.port,
             live.dir.display()
         );
         self.panels.message = self.say_with("messages.live_up", &[("port", &live.port)]);
-        live.command(&format!(
-            "playtest-character schema {}",
-            crate::live::console_path(&self.live_args.playtest.join("character-schema.json"))
-        ))?;
-        self.characters.schema = None;
         self.live = Some(live);
         self.live_read = 0;
         self.push_live()
     }
 
     /// The landblocks within one of the camera's.
-    fn near_camera(&self) -> BTreeSet<u16> {
+    pub(super) fn near_camera(&self) -> BTreeSet<u16> {
         let Some((lb, ..)) = self.work_block() else {
             return BTreeSet::new();
         };
@@ -362,27 +357,64 @@ impl EditorApp {
         let Some(mut live) = self.live.take() else {
             return Ok(());
         };
+        let restore = self.server_own(&live.gone(&self.session));
         let result = (|| {
-            if let Some(revision) = live.push(&self.session, &near)? {
-                if let Err(error) = self.adopt_play_revision(&revision) {
-                    return match live.reject_pending() {
-                        Ok(()) => Err(error),
-                        Err(recovery) => {
-                            live.stop();
-                            Err(format!("{error}; recovery failed: {recovery}"))
-                        }
-                    };
-                }
-                tracing::info!(revision=revision.number, blocks=?revision.blocks, "live revision adopted by server and playtest");
-                self.panels.message =
-                    self.say_with("play.updated", &[("revision", &revision.number)]);
-                live.accept_pending();
+            let revision = match live.push(&self.session, &near, &restore) {
+                Ok(Some(revision)) => revision,
+                Ok(None) => return Ok(()),
+                Err(error) => return Err(self.refuse_live(&mut live, error)),
+            };
+            if let Err(error) = self.adopt_play_revision(&revision) {
+                return Err(self.refuse_live(&mut live, error));
             }
+            tracing::info!(revision=revision.number, blocks=?revision.blocks, "live revision adopted by server and playtest");
+            self.panels.message = self.say_with("play.updated", &[("revision", &revision.number)]);
+            live.accept_pending();
             Ok(())
         })();
         live.error = result.as_ref().err().cloned();
         self.live = Some(live);
         result
+    }
+
+    /// The revision `live` has pending, refused by the server or the playtest (`error`), taken
+    /// back: the editor's world as it was, the server's own weenie, quest or loot table in place
+    /// of a copy of it the revision brought. Answers why; the world is stopped when it could not
+    /// be put back.
+    fn refuse_live(&mut self, live: &mut Live, error: String) -> String {
+        let restore = self.server_own(&live.refused());
+        match live.reject_pending(&self.session, &restore) {
+            Ok(()) => error,
+            Err(recovery) => {
+                live.stop();
+                format!("{error}; recovery failed: {recovery}")
+            }
+        }
+    }
+
+    /// The server's own text of each file taken from the editor's world (by its place in the
+    /// content folder, with the text pushed and the import that took it) that stood in for one of
+    /// the server's weenie classes, quests or loot tables: what the editor's world takes back in
+    /// its place. A file of the pack's own making has none.
+    fn server_own(&mut self, gone: &[(PathBuf, String, String)]) -> BTreeMap<PathBuf, String> {
+        use crate::live::StandsFor;
+        let mut out = BTreeMap::new();
+        for (path, text, import) in gone {
+            let own = match crate::live::stands_for(import, text) {
+                Some(StandsFor::Weenie(c)) => self.server_class_now(c).ok().flatten(),
+                Some(StandsFor::Quest(name)) => self
+                    .session
+                    .server_quests()
+                    .get(&name)
+                    .map(|q| self.session.quest_text(&name, q)),
+                Some(StandsFor::Loot(kind, id)) => self.session.loot_server_text(kind, id),
+                None => None,
+            };
+            if let Some(own) = own {
+                out.insert(path.clone(), own);
+            }
+        }
+        out
     }
 
     /// Write the world as the editor holds it out for `target`, into the build's
@@ -523,16 +555,6 @@ impl EditorApp {
                 self.panels.message = e;
             }
         }
-        if self.characters.schema.is_none() {
-            if let Ok(bytes) = std::fs::read(self.live_args.playtest.join("character-schema.json"))
-            {
-                if let Ok(schema) = serde_json::from_slice::<crate::characters::Schema>(&bytes) {
-                    if schema.version == 1 {
-                        self.characters.schema = Some(schema);
-                    }
-                }
-            }
-        }
         self.waiting_play_frame();
         self.character_frame();
         self.read_live();
@@ -570,8 +592,16 @@ impl EditorApp {
             .unwrap_or_default()
     }
 
-    /// Start a playtest in the editor's world view, its character put on the floor of the cell
-    /// the camera is in, or on the ground under it, with `extra` after the editor's own switches.
+    /// The content folder of the editor's world, where the packs' SQL is written and its imports
+    /// write what they read, as a test reads it.
+    #[must_use]
+    pub fn live_content(&self) -> Option<PathBuf> {
+        self.live.as_ref().map(|l| l.content().to_path_buf())
+    }
+
+    /// Start a playtest in the editor's world view, its character put where its recipe starts it
+    /// (on the floor of the cell the camera is in, or on the ground under it, unless the recipe
+    /// says otherwise), with `extra` after the editor's own switches.
     /// It starts once the world is ready for it (a character that played last has logged out),
     /// over the frames that follow; `wait` waits for it to end (a script's run), answering how it
     /// ended. With a playtest running, the game is given the keyboard and the mouse again.
@@ -594,30 +624,17 @@ impl EditorApp {
             return if wait { self.wait_play() } else { Ok(None) };
         }
         self.characters.save()?;
-        if !self.characters.applied().is_file() {
-            self.prepare_character(false)?;
+        // Play As: the character made again first when it is no longer its recipe's.
+        if self.characters.needs_making() {
+            self.prepare_character(true)?;
             if let Some(work) = self.character_work.as_mut() {
                 work.extra = extra.to_vec();
             }
             return if wait { self.wait_play() } else { Ok(None) };
         }
-        let (lb, x, y) = self
-            .work_block()
-            .ok_or_else(|| self.say("messages.off_world"))?;
-        let local_z = self.camera.position.z - lyceum_foundry::pick::block_origin(lb).z;
-        // In a cell when the camera is in one, on its floor; else on the ground under it.
-        let (cell, z) = match self
-            .session
-            .cell_at(lb, dereth_primitives::Vec3::new(x, y, local_z))
-        {
-            Some((c, floor)) => ((u32::from(lb) << 16) | u32::from(c), floor + 0.5),
-            None => (
-                (u32::from(lb) << 16) | lyceum_foundry::edit::outdoor_cell(x, y),
-                self.session
-                    .ground(lb, x, y)
-                    .map_or(self.camera.position.z, |g| g + 0.5),
-            ),
-        };
+        // Where the recipe starts it: at the camera, by the selected object, at the dungeon's
+        // entrance (each on the floor of the cell there, else the ground), or where it was left.
+        let (cell, at) = self.start_point()?.unwrap_or((0, [0.0; 3]));
         if self.live.is_none() {
             return Err(self.say("messages.live_not_running"));
         }
@@ -635,7 +652,7 @@ impl EditorApp {
         self.waiting_play = Some(WaitingPlay {
             extra: extra.to_vec(),
             cell,
-            at: [x, y, z],
+            at,
             ask: crate::live::ReadyAsk::default(),
         });
         self.panels.message = self.say("play.waiting");
@@ -681,6 +698,7 @@ impl EditorApp {
     /// Start the client of a playtest whose world is ready for it.
     fn start_waiting_play(&mut self, waiting: &WaitingPlay) -> Result<(), String> {
         let dats = self.core.cfg.dat_dir.clone();
+        let buff = self.buff_line();
         let live = self
             .live
             .as_mut()
@@ -690,14 +708,23 @@ impl EditorApp {
             args[at] = "-r".into();
             args[at + 1] = self.characters.name.clone();
         }
+        // Where it was left: no teleport.
+        if waiting.cell == 0 {
+            if let Some(at) = args.iter().position(|s| s.starts_with("@teleloc ")) {
+                args.drain(at - 1..=at);
+            }
+        }
         args.extend(waiting.extra.iter().cloned());
+        if let Some(buff) = buff {
+            args.extend(["--say".to_owned(), buff]);
+        }
         live.made_character = true;
         // The client's own settings, beside the world: never the player's.
         let settings = self.live_args.playtest.join("client");
         write_play_options(&settings, self.play_options)?;
         self.start_embedded(&args, &settings)?;
         if let Some(play) = self.playing.as_mut() {
-            play.destination = Some((waiting.cell, waiting.at));
+            play.destination = (waiting.cell != 0).then_some((waiting.cell, waiting.at));
         }
         Ok(())
     }

@@ -1,7 +1,7 @@
-//! The weenie tab: the form of the weenie the selected spawn places (or the spawn browser's
-//! choice), read from its SQL and written back to it. A pack's own weenie is edited in place; a
-//! server class is shown, and copied into the pack (by its own class id, so the pack's copy takes
-//! its place) to be edited. Each change is one step of the history.
+//! The weenie editor's form: a weenie's SQL shown as fields and written back to it. A pack's own
+//! weenie is edited in place; a server class is copied into the pack (by its own class id, so the
+//! pack's copy takes its place) to be edited. Each change names the weenie it is made to, and is
+//! one step of the history.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -36,8 +36,11 @@ pub enum FormEdit {
     /// The `row`th row of `table` taken away.
     RemoveRow { table: String, row: usize },
     /// An emote set of `category` (a number, or the server's name of one) added, with no
-    /// actions.
-    AddEmoteSet { category: String },
+    /// actions: right after set `after` when there is one, else after the last.
+    AddEmoteSet {
+        category: String,
+        after: Option<usize>,
+    },
     /// Emote set `set` taken away, with its actions.
     RemoveEmoteSet { set: usize },
     /// Column `column` of emote set `set` set to `value`.
@@ -76,6 +79,17 @@ pub enum FormEdit {
     WeenieType(u32),
     /// Where it sends who uses it: cell `cell` at `at` (that cell's landblock's meters).
     Destination { cell: u32, at: [f32; 3] },
+    /// Nothing changed, for this reason: what was asked cannot be had.
+    Refused(String),
+    /// Every row of `table` written as `rows`, in order.
+    Rows {
+        table: String,
+        rows: Vec<super::collections::TableRow>,
+    },
+    /// The probabilities of emote sets, each by its place, as written.
+    Probabilities(Vec<(usize, String)>),
+    /// Every emote set and its actions written as these.
+    Emotes(Vec<super::emotes::EmoteRows>),
 }
 
 /// The quests the emotes of `doc` name: the messages of its quest actions, each once, as the
@@ -123,8 +137,88 @@ fn enum_value(typed: &str, name: &str, schema: Option<&content::Schema>) -> Opti
 }
 
 /// The columns ACE's export writes for the tables the form adds rows to.
-fn columns(table: &str) -> &'static [&'static str] {
+pub(super) fn columns(table: &str) -> &'static [&'static str] {
     match table {
+        "weenie_properties_attribute" => &[
+            "object_Id",
+            "type",
+            "init_Level",
+            "level_From_C_P",
+            "c_P_Spent",
+        ],
+        "weenie_properties_attribute_2nd" => &[
+            "object_Id",
+            "type",
+            "init_Level",
+            "level_From_C_P",
+            "c_P_Spent",
+            "current_Level",
+        ],
+        "weenie_properties_skill" => &[
+            "object_Id",
+            "type",
+            "level_From_P_P",
+            "s_a_c",
+            "p_p",
+            "init_Level",
+            "resistance_At_Last_Check",
+            "last_Used_Time",
+        ],
+        "weenie_properties_body_part" => &[
+            "object_Id",
+            "key",
+            "d_Type",
+            "d_Val",
+            "d_Var",
+            "base_Armor",
+            "armor_Vs_Slash",
+            "armor_Vs_Pierce",
+            "armor_Vs_Bludgeon",
+            "armor_Vs_Cold",
+            "armor_Vs_Fire",
+            "armor_Vs_Acid",
+            "armor_Vs_Electric",
+            "armor_Vs_Nether",
+            "b_h",
+            "h_l_f",
+            "m_l_f",
+            "l_l_f",
+            "h_r_f",
+            "m_r_f",
+            "l_r_f",
+            "h_l_b",
+            "m_l_b",
+            "l_l_b",
+            "h_r_b",
+            "m_r_b",
+            "l_r_b",
+        ],
+        "weenie_properties_position" => &[
+            "object_Id",
+            "position_Type",
+            "obj_Cell_Id",
+            "origin_X",
+            "origin_Y",
+            "origin_Z",
+            "angles_W",
+            "angles_X",
+            "angles_Y",
+            "angles_Z",
+        ],
+        "weenie_properties_event_filter" => &["object_Id", "event"],
+        "weenie_properties_book" => &["object_Id", "max_Num_Pages", "max_Num_Chars_Per_Page"],
+        "weenie_properties_book_page_data" => &[
+            "object_Id",
+            "page_Id",
+            "author_Id",
+            "author_Name",
+            "author_Account",
+            "ignore_Author",
+            "page_Text",
+        ],
+        "weenie_properties_palette" => &["object_Id", "sub_Palette_Id", "offset", "length"],
+        "weenie_properties_texture_map" => &["object_Id", "index", "old_Id", "new_Id"],
+        "weenie_properties_anim_part" => &["object_Id", "index", "animation_Id"],
         "weenie_properties_spell_book" => &["object_Id", "spell", "probability"],
         "weenie_properties_create_list" => &[
             "object_Id",
@@ -169,8 +263,29 @@ fn default_of(table: &str, column: &str) -> &'static str {
         ("weenie_properties_create_list", "try_To_Bond") => "False",
         ("weenie_properties_generator", "probability" | "init_Create" | "max_Create") => "1",
         ("weenie_properties_generator", "delay") => "180",
-        ("weenie_properties_generator", "when_Create") => "2",
-        ("weenie_properties_generator", "where_Create") => "4",
+        ("weenie_properties_generator", "when_Create") => "1",
+        ("weenie_properties_generator", "where_Create") => "2",
+        ("weenie_properties_position", "angles_W") => "1",
+        ("weenie_properties_book", "max_Num_Pages") => "1",
+        ("weenie_properties_book", "max_Num_Chars_Per_Page") => "1000",
+        ("weenie_properties_book_page_data", "author_Id") => "4294967295",
+        ("weenie_properties_book_page_data", "author_Name" | "author_Account" | "page_Text") => {
+            "''"
+        }
+        ("weenie_properties_book_page_data", "ignore_Author") => "False",
+        (
+            "weenie_properties_attribute"
+            | "weenie_properties_attribute_2nd"
+            | "weenie_properties_skill"
+            | "weenie_properties_body_part"
+            | "weenie_properties_position"
+            | "weenie_properties_event_filter"
+            | "weenie_properties_book_page_data"
+            | "weenie_properties_palette"
+            | "weenie_properties_texture_map"
+            | "weenie_properties_anim_part",
+            _,
+        ) => "0",
         _ => "NULL",
     }
 }
@@ -252,11 +367,11 @@ pub fn apply_edit(doc: &mut SqlDoc, edit: &FormEdit, schema: Option<&content::Sc
             doc.remove_row(r);
             true
         }
-        FormEdit::AddEmoteSet { category } => {
+        FormEdit::AddEmoteSet { category, after } => {
             let Some(c) = enum_value(category, "EmoteCategory", schema) else {
                 return false;
             };
-            doc.add_emote_set(&c, &[]);
+            doc.add_emote_set_after(*after, &c, &[]);
             true
         }
         FormEdit::RemoveEmoteSet { set } => {
@@ -337,6 +452,25 @@ pub fn apply_edit(doc: &mut SqlDoc, edit: &FormEdit, schema: Option<&content::Sc
             super::dungeons::set_destination(doc, *cell, Vec3::new(at[0], at[1], at[2]));
             true
         }
+        FormEdit::Refused(_) => false,
+        FormEdit::Rows { table, rows } => {
+            if columns(table).is_empty() {
+                return false;
+            }
+            super::collections::write_rows(doc, table, rows);
+            true
+        }
+        FormEdit::Probabilities(list) => {
+            let sets = doc.emote_sets();
+            list.iter().all(|(i, p)| {
+                sets.get(*i)
+                    .is_some_and(|s| doc.set_cell(s.emote, "probability", p))
+            })
+        }
+        FormEdit::Emotes(sets) => {
+            super::emotes::write_emotes(doc, sets);
+            true
+        }
         FormEdit::Action {
             set,
             action,
@@ -359,6 +493,15 @@ pub fn apply_edit(doc: &mut SqlDoc, edit: &FormEdit, schema: Option<&content::Sc
     }
 }
 
+/// The key what is typed into field `key` of weenie `w`'s form is kept by until it is left.
+#[must_use]
+pub fn typing_key(w: &Weenie, key: &str) -> String {
+    match w {
+        Weenie::Symbol(s) => format!("{s}|{key}"),
+        Weenie::Class(c) => format!("{c}|{key}"),
+    }
+}
+
 /// How the weenie tab names weenie `w` under its name: a server's class by its id, a pack's own by
 /// its name in its pack (its symbol without the pack's name before it).
 #[must_use]
@@ -369,8 +512,134 @@ pub fn weenie_label(w: &Weenie, t: &crate::text::Table) -> String {
     }
 }
 
+/// A table Advanced lists row by row.
+pub(super) struct RawTable {
+    /// Its heading's key in the text.
+    pub heading: &'static str,
+    pub table: &'static str,
+    /// The columns each row shows as fields.
+    pub shown: &'static [&'static str],
+    /// The column whose spell or weenie names each row, when one does.
+    pub named: Option<&'static str>,
+    /// The columns a new row is typed with, each with its box's words' key in the text; none:
+    /// every column shown, each by its own name.
+    pub adds: Option<&'static [(&'static str, &'static str)]>,
+}
+
+/// Every column of a position's row but whose it is.
+const POSITION: &[&str] = &[
+    "position_Type",
+    "obj_Cell_Id",
+    "origin_X",
+    "origin_Y",
+    "origin_Z",
+    "angles_W",
+    "angles_X",
+    "angles_Y",
+    "angles_Z",
+];
+
+/// The tables Advanced lists row by row: the spell book, the create list and the generator,
+/// which have editors of their own as well, then those that have none, every column of each.
+pub(super) const RAW_TABLES: &[RawTable] = &[
+    RawTable {
+        heading: "weenie.spells",
+        table: "weenie_properties_spell_book",
+        shown: &["spell", "probability"],
+        named: Some("spell"),
+        adds: Some(&[
+            ("spell", "weenie.add_spell_hint"),
+            ("probability", "weenie.add_probability_hint"),
+        ]),
+    },
+    RawTable {
+        heading: "weenie.carries",
+        table: "weenie_properties_create_list",
+        shown: &["weenie_Class_Id", "destination_Type", "stack_Size", "shade"],
+        named: Some("weenie_Class_Id"),
+        adds: Some(&[("weenie_Class_Id", "weenie.add_wcid_hint")]),
+    },
+    RawTable {
+        heading: "weenie.generates",
+        table: "weenie_properties_generator",
+        shown: &[
+            "weenie_Class_Id",
+            "probability",
+            "init_Create",
+            "max_Create",
+            "delay",
+            "where_Create",
+        ],
+        named: Some("weenie_Class_Id"),
+        adds: Some(&[("weenie_Class_Id", "weenie.add_wcid_hint")]),
+    },
+    RawTable {
+        heading: "weenie.positions",
+        table: "weenie_properties_position",
+        shown: POSITION,
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.event_filters",
+        table: "weenie_properties_event_filter",
+        shown: &["event"],
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.book",
+        table: "weenie_properties_book",
+        shown: &["max_Num_Pages", "max_Num_Chars_Per_Page"],
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.book_pages",
+        table: "weenie_properties_book_page_data",
+        shown: &[
+            "page_Id",
+            "author_Id",
+            "author_Name",
+            "author_Account",
+            "ignore_Author",
+            "page_Text",
+        ],
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.palettes",
+        table: "weenie_properties_palette",
+        shown: &["sub_Palette_Id", "offset", "length"],
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.texture_maps",
+        table: "weenie_properties_texture_map",
+        shown: &["index", "old_Id", "new_Id"],
+        named: None,
+        adds: None,
+    },
+    RawTable {
+        heading: "weenie.anim_parts",
+        table: "weenie_properties_anim_part",
+        shown: &["index", "animation_Id"],
+        named: None,
+        adds: None,
+    },
+];
+
+/// Whether `typed` names a weenie or a spell as a row writes it: a number, or a pack weenie's
+/// token.
+fn names_one(typed: &str) -> bool {
+    let t = typed.trim();
+    lyceum_foundry::sql_ids::number(t).is_some() || (t.starts_with("{{") && t.ends_with("}}"))
+}
+
 /// A property type's heading in the form: its key in the text.
-fn kind_name(k: PropertyKind) -> &'static str {
+pub(super) fn kind_name(k: PropertyKind) -> &'static str {
     match k {
         PropertyKind::Int => "weenie.kind_int",
         PropertyKind::Int64 => "weenie.kind_int64",
@@ -383,7 +652,7 @@ fn kind_name(k: PropertyKind) -> &'static str {
 }
 
 impl EditorApp {
-    /// The weenie the form shows: the selected spawn's, else the spawn browser's choice.
+    /// The weenie the Definition pane shows: the selected spawn's, else the spawn browser's choice.
     #[must_use]
     pub fn form_weenie(&self) -> Option<Weenie> {
         if let Some(s) = self.selected_spawn() {
@@ -392,27 +661,28 @@ impl EditorApp {
         self.panels.weenie.clone()
     }
 
-    /// Make `edit` to the form's weenie's SQL (or a quest's, for a quest's edit), as one step of
-    /// the history.
+    /// Make `edit` to weenie `w`'s SQL (or a quest's, for a quest's edit), as one step of the
+    /// history.
     ///
     /// # Errors
-    /// No weenie, one no SQL file of the pack being edited writes, or a value that is not one.
-    pub fn form_edit(&mut self, edit: &FormEdit) -> Result<(), String> {
-        self.form_edits(std::slice::from_ref(edit))
+    /// One no SQL file of the pack being edited writes, or a value that is not one.
+    pub fn form_edit(&mut self, w: &Weenie, edit: &FormEdit) -> Result<(), String> {
+        self.form_edits(w, std::slice::from_ref(edit))
     }
 
-    /// Make `edits` to the form's weenie's SQL, in order, as one step of the history (a quest's
-    /// edit alone).
+    /// Make `edits` to weenie `w`'s SQL, in order, as one step of the history (a quest's edit
+    /// alone).
     ///
     /// # Errors
     /// As [`Self::form_edit`]: the first edit refused stops them all.
-    pub fn form_edits(&mut self, edits: &[FormEdit]) -> Result<(), String> {
+    pub fn form_edits(&mut self, w: &Weenie, edits: &[FormEdit]) -> Result<(), String> {
         let edit = match edits {
             [one] => one,
-            _ => return self.weenie_edits(edits),
+            _ => return self.weenie_edits(w, edits),
         };
         match edit {
-            FormEdit::RegisterQuest { name } => return self.register_quest(name),
+            FormEdit::RegisterQuest { name } => return self.register_quest(name, false),
+            FormEdit::Refused(why) => return Err(why.clone()),
             FormEdit::Quest {
                 name,
                 column,
@@ -420,10 +690,7 @@ impl EditorApp {
             } => return self.quest_edit(name, column, value),
             _ => {}
         }
-        let w = self
-            .form_weenie()
-            .ok_or_else(|| self.say("messages.no_weenie_shown"))?;
-        let (file, text) = self.writable_sql(&w)?;
+        let (file, text) = self.writable_sql(w)?;
         let mut doc = SqlDoc::parse(&text);
         if !apply_edit(&mut doc, edit, self.schema.as_ref()) {
             return Err(self.say("messages.not_a_value"));
@@ -442,11 +709,13 @@ impl EditorApp {
     }
 
     /// `edits` of the weenie's own SQL (no quest's) made together.
-    fn weenie_edits(&mut self, edits: &[FormEdit]) -> Result<(), String> {
-        let w = self
-            .form_weenie()
-            .ok_or_else(|| self.say("messages.no_weenie_shown"))?;
-        let (file, text) = self.writable_sql(&w)?;
+    fn weenie_edits(&mut self, w: &Weenie, edits: &[FormEdit]) -> Result<(), String> {
+        if let Some(FormEdit::Refused(why)) =
+            edits.iter().find(|e| matches!(e, FormEdit::Refused(_)))
+        {
+            return Err(why.clone());
+        }
+        let (file, text) = self.writable_sql(w)?;
         let mut doc = SqlDoc::parse(&text);
         for edit in edits {
             if !apply_edit(&mut doc, edit, self.schema.as_ref()) {
@@ -466,8 +735,9 @@ impl EditorApp {
         Ok(())
     }
 
-    /// Register quest `name` in the pack being edited, unless a pack does.
-    fn register_quest(&mut self, name: &str) -> Result<(), String> {
+    /// Register quest `name` in the pack being edited, unless a pack does: a step of its own, or
+    /// part of the last (`into_last`).
+    pub(super) fn register_quest(&mut self, name: &str, into_last: bool) -> Result<(), String> {
         if matches!(self.session.quest(name), Some((_, Some(_)))) {
             return Ok(());
         }
@@ -483,13 +753,18 @@ impl EditorApp {
                 file,
                 text: Some(text),
             },
-            false,
+            into_last,
         )?;
         Ok(())
     }
 
     /// Column `column` of the pack's quest `name` set to `value`.
-    fn quest_edit(&mut self, name: &str, column: &str, value: &str) -> Result<(), String> {
+    pub(super) fn quest_edit(
+        &mut self,
+        name: &str,
+        column: &str,
+        value: &str,
+    ) -> Result<(), String> {
         let Some((_, Some(file))) = self.session.quest(name) else {
             return Err(self.say_with("messages.not_packs_quest", &[("name", &name)]));
         };
@@ -535,6 +810,9 @@ impl EditorApp {
     /// # Errors
     /// No server database was read, it has no such class, or the file would not write.
     pub fn copy_class(&mut self, class: u32) -> Result<(), String> {
+        if self.session.weenie_file(&Weenie::Class(class)).is_some() {
+            return Ok(());
+        }
         let (file, text) = self.class_copy(class)?;
         self.apply(
             &Op::WriteSql {
@@ -600,7 +878,7 @@ impl EditorApp {
         }
         if self.server_classes.job.is_none() {
             if let Some(path) = self.server_sql.clone() {
-                self.server_classes.start(path, class);
+                self.server_classes.start(path, Some(class));
             } else {
                 return Some(None);
             }
@@ -624,52 +902,36 @@ impl EditorApp {
         }
     }
 
-    /// A new weenie of the pack being edited, symbol `name`, made from server class `from`
-    /// (`blank`: stripped to a blank of its kind); the spawn tool and the form take it.
+    /// The server's database's text, as the forms keep it: read from its file once, off the
+    /// frame loop, and waited for when it is not read yet. New weenies are made from it.
     ///
     /// # Errors
-    /// No server database, no such class, a name that is not a symbol, or one taken.
-    pub fn new_weenie(&mut self, name: &str, from: u32, blank: bool) -> Result<(), String> {
-        let (file, sym) = self
-            .session
-            .new_weenie_file(name.trim())
-            .map_err(|e| e.to_string())?;
-        if self.session.sql_text(&file).is_some()
-            || self
-                .weenies
-                .iter()
-                .any(|w| w.weenie == Weenie::Symbol(sym.clone()))
-        {
-            return Err(self.say_with("messages.name_taken", &[("name", &sym)]));
-        }
+    /// No server database was read.
+    pub(super) fn server_world(&mut self) -> Result<std::sync::Arc<String>, String> {
         let path = self
             .server_sql
             .clone()
             .ok_or_else(|| self.say("messages.no_server_database"))?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let world = String::from_utf8_lossy(&bytes);
-        let text = content::template(&world, from, name.trim(), blank)
-            .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &from)]))?;
-        let kind = if blank { "a blank" } else { "a copy" };
-        let header = format!("/* {name}: made from {kind} of the server's class {from}. */\n");
-        self.apply(
-            &Op::WriteSql {
-                file,
-                text: Some(header + &text),
-            },
-            false,
-        )?;
-        self.panels.weenie = Some(Weenie::Symbol(sym));
-        Ok(())
+        self.server_classes
+            .world_now(path)
+            .ok_or_else(|| self.say("messages.no_server_database"))
     }
 
-    /// The pack being edited's name.
-    fn target_pack(&self) -> String {
-        self.session.packs()[self.session.target()].name.clone()
+    /// How many times the server's database was read from its file for the forms and the new
+    /// weenies.
+    #[must_use]
+    pub fn server_database_reads(&self) -> usize {
+        self.server_classes.reads()
+    }
+
+    /// Hold what the server's database is read for from the frame loop until let go, as a test
+    /// holds it: a class asked for meanwhile is drawn as still being read.
+    pub fn hold_server_reads(&mut self, hold: bool) {
+        self.server_classes.held = hold;
     }
 
     /// The name of spell `id` in the files' spell table, read the first time.
-    fn spell_name(&mut self, id: u32) -> Option<String> {
+    pub(super) fn spell_name(&mut self, id: u32) -> Option<String> {
         if self.spells.is_none() {
             let table = DataId(0x0E00_000E);
             let base = self.session.base();
@@ -699,76 +961,132 @@ impl EditorApp {
             .map(|e| e.name.clone())
     }
 
-    /// A field of the form: the text as typed while it is being typed, else `now`; a change is
-    /// pushed as `edit` of what was typed when the field is left.
+    /// A field of weenie `w`'s form: the text as typed while it is being typed, else `now`; a
+    /// change is pushed as `edit` of `w` of what was typed when the field is left.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn field(
         &mut self,
         ui: &mut egui::Ui,
+        w: &Weenie,
         key: &str,
         now: &str,
         width: f32,
         edit: impl FnOnce(String) -> FormEdit,
         out: &mut Vec<UiAction>,
     ) {
+        self.field_hinted(ui, w, key, now, width, "", edit, out);
+    }
+
+    /// A field of weenie `w`'s form as [`Self::field`], saying `hint` while it is empty.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn field_hinted(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        key: &str,
+        now: &str,
+        width: f32,
+        hint: &str,
+        edit: impl FnOnce(String) -> FormEdit,
+        out: &mut Vec<UiAction>,
+    ) {
+        let typing = typing_key(w, key);
         let mut text = self
             .panels
             .form_typing
-            .get(key)
+            .get(&typing)
             .cloned()
             .unwrap_or_else(|| now.to_owned());
-        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(width));
+        let mut line = egui::TextEdit::singleline(&mut text).desired_width(width);
+        if !hint.is_empty() {
+            line = line.hint_text(hint);
+        }
+        let r = ui.add(line);
         self.form_fields.push((key.to_owned(), r.rect));
+        if self.editor.focus_on(w, key) {
+            r.request_focus();
+            r.scroll_to_me(Some(egui::Align::Center));
+        }
         if r.has_focus() || r.changed() {
-            self.panels.form_typing.insert(key.to_owned(), text.clone());
+            self.panels.form_typing.insert(typing.clone(), text.clone());
         }
         if r.lost_focus() {
-            self.panels.form_typing.remove(key);
+            self.panels.form_typing.remove(&typing);
             if text.trim() != now.trim() {
-                out.push(UiAction::Form(edit(text)));
+                out.push(UiAction::Form(w.clone(), edit(text)));
             }
         }
     }
 
-    /// The weenie tab.
-    pub(super) fn weenie_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
-        let t = self.text.table();
-        self.form_fields.clear();
-        self.new_flows(ui, out);
-        let Some(w) = self.form_weenie() else {
-            ui.weak(t.get("weenie.nothing"));
-            return;
-        };
-        let file = self.session.weenie_file(&w);
-        let entry = self.weenie_entry(&w).cloned();
-        // The head: its picture, its name, where it is written.
-        ui.horizontal(|ui| {
-            let mut budget = super::PICTURES_A_FRAME;
-            if let Some(id) = entry
-                .as_ref()
-                .and_then(|e| e.setup)
-                .and_then(|s| self.picture(DataId(s), &mut budget))
-            {
-                ui.add(egui::Image::new((id, egui::vec2(48.0, 48.0))));
-            }
-            ui.vertical(|ui| {
-                ui.strong(
-                    entry
-                        .as_ref()
-                        .map_or(t.get("weenie.a_weenie"), |e| e.name.as_str()),
-                );
-                ui.weak(weenie_label(&w, &t));
-                if let Some(e) = &entry {
-                    let c = e.category.name();
-                    ui.weak(t.or(&format!("categories.{c}"), c));
-                }
+    /// A field of weenie `w`'s form for words players read as a paragraph: several lines tall,
+    /// growing with its text and wrapping it. Enter starts a new line; Ctrl+Enter, or leaving it,
+    /// pushes a change as `edit` of `w` of what was typed.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn field_lines(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        key: &str,
+        now: &str,
+        width: f32,
+        edit: impl FnOnce(String) -> FormEdit,
+        out: &mut Vec<UiAction>,
+    ) {
+        let typing = typing_key(w, key);
+        let mut text = self
+            .panels
+            .form_typing
+            .get(&typing)
+            .cloned()
+            .unwrap_or_else(|| now.to_owned());
+        let r = ui.add(
+            egui::TextEdit::multiline(&mut text)
+                .desired_width(width)
+                .desired_rows(LINES),
+        );
+        self.form_fields.push((key.to_owned(), r.rect));
+        if self.editor.focus_on(w, key) {
+            r.request_focus();
+            r.scroll_to_me(Some(egui::Align::Center));
+        }
+        // Ctrl+Enter, by the key's own modifiers: they may be let go within the same frame.
+        let done = r.has_focus()
+            && ui.input(|i| {
+                i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::Enter,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } if modifiers.command
+                    )
+                })
             });
-        });
-        let (path, mine) = match (&w, file) {
+        if done {
+            r.surrender_focus();
+        }
+        if (r.has_focus() || r.changed()) && !done {
+            self.panels.form_typing.insert(typing.clone(), text.clone());
+        }
+        if r.lost_focus() || done {
+            self.panels.form_typing.remove(&typing);
+            if text.trim_end() != now.trim_end() {
+                out.push(UiAction::Form(w.clone(), edit(text.trim_end().to_owned())));
+            }
+        }
+    }
+
+    /// Weenie `w`'s form: its sections by what it is, then every property under Advanced. A
+    /// server's class the pack does not write yet is shown as the server has it, and its first
+    /// change makes the pack's copy; another pack's is shown, not changed.
+    pub(super) fn form_body(&mut self, ui: &mut egui::Ui, w: &Weenie, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let (path, mine) = match (w, self.session.weenie_file(w)) {
             (_, Some(f)) => f,
             (Weenie::Class(c), None) => {
-                // The server's own, every property shown as it is; the first change makes the
-                // pack's copy, which takes its place.
-                let text = match self.server_class(*c) {
+                let doc = match self.server_doc_of(*c) {
                     None => {
                         ui.weak(t.get("weenie.reading"));
                         ui.ctx().request_repaint();
@@ -782,19 +1100,9 @@ impl EditorApp {
                         }));
                         return;
                     }
-                    Some(Some(text)) => text,
+                    Some(Some(doc)) => doc,
                 };
-                let doc = SqlDoc::parse(&text);
-                egui::ScrollArea::vertical()
-                    .id_salt("weenie form")
-                    .auto_shrink(false)
-                    .show(ui, |ui| {
-                        self.flow_form(ui, &w, &doc, out);
-                        egui::CollapsingHeader::new(t.get("weenie.advanced"))
-                            .id_salt("advanced server")
-                            .default_open(true)
-                            .show(ui, |ui| self.weenie_form(ui, &doc, out));
-                    });
+                self.editor_form(ui, w, &doc, out);
                 return;
             }
             (Weenie::Symbol(_), None) => {
@@ -802,44 +1110,25 @@ impl EditorApp {
                 return;
             }
         };
-        ui.weak(
-            path.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        );
         if !mine {
             ui.weak(t.get("weenie.another_pack"));
-        } else if matches!(w, Weenie::Class(_)) {
-            // A server class the pack writes again.
-            ui.colored_label(
-                super::panels::mark::TURN,
-                t.fill("weenie.changed_in", &[("pack", &self.target_pack())]),
-            );
         }
-        let Some(text) = self.session.sql_text(&path) else {
+        let Some(doc) = self.file_doc(&path) else {
             ui.weak(t.get("weenie.sql_gone"));
             return;
         };
-        let doc = SqlDoc::parse(&text);
-        ui.add_enabled_ui(mine, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("weenie form")
-                .auto_shrink(false)
-                .show(ui, |ui| {
-                    self.flow_form(ui, &w, &doc, out);
-                    let advanced = egui::CollapsingHeader::new(t.get("weenie.advanced"))
-                        .id_salt("advanced")
-                        .open(Some(self.panels.advanced))
-                        .show(ui, |ui| self.weenie_form(ui, &doc, out));
-                    if advanced.header_response.clicked() {
-                        self.panels.advanced = !self.panels.advanced;
-                    }
-                });
-        });
+        ui.add_enabled_ui(mine, |ui| self.editor_form(ui, w, &doc, out));
     }
 
-    /// The form's sections over `doc`.
-    fn weenie_form(&mut self, ui: &mut egui::Ui, doc: &SqlDoc, out: &mut Vec<UiAction>) {
+    /// The form's Advanced page: every property of `doc` and every row of its tables that the
+    /// weenie's other pages do not show, or with "Show all" every one.
+    pub(super) fn weenie_form(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        doc: &SqlDoc,
+        out: &mut Vec<UiAction>,
+    ) {
         let t = self.text.table();
         let schema = self.schema.clone();
         let prop_name = |k: PropertyKind, id: u32| {
@@ -848,163 +1137,221 @@ impl EditorApp {
                 .and_then(|s| s.property(k, id))
                 .map_or_else(|| format!("#{id}"), str::to_owned)
         };
+        let left_out = if self.editor.advanced_all {
+            super::fields::OnPages::default()
+        } else {
+            super::fields::on_pages(doc)
+        };
         // Its name first, then every property by type.
         let name = doc
             .property(PropertyKind::String, 1)
             .map(|v| content::unquote(&v))
             .unwrap_or_default();
-        ui.horizontal(|ui| {
-            ui.label(t.get("weenie.name"));
-            self.field(
-                ui,
-                "string:1",
-                &name,
-                180.0,
-                |v| FormEdit::Property {
-                    kind: PropertyKind::String,
-                    id: 1,
-                    value: Some(v),
-                },
-                out,
-            );
-        });
+        if !left_out.has_property(PropertyKind::String, 1) {
+            ui.horizontal(|ui| {
+                ui.label(t.get("weenie.name"));
+                self.field(
+                    ui,
+                    w,
+                    "string:1",
+                    &name,
+                    180.0,
+                    |v| FormEdit::Property {
+                        kind: PropertyKind::String,
+                        id: 1,
+                        value: Some(v),
+                    },
+                    out,
+                );
+            });
+        }
         for kind in PropertyKind::ALL {
-            let props = doc.properties(kind);
-            egui::CollapsingHeader::new(format!("{} ({})", t.get(kind_name(kind)), props.len()))
-                .id_salt(kind.key())
-                .default_open(matches!(kind, PropertyKind::Int | PropertyKind::DataId))
-                .show(ui, |ui| {
-                    egui::Grid::new(("props", kind.key()))
-                        .num_columns(3)
-                        .striped(true)
-                        .show(ui, |ui| {
-                            for (id, value) in &props {
-                                let shown = match kind {
-                                    PropertyKind::String => content::unquote(value),
-                                    _ => value.clone(),
-                                };
-                                ui.label(prop_name(kind, *id)).on_hover_text(t.fill(
-                                    "weenie.property_tip",
-                                    &[("kind", &kind.key()), ("id", id)],
-                                ));
-                                let key = format!("{}:{id}", kind.key());
-                                let (k, i) = (kind, *id);
-                                self.field(
-                                    ui,
-                                    &key,
-                                    &shown,
-                                    110.0,
-                                    move |v| FormEdit::Property {
-                                        kind: k,
-                                        id: i,
-                                        value: Some(v),
-                                    },
-                                    out,
-                                );
-                                if ui
-                                    .small_button("x")
-                                    .on_hover_text(t.get("weenie.take_away"))
-                                    .clicked()
-                                {
-                                    out.push(UiAction::Form(FormEdit::Property {
+            let props: Vec<(u32, String)> = doc
+                .properties(kind)
+                .into_iter()
+                .filter(|(id, _)| !left_out.has_property(kind, *id))
+                .collect();
+            let fold = egui::CollapsingHeader::new(format!(
+                "{} ({})",
+                t.get(kind_name(kind)),
+                props.len()
+            ))
+            .id_salt(kind.key())
+            .default_open(matches!(kind, PropertyKind::Int | PropertyKind::DataId))
+            .show(ui, |ui| {
+                egui::Grid::new(("props", kind.key()))
+                    .num_columns(3)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (id, value) in &props {
+                            let shown = match kind {
+                                PropertyKind::String => content::unquote(value),
+                                _ => value.clone(),
+                            };
+                            ui.label(prop_name(kind, *id)).on_hover_text(
+                                t.fill("weenie.property_tip", &[("kind", &kind.key()), ("id", id)]),
+                            );
+                            let key = format!("{}:{id}", kind.key());
+                            let (k, i) = (kind, *id);
+                            self.field(
+                                ui,
+                                w,
+                                &key,
+                                &shown,
+                                110.0,
+                                move |v| FormEdit::Property {
+                                    kind: k,
+                                    id: i,
+                                    value: Some(v),
+                                },
+                                out,
+                            );
+                            if ui.small_button("x").clicked() {
+                                out.push(UiAction::Form(
+                                    w.clone(),
+                                    FormEdit::Property {
                                         kind,
                                         id: *id,
                                         value: None,
-                                    }));
-                                }
-                                ui.end_row();
+                                    },
+                                ));
                             }
-                        });
-                    // A property added by name or number.
-                    ui.horizontal(|ui| {
-                        let key = format!("add:{}", kind.key());
-                        let mut typed = self
-                            .panels
-                            .form_typing
-                            .get(&key)
-                            .cloned()
-                            .unwrap_or_default();
-                        let r = ui.add(
-                            egui::TextEdit::singleline(&mut typed)
-                                .hint_text(t.get("weenie.add_property_hint"))
-                                .desired_width(200.0),
-                        );
-                        self.panels.form_typing.insert(key.clone(), typed.clone());
-                        let entered =
-                            r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if entered {
-                            if let Some((n, v)) = typed.split_once('=') {
-                                let n = n.trim();
-                                let id = n.parse::<u32>().ok().or_else(|| {
-                                    schema
-                                        .as_ref()
-                                        .and_then(|s| s.property_named(n))
-                                        .filter(|(k, _)| *k == kind)
-                                        .map(|(_, id)| id)
-                                });
-                                match id {
-                                    Some(id) => {
-                                        out.push(UiAction::Form(FormEdit::Property {
-                                            kind,
-                                            id,
-                                            value: Some(v.trim().to_owned()),
-                                        }));
-                                        self.panels.form_typing.remove(&key);
-                                    }
-                                    None => {
-                                        self.panels.message = t.fill(
-                                            "messages.not_a_property",
-                                            &[("name", &n), ("kind", &kind.key())],
-                                        );
-                                    }
-                                }
-                            }
+                            ui.end_row();
                         }
                     });
-                });
+                // A property added by its name or number and its value.
+                let typed = self.typed_row(
+                    ui,
+                    w,
+                    &format!("add:{}", kind.key()),
+                    &[
+                        ("name", t.get("weenie.add_name_hint"), 160.0),
+                        ("value", t.get("weenie.add_value_hint"), 110.0),
+                    ],
+                    t.get("weenie.add"),
+                );
+                if let Some([n, v]) = typed.as_deref() {
+                    let n = n.trim();
+                    let id = n.parse::<u32>().ok().or_else(|| {
+                        schema
+                            .as_ref()
+                            .and_then(|s| s.property_named(n))
+                            .filter(|(k, _)| *k == kind)
+                            .map(|(_, id)| id)
+                    });
+                    match id {
+                        Some(id) => {
+                            out.push(UiAction::Form(
+                                w.clone(),
+                                FormEdit::Property {
+                                    kind,
+                                    id,
+                                    value: Some(v.trim().to_owned()),
+                                },
+                            ));
+                            self.forget_typed(w, &format!("add:{}", kind.key()), 2);
+                        }
+                        None => {
+                            self.panels.message = t.fill(
+                                "messages.not_a_property",
+                                &[("name", &n), ("kind", &kind.key())],
+                            );
+                        }
+                    }
+                }
+            });
+            self.editor.folds.push((
+                kind.key().to_owned(),
+                fold.header_response.rect,
+                fold.openness,
+            ));
         }
-        self.emotes_section(ui, doc, out);
-        self.quests_section(ui, doc, out);
-        self.treasure_section(ui, doc, out);
-        self.rows_section(
-            ui,
-            doc,
-            "weenie.spells",
-            "weenie_properties_spell_book",
-            &["spell", "probability"],
-            "spell",
-            out,
-        );
-        self.rows_section(
-            ui,
-            doc,
-            "weenie.carries",
-            "weenie_properties_create_list",
-            &["weenie_Class_Id", "destination_Type", "stack_Size", "shade"],
-            "weenie_Class_Id",
-            out,
-        );
-        self.rows_section(
-            ui,
-            doc,
-            "weenie.generates",
-            "weenie_properties_generator",
-            &[
-                "weenie_Class_Id",
-                "probability",
-                "init_Create",
-                "max_Create",
-                "delay",
-                "where_Create",
-            ],
-            "weenie_Class_Id",
-            out,
-        );
+        if !left_out.has_table(super::fields::EMOTE_TABLE) {
+            self.emotes_section(ui, w, doc, false, out);
+            self.quests_section(ui, w, doc, false, out);
+        }
+        if !left_out.has_property(PropertyKind::DataId, 35) {
+            self.treasure_section(ui, w, doc, out);
+        }
+        for raw in RAW_TABLES.iter().filter(|r| !left_out.has_table(r.table)) {
+            self.rows_section(ui, w, doc, raw, false, out);
+        }
     }
 
-    /// The emotes: each set (what calls it, how likely, its quest) and its actions in order, each
-    /// action's fields as the type uses them, moved up and down, added and taken away.
-    fn emotes_section(&mut self, ui: &mut egui::Ui, doc: &SqlDoc, out: &mut Vec<UiAction>) {
+    /// A row of boxes for something new, `key` naming it, each box by its own key, hint and
+    /// width, then a button of `button`'s words: what each box holds, when the button was
+    /// pressed (or Enter in the last box) with the first filled in. What is typed is kept until
+    /// it is let go ([`Self::forget_typed`]).
+    pub(super) fn typed_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        key: &str,
+        boxes: &[(&str, &str, f32)],
+        button: &str,
+    ) -> Option<Vec<String>> {
+        let mut typed: Vec<String> = boxes
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                self.panels
+                    .form_typing
+                    .get(&typing_key(w, &format!("{key}:{i}")))
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
+        let mut pressed = false;
+        ui.horizontal_wrapped(|ui| {
+            let last = boxes.len().saturating_sub(1);
+            for (i, (name, hint, width)) in boxes.iter().enumerate() {
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut typed[i])
+                        .hint_text(*hint)
+                        .desired_width(*width),
+                );
+                self.form_fields.push((format!("{key}:{name}"), r.rect));
+                if i == last && r.lost_focus() && ui.input(|x| x.key_pressed(egui::Key::Enter)) {
+                    pressed = true;
+                }
+            }
+            let ready = typed.first().is_some_and(|f| !f.trim().is_empty());
+            let add = ui.add_enabled(ready, egui::Button::new(button));
+            self.editor.add_buttons.push((key.to_owned(), add.rect));
+            pressed |= add.clicked();
+        });
+        for (i, now) in typed.iter().enumerate() {
+            let k = typing_key(w, &format!("{key}:{i}"));
+            if now.is_empty() {
+                self.panels.form_typing.remove(&k);
+            } else {
+                self.panels.form_typing.insert(k, now.clone());
+            }
+        }
+        (pressed && typed.first().is_some_and(|f| !f.trim().is_empty())).then_some(typed)
+    }
+
+    /// What was typed into the `n` boxes of row `key`, let go once it is added.
+    pub(super) fn forget_typed(&mut self, w: &Weenie, key: &str, n: usize) {
+        for i in 0..n {
+            self.panels
+                .form_typing
+                .remove(&typing_key(w, &format!("{key}:{i}")));
+        }
+    }
+
+    /// The emotes, raw: each set (what calls it, how likely, its quest) and its actions in order,
+    /// each action's type, delay and the columns it sets as fields, and a button that takes an
+    /// action away. Sets and actions are added, moved and taken away in the emote editor.
+    /// `open`: unfolded to start with.
+    pub(super) fn emotes_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        doc: &SqlDoc,
+        open: bool,
+        out: &mut Vec<UiAction>,
+    ) {
         let t = self.text.table();
         let schema = self.schema.clone();
         let named = |e: &str, v: &str| -> String {
@@ -1016,7 +1363,8 @@ impl EditorApp {
         };
         let sets = doc.emote_sets();
         egui::CollapsingHeader::new(t.fill("weenie.emotes", &[("n", &sets.len())]))
-            .id_salt("emotes")
+            .id_salt(("emotes", open))
+            .default_open(open)
             .show(ui, |ui| {
                 for (i, set) in sets.iter().enumerate() {
                     let category = doc.cell(set.emote, "category").unwrap_or_default();
@@ -1030,6 +1378,7 @@ impl EditorApp {
                     );
                     egui::CollapsingHeader::new(head)
                         .id_salt(("emote set", i))
+                        .default_open(open)
                         .show(ui, |ui| {
                             egui::Grid::new(("set", i)).num_columns(2).show(ui, |ui| {
                                 for c in ["category", "probability", "quest", "weenie_Class_Id"] {
@@ -1043,6 +1392,7 @@ impl EditorApp {
                                     let col = c.to_owned();
                                     self.field(
                                         ui,
+                                        w,
                                         &format!("emote:{i}:{c}"),
                                         &now,
                                         150.0,
@@ -1060,39 +1410,11 @@ impl EditorApp {
                                 let kind = doc.cell(*a, "type").unwrap_or_default();
                                 ui.horizontal(|ui| {
                                     ui.label(format!("{n}. {}", named("EmoteType", &kind)));
-                                    if ui
-                                        .small_button("^")
-                                        .on_hover_text(t.get("weenie.earlier"))
-                                        .clicked()
-                                        && n > 0
-                                    {
-                                        out.push(UiAction::Form(FormEdit::MoveAction {
-                                            set: i,
-                                            from: n,
-                                            to: n - 1,
-                                        }));
-                                    }
-                                    if ui
-                                        .small_button("v")
-                                        .on_hover_text(t.get("weenie.later"))
-                                        .clicked()
-                                        && n + 1 < actions.len()
-                                    {
-                                        out.push(UiAction::Form(FormEdit::MoveAction {
-                                            set: i,
-                                            from: n,
-                                            to: n + 1,
-                                        }));
-                                    }
-                                    if ui
-                                        .small_button("x")
-                                        .on_hover_text(t.get("weenie.take_away"))
-                                        .clicked()
-                                    {
-                                        out.push(UiAction::Form(FormEdit::RemoveAction {
-                                            set: i,
-                                            action: n,
-                                        }));
+                                    if ui.small_button("x").clicked() {
+                                        out.push(UiAction::Form(
+                                            w.clone(),
+                                            FormEdit::RemoveAction { set: i, action: n },
+                                        ));
                                     }
                                 });
                                 // The fields the action has, and its type and delay.
@@ -1118,6 +1440,7 @@ impl EditorApp {
                                             let col = c.to_owned();
                                             self.field(
                                                 ui,
+                                                w,
                                                 &format!("action:{i}:{n}:{c}"),
                                                 &now,
                                                 if c == "message" { 220.0 } else { 90.0 },
@@ -1132,115 +1455,55 @@ impl EditorApp {
                                             ui.end_row();
                                         }
                                     });
-                                // Any other field, by its column's name.
-                                let key = format!("action:{i}:{n}:+");
-                                let mut typed = self
-                                    .panels
-                                    .form_typing
-                                    .get(&key)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                let r = ui.add(
-                                    egui::TextEdit::singleline(&mut typed)
-                                        .hint_text(t.get("weenie.set_column_hint"))
-                                        .desired_width(200.0),
-                                );
-                                self.panels.form_typing.insert(key.clone(), typed.clone());
-                                if r.lost_focus() && ui.input(|x| x.key_pressed(egui::Key::Enter)) {
-                                    if let Some((c, v)) = typed.split_once('=') {
-                                        let c = c.trim();
-                                        if content::ACTION_COLUMNS.contains(&c) {
-                                            out.push(UiAction::Form(FormEdit::Action {
-                                                set: i,
-                                                action: n,
-                                                column: c.to_owned(),
-                                                value: v.trim().to_owned(),
-                                            }));
-                                            self.panels.form_typing.remove(&key);
-                                        } else {
-                                            self.panels.message =
-                                                t.fill("messages.action_has_no", &[("column", &c)]);
-                                        }
-                                    }
-                                }
                                 ui.separator();
                             }
-                            ui.horizontal(|ui| {
-                                let key = format!("emote:{i}:add");
-                                let mut typed = self
-                                    .panels
-                                    .form_typing
-                                    .get(&key)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                let r = ui.add(
-                                    egui::TextEdit::singleline(&mut typed)
-                                        .hint_text(t.get("weenie.add_action_hint"))
-                                        .desired_width(160.0),
-                                );
-                                self.panels.form_typing.insert(key.clone(), typed.clone());
-                                if r.lost_focus()
-                                    && ui.input(|x| x.key_pressed(egui::Key::Enter))
-                                    && !typed.trim().is_empty()
-                                {
-                                    out.push(UiAction::Form(FormEdit::AddAction {
-                                        set: i,
-                                        kind: typed.trim().to_owned(),
-                                    }));
-                                    self.panels.form_typing.remove(&key);
-                                }
-                                if ui.small_button(t.get("weenie.remove_set")).clicked() {
-                                    out.push(UiAction::Form(FormEdit::RemoveEmoteSet { set: i }));
-                                }
-                            });
                         });
-                }
-                let key = "emote:add".to_owned();
-                let mut typed = self
-                    .panels
-                    .form_typing
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or_default();
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut typed)
-                        .hint_text(t.get("weenie.add_set_hint"))
-                        .desired_width(200.0),
-                );
-                self.panels.form_typing.insert(key.clone(), typed.clone());
-                if r.lost_focus()
-                    && ui.input(|x| x.key_pressed(egui::Key::Enter))
-                    && !typed.trim().is_empty()
-                {
-                    out.push(UiAction::Form(FormEdit::AddEmoteSet {
-                        category: typed.trim().to_owned(),
-                    }));
-                    self.panels.form_typing.remove(&key);
                 }
             });
     }
 
     /// The quests the emotes name: where each is registered, the pack's own editable, and one
-    /// not registered registered in the pack.
-    fn quests_section(&mut self, ui: &mut egui::Ui, doc: &SqlDoc, out: &mut Vec<UiAction>) {
+    /// not registered registered in the pack; each name opens it in the Quests tab. `open`:
+    /// unfolded to start with.
+    pub(super) fn quests_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        doc: &SqlDoc,
+        open: bool,
+        out: &mut Vec<UiAction>,
+    ) {
         let t = self.text.table();
         let names = quests_named(doc);
+        self.quests.fold_links.clear();
         egui::CollapsingHeader::new(t.fill("weenie.quests", &[("n", &names.len())]))
-            .id_salt("quests")
+            .id_salt(("quests", open))
+            .default_open(open)
             .show(ui, |ui| {
                 for name in names {
+                    let found = self.session.quest(&name);
                     ui.horizontal(|ui| {
-                        ui.strong(&name);
-                        match self.session.quest(&name) {
+                        // Its name opens it in the Quests tab.
+                        let link = ui
+                            .link(egui::RichText::new(&name).strong())
+                            .on_hover_text(t.get("quests.open_in_tab"));
+                        self.quests.fold_links.push((name.clone(), link.rect));
+                        if link.clicked() {
+                            out.push(UiAction::Quest(super::QuestAction::Open(Some(
+                                name.clone(),
+                            ))));
+                        }
+                        match &found {
                             None => {
                                 ui.colored_label(
                                     egui::Color32::from_rgb(0xF0, 0xC0, 0x60),
                                     t.get("weenie.quest_not_registered"),
                                 );
                                 if ui.small_button(t.get("weenie.register_quest")).clicked() {
-                                    out.push(UiAction::Form(FormEdit::RegisterQuest {
-                                        name: name.clone(),
-                                    }));
+                                    out.push(UiAction::Form(
+                                        w.clone(),
+                                        FormEdit::RegisterQuest { name: name.clone() },
+                                    ));
                                 }
                             }
                             Some((q, None)) => {
@@ -1259,37 +1522,80 @@ impl EditorApp {
                                     ],
                                 ));
                             }
-                            Some((q, Some(_))) => {
-                                ui.weak(t.get("weenie.quest_packs"));
-                                for (c, now) in [
-                                    ("min_Delta", q.min_delta.to_string()),
-                                    ("max_Solves", q.max_solves.to_string()),
-                                    ("message", q.message.clone()),
+                            Some((q, Some(file))) => {
+                                let pack = self
+                                    .session
+                                    .packs()
+                                    .iter()
+                                    .find(|p| file.starts_with(&p.dir))
+                                    .map(|p| p.name.clone())
+                                    .unwrap_or_default();
+                                ui.weak(t.fill("weenie.quest_packs", &[("pack", &pack)]));
+                                // Every so many seconds, so many times (or any), each typed.
+                                let [before, between, after] =
+                                    super::quests_tab::timing_pieces(t.get("quests.timing"));
+                                let any = t.get("weenie.quest_any").to_owned();
+                                let times =
+                                    super::quests_tab::solves_words(i64::from(q.max_solves), &any);
+                                let every = q.min_delta.to_string();
+                                for (piece, column, now) in [
+                                    (before, "min_Delta", every.as_str()),
+                                    (between, "max_Solves", times.as_str()),
                                 ] {
-                                    ui.weak(c);
-                                    let (n, col) = (name.clone(), c.to_owned());
+                                    ui.weak(piece);
+                                    let (n, any) = (name.clone(), any.clone());
                                     self.field(
                                         ui,
-                                        &format!("quest:{name}:{c}"),
-                                        &now,
-                                        if c == "message" { 140.0 } else { 60.0 },
+                                        w,
+                                        &format!("quest:{name}:{column}"),
+                                        now,
+                                        60.0,
                                         move |v| FormEdit::Quest {
                                             name: n,
-                                            column: col,
-                                            value: v,
+                                            column: column.to_owned(),
+                                            value: if column == "max_Solves" {
+                                                super::quests_tab::solves_typed(&v, &any)
+                                            } else {
+                                                v
+                                            },
                                         },
                                         out,
                                     );
                                 }
+                                ui.weak(after);
                             }
                         }
                     });
+                    // A pack's quest's description, several lines.
+                    if let Some((q, Some(_))) = &found {
+                        ui.weak("message");
+                        let n = name.clone();
+                        self.field_lines(
+                            ui,
+                            w,
+                            &format!("quest:{name}:message"),
+                            &q.message,
+                            super::fields::LINES_WIDTH,
+                            move |v| FormEdit::Quest {
+                                name: n,
+                                column: "message".to_owned(),
+                                value: v,
+                            },
+                            out,
+                        );
+                    }
                 }
             });
     }
 
     /// What it drops when it dies: its death treasure (data id 35) and what that treasure is.
-    fn treasure_section(&mut self, ui: &mut egui::Ui, doc: &SqlDoc, out: &mut Vec<UiAction>) {
+    fn treasure_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: &Weenie,
+        doc: &SqlDoc,
+        out: &mut Vec<UiAction>,
+    ) {
         let now = doc
             .property(PropertyKind::DataId, 35)
             .and_then(|v| lyceum_foundry::sql_ids::number(&v));
@@ -1301,6 +1607,7 @@ impl EditorApp {
                     ui.label(tx.get("weenie.death_treasure"));
                     self.field(
                         ui,
+                        w,
                         "treasure",
                         &now.map(|n| n.to_string()).unwrap_or_default(),
                         60.0,
@@ -1312,14 +1619,20 @@ impl EditorApp {
                         out,
                     );
                 });
-                match now.map(|n| (n, self.session.treasure(n).cloned())) {
+                match now.map(|n| (n, self.session.treasure(n))) {
                     None => {
                         ui.weak(tx.get("weenie.treasure_none"));
                     }
                     Some((n, None)) => {
                         ui.weak(tx.fill("weenie.treasure_unknown", &[("n", &n)]));
                     }
-                    Some((_, Some(t))) => {
+                    Some((n, Some(t))) => {
+                        if ui.link(tx.get("loot.open_in_tab")).clicked() {
+                            out.push(UiAction::Loot(super::LootAction::Open(Some((
+                                lyceum_foundry::loot::LootKind::Death,
+                                n,
+                            )))));
+                        }
                         let kind = |(c, lo, hi): (i32, i32, i32)| {
                             tx.fill(
                                 "weenie.treasure_chance",
@@ -1340,23 +1653,24 @@ impl EditorApp {
             });
     }
 
-    /// A section of a table's rows: each row's `shown` columns as fields (the first named), a
-    /// button to take it away, and a field that adds a row by its `key` column.
-    #[allow(clippy::too_many_arguments)]
-    fn rows_section(
+    /// A section of a table's rows, raw: each row's columns as fields, the spell or weenie it
+    /// names, and a button to take it away; under them, boxes for a new row's columns and Add.
+    /// `open`: unfolded to start with.
+    pub(super) fn rows_section(
         &mut self,
         ui: &mut egui::Ui,
+        w: &Weenie,
         doc: &SqlDoc,
-        heading: &str,
-        table: &str,
-        shown: &[&str],
-        key: &str,
+        raw: &RawTable,
+        open: bool,
         out: &mut Vec<UiAction>,
     ) {
         let tx = self.text.table();
+        let (table, shown) = (raw.table, raw.shown);
         let rows = doc.rows(table);
-        egui::CollapsingHeader::new(format!("{} ({})", tx.get(heading), rows.len()))
-            .id_salt(table)
+        let fold = egui::CollapsingHeader::new(format!("{} ({})", tx.get(raw.heading), rows.len()))
+            .id_salt((table, open))
+            .default_open(open)
             .show(ui, |ui| {
                 egui::Grid::new(("rows", table))
                     .num_columns(shown.len() + 2)
@@ -1374,9 +1688,14 @@ impl EditorApp {
                                 let (t, col) = (table.to_owned(), (*c).to_owned());
                                 self.field(
                                     ui,
+                                    w,
                                     &format!("{table}:{n}:{c}"),
                                     &now,
-                                    if *c == key { 90.0 } else { 50.0 },
+                                    if Some(*c) == raw.named || *c == "page_Text" {
+                                        90.0
+                                    } else {
+                                        50.0
+                                    },
                                     move |v| FormEdit::Cell {
                                         table: t,
                                         row: n,
@@ -1386,61 +1705,96 @@ impl EditorApp {
                                     out,
                                 );
                             }
-                            let v = doc.cell(*r, key).unwrap_or_default();
-                            let named = if key == "spell" {
-                                v.trim()
-                                    .parse::<u32>()
-                                    .ok()
-                                    .and_then(|s| self.spell_name(s))
-                            } else {
-                                self.class_name(&v)
+                            let named = match raw.named {
+                                Some("spell") => doc
+                                    .cell(*r, "spell")
+                                    .and_then(|v| v.trim().parse::<u32>().ok())
+                                    .and_then(|s| self.spell_name(s)),
+                                Some(key) => {
+                                    self.class_name(&doc.cell(*r, key).unwrap_or_default())
+                                }
+                                None => None,
                             };
                             ui.weak(named.unwrap_or_default());
-                            if ui
-                                .small_button("x")
-                                .on_hover_text(tx.get("weenie.take_away"))
-                                .clicked()
-                            {
-                                out.push(UiAction::Form(FormEdit::RemoveRow {
-                                    table: table.to_owned(),
-                                    row: n,
-                                }));
+                            if ui.small_button("x").clicked() {
+                                out.push(UiAction::Form(
+                                    w.clone(),
+                                    FormEdit::RemoveRow {
+                                        table: table.to_owned(),
+                                        row: n,
+                                    },
+                                ));
                             }
                             ui.end_row();
                         }
                     });
-                let k = format!("add:{table}");
-                let mut typed = self.panels.form_typing.get(&k).cloned().unwrap_or_default();
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut typed)
-                        .hint_text(tx.fill("weenie.add_row_hint", &[("column", &key)]))
-                        .desired_width(200.0),
-                );
-                self.panels.form_typing.insert(k.clone(), typed.clone());
-                if r.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    && !typed.trim().is_empty()
-                {
-                    out.push(UiAction::Form(FormEdit::AddRow {
-                        table: table.to_owned(),
-                        values: vec![(key.to_owned(), typed.trim().to_owned())],
-                    }));
-                    self.panels.form_typing.remove(&k);
+                // A new row, by the columns it is typed with; any other takes the export's
+                // default.
+                let adds: Vec<(&str, &str)> = match raw.adds {
+                    Some(a) => a.iter().map(|(c, k)| (*c, tx.get(k))).collect(),
+                    None => shown.iter().map(|c| (*c, *c)).collect(),
+                };
+                let boxes: Vec<(&str, &str, f32)> = adds
+                    .iter()
+                    .map(|(c, hint)| (*c, *hint, if adds.len() > 3 { 70.0 } else { 110.0 }))
+                    .collect();
+                let key = format!("add:{table}");
+                if let Some(typed) = self.typed_row(ui, w, &key, &boxes, tx.get("weenie.add")) {
+                    let values: Vec<(String, String)> = adds
+                        .iter()
+                        .zip(&typed)
+                        .filter(|(_, v)| !v.trim().is_empty())
+                        .map(|((c, _), v)| ((*c).to_owned(), v.trim().to_owned()))
+                        .collect();
+                    let names = |c: &str| matches!(c, "spell" | "weenie_Class_Id");
+                    let fits = values.iter().all(|(c, v)| {
+                        if names(c) {
+                            names_one(v)
+                        } else if c == "probability" {
+                            v.parse::<f64>().is_ok()
+                        } else {
+                            true
+                        }
+                    });
+                    if fits {
+                        out.push(UiAction::Form(
+                            w.clone(),
+                            FormEdit::AddRow {
+                                table: table.to_owned(),
+                                values,
+                            },
+                        ));
+                        self.forget_typed(w, &key, adds.len());
+                    } else {
+                        self.panels.message = tx.get("messages.not_a_value").to_owned();
+                    }
                 }
             });
+        self.editor
+            .folds
+            .push((table.to_owned(), fold.header_response.rect, fold.openness));
     }
 }
 
+/// How many lines tall a field of words players read as a paragraph starts.
+pub(super) const LINES: usize = 3;
+
 /// The database's text, a class, and that class's rows cut from it, as the reading thread answers.
-type ClassCut = (std::sync::Arc<String>, u32, Option<String>);
+type ClassCut = (std::sync::Arc<String>, Option<(u32, Option<String>)>);
 
 /// The server's classes as the forms read them: its database's text, read once off the frame
-/// loop and kept, and each class's rows, cut from it as they are asked for.
+/// loop and kept, and each class's rows, cut from it as they are asked for. New weenies are made
+/// from the same text.
 #[derive(Default)]
 pub struct ServerClasses {
     world: Option<std::sync::Arc<String>>,
     done: BTreeMap<u32, Option<String>>,
     job: Option<std::sync::mpsc::Receiver<ClassCut>>,
+    /// How many times the text was read from the database's file.
+    reads: usize,
+    /// Whether the thread's answer is held from the frame loop, which then finds the class still
+    /// being read (a wait takes it all the same).
+    held: bool,
 }
 
 impl std::fmt::Debug for ServerClasses {
@@ -1453,28 +1807,42 @@ impl std::fmt::Debug for ServerClasses {
 }
 
 impl ServerClasses {
-    /// Cut class `class` from the database at `path` on a thread of its own.
-    fn start(&mut self, path: PathBuf, class: u32) {
+    /// Cut class `class` (none: only read the text) from the database at `path` on a thread of
+    /// its own. The text is read from the file the first time only.
+    fn start(&mut self, path: PathBuf, class: Option<u32>) {
         let world = self.world.clone();
+        if world.is_none() {
+            self.reads += 1;
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let world = world.unwrap_or_else(|| {
                 let bytes = std::fs::read(&path).unwrap_or_default();
                 std::sync::Arc::new(String::from_utf8_lossy(&bytes).into_owned())
             });
-            let rows = content::override_of(&world, class);
-            let _ = tx.send((world, class, rows));
+            let cut = class.map(|c| (c, content::override_of(&world, c)));
+            let _ = tx.send((world, cut));
         });
         self.job = Some(rx);
     }
 
-    /// Take a class the thread has cut, if it has.
+    /// What the thread answered: the text kept, and the class it cut.
+    fn take(&mut self, (world, cut): ClassCut) {
+        self.world = Some(world);
+        if let Some((class, rows)) = cut {
+            self.done.insert(class, rows);
+        }
+    }
+
+    /// Take what the thread has answered, if it has and it is not held.
     fn poll(&mut self) {
+        if self.held {
+            return;
+        }
         let Some(rx) = &self.job else { return };
         match rx.try_recv() {
-            Ok((world, class, rows)) => {
-                self.world = Some(world);
-                self.done.insert(class, rows);
+            Ok(answer) => {
+                self.take(answer);
                 self.job = None;
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => self.job = None,
@@ -1482,13 +1850,40 @@ impl ServerClasses {
         }
     }
 
-    /// Wait for the class being cut.
+    /// Wait for what the thread is doing.
     fn wait(&mut self) {
         let Some(rx) = self.job.take() else { return };
-        if let Ok((world, class, rows)) = rx.recv() {
-            self.world = Some(world);
-            self.done.insert(class, rows);
+        if let Ok(answer) = rx.recv() {
+            self.take(answer);
         }
+    }
+
+    /// The text of the database at `path` read off the frame loop, unless it is kept or being
+    /// read already.
+    pub fn read_ahead(&mut self, path: PathBuf) {
+        self.poll();
+        if self.world.is_none() && self.job.is_none() {
+            self.start(path, None);
+        }
+    }
+
+    /// The text of the database at `path`: as kept, else read off the frame loop and waited for.
+    /// `None` when the reading thread was lost.
+    pub fn world_now(&mut self, path: PathBuf) -> Option<std::sync::Arc<String>> {
+        self.poll();
+        if self.world.is_none() {
+            if self.job.is_none() {
+                self.start(path, None);
+            }
+            self.wait();
+        }
+        self.world.clone()
+    }
+
+    /// How many times the text was read from the database's file.
+    #[must_use]
+    pub fn reads(&self) -> usize {
+        self.reads
     }
 }
 
@@ -1506,5 +1901,39 @@ mod tests {
             super::super::flows::symbol_of("Coolest Dungeon!"),
             "coolest-dungeon"
         );
+    }
+
+    #[test]
+    fn the_servers_database_is_read_from_its_file_once_for_every_class_and_weenie_made_from_it() {
+        let dir = std::env::temp_dir().join(format!("lyceum-server-reads-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("world.sql");
+        std::fs::write(
+            &path,
+            "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (7, 'drudgeskulker', 10, '2005-02-09 10:00:00')
+     , (8, 'other', 10, '2005-02-09 10:00:00');
+",
+        )
+        .unwrap();
+        let mut s = ServerClasses::default();
+        // Read ahead while a dialog is open, then waited for when a weenie is made.
+        s.read_ahead(path.clone());
+        s.read_ahead(path.clone());
+        let world = s.world_now(path.clone()).unwrap();
+        assert!(world.contains("drudgeskulker"));
+        // A class cut, then the file gone: the next class and the text still come from what was
+        // read.
+        s.start(path.clone(), Some(7));
+        s.wait();
+        assert!(s.done[&7]
+            .as_deref()
+            .is_some_and(|t| t.contains("'drudgeskulker'")));
+        std::fs::remove_dir_all(&dir).unwrap();
+        s.start(path.clone(), Some(8));
+        s.wait();
+        assert!(s.done[&8].as_deref().is_some_and(|t| t.contains("'other'")));
+        assert!(s.world_now(path).is_some_and(|w| w.contains("'other'")));
+        assert_eq!(s.reads(), 1);
     }
 }

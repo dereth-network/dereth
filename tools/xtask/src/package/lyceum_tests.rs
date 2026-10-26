@@ -226,7 +226,7 @@ fn the_macos_bundle_carries_all_four_programs_moltenvk_the_icon_and_the_notices(
 /// identifier, the release's version (its numeric part, for a pre-release) and the macOS floor.
 #[test]
 fn the_info_plist_names_what_the_bundle_holds_and_the_version() {
-    let plist = lyceum::info_plist("0.2.0-rc.1");
+    let plist = lyceum::info_plist("0.2.0-rc.1", false);
     assert!(plist.starts_with("<?xml version=\"1.0\""), "{plist}");
     let after = |key: &str| {
         let at = plist.find(&format!("<key>{key}</key>")).expect(key);
@@ -245,6 +245,55 @@ fn the_info_plist_names_what_the_bundle_holds_and_the_version() {
     let contents = lyceum::contents(m);
     assert!(contents.contains(&format!("Contents/MacOS/{}", after("CFBundleExecutable"))));
     assert!(contents.contains(&format!("Contents/Resources/{}", after("CFBundleIconFile"))));
+    assert!(
+        !plist.contains("CFBundleIconName"),
+        "no layered icon: {plist}"
+    );
+}
+
+/// A bundle with the compiled layered icon names it for macOS 26 (`CFBundleIconName`, the
+/// `.icon`'s own name) and keeps the flat icon file for every earlier macOS; the archive may hold
+/// the compiled `Assets.car`, and only the macOS one.
+#[test]
+fn a_bundle_with_the_layered_icon_names_it_and_keeps_the_flat_one() {
+    let plist = lyceum::info_plist("0.2.0", true);
+    let at = plist.find("<key>CFBundleIconName</key>").expect("named");
+    assert!(plist[at..].starts_with("<key>CFBundleIconName</key>\n\t<string>Lyceum</string>"));
+    assert!(plist.contains("<key>CFBundleIconFile</key>\n\t<string>lyceum.icns</string>"));
+    assert!(lyceum::ICON.ends_with("/Lyceum.icon"));
+    assert_eq!(
+        lyceum::optional_contents(target(MAC_ARM)),
+        ["Contents/Resources/Assets.car"]
+    );
+    for triple in targets::LYCEUM_TRIPLES {
+        let t = target(triple);
+        if t.os != Os::Mac {
+            assert!(lyceum::optional_contents(t).is_empty(), "{triple}");
+        }
+    }
+}
+
+/// The layered icon is in the tree whole: its description names one layer, and that layer's
+/// picture is beside it, a square PNG.
+#[test]
+fn the_layered_icon_is_whole() {
+    let ws = workspace_root();
+    let icon = ws.join(lyceum::ICON);
+    let description: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(icon.join("icon.json")).expect("its description"))
+            .expect("JSON");
+    let layers = description["groups"][0]["layers"]
+        .as_array()
+        .expect("layers");
+    assert_eq!(layers.len(), 1, "{description}");
+    let name = layers[0]["image-name"].as_str().expect("a picture");
+    let png = std::fs::read(icon.join("Assets").join(name)).expect("the layer's picture");
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    let (w, h) = (
+        u32::from_be_bytes(png[16..20].try_into().unwrap()),
+        u32::from_be_bytes(png[20..24].try_into().unwrap()),
+    );
+    assert_eq!((w, h), (1024, 1024));
 }
 
 /// No name a package holds, and no release file's name, is one the deny rules refuse.
@@ -786,16 +835,15 @@ fn the_release_workflow_builds_and_labels_every_lyceum_target() {
     ] {
         assert!(workflow.contains(needed), "{needed}");
     }
-    // The start screen's lines the smoke run looks for are the editor's own words.
-    let text = read("lyceum/editor/lyceum-text.toml");
-    for line in ["Open a world…", "New world from the sample"] {
+    // The smoke run looks for the start screen's Open and New lines, in the editor's own words.
+    let text: toml::Table = read("lyceum/editor/lyceum-text.toml")
+        .parse()
+        .expect("the editor's text");
+    for key in ["open", "new"] {
+        let line = text["start"][key].as_str().expect(key);
         assert!(
             workflow.contains(&format!("grep -qx \"{line}\" start.txt")),
             "the smoke run looks for {line}"
-        );
-        assert!(
-            text.contains(&format!("\"{line}\"")),
-            "the editor says {line}"
         );
     }
     for triple in targets::LYCEUM_TRIPLES {

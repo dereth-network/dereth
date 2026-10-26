@@ -16,9 +16,6 @@ use crate::camera::{landblock_of, FlyCamera};
 
 use super::{EditorApp, Mode, UiAction};
 
-/// The class a portal is made a blank of.
-pub(super) const PORTAL_BLANK: u32 = 371;
-
 /// A portal's weenie type, as the server numbers it.
 const PORTAL_KIND: u32 = 7;
 
@@ -81,6 +78,8 @@ impl EditorApp {
             return listed.clone();
         }
         if self.dungeon_list.retail.is_none() {
+            // Before the gathering off the frame has found them.
+            self.stats.dungeon_scans += 1;
             self.dungeon_list.retail = Some(self.session.retail_dungeons());
         }
         let retail = self.dungeon_list.retail.clone().unwrap_or_default();
@@ -210,6 +209,10 @@ impl EditorApp {
             self.set_walking(false)?;
         }
         let back = self.dungeon.map_or(self.camera, |d| d.back);
+        // Outdoors again, the world view is what shows, not the list it was entered from.
+        if self.dungeon.is_none() {
+            self.show_tab(super::Tab::World);
+        }
         let mut camera = self.camera;
         match at {
             Some((cell, p)) => {
@@ -644,9 +647,7 @@ impl EditorApp {
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
             .show_header(ui, |ui| {
                 ui.strong(t.fill("dungeon.header", &[("name", &name)]));
-                let leave = ui
-                    .button(t.get("dungeon.leave"))
-                    .on_hover_text(t.get("dungeon.leave_tip"));
+                let leave = ui.button(t.get("dungeon.leave"));
                 self.dungeon_list.leave_button = Some(leave.rect);
                 if leave.clicked() {
                     out.push(UiAction::LeaveDungeon);
@@ -783,80 +784,6 @@ impl EditorApp {
         }
     }
 
-    /// A new portal standing at `origin` (landblock meters of `landblock`; in its room `cell`,
-    /// when it stands in one): a weenie of the pack's own, a blank of the server's portal, and a
-    /// spawn of it, as one step. It leads into the dungeon last gone into, at its drop point, when
-    /// there is one; its card chooses another. Selected.
-    ///
-    /// # Errors
-    /// No server database to make a portal from.
-    pub(super) fn place_portal(
-        &mut self,
-        landblock: u16,
-        cell: Option<u16>,
-        origin: Vec3,
-    ) -> Result<(), String> {
-        let path = self
-            .server_sql
-            .clone()
-            .ok_or_else(|| self.say("messages.no_server_database"))?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let world = String::from_utf8_lossy(&bytes);
-        let (file, sym, name) = (1..)
-            .find_map(|n| {
-                let name = format!("portal-{n}");
-                let (file, sym) = self.session.new_weenie_file(&name).ok()?;
-                self.session
-                    .sql_text(&file)
-                    .is_none()
-                    .then_some((file, sym, name))
-            })
-            .ok_or_else(|| self.say("messages.no_server_database"))?;
-        let mut text = content::template(&world, PORTAL_BLANK, &name, true)
-            .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &PORTAL_BLANK)]))?;
-        if let Some(lb) = self.dungeon_list.marked {
-            if let Ok((to, at)) = self.drop_point(lb) {
-                let dungeon = self.dungeon_name_of(lb);
-                let title = self.say_with("dungeon.portal_name", &[("dungeon", &dungeon)]);
-                text = with_destination(&text, to, at, &title);
-            }
-        }
-        let weenie = lyceum_foundry::edit::Weenie::Symbol(sym);
-        let place = match cell {
-            Some(cell) => Op::PlaceSpawnInCell {
-                landblock,
-                cell,
-                weenie,
-                origin,
-                heading: 0.0,
-            },
-            None => Op::PlaceSpawn {
-                landblock,
-                weenie,
-                origin,
-                heading: 0.0,
-            },
-        };
-        let applied = self.apply(
-            &Op::Batch(vec![
-                Op::WriteSql {
-                    file,
-                    text: Some(text),
-                },
-                place,
-            ]),
-            false,
-        )?;
-        if let Some(file) = applied.spawned {
-            if let Some(s) = self.session.spawns().into_iter().find(|s| s.file == file) {
-                self.selection = Some(super::Selection::Spawn { file, guid: s.guid });
-                self.also.clear();
-                self.show_tab(super::Tab::Inspector);
-            }
-        }
-        Ok(())
-    }
-
     /// Where portal spawn `s` sends who uses it (`Some(None)`: nowhere yet); `None` when it is not
     /// a portal.
     #[must_use]
@@ -930,43 +857,32 @@ impl EditorApp {
         self.dungeon_list.rects.clear();
         self.dungeon_list.delete_rects.clear();
         let here = self.dungeon_mode();
-        egui::ScrollArea::vertical()
+        let area = egui::ScrollArea::vertical()
             .id_salt("dungeons")
-            .auto_shrink(false)
-            .show_rows(ui, 20.0, shown.len(), |ui, rows| {
-                for i in rows {
-                    let (d, name) = &shown[i];
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("{:04X}", d.landblock));
-                        let del = ui.small_button(t.get("dungeon.delete_short"));
-                        self.dungeon_list.delete_rects.push((d.landblock, del.rect));
-                        if del.clicked() {
-                            out.push(UiAction::AskDeleteDungeon(d.landblock));
-                        }
-                        let row = ui.selectable_label(here == Some(d.landblock), name);
-                        ui.weak(t.fill("dungeon.cells_n", &[("n", &d.cells)]));
-                        self.dungeon_list.rects.push((d.landblock, row.rect));
-                        if row.clicked() {
-                            out.push(UiAction::EnterDungeon(d.landblock));
-                        }
-                    });
+            .auto_shrink(false);
+        let rows = egui::Id::new("dungeons rows");
+        super::seen::rows(ui, rows, area, shown.len(), |ui, i| {
+            let (d, name) = &shown[i];
+            ui.horizontal(|ui| {
+                ui.monospace(format!("{:04X}", d.landblock));
+                let del = ui.small_button(t.get("dungeon.delete_short"));
+                self.dungeon_list.delete_rects.push((d.landblock, del.rect));
+                if del.clicked() {
+                    out.push(UiAction::AskDeleteDungeon(d.landblock));
+                }
+                let row = ui.selectable_label(here == Some(d.landblock), name);
+                ui.weak(t.fill("dungeon.cells_n", &[("n", &d.cells)]));
+                self.dungeon_list.rects.push((d.landblock, row.rect));
+                if row.clicked() {
+                    out.push(UiAction::EnterDungeon(d.landblock));
                 }
             });
+        });
     }
 }
 
-/// Weenie `text` (one weenie's SQL) named `name` and sending who uses it to cell `cell` at `at`
-/// (its landblock's meters): its destination, position 2, set where it has one and added where
-/// it has none.
-#[must_use]
-pub fn with_destination(text: &str, cell: u32, at: Vec3, name: &str) -> String {
-    let mut doc = SqlDoc::parse(text);
-    set_destination(&mut doc, cell, at);
-    doc.set_property(content::PropertyKind::String, 1, name, None);
-    doc.render()
-}
-
-/// `doc`'s weenie sending who uses it to cell `cell` at `at`: its destination set or added.
+/// `doc`'s weenie sending who uses it to cell `cell` at `at` (its landblock's meters): its
+/// destination, position 2, set where it has one and added where it has none.
 pub fn set_destination(doc: &mut SqlDoc, cell: u32, at: Vec3) {
     let place = [
         ("position_Type", "2".to_owned()),
@@ -1011,12 +927,12 @@ VALUES ({{wcid:portal-019e}}, 1, 'Portal');
 ";
 
     #[test]
-    fn a_portal_is_given_a_destination_in_the_cell_and_named_for_the_dungeon() {
+    fn a_portal_is_given_a_destination_in_the_cell_and_has_the_one_however_often_it_is_sent() {
         let at = Vec3::new(40.0, -40.0, 0.5);
-        let once = with_destination(PORTAL, 0x019E_0100, at, "Drudge Hideout Portal");
-        let doc = SqlDoc::parse(&once);
+        let mut doc = SqlDoc::parse(PORTAL);
+        set_destination(&mut doc, 0x019E_0100, at);
         let rows = doc.rows("weenie_properties_position");
-        assert_eq!(rows.len(), 1, "{once}");
+        assert_eq!(rows.len(), 1, "{}", doc.render());
         let cell = |c: &str| doc.cell(rows[0], c).unwrap();
         assert_eq!(
             (cell("position_Type"), cell("obj_Cell_Id"), cell("origin_Y")),
@@ -1027,13 +943,8 @@ VALUES ({{wcid:portal-019e}}, 1, 'Portal');
             )
         );
         assert_eq!(cell("object_Id"), "{{wcid:portal-019e}}");
-        assert_eq!(
-            doc.property(content::PropertyKind::String, 1).as_deref(),
-            Some("'Drudge Hideout Portal'")
-        );
         // Sent somewhere else, it has the one destination still.
-        let twice = with_destination(&once, 0x019E_0114, at, "Drudge Hideout Portal");
-        let doc = SqlDoc::parse(&twice);
+        set_destination(&mut doc, 0x019E_0114, at);
         let rows = doc.rows("weenie_properties_position");
         assert_eq!(rows.len(), 1);
         assert_eq!(doc.cell(rows[0], "obj_Cell_Id").unwrap(), "0x019E0114");

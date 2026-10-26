@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use dereth_client_contract::overlay::{
     OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture, OverlayVertex,
+    PreviewSpace,
 };
 use dereth_input::host::HostEvent;
 use dereth_input::keys::MouseButton;
@@ -66,6 +67,352 @@ pub struct Gui {
     /// leaps more than [`LONGEST_STEP`].
     last_time: Option<f64>,
     time_offset: f64,
+    /// The bytes of texture handed to the overlay so far.
+    pub texture_bytes: u64,
+}
+
+/// A panel's drawing made once into a picture of its own and shown as one image, frame after
+/// frame, until what it shows changes: a panel of thousands of shapes ([`Picture::draw`]) costs a
+/// frame one textured rectangle, and the device its triangles once.
+///
+/// The picture is the panel's pixels: its shapes tessellated as egui tessellates them, and each
+/// triangle filled as the device fills it (a pixel whose middle it covers, an edge shared by two
+/// triangles given to one of them), its colors blended over what is under it.
+pub struct Picture {
+    texture: egui::TextureHandle,
+    rect: egui::Rect,
+}
+
+impl std::fmt::Debug for Picture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Picture")
+            .field("rect", &self.rect)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Picture {
+    /// `shapes` painted in `rect` (points), the first of them filling it, as a picture; the
+    /// texture of `old` is drawn over when it is the same size.
+    #[must_use]
+    pub fn draw(
+        ctx: &egui::Context,
+        rect: egui::Rect,
+        shapes: Vec<egui::Shape>,
+        old: Option<Self>,
+    ) -> Self {
+        let ppp = ctx.pixels_per_point();
+        let (lo, hi) = ((rect.min * ppp).floor(), (rect.max * ppp).ceil());
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a panel's pixels
+        let size = [
+            (hi.x - lo.x).max(1.0) as usize,
+            (hi.y - lo.y).max(1.0) as usize,
+        ];
+        let clipped = shapes
+            .into_iter()
+            .map(|shape| egui::epaint::ClippedShape {
+                clip_rect: rect,
+                shape,
+            })
+            .collect();
+        let primitives = ctx.tessellate(clipped, ppp);
+        let rgba = rasterize(&primitives, ppp, (lo.x, lo.y), size);
+        let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+        let texture = match old {
+            Some(mut o) if o.texture.size() == size => {
+                o.texture.set(image, egui::TextureOptions::NEAREST);
+                o.texture
+            }
+            _ => ctx.load_texture("panel picture", image, egui::TextureOptions::NEAREST),
+        };
+        Self {
+            texture,
+            rect: egui::Rect::from_min_max(lo / ppp, hi / ppp),
+        }
+    }
+
+    /// Show the picture where `painter` paints, as its next shape.
+    pub fn show(&self, painter: &egui::Painter) {
+        self.show_moved(painter, egui::Vec2::ZERO);
+    }
+
+    /// Show the picture moved by `by` (points), as its next shape.
+    pub fn show_moved(&self, painter: &egui::Painter, by: egui::Vec2) {
+        painter.image(
+            self.texture.id(),
+            self.rect.translate(by),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    }
+}
+
+/// The triangles of `primitives` (points, `ppp` pixels each) filled into an image of `size`
+/// pixels whose top left is pixel `origin` of the screen, in order, each cut to its clip
+/// rectangle: straight RGBA, row by row. Only solid colors are drawn (no texture is sampled), as
+/// the panels' shapes are.
+fn rasterize(
+    primitives: &[egui::ClippedPrimitive],
+    ppp: f32,
+    origin: (f32, f32),
+    size: [usize; 2],
+) -> Vec<u8> {
+    let [w, h] = size;
+    // Points to the image's pixels, in 256ths.
+    #[allow(clippy::cast_possible_truncation)]
+    let round = |v: f32| (v + 0.5f32.copysign(v)) as i64;
+    let fixed = |p: egui::Pos2| {
+        (
+            round((p.x * ppp - origin.0) * 256.0),
+            round((p.y * ppp - origin.1) * 256.0),
+        )
+    };
+    // Every triangle, cut to its clip rectangle, in the order it is drawn, wound one way: worked
+    // out a run of triangles a thread at a time, and the runs put back in order.
+    const RUN: usize = 4096;
+    let mut runs: Vec<(&egui::epaint::Mesh, egui::Rect, std::ops::Range<usize>)> = Vec::new();
+    for egui::ClippedPrimitive {
+        clip_rect,
+        primitive,
+    } in primitives
+    {
+        let egui::epaint::Primitive::Mesh(mesh) = primitive else {
+            continue;
+        };
+        let n = mesh.indices.len() / 3;
+        for start in (0..n).step_by(RUN) {
+            runs.push((mesh, *clip_rect, start..(start + RUN).min(n)));
+        }
+    }
+    let gather =
+        |(mesh, clip_rect, range): &(&egui::epaint::Mesh, egui::Rect, std::ops::Range<usize>)| {
+            let mut tris: Vec<Tri> = Vec::with_capacity(range.len());
+            // Runs of corners share a color: the last one's straight form is kept.
+            let mut last = (egui::Color32::TRANSPARENT, [0.0f32; 4], [0u8; 4]);
+            let mut straight_of = move |c: egui::Color32| {
+                if c != last.0 {
+                    let s = unmultiply(c);
+                    last = (c, s.map(|v| f32::from(v) / 255.0), s);
+                }
+                (last.1, last.2)
+            };
+            let mut push = |t: &[egui::epaint::Vertex; 3]| {
+                let (mut a, mut b, c) = (t[0], t[1], t[2]);
+                let (mut pa, mut pb, pc) = (fixed(a.pos), fixed(b.pos), fixed(c.pos));
+                let mut area = edge(pa, pb, pc);
+                if area == 0 {
+                    return;
+                }
+                if area < 0 {
+                    std::mem::swap(&mut a, &mut b);
+                    std::mem::swap(&mut pa, &mut pb);
+                    area = -area;
+                }
+                let ((ca, solid), (cb, _), (cc, _)) = (
+                    straight_of(a.color),
+                    straight_of(b.color),
+                    straight_of(c.color),
+                );
+                tris.push(Tri {
+                    p: [pa, pb, pc],
+                    area,
+                    c: [ca, cb, cc],
+                    flat: a.color == b.color && b.color == c.color,
+                    solid,
+                });
+            };
+            for t in &mesh.indices.as_chunks::<3>().0[range.clone()] {
+                let tri = [
+                    mesh.vertices[t[0] as usize],
+                    mesh.vertices[t[1] as usize],
+                    mesh.vertices[t[2] as usize],
+                ];
+                if tri.iter().all(|v| clip_rect.contains(v.pos)) {
+                    push(&tri);
+                } else {
+                    for poly in clip(&tri, *clip_rect) {
+                        push(&poly);
+                    }
+                }
+            }
+            tris
+        };
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let done: Vec<std::sync::Mutex<Vec<Tri>>> = runs
+        .iter()
+        .map(|_| std::sync::Mutex::new(Vec::new()))
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..threads.min(runs.len()) {
+            s.spawn(|| loop {
+                let r = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(run) = runs.get(r) else {
+                    break;
+                };
+                let tris = gather(run);
+                *done[r]
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = tris;
+            });
+        }
+    });
+    let tris: Vec<Tri> = done
+        .into_iter()
+        .flat_map(|d| {
+            d.into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        })
+        .collect();
+    let mut px = vec![[0u8; 4]; w * h];
+    // Bands of rows, each with the triangles that reach it, in order; filled a band a thread at a
+    // time, as many threads as the machine has.
+    const ROWS: usize = 16;
+    let bands = h.div_ceil(ROWS);
+    let mut reach: Vec<Vec<u32>> = vec![Vec::new(); bands];
+    for (i, t) in tris.iter().enumerate() {
+        let (lo, hi) = (
+            t.p[0].1.min(t.p[1].1).min(t.p[2].1),
+            t.p[0].1.max(t.p[1].1).max(t.p[2].1),
+        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let row = |v: i64| (v.div_euclid(256).clamp(0, h as i64 - 1) as usize) / ROWS;
+        if hi < 0 || lo.div_euclid(256) >= h as i64 {
+            continue;
+        }
+        for r in &mut reach[row(lo)..=row(hi)] {
+            #[allow(clippy::cast_possible_truncation)]
+            r.push(i as u32);
+        }
+    }
+    let threads = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(bands)
+        .max(1);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work: Vec<std::sync::Mutex<&mut [[u8; 4]]>> =
+        px.chunks_mut(ROWS * w).map(std::sync::Mutex::new).collect();
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| loop {
+                let b = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(band) = work.get(b) else {
+                    break;
+                };
+                let mut band = band
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                fill_band(&tris, &reach[b], &mut band, w, b * ROWS);
+            });
+        }
+    });
+    drop(work);
+    px.into_flattened()
+}
+
+/// A triangle in an image's pixels (256ths), wound so that its inside is where every edge is
+/// positive, and its corners' straight colors.
+struct Tri {
+    p: [(i64, i64); 3],
+    area: i64,
+    c: [[f32; 4]; 3],
+    /// Whether the corners are of one color, and that color.
+    flat: bool,
+    solid: [u8; 4],
+}
+
+/// Where `p` is from the edge `a`→`b`: positive inside a triangle wound as [`Tri`]s are.
+fn edge(a: (i64, i64), b: (i64, i64), p: (i64, i64)) -> i64 {
+    (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
+}
+
+/// Fill the pixels of `tris` numbered `these` that fall in `band`, the rows of an image `w` wide
+/// from row `top`.
+fn fill_band(tris: &[Tri], these: &[u32], band: &mut [[u8; 4]], w: usize, top: usize) {
+    let h = band.len() / w;
+    // A pixel whose middle is on an edge belongs to the triangle the edge is the top or the
+    // left of, so that two triangles sharing it never both fill it.
+    let top_left = |a: (i64, i64), b: (i64, i64)| {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        dy < 0 || (dy == 0 && dx > 0)
+    };
+    #[allow(clippy::cast_possible_wrap)]
+    let (top, h, w) = (top as i64, h as i64, w as i64);
+    for t in these.iter().map(|i| &tris[*i as usize]) {
+        let [pa, pb, pc] = t.p;
+        // The pixels whose middles the triangle's box holds, in this band.
+        let span =
+            |lo: i64, hi: i64| ((lo - 128 + 255).div_euclid(256), (hi - 128).div_euclid(256));
+        let (x0, x1) = span(pa.0.min(pb.0).min(pc.0), pa.0.max(pb.0).max(pc.0));
+        let (y0, y1) = span(pa.1.min(pb.1).min(pc.1), pa.1.max(pb.1).max(pc.1));
+        let (x0, x1) = (x0.max(0), x1.min(w - 1));
+        let (y0, y1) = (y0.max(top), y1.min(top + h - 1));
+        if x0 > x1 || y0 > y1 {
+            continue;
+        }
+        // Each edge's value at the first pixel, and its change a pixel across and down; ties
+        // given away by one less.
+        let pairs = [(pb, pc), (pc, pa), (pa, pb)];
+        let bias = pairs.map(|(a, b)| i64::from(!top_left(a, b)));
+        let edges = pairs.map(|(a, b)| {
+            (
+                edge(a, b, (x0 * 256 + 128, y0 * 256 + 128)),
+                -(b.1 - a.1) * 256,
+                (b.0 - a.0) * 256,
+            )
+        });
+        #[allow(clippy::cast_precision_loss)]
+        let inv = 1.0 / t.area as f32;
+        let mut row = [
+            edges[0].0 - bias[0],
+            edges[1].0 - bias[1],
+            edges[2].0 - bias[2],
+        ];
+        for y in y0..=y1 {
+            let mut e = row;
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let line = ((y - top) * w) as usize;
+            for x in x0..=x1 {
+                if e[0] >= 0 && e[1] >= 0 && e[2] >= 0 {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                    let at = line + x as usize;
+                    if t.flat && t.solid[3] == 255 {
+                        // Opaque: what is under it does not show.
+                        band[at] = t.solid;
+                        for k in 0..3 {
+                            e[k] += edges[k].1;
+                        }
+                        continue;
+                    }
+                    let src = if t.flat {
+                        t.c[0]
+                    } else {
+                        // The bias taken back out, for the weights.
+                        #[allow(clippy::cast_precision_loss)]
+                        let wt = |k: usize| (e[k] + bias[k]) as f32 * inv;
+                        let (wa, wb, wc) = (wt(0), wt(1), wt(2));
+                        std::array::from_fn(|i| t.c[0][i] * wa + t.c[1][i] * wb + t.c[2][i] * wc)
+                    };
+                    let dst = &mut band[at];
+                    let alpha = src[3];
+                    // The device blends in float and keeps eight bits a channel between draws.
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let blend =
+                        |s: f32, d: u8| (s * 255.0 + f32::from(d) * (1.0 - alpha) + 0.5) as u8;
+                    for i in 0..3 {
+                        dst[i] = blend(src[i] * alpha, dst[i]);
+                    }
+                    dst[3] = blend(alpha, dst[3]);
+                }
+                for k in 0..3 {
+                    e[k] += edges[k].1;
+                }
+            }
+            for k in 0..3 {
+                row[k] += edges[k].2;
+            }
+        }
+    }
 }
 
 /// The panels' scales a creator chooses from, as pixels to the point.
@@ -240,6 +587,7 @@ impl Gui {
             scale: 1.0,
             last_time: None,
             time_offset: 0.0,
+            texture_bytes: 0,
         }
     }
 
@@ -398,96 +746,35 @@ impl Gui {
         let mut items: Vec<OverlayItem> = Vec::new();
         // The shapes are in points; the screen is `size` pixels.
         #[allow(clippy::cast_precision_loss)] // a screen
-        let (w, h) = (
+        let points = (
             size.0.max(1) as f32 / self.scale,
             size.1.max(1) as f32 / self.scale,
         );
-        let to_clip = |p: egui::Pos2| [p.x / w * 2.0 - 1.0, 1.0 - p.y / h * 2.0, 0.5];
-        // Runs of vertices share a color: the last one's straight form is kept.
-        let mut last = (egui::Color32::TRANSPARENT, 0);
-        let mut v = move |x: &egui::epaint::Vertex| {
-            if x.color != last.0 {
-                last = (x.color, straight(x.color));
-            }
-            OverlayVertex {
-                position: to_clip(x.pos),
-                color: last.1,
-                uv: [x.uv.x, x.uv.y],
-            }
-        };
-        // Counter-clockwise in clip space (y up), the overlay's front face.
-        let wound = |a: OverlayVertex, b: OverlayVertex, c: OverlayVertex| {
-            let turn = (b.position[0] - a.position[0]) * (c.position[1] - a.position[1])
-                - (b.position[1] - a.position[1]) * (c.position[0] - a.position[0]);
-            if turn >= 0.0 {
-                [a, b, c]
-            } else {
-                [a, c, b]
-            }
-        };
-        let mut converted: Vec<OverlayVertex> = Vec::new();
+        let mut scratch: Vec<OverlayVertex> = Vec::new();
         for egui::ClippedPrimitive {
             clip_rect,
             primitive,
         } in primitives
         {
-            let egui::epaint::Primitive::Mesh(mesh) = primitive else {
-                continue;
-            };
-            let Some(tex) = self.textures.get(&mesh.texture_id) else {
-                continue;
-            };
-            let sampler = OverlaySampler {
-                point: !tex.linear,
-                wrap_u: false,
-                wrap_v: false,
-            };
-            let key = tex.key;
-            // Into the last batch when it draws with the same texture and sampler, else a new one.
-            let joins = matches!(
-                items.last(),
-                Some(OverlayItem::Triangles { texture, sampler: s, .. })
-                    if *texture == key && *s == sampler
-            );
-            if !joins {
-                items.push(OverlayItem::Triangles {
-                    material: OverlayMaterial::Image,
-                    texture: key,
-                    sampler,
-                    vertices: Vec::new(),
-                    depth: dereth_client_contract::overlay::OverlayDepth::Over,
-                });
-            }
-            let Some(OverlayItem::Triangles { vertices, .. }) = items.last_mut() else {
-                continue;
-            };
-            vertices.reserve(mesh.indices.len());
-            let triangles = mesh.indices.as_chunks::<3>().0;
-            if mesh.vertices.iter().all(|x| clip_rect.contains(x.pos)) {
-                // Inside its clip rectangle whole: each vertex worked out once, however many
-                // triangles share it.
-                converted.clear();
-                converted.extend(mesh.vertices.iter().map(&mut v));
-                for t in triangles {
-                    let at = |i: u32| converted[i as usize];
-                    vertices.extend(wound(at(t[0]), at(t[1]), at(t[2])));
-                }
-            } else {
-                for t in triangles {
-                    let tri = [
-                        mesh.vertices[t[0] as usize],
-                        mesh.vertices[t[1] as usize],
-                        mesh.vertices[t[2] as usize],
-                    ];
-                    if tri.iter().all(|x| clip_rect.contains(x.pos)) {
-                        vertices.extend(wound(v(&tri[0]), v(&tri[1]), v(&tri[2])));
-                        continue;
+            let mesh = match primitive {
+                egui::epaint::Primitive::Mesh(mesh) => mesh,
+                egui::epaint::Primitive::Callback(cb) => {
+                    if let Some(PreviewPaint(space)) = cb.callback.downcast_ref::<PreviewPaint>() {
+                        if let Some(rect) = preview_rect(cb.rect, clip_rect, self.scale, size) {
+                            items.push(OverlayItem::Preview {
+                                space: *space,
+                                rect,
+                            });
+                        }
                     }
-                    for poly in clip(&tri, clip_rect) {
-                        vertices.extend(wound(v(&poly[0]), v(&poly[1]), v(&poly[2])));
-                    }
+                    continue;
                 }
-            }
+            };
+            let Some((key, sampler)) = self.texture_of(mesh.texture_id) else {
+                continue;
+            };
+            let vertices = batch(&mut items, key, sampler);
+            convert(&mesh, clip_rect, points, vertices, &mut scratch);
             if vertices.is_empty() {
                 items.pop();
             }
@@ -548,6 +835,7 @@ impl Gui {
             }
         };
         let mut bgra = t.rgba.clone();
+        self.texture_bytes += bgra.len() as u64;
         for px in bgra.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
@@ -560,6 +848,147 @@ impl Gui {
                 levels: vec![bgra],
             },
         ));
+    }
+}
+
+impl Gui {
+    /// The overlay texture and sampler egui's texture `id` is drawn with.
+    fn texture_of(&self, id: egui::TextureId) -> Option<(OverlayTexture, OverlaySampler)> {
+        let tex = self.textures.get(&id)?;
+        Some((
+            tex.key,
+            OverlaySampler {
+                point: !tex.linear,
+                wrap_u: false,
+                wrap_v: false,
+            },
+        ))
+    }
+}
+
+/// A paint callback that draws a preview space where egui lays it out: the space is drawn there,
+/// in egui's order, over what egui drew before it and under what it draws after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreviewPaint(pub PreviewSpace);
+
+/// Where `rect` (in points, cut to `clip`) is on a screen of `size` pixels, `scale` pixels to the
+/// point; `None` when its clip cuts it, as a preview cannot be drawn in part.
+fn preview_rect(
+    rect: egui::Rect,
+    clip: egui::Rect,
+    scale: f32,
+    size: (u32, u32),
+) -> Option<dereth_primitives::Viewport> {
+    const SLACK: f32 = 0.5;
+    if rect.width() < 1.0
+        || rect.height() < 1.0
+        || rect.min.x < clip.min.x - SLACK
+        || rect.min.y < clip.min.y - SLACK
+        || rect.max.x > clip.max.x + SLACK
+        || rect.max.y > clip.max.y + SLACK
+    {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // on screen, in pixels
+    let px = |v: f32| (v * scale).round().max(0.0) as u32;
+    let (x, y) = (px(rect.min.x), px(rect.min.y));
+    let (w, h) = (
+        px(rect.max.x).min(size.0).saturating_sub(x),
+        px(rect.max.y).min(size.1).saturating_sub(y),
+    );
+    (w > 0 && h > 0).then_some(dereth_primitives::Viewport {
+        x,
+        y,
+        width: w,
+        height: h,
+    })
+}
+
+/// The last batch of `items` when it draws with `key` and `sampler`, else a new one.
+fn batch(
+    items: &mut Vec<OverlayItem>,
+    key: OverlayTexture,
+    sampler: OverlaySampler,
+) -> &mut Vec<OverlayVertex> {
+    let joins = matches!(
+        items.last(),
+        Some(OverlayItem::Triangles { texture, sampler: s, .. })
+            if *texture == key && *s == sampler
+    );
+    if !joins {
+        items.push(OverlayItem::Triangles {
+            material: OverlayMaterial::Image,
+            texture: key,
+            sampler,
+            vertices: Vec::new(),
+            depth: dereth_client_contract::overlay::OverlayDepth::Over,
+        });
+    }
+    match items.last_mut() {
+        Some(OverlayItem::Triangles { vertices, .. }) => vertices,
+        _ => unreachable!("a batch of triangles was just made"),
+    }
+}
+
+/// `mesh`'s triangles cut to `clip_rect`, onto `out` in clip space for a screen `points` (w, h)
+/// points in size: each wound counter-clockwise, its colors straight.
+fn convert(
+    mesh: &egui::epaint::Mesh,
+    clip_rect: egui::Rect,
+    points: (f32, f32),
+    out: &mut Vec<OverlayVertex>,
+    scratch: &mut Vec<OverlayVertex>,
+) {
+    let (w, h) = points;
+    let to_clip = |p: egui::Pos2| [p.x / w * 2.0 - 1.0, 1.0 - p.y / h * 2.0, 0.5];
+    // Runs of vertices share a color: the last one's straight form is kept.
+    let mut last = (egui::Color32::TRANSPARENT, 0);
+    let mut v = move |x: &egui::epaint::Vertex| {
+        if x.color != last.0 {
+            last = (x.color, straight(x.color));
+        }
+        OverlayVertex {
+            position: to_clip(x.pos),
+            color: last.1,
+            uv: [x.uv.x, x.uv.y],
+        }
+    };
+    // Counter-clockwise in clip space (y up), the overlay's front face.
+    let wound = |a: OverlayVertex, b: OverlayVertex, c: OverlayVertex| {
+        let turn = (b.position[0] - a.position[0]) * (c.position[1] - a.position[1])
+            - (b.position[1] - a.position[1]) * (c.position[0] - a.position[0]);
+        if turn >= 0.0 {
+            [a, b, c]
+        } else {
+            [a, c, b]
+        }
+    };
+    out.reserve(mesh.indices.len());
+    let triangles = mesh.indices.as_chunks::<3>().0;
+    if mesh.vertices.iter().all(|x| clip_rect.contains(x.pos)) {
+        // Inside its clip rectangle whole: each vertex worked out once, however many triangles
+        // share it.
+        scratch.clear();
+        scratch.extend(mesh.vertices.iter().map(&mut v));
+        for t in triangles {
+            let at = |i: u32| scratch[i as usize];
+            out.extend(wound(at(t[0]), at(t[1]), at(t[2])));
+        }
+    } else {
+        for t in triangles {
+            let tri = [
+                mesh.vertices[t[0] as usize],
+                mesh.vertices[t[1] as usize],
+                mesh.vertices[t[2] as usize],
+            ];
+            if tri.iter().all(|x| clip_rect.contains(x.pos)) {
+                out.extend(wound(v(&tri[0]), v(&tri[1]), v(&tri[2])));
+                continue;
+            }
+            for poly in clip(&tri, clip_rect) {
+                out.extend(wound(v(&poly[0]), v(&poly[1]), v(&poly[2])));
+            }
+        }
     }
 }
 
@@ -740,6 +1169,63 @@ mod tests {
     }
 
     #[test]
+    fn a_preview_is_drawn_where_it_is_laid_out_in_order_and_not_at_all_when_its_clip_cuts_it() {
+        let mut g = Gui::new();
+        g.set_scale(2.0);
+        let input = g.input(&[], (800, 600), 1.0);
+        let ctx = g.ctx.clone();
+        let paint = std::sync::Arc::new(PreviewPaint(PreviewSpace::Tool));
+        let out = ctx.run_ui(input, |ui| {
+            let p = ui.painter();
+            p.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(110.0, 110.0)),
+                0.0,
+                egui::Color32::BLACK,
+            );
+            p.add(egui::PaintCallback {
+                rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(110.0, 60.0)),
+                callback: paint.clone(),
+            });
+            p.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(0.0, 100.0), egui::pos2(50.0, 150.0)),
+                0.0,
+                egui::Color32::WHITE,
+            );
+            // Cut by its clip: not drawn.
+            p.with_clip_rect(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(200.0, 200.0),
+            ))
+            .add(egui::PaintCallback {
+                rect: egui::Rect::from_min_max(egui::pos2(150.0, 150.0), egui::pos2(250.0, 250.0)),
+                callback: paint.clone(),
+            });
+        });
+        let items = g.paint(out, (800, 600));
+        let kinds: Vec<&str> = items
+            .iter()
+            .map(|i| match i {
+                OverlayItem::Triangles { .. } => "triangles",
+                OverlayItem::Preview { .. } => "preview",
+            })
+            .collect();
+        assert_eq!(kinds, ["triangles", "preview", "triangles"]);
+        assert_eq!(
+            items[1],
+            OverlayItem::Preview {
+                space: PreviewSpace::Tool,
+                rect: dereth_primitives::Viewport {
+                    x: 20,
+                    y: 20,
+                    width: 200,
+                    height: 100
+                }
+            },
+            "in pixels"
+        );
+    }
+
+    #[test]
     fn panels_inside_their_clip_and_across_its_edge_give_the_triangles_each_cut_alone_gives() {
         let mut g = Gui::new();
         let input = g.input(&[], (400, 300), 1.0);
@@ -803,6 +1289,33 @@ mod tests {
         }
         assert!(want.len() > 20, "{}", want.len());
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn a_picture_fills_each_pixel_of_two_triangles_sharing_an_edge_once() {
+        // A square, half see-through, as two triangles along its diagonal and its edges on the
+        // pixels' middles: no pixel is covered twice, none is missed.
+        let color = egui::Color32::from_rgba_unmultiplied(200, 100, 0, 128);
+        let mut mesh = egui::epaint::Mesh::default();
+        for (x, y) in [(2.5, 2.5), (12.5, 2.5), (12.5, 12.5), (2.5, 12.5)] {
+            mesh.colored_vertex(egui::pos2(x, y), color);
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        let prim = egui::ClippedPrimitive {
+            clip_rect: egui::Rect::EVERYTHING,
+            primitive: egui::epaint::Primitive::Mesh(mesh),
+        };
+        let rgba = rasterize(&[prim], 1.0, (0.0, 0.0), [16, 16]);
+        let at = |x: usize, y: usize| &rgba[(y * 16 + x) * 4..(y * 16 + x) * 4 + 4];
+        let once = at(7, 7).to_vec();
+        assert_eq!(once[3], 128, "{once:?}");
+        let covered = (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|(x, y)| at(*x, *y)[3] != 0)
+            .inspect(|(x, y)| assert_eq!(at(*x, *y), &once[..], "({x}, {y})"))
+            .count();
+        assert_eq!(covered, 100);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use lyceum_editor::app::{EditorApp, Fit, Selection, Target};
 use lyceum_foundry::kit::Kind;
 use lyceum_foundry::source::Link;
 
-use super::{
+use crate::{
     capture, click, editor_with, gpu_lock, grid_point, hover, key, sample, shots, HOLTBURG,
 };
 
@@ -90,7 +90,7 @@ fn a_dungeons_look_comes_first_and_every_piece_holtburg_redoubt_is_built_of_stan
         while y < r.max.y {
             let mut x = r.min.x;
             while x < r.max.x {
-                let [red, green, blue] = super::pixel(&img, x * s, y * s);
+                let [red, green, blue] = crate::pixel(&img, x * s, y * s);
                 floor += usize::from(
                     red == green
                         && blue.abs_diff(red.saturating_add(8)) <= 1
@@ -273,7 +273,7 @@ fn a_free_doorway_chosen_on_the_grid_lists_what_fits_there_best_first_its_ghost_
     assert!(ed.ghost_draw.triangles > 0);
     let after = capture(&mut ed, _dir.path());
     let w = ed.world_rect.unwrap();
-    let changed = super::difference(
+    let changed = crate::difference(
         &before,
         &after,
         (w.center().x * s, w.center().y * s),
@@ -310,7 +310,7 @@ fn in_dungeon_mode_a_click_in_the_world_view_only_selects_even_with_a_piece_chos
             pieces[*i].form.kind == Kind::Corridor && pieces[*i].in_look(ed.kit.look.unwrap())
         })
         .unwrap();
-    super::choose_piece(&mut ed, corridor);
+    crate::choose_piece(&mut ed, corridor);
     let cells = ed.session.cells(REDOUBT).len();
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
@@ -641,13 +641,12 @@ fn a_dungeon_built_with_what_fits_here_is_walked_through_from_a_portal_placed_in
     assert!(set.len() >= 8);
     ed.leave_dungeon();
     // A portal set on Holtburg's ground with the spawn tool, sent into the new dungeon.
-    super::stone_west(&mut ed);
+    crate::stone_west(&mut ed);
     ed.mode = lyceum_editor::app::Mode::Spawn;
     for _ in 0..2 {
         ed.frame();
     }
-    let tile = ed.panels.portal_rect.expect("the portal's tile");
-    click(&mut ed, (tile.center().x, tile.center().y));
+    crate::new_portal(&mut ed, "Portal");
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
     click(
@@ -660,7 +659,8 @@ fn a_dungeon_built_with_what_fits_here_is_walked_through_from_a_portal_placed_in
             ed.selection, ed.panels.message
         );
     };
-    ed.destination_dungeon(lb).unwrap();
+    let portal = ed.form_weenie().expect("the portal's weenie");
+    ed.destination_dungeon(&portal, lb).unwrap();
     let spawn = ed
         .session
         .spawns()
@@ -757,6 +757,107 @@ fn a_dungeon_built_with_what_fits_here_is_walked_through_from_a_portal_placed_in
         !ed.panels.message.contains("playtest"),
         "{}",
         ed.panels.message
+    );
+    ed.stop_play();
+    assert!(ed.wait_world_empty(), "the character logged off");
+    ed.set_live(false).unwrap();
+}
+
+/// A retail dungeon whose creatures are all level 80.
+#[cfg(feature = "live-server-tests")]
+const LEVEL_80: u16 = 0x0035;
+
+#[cfg(feature = "live-server-tests")]
+#[test]
+fn in_a_level_80_dungeon_a_melee_picked_at_its_level_plays_as_an_authentic_character_with_gear_and_buffs(
+) {
+    use std::path::PathBuf;
+    let _g = gpu_lock();
+    let (_dir, world) = sample("live-characters");
+    let server =
+        PathBuf::from(std::env::var_os("EMPYREAN_SERVER_BIN").expect("EMPYREAN_SERVER_BIN"));
+    let sql = PathBuf::from(std::env::var_os("EMPYREAN_WORLD_SQL").expect("EMPYREAN_WORLD_SQL"));
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--empyrean",
+            server.parent().unwrap().to_str().unwrap(),
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--size",
+            "1600x1000",
+        ],
+    );
+    ed.wait_for_names().unwrap();
+    ed.enter_dungeon(LEVEL_80).unwrap();
+    let cell = *ed.session.cells(LEVEL_80).keys().next().unwrap();
+    let at = middle(&ed, LEVEL_80, cell);
+    put_camera(&mut ed, LEVEL_80, at, 0.0, 0.0);
+    ed.open_characters();
+    for _ in 0..5 {
+        assert!(ed.frame());
+    }
+    // The tab finds the place's monsters and suggests their level for a new character.
+    let place = ed.characters.place.expect("the dungeon's monsters");
+    assert!(place.least <= 80 && place.most >= 80, "{place:?}");
+    ed.new_character("Level Eighty").unwrap();
+    assert_eq!(ed.characters.recipe.level, 80, "the place's level");
+    assert_eq!(ed.characters.recipe.archetype, "melee-heavy");
+    let found = ed.characters.findings().unwrap();
+    assert!(found.iter().all(|f| f.warning), "{found:?}");
+    for _ in 0..3 {
+        assert!(ed.frame());
+    }
+    keep(&mut ed, "live-characters", "01-characters-tab.png");
+    // Play As: made by the server, then played at the camera, buffed.
+    ed.set_live(true).unwrap();
+    ed.wait_live().unwrap();
+    ed.play_until_entered(&[]).unwrap();
+    let made = ed.characters.made.clone().expect("what the server made");
+    assert_eq!(
+        (made.level, made.hash.clone()),
+        (80, ed.characters.recipe.hash())
+    );
+    println!("made {made:?}");
+    assert!(
+        made.items.iter().any(|i| i.slot & 0x0010_0000 != 0),
+        "a melee weapon wielded: {made:?}"
+    );
+    let suit = made
+        .items
+        .iter()
+        .filter(|i| i.slot != 0 && i.slot & !0x7F21 == 0)
+        .count();
+    assert!(suit >= 3, "a suit: {made:?}");
+    let start = std::time::Instant::now();
+    let (level, buffs) = loop {
+        assert!(ed.frame());
+        if let Some((level, buffs)) = ed.play_character().filter(|c| c.1 > 0) {
+            break (level, buffs);
+        }
+        // Only against a hang: the buffs arriving is what ends the wait.
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(120),
+            "no buffs arrived: {:?}",
+            ed.play_character()
+        );
+    };
+    assert_eq!(level, 80);
+    println!("level {level}, {buffs} enchantments");
+    for _ in 0..60 {
+        assert!(ed.frame());
+    }
+    keep(&mut ed, "live-characters", "02-played-as.png");
+    // Played again with the recipe unchanged: it carries on as it was left.
+    ed.stop_play();
+    assert!(ed.wait_world_empty(), "the character logged off");
+    let mark = ed.live_log(0).len();
+    ed.play_until_entered(&[]).unwrap();
+    assert!(
+        !ed.live_log(mark)
+            .iter()
+            .any(|l| l.contains("Playtest character updated")),
+        "not made again"
     );
     ed.stop_play();
     assert!(ed.wait_world_empty(), "the character logged off");
@@ -874,7 +975,7 @@ fn another_look_chosen_restyles_every_room_of_holtburg_redoubt_by_the_worlds_lis
         let frame = capture(&mut ed, dir.path());
         let w = ed.world_rect.unwrap();
         let s = ed.ui_scale();
-        let changed = super::difference(
+        let changed = crate::difference(
             &own_frame,
             &frame,
             (w.center().x * s, w.center().y * s),
@@ -902,28 +1003,28 @@ fn renaming_a_dungeon_renames_the_portals_into_it_the_worlds_by_the_packs_copies
     let _g = gpu_lock();
     let (dir, world) = sample("editor-rename");
     let sql = dir.path().join("server.sql");
-    let server = format!("{}{}", super::SERVER_PORTALS, super::HIDEOUT_ENTRANCES);
+    let server = format!("{}{}", crate::SERVER_PORTALS, crate::HIDEOUT_ENTRANCES);
     std::fs::write(&sql, &server).unwrap();
     let mut ed = editor_with(
         &world,
         &["--weenies", sql.to_str().unwrap(), "--size", "1400x1000"],
     );
-    super::stone_west(&mut ed);
+    crate::stone_west(&mut ed);
     ed.wait_for_names().unwrap();
     // A portal of the pack's own, sent into the hideout beside the world's two.
     ed.mode = lyceum_editor::app::Mode::Spawn;
     for _ in 0..2 {
         ed.frame();
     }
-    let tile = ed.panels.portal_rect.expect("the portal's tile");
-    click(&mut ed, (tile.center().x, tile.center().y));
+    crate::new_portal(&mut ed, "Portal");
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
     click(
         &mut ed,
         (w.center().x * s, (w.center().y + w.height() * 0.2) * s),
     );
-    ed.destination_dungeon(0x019E).unwrap();
+    let portal = ed.form_weenie().expect("the portal's weenie");
+    ed.destination_dungeon(&portal, 0x019E).unwrap();
     let into = ed.portal_names(0x019E);
     assert_eq!(into.len(), 3, "{into:?}");
     // Renamed: each portal called by the new name where it said the old one, else by it alone.
@@ -991,7 +1092,7 @@ fn a_packs_dungeon_is_deleted_whole_with_its_portal_and_the_worlds_own_once_the_
     let sql = dir.path().join("server.sql");
     std::fs::write(
         &sql,
-        format!("{}{}", super::SERVER_PORTALS, super::HIDEOUT_ENTRANCES),
+        format!("{}{}", crate::SERVER_PORTALS, crate::HIDEOUT_ENTRANCES),
     )
     .unwrap();
     let mut ed = editor_with(
@@ -1010,13 +1111,12 @@ fn a_packs_dungeon_is_deleted_whole_with_its_portal_and_the_worlds_own_once_the_
     click(&mut ed, g);
     put_fit(&mut ed, lb, &north_south);
     ed.leave_dungeon();
-    super::stone_west(&mut ed);
+    crate::stone_west(&mut ed);
     ed.mode = lyceum_editor::app::Mode::Spawn;
     for _ in 0..2 {
         ed.frame();
     }
-    let tile = ed.panels.portal_rect.expect("the portal's tile");
-    click(&mut ed, (tile.center().x, tile.center().y));
+    crate::new_portal(&mut ed, "Portal");
     let w = ed.world_rect.unwrap();
     let s = ed.ui_scale();
     click(
@@ -1162,7 +1262,7 @@ fn a_refusal_to_set_a_piece_down_leaves_the_status_bar_once_its_ghost_fits_where
         .iter()
         .position(|p| p.environment == room.environment)
         .unwrap();
-    super::choose_piece(&mut ed, i);
+    crate::choose_piece(&mut ed, i);
     let marks = ed.piece_marks(REDOUBT, i);
     let mark = marks.first().expect("where it stood");
     let square = mark.square().map_or_else(
@@ -1215,7 +1315,7 @@ fn in_a_dungeons_room_a_door_set_by_a_doorway_stands_in_it_a_chest_on_the_floor_
     let _g = gpu_lock();
     let (dir, world) = sample("editor-snap");
     let sql = dir.path().join("server.sql");
-    std::fs::write(&sql, super::SERVER_BLANKS).unwrap();
+    std::fs::write(&sql, crate::SERVER_BLANKS).unwrap();
     let mut ed = editor_with(
         &world,
         &["--weenies", sql.to_str().unwrap(), "--size", "1600x1000"],

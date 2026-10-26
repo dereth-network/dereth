@@ -34,11 +34,14 @@
 //! sets, [`pick`] what a ray from the camera meets, [`models`] what a model is called, and
 //! [`script`] edits written as text, which `lyceum edit` runs. [`content`] is a pack's
 //! server content as the editor's forms edit it: ACE SQL held as its statements, and weenies made
-//! from the world database's. [`footprint`] and [`sql_ids`] are two of the checks: a static placed
-//! inside a building, and SQL that names records the files do not hold. [`buildings`] is every
-//! building the world places, gathered from all its copies, and [`drops`] a copy of one dropped
-//! somewhere else, its rooms, doors and level ground with it. [`sample`] is the sample world
-//! Lyceum carries, and a new world made from it or empty.
+//! from the world database's; [`quests`] every quest of the world, where each is named, and a
+//! quest copied, renamed or taken away; [`loot`] every loot table of the world, where each is used,
+//! and a table changed in the world, made or taken away, with [`wielded`] a wielded treasure's sets
+//! read and written as the server draws them. [`footprint`] and [`sql_ids`] are two of the checks: a
+//! static placed inside a building, and SQL that names records the files do not hold.
+//! [`buildings`] is every building the world places, gathered from all its copies, and [`drops`] a
+//! copy of one dropped somewhere else, its rooms, doors and level ground with it. [`sample`] is the
+//! sample world Lyceum carries, and a new world made from it or empty.
 
 pub mod bake;
 pub mod brush;
@@ -64,6 +67,7 @@ pub mod import;
 pub mod kit;
 pub mod layer;
 pub mod lock;
+pub mod loot;
 pub mod map;
 pub mod model_import;
 pub mod models;
@@ -71,6 +75,7 @@ pub mod moves;
 pub mod pick;
 pub mod pictures;
 pub mod pieces;
+pub mod quests;
 pub mod revise;
 pub mod room;
 pub mod sample;
@@ -83,6 +88,7 @@ pub mod stab;
 pub mod symbol;
 pub mod validate;
 pub mod walk;
+pub mod wielded;
 pub mod world;
 
 pub use error::{Error, Loc};

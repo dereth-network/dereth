@@ -16,7 +16,7 @@ use lyceum_foundry::pick;
 use lyceum_foundry::script::Action as Edit;
 use lyceum_foundry::source::{Furnished, Place, Rotation};
 
-use super::{capture, gpu_lock, sample, shots, HOLTBURG};
+use crate::{capture, gpu_lock, sample, shots, HOLTBURG};
 
 const ERA: EraId = EraId::Infiltration;
 
@@ -256,7 +256,7 @@ fn each_tool_builds_an_infiltration_world_in_the_layout_of_its_files() {
 
     // A dungeon of these files' pieces, built with what fits.
     ed.wait_for_pieces();
-    let (lb, set) = super::dungeon::build_with_fits(&mut ed, "classic-dungeon");
+    let (lb, set) = crate::world::dungeon::build_with_fits(&mut ed, "classic-dungeon");
     assert!(set.len() >= 8, "{} pieces", set.len());
     assert!(ed.free_portals(lb, &[]).is_empty());
     let walk = ed.session.walk(lb);
