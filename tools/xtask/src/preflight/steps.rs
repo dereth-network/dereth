@@ -17,7 +17,7 @@ use super::config::{Config, Host, Kind, Place, World};
 use super::edit;
 use super::machine::{powershell, Machine, Service};
 use super::plan::{Bump, Product};
-use super::{linux, windows};
+use super::{ci, linux, windows};
 
 /// The ledger's file, in the work folder.
 pub const LEDGER: &str = "preflight.json";
@@ -80,6 +80,10 @@ pub struct Ledger {
     pub commit: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
+    /// The commit pushed to the remote's `preflight` branch, for the mirror to carry to GitHub and
+    /// CI to run on there: `ship` waits for that CI.
+    #[serde(default)]
+    pub pushed: Option<String>,
     pub releases: Vec<Release>,
     /// The candidates built of each release, by `<product> <version>`: the next is one past.
     #[serde(default)]
@@ -1402,6 +1406,7 @@ pub fn rollback(m: &mut dyn Machine, cfg: &Config, ledger: &mut Ledger) -> Resul
         ledger.stage = Stage::Idle;
         ledger.commit = None;
         ledger.branch = None;
+        ledger.pushed = None;
         ledger.releases.clear();
         ledger.shipped = Shipped::default();
         Ok(())
@@ -1498,6 +1503,7 @@ pub fn finish(
     ledger.stage = Stage::Idle;
     ledger.commit = None;
     ledger.branch = None;
+    ledger.pushed = None;
     ledger.releases.clear();
     ledger.shipped = Shipped::default();
     Ok(())
@@ -1510,6 +1516,15 @@ pub fn summary(cfg: &Config, ledger: &Ledger) -> String {
     if let Some(c) = &ledger.commit {
         let branch = ledger.branch.as_deref().unwrap_or("the branch");
         out.push_str(&format!("Preflighted {branch} at {c}.\n"));
+    }
+    if let Some(c) = &ledger.pushed {
+        out.push_str(&format!(
+            "  pushed to {}'s {} branch: once the mirror carries it to GitHub, CI runs on it ({}), \
+             and `cargo xtask ship` waits for that\n",
+            cfg.remote,
+            ci::BRANCH,
+            ci::checks_page(&cfg.github_repo, c)
+        ));
     }
     for r in &ledger.releases {
         out.push_str(&format!(

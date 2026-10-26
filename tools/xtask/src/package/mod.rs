@@ -75,6 +75,11 @@ const BINARIES: &[(&str, &str, headers::Role)] = &[
     ),
 ];
 
+/// The packages an Empyrean release ships: the one each of its binaries is built from.
+pub(crate) fn binaries() -> impl Iterator<Item = &'static str> {
+    BINARIES.iter().map(|(package, _, _)| *package)
+}
+
 /// The documents a package carries, as (name in the package, path in the tree).
 const DOCUMENTS: &[(&str, &str)] = &[
     ("README.md", "empyrean/README.md"),
@@ -593,7 +598,7 @@ fn package_target(
             target.triple,
         ])
         .args(["--prefix", "none", "--format", "{p}|{l}"])
-        .args(BINARIES.iter().flat_map(|(b, _, _)| ["-p", b]))
+        .args(binaries().flat_map(|b| ["-p", b]))
         .current_dir(ws)
         .output()
         .map_err(|e| format!("cargo tree could not be run: {e}"))?;

@@ -18,9 +18,14 @@ pub struct Config {
     /// Where the preflight keeps its builds, its copy of the registry, the worlds' backups and the
     /// record of what it changed.
     pub work_dir: PathBuf,
-    /// The git remote `ship` pushes to and reads the preflighted branch from.
+    /// The git remote `preflight` and `ship` push to and `ship` reads the preflighted branch
+    /// from. The owner's mirror carries it to GitHub.
     #[serde(default = "origin")]
     pub remote: String,
+    /// The public repository on GitHub, `<owner>/<name>`, whose CI `ship` waits for. Nothing here
+    /// pushes to it: the mirror carries `remote` there.
+    #[serde(default = "github_repo")]
+    pub github_repo: String,
     /// The ACE server folder `ship`'s release of the mod checks against; by default the first ACE
     /// world's (for a world on another machine, the copy of its assemblies a preflight fetched).
     #[serde(default)]
@@ -39,6 +44,10 @@ pub struct Config {
 
 fn origin() -> String {
     "origin".to_owned()
+}
+
+fn github_repo() -> String {
+    "dereth-network/dereth".to_owned()
 }
 
 /// The real hub the registry is copied from, and the dev hub run on the copy.
@@ -381,6 +390,12 @@ impl Config {
                  `discord_client_secret_file`"
                     .to_owned(),
             );
+        }
+        if !super::ci::repo_name(&self.github_repo) {
+            problems.push(format!(
+                "`github_repo` is {}: a GitHub repository's name, `<owner>/<name>`",
+                self.github_repo
+            ));
         }
         if !self.hub.public_url.starts_with("https://")
             && !self.hub.public_url.starts_with("http://127.0.0.1")

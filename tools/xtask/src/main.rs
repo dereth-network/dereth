@@ -153,14 +153,19 @@ Release and packaging:
                             CHANGES.md: the release workflow writes the notes from the commits
                             (network/RELEASING.md)
   preflight [--with <world>]... [--dry-run] | play [--web] | rollback | finish | status | setup
-                            on a branch, before anything is pushed: build what changed since main
-                            as release candidates, run the dev hub on a defanged copy of the real
-                            registry, and install the candidates in the dev worlds, linked to it;
-                            the setup file is the owner's (network/RELEASING.md, Preflight)
-  ship [--dry-run]          after a preflight: main fast-forwarded to exactly the preflighted
-                            commit (refused when its branch has moved), each changed product released
-                            and pushed as `release` does it, in this process, and the web client
-                            tagged with Dereth
+                            on a branch, before anything is released: push the commit to the
+                            remote's `preflight` branch (mirrored to GitHub, where CI runs on it),
+                            build what changed since main as release candidates, run the dev hub
+                            on a defanged copy of the real registry, and install the candidates in
+                            the dev worlds, linked to it; the setup file is the owner's
+                            (network/RELEASING.md, Preflight)
+  ship [--dry-run] [--skip-checks | --allow-failing] [--local-tier0]
+                            after a preflight: once CI is green on exactly the preflighted commit,
+                            main fast-forwarded to it (refused when its branch has moved), each
+                            changed product released and pushed as `release` does it, in this
+                            process, and the web client tagged with Dereth; --skip-checks does not
+                            ask CI, --allow-failing ships despite failed checks, --local-tier0 runs
+                            tier 0 here first
   release-notes dereth|empyrean|lyceum [--since <tag>] [--version <v>] [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final

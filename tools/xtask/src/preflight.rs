@@ -11,16 +11,18 @@
 //!   the candidate, points its hub setting at the dev hub (keeping the original) and starts it,
 //!   then says which worlds linked to the dev hub and which did not. A world on another machine,
 //!   Windows or Linux, is reached over ssh, and takes a build made here: nothing is built on a
-//!   world's machine.
+//!   world's machine. Before it builds, it pushes the commit to the remote's `preflight` branch,
+//!   which the owner's mirror carries to GitHub, so that CI runs on it meanwhile.
 //! - **`preflight play`**: the client and the launcher built, and the launcher started on the dev
 //!   hub's world list; with `--web`, the web client the preflight built served on this machine
 //!   alone, on the same list.
 //! - **`preflight rollback`**: every world put back from its backup, the dev hub stopped.
-//! - **`ship`**: tier 0 run once on exactly the preflighted commit (its output kept in the work
-//!   folder's `tier0.log`), `main` fast-forwarded to it (refused when the branch has moved since),
-//!   and each changed product released and pushed, as `cargo xtask release` does it, in this
-//!   process; with Dereth, the web client's release tagged on Dereth's. A ship that stopped carries
-//!   on from the next release.
+//! - **`ship`**: CI waited for on exactly the preflighted commit, and refused when a check failed
+//!   (`--skip-checks` does not ask, `--allow-failing` ships despite failures, `--local-tier0` runs
+//!   tier 0 here too); `main` fast-forwarded to it (refused when the branch has moved since), and
+//!   each changed product released and pushed, as `cargo xtask release` does it, in this process;
+//!   with Dereth, the web client's release tagged on Dereth's. A ship that stopped carries on from
+//!   the next release.
 //! - **`preflight finish`**: the final builds of what was released, from `main`, installed in the
 //!   dev worlds, each pointed back at the hub it named, and the dev hub stopped; after a ship that
 //!   stopped partway, what it did not release is named, and its worlds keep their candidates.
@@ -30,6 +32,7 @@
 //! The setup file is the owner's ([`config`]); nothing here names a machine. What a run changed is
 //! kept in the work folder ([`steps::Ledger`]), so any step can be undone.
 
+pub mod ci;
 pub mod config;
 pub mod edit;
 pub mod linux;
@@ -61,7 +64,9 @@ usage: cargo xtask preflight [--with <world>]... [--dry-run]   on a branch: buil
        cargo xtask preflight finish                           after ship: the final builds, the real hub
        cargo xtask preflight status                           what is installed where
        cargo xtask preflight setup [--out <folder>]           the one-time setup, a script per machine
-       cargo xtask ship [--dry-run]                           main to the preflighted commit, released
+       cargo xtask ship [--dry-run]                           once CI is green on the preflighted commit:
+                        [--skip-checks | --allow-failing]     main to it, released (CI not asked; or
+                        [--local-tier0]                       shipped despite failures; tier 0 here)
 
 The setup file is %APPDATA%\\Dereth\\preflight.toml (DERETH_PREFLIGHT names another); see
 network/RELEASING.md.";
@@ -128,85 +133,44 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     crate::package::git(root, args).map(|o| o.trim().to_owned())
 }
 
-/// The workspace's packages, each as (name, folder relative to the root).
-type Packages = Vec<(String, String)>;
-
-/// Each product's packages: its own and everything it depends on in the workspace.
-type Depends = BTreeMap<Product, BTreeSet<String>>;
-
-/// The workspace's packages and each product's, read from `cargo metadata` at `root`.
-fn packages(root: &Path) -> Result<(Packages, Depends), String> {
-    let out = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1", "--offline"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("cargo metadata: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "cargo metadata: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    let meta: serde_json::Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
-    let members: BTreeSet<&str> = meta["workspace_members"]
-        .as_array()
-        .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
-        .unwrap_or_default();
-    let mut names = BTreeMap::new();
-    let mut dirs = Vec::new();
-    for p in meta["packages"].as_array().into_iter().flatten() {
-        let id = p["id"].as_str().unwrap_or_default();
-        if !members.contains(id) {
-            continue;
+/// What the products are built from ([`plan::Built`]), read from `cargo metadata` of each
+/// workspace a product ships from ([`plan::LOCKS`]): the main one at `root`, and the launcher's.
+fn built(root: &Path) -> Result<plan::Built, String> {
+    let mut metas = Vec::new();
+    for lock in plan::LOCKS {
+        let manifest = root.join(lock).with_file_name("Cargo.toml");
+        let out = std::process::Command::new("cargo")
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--offline",
+                "--manifest-path",
+            ])
+            .arg(&manifest)
+            .current_dir(root)
+            .output()
+            .map_err(|e| format!("cargo metadata: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "cargo metadata for {}: {}",
+                manifest.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
         }
-        let name = p["name"].as_str().unwrap_or_default().to_owned();
-        let manifest = PathBuf::from(p["manifest_path"].as_str().unwrap_or_default());
-        let dir = manifest
-            .parent()
-            .and_then(|d| d.strip_prefix(root).ok())
-            .map(|d| d.display().to_string().replace('\\', "/"))
-            .unwrap_or_default();
-        names.insert(id.to_owned(), name.clone());
-        dirs.push((name, dir));
+        let meta: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| format!("cargo metadata for {}: {e}", manifest.display()))?;
+        metas.push((lock, meta));
     }
-    let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for n in meta["resolve"]["nodes"].as_array().into_iter().flatten() {
-        let Some(name) = n["id"].as_str().and_then(|id| names.get(id)) else {
-            continue;
-        };
-        let to = n["dependencies"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|d| d.as_str().and_then(|id| names.get(id)).cloned())
-            .collect();
-        deps.insert(name.clone(), to);
+    let built = plan::Built::read(&metas, root);
+    match built.missing.first() {
+        Some((product, package)) => Err(format!(
+            "{}'s release ships {package}, which no workspace holds: name what it ships now in \
+             `Product::ships` (tools/xtask/src/preflight/plan.rs)",
+            product.command_name()
+        )),
+        None => Ok(built),
     }
-    let mut depends = BTreeMap::new();
-    for p in Product::ALL {
-        let Some(root_pkg) = p.package() else {
-            continue;
-        };
-        let mut seen = BTreeSet::new();
-        let mut todo = vec![root_pkg.to_owned()];
-        // The web client is Dereth's too, and carries its version, though the client does not
-        // depend on it.
-        if p == Product::Dereth {
-            todo.push("dereth-web".to_owned());
-        }
-        while let Some(x) = todo.pop() {
-            if seen.insert(x.clone()) {
-                todo.extend(deps.get(&x).cloned().unwrap_or_default());
-            }
-        }
-        // The launcher's own crate is Dereth's, though the client does not depend on it.
-        if p == Product::Dereth {
-            seen.insert("dereth-launch".to_owned());
-        }
-        depends.insert(p, seen);
-    }
-    Ok((dirs, depends))
 }
 
 /// The repository as a preflight reads it.
@@ -218,9 +182,21 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         .lines()
         .map(str::to_owned)
         .collect();
-    let (dirs, depends) = packages(root)?;
-    let products = plan::products_of(&changed, &dirs, &depends);
-    let web_alone = plan::web_alone(&changed, &dirs, &depends);
+    let built = built(root)?;
+    // A lock file is weighed at the commit the changed files are counted from: the merge base.
+    let base = git(root, &["merge-base", "main", "HEAD"])?;
+    let moved = plan::lock_moves(
+        &changed,
+        &|lock| {
+            let at = |commit: &str| {
+                git(root, &["show", &format!("{commit}:{lock}")]).unwrap_or_default()
+            };
+            (at(&base), at("HEAD"))
+        },
+        &built.dev_only,
+    )?;
+    let products = plan::products_of(&changed, &built.packages, &built.depends, &moved);
+    let web_alone = plan::web_alone(&changed, &built.packages, &built.depends, &moved);
     let mut versions = BTreeMap::new();
     versions.insert(
         Product::Hub,
@@ -256,6 +232,12 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     bumps.insert(Product::Lyceum, plan::lyceum_bump());
+    for (product, moves) in &moved {
+        if let Some((_, why)) = bumps.get_mut(product) {
+            why.push_str("; ");
+            why.push_str(&plan::moves_why(moves));
+        }
+    }
     Ok(Repo {
         branch,
         commit,
@@ -483,6 +465,12 @@ pub fn run(
             r.why
         );
     }
+    // The mirror carries the commit to GitHub, where CI runs on it while the candidates build and
+    // the worlds are tried: `ship` waits for it.
+    println!(
+        "{}",
+        ci::push(m, root, &cfg.remote, &repo.commit, opts.dry_run)?
+    );
     // Each ACE world's mod is built against its own server.
     let ace = if versions.contains_key(&Product::Ace) {
         steps::ace_folders(m, cfg, &worlds)?
@@ -503,6 +491,7 @@ pub fn run(
     ledger.stage = Stage::Preflighted;
     ledger.commit = Some(repo.commit.clone());
     ledger.branch = Some(repo.branch.clone());
+    ledger.pushed = (!opts.dry_run).then(|| repo.commit.clone());
     ledger.releases = releases;
     ledger.shipped = steps::Shipped::default();
     ledger.save(m, &cfg.work_dir)?;
@@ -843,13 +832,36 @@ fn tier0_logged(root: &Path, log: &Path) -> Result<bool, String> {
     }
 }
 
-/// `cargo xtask ship [--dry-run]`.
-pub fn ship_command(args: &[String]) -> i32 {
-    let dry_run = args.iter().any(|a| a == "--dry-run");
-    if let Some(other) = args.iter().find(|a| *a != "--dry-run") {
-        eprintln!("unexpected `{other}`\n\n{USAGE}");
-        return 2;
+/// `ship`'s options.
+fn parse_ship(args: &[String]) -> Result<ship::Options, String> {
+    let mut o = ship::Options::default();
+    for a in args {
+        match a.as_str() {
+            "--dry-run" => o.dry_run = true,
+            "--skip-checks" => o.skip_checks = true,
+            "--allow-failing" => o.allow_failing = true,
+            "--local-tier0" => o.local_tier0 = true,
+            other => return Err(format!("unexpected `{other}`\n\n{USAGE}")),
+        }
     }
+    if o.skip_checks && o.allow_failing {
+        return Err(format!(
+            "--allow-failing takes the checks `--skip-checks` does not ask for: give one\n\n{USAGE}"
+        ));
+    }
+    Ok(o)
+}
+
+/// `cargo xtask ship [--dry-run] [--skip-checks | --allow-failing] [--local-tier0]`.
+pub fn ship_command(args: &[String]) -> i32 {
+    let opts = match parse_ship(args) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    let dry_run = opts.dry_run;
     let outcome = with_config(|cfg, _| {
         let root = workspace_root();
         let m = &mut Real;
@@ -862,8 +874,8 @@ pub fn ship_command(args: &[String]) -> i32 {
             .or_else(|| cfg.release_ace_dir());
         let remote = cfg.remote.clone();
         // Each release cut here, as `cargo xtask release` cuts it: never by starting cargo, whose
-        // build of this program could not replace it while it runs. Tier 0 is run once, by
-        // `ship`, on the commit it ships: the releases leave it out.
+        // build of this program could not replace it while it runs. The releases leave tier 0
+        // out: CI ran it on the commit `ship` ships, and `--local-tier0` runs it here once.
         let mut cut = |product: Product, version: &str| {
             crate::release::cut(
                 product.command_name(),
@@ -875,10 +887,10 @@ pub fn ship_command(args: &[String]) -> i32 {
             )
         };
         let mut tier0 = |log: &Path| tier0_logged(&root, log);
-        let r = ship::ship(m, cfg, &root, &mut cut, &mut tier0, &mut ledger, dry_run);
+        let r = ship::ship(m, cfg, &root, &mut cut, &mut tier0, &mut ledger, &opts);
         ledger.save(m, &cfg.work_dir)?;
         // Finished or stopped, how to send each tag it made again, on its own.
-        if let Some(resends) = ship::tag_resends(&ledger).filter(|_| !dry_run) {
+        if let Some(resends) = ship::tag_resends(&ledger, &cfg.remote).filter(|_| !dry_run) {
             println!("\n{resends}");
         }
         r?;

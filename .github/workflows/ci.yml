@@ -25,7 +25,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     defaults:
       run:
         shell: pwsh
@@ -51,6 +51,15 @@ jobs:
           rustup toolchain install $toolchain --profile minimal --component clippy,rustfmt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup override set $toolchain
+      # The dependencies' builds and the registry, kept between runs, one cache for each system
+      # (the workspace's own crates are always built afresh). Runs on main and on `preflight`, the
+      # branch `cargo xtask preflight` pushes, save theirs; a run on any other branch restores
+      # main's and saves nothing. After the toolchain: its version is part of the key.
+      - name: The dependencies' builds from earlier runs
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preflight' }}
       - name: Fetch locked dependencies
         run: cargo fetch --locked
       # The one check, the same command a contributor runs before pushing (CONTRIBUTING.md): the

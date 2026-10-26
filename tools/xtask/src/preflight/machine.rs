@@ -1,7 +1,7 @@
 //! Everything the preflight does to a machine, behind one trait: commands here and over ssh,
-//! copies both ways, processes it leaves running, files, services, and what a program here answers
-//! over HTTP, with the waits between tries. [`Real`] does it; the tests hand the preflight a fake
-//! that keeps a record instead, and never waits.
+//! copies both ways, processes it leaves running, files, services, what a program here answers
+//! over HTTP and what GitHub's API answers, with the clock and the waits between tries. [`Real`]
+//! does it; the tests hand the preflight a fake that keeps a record instead, and never waits.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -143,6 +143,39 @@ pub trait Machine {
     fn port_taken(&mut self, port: u16) -> bool;
     /// A wait of `ms` milliseconds between two tries of something that is still starting.
     fn pause(&mut self, ms: u64);
+    /// What GitHub's REST API answers `url` with, asked with the token [`TOKEN_VAR`] holds when it
+    /// is set, and with none when it is not; an error only when no answer came.
+    fn github(&mut self, url: &str) -> Result<GitHubAnswer, String>;
+    /// This machine's clock, in seconds since 1970: GitHub says when its limit is given back so.
+    fn now(&mut self) -> u64;
+}
+
+/// The variable holding a token GitHub is asked with: its calls are then the token's, 5,000 an
+/// hour, not the 60 an address with no token has.
+pub const TOKEN_VAR: &str = "GITHUB_TOKEN";
+
+/// The `Authorization` header GitHub is asked with: `token` (the value of [`TOKEN_VAR`]) as a
+/// bearer token, when it is set and not empty. The token goes in this header alone, never in a
+/// message.
+pub fn authorization(token: Option<&str>) -> Option<String> {
+    token
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("Bearer {t}"))
+}
+
+/// An answer of GitHub's REST API: its status, its body whatever the status, and what its
+/// headers say of the hourly limit on calls.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitHubAnswer {
+    pub status: u16,
+    pub body: String,
+    /// `x-ratelimit-remaining`: the calls left this hour.
+    pub remaining: Option<u64>,
+    /// `x-ratelimit-reset`: when the hour's calls are given back, in seconds since 1970.
+    pub reset: Option<u64>,
+    /// `retry-after`: the seconds to wait before asking again.
+    pub retry_after: Option<u64>,
 }
 
 /// This machine.
@@ -354,6 +387,54 @@ impl Machine for Real {
     fn pause(&mut self, ms: u64) {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
+
+    fn github(&mut self, url: &str) -> Result<GitHubAnswer, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .user_agent(concat!("dereth-xtask-ship/", env!("CARGO_PKG_VERSION")))
+            // Every status is an answer: a spent limit is one to wait out.
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(30)))
+            .build()
+            .into();
+        let mut request = agent
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        if let Some(a) = authorization(std::env::var(TOKEN_VAR).ok().as_deref()) {
+            request = request.header("Authorization", a);
+        }
+        let mut response = request.call().map_err(|e| format!("{url}: {e}"))?;
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse().ok())
+        };
+        let (remaining, reset, retry_after) = (
+            header("x-ratelimit-remaining"),
+            header("x-ratelimit-reset"),
+            header("retry-after"),
+        );
+        let status = response.status().as_u16();
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("{url}: {e}"))?;
+        Ok(GitHubAnswer {
+            status,
+            body,
+            remaining,
+            reset,
+            retry_after,
+        })
+    }
+
+    fn now(&mut self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+    }
 }
 
 /// A dry run: what would be done is printed, and nothing is; files are read where they are.
@@ -462,6 +543,15 @@ impl Machine for DryRun {
     }
 
     fn pause(&mut self, _ms: u64) {}
+
+    /// Asked: it changes nothing.
+    fn github(&mut self, url: &str) -> Result<GitHubAnswer, String> {
+        Real.github(url)
+    }
+
+    fn now(&mut self) -> u64 {
+        Real.now()
+    }
 }
 
 /// A file, or a folder and everything in it, copied to `to` (replacing what is there).

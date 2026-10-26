@@ -1,19 +1,34 @@
-//! `cargo xtask ship`: tier 0 run once on exactly the commit that was preflighted, `main`
+//! `cargo xtask ship`: CI waited for on exactly the commit that was preflighted (which the
+//! preflight pushed to the remote's `preflight` branch, for the mirror to carry to GitHub), `main`
 //! fast-forwarded to it, and every product it changed released (its version commit and tag, as
 //! `cargo xtask release` makes them, tier 0 left out) and pushed, each release cut in this process.
 //! A Dereth release brings the web client's, which carries Dereth's version: its tag on Dereth's
 //! release commit, pushed. It refuses when the branch preflighted has moved since, here or on the
-//! remote: what was checked is what ships. Each step is recorded in the ledger as it is done, so a
-//! ship that stopped carries on from the next release, with `main` past the preflighted commit by
-//! its own release commits and nothing else.
+//! remote, and when a check failed: what was checked is what ships. Each step is recorded in the
+//! ledger as it is done, so a ship that stopped carries on from the next release, with `main` past
+//! the preflighted commit by its own release commits and nothing else.
 
 use std::path::Path;
 
+use super::ci;
 use super::config::Config;
 use super::machine::Machine;
 use super::plan::Product;
 use super::steps::{Ledger, Stage};
 use crate::package::version::DERETH_TAG_PREFIX;
+
+/// How a ship is run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Options {
+    /// `--dry-run`: says what it would do, and does nothing past the checks.
+    pub dry_run: bool,
+    /// `--skip-checks`: CI is not asked.
+    pub skip_checks: bool,
+    /// `--allow-failing`: ships despite failed checks, naming each.
+    pub allow_failing: bool,
+    /// `--local-tier0`: tier 0 run here too, on the commit, before anything moves.
+    pub local_tier0: bool,
+}
 
 /// One product's release cut and pushed, `cargo xtask release <product> <version> --push`'s
 /// steps run in this process, tier 0 left out: the product and the version.
@@ -56,13 +71,11 @@ fn release_names(product: Product) -> (&'static str, &'static str) {
     }
 }
 
-/// The public repository the release workflows run in.
-const PUBLIC_REPO: &str = "git@github.com:dereth-network/dereth.git";
-
-/// The commands that send each tag the ship has made and pushed to the public repository again,
-/// on its own, so that its release workflow starts: GitHub makes no tag events for a push that
-/// carries more than three tags. `None` when it has made none.
-pub fn tag_resends(ledger: &Ledger) -> Option<String> {
+/// The commands that send each tag the ship has made and pushed to `remote` again, on its own,
+/// each deleted and pushed again there for the mirror to carry to GitHub, so that its release
+/// workflow starts: GitHub makes no tag events for a push that carries more than three tags.
+/// Nothing here pushes to GitHub itself. `None` when it has made none.
+pub fn tag_resends(ledger: &Ledger, remote: &str) -> Option<String> {
     let mut tags = Vec::new();
     for r in &ledger.releases {
         if !ledger.shipped.released.contains(&r.product) {
@@ -75,14 +88,13 @@ pub fn tag_resends(ledger: &Ledger) -> Option<String> {
     }
     let lines: Vec<String> = tags
         .iter()
-        .map(|t| {
-            format!("git push {PUBLIC_REPO} :refs/tags/{t}\ngit push {PUBLIC_REPO} refs/tags/{t}")
-        })
+        .map(|t| format!("git push {remote} :refs/tags/{t}\ngit push {remote} refs/tags/{t}"))
         .collect();
     (!lines.is_empty()).then(|| {
         format!(
             "If GitHub did not start the release workflows (it makes no tag events when one push \
-             carries more than three tags), send each tag again on its own:\n{}",
+             carries more than three tags), send each tag again on its own: run the mirror after \
+             each command, so that it carries each tag to GitHub alone:\n{}",
             lines.join("\n")
         )
     })
@@ -127,10 +139,12 @@ pub fn failing_tests(output: &str) -> Vec<String> {
     out
 }
 
-/// Ships what the ledger preflighted: tier 0 run on the commit, then each product's release cut
+/// Ships what the ledger preflighted: CI on the commit waited for and taken
+/// ([`ci::await_checks`]), tier 0 run on it with `--local-tier0`, then each product's release cut
 /// and pushed with `cut`, in the order the ledger lists them, and after Dereth's, the web
-/// client's tag. What a ship that stopped did already is not done again. With `dry_run`, says
-/// what it would do and does nothing past the checks.
+/// client's tag. What a ship that stopped did already is not done again, and once `main` has
+/// moved, its checks are not asked again. With `--dry-run`, says what it would do and does nothing
+/// past the checks, asking CI once and not waiting for it.
 pub fn ship(
     m: &mut dyn Machine,
     cfg: &Config,
@@ -138,8 +152,9 @@ pub fn ship(
     cut: &mut Cut<'_>,
     tier0: &mut Tier0<'_>,
     ledger: &mut Ledger,
-    dry_run: bool,
+    opts: &Options,
 ) -> Result<(), String> {
+    let dry_run = opts.dry_run;
     let remote = cfg.remote.as_str();
     let commit = match (ledger.stage, &ledger.commit) {
         (Stage::Preflighted, Some(c)) => c.clone(),
@@ -274,14 +289,24 @@ pub fn ship(
     if let Some(tag) = &web {
         println!("  and tag {tag} on Dereth's release, for the web client");
     }
+    // CI on the commit, before anything moves. A ship that stopped after `main` moved is past it.
+    if shipped_main.is_none() {
+        println!("{}", checks(m, cfg, ledger, &commit, opts)?);
+    }
+    let local_tier0 = opts.local_tier0
+        && shipped_main.is_none()
+        && ledger.shipped.tier0.as_ref() != Some(&commit);
     if dry_run {
+        if local_tier0 {
+            println!("would run tier 0 here on {commit} (--local-tier0)");
+        }
         println!("A dry run: nothing is changed.");
         return Ok(());
     }
-    // Tier 0 once, on the commit itself, before anything moves; the releases leave it out. A ship
-    // that stopped after it passed does not run it again: the checks above found the tree as it
-    // was then, but for this ship's own release commits.
-    if ledger.shipped.tier0.as_ref() != Some(&commit) {
+    // Tier 0 here, with `--local-tier0`, once, on the commit itself, before anything moves; the
+    // releases leave it out. A ship that stopped after it passed does not run it again: the checks
+    // above found the tree as it was then, but for this ship's own release commits.
+    if local_tier0 {
         git(m, root, &["checkout", &branch])?;
         let log = cfg.work_dir.join(TIER0_LOG);
         println!(
@@ -336,6 +361,39 @@ pub fn ship(
     }
     ledger.stage = Stage::Shipped;
     Ok(())
+}
+
+/// CI on `commit`, the preflighted one, as `opts` takes it: not asked with `--skip-checks`;
+/// otherwise waited for ([`ci::await_checks`]), and refused when the preflight did not push the
+/// commit for CI to run on. What to say of it.
+pub fn checks(
+    m: &mut dyn Machine,
+    cfg: &Config,
+    ledger: &Ledger,
+    commit: &str,
+    opts: &Options,
+) -> Result<String, String> {
+    if opts.skip_checks {
+        return Ok("CI is not asked (--skip-checks).".to_owned());
+    }
+    if ledger.pushed.as_deref() != Some(commit) {
+        return Err(format!(
+            "the preflight did not push {} to {}'s {} branch, so no CI ran on it for this ship: \
+             run `cargo xtask preflight` again, or ship with `--skip-checks` (and \
+             `--local-tier0` for tier 0 here)",
+            short(commit),
+            cfg.remote,
+            ci::BRANCH
+        ));
+    }
+    ci::await_checks(
+        m,
+        &cfg.github_repo,
+        commit,
+        opts.allow_failing,
+        opts.dry_run,
+        &mut |l| println!("{l}"),
+    )
 }
 
 /// The web client's release of Dereth's `version`: its tag on the commit Dereth's release tag

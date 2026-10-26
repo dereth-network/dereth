@@ -37,7 +37,15 @@ struct Fake {
     locked: BTreeSet<String>,
     /// Each command of a Linux script done, as `host: command`, the tests of an `if` left out.
     shelled: Vec<String>,
+    /// What GitHub's API answers each address with, in turn, the last again and again; a page of
+    /// check runs not here answers with every check passed ([`green`]).
+    github: BTreeMap<String, Vec<Result<machine::GitHubAnswer, String>>>,
+    /// The milliseconds the fake has paused for: its clock is [`T0`] and these.
+    paused_ms: u64,
 }
+
+/// The fake's clock when nothing has paused, in seconds since 1970.
+const T0: u64 = 1_792_990_000;
 
 /// The dev hub's world list as it answers once it runs.
 const WORLD_LIST: &str = r#"{"data": [], "nextOffset": null}"#;
@@ -83,6 +91,17 @@ impl Fake {
                 .collect(),
         );
         self
+    }
+
+    /// What GitHub's API answers `url` with, each answer in turn, the last again and again.
+    fn github(mut self, url: &str, answers: Vec<Result<machine::GitHubAnswer, String>>) -> Self {
+        self.github.insert(url.to_owned(), answers);
+        self
+    }
+
+    /// The fake's clock, in seconds since 1970.
+    fn clock(&self) -> u64 {
+        T0 + self.paused_ms / 1000
     }
 
     /// `start`'s answer, which wins over any given before.
@@ -498,6 +517,24 @@ impl Machine for Fake {
 
     fn pause(&mut self, ms: u64) {
         self.log.push(format!("pause {ms}"));
+        self.paused_ms += ms;
+    }
+
+    fn github(&mut self, url: &str) -> Result<machine::GitHubAnswer, String> {
+        self.log.push(format!("github {url}"));
+        match self.github.get_mut(url) {
+            Some(answers) if answers.len() > 1 => answers.remove(0),
+            Some(answers) => answers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| Err("no answer".to_owned())),
+            None if url.contains("/check-runs?") => Ok(ok(&green())),
+            None => Err(format!("{url}: no answer")),
+        }
+    }
+
+    fn now(&mut self) -> u64 {
+        self.clock()
     }
 }
 
@@ -786,6 +823,12 @@ impl Machine for Counting {
     fn pause(&mut self, ms: u64) {
         self.inner.pause(ms);
     }
+    fn github(&mut self, url: &str) -> Result<machine::GitHubAnswer, String> {
+        Machine::github(&mut self.inner, url)
+    }
+    fn now(&mut self) -> u64 {
+        self.inner.now()
+    }
 }
 
 /// The fake with the real hub's backup there to copy down, and the candidate's two counts: before
@@ -928,6 +971,7 @@ foreach ($file in {dbs}) {{
 fn the_setup_file_names_the_hub_and_the_worlds_and_refuses_what_it_cannot_use() {
     let c = cfg();
     assert_eq!(c.remote, "origin");
+    assert_eq!(c.github_repo, "dereth-network/dereth");
     assert_eq!(c.hub.listen, "127.0.0.1:8650");
     assert_eq!(c.dev_hub_link(), "wss://dev-hub.example.org");
     assert_eq!(c.worlds[1].kind, Kind::Ace);
@@ -1158,7 +1202,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     .collect();
     let of = |paths: &[&str]| {
         let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
-        plan::products_of(&changed, &packages, &depends)
+        plan::products_of(&changed, &packages, &depends, &BTreeMap::new())
             .into_iter()
             .collect::<Vec<_>>()
     };
@@ -1186,9 +1230,18 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         of(&["docs/network/03-world-behaviour.md", "README.md"]),
         [] as [Product; 0]
     );
+    // A lock file by itself is no product's: the crates that moved in it say whose it is.
     assert_eq!(
-        of(&["Cargo.lock"]),
-        [Product::Hub, Product::Empyrean, Product::Dereth]
+        of(&["Cargo.lock", "dereth/launcher/Cargo.lock"]),
+        [] as [Product; 0]
+    );
+    let moved: BTreeMap<Product, Vec<String>> =
+        [(Product::Hub, vec!["serde 1.0.210 -> 1.0.214".to_owned()])].into();
+    assert_eq!(
+        plan::products_of(&["Cargo.lock".to_owned()], &packages, &depends, &moved)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [Product::Hub]
     );
     // Lyceum is released for its own folder's changes, the sample it carries among them, and not
     // for the client's drawing it is built on.
@@ -1215,9 +1268,23 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     assert_eq!(of(&["dereth\\web\\src\\front.rs"]), [Product::Dereth]);
     let web_alone = |paths: &[&str]| {
         let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
-        plan::web_alone(&changed, &packages, &depends)
+        plan::web_alone(&changed, &packages, &depends, &BTreeMap::new())
     };
     assert!(web_alone(&["dereth/web/www/front.js", "docs/x.md"]));
+    let client_moved: BTreeMap<Product, Vec<String>> =
+        [(Product::Dereth, vec!["wgpu 27.0.0 -> 27.0.1".to_owned()])].into();
+    assert!(
+        !plan::web_alone(
+            &[
+                "dereth/web/www/front.js".to_owned(),
+                "Cargo.lock".to_owned()
+            ],
+            &packages,
+            &depends,
+            &client_moved
+        ),
+        "the client's crates moved too"
+    );
     assert!(!web_alone(&[
         "dereth/web/www/front.js",
         "dereth/client/src/main.rs"
@@ -1270,6 +1337,593 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         plan::stamp(Product::Empyrean, "0.2.2", &mut stamped),
         "0.2.2-rc.1",
         "each product its own"
+    );
+}
+
+/// A lock file's text: each crate as (name, version, from crates.io, its dependency entries).
+fn lock_text(crates: &[(&str, &str, bool, &[&str])]) -> String {
+    let mut text = "# This file is automatically @generated by Cargo.\nversion = 4\n".to_owned();
+    for (name, version, registry, deps) in crates {
+        text.push_str(&format!(
+            "\n[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n"
+        ));
+        if *registry {
+            text.push_str(
+                "source = \"registry+https://github.com/rust-lang/crates.io-index\"\n\
+                 checksum = \"0000\"\n",
+            );
+        }
+        if !deps.is_empty() {
+            text.push_str("dependencies = [\n");
+            for d in *deps {
+                text.push_str(&format!(" \"{d}\",\n"));
+            }
+            text.push_str("]\n");
+        }
+    }
+    text
+}
+
+/// The main workspace's lock at `main`: the hub, Empyrean and the client over shared crates, two
+/// versions of `getrandom` side by side.
+fn main_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static str])> {
+    vec![
+        ("dereth-primitives", "0.4.6", false, &["serde"]),
+        (
+            "dereth-network-hub",
+            "0.3.1",
+            false,
+            &["dereth-primitives", "getrandom 0.2.15", "rusqlite"],
+        ),
+        (
+            "empyrean-server",
+            "0.3.4",
+            false,
+            &["dereth-primitives", "getrandom 0.3.1", "ureq"],
+        ),
+        (
+            "dereth-client",
+            "0.4.6",
+            false,
+            &["dereth-primitives", "wgpu"],
+        ),
+        ("dereth-launch", "0.4.6", false, &["serde"]),
+        ("serde", "1.0.210", true, &[]),
+        ("getrandom", "0.2.15", true, &[]),
+        ("getrandom", "0.3.1", true, &[]),
+        ("rusqlite", "0.37.0", true, &[]),
+        ("ureq", "3.1.0", true, &[]),
+        ("wgpu", "27.0.0", true, &[]),
+    ]
+}
+
+/// The moves `lock_moves` finds when only the main workspace's lock changed, from `before` to
+/// `after`.
+fn moves(before: &str, after: &str) -> BTreeMap<Product, Vec<String>> {
+    let (before, after) = (before.to_owned(), after.to_owned());
+    plan::lock_moves(
+        &["Cargo.lock".to_owned()],
+        &move |lock| {
+            assert_eq!(lock, "Cargo.lock");
+            (before.clone(), after.clone())
+        },
+        &BTreeMap::new(),
+    )
+    .expect("both locks read")
+}
+
+#[test]
+fn a_lock_change_counts_only_for_the_products_whose_crates_moved() {
+    let before = lock_text(&main_lock());
+
+    // A crate only the client is built from: Dereth's release alone, and the reason is the crate.
+    let mut lock = main_lock();
+    lock.iter_mut().find(|c| c.0 == "wgpu").expect("wgpu").1 = "27.0.1";
+    let found = moves(&before, &lock_text(&lock));
+    assert_eq!(found.keys().copied().collect::<Vec<_>>(), [Product::Dereth]);
+    assert_eq!(found[&Product::Dereth], ["wgpu 27.0.0 -> 27.0.1"]);
+
+    // A crate every product is built from: each of them, each with its reason.
+    let mut lock = main_lock();
+    lock.iter_mut().find(|c| c.0 == "serde").expect("serde").1 = "1.0.214";
+    let found = moves(&before, &lock_text(&lock));
+    assert_eq!(
+        found.keys().copied().collect::<Vec<_>>(),
+        [Product::Hub, Product::Empyrean, Product::Dereth]
+    );
+    assert_eq!(
+        plan::moves_why(&found[&Product::Hub]),
+        "its dependencies moved: serde 1.0.210 -> 1.0.214"
+    );
+
+    // Of two versions of one crate, only the one a product is built from counts for it.
+    let mut lock = main_lock();
+    lock.iter_mut()
+        .find(|c| c.0 == "getrandom" && c.1 == "0.3.1")
+        .expect("getrandom 0.3")
+        .1 = "0.3.4";
+    lock.iter_mut()
+        .find(|c| c.0 == "empyrean-server")
+        .expect("server")
+        .3 = &["dereth-primitives", "getrandom 0.3.4", "ureq"];
+    let found = moves(&before, &lock_text(&lock));
+    assert_eq!(
+        found.keys().copied().collect::<Vec<_>>(),
+        [Product::Empyrean]
+    );
+    assert_eq!(found[&Product::Empyrean], ["getrandom 0.3.1 -> 0.3.4"]);
+
+    // New workspace crates and the crates they bring, which no product is built from yet: none.
+    let mut lock = main_lock();
+    lock.extend([
+        (
+            "dereth-plugin-host",
+            "0.1.0",
+            false,
+            &["dereth-primitives", "mlua"][..],
+        ),
+        ("mlua", "0.12.1", false, &["bstr", "serde"][..]),
+        ("bstr", "1.12.0", true, &[][..]),
+    ]);
+    assert_eq!(moves(&before, &lock_text(&lock)), BTreeMap::new());
+
+    // Once the client uses them, they are Dereth's: the crate it now pins from crates.io is said
+    // as added. The path crates are their folders' to say (`products_of`).
+    lock.iter_mut()
+        .find(|c| c.0 == "dereth-client")
+        .expect("client")
+        .3 = &["dereth-primitives", "dereth-plugin-host", "wgpu"];
+    let found = moves(&before, &lock_text(&lock));
+    assert_eq!(found.keys().copied().collect::<Vec<_>>(), [Product::Dereth]);
+    assert_eq!(found[&Product::Dereth], ["bstr 1.12.0 (added)"]);
+
+    // A release's own version moves in the lock with its manifest: that is no crate moving.
+    let mut lock = main_lock();
+    for c in lock.iter_mut().filter(|c| !c.2) {
+        c.1 = "0.9.9";
+    }
+    assert_eq!(moves(&before, &lock_text(&lock)), BTreeMap::new());
+
+    // A crate a product no longer uses is said as removed.
+    let mut lock = main_lock();
+    lock.retain(|c| c.0 != "rusqlite");
+    lock.iter_mut()
+        .find(|c| c.0 == "dereth-network-hub")
+        .expect("hub")
+        .3 = &["dereth-primitives", "getrandom 0.2.15"];
+    let found = moves(&before, &lock_text(&lock));
+    assert_eq!(found[&Product::Hub], ["rusqlite 0.37.0 (removed)"]);
+    assert_eq!(found.len(), 1);
+
+    // An unchanged lock moves nothing, and a lock that is not among the changed files is not read.
+    assert_eq!(moves(&before, &before), BTreeMap::new());
+    let unread = plan::lock_moves(
+        &["network/hub/src/core.rs".to_owned()],
+        &|_| panic!("no lock changed"),
+        &BTreeMap::new(),
+    )
+    .expect("nothing to read");
+    assert!(unread.is_empty());
+    assert!(plan::lock_moves(
+        &["Cargo.lock".to_owned()],
+        &|_| { (before.clone(), "[[package]]\nname = 3".to_owned()) },
+        &BTreeMap::new()
+    )
+    .is_err());
+}
+
+#[test]
+fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
+    let launcher = |tauri: &str| {
+        lock_text(&[
+            (
+                "dereth-launcher",
+                "0.4.6",
+                false,
+                &["dereth-launch", "tauri"],
+            ),
+            ("dereth-launch", "0.4.6", false, &["serde"]),
+            ("tauri", tauri, true, &["serde"]),
+            ("serde", "1.0.210", true, &[]),
+        ])
+    };
+    let found = plan::lock_moves(
+        &["dereth/launcher/Cargo.lock".to_owned()],
+        &|lock| {
+            assert_eq!(lock, "dereth/launcher/Cargo.lock");
+            (launcher("2.8.0"), launcher("2.9.1"))
+        },
+        &BTreeMap::new(),
+    )
+    .expect("both locks read");
+    assert_eq!(found.keys().copied().collect::<Vec<_>>(), [Product::Dereth]);
+    assert_eq!(found[&Product::Dereth], ["tauri 2.8.0 -> 2.9.1"]);
+    // A launcher lock that is new on the branch is all added.
+    let found = plan::lock_moves(
+        &["dereth/launcher/Cargo.lock".to_owned()],
+        &|_| (String::new(), launcher("2.9.1")),
+        &BTreeMap::new(),
+    )
+    .expect("both locks read");
+    assert_eq!(
+        found[&Product::Dereth],
+        ["serde 1.0.210 (added)", "tauri 2.9.1 (added)"]
+    );
+    // A crate taken from a git commit instead names where it is from.
+    let from_git = launcher("2.9.1").replace(
+        "name = \"tauri\"\nversion = \"2.9.1\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"",
+        "name = \"tauri\"\nversion = \"2.9.1\"\nsource = \"git+https://example.org/tauri#0123abc\"",
+    );
+    let found = plan::lock_moves(
+        &["dereth/launcher/Cargo.lock".to_owned()],
+        &|_| (launcher("2.9.1"), from_git.clone()),
+        &BTreeMap::new(),
+    )
+    .expect("both locks read");
+    assert_eq!(
+        found[&Product::Dereth],
+        ["tauri 2.9.1 -> 2.9.1 (git+https://example.org/tauri#0123abc)"]
+    );
+
+    let many: Vec<String> = (1..=6).map(|i| format!("c{i} 1.0.0 -> 1.0.1")).collect();
+    assert_eq!(
+        plan::moves_why(&many),
+        "its dependencies moved: c1 1.0.0 -> 1.0.1, c2 1.0.0 -> 1.0.1, c3 1.0.0 -> 1.0.1, \
+         c4 1.0.0 -> 1.0.1 and 2 more"
+    );
+}
+
+/// A `cargo metadata` answer for a workspace of `members`: each package as its name, its folder
+/// under `/w` for a path crate (none for one from crates.io), and its dependencies as `name`,
+/// `name:build`, `name:dev` or `name:normal+dev`.
+fn metadata(members: &[&str], packages: &[(&str, Option<&str>, &[&str])]) -> serde_json::Value {
+    use serde_json::{json, Value};
+    const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+    let id = |name: &str| match packages.iter().find(|p| p.0 == name).and_then(|p| p.1) {
+        Some(dir) => format!("path+file:///w/{dir}#{name}@0.1.0"),
+        None => format!("{CRATES_IO}#{name}@1.0.0"),
+    };
+    let listed: Vec<Value> = packages
+        .iter()
+        .map(|(name, dir, _)| {
+            json!({
+                "name": name,
+                "id": id(name),
+                "source": if dir.is_some() { Value::Null } else { json!(CRATES_IO) },
+                "manifest_path": match dir {
+                    Some(d) => format!("/w/{d}/Cargo.toml"),
+                    None => format!("/home/me/.cargo/registry/src/index/{name}-1.0.0/Cargo.toml"),
+                },
+            })
+        })
+        .collect();
+    let nodes: Vec<Value> = packages
+        .iter()
+        .map(|(name, _, deps)| {
+            let deps: Vec<Value> = deps
+                .iter()
+                .map(|d| {
+                    let (dep, kinds) = d.split_once(':').unwrap_or((d, "normal"));
+                    let kinds: Vec<Value> = kinds
+                        .split('+')
+                        .map(|k| {
+                            let kind = if k == "normal" { Value::Null } else { json!(k) };
+                            json!({ "kind": kind, "target": null })
+                        })
+                        .collect();
+                    json!({ "name": dep.replace('-', "_"), "pkg": id(dep), "dep_kinds": kinds })
+                })
+                .collect();
+            json!({ "id": id(name), "deps": deps })
+        })
+        .collect();
+    json!({
+        "packages": listed,
+        "workspace_members": members.iter().map(|m| id(m)).collect::<Vec<_>>(),
+        "resolve": { "nodes": nodes },
+    })
+}
+
+/// The main workspace and the launcher's, as `cargo metadata` reads them: the hub, Empyrean's
+/// server and import tool, and the client, the web client and the launcher, over shared crates,
+/// a vendored crate, and crates only tests are built with.
+fn workspaces() -> plan::Built {
+    let main = metadata(
+        &[
+            "dereth-network-hub",
+            "empyrean-server",
+            "empyrean-import",
+            "empyrean-content",
+            "empyrean-testkit",
+            "dereth-client-runtime",
+            "dereth-client",
+            "dereth-web",
+            "dereth-launch",
+            "dereth-primitives",
+        ],
+        &[
+            (
+                "dereth-network-hub",
+                Some("network/hub"),
+                &["dereth-primitives", "tempfile:dev"],
+            ),
+            (
+                "empyrean-server",
+                Some("empyrean/server"),
+                &[
+                    "dereth-primitives",
+                    "embed-resource:build",
+                    "empyrean-testkit:dev",
+                ],
+            ),
+            (
+                "empyrean-import",
+                Some("empyrean/import"),
+                &["empyrean-content"],
+            ),
+            (
+                "empyrean-content",
+                Some("empyrean/crates/content"),
+                &["dereth-primitives"],
+            ),
+            (
+                "empyrean-testkit",
+                Some("empyrean/testkit"),
+                &["dereth-client-runtime"],
+            ),
+            (
+                "dereth-client-runtime",
+                Some("core/client-runtime"),
+                &["dereth-primitives", "symphonia"],
+            ),
+            (
+                "dereth-client",
+                Some("dereth/client"),
+                &["dereth-client-runtime", "dereth-launch", "mlua"],
+            ),
+            ("dereth-web", Some("dereth/web"), &["dereth-client-runtime"]),
+            (
+                "dereth-launch",
+                Some("dereth/launcher/crates/launch"),
+                &["dereth-primitives"],
+            ),
+            ("mlua", Some("vendor/mlua"), &["bstr"]),
+            (
+                "dereth-primitives",
+                Some("core/primitives"),
+                &["serde", "proptest:dev"],
+            ),
+            ("serde", None, &[]),
+            ("tempfile", None, &[]),
+            ("embed-resource", None, &[]),
+            ("symphonia", None, &[]),
+            ("bstr", None, &[]),
+            ("proptest", None, &[]),
+        ],
+    );
+    let launcher = metadata(
+        &["dereth-launcher"],
+        &[
+            (
+                "dereth-launcher",
+                Some("dereth/launcher"),
+                &["dereth-launch:normal+dev", "tauri", "tempfile:dev"],
+            ),
+            (
+                "dereth-launch",
+                Some("dereth/launcher/crates/launch"),
+                &["dereth-primitives"],
+            ),
+            ("dereth-primitives", Some("core/primitives"), &["serde"]),
+            ("tauri", None, &["serde"]),
+            ("serde", None, &[]),
+            ("tempfile", None, &[]),
+        ],
+    );
+    plan::Built::read(
+        &[
+            ("Cargo.lock", main),
+            ("dereth/launcher/Cargo.lock", launcher),
+        ],
+        Path::new("/w"),
+    )
+}
+
+/// The main workspace's lock, as `workspaces` resolves it.
+fn workspace_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static str])> {
+    vec![
+        (
+            "dereth-network-hub",
+            "0.3.1",
+            false,
+            &["dereth-primitives", "tempfile"],
+        ),
+        (
+            "empyrean-server",
+            "0.3.4",
+            false,
+            &["dereth-primitives", "embed-resource", "empyrean-testkit"],
+        ),
+        ("empyrean-import", "0.3.4", false, &["empyrean-content"]),
+        ("empyrean-content", "0.3.4", false, &["dereth-primitives"]),
+        (
+            "empyrean-testkit",
+            "0.3.4",
+            false,
+            &["dereth-client-runtime"],
+        ),
+        (
+            "dereth-client-runtime",
+            "0.0.0",
+            false,
+            &["dereth-primitives", "symphonia"],
+        ),
+        (
+            "dereth-client",
+            "0.4.6",
+            false,
+            &["dereth-client-runtime", "dereth-launch", "mlua"],
+        ),
+        ("dereth-web", "0.4.6", false, &["dereth-client-runtime"]),
+        ("dereth-launch", "0.4.6", false, &["dereth-primitives"]),
+        ("mlua", "0.12.1", false, &["bstr"]),
+        ("dereth-primitives", "0.0.0", false, &["proptest", "serde"]),
+        ("serde", "1.0.210", true, &[]),
+        ("tempfile", "3.20.0", true, &[]),
+        ("embed-resource", "3.0.5", true, &[]),
+        ("symphonia", "0.5.4", true, &[]),
+        ("bstr", "1.12.0", true, &[]),
+        ("proptest", "1.7.0", true, &[]),
+    ]
+}
+
+#[test]
+fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_alone() {
+    let built = workspaces();
+    let set = |names: &[&str]| {
+        names
+            .iter()
+            .map(|n| (*n).to_owned())
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(
+        built.depends,
+        [
+            (
+                Product::Hub,
+                set(&["dereth-network-hub", "dereth-primitives"])
+            ),
+            (
+                Product::Empyrean,
+                set(&[
+                    "empyrean-server",
+                    "empyrean-import",
+                    "empyrean-content",
+                    "dereth-primitives"
+                ])
+            ),
+            (
+                Product::Dereth,
+                set(&[
+                    "dereth-client",
+                    "dereth-client-runtime",
+                    "dereth-web",
+                    "dereth-launch",
+                    "dereth-launcher",
+                    "dereth-primitives",
+                    "mlua"
+                ])
+            ),
+        ]
+        .into()
+    );
+    assert_eq!(
+        built.dev_only,
+        [
+            ("dereth-launcher", set(&["tempfile"])),
+            ("dereth-network-hub", set(&["tempfile"])),
+            ("dereth-primitives", set(&["proptest"])),
+            ("empyrean-server", set(&["empyrean-testkit"])),
+        ]
+        .map(|(p, s)| (p.to_owned(), s))
+        .into()
+    );
+    assert!(built
+        .packages
+        .contains(&("mlua".to_owned(), "vendor/mlua".to_owned())));
+    assert!(built
+        .packages
+        .contains(&("dereth-launcher".to_owned(), "dereth/launcher".to_owned())));
+    assert!(
+        built.packages.iter().all(|(n, _)| n != "serde"),
+        "a crate from crates.io has no folder here"
+    );
+    assert_eq!(built.missing, []);
+    // A shipped package no workspace holds is said, not passed over.
+    let short = plan::Built::read(
+        &[(
+            "Cargo.lock",
+            metadata(
+                &["empyrean-server"],
+                &[("empyrean-server", Some("empyrean/server"), &[])],
+            ),
+        )],
+        Path::new("/w"),
+    );
+    assert!(short
+        .missing
+        .contains(&(Product::Empyrean, "empyrean-import")));
+
+    let of = |path: &str| {
+        plan::products_of(
+            &[path.to_owned()],
+            &built.packages,
+            &built.depends,
+            &BTreeMap::new(),
+        )
+        .into_iter()
+        .collect::<Vec<_>>()
+    };
+    // Empyrean's release ships its import tool, and what the tool is built from.
+    assert_eq!(of("empyrean/import/src/main.rs"), [Product::Empyrean]);
+    assert_eq!(
+        of("empyrean/crates/content/src/lib.rs"),
+        [Product::Empyrean]
+    );
+    // A crate only tests are built with ships in nothing, nor does what only it brings.
+    assert_eq!(of("empyrean/testkit/src/lib.rs"), [] as [Product; 0]);
+    assert_eq!(of("core/client-runtime/src/audio.rs"), [Product::Dereth]);
+    // A vendored crate outside the workspace is its users'.
+    assert_eq!(of("vendor/mlua/src/lua.rs"), [Product::Dereth]);
+    assert_eq!(
+        of("dereth/launcher/crates/launch/src/pad.rs"),
+        [Product::Dereth]
+    );
+    assert_eq!(
+        of("core/primitives/src/lib.rs"),
+        [Product::Hub, Product::Empyrean, Product::Dereth]
+    );
+
+    // What the release packaging builds for Empyrean is what Empyrean ships.
+    assert_eq!(
+        Product::Empyrean
+            .ships()
+            .iter()
+            .map(|(_, p)| *p)
+            .collect::<Vec<_>>(),
+        crate::package::binaries().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_crate_moving_under_a_dev_dependency_alone_releases_nothing() {
+    let built = workspaces();
+    let before = lock_text(&workspace_lock());
+    let moved = |name: &str, to: &'static str| {
+        let mut lock = workspace_lock();
+        lock.iter_mut().find(|c| c.0 == name).expect("a crate").1 = to;
+        let after = lock_text(&lock);
+        plan::lock_moves(
+            &["Cargo.lock".to_owned()],
+            &|_| (before.clone(), after.clone()),
+            &built.dev_only,
+        )
+        .expect("both locks read")
+        .into_keys()
+        .collect::<Vec<_>>()
+    };
+    // Only tests are built with these.
+    assert_eq!(moved("tempfile", "3.23.0"), [] as [Product; 0]);
+    assert_eq!(moved("proptest", "1.8.0"), [] as [Product; 0]);
+    // Empyrean reaches it only through its test kit; the client is built with it.
+    assert_eq!(moved("symphonia", "0.5.5"), [Product::Dereth]);
+    // A build dependency builds the release.
+    assert_eq!(moved("embed-resource", "3.0.6"), [Product::Empyrean]);
+    // Under the vendored crate.
+    assert_eq!(moved("bstr", "1.13.1"), [Product::Dereth]);
+    assert_eq!(
+        moved("serde", "1.0.214"),
+        [Product::Hub, Product::Empyrean, Product::Dereth]
     );
 }
 
@@ -1636,6 +2290,171 @@ fn cutter(
 /// The logs tier 0 was run with, one for each run.
 type Runs = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
 
+/// `ship` as it runs with no option given.
+const SHIP: ship::Options = ship::Options {
+    dry_run: false,
+    skip_checks: false,
+    allow_failing: false,
+    local_tier0: false,
+};
+/// `ship --dry-run`.
+const DRY: ship::Options = ship::Options {
+    dry_run: true,
+    ..SHIP
+};
+/// `ship --local-tier0`.
+const LOCAL: ship::Options = ship::Options {
+    local_tier0: true,
+    ..SHIP
+};
+
+/// The commit the ship tests preflighted.
+const COMMIT: &str = "c0ffee0000000000000000000000000000000001";
+
+/// CI's jobs, as `.github/workflows/ci.yml` names them.
+const CI_JOBS: [&str; 6] = [
+    "tier0 (windows-latest)",
+    "tier0 (ubuntu-latest)",
+    "tier0 (macos-latest)",
+    "network (windows-latest)",
+    "network (ubuntu-latest)",
+    "web (wasm32)",
+];
+
+/// The page of CI's job `name` on GitHub, as a check run gives it.
+fn job_page(name: &str) -> String {
+    let i = CI_JOBS.iter().position(|j| *j == name).expect("a CI job");
+    format!(
+        "https://github.com/dereth-network/dereth/actions/runs/40100000000/job/{}",
+        120_800_000_000_u64 + i as u64
+    )
+}
+
+/// A page of check runs as GitHub's API answers it, with the fields it gives each (its app's
+/// trimmed): CI's jobs on [`COMMIT`], each one queued, running or finished as `state` says of
+/// its name (a status, and a conclusion once it is completed).
+fn check_runs(state: &dyn Fn(&str) -> (&'static str, Option<&'static str>)) -> String {
+    let runs: Vec<String> = CI_JOBS
+        .iter()
+        .map(|name| {
+            let (status, conclusion) = state(name);
+            let page = job_page(name);
+            let id = page.rsplit('/').next().expect("an id").to_owned();
+            let quoted =
+                |v: Option<&str>| v.map_or_else(|| "null".to_owned(), |v| format!("\"{v}\""));
+            let done = (status == "completed").then_some("2026-10-26T14:31:40Z");
+            format!(
+                r#"{{
+      "id": {id},
+      "name": "{name}",
+      "node_id": "CR_kwDOUeCjls8AAAAcHJ{id}",
+      "head_sha": "{COMMIT}",
+      "external_id": "8de31b95-263a-596f-be41-{id}",
+      "url": "https://api.github.com/repos/dereth-network/dereth/check-runs/{id}",
+      "html_url": "{page}",
+      "details_url": "{page}",
+      "status": "{status}",
+      "conclusion": {conclusion},
+      "started_at": "2026-10-26T14:02:11Z",
+      "completed_at": {done},
+      "output": {{
+        "title": null,
+        "summary": null,
+        "text": null,
+        "annotations_count": 0,
+        "annotations_url": "https://api.github.com/repos/dereth-network/dereth/check-runs/{id}/annotations"
+      }},
+      "check_suite": {{
+        "id": 108556938400
+      }},
+      "app": {{
+        "id": 15368,
+        "client_id": "Iv1.05c79e9ad1f6bdfa",
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      }},
+      "pull_requests": []
+    }}"#,
+                conclusion = quoted(conclusion),
+                done = quoted(done),
+            )
+        })
+        .collect();
+    format!(
+        "{{\n  \"total_count\": {},\n  \"check_runs\": [\n    {}\n  ]\n}}\n",
+        runs.len(),
+        runs.join(",\n    ")
+    )
+}
+
+/// GitHub's answer when no check run has started on the commit yet.
+const NO_CHECKS: &str = "{\n  \"total_count\": 0,\n  \"check_runs\": []\n}\n";
+
+/// Every CI job passed.
+fn green() -> String {
+    check_runs(&|_| ("completed", Some("success")))
+}
+
+/// A page of check runs where the job `name` is as `status` and `conclusion` say, and every
+/// other job passed.
+fn but(name: &'static str, status: &'static str, conclusion: Option<&'static str>) -> String {
+    check_runs(&move |n| {
+        if n == name {
+            (status, conclusion)
+        } else {
+            ("completed", Some("success"))
+        }
+    })
+}
+
+/// A 200 answer of GitHub's with `body`, and calls enough left this hour.
+fn ok(body: &str) -> machine::GitHubAnswer {
+    machine::GitHubAnswer {
+        status: 200,
+        body: body.to_owned(),
+        remaining: Some(57),
+        reset: Some(T0 + 3_000),
+        retry_after: None,
+    }
+}
+
+/// GitHub's answer when the hour's calls made with no token are spent, given back at `reset`.
+fn spent(reset: u64) -> machine::GitHubAnswer {
+    machine::GitHubAnswer {
+        status: 403,
+        body: concat!(
+            r#"{"message":"API rate limit exceeded for 203.0.113.9. (But here's the good news: "#,
+            r#"Authenticated requests get a higher rate limit. Check out the documentation for "#,
+            r#"more details.)","documentation_url":"https://docs.github.com/rest/overview/"#,
+            r#"resources-in-the-rest-api#rate-limiting"}"#
+        )
+        .to_owned(),
+        remaining: Some(0),
+        reset: Some(reset),
+        retry_after: None,
+    }
+}
+
+/// The first page of [`COMMIT`]'s check runs, as the API is asked for it.
+fn runs_url() -> String {
+    super::ci::check_runs_url("dereth-network/dereth", COMMIT, 1)
+}
+
+/// [`COMMIT`]'s checks, as [`super::ci::await_checks`] asks GitHub for them on `f` and takes
+/// them: what it answers, and each line it said while it waited.
+fn ci_on(f: &mut Fake, allow_failing: bool, once: bool) -> (Result<String, String>, Vec<String>) {
+    let mut said = Vec::new();
+    let r = super::ci::await_checks(
+        f,
+        &cfg().github_repo,
+        COMMIT,
+        allow_failing,
+        once,
+        &mut |l| said.push(l.to_owned()),
+    );
+    (r, said)
+}
+
 /// `ship` of what `l` preflighted, on `f`, its releases cut by `cut`, and tier 0 a stand-in that
 /// records each run in `runs` and passes when `passes`.
 fn ship_with(
@@ -1644,14 +2463,14 @@ fn ship_with(
     cut: &mut ship::Cut<'_>,
     runs: &Runs,
     passes: bool,
-    dry_run: bool,
+    opts: ship::Options,
 ) -> Result<(), String> {
     let runs = runs.clone();
     let mut tier0 = move |log: &Path| {
         runs.borrow_mut().push(key(log));
         Ok(passes)
     };
-    ship::ship(f, &cfg(), Path::new("D:/repo"), cut, &mut tier0, l, dry_run)
+    ship::ship(f, &cfg(), Path::new("D:/repo"), cut, &mut tier0, l, &opts)
 }
 
 /// A ship of the commit preflighted on the branch `release` (`commit`), of `products`, where the
@@ -1670,6 +2489,7 @@ fn shipping(products: &[Product], here: &str, there: &str, ancestor: bool) -> (F
         stage: Stage::Preflighted,
         commit: Some(commit.to_owned()),
         branch: Some("release".to_owned()),
+        pushed: Some(commit.to_owned()),
         ..Ledger::default()
     };
     let mut stamped = BTreeMap::new();
@@ -1683,7 +2503,14 @@ fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_p
     let products = [Product::Hub, Product::Empyrean];
     let runs = Runs::default();
     let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
-        ship_with(f, l, &mut cutter(cuts, None), &runs, true, dry_run)
+        ship_with(
+            f,
+            l,
+            &mut cutter(cuts, None),
+            &runs,
+            true,
+            if dry_run { DRY } else { SHIP },
+        )
     };
     let cuts = Cuts::default();
 
@@ -1749,7 +2576,7 @@ fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_p
         &mut cutter(&cuts, Some(Product::Hub)),
         &Runs::default(),
         true,
-        false,
+        SHIP,
     )
     .expect_err("stopped");
     assert!(
@@ -1765,7 +2592,14 @@ fn ship_tags_the_web_client_on_dereths_release_commit_and_pushes_the_tag() {
     let commit = "c0ffee0000000000000000000000000000000001";
     let runs = Runs::default();
     let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
-        ship_with(f, l, &mut cutter(cuts, None), &runs, true, dry_run)
+        ship_with(
+            f,
+            l,
+            &mut cutter(cuts, None),
+            &runs,
+            true,
+            if dry_run { DRY } else { SHIP },
+        )
     };
     let cuts = Cuts::default();
     let (mut f, mut l) = shipping(&[Product::Empyrean, Product::Dereth], commit, commit, true);
@@ -1830,14 +2664,23 @@ CI tier 0 -- no data (before pushing; public CI)
 ";
 
 #[test]
-fn ship_runs_tier0_once_on_the_preflighted_commit_before_main_moves_and_keeps_its_log() {
+fn ship_runs_tier0_here_with_local_tier0_alone_once_before_main_moves_and_keeps_its_log() {
     let commit = "c0ffee0000000000000000000000000000000001";
     let products = [Product::Hub, Product::Empyrean, Product::Dereth];
 
+    // Without --local-tier0, CI's tier 0 stands for it: none is run here.
     let cuts = Cuts::default();
     let runs = Runs::default();
     let (mut f, mut l) = shipping(&products, commit, commit, true);
-    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, SHIP).expect("shipped");
+    assert!(runs.borrow().is_empty(), "{:?}", runs.borrow());
+    assert!(f.done("git checkout release").is_empty());
+    assert_eq!(l.shipped.tier0, None);
+    assert_eq!(cuts.borrow().len(), 3);
+
+    let cuts = Cuts::default();
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, LOCAL).expect("shipped");
     assert_eq!(
         *runs.borrow(),
         ["D:/preflight/tier0.log"],
@@ -1847,11 +2690,25 @@ fn ship_runs_tier0_once_on_the_preflighted_commit_before_main_moves_and_keeps_it
     // On the preflighted branch, which is the commit, before main is checked out and moved.
     assert!(f.at("git checkout release") < f.at("git checkout main"));
     assert_eq!(l.shipped.tier0.as_deref(), Some(commit));
+    // After CI is taken: what tier 0 here adds is a check of this machine too.
+    assert!(f.at("github ") < f.at("git checkout release"));
 
     // A dry run does not run it.
     let runs = Runs::default();
     let (mut f, mut l) = shipping(&products, commit, commit, true);
-    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, true).expect("a dry run");
+    let dry_local = ship::Options {
+        local_tier0: true,
+        ..DRY
+    };
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &runs,
+        true,
+        dry_local,
+    )
+    .expect("a dry run");
     assert!(runs.borrow().is_empty());
 
     // A red tier 0 stops the ship before anything moves, and names the tests that failed and
@@ -1866,7 +2723,7 @@ fn ship_runs_tier0_once_on_the_preflighted_commit_before_main_moves_and_keeps_it
         &mut cutter(&cuts, None),
         &runs,
         false,
-        false,
+        LOCAL,
     )
     .expect_err("stopped")
     .replace('\\', "/");
@@ -1899,7 +2756,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         &mut cutter(&cuts, Some(Product::Empyrean)),
         &runs,
         true,
-        false,
+        LOCAL,
     )
     .expect_err("stopped");
     assert!(
@@ -1923,7 +2780,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         &mut cutter(&cuts, None),
         &runs,
         true,
-        false,
+        SHIP,
     )
     .expect_err("refused");
     assert!(e.starts_with("release has moved"), "{e}");
@@ -1938,7 +2795,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         &mut cutter(&cuts, None),
         &runs,
         true,
-        false,
+        SHIP,
     )
     .expect_err("refused");
     assert!(
@@ -1947,8 +2804,10 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
     );
     assert_eq!(cuts.borrow().len(), 2, "nothing cut by either");
 
-    // Carried on: the rest released, tier 0 not run again, main not moved again, the web tag made.
-    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    // Carried on: the rest released, CI not asked and tier 0 not run again, main not moved
+    // again, the web tag made.
+    assert_eq!(f.done("github ").len(), 1);
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, LOCAL).expect("shipped");
     assert_eq!(
         *cuts.borrow(),
         [
@@ -1959,6 +2818,11 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         ]
     );
     assert_eq!(runs.borrow().len(), 1);
+    assert_eq!(
+        f.done("github ").len(),
+        1,
+        "past the checks once main moved"
+    );
     assert_eq!(f.done("git merge --ff-only").len(), 1);
     assert_eq!(f.done("git tag").len(), 1);
     assert_eq!(l.stage, Stage::Shipped);
@@ -1975,8 +2839,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
             .reply("git rev-parse main", Ok("f00d"))
             .reply("git log --format=%s beef..main", Ok(subjects));
         let mut l = stopped.clone();
-        ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false)
-            .expect("carried on");
+        ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, SHIP).expect("carried on");
         assert_eq!(
             *cuts.borrow(),
             [
@@ -1996,7 +2859,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         &mut cutter(&cuts, Some(Product::Lyceum)),
         &runs,
         true,
-        false,
+        SHIP,
     )
     .expect_err("stopped");
     assert!(l.shipped.web);
@@ -2004,7 +2867,7 @@ fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_
         "git rev-parse --verify --quiet refs/tags/dereth-web-v0.4.4",
         Ok("b0a7\n"),
     );
-    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, SHIP).expect("shipped");
     assert_eq!(f.done("git tag").len(), 1, "{:#?}", f.record());
     assert_eq!(
         cuts.borrow().last(),
@@ -2024,44 +2887,46 @@ fn ship_says_how_to_send_each_tag_it_made_again_on_its_own() {
         &mut cutter(&Cuts::default(), None),
         &runs,
         true,
-        false,
+        SHIP,
     )
     .expect("shipped");
     assert_eq!(
-        ship::tag_resends(&l).as_deref(),
+        ship::tag_resends(&l, &cfg().remote).as_deref(),
         Some(
             "If GitHub did not start the release workflows (it makes no tag events when one push \
-             carries more than three tags), send each tag again on its own:\n\
-             git push git@github.com:dereth-network/dereth.git :refs/tags/network-hub-v0.2.2\n\
-             git push git@github.com:dereth-network/dereth.git refs/tags/network-hub-v0.2.2\n\
-             git push git@github.com:dereth-network/dereth.git :refs/tags/empyrean-v0.3.2\n\
-             git push git@github.com:dereth-network/dereth.git refs/tags/empyrean-v0.3.2\n\
-             git push git@github.com:dereth-network/dereth.git :refs/tags/dereth-v0.4.4\n\
-             git push git@github.com:dereth-network/dereth.git refs/tags/dereth-v0.4.4\n\
-             git push git@github.com:dereth-network/dereth.git :refs/tags/dereth-web-v0.4.4\n\
-             git push git@github.com:dereth-network/dereth.git refs/tags/dereth-web-v0.4.4"
+             carries more than three tags), send each tag again on its own: run the mirror after \
+             each command, so that it carries each tag to GitHub alone:\n\
+             git push origin :refs/tags/network-hub-v0.2.2\n\
+             git push origin refs/tags/network-hub-v0.2.2\n\
+             git push origin :refs/tags/empyrean-v0.3.2\n\
+             git push origin refs/tags/empyrean-v0.3.2\n\
+             git push origin :refs/tags/dereth-v0.4.4\n\
+             git push origin refs/tags/dereth-v0.4.4\n\
+             git push origin :refs/tags/dereth-web-v0.4.4\n\
+             git push origin refs/tags/dereth-web-v0.4.4"
         )
     );
 
     // Stopped after its first release: that one's alone.
     let (mut f, mut l) = shipping(&products, commit, commit, true);
     let cut = &mut cutter(&Cuts::default(), Some(Product::Empyrean));
-    ship_with(&mut f, &mut l, cut, &runs, true, false).expect_err("stopped");
+    ship_with(&mut f, &mut l, cut, &runs, true, SHIP).expect_err("stopped");
     assert_eq!(
-        ship::tag_resends(&l).as_deref(),
+        ship::tag_resends(&l, &cfg().remote).as_deref(),
         Some(
             "If GitHub did not start the release workflows (it makes no tag events when one push \
-             carries more than three tags), send each tag again on its own:\n\
-             git push git@github.com:dereth-network/dereth.git :refs/tags/network-hub-v0.2.2\n\
-             git push git@github.com:dereth-network/dereth.git refs/tags/network-hub-v0.2.2"
+             carries more than three tags), send each tag again on its own: run the mirror after \
+             each command, so that it carries each tag to GitHub alone:\n\
+             git push origin :refs/tags/network-hub-v0.2.2\n\
+             git push origin refs/tags/network-hub-v0.2.2"
         )
     );
 
     // Stopped before any: none.
     let (mut f, mut l) = shipping(&products, commit, commit, true);
     let cut = &mut cutter(&Cuts::default(), Some(Product::Hub));
-    ship_with(&mut f, &mut l, cut, &runs, true, false).expect_err("stopped");
-    assert_eq!(ship::tag_resends(&l), None);
+    ship_with(&mut f, &mut l, cut, &runs, true, SHIP).expect_err("stopped");
+    assert_eq!(ship::tag_resends(&l, &cfg().remote), None);
 }
 
 #[test]
@@ -3820,7 +4685,7 @@ fn a_lyceum_release_is_preflighted_and_shipped_and_needs_its_highlights_first() 
         &mut cutter(&cuts, None),
         &Runs::default(),
         true,
-        false,
+        SHIP,
     )
     .expect("shipped");
     assert_eq!(
@@ -3831,4 +4696,887 @@ fn a_lyceum_release_is_preflighted_and_shipped_and_needs_its_highlights_first() 
         ]
     );
     assert!(f.done("git tag").is_empty(), "no web client without Dereth");
+}
+
+/// The page of [`COMMIT`]'s checks on GitHub, as the messages name it.
+fn checks_page() -> String {
+    format!("https://github.com/dereth-network/dereth/commit/{COMMIT}/checks")
+}
+
+#[test]
+fn a_preflight_pushes_its_commit_to_the_remotes_preflight_branch_for_the_mirror_before_it_builds() {
+    let push = format!("git push --force origin {COMMIT}:refs/heads/preflight");
+    let mut m = counting(web_fake());
+    preflight(&mut m, &[Product::Hub, Product::Dereth], &[]).expect("preflighted");
+    let f = &m.inner;
+    assert_eq!(
+        f.done("git push"),
+        std::slice::from_ref(&push),
+        "{:#?}",
+        f.record()
+    );
+    // Once what the run needs is checked, before anything is built or stopped: CI runs while the
+    // candidates build and the worlds are tried.
+    assert!(f.last("probe ") < f.at(&push), "{:#?}", f.record());
+    assert!(f.at(&push) < f.at("git worktree add"));
+    assert!(f.at(&push) < f.at("ssh ") && f.at(&push) < f.at("service "));
+    let l = ledger(&mut m);
+    assert_eq!(l.pushed.as_deref(), Some(COMMIT));
+    let summary = steps::summary(&cfg(), &l);
+    assert!(
+        summary.contains(&format!(
+            "  pushed to origin's preflight branch: once the mirror carries it to GitHub, CI runs \
+             on it ({}), and `cargo xtask ship` waits for that\n",
+            checks_page()
+        )),
+        "{summary}"
+    );
+    // A rollback forgets it with the rest.
+    let mut l = l;
+    steps::rollback(&mut m, &cfg(), &mut l).expect("rolled back");
+    assert_eq!(l.pushed, None);
+
+    // A push that fails stops the run before anything is built or stopped.
+    let mut m = counting(fake().reply("git push", Err("origin: Permission denied (publickey).")));
+    let e = preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect_err("stopped");
+    assert_eq!(
+        e,
+        format!(
+            "{push}: origin: Permission denied (publickey).\nNothing was built or stopped. `cargo \
+             xtask ship` waits for CI on the commit, which runs on it once it is pushed and \
+             mirrored."
+        )
+    );
+    assert!(
+        touched(
+            &m.inner,
+            &["git worktree", "cargo", "ssh", "service", "spawn"]
+        )
+        .is_empty(),
+        "{:#?}",
+        m.inner.record()
+    );
+    assert_eq!(ledger(&mut m).pushed, None);
+
+    // A dry run says what it would push, and pushes nothing.
+    let mut f = fake();
+    let said =
+        super::ci::push(&mut f, Path::new("D:/repo"), &cfg().remote, COMMIT, true).expect("said");
+    assert_eq!(
+        said,
+        format!(
+            "would push {COMMIT} to origin's preflight branch, for the mirror to carry to GitHub \
+             and CI to run on: {push}"
+        )
+    );
+    assert!(f.record().is_empty());
+    let mut m = counting(fake());
+    run(
+        &mut m,
+        &cfg(),
+        Path::new("D:/repo"),
+        &repo(&[Product::Hub]),
+        &Options {
+            with: Vec::new(),
+            dry_run: true,
+        },
+    )
+    .expect("a dry run");
+    assert!(m.inner.done("git push").is_empty());
+    assert_eq!(ledger(&mut m).pushed, None, "nothing was pushed");
+
+    // The setup file's remote is the one pushed to, and its `github_repo` the one whose CI is
+    // read; a `github_repo` that is not `<owner>/<name>` is refused.
+    let fork = Config::parse(&SETUP.replacen(
+        "[hub]\n",
+        "remote = \"forgejo\"\ngithub_repo = \"someone/dereth-fork\"\n\n[hub]\n",
+        1,
+    ))
+    .expect("parses");
+    let mut m = counting(fake());
+    run(
+        &mut m,
+        &fork,
+        Path::new("D:/repo"),
+        &repo(&[Product::Hub]),
+        &Options::default(),
+    )
+    .expect("preflighted");
+    assert_eq!(
+        m.inner.done("git push"),
+        [format!(
+            "git push --force forgejo {COMMIT}:refs/heads/preflight"
+        )]
+    );
+    let mut f = Fake::default();
+    let _ = super::ci::await_checks(&mut f, &fork.github_repo, COMMIT, false, true, &mut |_| {});
+    assert_eq!(
+        f.done("github "),
+        [format!(
+            "github {}",
+            super::ci::check_runs_url("someone/dereth-fork", COMMIT, 1)
+        )]
+    );
+    for bad in [
+        "git@github.com:dereth-network/dereth.git",
+        "https://github.com/dereth-network/dereth",
+        "dereth-network",
+        "dereth network/dereth",
+    ] {
+        let e = Config::parse(&SETUP.replacen(
+            "[hub]\n",
+            &format!("github_repo = \"{bad}\"\n\n[hub]\n"),
+            1,
+        ))
+        .expect_err("refused");
+        assert!(
+            e.contains(&format!(
+                "`github_repo` is {bad}: a GitHub repository's name, `<owner>/<name>`"
+            )),
+            "{e}"
+        );
+    }
+    assert!(super::ci::repo_name("dereth-network/dereth"));
+}
+
+/// Nothing xtask runs or prints pushes to GitHub: the mirror carries what is pushed to the remote.
+#[test]
+fn nothing_the_preflight_or_ship_runs_or_prints_pushes_to_github() {
+    let to_github = |line: &str| line.contains("github.com");
+    // A preflight, its dry run's words, and a ship of every product, the web client's tag with it.
+    let mut m = counting(web_fake());
+    preflight(
+        &mut m,
+        &[Product::Hub, Product::Empyrean, Product::Dereth],
+        &[],
+    )
+    .expect("preflighted");
+    let mut said = vec![super::ci::push(
+        &mut fake(),
+        Path::new("D:/repo"),
+        &cfg().remote,
+        COMMIT,
+        true,
+    )
+    .expect("said")];
+    let (mut f, mut l) = shipping(
+        &[Product::Hub, Product::Empyrean, Product::Dereth],
+        COMMIT,
+        COMMIT,
+        true,
+    );
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&Cuts::default(), None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect("shipped");
+    said.push(ship::tag_resends(&l, &cfg().remote).expect("tags to send again"));
+    let pushes: Vec<String> = m
+        .inner
+        .record()
+        .into_iter()
+        .chain(f.record())
+        .filter(|l| l.starts_with("git push") || l.starts_with("ssh "))
+        .collect();
+    assert!(pushes
+        .iter()
+        .any(|l| l.starts_with("git push --force origin ")));
+    assert!(pushes
+        .iter()
+        .any(|l| l.starts_with("git push origin dereth-web-v")));
+    for line in pushes.iter().chain(&said) {
+        assert!(!to_github(line), "{line}");
+    }
+    // The only address of GitHub's xtask reads is its API's, asked and never pushed to.
+    let asked: Vec<String> = f.done("github ");
+    assert!(
+        !asked.is_empty()
+            && asked
+                .iter()
+                .all(|l| l.starts_with("github https://api.github.com/")),
+        "{asked:?}"
+    );
+    // And no git address of GitHub's is anywhere in xtask's code to push to.
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![src];
+    let mut seen = 0;
+    while let Some(p) = files.pop() {
+        if p.is_dir() {
+            files.extend(
+                std::fs::read_dir(&p)
+                    .expect("a folder")
+                    .map(|e| e.expect("an entry").path()),
+            );
+        } else if p.extension().is_some_and(|e| e == "rs") && !p.ends_with("preflight/tests.rs") {
+            seen += 1;
+            let text = std::fs::read_to_string(&p).expect("a source file");
+            for git in ["git@github.com", "ssh://git@github.com", "github.com:"] {
+                assert!(!text.contains(git), "{} names {git}", p.display());
+            }
+        }
+    }
+    assert!(seen > 10, "xtask's sources were read");
+}
+
+#[test]
+fn ship_asks_github_for_the_checks_of_exactly_the_preflighted_commit_and_carries_on_when_all_passed(
+) {
+    // A job that was skipped counts as passed.
+    let page = but("web (wasm32)", "completed", Some("skipped"));
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), vec![Ok(ok(&page))]);
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect("shipped");
+    assert_eq!(
+        runs_url(),
+        format!(
+            "https://api.github.com/repos/dereth-network/dereth/commits/{COMMIT}/check-runs?per_page=100&page=1"
+        )
+    );
+    assert_eq!(
+        f.done("github "),
+        [format!("github {}", runs_url())],
+        "asked once, and not waited for"
+    );
+    assert!(f.done("pause").is_empty());
+    // After the checks that the branch has not moved, and before anything moves.
+    assert!(f.at("git rev-parse refs/heads/release") < f.at("github "));
+    assert!(f.at("github ") < f.at("git checkout main"));
+    assert_eq!(cuts.borrow().len(), 1);
+    assert_eq!(l.stage, Stage::Shipped);
+
+    // What it says of them: one line.
+    let mut f = Fake::default().github(&runs_url(), vec![Ok(ok(&page))]);
+    let (r, said) = ci_on(&mut f, false, false);
+    assert_eq!(
+        r,
+        Ok(format!(
+            "CI passed on c0ffee0000: all 6 checks green ({}).",
+            checks_page()
+        ))
+    );
+    assert!(said.is_empty(), "{said:?}");
+
+    // A branch that moved is refused before GitHub is asked.
+    let (mut f, mut l) = shipping(&[Product::Hub], "feed", COMMIT, true);
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect_err("refused");
+    assert!(f.done("github ").is_empty());
+}
+
+#[test]
+fn ship_refuses_at_once_when_a_check_failed_naming_each_with_its_page() {
+    // macOS's tier 0 failed and Linux's network job was cancelled; the web job still runs.
+    let page = check_runs(&|n| match n {
+        "tier0 (macos-latest)" => ("completed", Some("failure")),
+        "network (ubuntu-latest)" => ("completed", Some("cancelled")),
+        "web (wasm32)" => ("in_progress", None),
+        _ => ("completed", Some("success")),
+    });
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub, Product::Dereth], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), vec![Ok(ok(&page))]);
+    let e = ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect_err("refused");
+    assert_eq!(
+        e,
+        format!(
+            "CI failed on c0ffee0000; nothing is shipped. The checks that failed:\n  \
+             tier0 (macos-latest): failure, {}\n  \
+             network (ubuntu-latest): cancelled, {}\n\
+             Still running:\n  \
+             web (wasm32): in progress, {}\n\
+             `cargo xtask ship --allow-failing` ships despite them.",
+            job_page("tier0 (macos-latest)"),
+            job_page("network (ubuntu-latest)"),
+            job_page("web (wasm32)")
+        )
+    );
+    assert!(f.done("pause").is_empty(), "not waiting for the rest");
+    assert!(f.done("git checkout").is_empty() && f.done("git tag").is_empty());
+    assert!(cuts.borrow().is_empty());
+    assert_eq!(l.shipped, steps::Shipped::default());
+    assert_eq!(l.stage, Stage::Preflighted);
+
+    // Whatever else a finished check ended as is a failure too.
+    for conclusion in ["timed_out", "action_required", "stale"] {
+        let page = but("tier0 (windows-latest)", "completed", Some(conclusion));
+        let mut f = Fake::default().github(&runs_url(), vec![Ok(ok(&page))]);
+        let (r, _) = ci_on(&mut f, false, false);
+        let want = format!(
+            "tier0 (windows-latest): {}, {}",
+            conclusion.replace('_', " "),
+            job_page("tier0 (windows-latest)")
+        );
+        assert!(r.as_ref().is_err_and(|e| e.contains(&want)), "{r:?}");
+    }
+}
+
+#[test]
+fn ship_waits_while_ci_runs_saying_each_jobs_state_as_it_changes_on_the_machines_clock() {
+    let queued = check_runs(&|n| {
+        if n.starts_with("tier0") {
+            ("queued", None)
+        } else {
+            ("in_progress", None)
+        }
+    });
+    let half = check_runs(&|n| match n {
+        "tier0 (macos-latest)" => ("queued", None),
+        "tier0 (windows-latest)" | "web (wasm32)" => ("in_progress", None),
+        _ => ("completed", Some("success")),
+    });
+    let answers = || vec![Ok(ok(&queued)), Ok(ok(&half)), Ok(ok(&green()))];
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), answers());
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect("shipped");
+    assert_eq!(f.done("github ").len(), 3);
+    assert_eq!(
+        f.done("pause"),
+        ["pause 60000", "pause 60000"],
+        "a minute apart, on the machine's clock"
+    );
+    assert!(f.last("github ") < f.at("git checkout main"));
+    assert_eq!(cuts.borrow().len(), 1);
+
+    // What it says while it waits: each job's state the first time, then each change alone.
+    let mut f = Fake::default().github(&runs_url(), answers());
+    let (r, said) = ci_on(&mut f, false, false);
+    assert!(
+        r.as_ref()
+            .is_ok_and(|l| l.starts_with("CI passed on c0ffee0000: all 6 checks green")),
+        "{r:?}"
+    );
+    assert_eq!(
+        said,
+        [
+            format!(
+                "Waiting for CI on c0ffee0000 ({}), for 120 minutes at most:",
+                checks_page()
+            ),
+            "  tier0 (windows-latest): queued".to_owned(),
+            "  tier0 (ubuntu-latest): queued".to_owned(),
+            "  tier0 (macos-latest): queued".to_owned(),
+            "  network (windows-latest): in progress".to_owned(),
+            "  network (ubuntu-latest): in progress".to_owned(),
+            "  web (wasm32): in progress".to_owned(),
+            "  tier0 (windows-latest): in progress".to_owned(),
+            "  tier0 (ubuntu-latest): success".to_owned(),
+            "  network (windows-latest): success".to_owned(),
+            "  network (ubuntu-latest): success".to_owned(),
+        ]
+    );
+
+    // A dry run asks once and does not wait.
+    let mut f = Fake::default().github(&runs_url(), answers());
+    let (r, said) = ci_on(&mut f, false, true);
+    assert_eq!(
+        r,
+        Ok(format!(
+            "CI is still running on c0ffee0000: would wait for tier0 (windows-latest), tier0 \
+             (ubuntu-latest), tier0 (macos-latest), network (windows-latest), network \
+             (ubuntu-latest), web (wasm32) ({}).",
+            checks_page()
+        ))
+    );
+    assert!(said.is_empty() && f.done("pause").is_empty());
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), answers());
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        DRY,
+    )
+    .expect("a dry run");
+    assert_eq!(f.done("github ").len(), 1);
+    assert!(f.done("pause").is_empty() && f.done("git checkout").is_empty());
+}
+
+#[test]
+fn ship_waits_for_checks_not_started_yet_and_gives_up_when_none_ever_starts() {
+    let mut f = Fake::default().github(
+        &runs_url(),
+        vec![Ok(ok(NO_CHECKS)), Ok(ok(NO_CHECKS)), Ok(ok(&green()))],
+    );
+    let (r, said) = ci_on(&mut f, false, false);
+    assert!(r.is_ok_and(|l| l.starts_with("CI passed")));
+    assert_eq!(
+        said,
+        [
+            format!(
+                "Waiting for CI on c0ffee0000 ({}), for 120 minutes at most:",
+                checks_page()
+            ),
+            "  nothing has run on it on GitHub yet: has the mirror pushed `preflight`?".to_owned()
+        ],
+        "said once each"
+    );
+    assert_eq!(f.done("pause"), ["pause 60000", "pause 60000"]);
+
+    // Not on GitHub yet ("No commit found": the mirror has not carried it there) is waited for
+    // the same way.
+    let not_there = machine::GitHubAnswer {
+        status: 422,
+        body: format!(r#"{{"message":"No commit found for SHA: {COMMIT}","status":"422"}}"#),
+        ..machine::GitHubAnswer::default()
+    };
+    let mut f = Fake::default().github(&runs_url(), vec![Ok(not_there.clone()), Ok(ok(&green()))]);
+    let (r, said) = ci_on(&mut f, false, false);
+    assert!(r.is_ok_and(|l| l.starts_with("CI passed")));
+    assert!(
+        said.contains(
+            &"  nothing has run on it on GitHub yet: has the mirror pushed `preflight`?".to_owned()
+        ),
+        "{said:?}"
+    );
+    assert_eq!(f.done("pause"), ["pause 60000"]);
+
+    for answer in [ok(NO_CHECKS), not_there] {
+        let mut f = Fake::default().github(&runs_url(), vec![Ok(answer)]);
+        let (r, _) = ci_on(&mut f, false, false);
+        assert_eq!(
+            r,
+            Err(format!(
+                "Nothing has run on c0ffee0000 on GitHub in 15 minutes ({}); nothing is shipped. \
+                 Has the mirror pushed `preflight`? `cargo xtask preflight` pushes the commit to \
+                 that branch for the mirror to carry to GitHub; `--skip-checks` ships without CI.",
+                checks_page()
+            ))
+        );
+        assert_eq!(
+            f.done("github ").len() as u64,
+            super::ci::NONE_S / super::ci::POLL_S + 1
+        );
+    }
+    let mut f = Fake::default().github(&runs_url(), vec![Ok(ok(NO_CHECKS))]);
+    let _ = ci_on(&mut f, false, false);
+    assert_eq!(f.clock() - T0, super::ci::NONE_S);
+
+    // A dry run says it would wait.
+    let mut f = Fake::default().github(&runs_url(), vec![Ok(ok(NO_CHECKS))]);
+    assert_eq!(
+        ci_on(&mut f, false, true).0,
+        Ok(format!(
+            "Nothing has run on c0ffee0000 on GitHub yet: has the mirror pushed `preflight`? \
+             Would wait for it ({}).",
+            checks_page()
+        ))
+    );
+}
+
+#[test]
+fn ship_gives_up_when_ci_has_not_finished_within_the_bound_naming_what_still_runs() {
+    let page = but("tier0 (macos-latest)", "queued", None);
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), vec![Ok(ok(&page))]);
+    let e = ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        SHIP,
+    )
+    .expect_err("gave up");
+    assert_eq!(
+        e,
+        format!(
+            "CI has not finished on c0ffee0000 in 120 minutes ({}); nothing is shipped.\n\
+             Still running:\n  tier0 (macos-latest): queued, {}\n\
+             `cargo xtask ship` waits again; `--skip-checks` ships without waiting.",
+            checks_page(),
+            job_page("tier0 (macos-latest)")
+        )
+    );
+    assert_eq!(
+        f.done("github ").len() as u64,
+        super::ci::BOUND_S / super::ci::POLL_S + 1
+    );
+    assert_eq!(
+        f.clock() - T0,
+        super::ci::BOUND_S,
+        "the machine's clock alone"
+    );
+    assert!(f.done("git checkout").is_empty() && cuts.borrow().is_empty());
+}
+
+#[test]
+fn ship_waits_out_githubs_limit_on_calls_and_spreads_the_calls_left_over_the_hour() {
+    let running = but("tier0 (macos-latest)", "in_progress", None);
+    let pauses = |answers: Vec<Result<machine::GitHubAnswer, String>>| {
+        let mut f = Fake::default().github(&runs_url(), answers);
+        let (r, said) = ci_on(&mut f, false, false);
+        (r, said, f.done("pause"))
+    };
+
+    // Spent: asked again once the hour's calls are given back, ten minutes on.
+    let (r, said, waits) = pauses(vec![
+        Ok(ok(&running)),
+        Ok(spent(T0 + 60 + 600)),
+        Ok(ok(&green())),
+    ]);
+    assert!(r.is_ok_and(|l| l.starts_with("CI passed")));
+    assert_eq!(waits, ["pause 60000", "pause 601000"]);
+    assert!(
+        said.contains(
+            &"GitHub's hourly limit on calls is spent: asking again in 11 minutes, once it is \
+              given back"
+                .to_owned()
+        ),
+        "{said:?}"
+    );
+
+    // The hour's last call taken: the next waits for the hour to be given back.
+    let mut last_call = ok(&running);
+    last_call.remaining = Some(0);
+    last_call.reset = Some(T0 + 300);
+    let (r, _, waits) = pauses(vec![Ok(last_call), Ok(ok(&green()))]);
+    assert!(r.is_ok());
+    assert_eq!(waits, ["pause 301000"]);
+
+    // Five calls left with fifty minutes of the hour to go: ten minutes apart.
+    let mut few = ok(&running);
+    few.remaining = Some(5);
+    let (r, _, waits) = pauses(vec![Ok(few), Ok(ok(&green()))]);
+    assert!(r.is_ok());
+    assert_eq!(waits, ["pause 600000"]);
+
+    // A limit on how fast calls come, which says how long to wait.
+    let slow = machine::GitHubAnswer {
+        status: 429,
+        body: r#"{"message":"You have exceeded a secondary rate limit."}"#.to_owned(),
+        retry_after: Some(120),
+        ..machine::GitHubAnswer::default()
+    };
+    let (r, _, waits) = pauses(vec![Ok(slow), Ok(ok(&green()))]);
+    assert!(r.is_ok());
+    assert_eq!(waits, ["pause 121000"]);
+
+    // Given back only after the wait would end: refused then, naming what still ran.
+    let (r, _, waits) = pauses(vec![Ok(ok(&running)), Ok(spent(T0 + 60 + 3 * 3600))]);
+    assert_eq!(
+        r,
+        Err(format!(
+            "GitHub's hourly limit on calls is spent for 180 more minutes, past the 120 minutes \
+             `ship` waits; nothing is shipped.\nStill running at the last ask:\n  \
+             tier0 (macos-latest): in progress, {}\n`cargo xtask ship` asks again; \
+             `--skip-checks` ships without asking.",
+            job_page("tier0 (macos-latest)")
+        ))
+    );
+    assert_eq!(waits, ["pause 60000"]);
+
+    // No answer: asked again a minute on, and given up after three in a row.
+    let (r, _, waits) = pauses(vec![Err("connection reset".into()), Ok(ok(&green()))]);
+    assert!(r.is_ok());
+    assert_eq!(waits, ["pause 60000"]);
+    let (r, _, waits) = pauses(vec![Err("connection reset".into())]);
+    assert_eq!(
+        r,
+        Err(
+            "GitHub did not answer for the checks on c0ffee0000 (connection reset); nothing is \
+             shipped. `cargo xtask ship` asks again; `--skip-checks` ships without asking."
+                .to_owned()
+        )
+    );
+    assert_eq!(waits.len(), super::ci::UNANSWERED as usize - 1);
+
+    // A repository GitHub does not have stops at once.
+    let unknown = machine::GitHubAnswer {
+        status: 404,
+        body: r#"{"message":"Not Found","status":"404"}"#.to_owned(),
+        ..machine::GitHubAnswer::default()
+    };
+    let (r, _, waits) = pauses(vec![Ok(unknown)]);
+    assert_eq!(
+        r,
+        Err(
+            "GitHub answered 404 for the checks on c0ffee0000 in dereth-network/dereth: Not \
+             Found\n`github_repo` in the setup file names the repository."
+                .to_owned()
+        )
+    );
+    assert!(waits.is_empty());
+}
+
+#[test]
+fn github_is_asked_with_the_token_in_github_token_when_it_is_set_and_with_none_when_not() {
+    assert_eq!(machine::TOKEN_VAR, "GITHUB_TOKEN");
+    assert_eq!(
+        machine::authorization(Some("ghp_abc123\n")).as_deref(),
+        Some("Bearer ghp_abc123")
+    );
+    assert_eq!(machine::authorization(None), None);
+    assert_eq!(machine::authorization(Some("  ")), None, "set but empty");
+}
+
+#[test]
+fn ship_skip_checks_does_not_ask_ci_and_says_so() {
+    let failed = but("tier0 (macos-latest)", "completed", Some("failure"));
+    let skip = ship::Options {
+        skip_checks: true,
+        ..SHIP
+    };
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), vec![Ok(ok(&failed))]);
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        skip,
+    )
+    .expect("shipped");
+    assert!(f.done("github ").is_empty());
+    assert_eq!(cuts.borrow().len(), 1);
+    let l = shipping(&[Product::Hub], COMMIT, COMMIT, true).1;
+    assert_eq!(
+        ship::checks(&mut f, &cfg(), &l, COMMIT, &skip),
+        Ok("CI is not asked (--skip-checks).".to_owned())
+    );
+
+    // A preflight that pushed nothing for CI (or another commit) is refused without it.
+    for pushed in [None, Some("feed".to_owned())] {
+        let (mut f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+        l.pushed = pushed;
+        let e = ship_with(
+            &mut f,
+            &mut l,
+            &mut cutter(&cuts, None),
+            &Runs::default(),
+            true,
+            SHIP,
+        )
+        .expect_err("refused");
+        assert_eq!(
+            e,
+            "the preflight did not push c0ffee0000 to origin's preflight branch, so no CI ran on \
+             it for this ship: run `cargo xtask preflight` again, or ship with `--skip-checks` \
+             (and `--local-tier0` for tier 0 here)"
+        );
+        assert!(f.done("github ").is_empty() && f.done("git checkout").is_empty());
+        ship_with(
+            &mut f,
+            &mut l,
+            &mut cutter(&cuts, None),
+            &Runs::default(),
+            true,
+            skip,
+        )
+        .expect("shipped without it");
+    }
+}
+
+#[test]
+fn ship_allow_failing_waits_for_every_check_and_ships_despite_the_failed_ones_naming_each() {
+    let failing = check_runs(&|n| match n {
+        "tier0 (macos-latest)" => ("completed", Some("failure")),
+        "web (wasm32)" => ("in_progress", None),
+        _ => ("completed", Some("success")),
+    });
+    let failed = but("tier0 (macos-latest)", "completed", Some("failure"));
+    let answers = || vec![Ok(ok(&failing)), Ok(ok(&failed))];
+    let allow = ship::Options {
+        allow_failing: true,
+        ..SHIP
+    };
+    let cuts = Cuts::default();
+    let (f, mut l) = shipping(&[Product::Hub], COMMIT, COMMIT, true);
+    let mut f = f.github(&runs_url(), answers());
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
+        allow,
+    )
+    .expect("shipped");
+    assert_eq!(f.done("github ").len(), 2, "the running one waited for");
+    assert!(f.last("github ") < f.at("git checkout main"));
+    assert_eq!(cuts.borrow().len(), 1);
+
+    let mut f = Fake::default().github(&runs_url(), answers());
+    let (r, _) = ci_on(&mut f, true, false);
+    assert_eq!(
+        r,
+        Ok(format!(
+            "CI failed on c0ffee0000; shipping despite it (--allow-failing):\n  tier0 \
+             (macos-latest): failure, {}",
+            job_page("tier0 (macos-latest)")
+        ))
+    );
+    // Green is green with it too.
+    let mut f = Fake::default().github(&runs_url(), vec![Ok(ok(&green()))]);
+    assert!(ci_on(&mut f, true, false)
+        .0
+        .is_ok_and(|l| l.starts_with("CI passed")));
+}
+
+#[test]
+fn ship_takes_its_options_and_refuses_skipping_the_checks_it_lets_fail() {
+    let parse =
+        |a: &[&str]| super::parse_ship(&a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>());
+    assert_eq!(parse(&[]), Ok(SHIP));
+    assert_eq!(
+        parse(&["--local-tier0", "--allow-failing", "--dry-run"]),
+        Ok(ship::Options {
+            dry_run: true,
+            skip_checks: false,
+            allow_failing: true,
+            local_tier0: true,
+        })
+    );
+    assert_eq!(
+        parse(&["--skip-checks", "--local-tier0"]),
+        Ok(ship::Options {
+            skip_checks: true,
+            local_tier0: true,
+            ..SHIP
+        })
+    );
+    assert!(parse(&["--skip-checks", "--allow-failing"]).is_err());
+    assert!(parse(&["--tier0"]).is_err_and(|e| e.starts_with("unexpected `--tier0`")));
+}
+
+#[test]
+fn ship_reads_every_page_of_the_check_runs_and_a_failure_on_the_last_one_refuses() {
+    // 101 checks: a full first page that passed, and one on the second that failed.
+    let run = |id: u64, name: &str, conclusion: &str| {
+        serde_json::json!({
+            "id": id,
+            "name": name,
+            "head_sha": COMMIT,
+            "html_url": format!("https://github.com/dereth-network/dereth/actions/runs/1/job/{id}"),
+            "status": "completed",
+            "conclusion": conclusion,
+        })
+    };
+    let page = |runs: Vec<serde_json::Value>| {
+        serde_json::json!({"total_count": 101, "check_runs": runs}).to_string()
+    };
+    let first = page(
+        (0..100)
+            .map(|i| run(i, &format!("job {i}"), "success"))
+            .collect(),
+    );
+    let second = page(vec![run(100, "job 100", "failure")]);
+    let second_url = super::ci::check_runs_url("dereth-network/dereth", COMMIT, 2);
+    let mut f = Fake::default()
+        .github(&runs_url(), vec![Ok(ok(&first))])
+        .github(&second_url, vec![Ok(ok(&second))]);
+    let (r, _) = ci_on(&mut f, false, false);
+    assert!(
+        r.as_ref().is_err_and(|e| e.contains(
+            "  job 100: failure, https://github.com/dereth-network/dereth/actions/runs/1/job/100"
+        )),
+        "{r:?}"
+    );
+    assert_eq!(
+        f.done("github "),
+        [
+            format!("github {}", runs_url()),
+            format!("github {second_url}")
+        ]
+    );
+}
+
+/// The CI `ship` waits for keeps tier 0's dependency builds between the runs on `main` and on
+/// `preflight`, the branch a preflight pushes, and no CI job may run longer than `ship` waits; the
+/// release workflows keep nothing and build clean.
+#[test]
+fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_releases_build_clean()
+{
+    let dir = crate::util::workspace_root().join(".github/workflows");
+    let read = |f: &str| std::fs::read_to_string(dir.join(f)).expect(f);
+    let ci = read("ci.yml");
+    let tier0 = ci
+        .split("\n  tier0:\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n  network:\n").next())
+        .expect("the tier0 job");
+    let cache =
+        regex::Regex::new(r"uses: Swatinem/rust-cache@[0-9a-f]{40} # v\d").expect("a pattern");
+    let at = |what: &str| {
+        tier0
+            .find(what)
+            .unwrap_or_else(|| panic!("{what}\n{tier0}"))
+    };
+    let step = cache.find(tier0).expect("tier0 keeps its builds").start();
+    assert!(at("rustup override set") < step && step < at("run: cargo xtask ci tier0"));
+    assert!(tier0.contains(&format!(
+        "save-if: ${{{{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/{}' }}}}",
+        super::ci::BRANCH
+    )));
+    assert_eq!(cache.find_iter(&ci).count(), 1, "tier0's alone");
+    // Every job's own limit within the wait.
+    let limits: Vec<u64> = ci
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("timeout-minutes: "))
+        .map(|m| m.parse().expect("minutes"))
+        .collect();
+    assert!(limits.contains(&120), "{limits:?}");
+    assert!(
+        limits.iter().all(|m| m * 60 <= super::ci::BOUND_S),
+        "{limits:?}"
+    );
+    // Releases build clean.
+    let mut releases = 0;
+    for e in std::fs::read_dir(&dir).expect("the workflows") {
+        let name = e
+            .expect("a workflow")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if name.starts_with("release-") {
+            releases += 1;
+            let text = read(&name);
+            assert!(
+                !text.to_ascii_lowercase().contains("cache"),
+                "{name} keeps a cache"
+            );
+        }
+    }
+    assert!(releases >= 6, "{releases} release workflows");
 }

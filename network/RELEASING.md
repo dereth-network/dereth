@@ -99,7 +99,7 @@ The CI and release workflows download one ACE release (`ACE_VERSION`) and check 
 
 ## Preflight, then ship
 
-The branch you are releasing can be tried on your own dev setup before anything is pushed, and
+The branch you are releasing can be tried on your own dev setup before anything is released, and
 shipped in one command once it does what you wanted. The dev worlds are worlds you upgrade anyway: the preflight's upgrade
 is their upgrade.
 
@@ -109,7 +109,7 @@ cargo xtask preflight [--with <world>]        # on that branch; --dry-run says w
 cargo xtask preflight play                    # the client and the launcher, on the dev hub
 cargo xtask preflight play --web              # the web client's build, on 127.0.0.1, on the dev hub
 cargo xtask preflight rollback                # every world as it was, the dev hub stopped
-cargo xtask ship                              # main to the preflighted commit, released, pushed
+cargo xtask ship                              # once CI is green: main to the commit, released
 cargo xtask preflight finish                  # the final builds in the dev worlds, the real hub
 ```
 
@@ -117,23 +117,31 @@ cargo xtask preflight finish                  # the final builds in the dev worl
   and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
   patch would be refused; Dereth's for the web client's changes too, since the web client carries
   Dereth's version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
-  released by `ship` and built by its own workflow). A Lyceum release with no highlights in
+  released by `ship` and built by its own workflow). A product is built from what its release
+  ships (Empyrean's server and import tool; Dereth's client, web client and launcher; the hub)
+  and the crates those depend on, vendored ones included, but not the ones only their tests
+  use. A change to `Cargo.lock` or the launcher's lock counts only for a product built from a
+  crate that moved in it, and the plan names those crates. A Lyceum release with no highlights in
   `lyceum/CHANGES.md` stops the preflight at once, as its release would stop `ship` halfway.
   Before anything is built or stopped, it checks what it needs and says all of
   what is missing at once: the tools its builds need here, the dev Discord application's secret
   files (there, and not empty), `site_origins` beside a `discord_client_id` (the hub refuses one
   without the other), and each ACE world's `key_file`, which must hold a registry key (looked at
-  where it is; the key is never shown). It builds each product in a worktree of the commit,
-  stamped `<version>-rc.N`, and the web client with Dereth. It backs the real hub's registry up
-  on its machine over ssh, copies it down, and runs the candidate hub on the copy: it counts
-  every table before and after the migration, and drops every Discord mirror and webhook, every
-  sign-in and link code, and every person's links but your own (`admins`), before it serves, with
-  the dev Discord application, behind the tunnel. The dev hub must then answer on `listen` within
-  half a minute; if it does not, the run stops before any world is touched, with the end of the
-  dev hub's `hub.log`. Then each dev world is stopped, backed up (its server or mod, its
-  configuration and Empyrean's databases), given its candidate, pointed at the dev hub (the
-  original kept), and started. A second preflight builds the next candidate and keeps the first
-  backups.
+  where it is; the key is never shown). Then it pushes the commit to the `preflight` branch of
+  `remote` (`origin` by default), replacing what that branch held; your mirror carries it to
+  GitHub, where CI runs on it while the candidates build and the worlds are tried. Nothing here
+  pushes to GitHub itself. The work folder's `preflight.json` records the push, and `--dry-run`
+  says what it would push. A push that fails stops the run there, before anything is built or
+  stopped. It builds each product in a worktree of the commit, stamped `<version>-rc.N`, and the
+  web client with Dereth. It backs the real hub's registry up on its machine over ssh, copies it
+  down, and runs the candidate hub on the copy: it counts every table before and after the
+  migration, and drops every Discord mirror and webhook, every sign-in and link code, and every
+  person's links but your own (`admins`), before it serves, with the dev Discord application,
+  behind the tunnel. The dev hub must then answer on `listen` within half a minute; if it does
+  not, the run stops before any world is touched, with the end of the dev hub's `hub.log`. Then
+  each dev world is stopped, backed up (its server or mod, its configuration and Empyrean's
+  databases), given its candidate, pointed at the dev hub (the original kept), and started. A
+  second preflight builds the next candidate and keeps the first backups.
 - **Every world must link.** For up to three minutes after the worlds start, the preflight watches
   the dev hub for each of them, by the slug its configuration names. The summary says which
   linked and which did not, and for each that did not, the log to read: ACE's `ACE_Log.txt`
@@ -144,21 +152,37 @@ cargo xtask preflight finish                  # the final builds in the dev worl
   ordinary launcher afterwards reads the network's again. **`--web`** serves the web client the
   preflight built on `127.0.0.1` alone (port 8080, or `--port`), its world list the dev hub's,
   and prints the address to open.
-- **`ship`** runs tier 0 once on the preflighted commit (its output kept in the work folder's
-  `tier0.log`; a failure names the failing tests), fast-forwards `main` to exactly that commit,
-  refusing when the branch has moved since (here, or on the remote if it is there), and cuts each
-  product's release itself, as `cargo xtask release <product> <version> --push` does but without
-  tier 0, never by starting cargo (whose build of xtask could not replace the running one on
-  Windows). With Dereth, it also tags `dereth-web-v<version>` on Dereth's release commit and
-  pushes it, which drafts the web client's release
-  ([`dereth/web/DEPLOY.md`](../dereth/web/DEPLOY.md#releases)); it refuses before anything moves
-  if that tag is there already. The workflows then draft the releases; you publish them. Each
-  release is recorded as it is cut, so a `ship` that stopped partway carries on from the next one
-  when run again, as long as nothing but its own release commits is on `main` since. Finished or
-  stopped, it prints the `git push` commands that send each tag it made to GitHub again on its
-  own: GitHub makes no tag events when one push carries more than three tags. **`preflight
-  finish`** after a partial ship installs the final builds of what was released and names the
-  rest, whose worlds keep their candidates.
+- **`ship`** refuses when the branch has moved since the preflight (here, or on the remote if it
+  is there), then waits for CI on exactly the preflighted commit. It reads the commit's check
+  runs from GitHub's API in `github_repo` (`dereth-network/dereth` by default) about once a
+  minute (further apart when the hour's calls run low, and not before a spent limit is given
+  back), and says each job's state as it changes. It sends no token, which allows 60 calls an
+  hour; with `GITHUB_TOKEN` set it sends that one, which allows 5,000. It carries on once every
+  check passed (skipped and neutral ones count as passed), and refuses as soon as one failed,
+  naming each failed job and its page. Until the mirror carries the commit to GitHub, nothing has
+  run on it there, and `ship` says so while it waits; it gives up after 15 minutes of that (has
+  the mirror pushed `preflight`?), and after two hours in all, naming what still runs. A
+  preflight that pushed nothing for CI is refused at once.
+  - **`--skip-checks`** does not ask CI.
+  - **`--allow-failing`** waits for every check, then ships despite the failed ones, naming each.
+  - **`--local-tier0`** also runs tier 0 here, once, on the commit, before anything moves (its
+    output kept in the work folder's `tier0.log`; a failure names the failing tests). Without it,
+    tier 0 is not run here: CI runs it on Windows, Linux and macOS.
+  - **`--dry-run`** asks CI once and does not wait.
+
+  Then it fast-forwards `main` to exactly that commit and cuts each product's release itself, as
+  `cargo xtask release <product> <version> --push` does but without tier 0, never by starting
+  cargo (whose build of xtask could not replace the running one on Windows). With Dereth, it also
+  tags `dereth-web-v<version>` on Dereth's release commit and pushes it, which drafts the web
+  client's release ([`dereth/web/DEPLOY.md`](../dereth/web/DEPLOY.md#releases)); it refuses before
+  anything moves if that tag is there already. The workflows then draft the releases; you publish
+  them. Each release is recorded as it is cut, so a `ship` that stopped partway carries on from
+  the next one when run again, as long as nothing but its own release commits is on `main` since;
+  once `main` has moved, it does not ask CI again. Finished or stopped, it prints the `git push`
+  commands that delete and push again, on `remote`, each tag it made, one at a time: GitHub makes
+  no tag events when one push carries more than three tags, so run the mirror after each command,
+  for it to carry each tag to GitHub alone. **`preflight finish`** after a partial ship installs
+  the final builds of what was released and names the rest, whose worlds keep their candidates.
 - What a run changed is kept in the work folder's `preflight.json`, saved as soon as each world's
   backup is whole and after every world, so a run cut short can still be rolled back.
 
