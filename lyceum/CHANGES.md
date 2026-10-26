@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.2.1 (2026-10-26)
+
 - Definition shows a weenie read only; Edit opens it in its own Editor tab.
 - Each kind of weenie gets its own sections, with many more fields.
 - Portals list who may use them; flag fields are dropdowns of check boxes.
