@@ -21,14 +21,16 @@
 //! # Budgets
 //!
 //! Luau calls the interrupt at every loop back-edge and function call. The interrupt compares the
-//! clock with the entry's deadline and stops the VM past it, so a plugin that loops forever costs
-//! one budget and is then reported. The time is the entry's, the host's answers to its calls
-//! included: a call that makes the host work (a search, a pattern, a file written) is the
-//! plugin's time. Past the deadline the entry is stopped once it has also done a least amount of
-//! work ([`MIN_WORK`] interrupts), so that a thread the system set aside for a moment in the middle
-//! of a short entry has not overrun; and past the deadline by [`STALL`] it is stopped whatever
-//! work it did, so that a few long calls cannot carry it on. The memory cap is the VM allocator's:
-//! an allocation past it fails as a Lua memory error, which the plugin cannot turn into success.
+//! clock (the machine's monotonic clock, unless the VM is given another:
+//! [`LuauInstance::with_clock`]) with the entry's deadline and stops the VM past it, so a plugin
+//! that loops forever costs one budget and is then reported. The time is the entry's, the host's
+//! answers to its calls included: a call that makes the host work (a search, a pattern, a file
+//! written) is the plugin's time. Past the deadline the entry is stopped once it has also done a
+//! least amount of work ([`MIN_WORK`] interrupts), so that a thread the system set aside for a
+//! moment in the middle of a short entry has not overrun; and past the deadline by [`STALL`] it is
+//! stopped whatever work it did, so that a few long calls cannot carry it on. The memory cap is
+//! the VM allocator's: an allocation past it fails as a Lua memory error, which the plugin cannot
+//! turn into success.
 
 //!
 //! # In a browser
@@ -51,6 +53,7 @@ use std::rc::Rc;
 
 use dereth_plugin_api::{
     Event, HostCalls, Limits, ScriptEngine, ScriptError, ScriptErrorKind, ScriptInstance, Value,
+    VmClock,
 };
 use mlua::chunk::ChunkMode;
 use mlua::{Function, Lua, MultiValue, Table, VmState};
@@ -161,15 +164,27 @@ impl Budget {
     }
 }
 
-/// The deadline of the entry in progress.
+/// The deadline of the entry in progress, on the VM's clock.
 #[derive(Debug, Default)]
 struct Budget {
-    deadline: Cell<Option<Instant>>,
+    deadline: Cell<Option<Duration>>,
     /// Interrupts since the entry began.
     work: Cell<u32>,
     tripped: Cell<bool>,
     /// The end of the grace after the first overrun of this entry.
-    grace: Cell<Option<Instant>>,
+    grace: Cell<Option<Duration>>,
+}
+
+/// The machine's monotonic clock: a VM's clock unless it is given another.
+#[derive(Debug)]
+struct MachineClock {
+    start: Instant,
+}
+
+impl VmClock for MachineClock {
+    fn now(&self) -> Duration {
+        self.start.elapsed()
+    }
 }
 
 /// One plugin's VM.
@@ -179,6 +194,8 @@ pub struct LuauInstance {
     /// Run as each entry begins: the bindings forget what they read of the game in the last.
     new_entry: Function,
     budget: Rc<Budget>,
+    /// What the budget and the profile read the time from.
+    clock: Rc<dyn VmClock>,
     limits: Limits,
     /// Where the time goes, when [`Limits::profile`] asks.
     profile: Option<Rc<profile::Profile>>,
@@ -195,6 +212,20 @@ impl std::fmt::Debug for LuauInstance {
 
 impl LuauInstance {
     fn new(limits: Limits) -> mlua::Result<Self> {
+        Self::with_clock(
+            limits,
+            Rc::new(MachineClock {
+                start: Instant::now(),
+            }),
+        )
+    }
+
+    /// A VM whose budget, and profile, read the time from `clock` rather than the machine's
+    /// monotonic clock.
+    ///
+    /// # Errors
+    /// The VM could not be made.
+    pub fn with_clock(limits: Limits, clock: Rc<dyn VmClock>) -> mlua::Result<Self> {
         #[cfg(target_arch = "wasm32")]
         wasm_rt::init();
         let lua = Lua::new();
@@ -202,14 +233,15 @@ impl LuauInstance {
         let b = budget.clone();
         let profile = limits.profile.then(|| Rc::new(profile::Profile::default()));
         let p = profile.clone();
+        let c = clock.clone();
         lua.set_interrupt(move |lua| {
             if let Some(deadline) = b.deadline.get() {
+                let now = c.now();
                 if let Some(p) = &p {
-                    p.sample(lua);
+                    p.sample(lua, now);
                 }
                 let work = b.work.get().saturating_add(1);
                 b.work.set(work);
-                let now = Instant::now();
                 if now > deadline && (work >= MIN_WORK || now > deadline + STALL) {
                     match b.grace.get() {
                         None => b.grace.set(Some(now + GRACE)),
@@ -237,11 +269,12 @@ impl LuauInstance {
         // Compiling one of the plugin's own modules is the host's work on its package, bounded by
         // the package and done once a module: the deadline moves on by it.
         let compiling = budget.clone();
+        let c = clock.clone();
         // A host library may compile a module with globals of its own (`env`): a script written
         // for UtilityBelt's scripting sees that API's globals in place of the plugin interface's.
         let compile = lua.create_function(
             move |lua, (name, source, env): (String, mlua::LuaString, Option<Table>)| {
-                let started = Instant::now();
+                let started = c.now();
                 let mut chunk = lua
                     .load(source.as_bytes().to_vec())
                     .set_name(format!("={name}"))
@@ -250,7 +283,7 @@ impl LuauInstance {
                     chunk = chunk.set_environment(env);
                 }
                 let f = chunk.into_function();
-                compiling.extend(started.elapsed());
+                compiling.extend(c.now().saturating_sub(started));
                 f
             },
         )?;
@@ -284,6 +317,7 @@ impl LuauInstance {
             dispatch,
             new_entry,
             budget,
+            clock,
             limits,
             profile,
         })
@@ -296,9 +330,10 @@ impl LuauInstance {
         label: &str,
         body: impl FnOnce(&Lua) -> mlua::Result<R>,
     ) -> Result<R, ScriptError> {
-        let entered = Instant::now();
+        let clock = &*self.clock;
+        let entered = clock.now();
         if let Some(p) = &self.profile {
-            p.begin();
+            p.begin(entered);
         }
         let cell = RefCell::new(host);
         let lua = &self.lua;
@@ -311,7 +346,7 @@ impl LuauInstance {
             dereth_plugin_api::engine::entry_budgets(label)
         };
         self.budget.deadline.set(Some(
-            Instant::now()
+            clock.now()
                 + Duration::from_secs_f64(self.limits.call_budget_ms.max(0.0) * entries / 1000.0),
         ));
         let profile = self.profile.as_deref();
@@ -320,14 +355,15 @@ impl LuauInstance {
             // The host's time answering a call is the entry's time: the deadline stays where it
             // is, and the next interrupt past it stops the entry.
             let call = scope.create_function(|lua, args: MultiValue| {
-                let start = Instant::now();
+                let start = clock.now();
                 let op = profile.map(|_| match args.front() {
                     Some(mlua::Value::String(s)) => s.to_string_lossy(),
                     _ => String::new(),
                 });
                 let out = host_call(lua, &cell, args);
                 if let (Some(p), Some(op)) = (profile, op) {
-                    p.host_call(&op, start.elapsed());
+                    let now = clock.now();
+                    p.host_call(&op, now.saturating_sub(start), now);
                 }
                 out
             })?;
@@ -337,10 +373,10 @@ impl LuauInstance {
         });
         self.budget.deadline.set(None);
         let _ = lua.set_named_registry_value(HOST_KEY, mlua::Value::Nil);
-        let table = self
-            .profile
-            .as_ref()
-            .and_then(|p| p.end(label, entered.elapsed(), lua.used_memory()));
+        let table = self.profile.as_ref().and_then(|p| {
+            let now = clock.now();
+            p.end(label, now.saturating_sub(entered), lua.used_memory(), now)
+        });
         if let Some(table) = table {
             // To the plugin's console, which the client also writes to its log.
             if let Ok(mut host) = cell.try_borrow_mut() {
@@ -610,14 +646,15 @@ impl ScriptInstance for LuauInstance {
         source: &str,
     ) -> Result<(), ScriptError> {
         let budget = Rc::clone(&self.budget);
+        let clock = Rc::clone(&self.clock);
         self.enter(host, "load", |lua| {
-            let started = Instant::now();
+            let started = clock.now();
             let chunk = lua
                 .load(source)
                 .set_name(format!("={chunk_name}"))
                 .set_mode(ChunkMode::Text)
                 .into_function()?;
-            budget.extend(started.elapsed());
+            budget.extend(clock.now().saturating_sub(started));
             chunk.call::<()>(())
         })?;
         if self.budget.tripped.take() {

@@ -3,15 +3,16 @@
 //! calls by operation, and the time its own Lua ran by function and by line, and gives the host a
 //! table of them for the plugin's console every [`EVERY`].
 //!
-//! The Lua time is sampled at the interrupt Luau makes at every loop and call: the time since the
-//! last sample goes to the line running then. Time inside a host call is the host's, not the
-//! line's. Garbage collection lands on the line that allocated.
+//! The time is the VM's clock's, read by the VM and handed in (`now`). The Lua time is sampled at
+//! the interrupt Luau makes at every loop and call: the time since the last sample goes to the line
+//! running then. Time inside a host call is the host's, not the line's. Garbage collection lands
+//! on the line that allocated.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use mlua::Lua;
-use web_time::{Duration, Instant};
+use web_time::Duration;
 
 /// How often a VM writes its table.
 pub const EVERY: Duration = Duration::from_secs(30);
@@ -38,9 +39,9 @@ impl Tally {
 /// One VM's profile.
 #[derive(Debug, Default)]
 pub struct Profile {
-    since: Cell<Option<Instant>>,
+    since: Cell<Option<Duration>>,
     /// The last sample (or the end of the last host call).
-    last: Cell<Option<Instant>>,
+    last: Cell<Option<Duration>>,
     entries: RefCell<BTreeMap<String, Tally>>,
     host: RefCell<BTreeMap<String, Tally>>,
     functions: RefCell<BTreeMap<String, Duration>>,
@@ -48,23 +49,21 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// An entry begins.
-    pub fn begin(&self) {
-        let now = Instant::now();
+    /// An entry begins, at `now`.
+    pub fn begin(&self, now: Duration) {
         self.last.set(Some(now));
         if self.since.get().is_none() {
             self.since.set(Some(now));
         }
     }
 
-    /// The interrupt: the time since the last sample goes to the line running now.
-    pub fn sample(&self, lua: &Lua) {
-        let now = Instant::now();
+    /// The interrupt, at `now`: the time since the last sample goes to the line running now.
+    pub fn sample(&self, lua: &Lua, now: Duration) {
         let Some(last) = self.last.get() else {
             self.last.set(Some(now));
             return;
         };
-        let spent = now.saturating_duration_since(last);
+        let spent = now.saturating_sub(last);
         if spent < GRAIN {
             return;
         }
@@ -86,25 +85,26 @@ impl Profile {
         }
     }
 
-    /// A host call `op` took `d`.
-    pub fn host_call(&self, op: &str, d: Duration) {
+    /// A host call `op` took `d`, ending at `now`.
+    pub fn host_call(&self, op: &str, d: Duration, now: Duration) {
         self.host
             .borrow_mut()
             .entry(op.to_owned())
             .or_default()
             .add(d);
-        self.last.set(Some(Instant::now()));
+        self.last.set(Some(now));
     }
 
-    /// An entry (`label`) took `d`; answers the table when one is due (and starts the next).
-    pub fn end(&self, label: &str, d: Duration, memory: usize) -> Option<String> {
+    /// An entry (`label`) took `d`, ending at `now`; answers the table when one is due (and starts
+    /// the next).
+    pub fn end(&self, label: &str, d: Duration, memory: usize, now: Duration) -> Option<String> {
         self.entries
             .borrow_mut()
             .entry(label.to_owned())
             .or_default()
             .add(d);
         let since = self.since.get()?;
-        let span = since.elapsed();
+        let span = now.saturating_sub(since);
         if span < EVERY {
             return None;
         }

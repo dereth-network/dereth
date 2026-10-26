@@ -1,13 +1,53 @@
 //! The engine against a recording host: the bindings reach the host with the right operations, and
-//! the sandbox, the budget and the memory cap hold.
+//! the sandbox, the budget and the memory cap hold. Every VM here reads a test clock, never the
+//! machine's: an outcome does not depend on how fast or loaded the machine is.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
+use std::time::Duration;
 
 use dereth_plugin_api::{
-    CallError, Event, HostCalls, Limits, ScriptEngine, ScriptErrorKind, ScriptInstance, Value,
+    CallError, Event, HostCalls, Limits, ScriptErrorKind, ScriptInstance, Value, VmClock,
 };
 
-use super::LuauEngine;
+use super::LuauInstance;
+
+/// A ticking clock's step: each interrupt of a VM is ten microseconds of its work.
+const TICK: Duration = Duration::from_micros(10);
+
+/// How long the recorder takes answering for object 0xDEAD.
+const STALLED: Duration = Duration::from_millis(10);
+
+/// A clock that moves on only by `tick` at each reading (a VM reads it once an interrupt, so that
+/// is its work) and as far as the host says it took ([`TestClock::advance`]). The default stands
+/// still.
+#[derive(Debug, Default)]
+struct TestClock {
+    now: Cell<Duration>,
+    tick: Duration,
+}
+
+impl TestClock {
+    fn ticking() -> Rc<Self> {
+        Rc::new(Self {
+            now: Cell::default(),
+            tick: TICK,
+        })
+    }
+
+    fn advance(&self, by: Duration) {
+        self.now.set(self.now.get() + by);
+    }
+}
+
+impl VmClock for TestClock {
+    fn now(&self) -> Duration {
+        let t = self.now.get() + self.tick;
+        self.now.set(t);
+        t
+    }
+}
 
 /// A host that answers the few operations the tests need and records every call.
 #[derive(Default)]
@@ -17,6 +57,8 @@ struct Recorder {
     modules: BTreeMap<String, String>,
     store: BTreeMap<String, Value>,
     next_timer: i64,
+    /// The clock of the VMs it answers.
+    clock: Rc<TestClock>,
 }
 
 impl HostCalls for Recorder {
@@ -46,7 +88,7 @@ impl HostCalls for Recorder {
             // Object 0xDEAD: the thread set aside for a while, as the system may do in the middle
             // of an entry.
             "object.exists" if args.first().and_then(Value::as_i64) == Some(0xDEAD) => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                self.clock.advance(STALLED);
                 Ok(Value::Bool(false))
             }
             "player.get" if args.first().and_then(Value::as_str) == Some("name") => {
@@ -69,19 +111,32 @@ impl HostCalls for Recorder {
 }
 
 impl Recorder {
+    /// A host whose VMs' clock ticks: an endless loop runs out of its budget.
+    fn ticking() -> Self {
+        Self {
+            clock: TestClock::ticking(),
+            ..Self::default()
+        }
+    }
+
     fn ops(&self) -> Vec<&str> {
         self.calls.iter().map(|(op, _)| op.as_str()).collect()
     }
 }
 
+/// A VM with a budget of `call_budget_ms` an entry, reading `host`'s clock.
+fn vm_of(host: &Recorder, call_budget_ms: f64) -> Box<dyn ScriptInstance> {
+    let limits = Limits {
+        memory_bytes: 8 << 20,
+        call_budget_ms,
+        profile: false,
+    };
+    Box::new(LuauInstance::with_clock(limits, host.clock.clone()).expect("vm"))
+}
+
+/// A VM on a clock of its own that stands still: no entry runs out of its budget.
 fn vm() -> Box<dyn ScriptInstance> {
-    LuauEngine
-        .instantiate(Limits {
-            memory_bytes: 8 << 20,
-            call_budget_ms: 50.0,
-            profile: false,
-        })
-        .expect("vm")
+    vm_of(&Recorder::default(), 50.0)
 }
 
 #[test]
@@ -130,8 +185,8 @@ fn a_failing_handler_is_reported_with_its_place_and_the_others_still_run() {
 
 #[test]
 fn an_endless_loop_is_stopped_by_the_budget_and_the_vm_keeps_working() {
-    let mut host = Recorder::default();
-    let mut vm = vm();
+    let mut host = Recorder::ticking();
+    let mut vm = vm_of(&host, 50.0);
     let err = vm
         .load(
             &mut host,
@@ -140,6 +195,13 @@ fn an_endless_loop_is_stopped_by_the_budget_and_the_vm_keeps_working() {
         )
         .expect_err("stopped");
     assert_eq!(err.kind, ScriptErrorKind::Budget);
+    // Stopped at the load's deadline (its budgets, 1.25 s), not a stall's allowance past it.
+    let deadline = Duration::from_secs_f64(50.0 * super::LOAD_BUDGETS / 1000.0);
+    let stopped = host.clock.now.get();
+    assert!(
+        (deadline..deadline + super::STALL).contains(&stopped),
+        "stopped at {stopped:?}"
+    );
     // The overrun names where the script was, so its author can find the long work.
     assert!(err.message.contains("main.lua:2"), "{}", err.message);
     // A handler that swallows the error inside its own pcall is still stopped.
@@ -163,16 +225,10 @@ fn an_endless_loop_is_stopped_by_the_budget_and_the_vm_keeps_working() {
 #[test]
 fn time_the_host_spends_answering_is_the_plugins() {
     let mut host = Recorder::default();
-    let mut vm = LuauEngine
-        .instantiate(Limits {
-            memory_bytes: 8 << 20,
-            call_budget_ms: 2.0,
-            profile: false,
-        })
-        .expect("vm");
-    // The recorder takes at least 10 ms to answer for object 0xDEAD. With hardly any work of the
-    // plugin's own, a few such calls are past the load's deadline (its budgets, 50 ms) by more
-    // than any stall: the entry is stopped after seven or eight at most, not run on for fifty.
+    let mut vm = vm_of(&host, 2.0);
+    // The recorder takes 10 ms to answer for object 0xDEAD, and the plugin's own work takes no
+    // time. A few such calls are past the load's deadline (its budgets, 50 ms) by more than any
+    // stall (20 ms): the entry is stopped after the sixth, seventh or eighth, not run on for fifty.
     let err = vm
         .load(
             &mut host,
@@ -187,15 +243,15 @@ fn time_the_host_spends_answering_is_the_plugins() {
         .iter()
         .filter(|(op, _)| op == "object.exists")
         .count();
-    assert!((1..=8).contains(&slow), "{slow} slow calls answered");
+    assert!((6..=8).contains(&slow), "{slow} slow calls answered");
 }
 
 /// Behaviour: none (a unit check of the budget's grace; `core/budget` pins the budget's
 /// behaviour).
 #[test]
 fn an_overrun_a_task_catches_is_noted_by_it_and_still_counted() {
-    let mut host = Recorder::default();
-    let mut vm = vm();
+    let mut host = Recorder::ticking();
+    let mut vm = vm_of(&host, 50.0);
     let err = vm
         .load(
             &mut host,
@@ -215,21 +271,17 @@ fn an_overrun_a_task_catches_is_noted_by_it_and_still_counted() {
 #[test]
 fn a_short_entry_the_system_stalls_is_not_over_its_budget() {
     let mut host = Recorder::default();
-    let mut vm = LuauEngine
-        .instantiate(Limits {
-            memory_bytes: 8 << 20,
-            call_budget_ms: 2.0,
-            profile: false,
-        })
-        .expect("vm");
-    // Ten milliseconds of wall time pass inside a short entry: well past a 2 ms budget, and still
-    // not an overrun, because the entry did almost no work.
+    let mut vm = vm_of(&host, 2.0);
     vm.load(
         &mut host,
         "stalled.lua",
-        "local n = 0 for i = 1, 100 do n = n + i end local _ = game.world:get(0xDEAD) print('done', n)",
+        "on('stall', function() local n = 0 for i = 1, 100 do n = n + i end local _ = game.world:get(0xDEAD) print('done', n) end)",
     )
-    .expect("a stalled short entry completes");
+    .expect("load");
+    // Ten milliseconds pass inside a short entry: well past its 2 ms budget, and still not an
+    // overrun, because the entry did almost no work.
+    vm.deliver(&mut host, &Event::new("stall", Value::map()))
+        .expect("a stalled short entry completes");
     assert_eq!(host.console, ["done\t5050"]);
 }
 
@@ -410,12 +462,15 @@ fn unload_hands_the_plugins_state_to_the_next_loads_reload_hook() {
 /// Behaviour: none (a tool for plugin authors: the profile's own bookkeeping).
 #[test]
 fn a_profile_counts_entries_host_calls_and_the_lines_that_ran() {
-    let mut host = Recorder::default();
-    let mut vm = super::LuauInstance::new(Limits {
-        profile: true,
-        call_budget_ms: 1000.0,
-        ..Limits::default()
-    })
+    let mut host = Recorder::ticking();
+    let mut vm = LuauInstance::with_clock(
+        Limits {
+            profile: true,
+            call_budget_ms: 1000.0,
+            ..Limits::default()
+        },
+        host.clock.clone(),
+    )
     .expect("vm");
     vm.load(
         &mut host,

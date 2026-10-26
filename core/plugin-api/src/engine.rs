@@ -141,6 +141,14 @@ pub trait HostCalls {
     fn module_source(&mut self, name: &str) -> Option<String>;
 }
 
+/// Where the time a plugin's entries into its VM take is read from: by the engine against each
+/// entry's budget, and by the host for the plugins' shares of a frame. Only the differences
+/// between readings count. Each reads the machine's monotonic clock unless it is given another.
+pub trait VmClock: fmt::Debug {
+    /// The time since some fixed instant, never going back.
+    fn now(&self) -> std::time::Duration;
+}
+
 /// What kind of failure a VM reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptErrorKind {

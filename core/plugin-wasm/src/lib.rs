@@ -27,6 +27,7 @@ use web_time::{Duration, Instant};
 
 use dereth_plugin_api::engine::{
     CallError, HostCalls, Limits, ScriptEngine, ScriptError, ScriptErrorKind, ScriptInstance,
+    VmClock,
 };
 use dereth_plugin_api::event::Event;
 use dereth_plugin_api::schema::OPS;
@@ -82,6 +83,8 @@ pub trait Instance: Guest {
 /// them: the entry's time as much as the module's own work is.
 struct Lent<'a> {
     host: &'a mut (dyn HostCalls + 'a),
+    /// What the host's time is read from.
+    clock: &'a dyn VmClock,
     /// The host's time on this entry's calls so far, and the most it may be.
     spent: &'a Cell<Duration>,
     budget: Duration,
@@ -94,6 +97,7 @@ impl<'a, 'b> scoped_tls_hkt::ReborrowMut<'a> for Lent<'b> {
     fn reborrow_mut(&'a mut self) -> Self::Result {
         Lent {
             host: self.host,
+            clock: self.clock,
             spent: self.spent,
             budget: self.budget,
             over: self.over,
@@ -111,11 +115,11 @@ scoped_tls_hkt::scoped_thread_local!(static mut HOST: for<'a> Lent<'a>);
 /// The call does not fit the interface (a trap).
 pub fn host_import(op: usize, guest: &mut dyn Guest, args: &[Flat]) -> Result<Vec<Flat>, String> {
     let op = OPS.get(op).ok_or("no such operation")?;
-    let start = Instant::now();
-    let (values, retptr) = abi::lift_params(op, args, guest)?;
     if !HOST.is_set() {
         return Err("a host operation outside an entry".into());
     }
+    let start = HOST.with(|h| h.clock.now());
+    let (values, retptr) = abi::lift_params(op, args, guest)?;
     let answer = if op.name == "console.print" {
         let text = values
             .first()
@@ -134,7 +138,7 @@ pub fn host_import(op: usize, guest: &mut dyn Guest, args: &[Flat]) -> Result<Ve
     abi::store_result(guest, op, retptr, answer)?;
     // The host's time is the entry's: charged to the module's fuel where the runtime lets it be,
     // and the entry stopped once the host's time alone is past the budget.
-    let took = start.elapsed();
+    let took = HOST.with(|h| h.clock.now().saturating_sub(start));
     guest.spend(fuel_for(took.as_secs_f64() * 1000.0))?;
     let over = HOST.with(|h| {
         h.spent.set(h.spent.get() + took);
@@ -154,16 +158,43 @@ fn call_error_text(e: &CallError) -> String {
     e.to_string()
 }
 
+/// The machine's monotonic clock: the engine's clock unless it is given another.
+#[derive(Debug)]
+struct MachineClock {
+    start: Instant,
+}
+
+impl VmClock for MachineClock {
+    fn now(&self) -> Duration {
+        self.start.elapsed()
+    }
+}
+
 /// The engine for compiled plugins, over a runtime.
 #[derive(Debug, Clone)]
 pub struct WasmEngine {
     backend: Rc<dyn Backend>,
+    /// What the host's time answering a module's calls is read from.
+    clock: Rc<dyn VmClock>,
 }
 
 impl WasmEngine {
     #[must_use]
     pub fn new(backend: Rc<dyn Backend>) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            clock: Rc::new(MachineClock {
+                start: Instant::now(),
+            }),
+        }
+    }
+
+    /// The same engine, reading the host's time answering its modules' calls from `clock` rather
+    /// than the machine's monotonic clock.
+    #[must_use]
+    pub fn with_clock(mut self, clock: Rc<dyn VmClock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// The engine over the interpreter ([`interp::Interpreter`]).
@@ -186,6 +217,7 @@ impl ScriptEngine for WasmEngine {
     fn instantiate(&self, limits: Limits) -> Result<Box<dyn ScriptInstance>, ScriptError> {
         Ok(Box::new(WasmInstance {
             backend: self.backend.clone(),
+            clock: self.clock.clone(),
             limits,
             running: None,
         }))
@@ -195,6 +227,7 @@ impl ScriptEngine for WasmEngine {
 /// One compiled plugin.
 pub struct WasmInstance {
     backend: Rc<dyn Backend>,
+    clock: Rc<dyn VmClock>,
     limits: Limits,
     running: Option<Box<dyn Instance>>,
 }
@@ -237,6 +270,7 @@ impl WasmInstance {
         let over = Cell::new(false);
         let lent = Lent {
             host,
+            clock: &*self.clock,
             spent: &spent,
             budget: Duration::from_secs_f64(budget_ms.max(0.0) / 1000.0),
             over: &over,

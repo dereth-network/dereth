@@ -1,9 +1,15 @@
 //! The engine against a module built here instruction by instruction: a guest that prints, starts
-//! a timer, echoes an event's data, loops for ever or grows its memory without end.
+//! a timer, echoes an event's data, loops for ever or grows its memory without end. The engine
+//! reads a test clock, never the machine's: an outcome does not depend on how fast or loaded the
+//! machine is.
 
+use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
-use dereth_plugin_api::engine::{CallError, HostCalls, Limits, ScriptEngine, ScriptErrorKind};
+use dereth_plugin_api::engine::{
+    CallError, HostCalls, Limits, ScriptEngine, ScriptErrorKind, VmClock,
+};
 use dereth_plugin_api::event::Event;
 use dereth_plugin_api::Value;
 use wasm_encoder::{
@@ -15,10 +21,22 @@ use wasm_encoder::{
 use crate::interp::Interpreter;
 use crate::WasmEngine;
 
+/// A clock that moves on only as far as the host says it took.
+#[derive(Debug, Default)]
+struct TestClock(Cell<Duration>);
+
+impl VmClock for TestClock {
+    fn now(&self) -> Duration {
+        self.0.get()
+    }
+}
+
 #[derive(Default)]
 struct Recorder {
     calls: Vec<(String, Vec<Value>)>,
     console: Vec<String>,
+    /// The engine's clock.
+    clock: Rc<TestClock>,
 }
 
 impl HostCalls for Recorder {
@@ -31,7 +49,8 @@ impl HostCalls for Recorder {
             }
             // A host that takes a millisecond over each of these.
             "chat.print" if args.first().and_then(Value::as_str) == Some("slow") => {
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                let clock = &self.clock.0;
+                clock.set(clock.get() + Duration::from_millis(1));
                 Ok(Value::Nil)
             }
             _ => Ok(Value::Nil),
@@ -256,8 +275,9 @@ fn guest(print_import: &str) -> Vec<u8> {
     m.finish()
 }
 
-fn engine() -> WasmEngine {
-    WasmEngine::new(Rc::new(Interpreter::default()))
+/// The engine on `host`'s clock.
+fn engine(host: &Recorder) -> WasmEngine {
+    WasmEngine::new(Rc::new(Interpreter::default())).with_clock(host.clock.clone())
 }
 
 const LIMITS: Limits = Limits {
@@ -268,10 +288,10 @@ const LIMITS: Limits = Limits {
 
 #[test]
 fn a_module_runs_its_init_and_reaches_the_host_with_typed_values() {
-    let e = engine();
+    let mut host = Recorder::default();
+    let e = engine(&host);
     assert!(e.handles("plugin.wasm") && !e.handles("main.lua"));
     let mut vm = e.instantiate(LIMITS).unwrap();
-    let mut host = Recorder::default();
     vm.load_bytes(&mut host, "plugin.wasm", &guest("chat-print"))
         .unwrap();
     assert_eq!(
@@ -296,8 +316,8 @@ fn a_module_runs_its_init_and_reaches_the_host_with_typed_values() {
 
 #[test]
 fn a_host_error_reaches_the_module_as_its_error_and_a_runaway_or_greedy_one_is_stopped() {
-    let mut vm = engine().instantiate(LIMITS).unwrap();
     let mut host = Recorder::default();
+    let mut vm = engine(&host).instantiate(LIMITS).unwrap();
     vm.load_bytes(&mut host, "plugin.wasm", &guest("chat-print"))
         .unwrap();
     let e = vm
@@ -318,12 +338,12 @@ fn a_host_error_reaches_the_module_as_its_error_and_a_runaway_or_greedy_one_is_s
 
 #[test]
 fn bulk_memory_work_and_the_hosts_time_answering_are_charged_to_the_budget() {
-    let mut vm = engine().instantiate(LIMITS).unwrap();
     let mut host = Recorder::default();
+    let mut vm = engine(&host).instantiate(LIMITS).unwrap();
     vm.load_bytes(&mut host, "plugin.wasm", &guest("chat-print"))
         .unwrap();
     // Ten calls the host takes a millisecond over each: stopped once the host's time passes the
-    // budget.
+    // budget (2 ms), at the third at the latest.
     let e = vm
         .deliver(&mut host, &Event::new("slow", Value::Nil))
         .unwrap_err();
@@ -333,7 +353,7 @@ fn bulk_memory_work_and_the_hosts_time_answering_are_charged_to_the_budget() {
         .iter()
         .filter(|(_, a)| a.first().and_then(Value::as_str) == Some("slow"))
         .count();
-    assert!((1..=3).contains(&slow), "{slow} slow calls ran");
+    assert!((2..=3).contains(&slow), "{slow} slow calls ran");
     // A thousand fills of a page: a few thousand instructions, and far more work than a 2 ms
     // budget holds.
     let e = vm
@@ -351,8 +371,8 @@ fn bulk_memory_work_and_the_hosts_time_answering_are_charged_to_the_budget() {
 
 #[test]
 fn a_module_importing_what_the_host_does_not_offer_is_refused() {
-    let mut vm = engine().instantiate(LIMITS).unwrap();
     let mut host = Recorder::default();
+    let mut vm = engine(&host).instantiate(LIMITS).unwrap();
     let e = vm
         .load_bytes(&mut host, "plugin.wasm", &guest("launch-missiles"))
         .unwrap_err();

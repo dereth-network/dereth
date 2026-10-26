@@ -35,6 +35,7 @@ pub mod version;
 pub use capability::HostCapability;
 pub use engine::{
     CallError, HostCalls, Limits, ScriptEngine, ScriptError, ScriptErrorKind, ScriptInstance,
+    VmClock,
 };
 pub use event::Event;
 pub use manifest::{Context, Manifest, ManifestError, PluginId};

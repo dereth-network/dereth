@@ -3,12 +3,7 @@
 
 use web_time::{Duration, Instant};
 
-/// Where the length of an entry into a VM is read from: it is read as the entry begins and as it
-/// ends, and only the difference counts.
-pub trait VmClock: std::fmt::Debug {
-    /// The time since some fixed instant, never going back.
-    fn now(&self) -> Duration;
-}
+pub use dereth_plugin_api::VmClock;
 
 /// The machine's monotonic clock: an entry takes what it takes in real time. The host's clock
 /// unless it is given another ([`crate::PluginHost::with_vm_clock`]).

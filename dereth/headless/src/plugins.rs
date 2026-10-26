@@ -380,13 +380,14 @@ mod tests {
             data: "{\"n\":1}".into(),
         };
         a.send(&m);
+        // Polled until it arrives; the bound only ends a hang.
+        let give_up = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut heard = Vec::new();
-        for _ in 0..100 {
+        while heard.is_empty() && std::time::Instant::now() < give_up {
             heard.extend(b.receive());
-            if !heard.is_empty() {
-                break;
+            if heard.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert_eq!(heard, vec![m]);
         assert!(a.receive().is_empty(), "the sender does not hear itself");
