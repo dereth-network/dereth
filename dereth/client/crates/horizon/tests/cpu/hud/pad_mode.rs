@@ -924,3 +924,49 @@ fn the_target_bar_shows_a_known_health_and_no_bar_for_an_unknown_one_or_a_thing(
     assert_eq!(of(Relation::Object, None), None);
     assert_eq!(of(Relation::Object, Some(0.5)), None);
 }
+
+/// With a plugin's command claimed, the Spellbook's last page lists it with a tile for the cross
+/// hotbars, and confirming the tile brings up the bind-to-hotbar notice with that command.
+#[test]
+fn the_spellbook_s_plugins_page_offers_each_plugin_command_to_the_cross_hotbars() {
+    use dereth_horizon::ui::hud::cross::{CrossBind, PluginCommand};
+    use dereth_horizon::ui::plugins::PluginCommandEntry;
+    let state = in_world();
+    let mut h = Harness::new(Default::default());
+    h.ui.windows.plugins.frame.commands = vec![PluginCommandEntry {
+        plugin: "test.looter".into(),
+        verb: "loot".into(),
+        help: "Loot the nearest corpse".into(),
+    }];
+    h.input.pad.mode = Some(PadHints::Cursor);
+    h.ui.windows.open(WindowId::Actions, -1.0);
+    h.frame(&state);
+    h.frame(&state);
+    let snap = h.input.nav.last.clone();
+    let book = snap
+        .layers
+        .iter()
+        .position(|l| l.name == "Spellbook")
+        .expect("the Spellbook")
+        + 1;
+    // Round from the first tab to the last: the plugins' page.
+    let bar = snap.tabs_in(book).expect("the Spellbook's tabs are noted");
+    h.input.pad.tab_step = Some((bar, -1));
+    h.frame(&state);
+    h.frame(&state);
+    let snap = h.input.nav.last.clone();
+    let tiles: Vec<Rect> = snap
+        .targets
+        .iter()
+        .filter(|t| {
+            t.layer == book && (t.rect.w - 36.0).abs() < 1.0 && (t.rect.h - 36.0).abs() < 1.0
+        })
+        .map(|t| t.rect)
+        .collect();
+    assert_eq!(tiles.len(), 1, "a tile for the one command: {tiles:?}");
+    click_at(&mut h, &state, centre(tiles[0]));
+    assert_eq!(
+        h.ui.hud.cross.binding,
+        Some(CrossBind::Command(PluginCommand::of("test.looter", "loot")))
+    );
+}

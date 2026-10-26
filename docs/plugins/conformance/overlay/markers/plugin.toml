@@ -1,0 +1,7 @@
+id = "conformance.markers"
+name = "Conformance: markers"
+version = "0.1.0"
+api = "0.3"
+
+[capabilities]
+required = ["overlay.world", "overlay.radar", "overlay.map", "overlay.arrow"]

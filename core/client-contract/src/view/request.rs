@@ -67,6 +67,15 @@ pub enum UiRequest {
     /// A targeted-use left click on an item-list row. The host reads its live mode and
     /// retained targeting source; this is deliberately not Use(selected, clicked).
     ExecuteTargetItem(ObjectId),
+    /// Use `item` on `target` as the client's interface for plugins does: the target taken as
+    /// the selection for the use, which sends a targeted use's request at once. With
+    /// `equipped` the use is a targeted use's second click, so an item the character wields is
+    /// used where it is (a caster's own spell) rather than put in the pack.
+    UseOn {
+        item: ObjectId,
+        target: ObjectId,
+        equipped: bool,
+    },
     /// Close the external container after use, then unregister its range handler.
     CloseExternalContainer(ObjectId),
     /// Hiding the slumlord panel retires every range registration
@@ -146,6 +155,14 @@ pub enum UiRequest {
         action: crate::chat::entry::EntryAction,
     },
     ChatLine {
+        text: String,
+        window: u32,
+    },
+    /// A chat line the client sends on the player's behalf without the player typing it (a
+    /// plugin's line, a journey's recall command): carried out as [`Self::ChatLine`] is, except
+    /// that it is never taken as an extension's command and is not kept in the chat entry's
+    /// history.
+    ChatLineOnBehalf {
         text: String,
         window: u32,
     },
@@ -806,6 +823,14 @@ pub enum UiRequest {
         position: u32,
     },
 
+    /// Toggle between peace and the combat mode the held equipment calls for: what the combat
+    /// toggle key does, asked for by something with no key (the frame's extension hook).
+    ToggleCombatMode,
+
+    /// Stop attacking: cancel an attack sent or repeated, as the escape key does, and drop a swing
+    /// still charging, asked for by something with no key (the frame's extension hook).
+    CombatAbortAttack,
+
     // -----------------------------------------------------------------------------------------
     // Secure trade. The panel carries the clicks; the rules beneath
     // them belong to `dereth_client_model::trade`.
@@ -1050,4 +1075,50 @@ pub enum UiRequest {
     HouseQueryLord {
         slumlord: ObjectId,
     },
+
+    // -----------------------------------------------------------------------------------------
+    // Requests no retail panel makes: what a plugin asks for directly. Each ends in the same
+    // game operation, with the same guards and the same message, as the gesture it stands for.
+    // -----------------------------------------------------------------------------------------
+    /// Appraise an object without opening the examination window: `0x00C8 Item_Appraise`, the
+    /// request alone. The answer lands in the appraisal cache like any other.
+    Appraise(ObjectId),
+    /// One inventory operation, named rather than reached through a drag.
+    Inventory(InventoryIntent),
+}
+
+/// An inventory operation a plugin asks for (see [`UiRequest::Inventory`]). Each is the game
+/// operation a drag reaches, with its guards: one item request at a time, and none while an attack
+/// is in progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InventoryIntent {
+    /// Put the whole of `item` into `container` at `place` (`0x0019`).
+    PutInContainer {
+        item: ObjectId,
+        container: ObjectId,
+        place: u32,
+    },
+    /// Put `amount` of the stack `item` into `container` at `place` (`0x0055`).
+    SplitToContainer {
+        item: ObjectId,
+        container: ObjectId,
+        place: u32,
+        amount: u32,
+    },
+    /// Merge `amount` of the stack `item` into the stack `target` (`0x0054`).
+    Merge {
+        item: ObjectId,
+        target: ObjectId,
+        amount: u32,
+    },
+    /// Drop `item` on the ground (`0x001B`).
+    Drop { item: ObjectId },
+    /// Give `amount` of `item` to `target` (`0x00CD`).
+    Give {
+        item: ObjectId,
+        target: ObjectId,
+        amount: u32,
+    },
+    /// Wield or wear `item` where it goes, as a drop on the paper doll does (`0x001A`).
+    Wield { item: ObjectId },
 }

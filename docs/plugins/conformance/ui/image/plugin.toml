@@ -1,0 +1,10 @@
+id = "conformance.image"
+name = "Conformance: image"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"net.http" = "Fetches the map."
+
+[net]
+domains = ["maps.example.org"]

@@ -15,11 +15,11 @@
 //!
 //! [`config_file`] finds and loads `empyrean.toml`, [`dat_directory`] and [`world_pack`] locate the
 //! data files and the content pack, [`database_manager`] opens the stores, [`guid_manager_boot`]
-//! seeds the object-id allocator, [`status_endpoint`] serves the status query, [`websocket`] is the
-//! WebSocket endpoint, beside the UDP listeners, and [`federation_link`] is the Dereth Network's link
-//! to its hub. [`admin_channel`] is the console for a program on the same computer. [`update`]
-//! finds, checks and installs new
-//! releases (`server.update`, `empyrean-server update`). The ported `Program.*` modules stay in
+//! seeds the object-id allocator, [`status_endpoint`] serves the status query (and, when asked, the
+//! [`portal_table`]), [`websocket`] is the WebSocket endpoint, beside the UDP listeners, and
+//! [`federation_link`] is the Dereth Network's link to its hub. [`admin_channel`] is the console for
+//! a program on the same computer. [`update`] finds, checks and installs new releases
+//! (`server.update`, `empyrean-server update`). The ported `Program.*` modules stay in
 //! the binary.
 
 pub mod admin_channel;
@@ -28,6 +28,7 @@ pub mod dat_directory;
 pub mod database_manager;
 pub mod federation_link;
 pub mod guid_manager_boot;
+pub mod portal_table;
 pub mod status_endpoint;
 pub mod update;
 pub mod websocket;

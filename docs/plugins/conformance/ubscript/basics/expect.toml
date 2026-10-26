@@ -1,0 +1,20 @@
+says = "A script written for UtilityBelt's scripting runs from its folder alone: it reads its character, the world's objects by class and an object's properties by typed id as UtilityBelt answers them, waits on an appraisal and hears an action's callback."
+
+[scenario]
+world = "scripted"
+seconds = 3
+
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+ints = { 106 = 250 }
+strings = { 7 = "For Aldric" }
+
+[expect]
+status = "running"
+console = ["state In_Game true", "me Tester true Player", "ring Gold Ring true 900 true", "missing 0 none", "jewelry 1 1 1", "appraised true None true 250", "strings For Aldric 250", "callback ObjectAppraiseAction true", "slept"]
+printed = ["[basics] state In_Game true", "[basics] me Tester true Player", "[basics] ring Gold Ring true 900 true", "[basics] missing 0 none", "[basics] jewelry 1 1 1", "[basics] appraised true None true 250", "[basics] strings For Aldric 250", "[basics] callback ObjectAppraiseAction true", "[basics] slept"]
+sent = ["appraise 0x80000011", "appraise 0x80000011"]

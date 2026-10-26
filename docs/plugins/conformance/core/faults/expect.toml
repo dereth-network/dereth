@@ -1,0 +1,7 @@
+says = "A plugin whose handlers keep failing is suspended after ten failures within a minute, and the client carries on."
+[[step]]
+after = 3
+say = "/nothing"
+[expect]
+status = "suspended"
+printed = ["[Plugins] conformance.faults was suspended (10 errors within a minute). /plugin reload conformance.faults starts it again."]

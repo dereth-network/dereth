@@ -1,0 +1,11 @@
+says = "A plugin active only in the world hears the session at the character list but no ticks and shows no window there; it becomes active in the world, and idle again once it has logged out."
+[scenario]
+world = "scripted"
+seconds = 5
+[scenario.pregame]
+characters = ["Alpha"]
+[expect]
+status = "running"
+moves = ["log_on Alpha", "log_off"]
+console = ["pregame\tpregame", "begin\tworld\tpregame", "in world as\tAlpha", "tick\tworld", "tick\tworld", "end\tworld\tpregame", "pregame\tpregame", "logged out"]
+ui = ""

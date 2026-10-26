@@ -1,0 +1,31 @@
+# The compiled plugin the test suite runs beside the Lua XP Meter (`dereth/plugins/xp-meter`): the
+# same plugin in Rust, built as a WebAssembly component against
+# `docs/plugins/wit/dereth-plugin.wit`. A test fixture, not a sample: no release carries it.
+#
+# Built from the repository's root with `cargo run -p dereth-plugin -- build
+# dereth/testkit/tests/fixtures/compiled-plugin/source dereth/testkit/tests/fixtures/compiled-plugin/package`,
+# which writes the package's `plugin.wasm`. A crate of its own, outside the workspace.
+[workspace]
+
+[package]
+name = "compiled-xp-meter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The bindings for the interface, generated from its WIT description.
+wit-bindgen = { version = "0.57", default-features = false, features = ["macros", "realloc"] }
+# Event data and answers are JSON.
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -54,6 +54,7 @@ pub const SHARED: &[&str] = &[
     "dereth-client-sdk",
     "dereth-dat",
     "dereth-landscape",
+    "dereth-navigation",
     "dereth-physics",
     "dereth-primitives",
     "dereth-progression",

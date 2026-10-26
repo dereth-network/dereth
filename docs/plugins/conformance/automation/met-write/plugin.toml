@@ -1,0 +1,7 @@
+id = "conformance.met-write"
+name = "Conformance: met-write"
+version = "0.1.0"
+api = "0.7"
+
+[capabilities]
+required = []

@@ -1,0 +1,8 @@
+id = "conformance.layout-stretch"
+name = "Conformance: layout stretch"
+version = "0.1.0"
+api = "0.7"
+contexts = ["pregame", "world"]
+
+[capabilities]
+required = ["ui.window"]

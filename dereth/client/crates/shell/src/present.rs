@@ -22,6 +22,9 @@ pub use dereth_client_runtime::world_state::WorldState;
 /// Which preview space: the scene's, which holds the spaces (`crate::gpu` re-exports it too).
 pub use dereth_scene::gpu::PreviewId;
 
+/// A mark placed in the world, drawn after it and against its depth (the scene's).
+pub use dereth_scene::marks::WorldMark;
+
 /// What `Renderer::release_ui_textures` did, so the release can be asserted on rather than
 /// assumed. `unknown` is a double release and must stay zero.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -45,6 +48,30 @@ pub trait ClientPresentation: Presentation {
     /// # Errors
     /// Whatever the device answers.
     fn draw_ui(&mut self, cmds: &[dereth_ui::UiDrawCmd]) -> Result<(), PresentError>;
+    /// [`Self::draw_ui`] with other overlay items drawn among the list's: each of `inserts` just
+    /// before the command at its index (after the list's last for an index past it), and `top`
+    /// over everything. Where a plugin window stands among the interface's own windows.
+    ///
+    /// # Errors
+    /// Whatever the device answers.
+    fn draw_ui_interleaved(
+        &mut self,
+        cmds: &[dereth_ui::UiDrawCmd],
+        inserts: &[(usize, &[dereth_client_contract::overlay::OverlayItem])],
+        top: &[dereth_client_contract::overlay::OverlayItem],
+    ) -> Result<(), PresentError> {
+        self.draw_ui(cmds)?;
+        for (_, items) in inserts {
+            if !items.is_empty() {
+                self.draw_overlay(items)?;
+            }
+        }
+        if top.is_empty() {
+            Ok(())
+        } else {
+            self.draw_overlay(top)
+        }
+    }
     /// Upload whatever this draw list newly references, outside the frame bracket: its interface
     /// pictures from `interface`, the interface's own files, and the pictures the world names
     /// ([`dereth_ui::ImageSource::World`]) from `world`.
@@ -62,6 +89,17 @@ pub trait ClientPresentation: Presentation {
         id: ObjectId,
         world: Option<&WorldState>,
     ) -> Option<dereth_ui_screens::hud::target::Projection>;
+    /// The marks drawn in the world this frame, replacing the last frame's.
+    fn set_world_marks(&mut self, marks: Vec<WorldMark>);
+    /// Whether this presentation answers depth probes; one that does not shows every label.
+    fn depth_probes_supported(&self) -> bool;
+    /// Read the world's depth (0 at the near plane, 1 at the far one) at these back-buffer pixels
+    /// once this frame is drawn; the answer comes back, with `tag`, through
+    /// [`Self::take_depth_probes`] a frame or two later.
+    fn request_depth_probes(&mut self, tag: u64, pixels: Vec<(u32, u32)>);
+    /// The newest answer to [`Self::request_depth_probes`] since the last call: its tag and one
+    /// depth a pixel, in the order asked.
+    fn take_depth_probes(&mut self) -> Option<(u64, Vec<f32>)>;
 
     /// Where a tracked object's own origin stands on screen, at the height of its selection
     /// sphere's centre: the point to centre a name or a marker on.
@@ -133,6 +171,16 @@ macro_rules! counted_ui {
                 _id: ObjectId,
                 _world: Option<&WorldState>,
             ) -> Option<dereth_ui_screens::hud::target::Projection> {
+                None
+            }
+            fn set_world_marks(&mut self, marks: Vec<WorldMark>) {
+                self.counts_mut().world_marks = u64::try_from(marks.len()).unwrap_or(u64::MAX);
+            }
+            fn depth_probes_supported(&self) -> bool {
+                false
+            }
+            fn request_depth_probes(&mut self, _tag: u64, _pixels: Vec<(u32, u32)>) {}
+            fn take_depth_probes(&mut self) -> Option<(u64, Vec<f32>)> {
                 None
             }
 

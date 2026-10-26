@@ -1,0 +1,21 @@
+id = "network.dereth.buffbot"
+name = "Buffbot"
+version = "0.2.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "Buffs other players on request: a player tells your character a buff profile's name, joins a line, is told its place, and has the profile's buffs cast on it. Looks after its own mana, warns when its components run low, and buys them again from the vendors you name. Casts your own buffs too, on you and your gear, by profiles of your own, now or kept up, in the manner of Alinco."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"read.chat.private" = "Reads the tells players send your character to ask for buffs."
+"chat.send" = "Tells players their place in line, to come closer, and when their buffs are done."
+"act.interactive" = "Turns on and off when you click or type /buffbot."
+"auto.support" = "Casts buffs on the players who ask for them."
+"auto.buff" = "Casts your own buffs on your character and the gear it wields and wears, and Stamina to Mana when its mana runs low."
+"auto.nav" = "Walks to its vendors to restock and back to where it stood, and drinks a mana potion when its mana runs low."
+"auto.vendor" = "Buys the components and mana potions it restocks."
+
+[capabilities]
+required = ["ui.window"]

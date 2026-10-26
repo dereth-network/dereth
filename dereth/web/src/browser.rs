@@ -38,11 +38,144 @@ extern "C" {
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethSettingsSave)]
     fn settings_save(bytes: &[u8]);
 
+    /// The plugins the player added to the page, as one bundle (`crate::plugins::packages`).
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPluginsLoad)]
+    fn plugins_load() -> Vec<u8>;
+
+    /// The plugins that come with the client, served beside the page, as one bundle of the same
+    /// form.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethBundledPluginsLoad)]
+    fn bundled_plugins_load() -> Vec<u8>;
+
+    /// Post a plugin message to this page's other clients (the browser's broadcast channel).
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPeersSend)]
+    fn peers_send(text: &str);
+
+    /// The plugin messages other clients posted since the last call, as a JSON list of texts.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPeersTake)]
+    fn peers_take() -> String;
+
+    /// Begin a plugin's HTTPS request `id` (its fields as JSON) with the browser's fetch.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethNetStart)]
+    fn net_start(id: f64, request: &str);
+
+    /// One ended request: a JSON line (`id`, `status`, `type`, or `error`), a newline, then the
+    /// body's bytes; empty when none has ended.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethNetNext)]
+    fn net_next() -> Vec<u8>;
+
+    /// The world's plugin policy document, if the page was given one; empty otherwise.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPluginPolicy)]
+    fn plugin_policy() -> String;
+
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
 
     #[wasm_bindgen(js_namespace = console, js_name = log)]
     fn console_log(message: &str);
+}
+
+/// The bus between this origin's clients: the page's broadcast channel, which carries a message
+/// to every other tab of the same site and not back to the sender.
+#[derive(Debug)]
+struct PagePeers;
+
+impl dereth_client_sdk::plugins::PluginPeers for PagePeers {
+    fn send(&mut self, m: &dereth_client_sdk::plugins::PeerMessage) {
+        let text = dereth_client_sdk::plugin_api::Value::map()
+            .with("from", m.from.as_str())
+            .with("plugin", m.plugin.as_str())
+            .with("channel", m.channel.as_str())
+            .with("data", m.data.as_str())
+            .to_json();
+        peers_send(&text);
+    }
+
+    fn receive(&mut self) -> Vec<dereth_client_sdk::plugins::PeerMessage> {
+        use dereth_client_sdk::plugin_api::Value;
+        let Ok(Value::List(texts)) = Value::from_json(&peers_take()) else {
+            return Vec::new();
+        };
+        texts
+            .iter()
+            .filter_map(|t| Value::from_json(t.as_str()?).ok())
+            .map(|v| {
+                let s = |k: &str| v.get(k).as_str().unwrap_or_default().to_owned();
+                dereth_client_sdk::plugins::PeerMessage {
+                    from: s("from"),
+                    plugin: s("plugin"),
+                    channel: s("channel"),
+                    data: s("data"),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Plugins' HTTPS requests through the browser's fetch; the page's origin rules (CORS) apply as
+/// well as the manifest's domains.
+#[derive(Debug)]
+struct PageNet;
+
+impl dereth_client_sdk::plugins::PluginNet for PageNet {
+    fn start(&mut self, id: i64, r: dereth_client_sdk::plugins::HttpRequest) {
+        use dereth_client_sdk::plugin_api::Value;
+        let mut headers = Value::map();
+        for (k, v) in &r.headers {
+            headers = headers.with(k.as_str(), v.as_str());
+        }
+        let json = Value::map()
+            .with("url", r.url.as_str())
+            .with("method", r.method.as_str())
+            .with("headers", headers)
+            .with("body", r.body.clone())
+            .to_json();
+        #[allow(clippy::cast_precision_loss)] // ids are small and increasing
+        net_start(id as f64, &json);
+    }
+
+    fn poll(
+        &mut self,
+    ) -> Vec<(
+        i64,
+        Result<dereth_client_sdk::plugins::HttpResponse, String>,
+    )> {
+        use dereth_client_sdk::plugin_api::Value;
+        let mut out = Vec::new();
+        loop {
+            let bytes = net_next();
+            if bytes.is_empty() {
+                break;
+            }
+            let split = bytes
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(bytes.len());
+            let Ok(head) = std::str::from_utf8(&bytes[..split])
+                .map_err(|_| ())
+                .and_then(|t| Value::from_json(t).map_err(|_| ()))
+            else {
+                continue;
+            };
+            let Some(id) = head.get("id").as_i64() else {
+                continue;
+            };
+            let result = match head.get("error").as_str() {
+                Some(e) => Err(e.to_owned()),
+                None => Ok(dereth_client_sdk::plugins::HttpResponse {
+                    status: head
+                        .get("status")
+                        .as_i64()
+                        .and_then(|s| u16::try_from(s).ok())
+                        .unwrap_or(0),
+                    content_type: head.get("type").as_str().map(str::to_owned),
+                    body: bytes.get(split + 1..).unwrap_or_default().to_vec(),
+                }),
+            };
+            out.push((id, result));
+        }
+        out
+    }
 }
 
 /// A writer for the log subscriber: each event, whole, as one console line.
@@ -192,6 +325,121 @@ pub fn install_settings() {
     crate::settings::install(&settings_load(), Some(settings_save));
 }
 
+/// The page's plugins checked in this build (`crate::plugin_wasm::check`): each package in the
+/// bundle, and each compiled one run in the browser's WebAssembly. One line per step.
+#[wasm_bindgen(js_name = pluginPackageCheck)]
+#[must_use]
+pub fn plugin_package_check(bundle: &[u8]) -> String {
+    crate::plugin_wasm::check(bundle).join("\n")
+}
+
+/// The plugin engine's self-check in this build (`crate::plugins::engine_check`), one line per
+/// step.
+#[wasm_bindgen(js_name = pluginEngineCheck)]
+#[must_use]
+pub fn plugin_engine_check() -> String {
+    crate::plugins::engine_check().join("\n")
+}
+
+/// A self-check of what the client's plugins reach outside the page, through the same adapters
+/// the client installs: the bus to this site's other tabs, a fetch, and the world's policy
+/// document the page was given. For a test page; the client itself never makes one.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct PluginIoCheck {
+    name: String,
+    peers: PagePeers,
+    net: PageNet,
+}
+
+#[wasm_bindgen]
+impl PluginIoCheck {
+    #[wasm_bindgen(constructor)]
+    #[must_use]
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            peers: PagePeers,
+            net: PageNet,
+        }
+    }
+
+    /// Send `data` on the bus, from this check's name.
+    pub fn send(&mut self, data: &str) {
+        use dereth_client_sdk::plugins::PluginPeers as _;
+        self.peers.send(&dereth_client_sdk::plugins::PeerMessage {
+            from: self.name.clone(),
+            plugin: "check".to_owned(),
+            channel: "check".to_owned(),
+            data: data.to_owned(),
+        });
+    }
+
+    /// What arrived on the bus since the last call, a line each: the sender and the data.
+    #[must_use]
+    pub fn received(&mut self) -> String {
+        use dereth_client_sdk::plugins::PluginPeers as _;
+        self.peers
+            .receive()
+            .iter()
+            .map(|m| format!("{} {}", m.from, m.data))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Start a GET of `url` as request 1.
+    pub fn fetch(&mut self, url: &str) {
+        use dereth_client_sdk::plugins::PluginNet as _;
+        self.net.start(
+            1,
+            dereth_client_sdk::plugins::HttpRequest {
+                method: "GET".to_owned(),
+                url: url.to_owned(),
+                headers: Vec::new(),
+                body: None,
+            },
+        );
+    }
+
+    /// The requests that ended since the last call, a line each: the id, the status and the body
+    /// as text, or the failure.
+    #[must_use]
+    pub fn fetched(&mut self) -> String {
+        use dereth_client_sdk::plugins::PluginNet as _;
+        self.net
+            .poll()
+            .into_iter()
+            .map(|(id, r)| match r {
+                Ok(r) => format!(
+                    "{id} {} {}",
+                    r.status,
+                    String::from_utf8_lossy(&r.body).trim()
+                ),
+                Err(e) => format!("{id} failed {e}"),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The world's policy as the client would read it: `none` when the page gave none, else the
+    /// rule for each automation domain, or why the document does not read.
+    #[must_use]
+    pub fn policy(&self) -> String {
+        let text = plugin_policy();
+        if text.is_empty() {
+            return "none".to_owned();
+        }
+        match dereth_client_sdk::plugins::policy_doc::parse(&text) {
+            Ok(p) => dereth_client_sdk::plugin_api::AutoDomain::ALL
+                .iter()
+                .map(|d| format!("{}={}", d.name(), p.rule(*d).name()))
+                .collect::<Vec<_>>()
+                .join(" "),
+            Err(e) => format!("unreadable: {e}"),
+        }
+    }
+}
+
 /// The set a world is drawn from, by the desktop client's rule (its overlay's base, else
 /// `--world-base`, else its era's): `"modern"`, `"classic"`, or empty when nothing names one.
 /// `args` are what the launcher says about the world, and `overlay` the folder the worker holds
@@ -287,7 +535,7 @@ impl WebPlay {
         tracing::info!("settings kept: {:?}", crate::settings::paths());
         crate::overlay::hold(&overlay);
         let (page, render_scale) = page_size(&page);
-        let play = crate::play::Play::new(
+        let mut play = crate::play::Play::new(
             store,
             crate::server_url::NOMINAL_SERVER,
             &account,
@@ -301,6 +549,20 @@ impl WebPlay {
             overlay_path(&overlay),
         )
         .map_err(|e| JsError::new(&e))?;
+        let plugins = crate::plugins::packages(&plugins_load());
+        tracing::info!("{} plugin(s) added to this page", plugins.len());
+        let bundled = crate::plugins::packages(&bundled_plugins_load());
+        tracing::info!("{} plugin(s) come with the client", bundled.len());
+        let policy = plugin_policy();
+        play.install_plugins(
+            plugins,
+            crate::plugins::Extras {
+                peers: Some(Box::new(PagePeers)),
+                net: Some(Box::new(PageNet)),
+                policy: (!policy.is_empty()).then_some(policy),
+                bundled,
+            },
+        );
         let backend = play.app().renderer().adapter_name();
         Ok(Self {
             play: Some(play),

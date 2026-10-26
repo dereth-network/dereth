@@ -1,0 +1,29 @@
+id = "network.dereth.tank"
+name = "Tank"
+version = "0.3.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "An unattended macro in the manner of VTank: walks a route, fights what it meets, loots by a loot profile, salvages and sells what the profile says, heals and rests, gets itself unstuck, and stops, recalls or goes to the vendor when it should."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"act.interactive" = "Starts and stops when you click or type /tank."
+"auto.combat" = "Fights the monsters near you."
+"auto.nav" = "Walks your route, to monsters and to corpses, and travels to your route or hunting place through portals and by recalls."
+"auto.loot" = "Takes from your kills' corpses (and, if you say so, your fellows' and others') what your loot profile keeps, salvages or sells."
+"auto.heal" = "Heals you with kits or spells when your health runs low."
+"auto.buff" = "Keeps your buffs up, and casts the recall spell you name when the macro recalls."
+"auto.craft" = "Refills your worn items' mana from mana stones and charges, fills empty stones, salvages what your loot profile salvages, and stacks and packs your items if you say so."
+"auto.vendor" = "Sells at a vendor what your loot profile sells, and buys your buy list."
+"auto.trade" = "Hands the items your route or meta names to the people it names (a quest step)."
+"chat.send" = "Types the lines your route's chat waypoints hold."
+"messages" = "Reads where the server places your character, for your route's checkpoints."
+"auto.social" = "Recruits into your fellowship whoever tells you xp, and hands its lead on by its vote, if you say so."
+"auto.support" = "Casts a protection on a player nearby now and then, if you say so (RandomHelperBuffs)."
+"peers.local" = "Tells the Tank in your other clients on this machine, in your own fellow, where you are, your vitals and your debuffs, and hears theirs."
+
+[capabilities]
+required = ["nav.moveto", "ui.window"]
+optional = ["nav.journey", "nav.path", "messages", "peers.local", "ui.hud"]

@@ -152,7 +152,7 @@ impl Interaction {
     /// `phys`, `radar_radius`, and `now` are the seam inputs auto-targeting
     /// needs and `set_combat_mode` cannot carry; see that function for why the split is a declared
     /// deviation rather than an accident.
-    pub(super) fn run_combat_mode_toggle(
+    pub fn run_combat_mode_toggle(
         &mut self,
         game: &mut dereth_client_model::World,
         ready: bool,
@@ -328,7 +328,7 @@ impl Interaction {
     /// (`set_requested_attack_height` then `end_attack_request`). This call is what advances the
     /// bar; without it the only producer of an attack would be the end-attack request's release
     /// arm. See the world's combat power-bar update.
-    pub(super) fn run_power_bar(
+    pub fn run_power_bar(
         &mut self,
         game: &mut dereth_client_model::World,
         ready: bool,

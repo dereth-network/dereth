@@ -1,0 +1,7 @@
+says = "A handler that runs past its time budget is stopped, and a plugin that does so three times within a minute is suspended."
+[[step]]
+after = 1
+say = "/nothing"
+[expect]
+status = "suspended"
+printed = ["[Plugins] conformance.budget was suspended (over its time budget 3 times within a minute). /plugin reload conformance.budget starts it again."]

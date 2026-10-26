@@ -1692,6 +1692,24 @@ impl World {
         }
     }
 
+    /// Stop attacking outright: [`Self::abort_automatic_attack`], and a swing still charging on
+    /// the power bar, or released and waiting for the last swing's answer, is dropped before it is
+    /// sent. What an extension asking the character to stop fighting needs; no key of the
+    /// interface does the second half.
+    pub fn stop_attack(&mut self, req: &mut dyn RequestSink) {
+        self.abort_automatic_attack(req);
+        if self.combat.build_in_progress
+            && matches!(
+                self.combat.power_bar_mode,
+                PowerBarMode::Combat | PowerBarMode::AdvancedCombat
+            )
+        {
+            self.combat.hide_power_bar();
+        }
+        // A waiting release would go out with that answer, at whatever is selected then.
+        self.combat.attack_when_response_received = false;
+    }
+
     /// Behavior: the server's "yes, you swung".
     pub fn handle_commence_attack(&mut self) {
         self.combat.attack_in_progress = true;

@@ -6,7 +6,8 @@ use dereth_testkit::behaviours::Tier;
 use dereth_testkit::tier_census::{self, ScenarioFile};
 
 use super::{
-    chat, combat, frame, inventory, login, magic, net, objects, panels, shell, social, ui, world,
+    chat, combat, frame, inventory, login, magic, net, objects, panels, plugins, shell, social, ui,
+    world,
 };
 
 /// Every declaration scope in this tier, including existing nested modules.
@@ -37,6 +38,7 @@ static FILES: &[ScenarioFile] = &[
     net::SCENARIOS,
     objects::SCENARIOS,
     panels::SCENARIOS,
+    plugins::SCENARIOS,
     shell::SCENARIOS,
     shell::chargen::SCENARIOS,
     social::SCENARIOS,

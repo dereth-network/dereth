@@ -1,0 +1,14 @@
+says = "The player's own movement ends a plugin's movement at once, and the run lock is then the player's: the host does not let go of it for them."
+[scenario]
+world = "scripted"
+seconds = 4
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 2
+player_moves = true
+[expect]
+status = "running"
+console = ["move\tfalse\tinterrupted"]
+moves = ["face 90", "autorun on"]

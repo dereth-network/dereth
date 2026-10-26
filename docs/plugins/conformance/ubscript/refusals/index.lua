@@ -1,0 +1,32 @@
+-- What the plugin interface cannot do is refused plainly: a member, an event or a module that
+-- cannot be answered here raises an error that says so, and an action that cannot be carried out
+-- ends failed with the reason.
+local function try(what, f)
+	local ok, err = pcall(f)
+	print(what, ok, (string.gsub(tostring(err), "^[^:]+:%d+: ", "")))
+end
+try("window messages", function()
+	game.OnWindowMessage.Add(function() end)
+end)
+try("chat input", function()
+	game.World.OnChatInput.Add(function() end)
+end)
+try("self buffs", function()
+	return game.Character.SpellBook.GetSelfBuffs()
+end)
+try("dats", function()
+	return require("dats")
+end)
+try("remote exec", function()
+	return require("ubnet").RemoteExec(function() end)
+end)
+try("custom folder", function()
+	return require("filesystem").GetCustom("C:/", "why")
+end)
+try("unknown member", function()
+	return game.World.NoSuchThing
+end)
+local swear = await(game.Actions.AllegianceSwear(0x50000002))
+print("swear", swear.Success, swear.Error, swear.ErrorDetails)
+local train = await(game.Actions.SkillAdvance(SkillId.Alchemy))
+print("train", train.Success, train.Error, train.ErrorDetails)

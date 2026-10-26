@@ -12,7 +12,8 @@
 //! window's pages; the modern interface's mouse turning, its side-by-side vitals, its chat font
 //! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
 //! So is a row for something only some hosts do, where the host does not ([`Row::hosted`]): the
-//! render scale, which only the browser offers.
+//! render scale, which only the browser offers, and plugins, which only a client that runs them
+//! offers.
 
 use crate::options::{config::PrefValueConst, interface::Interface};
 use crate::view::PlayerOption;
@@ -730,7 +731,7 @@ const CHAT: [Heading; 6] = [
 
 // ---- Client Options --------------------------------------------------------------------------
 
-const CLIENT_SHARED: [Heading; 5] = [
+const CLIENT_SHARED: [Heading; 6] = [
     Heading {
         title: "Sound",
         text: Text::preference("ID_Sound_SoundSection", "Sound Options"),
@@ -1020,16 +1021,28 @@ const CLIENT_SHARED: [Heading; 5] = [
             ),
         ],
     },
+    Heading {
+        title: crate::options::plugins::HEADING,
+        text: Text::literal(crate::options::plugins::HEADING),
+        rows: &[hosted(noted(
+            crate::options::plugins::NOTE,
+            pref(
+                crate::options::plugins::CAPTION,
+                Value::Check(crate::options::plugins::PLUGINS),
+                Bool(false),
+            ),
+        ))],
+    },
 ];
 
 #[cfg(not(feature = "hifi"))]
-const CLIENT: [Heading; 5] = CLIENT_SHARED;
+const CLIENT: [Heading; 6] = CLIENT_SHARED;
 
 /// With the optional high-fidelity presentation built in, the Client Options page ends with its
 /// ten boxes under a heading of their own, on the Horizon interface's page alone: it is the only
 /// interface the presentation draws under.
 #[cfg(feature = "hifi")]
-const CLIENT: [Heading; 6] = {
+const CLIENT: [Heading; 7] = {
     let s = CLIENT_SHARED;
     [
         s[0],
@@ -1037,6 +1050,7 @@ const CLIENT: [Heading; 6] = {
         s[2],
         s[3],
         s[4],
+        s[5],
         Heading {
             title: super::fidelity::HEADING,
             text: Text::literal(super::fidelity::HEADING),

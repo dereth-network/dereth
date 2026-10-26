@@ -612,6 +612,9 @@ pub struct ObjectStream {
     /// plays at the emitting object's own `position`, which is the renderer's, and this crate
     /// holds no rendered frame. [`ObjectStream::take_sound_events`] is the drain.
     sound_events: Vec<EffectsSoundEvent>,
+    /// The objects whose use the server answered with the `OpenFailDueToLock` sound (a locked
+    /// door or chest), since [`ObjectStream::take_lock_answers`] last drained them.
+    lock_answers: Vec<ObjectId>,
     /// `0xF755` and `0xF754`s decoded since the frame loop last drained them, in arrival order.
     /// [`ObjectStream::take_script_events`] is the drain.
     ///
@@ -698,6 +701,7 @@ impl ObjectStream {
             session_physics_deleted: Vec::new(),
             position_entries: BTreeSet::new(),
             sound_events: Vec::new(),
+            lock_answers: Vec::new(),
             script_events: Vec::new(),
             player_motion_dispatches: Vec::new(),
             // `autonomy_level = 2` initially, so using the server position is false.
@@ -1313,6 +1317,12 @@ impl ObjectStream {
         std::mem::take(&mut self.sound_events)
     }
 
+    /// Take the objects whose use the server answered as locked since the last call: the
+    /// `OpenFailDueToLock` sound it plays on a locked door or chest that was used.
+    pub fn take_lock_answers(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.lock_answers)
+    }
+
     /// Take the server's physics-script triggers since the last call, in arrival order.
     ///
     /// The caller owes them the object's physics body, which in this build is the scene's:
@@ -1789,6 +1799,9 @@ impl ObjectStream {
                         m.sound_type,
                         m.volume
                     );
+                }
+                if m.sound_type == SOUND_OPEN_FAIL_DUE_TO_LOCK {
+                    self.lock_answers.push(m.id);
                 }
                 self.sound_events.push(m);
             }
@@ -2865,6 +2878,7 @@ impl ObjectStream {
         // A sound event for an object the session just tore down has nothing to play
         // on and nothing to play it at, so it goes with the tables it named.
         self.sound_events.clear();
+        self.lock_answers.clear();
         // Same rule for a script trigger -- it names an object that no longer exists.
         self.script_events.clear();
         // A teleport destination whose session has been torn down names a body that no
@@ -2890,6 +2904,9 @@ impl ObjectStream {
         self.world = fresh;
     }
 }
+
+/// The sound the server plays on a locked door or chest that was used.
+const SOUND_OPEN_FAIL_DUE_TO_LOCK: i32 = 0x94;
 
 #[cfg(test)]
 mod tests {
@@ -2927,6 +2944,29 @@ mod tests {
 
     fn ev(op: Opcode, body: Vec<u8>) -> SessionEvent {
         SessionEvent::WorldObject { opcode: op, body }
+    }
+
+    /// Behaviour: none (the travel's own bookkeeping of a server answer).
+    #[test]
+    fn a_use_the_server_answers_with_the_locked_sound_is_kept_for_the_travel() {
+        let mut objects = ObjectStream::new();
+        let sound = |id: u32, sound_type: i32| {
+            ev(
+                Opcode::EFFECTS_SOUND_EVENT,
+                write_body(&EffectsSoundEvent {
+                    id: ObjectId(id),
+                    sound_type,
+                    volume: 1.0,
+                })
+                .expect("encode"),
+            )
+        };
+        objects.apply_event(&sound(0x7016_3024, 0x94), LocalTime(1.0));
+        objects.apply_event(&sound(0x7016_3025, 0x12), LocalTime(1.1));
+        assert_eq!(objects.take_lock_answers(), vec![ObjectId(0x7016_3024)]);
+        assert!(objects.take_lock_answers().is_empty(), "drained");
+        // Both are still sounds to play.
+        assert_eq!(objects.take_sound_events().len(), 2);
     }
 
     /// Behaviour: none (actual session reset preserves only spell receipt counters).

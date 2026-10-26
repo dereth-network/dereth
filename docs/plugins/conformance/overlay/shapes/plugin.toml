@@ -1,0 +1,6 @@
+id = "conformance.shapes"
+name = "Conformance: shapes"
+version = "0.1.0"
+api = "0.6"
+[capabilities]
+required = ["overlay.world"]

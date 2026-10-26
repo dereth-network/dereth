@@ -175,6 +175,9 @@ struct Frame {
     retired: Vec<UploadArena>,
     /// Signalled by the swap-chain acquire; waited on by this frame's submission.
     image_available: vk::Semaphore,
+    /// The depth probes this frame's command buffer copies out, and the tag they answer; read
+    /// when the slot comes round again and its wait has proved the copy done.
+    probe: Option<(Buffer, u64, usize)>,
 }
 
 /// A live texture: the image, its view, its memory and what it is.
@@ -316,6 +319,10 @@ pub struct Gpu {
     released_in_frame: Vec<(u32, Option<Texture>)>,
     /// True between `begin_frame` and `end_frame`.
     frame_open: bool,
+    /// The depth probes asked for this frame: the tag and the pixels.
+    probe_request: Option<(u64, Vec<(u32, u32)>)>,
+    /// The newest depth probes read back, until they are taken.
+    probe_result: Option<crate::device::DepthProbes>,
     /// How many times each of [`Gpu::bind_texture`]'s samplers has been bound since
     /// the counters were last cleared. A `Cell` because `bind_texture` takes `&self`.
     sampler_binds: Cell<[u64; SAMPLER_COUNT as usize]>,
@@ -730,6 +737,7 @@ impl Gpu {
                 high_water: 0,
                 retired: Vec::new(),
                 image_available,
+                probe: None,
             });
         }
 
@@ -796,6 +804,8 @@ impl Gpu {
             pending_uploads: Vec::new(),
             released_in_frame: Vec::new(),
             frame_open: false,
+            probe_request: None,
+            probe_result: None,
             sampler_binds: Cell::new([0; SAMPLER_COUNT as usize]),
             stage1_binds: Cell::new(0),
             texture_book: crate::device::TextureBook::new(descriptors),
@@ -1102,7 +1112,8 @@ impl Gpu {
                 .format(depth_format)
                 .samples(vk::SampleCountFlags::TYPE_1)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                // Kept past the pass: the depth probes read it.
+                .store_op(vk::AttachmentStoreOp::STORE)
                 .stencil_load_op(vk::AttachmentLoadOp::CLEAR)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -1293,7 +1304,7 @@ impl Gpu {
             h,
             1,
             self.depth_format,
-            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
             vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
             TextureFormat::Bgra8,
             "depth buffer",
@@ -2070,6 +2081,25 @@ impl Gpu {
         for arena in retired {
             self.destroy_buffer(arena.buffer);
         }
+        if let Some((buffer, tag, n)) = self.frames[self.frame_index].probe.take() {
+            if let Ok(bytes) = buffer.read(0, n * 4) {
+                let d24 = self.depth_format == vk::Format::D24_UNORM_S8_UINT;
+                let depths = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| {
+                        if d24 {
+                            crate::device::unorm24_depth(u32::from_le_bytes(*b))
+                        } else {
+                            f32::from_le_bytes(*b)
+                        }
+                    })
+                    .collect();
+                self.probe_result = Some(crate::device::DepthProbes { tag, depths });
+            }
+            self.destroy_buffer(buffer);
+        }
         let frame = &mut self.frames[self.frame_index];
         frame.upload_used = 0;
         // SAFETY: the GPU is done with this pool, which the wait above established.
@@ -2154,6 +2184,9 @@ impl Gpu {
         let cmd = self.frames[self.frame_index].cmd;
         // SAFETY: the pass was begun by `begin_frame`.
         unsafe { self.device.cmd_end_render_pass(cmd) };
+        if let Some((tag, pixels)) = self.probe_request.take() {
+            self.record_depth_probes(cmd, tag, &pixels)?;
+        }
 
         // The swap chain: acquire, blit the finished frame into the acquired image, present.
         let mut wait_sems: Vec<vk::Semaphore> = Vec::new();
@@ -2248,6 +2281,102 @@ impl Gpu {
         self.frame_open = false;
         self.frame_index = (self.frame_index + 1) % FRAME_COUNT;
         self.frame_stamp += 1;
+        Ok(())
+    }
+
+    /// Ask for the depth at `pixels` once this frame is drawn. See `Gpu::request_depth_probes`.
+    pub fn request_depth_probes(&mut self, tag: u64, mut pixels: Vec<(u32, u32)>) {
+        pixels.truncate(crate::device::MAX_DEPTH_PROBES);
+        self.probe_request = (!pixels.is_empty()).then_some((tag, pixels));
+    }
+
+    /// The newest depth probes read back. See `Gpu::take_depth_probes`.
+    pub fn take_depth_probes(&mut self) -> Option<crate::device::DepthProbes> {
+        self.probe_result.take()
+    }
+
+    /// Copy the depth at each pixel into a buffer of this frame's own, after the pass and before
+    /// the frame is submitted. The depth image is left for transfer, which the next pass's
+    /// clear (from an undefined layout) does not mind.
+    fn record_depth_probes(
+        &mut self,
+        cmd: vk::CommandBuffer,
+        tag: u64,
+        pixels: &[(u32, u32)],
+    ) -> Result<(), RenderError> {
+        let n = pixels.len();
+        let buffer = self.create_buffer(
+            (n * 4) as u64,
+            vk::BufferUsageFlags::TRANSFER_DST,
+            MemoryLocation::GpuToCpu,
+            "depth probes",
+        )?;
+        let (w, h) = (self.config.width, self.config.height);
+        let image = self.target.depth.image;
+        let range = vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+        let to_transfer = vk::ImageMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
+            .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+            .old_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(range);
+        let regions: Vec<vk::BufferImageCopy> = pixels
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| {
+                vk::BufferImageCopy::default()
+                    .buffer_offset((i * 4) as u64)
+                    .image_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::DEPTH,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .image_offset(vk::Offset3D {
+                        x: i32::try_from(x.min(w.saturating_sub(1))).unwrap_or(0),
+                        y: i32::try_from(y.min(h.saturating_sub(1))).unwrap_or(0),
+                        z: 0,
+                    })
+                    .image_extent(vk::Extent3D {
+                        width: 1,
+                        height: 1,
+                        depth: 1,
+                    })
+            })
+            .collect();
+        // SAFETY: the buffer is recording outside any pass; the depth image is in the pass's
+        // final layout and the probe buffer was just made for this copy.
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[to_transfer],
+            );
+            self.device.cmd_copy_image_to_buffer(
+                cmd,
+                image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                buffer.buffer,
+                &regions,
+            );
+        }
+        let frame = &mut self.frames[self.frame_index];
+        if let Some((old, _, _)) = frame.probe.replace((buffer, tag, n)) {
+            self.destroy_buffer(old);
+        }
         Ok(())
     }
 
@@ -3548,6 +3677,9 @@ impl Drop for Gpu {
                 }
                 for a in f.retired {
                     self.destroy_buffer(a.buffer);
+                }
+                if let Some((b, _, _)) = f.probe {
+                    self.destroy_buffer(b);
                 }
                 self.device.destroy_semaphore(f.image_available, None);
                 self.device.destroy_descriptor_pool(f.desc_pool, None);

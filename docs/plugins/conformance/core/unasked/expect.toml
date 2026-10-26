@@ -1,0 +1,13 @@
+says = "A plugin whose manifest names no permission is asked nothing and may do what every permission but net.http covers, and in a world that publishes no policy it acts without a gesture in every domain."
+[scenario]
+world = "scripted"
+seconds = 1
+[[object]]
+id = 0x80000021
+name = "Stone"
+type = "misc"
+container = "player"
+[expect]
+status = "running"
+console = ["read.chat.private\ttrue", "messages\ttrue", "chat.send\ttrue", "chat.filter\ttrue", "auto.craft\ttrue", "auto.combat\ttrue", "session.control\ttrue", "peers.local\ttrue", "plugins.call\ttrue", "files.import\ttrue", "retail_ui\ttrue", "net.http\tfalse", "automated move\ttrue\tnil"]
+sent = ["put_item_in_container 0x80000021 0x50000001 0"]

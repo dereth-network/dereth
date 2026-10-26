@@ -1,0 +1,11 @@
+id = "conformance.contexts"
+name = "Conformance: contexts"
+version = "0.1.0"
+api = "0.5"
+contexts = ["world"]
+
+[permissions]
+"session.control" = "Logs your character in and out."
+
+[capabilities]
+required = ["session.pregame"]

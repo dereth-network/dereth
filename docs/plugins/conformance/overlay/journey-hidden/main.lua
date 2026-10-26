@@ -1,0 +1,10 @@
+-- A journey not drawn, then drawn, then hidden again.
+commands.add("go", "travel to the hideout", function()
+	nav.path_to({ cell = 0x019E0120, x = 20, y = -40, z = 0 }, { show = false })
+end)
+commands.add("show", "draw the journey", function()
+	print("shown", nav.show_journey(true))
+end)
+commands.add("hide", "hide the journey", function()
+	print("hidden", nav.show_journey(false))
+end)

@@ -1,0 +1,10 @@
+says = "A line a plugin sends is never taken for a command, however its verb is spelled and whenever the verb is claimed: it reaches neither a plugin nor the host and opens no activation, while the player's own typed command still does."
+[scenario]
+world = "scripted"
+seconds = 4
+[[step]]
+after = 2
+say = "/conf typed"
+[expect]
+status = "running"
+console = ["send\tfalse\ttrue", "send\tfalse\ttrue", "send\tfalse\ttrue", "send\tfalse\ttrue", "send\tfalse\ttrue", "send later\ttrue", "activation\t0", "conf ran\ttyped\ttrue"]

@@ -21,6 +21,7 @@
 //! | [`gpu`] | the device with the world and the preview spaces on it, and the first-pixel quad |
 //! | [`sky`], [`particles`] | the sky dome and the particle emitters |
 //! | [`preview`] | the creature-mode preview spaces |
+//! | [`marks`] | lines and dots a front end places in the world, drawn against its depth |
 //! | [`textures`], [`mip_worker`] | the dat texture lookup, and compressed mip chains built off thread |
 //! | [`render_prefs`] | the `Render.*` owners on the device and on the scene |
 //! | [`camera`] | camera comparisons against the renderer's view matrix |
@@ -32,6 +33,8 @@ pub mod art_pack;
 pub mod camera;
 /// The device with the drawn world and the preview spaces on it.
 pub mod gpu;
+/// Marks a front end places in the world, and their geometry.
+pub mod marks;
 /// Building compressed textures' mip chains off the main thread.
 pub mod mip_worker;
 /// Presentation: the emitter geometry it caches is device-resident, so the whole module is

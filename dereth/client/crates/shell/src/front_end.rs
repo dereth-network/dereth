@@ -16,6 +16,9 @@ mod frame;
 mod horizon;
 mod horizon_keys;
 mod key_bindings;
+mod plugin_layer;
+mod plugin_pad;
+mod plugins;
 mod previews;
 mod scripted_run;
 
@@ -188,6 +191,8 @@ pub struct ClientShell<H: Host> {
     pub(crate) shared: FrontEndServices<H>,
     pub(crate) classic: crate::classic_face::ClassicFace,
     pub(crate) horizon: horizon::HorizonFace,
+    /// The plugins' share, under every interface.
+    pub(crate) plugins: plugins::PluginSurface,
 }
 
 /// Widget state, dialogs and preview caches owned by the modern interface.
@@ -264,6 +269,8 @@ pub(crate) struct ModernFrontEnd {
     /// as the other subscriber. Re-selecting the unchanged id broadcasts without an edge and does
     /// not restart the blink.
     paper_doll_selection_seen: Option<dereth_primitives::ObjectId>,
+    /// The game's panels a plugin has hidden or moved: each one's visibility and place before.
+    pub(crate) retail_ui_before: std::collections::BTreeMap<String, (bool, (i32, i32))>,
 }
 
 /// Host services shared by the currently active interface.
@@ -350,6 +357,7 @@ impl<H: Host> ClientShell<H> {
                 paper_doll_built: None,
                 paper_doll_lighting: dereth_scene::preview::PaperDollSelectionLighting::default(),
                 paper_doll_selection_seen: None,
+                retail_ui_before: std::collections::BTreeMap::new(),
             },
             shared: FrontEndServices {
                 input: None,
@@ -369,6 +377,7 @@ impl<H: Host> ClientShell<H> {
             host_hides_ui: false,
             classic: crate::classic_face::ClassicFace::default(),
             horizon: horizon::HorizonFace::default(),
+            plugins: plugins::PluginSurface::default(),
         }
     }
 }
@@ -439,9 +448,32 @@ trait FrontEnd<H: Host> {
     /// Read the data files again, as a data patch left them: what the interface keeps from them
     /// is read from [`Cx::store`] now, and what it uploaded from the old records is let go.
     fn reread_files(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>);
+    /// Whether a text box has the keyboard: a key a plugin's hotkey names is then the text box's.
+    fn typing(&mut self) -> bool;
+    /// Whether the plugin host's dialog for a file is up in this interface's own top tier: no
+    /// plugin's hotkey runs while it is.
+    fn asking(&self) -> bool;
+    /// Put the plugin host's dialog for a file in this interface's own top tier, or take it down
+    /// (`None`). Only Horizon shows it there; under every other interface the plugins' layer
+    /// does.
+    fn host_question(&mut self, question: Option<&dereth_client_runtime::dialogs::HostQuestion>);
+    /// The player's answer to that question since the last call, with its id.
+    fn take_host_reply(&mut self) -> Option<dereth_client_runtime::dialogs::HostReply>;
 }
 
 impl<H: Host> FrontEnd<H> for ModernFrontEnd {
+    fn typing(&mut self) -> bool {
+        self.ui
+            .as_mut()
+            .is_some_and(crate::ui::UiShell::wants_text_mode)
+    }
+    fn asking(&self) -> bool {
+        false
+    }
+    fn host_question(&mut self, _question: Option<&dereth_client_runtime::dialogs::HostQuestion>) {}
+    fn take_host_reply(&mut self) -> Option<dereth_client_runtime::dialogs::HostReply> {
+        None
+    }
     fn reread_files(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>) {
         let Some(shell) = self.ui.as_mut() else {
             return;
@@ -723,6 +755,16 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
 }
 
 impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
+    fn typing(&mut self) -> bool {
+        self.input_scope(None).0
+    }
+    fn asking(&self) -> bool {
+        false
+    }
+    fn host_question(&mut self, _question: Option<&dereth_client_runtime::dialogs::HostQuestion>) {}
+    fn take_host_reply(&mut self) -> Option<dereth_client_runtime::dialogs::HostReply> {
+        None
+    }
     fn reread_files(&mut self, cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {
         dereth_classic_ui::runtime::ClassicUi::reread_files(self, cx);
     }
@@ -1579,7 +1621,7 @@ impl<H: Host> ClientShell<H> {
     }
 
     /// The interface shown now.
-    fn shown_interface(&self) -> dereth_client_contract::options::interface::Interface {
+    pub(crate) fn shown_interface(&self) -> dereth_client_contract::options::interface::Interface {
         use dereth_client_contract::options::interface::Interface;
         if self.classic.active {
             Interface::Classic
@@ -1632,6 +1674,8 @@ impl<H: Host> ClientShell<H> {
             return;
         }
         self.horizon.told_loading = false;
+        // The client's own question is asked again by the interface shown next.
+        self.front_and_services().0.host_question(None);
         match shown {
             Interface::Modern => self.leave_modern(cx),
             Interface::Classic => self.leave_classic(cx),
@@ -1723,6 +1767,11 @@ impl<H: Host> ClientShell<H> {
         }
         flush_panel_sessions(cx);
         service_journal(cx);
+        // The plugins' layer leaves the interface's elements with it.
+        if let Some(shell) = self.modern.ui.as_mut() {
+            self.plugins.layer.unseat_from_modern(&mut shell.ui);
+        }
+        self.plugins.layer.suspend();
         <ModernFrontEnd as FrontEnd<H>>::suspend(&mut self.modern, cx);
         dereth_client_contract::panels::HudPanels::spew_clear_pending(&mut cx.hud_mut().panels);
         if let Some(input) = self.shared.input.as_mut() {
@@ -1785,6 +1834,7 @@ impl<H: Host> ClientShell<H> {
         if let Some(ui) = self.classic.ui.as_mut() {
             ui.suspend(cx);
         }
+        self.plugins.layer.suspend();
         dereth_client_contract::panels::HudPanels::spew_clear_pending(&mut cx.hud_mut().classic);
         if let Some(input) = self.shared.input.as_mut() {
             cx.accept_actions(input.release_actions());
@@ -1909,6 +1959,14 @@ impl<H: Host> ClientShell<H> {
                     input.on_message(crate::pump::from_window(message, time_ms));
                 }
             }
+        }
+        if let HostEvent::KeyboardInput { key, pressed, .. } = event {
+            if plugins::plugin_hotkey(cx, self, *key, *pressed) {
+                return;
+            }
+        }
+        if plugins::route_to_layer(cx, self, event, time_ms) {
+            return;
         }
         let key = match event {
             HostEvent::KeyboardInput { key, .. } => u16::try_from(key.virtual_key).ok(),
@@ -2066,6 +2124,8 @@ impl<H: Host> Shell for ClientShell<H> {
             for event in &keys {
                 route_horizon_event(cx, self, event, time_ms);
             }
+        } else {
+            plugins::pad_to_layer(self, pad, time_ms);
         }
     }
 
@@ -2303,6 +2363,7 @@ impl<H: Host> Shell for ClientShell<H> {
         self.reread_files_when_patched(cx);
         self.follow_interface(cx);
         cx.set_chat_interface(self.shown_interface());
+        self.follow_plugins(cx);
         if self.classic.active {
             self.sync_classic_input(cx, false, None, false);
             if let Some(input) = self.shared.input.as_mut() {
@@ -2524,8 +2585,15 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn compose_ui(&mut self, cx: &mut Cx<'_, H>) {
+        use dereth_client_contract::options::interface::Interface;
+        match self.shown_interface() {
+            Interface::Modern => self.compose_plugins_modern(cx),
+            Interface::Classic => self.compose_plugins_classic(cx),
+            Interface::Horizon => {}
+        }
         let (front, services) = self.front_and_services();
         front.compose(cx, services);
+        Self::plugin_world_marks(cx);
     }
 
     /// Ending the frame with `true` is three things in one call: **the 2D UI overlay**,
@@ -2535,9 +2603,39 @@ impl<H: Host> Shell for ClientShell<H> {
         &mut self,
         present: &mut Self::Present,
     ) -> Result<(), dereth_client_runtime::present::PresentError> {
+        use dereth_client_contract::options::interface::Interface;
         if !self.host_hides_ui {
-            let (front, services) = self.front_and_services();
-            front.draw(present, services)?;
+            // The plugins' layer stands among the modern interface's windows, and over the classic
+            // interface's windows and under its modal box; the host's dialog for a file stands over
+            // everything of the classic interface's but its pointer.
+            match self.shown_interface() {
+                Interface::Modern if self.modern.ui.is_some() => {
+                    let layer = &self.plugins.layer;
+                    let cmds = &self.shared.ui_draw_list;
+                    present.draw_ui_interleaved(
+                        cmds,
+                        &layer.modern_inserts(cmds),
+                        &layer.slices.top,
+                    )?;
+                }
+                Interface::Classic => {
+                    let layer = &self.plugins.layer;
+                    let slices = &layer.slices;
+                    let labels = slices.labels.clone();
+                    let (between, over) = if layer.asking() {
+                        (Vec::new(), slices.over_labels())
+                    } else {
+                        (slices.over_labels(), Vec::new())
+                    };
+                    if let Some(ui) = self.classic.active_mut() {
+                        ui.draw_ui_with(present, &labels, &between, &over)?;
+                    }
+                }
+                _ => {
+                    let (front, services) = self.front_and_services();
+                    front.draw(present, services)?;
+                }
+            }
         }
         // The host's own controls go over its whole window, whatever part of it the game drew in.
         let region = present.inset();
@@ -2736,6 +2834,24 @@ pub(crate) fn route_host_event<H: Host>(
         }
         return;
     }
+    if let HostEvent::KeyboardInput { key, pressed, .. } = event {
+        if plugins::plugin_hotkey(cx, shell, *key, *pressed) {
+            return;
+        }
+    }
+    // The plugins' layer first: a press on one of its surfaces that nothing of the interface's
+    // stands over is its, and so are keys while one of its lines has the keyboard.
+    if plugins::route_to_layer(cx, shell, event, time_ms) {
+        return;
+    }
+    // A press on the map page's picture is told to the plugins, and goes on to the interface.
+    if let HostEvent::MouseInput {
+        button,
+        pressed: true,
+    } = event
+    {
+        plugins::modern_map_press(cx, shell, *button);
+    }
     match event {
         HostEvent::KeyboardInput { key, pressed, .. } => flycam_key(cx, shell, *key, *pressed),
         HostEvent::MouseInput {
@@ -2780,6 +2896,11 @@ fn route_horizon_event<H: Host>(
             }
         }
         return;
+    }
+    if let HostEvent::KeyboardInput { key, pressed, .. } = event {
+        if plugins::plugin_hotkey(cx, shell, *key, *pressed) {
+            return;
+        }
     }
     // A paste key in a text box reads the clipboard on the keystroke.
     if let HostEvent::KeyboardInput {
@@ -2832,6 +2953,77 @@ fn route_horizon_event<H: Host>(
         cx.window_message(crate::pump::window_message(m), m.time_ms);
         if let Some(input) = shell.shared.input.as_mut() {
             input.on_message(m);
+        }
+    }
+}
+
+/// The game's own panel a plugin names, as an element of the gameplay screen.
+fn retail_panel(name: &str) -> Option<dereth_ui::ElementId> {
+    use dereth_ui_screens::screens::gameplay::window as w;
+    Some(match name {
+        "chat" => w::MAIN_CHAT,
+        "vitals" => w::STACKED_VITALS,
+        "side_vitals" => w::SIDE_VITALS,
+        "toolbar" => w::TOOLBAR,
+        "radar" => w::RADAR,
+        "panels" => w::PANEL_STACK,
+        "environment" => w::ENV_PANEL,
+        "combat" => w::COMBAT_PANEL,
+        "power_bar" => w::POWER_BAR,
+        "examination" => w::EXAMINATION,
+        _ => return None,
+    })
+}
+
+/// Bring the game's panels in line with what plugins asked: a panel a plugin hides or moves is
+/// remembered as it was, and given back so when no plugin asks any more.
+fn apply_retail_ui(
+    shell: &mut crate::ui::UiShell,
+    before: &mut std::collections::BTreeMap<String, (bool, (i32, i32))>,
+    asked: &[dereth_plugin_host::calls::RetailRequest],
+) {
+    let Some(root) = shell
+        .flow
+        .current()
+        .and_then(|s| s.roots().first().copied())
+    else {
+        return;
+    };
+    let gone: Vec<String> = before
+        .keys()
+        .filter(|k| !asked.iter().any(|a| &a.0 == *k))
+        .cloned()
+        .collect();
+    for name in gone {
+        let Some((visible, (x, y))) = before.remove(&name) else {
+            continue;
+        };
+        if let Some(h) = retail_panel(&name).and_then(|id| shell.ui.get_child_recursive(root, id)) {
+            shell.ui.set_visible(h, visible);
+            shell.ui.move_to(h, x, y);
+        }
+    }
+    for (name, _, hidden, at) in asked {
+        let Some(h) = retail_panel(name).and_then(|id| shell.ui.get_child_recursive(root, id))
+        else {
+            continue;
+        };
+        let b = shell.ui.screen_box(h);
+        let was = (shell.ui.is_visible(h), (b.x0, b.y0));
+        before.entry(name.clone()).or_insert(was);
+        if let Some(hide) = hidden {
+            if shell.ui.is_visible(h) == *hide {
+                shell.ui.set_visible(h, !hide);
+            }
+        }
+        if let Some((x, y)) = at {
+            let (x, y) = (
+                i32::try_from(*x).unwrap_or(0),
+                i32::try_from(*y).unwrap_or(0),
+            );
+            if (b.x0, b.y0) != (x, y) {
+                shell.ui.move_to(h, x, y);
+            }
         }
     }
 }
@@ -2999,3 +3191,7 @@ mod pointer_hold_tests;
 #[cfg(test)]
 #[path = "../tests/report_command_tests.rs"]
 mod report_command_tests;
+
+#[cfg(test)]
+#[path = "../tests/plugin_tests.rs"]
+mod plugin_tests;

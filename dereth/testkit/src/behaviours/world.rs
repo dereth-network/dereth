@@ -1469,6 +1469,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.dungeons.the-academys-first-rooms-are-not-joined-to-its-exit-portals-room",
+        says: "In Shoushi's Training Academy, the rooms a new character starts in and the room of                the Academy's exit portal are parts of the dungeon no walk joins: no portal between                cells leads from one to the other.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ACADEMY-PARTS"),
+        station: "dereth-navigation::dat::parts::a_new_characters_first_rooms_in_the_academy_are_not_walked_to_its_exit_portal",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.house.a-closed-house-stops-a-stranger-at-its-boundary",
         says: "A character with no permission is stopped at a closed house's boundary by the \
                house's barrier: they never cross into the fenced cell, are not dropped through the \
@@ -1487,6 +1495,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-INTERIORS-INTERIORS"),
         station: "dereth-client::gpu::world::interiors::a_body_inside_a_holtburg_building_is_stopped_by_its_walls",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "world.interiors.holtburgs-elder-shopkeeper-is-reached-only-across-his-window-or-counter",
+        says: "Shopkeeper Renald the Elder in Holtburg keeps a booth with no door: a body walking \
+               at him from the street is stopped outside its window, whose sill stands 0.85 m up, \
+               and one walking at him from inside his shop is stopped at its counter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-HOLTBURG-SHOPKEEPER-BOOTH"),
+        station: "dereth-navigation::dat::approach::a_body_walking_at_holtburgs_elder_shopkeeper_stops_at_his_window_or_his_counter",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.landblock-release.a-returning-parent-rescues-its-held-child",

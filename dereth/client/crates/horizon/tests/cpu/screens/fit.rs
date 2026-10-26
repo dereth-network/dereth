@@ -76,7 +76,11 @@ fn assert_all_drawn_on_screen(h: &Harness, what: &str) {
 }
 
 /// That the parts named are apart and on the screen.
-fn assert_apart_and_on_screen(parts: &[(&str, Rect)], screen: (f32, f32), what: &str) {
+fn assert_apart_and_on_screen<S: std::fmt::Display>(
+    parts: &[(S, Rect)],
+    screen: (f32, f32),
+    what: &str,
+) {
     for (i, (a, ra)) in parts.iter().enumerate() {
         assert!(on_screen(ra, screen), "{what}: {a} off the screen: {ra:?}");
         for (b, rb) in &parts[i + 1..] {
@@ -149,7 +153,7 @@ fn every_screen_stands_whole_on_the_smallest_windows_each_scale_is_offered_on() 
                 h.frame(state);
             }
             assert!((h.ui.layout_scale(screen) - step).abs() < 1e-4, "{what}");
-            let parts: Vec<(&str, Rect)> = h.ui.hud.layout.outlines.clone();
+            let parts: Vec<(String, Rect)> = h.ui.hud.layout.outlines.clone();
             assert!(parts.len() >= 10, "{what}: {parts:?}");
             assert_apart_and_on_screen(&parts, screen, &format!("{what}, the HUD {mode}"));
             assert_all_drawn_on_screen(&h, &format!("{what}, the HUD {mode}"));
@@ -170,11 +174,14 @@ fn every_screen_stands_whole_on_the_smallest_windows_each_scale_is_offered_on() 
         let top = slots.iter().map(|r| r.y).fold(f32::MAX, f32::min) - 8.0 * k;
         let right = slots.iter().map(Rect::right).fold(f32::MIN, f32::max) + 8.0 * k;
         let bottom = slots.iter().map(Rect::bottom).fold(f32::MIN, f32::max) + 8.0 * k;
-        let mut parts: Vec<(&str, Rect)> = h.ui.hud.layout.outlines.clone();
-        parts.push(("cross", Rect::new(left, top, right - left, bottom - top)));
-        let parts: Vec<(&str, Rect)> = parts
+        let mut parts: Vec<(String, Rect)> = h.ui.hud.layout.outlines.clone();
+        parts.push((
+            "cross".into(),
+            Rect::new(left, top, right - left, bottom - top),
+        ));
+        let parts: Vec<(String, Rect)> = parts
             .into_iter()
-            .filter(|(name, _)| ["chat", "party", "menu", "cross"].contains(name))
+            .filter(|(name, _)| ["chat", "party", "menu", "cross"].contains(&name.as_str()))
             .collect();
         assert_apart_and_on_screen(&parts, screen, &format!("{what}, gamepad mode"));
         assert_all_drawn_on_screen(&h, &format!("{what}, gamepad mode"));

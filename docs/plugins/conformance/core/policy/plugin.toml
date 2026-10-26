@@ -1,0 +1,8 @@
+id = "conformance.policy"
+name = "Conformance: policy"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"auto.combat" = "Fights on its own."
+"auto.loot" = "Loots on its own."

@@ -1,0 +1,21 @@
+says = "A window's nodes share the room left down it: each growing node takes a part in proportion to its grow, a node that does not grow keeps its natural height (a row whose field grows across it too), and across a column every node is as wide as the column."
+[[step]]
+after = 0
+bar = "conformance.layout-grow"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 20
+[expect]
+status = "running"
+layout = """
+window conformance.layout-grow main
+window #main 280x320
+  label #head 0,0 280x16
+  row 0,19 280x22
+    input #find 0,0 232x22 label=0
+    button #go 238,0 42x22
+  list #a 0,44 280x97 columns=270 rows=4
+  list #b 0,144 280x176 columns=270 rows=8
+"""

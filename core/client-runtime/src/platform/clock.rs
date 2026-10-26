@@ -294,6 +294,15 @@ impl Timer {
         }
     }
 
+    /// The frame clock the timer advanced to at this frame's sample: seconds since the client
+    /// started, stepped by the fixed quantum in a fixed-step run and read from the monotonic clock
+    /// otherwise. Unlike [`Self::local_time`] it is simulated whenever the frame is, so a timer
+    /// measured against it fires on the same frame of a replay every time.
+    #[must_use]
+    pub fn elapsed(&self) -> f64 {
+        self.elapsed_time
+    }
+
     /// Compute elapsed time from the performance counter.
     ///
     /// Under `FixedStepClock` there is no time source to sample: the simulated clock advances

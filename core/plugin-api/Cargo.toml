@@ -1,0 +1,17 @@
+[package]
+name = "dereth-plugin-api"
+description = "The plugin interface as types: what a plugin package declares, what it may do, what it hears and what it shows, with no engine, no game and no I/O in it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The one production dependency (`cargo xtask seams`, `seam: plugin-api deps`): object ids are the
+# game's own identifier type.
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true

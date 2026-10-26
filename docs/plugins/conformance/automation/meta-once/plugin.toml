@@ -1,0 +1,4 @@
+id = "conformance.meta-once"
+name = "Conformance: a meta by VTank's rule"
+version = "0.1.0"
+api = "0.4"

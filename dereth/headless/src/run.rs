@@ -1,21 +1,25 @@
 //! Driving a real [`App`] from a parsed script.
 //!
 //! The client this module builds is the runtime's application with nothing plugged into it:
-//! [`NullShell`] for the front end (no UI), `NullPresentation` for the device, `NullWindow` for the
-//! window, `FixedStepClock` for the clock. There is no window, no graphics device, no UI, no
-//! socket, and no data file beyond the retail dats [`Options::dat_dir`] names.
+//! [`HeadlessShell`] for the front end (no UI, only the game's questions and pop-ups kept for the
+//! script), `NullPresentation` for the device, `NullWindow` for the window, `FixedStepClock` for
+//! the clock. There is no window, no graphics device and no UI; a socket is opened only to the
+//! server [`Options::connect`] names, and no data file is read beyond the retail dats
+//! [`Options::dat_dir`] names and the plugins' folders.
 //!
 //! Everything this module prints goes through one `Write`, one line per fact, so the whole run is
 //! a text file a test can compare.
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use dereth_client_sdk::actions::{Action, ActionId};
 use dereth_client_sdk::contract::{GameView, UiRequest};
 use dereth_client_sdk::net::client_session::SessionState;
 use dereth_client_sdk::primitives::{LocalTime, ObjectId};
-use dereth_client_sdk::runtime::app::{App, NullShell, Platform, HEADLESS_STEP};
+use dereth_client_sdk::runtime::app::{App, Platform, HEADLESS_STEP};
 use dereth_client_sdk::runtime::config::Config;
 use dereth_client_sdk::runtime::frame::FrameStep;
 use dereth_client_sdk::runtime::frame_events::{FrameEvent, FrameEvents};
@@ -30,7 +34,9 @@ pub const BUILD_ID: &str = concat!("dereth-headless ", env!("CARGO_PKG_VERSION")
 
 // `peer(pair)` is the address scheme every capture-replaying harness uses; it lives with the reader.
 use crate::capture::{self, peer, CaptureError, Datagram};
-use crate::script::{action_name, Command, Direction, Dump};
+use crate::dialogs::HeadlessShell;
+use crate::script::{action_name, Command, Direction, Dump, PluginCommand, UiCommand};
+use dereth_client_sdk::plugins::{MemoryStorage, PluginHook, PluginHost, PluginStorage, UiInput};
 
 /// Where the run reads from and how big its imaginary back buffer is.
 #[derive(Debug, Clone)]
@@ -51,7 +57,8 @@ pub struct Options {
     pub width: u32,
     pub height: u32,
     /// Where `Config::preferences_file` points. **Never the user's own**: the default is a path under
-    /// the temp directory that this run does not create.
+    /// the temp directory that this run does not create; a settings folder named for the run
+    /// ([`settings_preferences`]) holds it instead.
     pub preferences_file: PathBuf,
     /// The account name the replay endpoint is built with. Only the recorded server's own bytes
     /// drive the login FSM, so this names the endpoint and nothing else.
@@ -63,6 +70,33 @@ pub struct Options {
     /// entering it over a recording, or `world <landblock>`, stands a body there that actions
     /// move. Off, the presentation is the null one and there is no world, as before.
     pub world: bool,
+    /// `--plugins <dir>`: plugin packages loaded at the first frame (each a package folder or a
+    /// folder of them). With none, the plugin host is installed by the first `plugin` command.
+    pub plugins: Vec<PathBuf>,
+    /// `--plugin-store <dir>`: where plugin stores are kept; in memory when absent.
+    pub plugin_store: Option<PathBuf>,
+    /// `--plugin-data <dir>`: the plugins' data folders; none when absent.
+    pub plugin_data: Option<PathBuf>,
+    /// `--plugin-policy <file>`: the world's plugin policy document, as its world entry publishes
+    /// it; absent, the policy of a world that publishes none.
+    pub plugin_policy: Option<String>,
+    /// `--peers <dir>`: the bus between the player's clients reaches the other headless clients
+    /// that name the same folder, by loopback datagrams; absent, a bus with no one else on it.
+    pub peers: Option<PathBuf>,
+    /// `--connect <host:port>`: log on to a server instead of replaying, as `--account` with
+    /// `--password`; the script's `enter` then takes a character into the world.
+    pub connect: Option<String>,
+    pub password: String,
+    /// `--nav-published <file>`: the server's published portal table, read at start and taken
+    /// into the client's journeys as the server's knowledge.
+    pub nav_published: Option<PathBuf>,
+    /// The time a plugin's entry may take before it is stopped, in milliseconds; `None` for the
+    /// host's own. A test that runs a large plugin on a busy machine raises it, so that the
+    /// plugin's work, not the machine's speed, decides what happens.
+    pub plugin_call_budget_ms: Option<f64>,
+    /// Set (by Ctrl+C) to stop the client: `run forever` and the daemon end at the next frame,
+    /// and the client logs out as it shuts down.
+    pub stop: Arc<AtomicBool>,
 }
 
 impl Default for Options {
@@ -81,6 +115,16 @@ impl Default for Options {
             account: "dereth-headless".to_owned(),
             max_login_frames: 4_000,
             world: false,
+            plugins: Vec::new(),
+            plugin_store: None,
+            plugin_data: None,
+            plugin_policy: None,
+            peers: None,
+            connect: None,
+            password: String::new(),
+            nav_published: None,
+            plugin_call_budget_ms: None,
+            stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -120,8 +164,48 @@ pub enum RunError {
     NoSession(&'static str),
     #[error("the client shut itself down at frame {0}")]
     Stopped(u64),
+    /// The client shut itself down because its session ended, the server saying why.
+    #[error("{0}")]
+    Ended(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Plugin(String),
+    #[error("the connection was lost: {0}")]
+    Disconnected(String),
+}
+
+/// The variable that names a settings folder, the desktop client's own.
+pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
+
+/// The preferences file a run keeps in the settings folder `dir` (from [`SETTINGS_DIR_ENV`]), as
+/// the desktop client keeps its own: beside it the client keeps what its journeys learn for each
+/// world (portals used, portals that refused it), so the next session starts knowing them. No
+/// folder named, none: the run writes nothing.
+#[must_use]
+pub fn settings_preferences(dir: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    let dir = dir.filter(|d| !d.is_empty())?;
+    Some(PathBuf::from(dir).join(dereth_client_sdk::runtime::config::PREFERENCES_FILE_NAME))
+}
+
+/// Why a session ended, in words. A logon refused because the account is still in the world (the
+/// server holds a session a client left without logging off) names that: the server logs that
+/// session off as it refuses, and the next logon gets in.
+fn ended_why(why: dereth_client_sdk::net::client_session::DisconnectReason) -> String {
+    use dereth_client_sdk::net::client_session::DisconnectReason;
+    match why {
+        DisconnectReason::CharacterError(1) => concat!(
+            "the server refused the logon: the account was still in the world ",
+            "(character error 1), and the server logs that session off"
+        )
+        .to_owned(),
+        DisconnectReason::CharacterError(code) => format!("character error {code}"),
+        DisconnectReason::ServerDied => "the server went silent".to_owned(),
+        DisconnectReason::AccountBooted => "the account was booted".to_owned(),
+        DisconnectReason::AccountBanned => "the account is banned".to_owned(),
+        DisconnectReason::LoggedOff => "logged off".to_owned(),
+        DisconnectReason::Transport(code) => format!("transport error {code}"),
+    }
 }
 
 /// What a finished run did, for a caller that wants numbers rather than the text.
@@ -138,6 +222,9 @@ pub struct Summary {
     /// How many login-complete notifications (`0x00A1`) the client sent: one when the log-in's
     /// portal-space animation ends, and one after each teleport.
     pub login_completes_sent: u64,
+    /// Whether the client built its travel's planner, which it does the first time a journey or
+    /// a plan is asked for.
+    pub travel_planner_built: bool,
 }
 
 /// Build a headless client, run the script against it, and shut it down.
@@ -152,24 +239,36 @@ pub fn run(commands: &[Command], opts: &Options, out: &mut dyn Write) -> Result<
     Ok(summary)
 }
 
-struct Run<'a> {
-    app: App<NullShell>,
-    shell: NullShell,
+pub(crate) struct Run<'a> {
+    app: App<HeadlessShell>,
+    shell: HeadlessShell,
     opts: Options,
     out: &'a mut dyn Write,
     frames: u64,
     commands: usize,
     state: Option<SessionState>,
     characters: Vec<String>,
+    /// How many of the chat windows' queued lines `chat` has printed.
+    chat_seen: usize,
+    /// The inbound datagrams `login` left unfed, with the recorded time and the client time the
+    /// last one was fed at, for `replay`.
+    rest: std::collections::VecDeque<Datagram>,
+    paced_from: Option<(f64, f64)>,
+    /// The frames now are at the wall clock's pace.
+    paced: bool,
+    /// A `quit` ended the script.
+    pub(crate) quit: bool,
+    /// An `enter` took a character into the world.
+    pub(crate) entered: bool,
 }
 
 impl<'a> Run<'a> {
-    fn new(opts: &Options, out: &'a mut dyn Write) -> Result<Self, RunError> {
-        let cfg = Config {
+    pub(crate) fn new(opts: &Options, out: &'a mut dyn Write) -> Result<Self, RunError> {
+        let mut cfg = Config {
             headless: true,
             frames: None,
-            // No socket is ever opened: the only endpoint this binary has is the socket-free one
-            // `App::attach_replay_network` installs.
+            // Without `--connect` no socket is ever opened: the only endpoint is the socket-free
+            // one `App::attach_replay_network` installs.
             connect: false,
             sound: false,
             dat_dir: opts.dat_dir.clone(),
@@ -181,9 +280,23 @@ impl<'a> Run<'a> {
             height: opts.height,
             ..Config::default()
         };
+        if let Some(server) = &opts.connect {
+            let (host, port) = server
+                .rsplit_once(':')
+                .and_then(|(h, p)| Some((h.to_owned(), p.parse::<u32>().ok()?)))
+                .ok_or_else(|| {
+                    RunError::Startup(format!("--connect {server}: want <host:port>"))
+                })?;
+            cfg.connect = true;
+            cfg.host = host;
+            cfg.port = port;
+            cfg.account = opts.account.to_lowercase();
+            cfg.account_as_typed.clone_from(&opts.account);
+            cfg.vg_password.clone_from(&opts.password);
+        }
         let (width, height) = (opts.width, opts.height);
         let world = opts.world;
-        let mut app = App::<NullShell>::bring_up(
+        let mut app = App::<HeadlessShell>::bring_up(
             cfg,
             |_| Ok(Platform::headless(width, height)),
             |_, _, _, _| {
@@ -196,11 +309,26 @@ impl<'a> Run<'a> {
         )
         .map_err(|e| RunError::Startup(e.to_string()))?;
         app.interaction.client_build_id = BUILD_ID;
-        let mut shell = NullShell;
+        if world && opts.connect.is_some() {
+            // Built on world entry, at the character's own place, as for a recorded login.
+            app.defer_static_scene(SceneConfig {
+                character: true,
+                ..SceneConfig::default()
+            });
+        }
+        if let Some(path) = &opts.nav_published {
+            let text = std::fs::read_to_string(path).map_err(|e| {
+                RunError::Startup(format!("--nav-published {}: {e}", path.display()))
+            })?;
+            if let Ok(mut slot) = app.published_portals.lock() {
+                *slot = Some(text);
+            }
+        }
+        let mut shell = HeadlessShell::default();
         // Initialization step 10 is `App::bring_up`; starting input and the sound manager is
-        // `App::start_shell`. `NullShell` has no device input to start (this client acts by
-        // injecting actions) and no UI, and `Config::sound` is false above, so no audio endpoint is
-        // taken.
+        // `App::start_shell`. `HeadlessShell` has no device input to start (this client acts by
+        // injecting actions) and no UI but the game's questions, and `Config::sound` is false
+        // above, so no audio endpoint is taken.
         app.start_shell(&mut shell)
             .map_err(|e| RunError::Startup(e.to_string()))?;
         let mut run = Self {
@@ -212,7 +340,16 @@ impl<'a> Run<'a> {
             commands: 0,
             state: None,
             characters: Vec::new(),
+            chat_seen: 0,
+            rest: std::collections::VecDeque::new(),
+            paced_from: None,
+            paced: false,
+            quit: false,
+            entered: false,
         };
+        if !run.opts.plugins.is_empty() {
+            run.plugin_host();
+        }
         let (w, h) = run.app.presentation().size();
         run.line(format!("app {w}x{h} headless step={HEADLESS_STEP:.6}"))?;
         Ok(run)
@@ -223,19 +360,23 @@ impl<'a> Run<'a> {
         Ok(())
     }
 
-    fn finish(mut self) -> Summary {
+    pub(crate) fn finish(mut self) -> Summary {
+        if let Some(host) = self.existing_host() {
+            host.flush();
+        }
         let summary = Summary {
             frames: self.frames,
             commands: self.commands,
             state: self.state,
             characters: self.characters.clone(),
             login_completes_sent: self.app.teleport.login_completes_sent,
+            travel_planner_built: self.app.travel.planner_built(),
         };
         self.app.shutdown(&mut self.shell);
         summary
     }
 
-    fn script(&mut self, commands: &[Command]) -> Result<(), RunError> {
+    pub(crate) fn script(&mut self, commands: &[Command]) -> Result<(), RunError> {
         for c in commands {
             self.commands += 1;
             match c {
@@ -252,7 +393,16 @@ impl<'a> Run<'a> {
                 Command::Snapshot => self.snapshot(),
                 Command::World(block) => self.world(*block),
                 Command::Position => self.position(),
+                Command::Plugin(c) => self.plugin(c),
+                Command::Ui(c) => self.ui(c),
+                Command::Chat => self.chat(),
+                Command::Replay(secs) => self.replay(*secs),
+                Command::Run(secs) => self.run_for(*secs),
+                Command::RunForever => self.run_forever(),
+                Command::Enter(name, mage) => self.enter(name, *mage),
+                Command::Answer(yes) => self.answer(*yes),
                 Command::Quit => {
+                    self.quit = true;
                     let frames = self.frames;
                     self.line(format!("quit frames={frames}"))?;
                     return Ok(());
@@ -265,7 +415,23 @@ impl<'a> Run<'a> {
     /// One whole frame. `App::frame` answering `false` means the frame loop returned false, which
     /// is the client shutting itself down; a script cannot carry on past it.
     fn frame(&mut self) -> Result<(), RunError> {
+        // The portal tunnel is one of the interface's elements, ticked by a front end's UI step;
+        // this client has none, so over a server connection it ticks it here. It is what tells
+        // the server the character has arrived (`Character_LoginCompleteNotification`), without
+        // which the server holds the character hidden and still. A replay needs no answer.
+        if self.opts.connect.is_some() {
+            self.app.teleport_use_time(&self.shell);
+        }
+        // Frames stepped faster than the clock wait for the travel's plans, as the clock would
+        // have; frames at the clock's pace never do.
+        self.app.travel.wait_for_plans = !self.paced;
         if !self.app.frame(&mut self.shell) {
+            // A client whose session ended shuts itself down with it: the reason is the server's.
+            if let Some(SessionState::Disconnected(why)) =
+                self.app.network_mut().map(|n| n.session_state())
+            {
+                return Err(RunError::Ended(ended_why(why)));
+            }
             return Err(RunError::Stopped(self.frames));
         }
         self.frames += 1;
@@ -315,8 +481,12 @@ impl<'a> Run<'a> {
         } else {
             SessionState::Playable
         };
-        for r in records.iter().filter(|r| !r.c2s) {
+        let inbound: Vec<&Datagram> = records.iter().filter(|r| !r.c2s).collect();
+        let mut next = inbound.len();
+        for (k, r) in inbound.iter().enumerate() {
+            next = k + 1;
             self.feed(r)?;
+            self.paced_from = Some((r.t, self.app.clock().local_time));
             fed += 1;
             self.frame()?;
             let state = self.session_state()?;
@@ -338,6 +508,7 @@ impl<'a> Run<'a> {
                 break;
             }
         }
+        self.rest = inbound[next..].iter().map(|d| (*d).clone()).collect();
         // A login that stopped before the character set arrived never gave the script anything to
         // select, and a run that carried on would be asserting against an empty client.
         let state = self.session_state()?;
@@ -469,6 +640,147 @@ impl<'a> Run<'a> {
         Ok(frames + 1)
     }
 
+    /// `secs` of frames at the wall clock's pace, as a connection to a server needs: each frame
+    /// waits for its moment.
+    fn run_for(&mut self, secs: f64) -> Result<(), RunError> {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let frames = (secs / HEADLESS_STEP).ceil().max(0.0) as u64;
+        let start = std::time::Instant::now();
+        self.paced = true;
+        for i in 0..frames {
+            #[allow(clippy::cast_precision_loss)]
+            let due = std::time::Duration::from_secs_f64(i as f64 * HEADLESS_STEP);
+            if let Some(wait) = due.checked_sub(start.elapsed()) {
+                std::thread::sleep(wait);
+            }
+            if let Err(e) = self.frame() {
+                self.paced = false;
+                return Err(e);
+            }
+        }
+        self.paced = false;
+        let state = self.app.network_mut().map(|n| n.session_state());
+        self.state = state;
+        self.line(format!("run secs={secs} frames={frames} state={state:?}"))
+    }
+
+    /// `run forever`: frames at the wall clock's pace until [`Options::stop`] is set, or the
+    /// connection is lost (an error, so a daemon connects again). Each chat line the client
+    /// takes is logged (target `chat`) and then let go, as a chat window would take it, so a
+    /// client that runs for days does not keep every line.
+    pub(crate) fn run_forever(&mut self) -> Result<(), RunError> {
+        let mut last = std::time::Instant::now();
+        let started = self.frames;
+        self.chat_seen = 0;
+        loop {
+            if self.opts.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            self.paced_frame(&mut last)?;
+            for (_, m) in std::mem::take(&mut self.app.hud.pending_chat) {
+                let line = format!("{}{}", m.prefix.clone().unwrap_or_default(), m.body);
+                tracing::info!(target: "chat", "{}", line.trim_end().replace('\n', " / "));
+            }
+            if let Some(dereth_client_sdk::net::client_session::SessionState::Disconnected(why)) =
+                self.app.network_mut().map(|n| n.session_state())
+            {
+                self.state = Some(SessionState::Disconnected(why));
+                return Err(RunError::Disconnected(ended_why(why)));
+            }
+        }
+        let frames = self.frames - started;
+        self.line(format!("run forever stopped frames={frames}"))
+    }
+
+    /// One frame at the wall clock's pace: it waits until `HEADLESS_STEP` after the last.
+    fn paced_frame(&mut self, last: &mut std::time::Instant) -> Result<(), RunError> {
+        let due = *last + std::time::Duration::from_secs_f64(HEADLESS_STEP);
+        if let Some(wait) = due.checked_duration_since(std::time::Instant::now()) {
+            std::thread::sleep(wait);
+        }
+        *last = std::time::Instant::now();
+        self.paced = true;
+        let r = self.frame();
+        self.paced = false;
+        r
+    }
+
+    /// Paced frames until `done` holds, for at most `secs`; answers whether it held.
+    fn paced_until(
+        &mut self,
+        secs: f64,
+        mut done: impl FnMut(&mut Self) -> bool,
+    ) -> Result<bool, RunError> {
+        let start = std::time::Instant::now();
+        let mut last = start;
+        while start.elapsed().as_secs_f64() < secs {
+            if done(self) {
+                return Ok(true);
+            }
+            self.paced_frame(&mut last)?;
+        }
+        Ok(done(self))
+    }
+
+    /// `enter <name>` over a server connection: once the character list is up, enter the world as
+    /// `name`, creating the character first (an Aluvian soldier in Holtburg) when the account has
+    /// none of that name; then frames until the character stands in the world.
+    fn enter(&mut self, name: &str, mage: bool) -> Result<(), RunError> {
+        use dereth_client_sdk::contract::pregame::CharGenAction;
+        let listed = |run: &mut Self| run.app.host_state.received_set;
+        if !self.paced_until(60.0, listed)? {
+            return Err(RunError::Net("no character list within 60 s".to_owned()));
+        }
+        let find = |run: &mut Self| {
+            run.app.network_mut().and_then(|n| {
+                n.characters()
+                    .characters
+                    .iter()
+                    // An administrator's characters are listed with a leading `+`.
+                    .find(|c| c.name.trim_start_matches('+').eq_ignore_ascii_case(name))
+                    .map(|c| c.gid)
+            })
+        };
+        let mut created = false;
+        if find(self).is_none() {
+            let before = self.app.host_state.chargen_response_notices;
+            self.app
+                .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(if mage {
+                    caster(name)
+                } else {
+                    soldier(name)
+                }))]);
+            let answered = |run: &mut Self| run.app.host_state.chargen_response_notices != before;
+            if !self.paced_until(30.0, answered)? {
+                return Err(RunError::Net(
+                    "no answer to the character's creation".to_owned(),
+                ));
+            }
+            created = true;
+        }
+        let Some(gid) = find(self) else {
+            let code = self.app.host_state.chargen_response;
+            return Err(RunError::Net(format!(
+                "the character {name} was not created (answer {code:?})"
+            )));
+        };
+        self.app
+            .run_chargen_actions(vec![CharGenAction::LogOn(gid)]);
+        let in_world = |run: &mut Self| {
+            run.app
+                .network_mut()
+                .is_some_and(|n| n.session_state() == SessionState::Playable)
+                && run.app.objects.player().is_some()
+        };
+        let entered = self.paced_until(90.0, in_world)?;
+        self.entered |= entered;
+        let state = self.app.network_mut().map(|n| n.session_state());
+        self.state = state;
+        self.line(format!(
+            "enter {name} created={created} entered={entered} state={state:?}"
+        ))
+    }
+
     /// A key tapped: the begin, a frame, the end, a frame.
     fn press(&mut self, action: ActionId) -> Result<(), RunError> {
         self.app.inject_action(Action::begin(action));
@@ -580,22 +892,316 @@ impl<'a> Run<'a> {
         self.line(format!("world {block:#06X}"))
     }
 
-    /// `position`: the body's cell and block-local origin.
+    /// `position`: the body's cell and block-local origin, whether it is hidden, and whether it
+    /// stands on something (what the client reports to the server as its contact).
     fn position(&mut self) -> Result<(), RunError> {
         let body = self.app.world.as_ref().and_then(|w| {
             w.character
                 .as_ref()
-                .map(|c| (c.position(), w.character_state.is_hidden()))
+                .map(|c| (c.position(), w.character_state.is_hidden(), c.in_contact()))
         });
         match body {
-            Some((p, hidden)) => {
+            Some((p, hidden, contact)) => {
                 let o = p.frame.origin;
                 self.line(format!(
-                    "position cell={:#010X} origin={:.3},{:.3},{:.3} hidden={hidden}",
+                    "position cell={:#010X} origin={:.3},{:.3},{:.3} hidden={hidden} contact={contact}",
                     p.cell.0, o.x, o.y, o.z
                 ))
             }
             None => self.line("position none"),
+        }
+    }
+}
+
+impl Run<'_> {
+    // -------------------------------------------------------------------------------------
+    // plugins
+    // -------------------------------------------------------------------------------------
+
+    /// The installed plugin host, if any.
+    fn existing_host(&mut self) -> Option<&mut PluginHost> {
+        self.app
+            .frame_hook_mut()
+            .and_then(|h| h.as_any_mut().downcast_mut::<PluginHook>())
+            .map(|h| &mut h.host)
+    }
+
+    /// The plugin host, installed into the runtime on first use with the packages `--plugins`
+    /// names queued for the next frame.
+    fn plugin_host(&mut self) -> &mut PluginHost {
+        if self.existing_host().is_none() {
+            let storage: Box<dyn PluginStorage> = match &self.opts.plugin_store {
+                Some(root) => Box::new(crate::plugins::DirStorage { root: root.clone() }),
+                None => Box::new(MemoryStorage::default()),
+            };
+            let mut config = crate::plugins::host_config(self.opts.world);
+            if let Some(ms) = self.opts.plugin_call_budget_ms {
+                config.limits.call_budget_ms = ms;
+            }
+            let mut host = PluginHost::new(
+                config,
+                Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
+                Box::new(crate::plugins::DirSource {
+                    roots: self.opts.plugins.clone(),
+                }),
+                storage,
+            )
+            .with_engine(Box::new(
+                dereth_client_sdk::plugin_wasm::WasmEngine::interpreted(),
+            ))
+            // The other headless clients that name the same folder, or a bus with no one else on
+            // it.
+            .with_peers(
+                match self
+                    .opts
+                    .peers
+                    .as_deref()
+                    .map(crate::plugins::LoopbackPeers::open)
+                {
+                    Some(Ok(bus)) => Box::new(bus),
+                    Some(Err(e)) => {
+                        tracing::warn!("--peers: {e}; no other clients are heard");
+                        Box::new(dereth_client_sdk::plugins::LocalBus::new().endpoint())
+                    }
+                    None => Box::new(dereth_client_sdk::plugins::LocalBus::new().endpoint()),
+                },
+            );
+            if let Some(root) = &self.opts.plugin_data {
+                host = host.with_files(Box::new(crate::plugins::DirFiles { root: root.clone() }));
+            }
+            if let Some(text) = &self.opts.plugin_policy {
+                match dereth_client_sdk::plugins::policy_doc::parse(text) {
+                    Ok(p) => host.set_world_policy(p),
+                    Err(e) => tracing::warn!("--plugin-policy: {e}; the defaults apply"),
+                }
+            }
+            if self.opts.world {
+                host = host.with_game_data(Box::new(dereth_client_sdk::DatGameData(
+                    self.app.store.clone(),
+                )));
+            }
+            host.load_all();
+            self.app.install_frame_hook(Box::new(PluginHook { host }));
+        }
+        self.existing_host().expect("installed above")
+    }
+
+    fn plugin_list(&mut self) -> Result<(), RunError> {
+        let list = self.plugin_host().plugins();
+        if list.is_empty() {
+            self.line("plugin none")?;
+        }
+        for p in list {
+            let why = p.reason.map(|r| format!(": {r}")).unwrap_or_default();
+            self.line(format!("plugin {} {} {}{why}", p.id, p.version, p.status))?;
+        }
+        Ok(())
+    }
+
+    fn plugin(&mut self, c: &PluginCommand) -> Result<(), RunError> {
+        match c {
+            PluginCommand::Load(dir) => {
+                let path = std::path::Path::new(dir);
+                let package = if path.is_file() {
+                    crate::plugins::read_zip_package(path)
+                } else {
+                    crate::plugins::read_package(path)
+                }
+                .map_err(RunError::Plugin)?;
+                self.plugin_host().request_load(package);
+                self.frame()?;
+                self.plugin_list()
+            }
+            PluginCommand::Unload(id) => {
+                self.plugin_host().request_unload(id);
+                self.frame()?;
+                self.plugin_list()
+            }
+            PluginCommand::Reload(id) => {
+                self.plugin_host().request_reload(id);
+                self.frame()?;
+                self.plugin_list()
+            }
+            PluginCommand::List => self.plugin_list(),
+            PluginCommand::Console(id) => {
+                let lines = self
+                    .plugin_host()
+                    .console(id)
+                    .ok_or_else(|| RunError::Plugin(format!("no plugin {id} is loaded")))?;
+                for l in lines {
+                    self.line(format!("console {id}: {l}"))?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn ui(&mut self, c: &UiCommand) -> Result<(), RunError> {
+        let (plugin, window, input) = match c {
+            UiCommand::Dump => {
+                let dumps: Vec<(String, String, bool, String)> = self
+                    .plugin_host()
+                    .windows()
+                    .into_iter()
+                    .map(|(p, w, win)| (p, w, win.open, win.tree.dump()))
+                    .collect();
+                for (p, w, open, tree) in dumps {
+                    self.line(format!("window {p} {w} open={open}"))?;
+                    for l in tree.lines() {
+                        self.line(format!("  {l}"))?;
+                    }
+                }
+                return Ok(());
+            }
+            UiCommand::Layout => {
+                let laid: Vec<(String, String, String)> = self
+                    .plugin_host()
+                    .windows()
+                    .into_iter()
+                    .filter(|(_, _, win)| win.open)
+                    .map(|(p, w, win)| {
+                        let text = dereth_client_sdk::plugin_api::layout::reference_dump(
+                            &win.tree, win.size,
+                        );
+                        (p, w, text)
+                    })
+                    .collect();
+                for (p, w, text) in laid {
+                    self.line(format!("window {p} {w}"))?;
+                    for l in text.lines() {
+                        self.line(format!("  {l}"))?;
+                    }
+                }
+                return Ok(());
+            }
+            UiCommand::Click {
+                plugin,
+                window,
+                node,
+            } => (plugin, window, UiInput::Click { node: node.clone() }),
+            UiCommand::Set {
+                plugin,
+                window,
+                node,
+                value,
+            } => {
+                let value = dereth_client_sdk::plugin_api::Value::from_json(value)
+                    .map_err(|e| RunError::Plugin(format!("ui set: {value:?} is not JSON: {e}")))?;
+                (
+                    plugin,
+                    window,
+                    UiInput::Change {
+                        node: node.clone(),
+                        value,
+                    },
+                )
+            }
+            UiCommand::Close { plugin, window } => (plugin, window, UiInput::Close),
+            UiCommand::Resize {
+                plugin,
+                window,
+                width,
+                height,
+            } => (
+                plugin,
+                window,
+                UiInput::Resize {
+                    width: *width,
+                    height: *height,
+                },
+            ),
+            UiCommand::Hotkey { plugin, node } => {
+                self.plugin_host()
+                    .press_hotkey(plugin, node)
+                    .map_err(RunError::Plugin)?;
+                self.frame()?;
+                return self.line(format!("hotkey {plugin} {node} ok"));
+            }
+            UiCommand::Bar { plugin } => {
+                self.plugin_host()
+                    .toggle_window(plugin)
+                    .map_err(RunError::Plugin)?;
+                self.frame()?;
+                return self.line(format!("bar {plugin} ok"));
+            }
+        };
+        self.plugin_host()
+            .ui_input(plugin, window, input)
+            .map_err(RunError::Plugin)?;
+        self.frame()?;
+        self.line(format!("ui {plugin} {window} ok"))
+    }
+
+    /// Carry on with the recording at its recorded pace: before each datagram, as many frames run
+    /// as fit in the recording's own gap since the last one fed (one per [`HEADLESS_STEP`]).
+    fn replay(&mut self, secs: Option<f64>) -> Result<(), RunError> {
+        let Some((t0, _)) = self.paced_from else {
+            return Err(RunError::NoSession("replay"));
+        };
+        let until = secs.map(|s| t0 + s);
+        let started = self.frames;
+        let mut fed = 0_u64;
+        while let Some(r) = self.rest.front() {
+            if until.is_some_and(|u| r.t > u) {
+                break;
+            }
+            let r = self.rest.pop_front().expect("front exists");
+            let (last_t, _) = self.paced_from.expect("set by login");
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let gap = ((r.t - last_t) / HEADLESS_STEP).floor().max(0.0) as u64;
+            for _ in 1..gap {
+                self.frame()?;
+            }
+            self.feed(&r)?;
+            self.frame()?;
+            self.paced_from = Some((r.t, 0.0));
+            fed += 1;
+        }
+        let state = self.session_state()?;
+        self.state = Some(state);
+        let frames = self.frames - started;
+        self.line(format!(
+            "replay fed={fed} frames={frames} left={} state={state:?}",
+            self.rest.len()
+        ))
+    }
+
+    /// The lines queued for the chat windows since the last `chat`: this client has no chat
+    /// window, so the queue is the record of what one would have shown.
+    fn chat(&mut self) -> Result<(), RunError> {
+        let lines: Vec<(u8, String)> = {
+            let queued = &self.app.hud.pending_chat;
+            if queued.len() < self.chat_seen {
+                self.chat_seen = 0;
+            }
+            let new = queued[self.chat_seen..]
+                .iter()
+                .map(|(_, m)| {
+                    (
+                        m.ty,
+                        format!("{}{}", m.prefix.clone().unwrap_or_default(), m.body),
+                    )
+                })
+                .collect();
+            self.chat_seen = queued.len();
+            new
+        };
+        for (ty, text) in lines {
+            self.line(format!("chat {ty} {text}"))?;
+        }
+        for shown in self.shell.questions.take_shown() {
+            self.line(format!("dialog {shown}"))?;
+        }
+        Ok(())
+    }
+
+    /// `answer yes|no`: the player's answer to the oldest question on screen, taken at the next
+    /// frame.
+    fn answer(&mut self, yes: bool) -> Result<(), RunError> {
+        let word = if yes { "yes" } else { "no" };
+        match self.shell.questions.answer(yes) {
+            Some(q) => self.line(format!("answer {word}: {}", q.replace('\n', " "))),
+            None => self.line(format!("answer {word}: no question on screen")),
         }
     }
 }
@@ -609,4 +1215,100 @@ pub fn step_lines() -> Vec<String> {
         .copied()
         .map(|s| FrameEvent::Step(s).to_string())
         .collect()
+}
+
+/// A new character for `enter <name> mage`: the soldier's look and start, with War Magic,
+/// Creature Enchantment, Life Magic and Mana Conversion trained and Focus and Self high.
+fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    let mut c = soldier(name);
+    let mut skills = vec![0; 55];
+    for skill in [34usize, 31, 33, 16] {
+        skills[skill] = 2;
+    }
+    c.skill_advancement_classes = skills;
+    c.strength = 10;
+    c.endurance = 60;
+    c.coordination = 50;
+    c.quickness = 10;
+    c.focus = 100;
+    c.self_ = 100;
+    c
+}
+
+/// A new character for `enter`: an Aluvian male soldier (template 6) with Heavy Weapons, Melee
+/// Defense, Healing, Jump and Run trained, starting in Holtburg.
+fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    let mut skills = vec![0; 55];
+    for skill in [44usize, 6, 21, 22, 24] {
+        skills[skill] = 2;
+    }
+    dereth_client_sdk::contract::pregame::CharGenResultData {
+        heritage_group: 1,
+        gender: 1,
+        eyes_strip: 0,
+        nose_strip: 0,
+        mouth_strip: 0,
+        hair_color: 0,
+        eye_color: 0,
+        hair_style: 0,
+        headgear_style: 0,
+        headgear_color: 3,
+        shirt_style: 0,
+        shirt_color: 4,
+        trousers_style: 0,
+        trousers_color: 5,
+        footwear_style: 0,
+        footwear_color: 6,
+        skin_shade: 1.0,
+        hair_shade: 0.5,
+        headgear_shade: 0.25,
+        shirt_shade: 0.125,
+        trousers_shade: 0.375,
+        footwear_shade: 0.625,
+        template_num: 6,
+        strength: 100,
+        endurance: 60,
+        coordination: 100,
+        quickness: 50,
+        focus: 10,
+        self_: 10,
+        slot: 0,
+        class_id: 1,
+        skill_advancement_classes: skills,
+        name: name.to_owned(),
+        start_area: 0,
+        is_admin: 0,
+        is_envoy: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ended_why, settings_preferences};
+    use dereth_client_sdk::net::client_session::DisconnectReason;
+
+    #[test]
+    fn a_settings_folder_named_holds_the_preferences_and_none_named_writes_nothing() {
+        let dir = std::ffi::OsString::from("runs/bot");
+        assert_eq!(
+            settings_preferences(Some(&dir)),
+            Some(std::path::Path::new("runs/bot").join("UserPreferences.ini"))
+        );
+        assert_eq!(settings_preferences(Some(std::ffi::OsStr::new(""))), None);
+        assert_eq!(settings_preferences(None), None);
+    }
+
+    #[test]
+    fn a_logon_refused_while_the_account_is_still_in_the_world_says_so() {
+        let why = ended_why(DisconnectReason::CharacterError(1));
+        assert!(why.contains("the account was still in the world"), "{why}");
+        assert_eq!(
+            ended_why(DisconnectReason::CharacterError(13)),
+            "character error 13"
+        );
+        assert_eq!(
+            ended_why(DisconnectReason::ServerDied),
+            "the server went silent"
+        );
+    }
 }

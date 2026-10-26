@@ -28,6 +28,7 @@ pub mod compiler;
 #[cfg(feature = "test-support")]
 mod digest;
 mod levels;
+mod probes;
 #[cfg(feature = "hifi")]
 pub mod sidecar;
 mod terrain;
@@ -628,8 +629,23 @@ pub struct Gpu {
     last_frame_block: Option<([u8; FRAME_BLOCK], u32)>,
     vertex_buffer: Option<(wgpu::Buffer, u64)>,
     uniform_buffer: Option<(wgpu::Buffer, wgpu::BindGroup, u64)>,
-    depth: Option<(wgpu::TextureView, u32, u32)>,
+    depth: Option<(wgpu::Texture, wgpu::TextureView, u32, u32)>,
     upload_high_water: u64,
+    /// The depth probes asked for this frame: the tag and the pixels.
+    probe_request: Option<(u64, Vec<(u32, u32)>)>,
+    /// Depth probes copied out and waiting for their buffers to map: the buffer, whether it has
+    /// mapped, the tag and how many.
+    #[allow(clippy::type_complexity)] // one list, read in one place
+    probes_pending: Vec<(
+        wgpu::Buffer,
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        u64,
+        usize,
+    )>,
+    /// The newest depth probes read back, until they are taken.
+    probe_result: Option<crate::device::DepthProbes>,
+    /// The pass that reads the depth probes, made on first use.
+    probe_pass: Option<probes::ProbePass>,
 
     frame_open: bool,
     /// Bumped once per presented frame.
@@ -882,6 +898,10 @@ impl Gpu {
             vertex_buffer: None,
             uniform_buffer: None,
             depth: None,
+            probe_request: None,
+            probes_pending: Vec::new(),
+            probe_result: None,
+            probe_pass: None,
             upload_high_water: 0,
             frame_open: false,
             frame_stamp: 0,
@@ -920,6 +940,7 @@ impl Gpu {
     /// # Errors
     /// Never; the signature is the device's.
     pub fn begin_frame(&mut self) -> Result<(), RenderError> {
+        self.collect_depth_probes();
         self.texture_book.descriptors.retire(self.frame_stamp);
         self.commands.get_mut().clear();
         self.vertex_arena.clear();
@@ -1011,7 +1032,8 @@ impl Gpu {
                     view: &depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Discard,
+                        // Kept past the pass: the depth probes read it.
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
@@ -1070,7 +1092,24 @@ impl Gpu {
             }
         }
         drop(uniform_buffer);
+        let probes = self.probe_request.take().map(|(tag, pixels)| {
+            (
+                tag,
+                pixels.len(),
+                self.record_depth_probes(&mut encoder, &pixels),
+            )
+        });
         self.queue.submit([encoder.finish()]);
+        if let Some((tag, n, Some(buffer))) = probes {
+            let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = done.clone();
+            buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+                if r.is_ok() {
+                    flag.store(true, std::sync::atomic::Ordering::Release);
+                }
+            });
+            self.probes_pending.push((buffer, done, tag, n));
+        }
         if let Some(t) = surface_texture {
             self.queue.present(t);
             self.last_present_sync_interval = self.surface_interval();
@@ -1149,7 +1188,7 @@ impl Gpu {
     fn depth_view(&mut self) -> wgpu::TextureView {
         let (w, h) = self.size;
         match &self.depth {
-            Some((view, dw, dh)) if *dw == w && *dh == h => view.clone(),
+            Some((_, view, dw, dh)) if *dw == w && *dh == h => view.clone(),
             _ => {
                 let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("depth"),
@@ -1158,11 +1197,13 @@ impl Gpu {
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: DEPTH,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    // Sampled by the depth probes.
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 });
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                self.depth = Some((view.clone(), w, h));
+                self.depth = Some((texture, view.clone(), w, h));
                 view
             }
         }

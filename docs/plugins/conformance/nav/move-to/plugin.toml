@@ -1,0 +1,10 @@
+id = "conformance.moveto"
+name = "Conformance: move to"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Walks where you ask."
+
+[capabilities]
+required = ["nav.moveto"]

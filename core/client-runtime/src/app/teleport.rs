@@ -199,7 +199,13 @@ impl<S: Shell> App<S> {
                     .present
                     .preview_set_sequence_animation(id, 0, a, true, 1, fps)
                 {
-                    tracing::warn!("portalspace_animation {a:?} is not in the dat");
+                    // Said once: a presentation with no preview (the headless world) answers so
+                    // every frame of portal space.
+                    static SAID: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        tracing::warn!("portalspace_animation {a:?} is not in the dat");
+                    }
                 }
             }
         }

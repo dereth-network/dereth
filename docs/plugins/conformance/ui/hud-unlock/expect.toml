@@ -1,0 +1,16 @@
+says = "While the player has the HUDs unlocked (the plugin panel's toggle, or /plugin huds unlock), a HUD's controls take no input: a press on one moves the HUD, and its plugin hears nothing; locked again, they answer."
+[[step]]
+after = 0.5
+say = "/plugin huds unlock"
+[[step]]
+after = 0.6
+click = "hud.ping"
+[[step]]
+after = 0.7
+say = "/plugin huds lock"
+[[step]]
+after = 0.8
+click = "hud.ping"
+[expect]
+status = "running"
+console = ["clicked\thud\tping"]

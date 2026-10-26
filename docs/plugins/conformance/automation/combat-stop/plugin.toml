@@ -1,0 +1,7 @@
+id = "conformance.combat-stop"
+name = "Conformance: combat-stop"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"auto.combat" = "Fights on its own."

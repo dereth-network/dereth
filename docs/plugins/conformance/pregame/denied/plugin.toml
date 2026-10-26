@@ -1,0 +1,11 @@
+id = "conformance.sessiondenied"
+name = "Conformance: session denied"
+version = "0.1.0"
+contexts = ["pregame", "world"]
+api = "0.3"
+
+[permissions]
+"session.control" = "Logs you in."
+
+[capabilities]
+required = ["session.pregame"]

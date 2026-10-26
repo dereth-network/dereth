@@ -1,0 +1,11 @@
+id = "network.dereth.xpmeter"
+name = "XP Meter"
+version = "0.1.0"
+api = "0.1"
+entry = "main.lua"
+description = "Experience earned this session and per hour, in a small window and on /xp."
+authors = ["Dereth"]
+license = "MIT"
+
+[capabilities]
+optional = ["ui.window"]

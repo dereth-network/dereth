@@ -179,6 +179,9 @@ pub struct CommandLists {
     /// be routed to [`KeyboardCommand::NonAutonomous`]. Only the new-player half of the deviation
     /// remains.
     pub controlled_by_server: bool,
+    /// How many times the server has taken control ([`Self::lose_control_to_server`]), for a
+    /// reader that wants to know it happened since it last looked.
+    pub control_losses: u64,
     /// Autonomy level, initialised to **2**.
     ///
     /// Both losing and taking control are no-ops at level 0, and the autonomous-state check is
@@ -199,6 +202,7 @@ impl Default for CommandLists {
             hold_run: false,
             hold_sidestep: false,
             controlled_by_server: false,
+            control_losses: 0,
             autonomy_level: 2,
         }
     }
@@ -559,6 +563,7 @@ impl CommandLists {
             return None;
         }
         self.controlled_by_server = true;
+        self.control_losses += 1;
         self.set_auto_run(false)
     }
 

@@ -3,6 +3,233 @@
 use super::*;
 
 impl<S: Shell> App<S> {
+    /// The world's identity for the travel's store: its name and the server's address, since two
+    /// servers may share a name and hold different portals.
+    fn travel_world(&self) -> Option<String> {
+        self.host_state.world_name.as_ref().map(|n| {
+            // `-h` may carry the port itself.
+            if self.cfg.host.contains(':') {
+                format!("{n}@{}", self.cfg.host)
+            } else {
+                format!("{n}@{}:{}", self.cfg.host, self.cfg.port)
+            }
+        })
+    }
+
+    /// The travel's frame, with `--nav-proof`'s before it: read where the player is and what
+    /// stands in the world, carry the journey on, and do what it asks as a player's keys and
+    /// requests. Its keys are this frame's, offered after the frame hook has run, so a hook never
+    /// takes them for the player's.
+    pub(super) fn travel_use_time(&mut self) {
+        if self.nav_proof.is_none() {
+            if let Some(spec) = self.cfg.nav_proof {
+                if self.cfg.enter_world {
+                    self.nav_proof = Some(crate::nav_proof::NavProof::new(
+                        spec,
+                        self.cfg.nav_prep.clone(),
+                    ));
+                }
+            }
+        }
+        let published = self
+            .published_portals
+            .lock()
+            .ok()
+            .and_then(|mut p| p.take());
+        if let Some(text) = published {
+            if let Err(e) = self.travel.set_published(&text) {
+                tracing::warn!("--nav-published: {e}");
+            }
+        }
+        // Nothing asks for a journey or a plan: the travel keeps its world's knowledge loaded
+        // (plugins read it), and the frame gathers nothing for it and builds no planner.
+        if self.nav_proof.is_none() && self.cfg.nav_prep.is_empty() && !self.travel.wanted() {
+            if let Some(world) = self.travel_world() {
+                self.travel.note_world(&world);
+            }
+            // Once the travel has planned at all, a dungeon the character enters has its region
+            // built off the frame, ahead of any need for it.
+            let at = self
+                .world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .filter(|_| self.playable_at.is_some())
+                .map(crate::character::Character::position);
+            self.travel.idle(at.as_ref());
+            self.travel_player_moves = self.player_moves;
+            self.travel_status = crate::travel::TravelStatus {
+                events: self.travel.take_events(),
+                trip: None,
+            };
+            return;
+        }
+        let playable = self.playable_at.is_some();
+        let character = self.world.as_ref().and_then(|w| w.character.as_ref());
+        let at = character
+            .filter(|_| playable)
+            .map(crate::character::Character::position);
+        let land = character.map(|c| std::sync::Arc::clone(c.land()));
+        let obstacles = character.map(|c| nav_obstacles(&self.objects.world, c));
+        let portals = nav_portals(&self.objects.world, character);
+        let idle = self.teleport.anim.state == crate::teleport::TeleportAnimState::Off;
+        let world = self.travel_world();
+        if self.nav_spells.is_none() && at.is_some() {
+            self.nav_spells = self
+                .store
+                .read(crate::hud::SPELL_TABLE)
+                .ok()
+                .and_then(|b| {
+                    <dereth_assets::tables::SpellTable as dereth_assets::Decode>::decode_payload(
+                        crate::hud::SPELL_TABLE,
+                        &b,
+                    )
+                    .ok()
+                })
+                .map(std::sync::Arc::new);
+        }
+        if self.nav_academies.is_none() && at.is_some() {
+            self.nav_academies = Some(academy_blocks(&self.store));
+        }
+        let hand_backs = nav_hand_backs(
+            &self.objects.world,
+            character,
+            self.nav_academies.as_deref().unwrap_or(&[]),
+        );
+        let mut chat = Vec::new();
+        // Without `--nav-proof`, `--nav-prep`'s lines are typed once, five seconds into the world.
+        if self.nav_proof.is_none()
+            && !self.cfg.nav_prep.is_empty()
+            && self
+                .playable_at
+                .is_some_and(|t| self.timer.local_time - t > 5.0)
+        {
+            chat.append(&mut self.cfg.nav_prep);
+        }
+        if let Some(proof) = self.nav_proof.as_mut().filter(|p| !p.done()) {
+            let commands = proof.use_time(
+                &crate::nav_proof::ProofInput {
+                    wall: self.timer.local_time,
+                    at,
+                    idle,
+                    land: land.as_ref(),
+                    store: &self.store,
+                    world: world.as_deref(),
+                    events: &self.travel_status.events,
+                },
+                &mut self.travel,
+            );
+            for c in commands {
+                match c {
+                    crate::nav_proof::ProofCommand::Chat(text) => chat.push(text),
+                    crate::nav_proof::ProofCommand::Finish => {
+                        // End the `--linger` stay now: the deadline check logs off on this frame.
+                        self.cfg.linger = f64::MIN_POSITIVE;
+                    }
+                }
+            }
+        }
+        if let Some(list) = obstacles {
+            self.travel.set_obstacles(list, at.as_ref());
+        }
+        // A door the server answered as locked is planned round; one only slow to open is not.
+        for door in self.objects.take_lock_answers() {
+            self.travel.door_answered_locked(door);
+        }
+        let objects = &self.objects;
+        let object =
+            |id: dereth_primitives::ObjectId| objects.presence(id).and_then(|p| p.position);
+        let holds = |name: &str| nav_held(&objects.world, name);
+        let answer = self.interaction.take_travel_answer();
+        let commands = self.travel.use_time(&crate::travel::TravelInput {
+            now: self.timer.cur_time,
+            wall: self.timer.local_time,
+            at,
+            idle,
+            land: land.as_ref(),
+            store: &self.store,
+            character: nav_character(&self.objects.world, self.nav_spells.as_deref()),
+            stance: nav_stance(&self.objects.world),
+            portals,
+            world,
+            // The player's own movement since the travel last ran, or about to be carried out this
+            // frame: a key, or what an interface's stick or mouse buttons asked for.
+            player_input: self.player_moves != self.travel_player_moves
+                || self.actions.player_movement()
+                || self.orbit_pending.iter().any(crate::actions::is_movement),
+            fizzled: std::mem::take(&mut self.travel_fizzles) > 0,
+            object: &object,
+            hand_backs,
+            holds: &holds,
+            answer,
+        });
+        self.travel_player_moves = self.player_moves;
+        self.travel_status = crate::travel::TravelStatus {
+            events: self.travel.take_events(),
+            trip: self.travel.view(),
+        };
+        for text in chat {
+            tracing::info!("--nav-prep: {text:?}");
+            self.submit_requests(vec![dereth_client_contract::UiRequest::ChatLine {
+                text,
+                window: 0,
+            }]);
+        }
+        for c in commands {
+            use crate::travel::TravelCommand;
+            use dereth_client_contract::actions::movement::{MOVE_FORWARD, TURN_LEFT, TURN_RIGHT};
+            use dereth_client_contract::UiRequest;
+            match c {
+                TravelCommand::Forward(on) => self.actions.steer(if on {
+                    crate::actions::Action::begin(MOVE_FORWARD)
+                } else {
+                    crate::actions::Action::end(MOVE_FORWARD)
+                }),
+                TravelCommand::Turn(turn) => {
+                    // Release both, then hold the one asked for.
+                    self.actions.steer(crate::actions::Action::end(TURN_LEFT));
+                    self.actions.steer(crate::actions::Action::end(TURN_RIGHT));
+                    if let Some(right) = turn {
+                        let id = if right { TURN_RIGHT } else { TURN_LEFT };
+                        self.actions.steer(crate::actions::Action::begin(id));
+                    }
+                }
+                TravelCommand::Use(id) => self.submit_requests(vec![UiRequest::Use(id)]),
+                TravelCommand::Wield(item) => self.submit_requests(vec![UiRequest::Inventory(
+                    dereth_client_contract::view::InventoryIntent::Wield { item },
+                )]),
+                TravelCommand::ToggleCombat => {
+                    self.submit_requests(vec![UiRequest::ToggleCombatMode]);
+                }
+                TravelCommand::Cast(spell_id) => {
+                    // As a cast does on its first call: the spell table into the magic system
+                    // when it has none, or the cast has no spell to find and does nothing.
+                    if self.objects.world.magic.spell_table.is_none() {
+                        self.objects
+                            .world
+                            .magic
+                            .spell_table
+                            .clone_from(&self.nav_spells);
+                    }
+                    self.submit_requests(vec![UiRequest::CastSpell { spell_id }]);
+                }
+                TravelCommand::Chat(text) => {
+                    // A journey's own line, which the player did not type.
+                    self.submit_requests(vec![UiRequest::ChatLineOnBehalf { text, window: 0 }]);
+                }
+                TravelCommand::Give { item, target } => {
+                    self.submit_requests(vec![UiRequest::Inventory(
+                        dereth_client_contract::view::InventoryIntent::Give {
+                            item,
+                            target,
+                            amount: 1,
+                        },
+                    )]);
+                }
+                TravelCommand::Ask(question) => self.interaction.ask_travel(question),
+            }
+        }
+    }
+
     /// Capture a screenshot using the original filename rule, verified against retail.
     ///
     /// So: **the directory of the preferences file** — the default preferences file is the same

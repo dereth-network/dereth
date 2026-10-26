@@ -1,0 +1,7 @@
+id = "conformance.use-on"
+name = "Conformance: use-on"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Uses items on targets when you type /go."

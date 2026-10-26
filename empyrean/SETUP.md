@@ -395,6 +395,10 @@ With `status_address` set (or `--status <ip>:<port>`), the server answers:
 It has **no authentication**. Bind it to `127.0.0.1` (or a private network) and do not open its port
 in the firewall.
 
+With `publish_portals = true` (off by default), it also answers `GET /portals` with the world's
+placed portals, their destinations and level limits, as a tab-separated table that clients use to
+route through portals; the format is in `empyrean/README.md`, "The portal table".
+
 With the WebSocket endpoint on, `/status` also reports `websocket_url`, the URL browser clients
 connect to (`null` when the endpoint is off). A web page on an origin in
 `server.websocket.allowed_origins` may read `/status` too, so it can find that URL; no other page can.

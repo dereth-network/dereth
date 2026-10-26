@@ -13,20 +13,36 @@ cargo xtask web --build-only
 
 This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
 the bindings into `www/pkg/`, and copies the Horizon interface's art into `www/pkg/horizon/`. It
-needs the target installed once (`rustup target add wasm32-unknown-unknown`). Publish the whole
-`www/` folder, `pkg/` included:
+needs:
+
+- the target, installed once: `rustup target add wasm32-unknown-unknown`;
+- **zig 0.15 or later** on the path (or named by the `ZIG` environment variable). The plugin
+  engine is the Luau VM, which is C++; the build compiles it for WebAssembly with zig's clang,
+  with WebAssembly exception handling, against zig's copies of the C++ library headers, and links
+  it with a small C and C++ runtime built the same way from the LLVM sources zig ships. The build
+  runs without a compiler cache (`RUSTC_WRAPPER` is cleared for it), which cannot run zig.
+
+Publish the whole `www/` folder, `pkg/` included:
 
 | File | Bytes | Gzipped |
 |---|---:|---:|
-| `pkg/dereth_web_bg.wasm` | about 16.8 MB | about 6.2 MB |
-| `pkg/dereth_web.js` | about 150 kB | about 25 kB |
+| `pkg/dereth_web_bg.wasm` | about 22.2 MB | about 8.0 MB |
+| `pkg/dereth_web.js` | about 200 kB | about 27 kB |
 | `pkg/horizon/atlas-1-0.png`, `atlas-2-0.png`, `atlas-3-0.png` | 1.2, 4.4 and 9.0 MB | the same (PNG is compressed) |
 | `pkg/horizon/font-0.png` to `font-5.png` | about 3.4 MB in all | the same |
 | `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
-| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 77 kB | about 23 kB |
+| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js` | about 85 kB | about 29 kB |
 
 No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
 a bundle with a larger one.
+
+The plugin host and its Lua engine are about 2.5 MB of the module (0.8 MB gzipped); reading,
+checking and rewriting compiled plugins about 1.2 MB more (0.5 MB gzipped).
+`dereth.pluginEngineCheck()` in a page that has loaded the module answers the engine's self-check,
+one line a step; each ends in `ok` in a working build.
+
+The module uses WebAssembly exception handling (in the legacy encoding), which every browser in
+the table below runs.
 
 The build names the standard library's and the registry's sources `/rustc` and `/cargo` in the
 module, so it carries no path from the building machine.
@@ -47,7 +63,7 @@ A release carries three files:
 
 | File | What |
 |---|---|
-| `dereth-web-<version>.zip` | the files to serve, under one folder `dereth-web-<version>/`: exactly the files listed in [Build](#build) and `_headers` |
+| `dereth-web-<version>.zip` | the files to serve, under one folder `dereth-web-<version>/`: exactly the files listed in [Build](#build) and `_headers`, and the plugins that come with the client under `plugins/` ([Plugins](#plugins)) |
 | `web.json` | the release's manifest (below) |
 | `SHA256SUMS` | the SHA-256 of both, for `sha256sum -c` |
 
@@ -276,6 +292,22 @@ is turned on once.
   the world they fill the page. Horizon fills it from its first screen.
 - **Never smaller than 800 by 600.** A smaller page, or a render scale that would make the picture
   smaller, is drawn at that size in the page's shape and scaled down to fit.
+
+## Plugins
+
+The front page's *Add a plugin folder…* (under *Kept in this browser*) copies a plugin's folder (the
+one holding its `plugin.toml`) into the browser's private storage for this site, and *Add a plugin
+zip…* keeps a plugin's zip there as it is; *Remove all plugins* deletes them. A compiled plugin (a
+WebAssembly component, `docs/plugins/wasm.md`) runs in the browser's own WebAssembly, in the page's
+worker. Added plugins load when the client starts, and each asks the player for the permissions it
+wants on first load. Their stores are kept in the same private storage, with the client's settings.
+Nothing about plugins leaves the player's browser.
+
+The release also carries the plugins that come with the client, under `plugins/` beside the page,
+listed by `plugins/index.json` (`cargo xtask package web` writes both from the samples a release
+carries). The page reads them when the client starts; the client lists them in its plugin panel,
+each off until the player turns it on. A page served without them (`cargo xtask web` for a local
+build) has none.
 
 ## The player's data files
 

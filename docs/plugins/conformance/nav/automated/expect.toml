@@ -1,0 +1,14 @@
+says = "A movement with no gesture behind it needs the world's leave: a world that allows navigation only with a gesture refuses it."
+[scenario]
+world = "scripted"
+seconds = 1
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+nav = "interactive-only"
+"""
+[expect]
+status = "running"
+console = ["automated\tfalse\tdenied_by_world"]
+moves = []

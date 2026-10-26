@@ -1,0 +1,16 @@
+says = "In a world whose policy denies session control, a plugin cannot enter the world for the player."
+[scenario]
+world = "scripted"
+seconds = 1
+[scenario.pregame]
+characters = ["Alpha"]
+[host]
+policy_document = """policy_version = 1
+[automation]
+loot = "allow"
+session = "deny"
+"""
+[expect]
+status = "running"
+console = ["control\ttrue", "entry\tfalse\tdenied_by_world"]
+moves = []

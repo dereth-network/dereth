@@ -121,6 +121,12 @@ pub struct GameConfiguration {
     /// DIVERGE: an extra key; ACE has no status endpoint.
     #[serde(rename = "StatusPublicUrl")]
     pub status_public_url: String,
+    /// Not ACE: whether the status endpoint also serves `GET /portals`, the world's placed portals
+    /// with their destinations and level limits, for clients that route through portals (default
+    /// false).
+    /// DIVERGE: an extra key; ACE publishes no portal table.
+    #[serde(rename = "PublishPortals")]
+    pub publish_portals: bool,
 
     /// Not ACE: whether the server reads console commands from its standard input (default true).
     /// DIVERGE: ACE turns its console off with the environment variable `ACE_NONINTERACTIVE_CONSOLE`.
@@ -222,6 +228,7 @@ impl Default for GameConfiguration {
             log_level: DEFAULT_LOG_LEVEL.to_owned(),
             status_address: String::new(),
             status_public_url: String::new(),
+            publish_portals: false,
             interactive_console: true,
             admin_channel: true,
             source_url: String::new(),

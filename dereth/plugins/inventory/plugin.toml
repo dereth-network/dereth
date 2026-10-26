@@ -1,0 +1,17 @@
+id = "network.dereth.inventory"
+name = "Inventory"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "The inventory tools of Mag-Tools: a log of what every character of the world holds and wears, searched from any of them; a line of what an item is when you appraise it; partial stacks merged, items put in the packs your rules name, sets of gear put on at once, and trading at a vendor by its own loot profile. And, in the manner of SuitBuilder, the best suit from every character's gear by the spells and the set you ask for."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"act.interactive" = "Stacks, packs, trades and puts on a set of gear or a suit when you click or type /inv."
+"auto.craft" = "Merges partial stacks and puts items in their packs as they come, when you turn that on."
+"auto.vendor" = "Sells and buys by a vendor's profile when its wares show, when you turn that on."
+
+[capabilities]
+required = ["ui.window"]

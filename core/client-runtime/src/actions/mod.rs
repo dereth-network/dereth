@@ -47,7 +47,29 @@ pub struct ActionQueue {
     events: Vec<Action>,
     /// Actions injected since the last frame began, spliced in after that frame's expiry sweep.
     injected: Vec<Action>,
+    /// The client's own steering of the character since the movement stage last took it.
+    steered: Vec<Action>,
     stats: ActionStats,
+}
+
+/// Whether `a` moves the character: a movement key or button pressed or released, the run lock, a
+/// jump. A held key's repeat is not a new movement.
+#[must_use]
+pub fn is_movement(a: &Action) -> bool {
+    use dereth_client_contract::actions::movement as m;
+    matches!(
+        a.id,
+        m::MOVE_FORWARD
+            | m::MOVE_BACKWARD
+            | m::STOP_MOVING
+            | m::STRAFE_RIGHT
+            | m::STRAFE_LEFT
+            | m::TURN_RIGHT
+            | m::TURN_LEFT
+            | m::AUTORUN
+            | m::JUMP
+            | m::TOGGLE_RUN_WALK
+    ) && a.phase != ActionPhase::Repeat
 }
 
 impl ActionQueue {
@@ -77,6 +99,20 @@ impl ActionQueue {
         self.injected.push(action);
     }
 
+    /// An action of the client's own steering of the character (a journey's keys, a frame hook's
+    /// run lock), offered to the movement stage the next time it runs, ahead of the player's own
+    /// actions and as the game's own movement whatever an interface makes of the player's keys.
+    /// It is kept apart from the player's: [`Self::player_movement`] never sees it.
+    pub fn steer(&mut self, action: Action) {
+        self.stats.submitted += 1;
+        self.steered.push(action);
+    }
+
+    /// Take the client's own steering since the movement stage last took it.
+    pub fn take_steered(&mut self) -> Vec<Action> {
+        std::mem::take(&mut self.steered)
+    }
+
     /// Take the queue, for a stage to offer each action to its handlers.
     pub fn take(&mut self) -> Vec<Action> {
         std::mem::take(&mut self.events)
@@ -95,6 +131,14 @@ impl ActionQueue {
         &self.events
     }
 
+    /// Whether the actions waiting to be offered (this frame's from a front end, and those
+    /// injected since the last frame began) move the character ([`is_movement`]). The client's
+    /// own steering ([`Self::steer`]) is kept apart: what this sees is the player's.
+    #[must_use]
+    pub fn player_movement(&self) -> bool {
+        self.events.iter().chain(&self.injected).any(is_movement)
+    }
+
     /// The counters.
     #[must_use]
     pub const fn stats(&self) -> ActionStats {
@@ -108,6 +152,33 @@ mod tests {
 
     const FORWARD: ActionId = ActionId(0x29);
     const JUMP: ActionId = ActionId(0x31);
+
+    #[test]
+    fn a_movement_key_pressed_or_released_is_player_movement_and_a_camera_key_or_a_repeat_is_not() {
+        let mut q = ActionQueue::default();
+        assert!(!q.player_movement());
+        q.submit([Action::begin(ActionId(0x35)), Action::repeat(FORWARD, 1)]);
+        assert!(!q.player_movement(), "a camera key and a held key's repeat");
+        q.submit([Action::end(FORWARD)]);
+        assert!(q.player_movement(), "a movement key released");
+        let mut q = ActionQueue::default();
+        q.inject(Action::begin(JUMP));
+        assert!(q.player_movement(), "an injected jump, not yet offered");
+        q.begin_frame();
+        let _ = q.take();
+        assert!(!q.player_movement(), "offered and taken: gone");
+    }
+
+    #[test]
+    fn the_clients_own_steering_is_kept_apart_from_the_players_and_is_not_player_movement() {
+        let mut q = ActionQueue::default();
+        q.steer(Action::begin(FORWARD));
+        assert!(!q.player_movement(), "the client's own steering");
+        q.begin_frame();
+        assert!(q.take().is_empty(), "not among the player's actions");
+        assert_eq!(q.take_steered(), [Action::begin(FORWARD)]);
+        assert!(q.take_steered().is_empty());
+    }
 
     #[test]
     fn an_unclaimed_action_is_offered_for_one_frame_and_then_counted_as_expired() {

@@ -52,6 +52,79 @@ pub enum Command {
     Position,
     /// `quit` -- stop reading the script and shut the client down.
     Quit,
+    /// `plugin ...` -- load, unload, reload, list, or show a plugin's console.
+    Plugin(PluginCommand),
+    /// `ui ...` -- a plugin window's tree, or a player's input on it.
+    Ui(UiCommand),
+    /// `chat` -- the lines queued for the chat windows since the last `chat`.
+    Chat,
+    /// `replay [<secs>]` -- carry on feeding the recording `login` stopped in, at its recorded
+    /// pace, for `secs` of recorded time or to its end.
+    Replay(Option<f64>),
+    /// `run <secs>` -- frames at the wall clock's pace for `secs`, for a connection to a server.
+    Run(f64),
+    /// `run forever` -- frames at the wall clock's pace until the client is stopped (Ctrl+C) or
+    /// its connection is lost.
+    RunForever,
+    /// `enter <name>` -- over a server connection, enter the world as the character, creating it
+    /// first when the account has none of that name.
+    Enter(String, bool),
+    /// `answer yes` / `answer no` -- the player's answer to the oldest question the game has on
+    /// screen.
+    Answer(bool),
+}
+
+/// What `plugin` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginCommand {
+    /// `plugin load <folder>`: load the package in a folder.
+    Load(String),
+    /// `plugin unload <id>`.
+    Unload(String),
+    /// `plugin reload <id>`.
+    Reload(String),
+    /// `plugin list`.
+    List,
+    /// `plugin console <id>`: the plugin's console lines.
+    Console(String),
+}
+
+/// What `ui` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UiCommand {
+    /// `ui dump`: every plugin window's tree.
+    Dump,
+    /// `ui layout`: every open plugin window laid out (each character a cell): each node's place
+    /// and size.
+    Layout,
+    /// `ui click <plugin> <window> <node>`.
+    Click {
+        plugin: String,
+        window: String,
+        node: String,
+    },
+    /// `ui set <plugin> <window> <node> <json>`: a toggle or other input changed by the player.
+    Set {
+        plugin: String,
+        window: String,
+        node: String,
+        value: String,
+    },
+    /// `ui close <plugin> <window>`.
+    Close { plugin: String, window: String },
+    /// `ui resize <plugin> <window> <width> <height>`: the player gives a resizable window a size,
+    /// in cells and lines.
+    Resize {
+        plugin: String,
+        window: String,
+        width: i64,
+        height: i64,
+    },
+    /// `ui hotkey <plugin> <node>`: the player presses a plugin's hotkey.
+    Hotkey { plugin: String, node: String },
+    /// `ui bar <plugin>`: the player clicks the plugin's button on the plugin bar, which opens its
+    /// main window, or closes it when open.
+    Bar { plugin: String },
 }
 
 /// What `dump` prints.
@@ -298,6 +371,73 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
         ("snapshot", _) => Err(err(n, "snapshot takes no arguments")),
         ("quit", []) => Ok(Command::Quit),
         ("quit", _) => Err(err(n, "quit takes no arguments")),
+        ("replay", []) => Ok(Command::Replay(None)),
+        ("replay", [secs]) => secs
+            .parse::<f64>()
+            .ok()
+            .filter(|s| s.is_finite() && *s >= 0.0)
+            .map(|s| Command::Replay(Some(s)))
+            .ok_or_else(|| err(n, format!("replay needs seconds, not {secs:?}"))),
+        ("replay", _) => Err(err(n, "replay takes an optional <secs>")),
+        ("run", ["forever"]) => Ok(Command::RunForever),
+        ("run", [secs]) => secs
+            .parse::<f64>()
+            .ok()
+            .filter(|s| s.is_finite() && *s >= 0.0)
+            .map(Command::Run)
+            .ok_or_else(|| err(n, format!("run needs seconds, not {secs:?}"))),
+        ("run", _) => Err(err(n, "run takes <secs> or forever")),
+        ("enter", [name]) => Ok(Command::Enter((*name).to_owned(), false)),
+        ("enter", [name, "mage"]) => Ok(Command::Enter((*name).to_owned(), true)),
+        ("enter", _) => Err(err(n, "enter takes <character> [mage]")),
+        ("chat", []) => Ok(Command::Chat),
+        ("chat", _) => Err(err(n, "chat takes no arguments")),
+        ("answer", ["yes"]) => Ok(Command::Answer(true)),
+        ("answer", ["no"]) => Ok(Command::Answer(false)),
+        ("answer", _) => Err(err(n, "answer takes yes or no")),
+        ("plugin", ["load", dir]) => Ok(Command::Plugin(PluginCommand::Load((*dir).to_owned()))),
+        ("plugin", ["unload", id]) => Ok(Command::Plugin(PluginCommand::Unload((*id).to_owned()))),
+        ("plugin", ["reload", id]) => Ok(Command::Plugin(PluginCommand::Reload((*id).to_owned()))),
+        ("plugin", ["list"]) => Ok(Command::Plugin(PluginCommand::List)),
+        ("plugin", ["console", id]) => Ok(Command::Plugin(PluginCommand::Console((*id).to_owned()))),
+        ("plugin", _) => Err(err(n, "plugin takes load <folder>, unload <id>, reload <id>, list or console <id>")),
+        ("ui", ["dump"]) => Ok(Command::Ui(UiCommand::Dump)),
+        ("ui", ["layout"]) => Ok(Command::Ui(UiCommand::Layout)),
+        ("ui", ["click", plugin, window, node]) => Ok(Command::Ui(UiCommand::Click {
+            plugin: (*plugin).to_owned(),
+            window: (*window).to_owned(),
+            node: (*node).to_owned(),
+        })),
+        ("ui", ["set", plugin, window, node, value @ ..]) if !value.is_empty() => Ok(Command::Ui(UiCommand::Set {
+            plugin: (*plugin).to_owned(),
+            window: (*window).to_owned(),
+            node: (*node).to_owned(),
+            value: value.join(" "),
+        })),
+        ("ui", ["close", plugin, window]) => Ok(Command::Ui(UiCommand::Close {
+            plugin: (*plugin).to_owned(),
+            window: (*window).to_owned(),
+        })),
+        ("ui", ["resize", plugin, window, width, height]) => {
+            let cells = |v: &str| {
+                v.parse::<i64>()
+                    .map_err(|_| err(n, format!("ui resize: {v:?} is not a whole number")))
+            };
+            Ok(Command::Ui(UiCommand::Resize {
+                plugin: (*plugin).to_owned(),
+                window: (*window).to_owned(),
+                width: cells(width)?,
+                height: cells(height)?,
+            }))
+        }
+        ("ui", ["hotkey", plugin, node]) => Ok(Command::Ui(UiCommand::Hotkey {
+            plugin: (*plugin).to_owned(),
+            node: (*node).to_owned(),
+        })),
+        ("ui", ["bar", plugin]) => Ok(Command::Ui(UiCommand::Bar {
+            plugin: (*plugin).to_owned(),
+        })),
+        ("ui", _) => Err(err(n, "ui takes dump, layout, bar <plugin>, click <plugin> <window> <node>, set <plugin> <window> <node> <json>, close <plugin> <window>, resize <plugin> <window> <width> <height> or hotkey <plugin> <node>")),
         _ => Err(err(n, format!("unknown command {verb:?}"))),
     }
 }
@@ -307,6 +447,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plugin_ui_and_chat_commands_parse() {
+        assert_eq!(
+            parse(
+                "plugin load plugins/xp\nui set example.xp main auto true\nui click a b c\nui layout\nchat\n"
+            )
+            .expect("parses"),
+            vec![
+                Command::Plugin(PluginCommand::Load("plugins/xp".into())),
+                Command::Ui(UiCommand::Set {
+                    plugin: "example.xp".into(),
+                    window: "main".into(),
+                    node: "auto".into(),
+                    value: "true".into()
+                }),
+                Command::Ui(UiCommand::Click {
+                    plugin: "a".into(),
+                    window: "b".into(),
+                    node: "c".into()
+                }),
+                Command::Ui(UiCommand::Layout),
+                Command::Chat,
+            ]
+        );
+        assert_eq!(
+            parse("answer yes\nanswer no\n").expect("parses"),
+            vec![Command::Answer(true), Command::Answer(false)]
+        );
+        assert!(parse("answer maybe").is_err());
+        assert!(parse("plugin").is_err());
+        assert!(parse("ui set a b c").is_err());
+    }
+
+    #[test]
     fn world_and_position_parse() {
         assert_eq!(
             parse("world 0xA9B4\nposition\n").expect("parses"),
@@ -314,6 +487,21 @@ mod tests {
         );
         assert!(parse("world 0x1A9B4").is_err(), "a landblock id is 16 bits");
         assert!(parse("position 1").is_err());
+    }
+
+    #[test]
+    fn a_server_run_enters_a_character_and_runs_for_seconds() {
+        assert_eq!(
+            parse("enter Hunterbot\nrun 2.5\n").expect("parses"),
+            vec![Command::Enter("Hunterbot".into(), false), Command::Run(2.5)]
+        );
+        assert_eq!(
+            parse("run forever").expect("parses"),
+            vec![Command::RunForever]
+        );
+        assert!(parse("enter").is_err());
+        assert!(parse("run").is_err());
+        assert!(parse("run -1").is_err());
     }
 
     #[test]

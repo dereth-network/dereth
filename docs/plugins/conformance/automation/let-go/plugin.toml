@@ -1,0 +1,7 @@
+id = "conformance.let-go"
+name = "Conformance: let-go"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"act.interactive" = "Fights and runs when you ask it to."

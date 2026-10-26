@@ -35,6 +35,8 @@ mod macros;
 pub mod actions;
 pub mod admin;
 pub mod archive;
+/// Every message codec, by opcode and direction, for readers that know a type only at run time.
+pub mod codecs;
 pub mod combat;
 pub mod comms;
 

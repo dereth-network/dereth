@@ -81,6 +81,18 @@ pub(super) fn build_horizon<H: Host>(cx: &mut Cx<'_, H>) -> Result<HorizonFrontE
 }
 
 impl<H: Host> FrontEnd<H> for HorizonFrontEnd {
+    fn typing(&mut self) -> bool {
+        self.ui.text_focus
+    }
+    fn asking(&self) -> bool {
+        HorizonFrontEnd::host_question(self).is_some()
+    }
+    fn host_question(&mut self, question: Option<&dereth_client_runtime::dialogs::HostQuestion>) {
+        self.set_host_question(question.cloned());
+    }
+    fn take_host_reply(&mut self) -> Option<dereth_client_runtime::dialogs::HostReply> {
+        HorizonFrontEnd::take_host_reply(self)
+    }
     fn reread_files(&mut self, cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {
         HorizonFrontEnd::reread_files(self, cx);
     }

@@ -1,0 +1,16 @@
+says = "A VTank meta file imports as a meta checked in VTank's order: the first true rule of its state runs; its expressions, options, embedded route and meta view work, and what it could not carry is listed."
+[scenario]
+world = "scripted"
+seconds = 10
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+"""
+[[step]]
+after = 8
+click = "view:Remote.c1:Go"
+[expect]
+status = "running"
+console = ["unsupported	condition dialog_popup", "option	enablecombat	false", "state	Default	->	Walk", "state	Walk	->	Walking", "state	Walking	->	Arrived", "state	Arrived	->	Clicked", "state	Clicked	->	Done"]
+printed = ["arrived", "clicked"]

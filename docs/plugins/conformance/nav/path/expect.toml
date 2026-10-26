@@ -1,0 +1,52 @@
+says = "A walking route goes round a wall to a monster behind it, through a closed door in a wall's gap (naming the door to open), and not at all to a place walled in; a line of sight is blocked by a wall and by a closed door and clear across open ground; nothing moves the character."
+[scenario]
+world = "scripted"
+seconds = 3
+[[object]]
+id = 0x80000030
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.841667 }
+[[object]]
+id = 0x80000031
+name = "Door"
+type = "misc"
+door = "closed"
+place = { ns = 42.2, ew = 33.779167 }
+# A wall between the character and the monster, five metres east.
+[[wall]]
+from = [42.183333, 33.820833]
+to = [42.216667, 33.820833]
+# A wall five metres west, with a gap the door stands in.
+[[wall]]
+from = [42.175, 33.779167]
+to = [42.195, 33.779167]
+[[wall]]
+from = [42.205, 33.779167]
+to = [42.225, 33.779167]
+# Four walls round a place twenty metres north.
+[[wall]]
+from = [42.275, 33.791667]
+to = [42.275, 33.808333]
+[[wall]]
+from = [42.275, 33.808333]
+to = [42.291667, 33.808333]
+[[wall]]
+from = [42.291667, 33.808333]
+to = [42.291667, 33.791667]
+[[wall]]
+from = [42.291667, 33.791667]
+to = [42.275, 33.791667]
+[[step]]
+after = 0.5
+say = "/route"
+[expect]
+status = "running"
+console = [
+	"round\ttrue\ttrue\ttrue\ttrue\t0",
+	"door\t2\t1\ttrue\t1",
+	"walled in\tfalse\tno_route",
+	"sight\tfalse\tfalse\ttrue",
+	"still\ttrue\ttrue",
+]
+moves = []

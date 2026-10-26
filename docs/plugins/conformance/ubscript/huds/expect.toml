@@ -1,0 +1,60 @@
+says = "A HUD drawn the immediate way with UtilityBelt's views and ImGui is a declared window: each render builds its nodes, only what changed is set again, and a click, a toggle, text typed, a number stepped, a choice picked and a tab chosen reach the next render as ImGui reports them."
+
+[scenario]
+world = "scripted"
+seconds = 5
+
+[[step]]
+after = 1
+click = "ub1-counter.n2"
+
+[[step]]
+after = 1.5
+click = "ub1-counter.n2"
+
+[[step]]
+after = 2
+set = "ub1-counter.n5"
+value = true
+
+[[step]]
+after = 2.5
+set = "ub1-counter.n6"
+value = "Bob"
+
+[[step]]
+after = 3
+set = "ub1-counter.n7"
+value = 7
+
+[[step]]
+after = 3.5
+set = "ub1-counter.n8"
+value = "Two"
+
+[[step]]
+after = 4
+choose = "ub1-counter.n9"
+rows = [2]
+
+[expect]
+status = "running"
+console = ["visible true", "added 1", "added 2", "debug true", "name Bob", "level 7", "pick 1"]
+ui = """
+window ubscript.huds ub1-counter open=true
+window #ub1-counter resizable=false title="Counter"
+  label #n1 text="Count: 2"
+  row #n4
+    button #n2 text="Add"
+    button #n3 text="Reset"
+  toggle #n5 text="Debug" value=true
+  input #n6 text="Name" value="Bob"
+  number #n7 step=1 text="Level" value=7
+  choice #n8 options=["One","Two","Three"] text="Pick" value="Two"
+  tabs #n9 selected=2
+    group #n10 title="Main"
+    group #n11 title="Other"
+      label #n12 color="#FF0000" text="other page"
+  list #n13 columns=["Name","Value"] height=1 rows=[["count","2"]]
+  meter #n19 max=100 text="progress" tooltip="ten to go" value=20
+"""

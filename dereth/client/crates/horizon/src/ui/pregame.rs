@@ -975,42 +975,7 @@ pub fn crest_name(heritage: u32) -> Option<&'static str> {
     })
 }
 
-/// The highlighted list row: the teal light of a selected list item.
-pub fn list_highlight(p: &mut Painter<'_>, r: Rect, on: bool) {
-    if !on {
-        return;
-    }
-    // With the interface's own art: a warm band with fine bronze lines along it, fading at both
-    // ends, drawn here rather than from a picture.
-    if p.art.has_piece("window.tl") {
-        const STEPS: u8 = 8;
-        let end = (r.w / 6.0).min(48.0 * p.scale);
-        let step = end / f32::from(STEPS);
-        let line = p.scale.max(1.0);
-        let band = |p: &mut Painter<'_>, x: f32, w: f32, a: f32| {
-            p.fill(
-                Rect::new(x, r.y, w, r.h),
-                crate::draw::with_alpha(0x46C8_9646, a),
-            );
-            p.fill(
-                Rect::new(x, r.y, w, line),
-                crate::draw::with_alpha(0x96C8_9646, a),
-            );
-            p.fill(
-                Rect::new(x, r.bottom() - line, w, line),
-                crate::draw::with_alpha(0x96C8_9646, a),
-            );
-        };
-        for i in 0..STEPS {
-            let a = (f32::from(i) + 0.5) / f32::from(STEPS);
-            band(p, r.x + step * f32::from(i), step, a);
-            band(p, r.right() - step * f32::from(i + 1), step, a);
-        }
-        band(p, r.x + end, r.w - 2.0 * end, 1.0);
-        return;
-    }
-    p.fill(r, 0x6040_A0C0);
-}
+pub use dereth_ui_kit::widgets::list_highlight;
 
 /// A centred message with buttons that takes every press until it is answered; the index of the
 /// one clicked.
@@ -1067,6 +1032,20 @@ pub fn dialog_box(
     modal: bool,
     offset: usize,
 ) -> Option<usize> {
+    dialog_box_keyed(p, ctx, (title, text), buttons, modal, offset, 0).0
+}
+
+/// [`dialog_box`] with Enter answering with button `enter` (when the box is modal), and where its
+/// buttons were drawn, first to last.
+pub fn dialog_box_keyed(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    (title, text): (&str, &str),
+    buttons: &[&str],
+    modal: bool,
+    offset: usize,
+    enter: usize,
+) -> (Option<usize>, Vec<Rect>) {
     let k = p.scale;
     let (sw, sh) = p.screen;
     let body = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
@@ -1100,8 +1079,10 @@ pub fn dialog_box(
     let by = r.bottom() - 46.0 * k - plates;
     ctx.input.nav.mark_box();
     let mut clicked = None;
+    let mut drawn = Vec::with_capacity(buttons.len());
     for (i, label) in buttons.iter().enumerate() {
         let b = Rect::new(bx, by, bw, 30.0 * k);
+        drawn.push(b);
         if kit::button(p, ctx, b, label, true) {
             clicked = Some(i);
         }
@@ -1113,7 +1094,7 @@ pub fn dialog_box(
     }
     ctx.input.nav.end_layer();
     if modal && ctx.input.take_key(vk::ENTER) {
-        clicked = Some(0);
+        clicked = Some(enter.min(buttons.len() - 1));
     }
     if modal && ctx.input.take_key(vk::ESCAPE) {
         clicked = Some(buttons.len() - 1);
@@ -1129,7 +1110,7 @@ pub fn dialog_box(
     } else if r.contains(ctx.input.mouse.0, ctx.input.mouse.1) {
         ctx.hot = true;
     }
-    clicked
+    (clicked, drawn)
 }
 
 #[cfg(test)]

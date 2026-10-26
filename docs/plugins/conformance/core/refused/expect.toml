@@ -1,0 +1,4 @@
+says = "A plugin that needs a capability the host does not have is not loaded, and the player is told why."
+[expect]
+status = "absent"
+printed = ["[Plugins] conformance.refused was not loaded: this host (dereth-conformance) has no retail_ui"]

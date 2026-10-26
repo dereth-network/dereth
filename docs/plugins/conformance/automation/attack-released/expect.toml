@@ -1,0 +1,18 @@
+says = "A plugin unloaded while the attack it started is still repeating has the attack cancelled, so it does not go on with no plugin to stop it."
+[scenario]
+world = "scripted"
+seconds = 6
+repeat_attacks = true
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[[step]]
+after = 0.5
+say = "/fight"
+[[step]]
+after = 2.2
+unload = "conformance.attack-released"
+[expect]
+sent = ["ChangeCombatMode", "melee_attack 0x80000050", "CancelAttack"]

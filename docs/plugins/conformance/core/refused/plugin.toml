@@ -1,0 +1,6 @@
+id = "conformance.refused"
+name = "Conformance: refused"
+version = "0.1.0"
+api = "0.1"
+[capabilities]
+required = ["retail_ui"]

@@ -1,0 +1,4 @@
+id = "conformance.store-scopes"
+name = "Conformance: store-scopes"
+version = "0.1.0"
+api = "0.2"

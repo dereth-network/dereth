@@ -24,7 +24,7 @@ use {
     dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
-fn setup() -> App {
+pub(super) fn setup() -> App {
     let mut app = crate::common::sim_app::new(Config {
         headless: true,
         sound: false,

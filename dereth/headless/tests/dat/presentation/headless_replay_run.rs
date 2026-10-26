@@ -181,6 +181,31 @@ fn a_client_with_no_ui_sends_login_complete_once_the_portal_space_ends() {
     );
 }
 
+/// Behaviour: none (the client's own cost: a character in the world with no journey asked for
+/// costs the frame nothing for the travel).
+/// With no journey or plan asked for, the client in the world builds no travel planner and
+/// gathers nothing for one, however long it plays.
+#[test]
+fn a_client_in_the_world_with_no_journey_asked_for_builds_no_travel_planner() {
+    let commands = parse(
+        "login first-login-walk-jump +Aldis
+         tick 300
+         walk forward 1
+         tick 60
+         quit
+",
+    )
+    .expect("the script parses");
+    let mut out: Vec<u8> = Vec::new();
+    let opts = Options {
+        world: true,
+        ..options()
+    };
+    let summary = run(&commands, &opts, &mut out).expect("the run finishes");
+    assert_eq!(summary.state, Some(SessionState::Playable));
+    assert!(!summary.travel_planner_built);
+}
+
 /// A recording that is not there is an error, not an empty replay that passes.
 #[test]
 fn a_session_name_with_no_recording_stops_the_run() {

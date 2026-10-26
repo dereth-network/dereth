@@ -1,0 +1,26 @@
+says = "Stopping is always allowed: with no gesture behind it and in a world that stops a player killer's automation, a plugin still stops the attack it started and lets go of the run lock it set, while starting again needs what any action needs."
+[scenario]
+world = "scripted"
+seconds = 34
+pk = true
+repeat_attacks = true
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+[limits]
+pk_automation = false
+"""
+[[step]]
+after = 1
+say = "/fight"
+[expect]
+status = "running"
+console = ["attack	true", "run	true	true", "activation	0", "stop	true	nil", "run off	true	false", "run again	false	denied_by_world"]
+sent = ["ChangeCombatMode", "melee_attack 0x80000050", "CancelAttack"]
+moves = ["autorun on", "autorun off"]

@@ -1,0 +1,10 @@
+id = "conformance.meta"
+name = "Conformance: meta"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"auto.nav" = "Walks on its own."
+
+[capabilities]
+required = ["nav.moveto"]

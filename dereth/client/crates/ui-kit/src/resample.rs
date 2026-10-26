@@ -193,7 +193,7 @@ pub fn resample(image: &Image, src: Rect, out: (u32, u32)) -> Image {
 
 #[cfg(test)]
 mod tests {
-    //! Behaviour: none (experimental Horizon interface)
+    //! Behaviour: none (this client's own widget kit)
     use super::*;
 
     /// A picture `w` by `h` whose texel at `(x, y)` is `f(x, y)`.

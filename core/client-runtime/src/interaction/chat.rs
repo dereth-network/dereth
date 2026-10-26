@@ -3,6 +3,22 @@
 use super::*;
 
 impl Interaction {
+    /// The command verbs typed lines are claimed for, replacing the set before.
+    pub fn set_extension_verbs(&mut self, verbs: Vec<String>) {
+        self.extension_verbs = verbs;
+    }
+
+    /// The claimed lines typed since the last call.
+    pub fn take_extension_commands(&mut self) -> Vec<crate::frame_hook::ExtensionCommand> {
+        std::mem::take(&mut self.extension_typed)
+    }
+
+    /// The client's own command table.
+    #[must_use]
+    pub fn command_table(&self) -> &dereth_client_model::cmd::CommandInterp {
+        &self.chat
+    }
+
     /// The shared timed target sweep runs independently of the active interface.
     pub fn update_chat_target(
         &mut self,

@@ -1,0 +1,12 @@
+says = "A move to a place turns the character toward it, runs with the run lock, and lets it go within range; the promise settles on arrival."
+[scenario]
+world = "scripted"
+seconds = 8
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+status = "running"
+moves = ["face 90", "autorun on", "autorun off"]
+console = ["arrived\ttrue", "heading\t90"]
+place = [42.2, 33.842]

@@ -1,0 +1,17 @@
+says = "A held motion presses one of the game's movement controls, with the walk key when asked, for the time asked and lets it go; an unknown motion or one held longer than ten seconds is refused."
+[scenario]
+world = "scripted"
+seconds = 5
+[[step]]
+after = 0.5
+say = "/side"
+[[step]]
+after = 3
+say = "/stroll"
+[[step]]
+after = 4.5
+say = "/fly"
+[expect]
+status = "running"
+console = ["side\ttrue\ttrue\ttrue", "stroll\ttrue\ttrue", "fly\tfalse", "forever\tfalse"]
+moves = ["hold strafe_right", "let go strafe_right", "hold walk", "hold forward", "let go walk", "let go forward"]

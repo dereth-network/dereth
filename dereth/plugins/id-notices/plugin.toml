@@ -1,0 +1,11 @@
+id = "network.dereth.idnotices"
+name = "ID Notices"
+version = "0.3.0"
+api = "0.7"
+entry = "main.lua"
+description = "Appraises what drops and tells you about what matters: rares, named spells, high value, scrolls of spells you don't know, and the names you watch for; and players, portals and watched-for creatures coming into view, on a HUD you can move. Its window sets what matters and how each kind alerts you. In the manner of Alinco."
+authors = ["Dereth"]
+license = "MIT"
+
+[capabilities]
+optional = ["ui.hud", "ui.window"]

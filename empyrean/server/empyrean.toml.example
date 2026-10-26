@@ -105,6 +105,12 @@ status_address = ""
 # none.
 status_public_url = ""
 
+# default: false (Empyrean only)
+# Also serve GET /portals on the status endpoint: every portal placed in the world,
+# with its destination and level limits, as a tab-separated table that clients use to
+# route through portals. Off by default; it needs status_address.
+publish_portals = false
+
 # default: true (Empyrean only)
 # Read console commands from standard input. Set it false when the server runs as a
 # service or in a container with no terminal.

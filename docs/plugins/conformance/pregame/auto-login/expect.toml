@@ -1,0 +1,11 @@
+says = "A plugin hears the character list, enters the world as the character it picks, hears why an entry was refused, and tries again."
+[scenario]
+world = "scripted"
+seconds = 5
+[scenario.pregame]
+characters = ["Alpha", "Bravo"]
+still_in_world = ["Bravo"]
+[expect]
+status = "running"
+moves = ["log_on Bravo", "log_on Bravo"]
+console = ["pregame\t2\tBravo\tcharacter_select", "refused\t13\tcharacter_in_world", "pregame\t2\tBravo\tcharacter_select", "entry\t1\tfalse\tcharacter_in_world", "in world as\tBravo", "entry\t2\ttrue\tBravo"]

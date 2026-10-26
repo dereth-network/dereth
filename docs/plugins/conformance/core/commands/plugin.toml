@@ -1,0 +1,4 @@
+id = "conformance.commands"
+name = "Conformance: commands"
+version = "0.1.0"
+api = "0.1"

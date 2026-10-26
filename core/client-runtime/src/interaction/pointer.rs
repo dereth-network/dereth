@@ -40,7 +40,7 @@ impl Interaction {
     /// Not a plain getter: `None` is the client's "the viewport is the render target", which is
     /// the state the render device is left in before anything docks, and
     /// resolving it here is what keeps `find_object`'s two `sub`s the identity in a headless run.
-    pub(super) fn device_viewport(&self, screen: (u32, u32)) -> Viewport {
+    pub fn device_viewport(&self, screen: (u32, u32)) -> Viewport {
         self.game_viewport.unwrap_or(Viewport {
             x: 0,
             y: 0,

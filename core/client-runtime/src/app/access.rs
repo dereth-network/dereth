@@ -143,6 +143,11 @@ impl<S: Shell> App<S> {
         Ok(())
     }
 
+    /// The connection's endpoint, a server's or a replay's; `None` before any.
+    pub fn network_mut(&mut self) -> Option<&mut crate::net::ClientNetwork> {
+        self.link.as_mut().map(|link| &mut link.net)
+    }
+
     pub fn replay_network_mut(&mut self) -> Option<&mut crate::net::ClientNetwork> {
         self.link
             .as_mut()

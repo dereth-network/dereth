@@ -1,0 +1,7 @@
+says = "A VTank meta file read as data writes back as VTank writes it, its embedded route and meta view kept, and a rule added as data runs once written and loaded."
+[scenario]
+world = "scripted"
+seconds = 2
+[expect]
+status = "running"
+console = ["rule	1	Default	expr	multiple", "rule	2	Default	dialog_popup	none", "rule	3	Default	always	set_state", "rule	4	Walk	always	multiple", "rule	5	Walking	route_empty	multiple", "rule	6	Arrived	never	none", "rule	7	Clicked	always	set_state", "unchanged	true", "line ends	true", "view	true", "route	Walk	once	1", "state	Default	->	Added"]

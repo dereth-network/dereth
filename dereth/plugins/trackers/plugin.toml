@@ -1,0 +1,11 @@
+id = "network.dereth.trackers"
+name = "Trackers"
+version = "0.3.0"
+api = "0.7"
+entry = "main.lua"
+description = "The trackers of Mag-Tools: combat by creature and element, experience and luminance per hour, the mana left in what you wear, the consumables you use, the corpses and players you have seen."
+authors = ["Dereth"]
+license = "MIT"
+
+[capabilities]
+optional = ["ui.window", "ui.hud", "overlay.arrow"]

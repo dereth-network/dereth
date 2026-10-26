@@ -1,0 +1,8 @@
+id = "conformance.support"
+name = "Conformance: support"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"auto.support" = "Buffs other players on its own."
+"auto.combat" = "Fights on its own."

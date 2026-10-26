@@ -277,6 +277,28 @@ pub fn place_marker_on_map(area: MarkerArea, ew: f32, ns: f32, size: (i32, i32))
     (x, y)
 }
 
+/// The map coordinates `(ns, ew)` under a point `(x, y)` of the map image's own pixel space: the
+/// inverse of [`place_marker_on_map`] for a marker of no size, so a marker placed at the answer
+/// lands on the pixel the point is in. `None` off the marker area, where the picture shows no
+/// place. A press on a whole pixel is asked at the pixel's middle, half a pixel from its edges.
+///
+/// This is not the press transform of the map's own teleport ([`MAP_INTERACTION`]), which names
+/// a landscape cell rather than a point.
+#[must_use]
+pub fn map_coords_at(area: MarkerArea, x: f64, y: f64) -> Option<(f64, f64)> {
+    let aw = f64::from(area.x1 - area.x0 + 1);
+    let ah = f64::from(area.y1 - area.y0 + 1);
+    let (dx, dy) = (x - f64::from(area.x0), y - f64::from(area.y0));
+    if !(0.0..aw).contains(&dx) || !(0.0..ah).contains(&dy) {
+        return None;
+    }
+    // The placement's biased tenths, `ew * 10 + 1024` across and `2047 - (ns * 10 + 1024)` down,
+    // read back from the point.
+    let ew = (dx * 2048.0 / aw - 1024.0) / 10.0;
+    let ns = (1023.0 - dy * 2048.0 / ah) / 10.0;
+    Some((ns, ew))
+}
+
 /// The house marker's coordinate transform: it is `− 1024`, not
 /// `− 0x20`.
 ///
@@ -461,6 +483,34 @@ mod tests {
             (85, 170),
             "x1 and y1 are read, not ignored"
         );
+    }
+
+    /// A point on the map reads back the coordinates whose marker lands on its pixel: every pixel
+    /// of the shipped marker area, asked at its middle. Holtburg's pixel reads back Holtburg to
+    /// within a pixel, and a point off the marker area reads nothing.
+    #[test]
+    fn a_point_on_the_map_reads_back_the_coordinates_whose_marker_lands_on_its_pixel() {
+        let area = SHIPPED_NOTE_BINDING.2;
+        for py in area.y0..=area.y1 {
+            for px in area.x0..=area.x1 {
+                let (ns, ew) = map_coords_at(area, f64::from(px) + 0.5, f64::from(py) + 0.5)
+                    .expect("on the marker area");
+                #[allow(clippy::cast_possible_truncation)]
+                let back = place_marker_on_map(area, ew as f32, ns as f32, (0, 0));
+                assert_eq!(back, (px, py), "({px}, {py}) read {ns}, {ew}");
+            }
+        }
+        let (hx, hy) = place_marker_on_map(area, 33.8, 42.2, (0, 0));
+        let (ns, ew) = map_coords_at(area, f64::from(hx) + 0.5, f64::from(hy) + 0.5)
+            .expect("Holtburg is on the map");
+        // A pixel is 2048 / 242 tenths across, under 0.85 of a unit.
+        assert!(
+            (ns - 42.2).abs() < 0.85 && (ew - 33.8).abs() < 0.85,
+            "{ns}, {ew}"
+        );
+        for (x, y) in [(5.9, 100.0), (248.0, 100.0), (100.0, 7.9), (100.0, 259.0)] {
+            assert_eq!(map_coords_at(area, x, y), None, "({x}, {y})");
+        }
     }
 
     /// The client computes `(l - 1024) * 0.1 + 0.5`.

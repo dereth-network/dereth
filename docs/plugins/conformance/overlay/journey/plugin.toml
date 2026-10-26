@@ -1,0 +1,10 @@
+id = "conformance.journey-drawn"
+name = "Conformance: journey drawn"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Travels where you ask."
+
+[capabilities]
+required = ["nav.journey", "overlay.arrow", "overlay.map", "overlay.radar"]

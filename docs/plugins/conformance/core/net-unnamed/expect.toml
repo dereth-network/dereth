@@ -1,0 +1,9 @@
+says = "A plugin whose manifest does not name net.http makes no HTTPS request, even to a domain it lists: the request fails, saying so."
+[net]
+"https://news.example.org/board.txt" = "board.txt"
+[[step]]
+after = 1
+say = "/noop"
+[expect]
+status = "running"
+console = ["board\tfalse\tthis plugin's manifest does not name net.http"]

@@ -3,7 +3,7 @@
 //!
 //! The game's questions -- a use that needs a yes, a server's confirmation request, an invitation,
 //! a swear, a house payment, `@die`, the vendor's unfinished basket, a pop-up message, a web link
-//! clicked in chat -- arrive as queues on [`crate::interaction::Interaction`]. [`DialogService::service`](crate::dialogs::DialogService::service) turns them into
+//! clicked in chat, a journey that would leave the Training Academy -- arrive as queues on [`crate::interaction::Interaction`]. [`DialogService::service`](crate::dialogs::DialogService::service) turns them into
 //! [`Question`](crate::dialogs::Question)s, runs each answer's rule when the player answers, and answers **No** on the way
 //! out when the server withdraws a question it asked. What a question looks like, and how a UI
 //! queues several of them, is the front end's: it implements [`DialogPresenter`](crate::dialogs::DialogPresenter).
@@ -58,6 +58,10 @@ pub struct Question {
     pub subject: Option<ObjectId>,
     pub target: Option<ObjectId>,
 }
+
+/// The plugin host's question to the player, apart from the game's: it never passes through the
+/// [`DialogService`], whose questions come from the game and its requests.
+pub use dereth_client_contract::host_question::{HostQuestion, HostReply};
 
 /// What a UI's box says about a question this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +133,9 @@ enum Rule {
     PopUp,
     /// A web link clicked in chat: a yes opens it in the browser.
     OpenLink(String),
+    /// The travel's question (a journey that would hand a token back): answered either way to
+    /// the travel.
+    Travel,
 }
 
 /// The questions the game has asked and the player has not answered.
@@ -198,8 +205,13 @@ impl DialogService {
         let requests = interaction.take_server_confirmations();
         let aborts = interaction.take_confirmation_aborts();
         let fellowship = interaction.take_fellowship_requests();
+        let travel = interaction.take_travel_questions();
         let Some(ui) = ui else {
-            // No subscriber, and no retained notice history.
+            // No subscriber, and no retained notice history. A journey's question nobody can
+            // see is a no: the journey ends rather than waiting for ever.
+            if !travel.is_empty() || self.has(|r| *r == Rule::Travel) {
+                interaction.answer_travel(false);
+            }
             self.drop_all(world);
             return;
         };
@@ -209,11 +221,18 @@ impl DialogService {
             if self.has(|r| *r == Rule::MiniGameQuit) {
                 world.minigame.cancel_resign_dialog();
             }
+            // Nor does a journey's: it is a no, so the journey ends rather than waits for ever.
+            if self.has(|r| *r == Rule::Travel) {
+                interaction.answer_travel(false);
+            }
             self.open.clear();
             ui.reset();
             self.generation = Some(ui.generation());
         }
         if !ui.accepting() {
+            if !travel.is_empty() {
+                interaction.answer_travel(false);
+            }
             return;
         }
         // **The pop-up strings**, which every log-in opens: one-button boxes, all on screen at
@@ -475,6 +494,21 @@ impl DialogService {
                 (None, None),
             );
         }
+        // **A journey's question**: one at a time; a second while one is up waits on its answer.
+        for question in travel {
+            if self.has(|r| *r == Rule::Travel) {
+                continue;
+            }
+            if !self.ask(
+                &mut *ui,
+                Rule::Travel,
+                Prompt::Text(question),
+                (false, false, false),
+                (None, None),
+            ) {
+                interaction.answer_travel(false);
+            }
+        }
         // **The vendor's unfinished basket**: one at a time.
         for prompt in closes {
             if self.has(|r| *r == Rule::CloseVendor) {
@@ -550,6 +584,8 @@ impl DialogService {
                     interaction.confirm_server_confirmation(4, context_id, accepted);
                 }
             }
+            // A box gone without an answer is a no: the journey ends rather than waits.
+            Rule::Travel => interaction.answer_travel(yes),
             Rule::Usage(_)
             | Rule::TargetedUse(..)
             | Rule::CloseVendor
@@ -743,5 +779,48 @@ mod tests {
             said,
             ["Your browser could not be opened for https://example.com/x"]
         );
+    }
+
+    /// Behaviour: plugins.nav.handing-a-token-back-asks-the-player-first
+    #[test]
+    fn a_journeys_question_is_asked_in_a_box_and_its_answer_or_its_loss_goes_back_to_the_journey() {
+        const LEAVE: &str = "Leave the Training Academy? You can never come back.";
+        let ask = || {
+            let mut inter = Interaction::new();
+            inter.ask_travel(String::from(LEAVE));
+            (
+                inter,
+                dereth_client_model::World::new(),
+                DialogService::default(),
+                Boxes::default(),
+            )
+        };
+        // Asked in a box of its own, a yes-or-no question; nothing answered while it waits.
+        let mut game = ask();
+        {
+            let (inter, world, service, boxes) = &mut game;
+            service.service(Some(boxes), inter, world, LocalTime(1.0));
+            assert_eq!(boxes.shown.len(), 1);
+            assert_eq!(boxes.shown[0].prompt, Prompt::Text(LEAVE.into()));
+            assert!(!boxes.shown[0].message, "a yes-or-no question");
+            assert_eq!(inter.take_travel_answer(), None);
+        }
+        answer(&mut game, Some(true));
+        assert_eq!(game.0.take_travel_answer(), Some(true));
+        assert_eq!(game.0.take_travel_answer(), None, "taken once");
+        // A no, and a box gone without an answer, are both a no.
+        for gone in [Some(false), None] {
+            let mut game = ask();
+            {
+                let (inter, world, service, boxes) = &mut game;
+                service.service(Some(boxes), inter, world, LocalTime(1.0));
+            }
+            answer(&mut game, gone);
+            assert_eq!(game.0.take_travel_answer(), Some(false));
+        }
+        // With nowhere to show it, the question is lost at once: a no.
+        let (mut inter, mut world, mut service, _) = ask();
+        service.service(None, &mut inter, &mut world, LocalTime(1.0));
+        assert_eq!(inter.take_travel_answer(), Some(false));
     }
 }

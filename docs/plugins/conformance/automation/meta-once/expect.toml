@@ -1,0 +1,7 @@
+says = "A meta checked by VTank's rule runs every true rule of its state, each once per stay in it; setting the state it is in enters it again and its rules run again."
+[scenario]
+world = "scripted"
+seconds = 2
+[expect]
+status = "running"
+console = ["first	1", "second	1", "state	A	->	A", "first	2", "second	2"]

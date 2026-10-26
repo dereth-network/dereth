@@ -61,6 +61,19 @@ dereth-ui.workspace = true
 dereth-console.workspace = true
 # The headless replay translates recorded host events and physical controls.
 dereth-input.workspace = true
+# Plugins: the host, the interface and the Luau engine (`src/plugins.rs`).
+dereth-plugin-api.workspace = true
+dereth-plugin-host.workspace = true
+dereth-plugin-lua.workspace = true
+dereth-plugin-wasm = { workspace = true, default-features = true }
+# The player's *Plugins (experimental)* setting, which the plugin host follows.
+dereth-client-contract.workspace = true
+# The game's data files, read for the plugins that draw maps.
+dereth-dat.workspace = true
+# Plugins' HTTPS requests to the domains their manifests list, and a world policy published at a
+# URL (`src/plugins.rs`, off the frame's thread). The same client and TLS the server's importer
+# already uses.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -72,7 +85,6 @@ dereth-terrain.workspace = true
 dereth-rules.workspace = true
 dereth-client-shell = { workspace = true, features = ["test-support"] }
 dereth-chargen.workspace = true
-dereth-client-contract.workspace = true
 dereth-client-runtime = { workspace = true, features = ["test-support"] }
 dereth-world-render.workspace = true
 dereth-assets.workspace = true
@@ -91,6 +103,8 @@ dereth-world-data.workspace = true
 dereth-classic-ui.workspace = true
 # The Horizon interface's names, drawn over the world in the instrument that pictures them.
 dereth-horizon.workspace = true
+# The widget kit Horizon is drawn with: the context its windows are drawn in, for the pixel tests.
+dereth-ui-kit.workspace = true
 glam.workspace = true
 winit = { workspace = true, features = ["rwh_06"] }
 # Capture tests inspect PNGs; production encoding belongs to the scene and icon decoding

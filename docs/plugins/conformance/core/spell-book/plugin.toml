@@ -1,0 +1,4 @@
+id = "conformance.spell-book"
+name = "Conformance: spell book"
+version = "0.1.0"
+api = "0.5"

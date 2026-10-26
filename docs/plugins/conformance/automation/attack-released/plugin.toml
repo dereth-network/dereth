@@ -1,0 +1,7 @@
+id = "conformance.attack-released"
+name = "Conformance: an unloaded plugin's attack stops"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"act.interactive" = "Fights when you ask."

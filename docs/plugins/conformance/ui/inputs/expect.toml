@@ -1,0 +1,28 @@
+says = "Text typed in an input, a slider moved and text typed in a text box reach the plugin as changes and stay on their nodes; list cells carry their own colour and icon, nodes their tooltips, and a toast shows with the plugin's name and goes when its time is up."
+[[step]]
+after = 0
+bar = "conformance.inputs"
+[[step]]
+after = 1
+set = "main.name"
+value = "Bob"
+[[step]]
+after = 2
+set = "main.vol"
+value = 7
+[[step]]
+after = 8
+set = "main.notes"
+value = "done"
+[expect]
+status = "running"
+console = ["bad cell\tfalse", "changed\tname\tBob", "changed\tvol\t7", "changed\tnotes\tdone"]
+ui = """
+window conformance.inputs main open=true
+window #main title="Inputs"
+  input #name placeholder="who" text="Name" tooltip="Whom to follow" value="Bob"
+  slider #vol max=10 min=0 step=1 text="Volume" value=7
+  textbox #notes height=3 value="done"
+  list #loot columns=["Item","Value"] rows=[[{"color":"#FFD700","icon":100667956,"text":"Gold Ring"},900],["Rusty Dagger",5]]
+  button #go text="Go" tooltip="Start following"
+"""

@@ -143,7 +143,8 @@ impl<S: Shell> App<S> {
         // The per-event `apply_hud_events` call lives in `deliver_session_events`; without this
         // empty application, a frame with no link or new
         // packet would not drain a notice that a UI request raised in step 7 of the previous frame.
-        let _ = self.apply_hud_events(shell, &[]);
+        let lines = self.apply_hud_events(shell, &[]);
+        self.gather_hook_chat(lines);
         // The login-event queue's per-frame half. Everything before
         // its event loop -- the link-status and rejected-datagram lines, the net-error report
         // and its no-UI exit, and the `--linger` deadline whose own comment says it is
@@ -171,6 +172,9 @@ impl<S: Shell> App<S> {
         // This runs in the same frame phase as the queue-5 drain above, because in retail
         // both operations belong to the same cache.
         self.request_missing_cell_records();
+        // The installed frame hook: after the frame's inbound messages have been applied, and
+        // before the UI step shows their lines and turns clicks into requests.
+        self.run_frame_hook();
         // Step 7 is **where the phase state machine
         // advances**, after global message 3 and with the queued mode switch running last.
         // The input-manager update is step 6 inside it.
@@ -182,6 +186,7 @@ impl<S: Shell> App<S> {
         // become motion commands and camera rotations *here*, downstream of `walk_input_maps` and
         // therefore of the typing barrier. It is before `WorldScene::update` reads `char_input`,
         // and after step 7 because the UI gets first refusal.
+        self.travel_use_time();
         self.apply_input_actions(shell);
         self.apply_orbit_camera();
         spans.step(FrameStep::WorldViewStep);

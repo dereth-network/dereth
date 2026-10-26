@@ -19,6 +19,7 @@ use std::sync::Arc;
 use dereth_client_runtime::present::Presentation;
 use dereth_client_runtime::scene::SceneConfig;
 use dereth_client_shell::gpu::Renderer;
+use dereth_horizon::art::AcArt as _;
 use dereth_horizon::draw::{DrawList, Overlay};
 use dereth_horizon::options::{HorizonOptions, StartScreen};
 use dereth_render::device::AdapterKind;

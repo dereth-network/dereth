@@ -1,0 +1,20 @@
+says = "A spell is cast only in magic stance (the library takes up the caster and enters it); a Life spell cast as a heal is automated healing, which a world may allow while it denies buffing; the debuffer casts a debuff on a target once until its recast time has passed."
+[scenario]
+world = "scripted"
+seconds = 4
+[[object]]
+id = 0x80000060
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[[object]]
+id = 0x80000061
+name = "Wand"
+type = "caster"
+container = "player"
+locations = 0x01000000
+[host]
+policy = { heal = "allow", combat = "allow", buff = "deny" }
+[expect]
+status = "running"
+console = ["outside magic stance	false	not_in_magic_mode", "magic stance	true	nil", "heal	true	nil", "the same spell as a buff	false	denied_by_world", "a Creature spell as a heal	false", "debuff	true	nil", "again at once	nil", "a target that is gone	nil"]

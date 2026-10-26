@@ -1,0 +1,12 @@
+says = "A plugin unloaded in the middle of a movement lets go of the character: the movement stops and the run lock it set is let go."
+[scenario]
+world = "scripted"
+seconds = 4
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 2
+unload = "conformance.nav-released"
+[expect]
+moves = ["face 90", "autorun on", "autorun off"]

@@ -380,6 +380,9 @@ pub struct Spell {
 /// Everything the interface reads of the game this frame.
 #[derive(Debug, Clone, Default)]
 pub struct GameState {
+    /// The plugin host's question to the player (a file a plugin asks for), shown as a dialog of
+    /// the interface until a press on one of its buttons, or Escape, answers it.
+    pub host_question: Option<dereth_client_runtime::dialogs::HostQuestion>,
     /// The renderers this build can create and the one drawing, for the options page's renderer
     /// choice; none offered where there is nothing to choose.
     pub renderers: dereth_client_contract::options::renderer::RendererStatus,

@@ -30,6 +30,7 @@ pub use probe::{AppProbe, AppProbeMut};
 mod access;
 mod display;
 mod frame;
+mod hook;
 mod hud;
 mod input;
 mod interaction;
@@ -655,6 +656,20 @@ impl Platform {
             dialog: Box::new(crate::platform::dialog::NoDialog),
         }
     }
+
+    /// No window, and the system's clock: a headless run connected to a server, which is a
+    /// session. Its simulation, timers and timeouts must keep the server's time, which a
+    /// simulated clock stepping a thirtieth of a second each frame does not when frames come
+    /// faster than that.
+    #[must_use]
+    pub fn headless_live(width: u32, height: u32) -> Self {
+        Self {
+            window: Box::new(NullWindow::new(width, height)),
+            clock: Box::new(SystemClock::new()),
+            pacer: Box::new(SystemClock::new()),
+            dialog: Box::new(crate::platform::dialog::NoDialog),
+        }
+    }
 }
 
 /// The application: everything the frame needs that is not drawing, a device, a UI or an OS
@@ -793,6 +808,28 @@ pub struct App<S: Shell> {
     pub server_stub: Option<crate::server_stub::ServerStub>,
     /// `--enter-world`'s script: which step it is on.
     pub script: EnterWorldScript,
+    /// `--nav-proof`'s driver, while it runs.
+    pub nav_proof: Option<crate::nav_proof::NavProof>,
+    /// The travel: journeys for the player's character, asked for by the frame hook or
+    /// `--nav-proof`, and this world's portal knowledge.
+    pub travel: crate::travel::Travel,
+    /// What the travel told at its last step, for the frame hook and `--nav-proof`.
+    pub travel_status: crate::travel::TravelStatus,
+    /// The spell table, read for the travel once a world is entered: which spells are recalls.
+    nav_spells: Option<std::sync::Arc<dereth_assets::tables::SpellTable>>,
+    /// The Training Academy's landblocks, read for the travel once a world is entered.
+    nav_academies: Option<Vec<u16>>,
+    /// Spells that fizzled since the travel's last step.
+    travel_fizzles: usize,
+    /// The server's published portal table, when a host fetched it (`--nav-published`), taken
+    /// into the travel at the next frame.
+    pub published_portals: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// How many times the movement stage has carried out the player's own movement of the
+    /// character (a key, a stick or a mouse button, under any interface), and how many of those
+    /// the frame hook and the travel had heard of when each last ran.
+    player_moves: u64,
+    hook_player_moves: u64,
+    travel_player_moves: u64,
     /// The last reported, so a transition is logged once.
     pub last_link_status: Option<crate::net::LinkStatus>,
     /// The bad-packets-received counter, reported when it moves.
@@ -997,6 +1034,23 @@ pub struct App<S: Shell> {
     /// memoises every setup record and animation record it decodes.
     pub anim_assets: std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
 
+    /// The step a product installed into the frame, run before the UI step. See
+    /// [`crate::frame_hook`].
+    frame_hook: Option<Box<dyn crate::frame_hook::FrameHook>>,
+    /// The chat lines this frame's messages produced, gathered for the frame hook. Kept only while
+    /// a hook is installed.
+    hook_chat: Vec<dereth_client_contract::chat::interface::ChatMessage>,
+    /// What the server said this frame about the player's own requests, gathered for the frame
+    /// hook. Kept only while a hook is installed.
+    hook_outcomes: Vec<crate::frame_hook::Outcome>,
+    /// The messages received since the hook last ran, while it asks for them.
+    hook_messages: Vec<crate::frame_hook::WireMessage>,
+    /// The server's takings of control the frame hook has been told about.
+    hook_control_losses: u64,
+    /// A hook asked to quit while a character was in the world: the client ends once the log-off
+    /// has taken the character out.
+    hook_quit_pending: bool,
+
     /// The object identity verdicts, worked out a few milliseconds a frame from start-up when
     /// another era's files are beside the world and the scene waits for them
     /// ([`crate::scene::SceneConfig::object_identity_budget`]). `None` otherwise.
@@ -1160,6 +1214,306 @@ pub const RETAIL_WINDOW_CLASS: &str = style::CLASS_NAME;
 
 #[cfg(test)]
 mod tests;
+
+/// Spell kinds that teleport the caster from anywhere: a recall, and a sending to a fixed place.
+const NAV_RECALL_KINDS: [u32; 2] = [6, 8];
+
+/// What `--nav-proof` needs of the player for choosing teleports: name, level, mana, the
+/// recall-type spells in its spellbook and the recall items it carries.
+fn nav_character(
+    world: &dereth_client_model::world::World,
+    spells: Option<&dereth_assets::tables::SpellTable>,
+) -> dereth_navigation::CharacterState {
+    /// The character's level.
+    const LEVEL: u32 = 25;
+    /// Current mana.
+    const MANA: u32 = 6;
+    let mut out = dereth_navigation::CharacterState::default();
+    let Some(player) = world.player else {
+        return out;
+    };
+    if let Some(w) = world.weenie(player) {
+        out.name.clone_from(&w.pwd.name);
+    }
+    // The object model's copy of the spell table, or the travel's own before it has one.
+    let table = world.magic.spell_table.as_deref().or(spells);
+    let recall = |spell: u32| -> Option<&dereth_assets::tables::SpellBase> {
+        table?
+            .spells
+            .get(&spell)
+            .filter(|b| NAV_RECALL_KINDS.contains(&b.meta_spell_type))
+    };
+    if let Some(q) = world.player_qualities() {
+        out.level = q.ints.as_ref().and_then(|i| i.get(&LEVEL).copied());
+        out.mana = q.attribute_2nd(MANA).map(|a| a.current_level);
+        for spell in q.spell_book.iter().flat_map(|b| b.keys()) {
+            if let Some(b) = recall(*spell) {
+                out.recall_spells.push((
+                    *spell,
+                    b.name.clone(),
+                    u32::try_from(b.base_mana).unwrap_or(0),
+                ));
+            }
+        }
+    }
+    // The pack and the side packs in it.
+    let mut containers = vec![player];
+    if let Some(inv) = world.inventory(player) {
+        containers.extend(inv.containers.iter().copied());
+    }
+    for c in containers {
+        let Some(inv) = world.inventory(c) else {
+            continue;
+        };
+        for item in &inv.items {
+            let Some(w) = world.weenie(*item) else {
+                continue;
+            };
+            if let Some(spell) = w.pwd.spell_id.map(u32::from) {
+                if recall(spell).is_some() {
+                    out.recall_items.push((*item, spell, w.pwd.name.clone()));
+                }
+            }
+        }
+    }
+    // Every character may recall to its lifestone and to the marketplace by command.
+    out.recall_commands = vec![
+        (
+            dereth_navigation::Recall::Lifestone,
+            String::from("lifestone"),
+        ),
+        (
+            dereth_navigation::Recall::Marketplace,
+            String::from("marketplace"),
+        ),
+    ];
+    // Casting needs the magic stance, which needs a caster in hand or in the pack to take up.
+    // (Being busy is a moment's matter: the cast waits it out.)
+    let stance = nav_stance(world);
+    out.can_cast = stance.magic || stance.caster_wielded || stance.caster_carried.is_some();
+    out
+}
+
+/// The character's stance and caster, for the travel's casting.
+fn nav_stance(world: &dereth_client_model::world::World) -> crate::travel::Stance {
+    use dereth_rules::weenie::item_type::CASTER;
+    let mut out = crate::travel::Stance {
+        magic: world.combat.combat_mode == dereth_client_model::combat::CombatMode::Magic,
+        busy: world.magic.busy_count != 0,
+        ..crate::travel::Stance::default()
+    };
+    let Some(player) = world.player else {
+        return out;
+    };
+    let is_caster = |id: dereth_primitives::ObjectId| {
+        world
+            .weenie(id)
+            .is_some_and(|w| w.pwd.obj_type & CASTER != 0)
+    };
+    let Some(inv) = world.inventory(player) else {
+        return out;
+    };
+    // In hand: among what the character wields.
+    out.caster_wielded = inv.placements.iter().any(|p| is_caster(p.iid))
+        || world
+            .tables
+            .weenies
+            .iter()
+            .any(|(id, w)| w.pwd.wielder_id == Some(player) && is_caster(id));
+    // In the pack or a side pack, to take up.
+    let mut containers = vec![player];
+    containers.extend(inv.containers.iter().copied());
+    out.caster_carried = containers
+        .iter()
+        .filter_map(|c| world.inventory(*c))
+        .flat_map(|i| i.items.iter().copied())
+        .find(|i| is_caster(*i));
+    out
+}
+
+/// The Training Academy's exit person, who gives a new character a token and, handed it back,
+/// sends it on to its town for good; the token; and what the player is asked before a journey
+/// hands it back.
+const ACADEMY_EXIT_PERSON: &str = "Jonathan";
+const ACADEMY_EXIT_TOKEN: &str = "Academy Exit Token";
+const ACADEMY_EXIT_QUESTION: &str = "Leave the Training Academy? Jonathan sends you on to your \
+     town once you hand his Academy Exit Token back to him, and you can never come back to the \
+     Academy.";
+
+/// The Training Academy's landblocks: those of the character-creation table's starts that are
+/// inside (the Academies new characters begin in; an era whose characters begin in towns has
+/// none).
+fn academy_blocks(store: &dereth_dat::RetailDatStore) -> Vec<u16> {
+    use dereth_assets::Decode;
+    let id = dereth_primitives::DataId(0x0E00_0002);
+    let Some(cg) = store
+        .read(id)
+        .ok()
+        .and_then(|b| dereth_assets::tables::CharGen::decode_payload(id, &b).ok())
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<u16> = cg
+        .starter_areas
+        .iter()
+        .flat_map(|a| a.locations.iter())
+        .filter(|l| l.cell.0 & 0xFFFF >= 0x0100)
+        .filter_map(|l| u16::try_from(l.cell.0 >> 16).ok())
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The people in sight who send the character on for a token handed back: in a Training Academy,
+/// its exit person, where the world shows them standing.
+fn nav_hand_backs(
+    world: &dereth_client_model::world::World,
+    character: Option<&crate::character::Character>,
+    academies: &[u16],
+) -> Vec<crate::travel::HandBackSeen> {
+    let Some(character) = character else {
+        return Vec::new();
+    };
+    let block = |cell: dereth_primitives::CellId| u16::try_from(cell.0 >> 16).ok();
+    let here = block(character.position().cell);
+    if !here.is_some_and(|b| academies.contains(&b)) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (id, _) in world.tables.physics.iter() {
+        let Some(w) = world.weenie(id) else { continue };
+        if w.pwd.name != ACADEMY_EXIT_PERSON
+            || w.pwd.obj_type & dereth_rules::weenie::item_type::CREATURE == 0
+        {
+            continue;
+        }
+        let Some(o) = character
+            .world
+            .by_object_id(id)
+            .and_then(|h| character.world.get(h))
+        else {
+            continue;
+        };
+        if block(o.position.cell) != here {
+            continue;
+        }
+        out.push(crate::travel::HandBackSeen {
+            object: id,
+            name: w.pwd.name.clone(),
+            at: o.position,
+            token: String::from(ACADEMY_EXIT_TOKEN),
+            question: String::from(ACADEMY_EXIT_QUESTION),
+        });
+    }
+    out
+}
+
+/// An item of this name the character holds, in the pack or a side pack.
+fn nav_held(
+    world: &dereth_client_model::world::World,
+    name: &str,
+) -> Option<dereth_primitives::ObjectId> {
+    let player = world.player?;
+    let mut containers = vec![player];
+    if let Some(inv) = world.inventory(player) {
+        containers.extend(inv.containers.iter().copied());
+    }
+    containers
+        .iter()
+        .filter_map(|c| world.inventory(*c))
+        .flat_map(|i| i.items.iter().copied())
+        .find(|i| world.weenie(*i).is_some_and(|w| w.pwd.name == name))
+}
+
+/// The portals in sight, for the travel.
+fn nav_portals(
+    world: &dereth_client_model::world::World,
+    character: Option<&crate::character::Character>,
+) -> Vec<crate::travel::PortalSeen> {
+    /// `ObjectDescriptionFlag` bit 18: the object is a portal.
+    const PORTAL: u32 = 0x0004_0000;
+    let Some(character) = character else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (id, _) in world.tables.physics.iter() {
+        let Some(w) = world.weenie(id) else { continue };
+        if w.pwd.bitfield & PORTAL == 0 {
+            continue;
+        }
+        let Some(o) = character
+            .world
+            .by_object_id(id)
+            .and_then(|h| character.world.get(h))
+        else {
+            continue;
+        };
+        out.push(crate::travel::PortalSeen {
+            id,
+            sighting: dereth_navigation::PortalSighting {
+                wcid: (w.pwd.wcid != 0).then_some(w.pwd.wcid),
+                name: w.pwd.name.clone(),
+                position: o.position,
+            },
+        });
+    }
+    out
+}
+
+/// The world's objects as `--nav-proof` obstacles: every door, open when its body is ethereal,
+/// every other solid body, and every creature (which the driver keeps only while it stands or
+/// ambles near the route).
+fn nav_obstacles(
+    world: &dereth_client_model::world::World,
+    character: &crate::character::Character,
+) -> Vec<crate::travel::WorldObstacle> {
+    use dereth_navigation::{DoorState, Obstacle, ObstacleKind};
+    /// `ObjectDescriptionFlag` bit 12: the object is a door.
+    const DOOR: u32 = 0x0000_1000;
+    let mut out = Vec::new();
+    for (id, _) in world.tables.physics.iter() {
+        if world.player == Some(id) {
+            continue;
+        }
+        let Some(w) = world.weenie(id) else { continue };
+        let Some(o) = character
+            .world
+            .by_object_id(id)
+            .and_then(|h| character.world.get(h))
+        else {
+            continue;
+        };
+        let creature = w.pwd.obj_type & dereth_rules::weenie::item_type::CREATURE != 0;
+        let door = w.pwd.bitfield & DOOR != 0;
+        let open = o.state.is_ethereal();
+        if open && !door {
+            continue;
+        }
+        let kind = if creature {
+            ObstacleKind::Creature
+        } else if door {
+            ObstacleKind::Door(if open {
+                DoorState::Open
+            } else {
+                DoorState::Closed
+            })
+        } else {
+            ObstacleKind::Solid
+        };
+        out.push(crate::travel::WorldObstacle {
+            obstacle: Obstacle {
+                id,
+                position: o.position,
+                setup: std::sync::Arc::clone(&o.geometry),
+                scale: o.scale,
+                kind,
+            },
+            name: w.pwd.name.clone(),
+        });
+    }
+    out
+}
 
 #[cfg(test)]
 #[path = "resolution_app_tests.rs"]

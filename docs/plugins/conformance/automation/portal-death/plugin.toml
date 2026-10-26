@@ -1,0 +1,4 @@
+id = "conformance.portal-death"
+name = "Conformance: portal-death"
+version = "0.1.0"
+api = "0.4"

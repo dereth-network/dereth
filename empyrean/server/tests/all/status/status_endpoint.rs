@@ -284,11 +284,13 @@ fn only_an_admitted_page_origin_may_read_the_status_and_its_websocket_url() {
 #[test]
 fn a_shut_down_endpoint_frees_its_address() {
     use std::io::{Read, Write};
-    let endpoint =
-        empyrean_server::status_endpoint::start("127.0.0.1:0".parse().unwrap(), Vec::new(), || {
-            Some(sample())
-        })
-        .expect("started");
+    let endpoint = empyrean_server::status_endpoint::start(
+        "127.0.0.1:0".parse().unwrap(),
+        Vec::new(),
+        None,
+        || Some(sample()),
+    )
+    .expect("started");
     let addr = endpoint.local_addr();
     let mut s = std::net::TcpStream::connect(addr).expect("it listens");
     s.write_all(b"GET /health HTTP/1.0\r\n\r\n").unwrap();

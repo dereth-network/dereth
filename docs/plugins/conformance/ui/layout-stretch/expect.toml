@@ -1,0 +1,25 @@
+says = "Across a column every node is as wide as the column but a picture, which keeps its own size; in a row a list is as tall as the row and a button stands in its middle; a row's justify end puts the room its nodes leave before them, and a column's align center keeps its nodes at their natural width in its middle."
+[[step]]
+after = 0
+bar = "conformance.layout-stretch"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 15
+[expect]
+status = "running"
+layout = """
+window conformance.layout-stretch main
+window #main 280x240
+  button #wide 0,0 280x22
+  canvas #pic 0,25 50x20
+  row #pair 0,48 280x142
+    button #go 0,60 42x22
+    list #rows 48,0 232x142 columns=222 rows=6
+  row #right 0,193 280x22
+    button #ok 162,0 42x22
+    button #cancel 210,0 70x22
+  column #middle 0,218 280x22
+    button #mid 105,0 70x22
+"""

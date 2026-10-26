@@ -1,0 +1,9 @@
+says = "A plugin suspended in the middle of a movement lets go of the character: the movement stops and the run lock it set is let go, since the plugin can no longer do it."
+[scenario]
+world = "scripted"
+seconds = 4
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+moves = ["face 90", "autorun on", "autorun off"]

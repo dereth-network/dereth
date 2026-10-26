@@ -1,5 +1,8 @@
 [workspace]
 resolver = "2"
+# Third-party crates carried in the tree with a change of ours (vendor/<crate>/Cargo.toml says
+# what). Not members: they keep their own lints and formatting.
+exclude = ["vendor"]
 members = [
     # core/: the shared crates (MIT), for the client, the server and any other AC client or tool,
     # among them the client SDK: `client-net`, `client-model`, `client-runtime`, `client-contract`
@@ -25,6 +28,13 @@ members = [
     "core/client-runtime",
     "core/audio",
     "core/client-sdk",
+    "core/navigation",
+    # The plugin host: the interface as types, the host and the Lua engine.
+    "core/plugin-api",
+    "core/plugin-package",
+    "core/plugin-wasm",
+    "core/plugin-host",
+    "core/plugin-lua",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -48,6 +58,8 @@ members = [
     "dereth/client/crates/classic-gdi",
     "dereth/client/crates/classic-fonts",
     "dereth/client/crates/horizon",
+    "dereth/client/crates/plugin-ui",
+    "dereth/client/crates/ui-kit",
     "dereth/headless",
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
@@ -62,6 +74,7 @@ members = [
     # tools/: research and build tools (MIT).
     "tools/pcap",
     "tools/web-relay",
+    "tools/plugin",
     "tools/web-dev",
     "tools/corpus",
     "tools/art",
@@ -136,8 +149,16 @@ dereth-headless = { path = "dereth/headless" }
 dereth-input = { path = "dereth/client/crates/input" }
 dereth-landscape = { path = "core/landscape" }
 dereth-launch = { path = "dereth/launcher/crates/launch" }
+dereth-navigation = { path = "core/navigation" }
 dereth-pcap = { path = "tools/pcap" }
 dereth-physics = { path = "core/physics" }
+dereth-plugin = { path = "tools/plugin" }
+dereth-plugin-api = { path = "core/plugin-api" }
+dereth-plugin-host = { path = "core/plugin-host" }
+dereth-plugin-lua = { path = "core/plugin-lua" }
+dereth-plugin-package = { path = "core/plugin-package" }
+dereth-plugin-ui = { path = "dereth/client/crates/plugin-ui" }
+dereth-plugin-wasm = { path = "core/plugin-wasm", default-features = false }
 dereth-presentation = { path = "core/presentation" }
 dereth-progression = { path = "core/progression" }
 dereth-primitives = { path = "core/primitives" }
@@ -153,6 +174,7 @@ dereth-text = { path = "core/text" }
 dereth-transport = { path = "core/transport" }
 dereth-ui = { path = "dereth/client/crates/ui" }
 dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
+dereth-ui-kit = { path = "dereth/client/crates/ui-kit" }
 dereth-horizon = { path = "dereth/client/crates/horizon" }
 dereth-web = { path = "dereth/web" }
 dereth-web-dev = { path = "tools/web-dev" }
@@ -294,3 +316,8 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 panic = "unwind"
+
+# mlua with the one change that lets it build for wasm32-unknown-unknown, the web client's target
+# (vendor/mlua/Cargo.toml says what it is).
+[patch.crates-io]
+mlua = { path = "vendor/mlua" }

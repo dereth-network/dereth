@@ -1,0 +1,24 @@
+says = "A hotkey runs its plugin's command as if the player had typed it, a gesture; a hotkey whose command the plugin has not claimed (the host's own `/plugin` among them) is told to the player and runs nothing, and a hotkey with no Ctrl or Alt is refused."
+[[step]]
+after = 0
+bar = "conformance.hotkeys"
+[[step]]
+after = 1
+hotkey = "go"
+[[step]]
+after = 2
+hotkey = "stray"
+[[step]]
+after = 3
+hotkey = "host"
+[expect]
+status = "running"
+console = ["plain key\tfalse", "ran\trun fast\t2\ttrue"]
+printed = ["[Plugins] conformance.hotkeys's hotkey runs /nothere, which it has not claimed", "[Plugins] conformance.hotkeys's hotkey runs /plugin, which it has not claimed"]
+ui = """
+window conformance.hotkeys main open=true
+window #main title="Hotkeys"
+  hotkey #go command="hk run fast" key="Ctrl+Shift+F5" text="Run fast"
+  hotkey #stray command="nothere" key="Alt+K"
+  hotkey #host command="plugin unload conformance.hotkeys" key="Alt+P"
+"""

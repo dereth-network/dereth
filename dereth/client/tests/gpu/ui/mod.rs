@@ -10,5 +10,6 @@ mod fill_and_erase;
 mod font_rasterisation;
 mod horizon_pixels;
 mod panel_pixel_residuals;
+mod plugin_windows;
 mod text_outline_pass;
 mod tiling_and_rotation;

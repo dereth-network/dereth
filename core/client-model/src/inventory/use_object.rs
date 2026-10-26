@@ -332,14 +332,16 @@ pub mod messages {
     }
 
     /// `"Select your target before using the %s"`.
-    /// **Taken from retail and deliberately left without a producer.**
     ///
-    /// It is the targeted-use arm's other leg: consume-selection set and no selected object.
-    /// The `use_object` method does not carry the consume-selection flag —
-    /// see its own note on the three producers and why the value is inert for every one of them
-    /// — so this leg is unreachable here, and a `fn` for it would be one more caller-less item.
-    /// The wording is recorded as a constant so that whoever adds the flag has it.
+    /// The targeted-use arm's other leg: an item used on the selected object (the plugin
+    /// interface's use of one item on another) with no object given to use it on.
     pub const SELECT_YOUR_TARGET_BEFORE_USING: &str = "Select your target before using the %s";
+
+    /// [`SELECT_YOUR_TARGET_BEFORE_USING`] with the item's name, pushed.
+    #[must_use]
+    pub fn select_your_target_before_using(name: &str) -> String {
+        SELECT_YOUR_TARGET_BEFORE_USING.replace("%s", name)
+    }
 }
 
 /// Why the client's general path sent nothing.
@@ -380,6 +382,9 @@ pub enum UseRefusal {
     AttackDoveIcon,
     /// Not useable, and none of the four above. [`messages::cannot_be_used`].
     NotUseable,
+    /// A targeted use on the selected object with no object to use it on.
+    /// [`messages::select_your_target_before_using`].
+    NoTarget,
 }
 
 impl UseRefusal {
@@ -397,6 +402,7 @@ impl UseRefusal {
             Self::Door => Some(messages::cannot_open_or_close_that_way(name)),
             Self::AttackDoveIcon => Some(messages::to_attack_click_the_dove(name)),
             Self::NotUseable => Some(messages::cannot_be_used(name)),
+            Self::NoTarget => Some(messages::select_your_target_before_using(name)),
             Self::ItIsYou | Self::AttackingIt => None,
         }
     }
@@ -426,6 +432,12 @@ pub enum UseOutcome {
     /// itself is `dereth-client`'s `Interaction`, not this crate's, which is why this is a distinct
     /// outcome rather than [`Self::Nothing`].
     TargetModeArmed,
+    /// A targeted use on the selected object sent its use-with-target request (`0x0035`) at
+    /// once, with no target mode in between: [`World::use_object_on`].
+    UseWithTargetSent,
+    /// A targeted use on the selected object that the object does not take: the compatibility
+    /// check said why, and nothing was sent.
+    TargetIncompatible,
     /// A confirmation dialog stands in the way and **nothing was sent**;
     /// [`Notice::UsageConfirmation`] carries it; accepting calls the usage-confirmation handler.
     Confirming(UsageConfirmation),
@@ -585,6 +597,45 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> UseOutcome {
+        self.use_object_with(req, out, item, None, false, split, now)
+    }
+
+    /// Use `item` on `target` as the client's interface for plugins does: the target taken as
+    /// the selected object and the item used with the consume-selection flag, so a targeted use
+    /// sends its use-with-target request (`0x0035`) at once rather than arming target mode.
+    ///
+    /// With `equipped`, the use is also the targeted use's second click, as the interface's use of
+    /// an equipped item makes it: result classification's fast path is passed over, so an item
+    /// the character wields (a caster with a spell of its own) is used where it is rather than
+    /// put in the pack, which is what a plain use of a wielded item does. The player's own
+    /// selection is not changed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn use_object_on(
+        &mut self,
+        req: &mut dyn RequestSink,
+        out: &mut dyn NoticeSink,
+        item: ObjectId,
+        target: ObjectId,
+        equipped: bool,
+        split: SplitState,
+        now: ServerTime,
+    ) -> UseOutcome {
+        self.use_object_with(req, out, item, Some(target), equipped, split, now)
+    }
+
+    /// The use path with its two flags: `on`, the consume-selection flag's selected object (`None`
+    /// for the flag clear), and `second_click`.
+    #[allow(clippy::too_many_arguments)]
+    fn use_object_with(
+        &mut self,
+        req: &mut dyn RequestSink,
+        out: &mut dyn NoticeSink,
+        item: ObjectId,
+        on: Option<ObjectId>,
+        second_click: bool,
+        split: SplitState,
+        now: ServerTime,
+    ) -> UseOutcome {
         if self.weenie(item).is_none() {
             return UseOutcome::NoObject;
         }
@@ -609,10 +660,16 @@ impl World {
             return UseOutcome::Nothing;
         }
         let result = self.determine_use_result(item);
-        if result.takes_the_fast_path() {
+        if !second_click && result.takes_the_fast_path() {
             let sent = self.using_item(req, out, item, result, split, now);
             return UseOutcome::Dispatched { result, sent };
         }
+        // The item-use action after a second click runs no switch: its tail alone.
+        let tail = if second_click {
+            UseResult::Nothing
+        } else {
+            result
+        };
         // ---------------------------------------------------------------------------------
         // The general path. The item-use dispatcher runs here too, not only on the fast path:
         // the client calls it on three more lines of this function, and its *tail* is what makes
@@ -637,6 +694,21 @@ impl World {
             return self.refuse_use(out, item, UseRefusal::MustBeWielded);
         }
         if uses.is_useable_targeted() {
+            // The consume-selection leg: the selected object is the target, compatibility is
+            // checked and said, and the use-with-target request goes at once, the busy count
+            // raised and the item-use action run.
+            if let Some(target) = on {
+                if target.0 == 0 {
+                    return self.refuse_use(out, item, UseRefusal::NoTarget);
+                }
+                if !self.report_target_compatibility(out, target, item) {
+                    return UseOutcome::TargetIncompatible;
+                }
+                self.attempt_use_with_target(req, item, target);
+                self.magic.busy_count += 1;
+                self.using_item(req, out, item, tail, split, now);
+                return UseOutcome::UseWithTargetSent;
+            }
             // The consume-selection flag — "a targeted use may consume the selection" — is 0 for
             // all three of this client's gestures (see this function's own note), so the
             // selected-object leg that sends the `0x0035` use-with-target request is unreachable
@@ -662,7 +734,9 @@ impl World {
                 out.emit(Notice::UsageConfirmation { object: item, kind });
                 return UseOutcome::Confirming(kind);
             }
-            self.use_event_and_using_item(req, out, item, split, now);
+            self.attempt_use(req, item);
+            self.magic.busy_count += 1;
+            self.using_item(req, out, item, tail, split, now);
             // The use announcement.
             // It is *after* `using_item` because the client's is: the tail of `using_item` can
             // open the object as a ground container, and its notices are raised first.
@@ -676,7 +750,7 @@ impl World {
         // Not useable at all. Retail still runs the using-item path here with both flags 0 —
         // the consume-selection flag is unused — so a container whose useability says
         // `USEABLE_NO` still reaches the tail, and only then does it pick a refusal.
-        self.using_item(req, out, item, result, split, now);
+        self.using_item(req, out, item, tail, split, now);
         if Some(item) == self.player {
             return self.refuse_use(out, item, UseRefusal::ItIsYou);
         }

@@ -1,0 +1,19 @@
+says = "A press on the game's map reaches the plugin listening with the place under the pointer, the button and the modifiers held, and is no gesture; the place is one the markers take, and a press off the world is not heard."
+[scenario]
+world = "scripted"
+seconds = 3
+[[step]]
+after = 1
+map_click = { ns = 42.3, ew = 33.8 }
+[[step]]
+after = 2
+map_click = { ns = 41.5, ew = 34.25, button = "right", ctrl = true, shift = true }
+[[step]]
+after = 2.5
+map_click = { ns = 0.0, ew = -102.3 }
+[expect]
+status = "running"
+console = ["left\t42.3\t33.8\tfalse\tfalse\tfalse\tfalse", "right\t41.5\t34.25\ttrue\ttrue\tfalse\tfalse"]
+overlays = """map conformance.mapclick #1 label="Here" color=#FF4040 points=[42.30N 33.80E]
+arrow conformance.mapclick #2 label="Clicked" color=#FFD700 at=42.30N 33.80E turn=0 distance=24.0
+"""

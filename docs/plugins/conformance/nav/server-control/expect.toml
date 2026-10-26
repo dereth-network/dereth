@@ -1,0 +1,14 @@
+says = "When the server takes control of the character's movement, a plugin's movement ends at once and the run lock the host set is let go, so nothing of the plugin's fights the server's approach."
+[scenario]
+world = "scripted"
+seconds = 4
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 2
+server_takes_control = true
+[expect]
+status = "running"
+console = ["move\tfalse\tinterrupted"]
+moves = ["face 90", "autorun on", "autorun off"]

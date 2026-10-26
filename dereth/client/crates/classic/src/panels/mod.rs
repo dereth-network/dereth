@@ -56,6 +56,9 @@ pub struct ClassicState {
     pub disconnect_message: Option<String>,
     /// The running program's version, as the options window's foot shows it.
     pub client_version: String,
+    /// The game's panels a plugin hides, by the names plugins give them
+    /// ([`crate::desktop::retail_ui_counterpart`]): the HUD's parts among them are not drawn.
+    pub retail_hidden: std::collections::BTreeSet<String>,
 }
 impl ClassicState {
     /// Whether the classic layout stretches to the window height.
@@ -112,6 +115,7 @@ impl Default for ClassicState {
             augmentations: String::new(),
             disconnect_message: None,
             client_version: String::new(),
+            retail_hidden: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -222,6 +226,12 @@ pub enum HostAction {
     MapTeleport {
         lx: u32,
         ly: u32,
+    },
+    /// A press on the map page's map, at map coordinates north and east, told to the plugins.
+    MapClick {
+        ns: f64,
+        ew: f64,
+        button: dereth_client_contract::panels::map::MapButton,
     },
     VendorSellAll,
     CloseVendorForced,
@@ -914,6 +924,11 @@ pub trait Panel: std::fmt::Debug {
     }
     fn set_object(&mut self, _object: ObjectId) {}
     fn set_spell(&mut self, _spell: u32) {}
+    /// Where the window's map is, from its top left, while it shows one: the origin
+    /// [`crate::panels::services::world::map_marker`] places a point from.
+    fn map_origin(&self) -> Option<(i32, i32)> {
+        None
+    }
     /// Close what the window has open over itself (a flyout), as Escape does, or as the window
     /// being hidden does; whether there was anything to close.
     fn dismiss(&mut self) -> bool {

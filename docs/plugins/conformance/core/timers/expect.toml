@@ -1,0 +1,7 @@
+says = "A repeating timer fires on its period until cancelled, a one-shot fires once, and a task that sleeps wakes after its delay, all on the frame clock."
+[[step]]
+after = 2
+say = "/nothing"
+[expect]
+status = "running"
+console = ["sleeping", "every\t1", "woke", "every\t2", "after", "every\t3"]

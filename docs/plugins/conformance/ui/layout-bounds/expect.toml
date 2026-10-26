@@ -1,0 +1,18 @@
+says = "A node keeps within its bounds: a growing node stops at its most height (max_height, in lines), the room it leaves going to the other growing nodes, and across a column a node is no wider than its most (max_width, in cells)."
+[[step]]
+after = 0
+bar = "conformance.layout-bounds"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 25
+[expect]
+status = "running"
+layout = """
+window conformance.layout-bounds main
+window #main 280x400
+  list #short 0,0 280x96 columns=270 rows=4
+  list #tall 0,99 280x240 columns=270 rows=12
+  list #narrow 0,342 140x58 columns=130 rows=2
+"""

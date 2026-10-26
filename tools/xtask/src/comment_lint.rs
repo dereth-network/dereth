@@ -899,7 +899,8 @@ pub fn scan_workspace(
     scope: Scope,
     targets: &BTreeSet<String>,
 ) -> (Vec<Finding>, usize) {
-    let mut files: Vec<PathBuf> = crate::util::source_files(root, &[])
+    // `vendor` holds third-party crates carried in the tree: their comments are theirs.
+    let mut files: Vec<PathBuf> = crate::util::source_files(root, &["vendor"])
         .into_iter()
         .filter(|p| {
             p.extension()

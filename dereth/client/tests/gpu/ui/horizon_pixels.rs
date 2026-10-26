@@ -103,11 +103,13 @@ fn window(
     };
     let mut drag = None;
     let mut ctx = Ctx {
-        time: 10.0,
-        dt: 1.0 / 60.0,
-        input: &mut input,
-        colours: &colours,
-        hot: false,
+        kit: dereth_ui_kit::widgets::Ctx {
+            time: 10.0,
+            dt: 1.0 / 60.0,
+            input: &mut input,
+            colours: &colours,
+            hot: false,
+        },
         drag: &mut drag,
         drops: Vec::new(),
     };

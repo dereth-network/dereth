@@ -1,0 +1,11 @@
+id = "conformance.nav-jump"
+name = "Conformance: jumps"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+
+[permissions]
+"act.interactive" = "Jumps when you ask."
+
+[capabilities]
+required = ["nav.moveto"]

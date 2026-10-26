@@ -430,6 +430,37 @@ impl WorldDatabaseBase {
             .collect()
     }
 
+    /// Not ACE: every landblock instance whose weenie is of `weenie_type`, each with its weenie as
+    /// [`Self::get_weenie`] reads it, in instance guid order. One pass over the instance table; no
+    /// landblock is loaded.
+    #[must_use]
+    pub fn get_landblock_instances_of_type(
+        &self,
+        weenie_type: WeenieType,
+    ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
+        #[allow(clippy::cast_possible_wrap)]
+        let wanted = weenie_type.0 as i32;
+        let mut weenies: HashMap<u32, Option<Arc<Weenie>>> = self
+            .weenie_index()
+            .into_iter()
+            .filter(|(_, i)| i.r#type == wanted)
+            .map(|(k, _)| (k, None))
+            .collect();
+        let mut out = Vec::new();
+        for instance in self.all_instances() {
+            let Some(slot) = weenies.get_mut(&instance.weenie_class_id) else {
+                continue;
+            };
+            if slot.is_none() {
+                *slot = self.get_weenie(instance.weenie_class_id).map(Arc::new);
+            }
+            if let Some(weenie) = slot {
+                out.push((instance, Arc::clone(weenie)));
+            }
+        }
+        out
+    }
+
     // =====================================
     // Spell
     // =====================================

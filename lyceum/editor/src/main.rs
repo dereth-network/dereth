@@ -99,7 +99,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     if !args.headless {
         runtime.push("--log-file".to_owned());
     }
-    let cfg = dereth_desktop::start::<Lyceum>(&runtime)?;
+    let (cfg, _log) = dereth_desktop::start::<Lyceum>(&runtime)?;
     if !args.headless {
         start::remember(&args.world, &cfg.dat_dir);
     }

@@ -1,0 +1,18 @@
+says = "A list's columns share its width: a column of a width is that many cells, the growing columns share what is left, and where no column says grow the last one of no width grows; a column's least width holds the list at least that wide, and a window narrower than its nodes' least width has them laid out at it."
+[[step]]
+after = 0
+bar = "conformance.layout-columns"
+[[step]]
+after = 1
+resize = "main"
+width = 30
+height = 20
+[expect]
+status = "running"
+layout = """
+window conformance.layout-columns main
+window #main 210x320
+  list #log 0,0 255x76 columns=49,189 rows=3
+  list #plugins 0,79 255x76 columns=105,56,70 rows=3
+  list #least 0,158 255x162 columns=210,28 rows=7
+"""

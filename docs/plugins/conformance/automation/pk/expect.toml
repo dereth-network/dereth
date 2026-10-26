@@ -1,0 +1,19 @@
+says = "In a world whose policy turns automation off for player killers, a player killer's plugin cannot act on its own, and still acts on the player's command."
+[scenario]
+world = "scripted"
+seconds = 2
+pk = true
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+[limits]
+pk_automation = false
+"""
+[[step]]
+after = 1
+say = "/fight"
+[expect]
+status = "running"
+console = ["automated	false	denied_by_world", "asked	true	2"]
+sent = ["ChangeCombatMode"]

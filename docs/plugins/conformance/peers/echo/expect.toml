@@ -1,0 +1,3 @@
+says = "A message a plugin sends reaches the same plugin in every other client on the machine, with the sending character, and not the sender itself; it is run by a scenario with two clients."
+[expect]
+status = "running"

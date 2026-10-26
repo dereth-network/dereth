@@ -1,0 +1,4 @@
+id = "conformance.objects"
+name = "Conformance: objects"
+version = "0.1.0"
+api = "0.6"

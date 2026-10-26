@@ -94,7 +94,8 @@ pub const GATES: &[Gate] = &[
     Gate {
         name: "physics",
         title: "Physics + collision",
-        crates: &["dereth-physics"],
+        // Navigation's routes are checked by walking them through the physics world.
+        crates: &["dereth-physics", "dereth-navigation"],
         harnesses: &[],
     },
     Gate {
@@ -317,6 +318,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "xtask"
         | "dereth-client-runtime"
         | "dereth-testkit"
+        | "dereth-navigation"
         | "dereth-world-data"
         | "dereth-chargen"
         | "dereth-progression"

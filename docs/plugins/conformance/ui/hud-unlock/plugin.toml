@@ -1,0 +1,8 @@
+id = "conformance.hud-unlock"
+name = "Conformance: HUD unlock"
+version = "0.1.0"
+api = "0.7"
+contexts = ["pregame", "world"]
+
+[capabilities]
+required = ["ui.hud"]

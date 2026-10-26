@@ -1,0 +1,16 @@
+id = "network.dereth.chatfilter"
+name = "Chat Filter"
+version = "0.2.0"
+api = "0.7"
+entry = "main.lua"
+replaces = ["network.dereth.chatlogger"]
+description = "Rules for the chat you see: lines matched by their words, their channel or who said them are hidden, highlighted or kept in a log you read in its window."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"chat.filter" = "Hides the lines your rules hide, and shows the ones they highlight again in the style you chose."
+"read.chat.private" = "Matches your tells with everything else, and keeps them in the log when a rule says to."
+
+[capabilities]
+optional = ["ui.window"]

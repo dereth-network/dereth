@@ -1,0 +1,11 @@
+id = "test.compiled-xp-meter"
+name = "Compiled XP Meter"
+version = "0.1.0"
+api = "0.4"
+entry = "plugin.wasm"
+description = "The test suite's compiled plugin: the XP Meter written in Rust and compiled to WebAssembly, experience earned this session and per hour, in a small window and on /xpc. Its source is beside it."
+authors = ["Dereth"]
+license = "MIT"
+
+[capabilities]
+optional = ["ui.window"]

@@ -9,7 +9,7 @@ mod book;
 mod commerce;
 mod settings;
 mod social;
-mod world;
+pub(crate) mod world;
 
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     match id {

@@ -49,6 +49,8 @@ pub mod examination;
 pub mod floaty;
 /// The gameplay screen's 3D viewport element id.
 pub mod gameplay;
+/// The plugin host's question to the player (a file a plugin asks for), and the answer.
+pub mod host_question;
 pub mod ids;
 /// `InputPump` and `NullInputPump`, which `dereth_ui` re-exports. `dereth-ui` calls the trait and
 /// `dereth_client_shell::input` implements it, so it belongs under both rather than in one of them.

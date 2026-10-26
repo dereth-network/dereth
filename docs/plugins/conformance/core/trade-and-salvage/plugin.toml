@@ -1,0 +1,7 @@
+id = "conformance.trade-and-salvage"
+name = "Conformance: trade-and-salvage"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Sells, buys and salvages when you type /go."

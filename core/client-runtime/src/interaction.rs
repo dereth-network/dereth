@@ -262,6 +262,10 @@ pub struct Interaction {
     /// What the mouse and the screens asked for this frame, queued by [`Self::queue`].
     mouse: Vec<UiMouseEvent>,
     ui_requests: Vec<UiRequest>,
+    /// The command verbs an installed frame hook claims (see [`crate::frame_hook`]).
+    extension_verbs: Vec<String>,
+    /// Typed lines whose verb is claimed, waiting for the frame hook's next step.
+    extension_typed: Vec<crate::frame_hook::ExtensionCommand>,
     /// A requested combat-mode toggle awaiting the host's world borrow. The toolbar
     /// element handler cannot borrow the mutable world during UI dispatch.
     pending_combat_toggle: bool,
@@ -581,6 +585,11 @@ pub struct Interaction {
     /// The web addresses clicked in chat lines, each waiting for the dialog service to ask the
     /// player whether to open it.
     pending_link_confirmations: Vec<String>,
+    /// The travel's questions (a journey that would hand a token back, and so leave for good),
+    /// each waiting for the dialog service to ask the player.
+    pending_travel_questions: Vec<String>,
+    /// The player's answer to the travel's question, until the travel takes it.
+    travel_answer: Option<bool>,
     /// `@house abandon`'s prompts, first stage and second, for
     /// `crate::target_confirmation::TargetedDialogs`. Two queues rather than one because the
     /// two stages carry different callbacks: stage one's Yes raises stage two, and only stage
@@ -941,6 +950,8 @@ impl Interaction {
     /// * **[`Interaction::client_build_id`]** — the program's own identity, named once at
     ///   start-up. A session ending must not put the library's fallback in its place, or
     ///   `@version` and the version line would name that instead from the next session on.
+    /// * **The extension command verbs** — they belong to the installed frame hook, which lives as
+    ///   long as the process, not to the character.
     /// * **[`Interaction::chat_pose_table`]** — a process-lifetime cached dat table.
     ///   The original pose path re-fetches enum
     ///   `(7, 2, 0x11)` on every call and fails when absent; session cleanup does not
@@ -965,7 +976,9 @@ impl Interaction {
         // Keep the process-cached `(7, 2, 0x11)` result across this
         // session reset; see the lifetime list above.
         let chat_pose_table = self.chat_pose_table.take();
+        let extension_verbs = std::mem::take(&mut self.extension_verbs);
         *self = Self {
+            extension_verbs,
             chat,
             stats,
             cursor,

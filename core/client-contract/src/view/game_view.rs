@@ -375,6 +375,35 @@ pub trait GameView: std::fmt::Debug {
         self.spellbook().iter().find(|s| s.id == spell_id).cloned()
     }
 
+    /// The spell's category in the spell table: the spells of one category are one family (the
+    /// levels of a buff and its higher-level namesakes), of which a character holds the strongest.
+    /// `None` where the host has no spell table, or the spell has no category (0).
+    fn spell_category(&self, _spell_id: u32) -> Option<u32> {
+        None
+    }
+
+    /// The spell's difficulty (its power) and base mana cost in the spell table, or `None` where
+    /// the host has no spell table.
+    fn spell_cost(&self, _spell_id: u32) -> Option<(i32, i32)> {
+        None
+    }
+
+    /// The spell's duration in seconds in the spell table, or `None` where the host has no spell
+    /// table or the spell does not run out.
+    fn spell_duration(&self, _spell_id: u32) -> Option<f64> {
+        None
+    }
+
+    /// Whether the spell table has the spell: [`GameView::spell`] without building the row.
+    fn has_spell(&self, spell_id: u32) -> bool {
+        self.spell(spell_id).is_some()
+    }
+
+    /// The spell's description in the spell table, or `None` where the host has none.
+    fn spell_description(&self, _spell_id: u32) -> Option<String> {
+        None
+    }
+
     /// Is `spell` a key of the player's spell book?
     ///
     /// This is *not* [`Self::spellbook`]`.contains`, and the difference is the whole reason it

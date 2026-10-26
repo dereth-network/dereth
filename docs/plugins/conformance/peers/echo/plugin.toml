@@ -1,0 +1,10 @@
+id = "conformance.peers"
+name = "Conformance: peers"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"peers.local" = "Talks to itself in your other clients."
+
+[capabilities]
+required = ["peers.local"]

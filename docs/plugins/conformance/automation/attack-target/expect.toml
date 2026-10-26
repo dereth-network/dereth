@@ -1,0 +1,29 @@
+says = "An attack's swing goes only at its target: one whose target stops being selected while the power bar charges (another monster selected, as the client's automatic targeting does when a target's body goes) is dropped, never sent at the new selection, and fails target_gone."
+[scenario]
+world = "scripted"
+seconds = 4
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[[object]]
+id = 0x80000051
+name = "Drudge Lurker"
+type = "creature"
+place = { ns = 42.21, ew = 33.8 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+"""
+[[step]]
+after = 0.5
+say = "/fight"
+[[step]]
+after = 1.2
+select = 0x80000051
+[expect]
+status = "running"
+console = ["attack	false	target_gone"]
+sent = ["ChangeCombatMode"]

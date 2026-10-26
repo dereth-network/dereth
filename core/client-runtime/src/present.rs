@@ -517,6 +517,8 @@ pub struct NullPresentationCounts {
     pub overlay_uploads: u64,
     pub overlay_releases: u64,
     pub draw_overlay: u64,
+    /// How many marks the world was last given to draw (a front end's own, such as plugins').
+    pub world_marks: u64,
 }
 
 /// The presentation a headless `App` gets: it draws nothing and holds no scene, and records what

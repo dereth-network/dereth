@@ -14,7 +14,8 @@ use dereth_testkit::behaviours::{self, Tier};
 use dereth_testkit::tier_census::{self, ScenarioFile};
 
 use super::{
-    chat, combat, frame, inventory, login, magic, net, objects, panels, shell, social, ui, world,
+    chat, combat, frame, inventory, login, magic, net, objects, panels, plugins, shell, social, ui,
+    world,
 };
 
 /// Every declaration scope in this tier, including existing nested modules.
@@ -30,6 +31,19 @@ static FILES: &[ScenarioFile] = &[
     net::SCENARIOS,
     objects::SCENARIOS,
     panels::SCENARIOS,
+    plugins::SCENARIOS,
+    plugins::trackers::SCENARIOS,
+    plugins::navigator::SCENARIOS,
+    plugins::windows::SCENARIOS,
+    plugins::tank::SCENARIOS,
+    plugins::tank_items::SCENARIOS,
+    plugins::tank_fellows::SCENARIOS,
+    plugins::tank_quests::SCENARIOS,
+    plugins::tank_windows::SCENARIOS,
+    plugins::tank_buffbot::SCENARIOS,
+    plugins::buffbot::SCENARIOS,
+    plugins::inventory::SCENARIOS,
+    plugins::ubscript::SCENARIOS,
     shell::SCENARIOS,
     social::SCENARIOS,
     ui::SCENARIOS,

@@ -102,6 +102,11 @@ mod imp {
         /// ([`Self::offer_terrain_tuning`]), read by every world loaded from now on.
         #[cfg(feature = "hifi")]
         terrain_tuning: Option<std::path::PathBuf>,
+        /// The marks drawn in the world this frame, after it and against its depth. The front
+        /// end replaces them every frame.
+        pub world_marks: Vec<crate::marks::WorldMark>,
+        /// One white texel, which the marks are drawn with.
+        marks_white: Option<TextureSlot>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -306,6 +311,8 @@ mod imp {
                 art_pack: None,
                 #[cfg(feature = "hifi")]
                 terrain_tuning: None,
+                world_marks: Vec::new(),
+                marks_white: None,
             })
         }
 
@@ -943,13 +950,18 @@ mod imp {
             if self.world_hidden {
                 return Ok(());
             }
+            if self.world.is_some() && ws.is_some() {
+                self.prepare_marks_white();
+            }
             if let (Some(world), Some(ws)) = (&self.world, ws) {
                 // The view-distance override flag selects
                 // the override FOV distance over the normal FOV for the whole of the
                 // world and sky passes.
                 let gpu = &mut self.gpu;
+                let (marks, white) = (&self.world_marks, self.marks_white);
                 dereth_render::camera::view_distance_override::with(self.view_distance, || {
-                    world.draw(ws, gpu)
+                    world.draw(ws, gpu)?;
+                    Self::draw_marks(world, ws, gpu, marks, white)
                 })?;
                 // The ground markers, over the finished world and under the overlay, in the order
                 // asked for: a later one lies over an earlier one.
@@ -991,6 +1003,89 @@ mod imp {
                 &PerDrawConstants::identity(),
                 &scene.vertices,
             )
+        }
+
+        /// Upload the white texel the marks are drawn with, the first time there are marks.
+        fn prepare_marks_white(&mut self) {
+            if self.marks_white.is_some() || self.world_marks.is_empty() {
+                return;
+            }
+            let data = dereth_primitives::TextureData {
+                width: 1,
+                height: 1,
+                format: dereth_primitives::TextureFormat::Bgra8,
+                levels: vec![vec![0xFF, 0xFF, 0xFF, 0xFF]],
+            };
+            match self.gpu.upload_texture(&data) {
+                Ok(slot) => self.marks_white = Some(slot),
+                Err(e) => tracing::warn!("the world marks' texel would not upload: {e}"),
+            }
+        }
+
+        /// The marks, in the world's viewport and with its camera, after the world: tested
+        /// against its depth and writing none, so a wall or a hill in front of a mark hides it
+        /// and marks never hide one another. A mark on top skips the test.
+        fn draw_marks(
+            world: &crate::world_scene::SceneDraw,
+            ws: &dereth_client_runtime::world_state::WorldState,
+            gpu: &mut Gpu,
+            marks: &[crate::marks::WorldMark],
+            white: Option<TextureSlot>,
+        ) -> Result<(), RenderError> {
+            let Some(white) = white else {
+                return Ok(());
+            };
+            if marks.is_empty() {
+                return Ok(());
+            }
+            let (w, h) = gpu.size();
+            let viewport = world.effective_viewport(ws, w, h);
+            let view = world.view_params(ws, w, h);
+            let per_frame = PerFrameConstants::from_view(&view);
+            let surf = Surface {
+                r#type: st::BASE1_IMAGE,
+                ..Surface::default()
+            };
+            let ctx = SurfaceContext {
+                vertex_format: VertexFormat::XyzDiffuseTex1,
+                ..SurfaceContext::default()
+            };
+            let (mut key, _) = PipelineKey::from_surface(&surf, ctx);
+            key.z_write = false;
+            key.alpha_blend = true;
+            key.src_blend = dereth_render::pso::Blend::SrcAlpha;
+            key.dst_blend = dereth_render::pso::Blend::InvSrcAlpha;
+            key.cull = dereth_render::pso::Cull::None;
+            key.fog = false;
+            key.lighting = false;
+            gpu.set_viewport(viewport);
+            let mut result = Ok(());
+            for mark in marks {
+                let vertices =
+                    crate::marks::mark_vertices(&view.view, view.fov_y_rad, viewport.height, mark);
+                if vertices.is_empty() {
+                    continue;
+                }
+                key.z_func = if mark.on_top {
+                    ZFunc::Always
+                } else {
+                    ZFunc::LessEqual
+                };
+                // One white texel under CLAMP: the colour is the vertices'.
+                gpu.bind_texture(white, 1);
+                result = gpu.draw_dynamic(
+                    &key,
+                    &DrawConstants::default(),
+                    &per_frame,
+                    &PerDrawConstants::identity(),
+                    &vertices,
+                );
+                if result.is_err() {
+                    break;
+                }
+            }
+            gpu.reset_viewport();
+            result
         }
 
         /// Descriptor slots live, ever taken and available, against the heap's capacity.

@@ -1,0 +1,4 @@
+says = "A plugin has no file, process or source-loading functions, cannot change the libraries or the API, and can require only modules in its own package."
+[expect]
+status = "running"
+console = ["io\ttrue\tloadstring\ttrue\texecute\ttrue", "library read-only\tfalse", "api read-only\tfalse", "module outside package\tfalse", "own module\t42"]

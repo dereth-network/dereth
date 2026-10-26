@@ -2362,3 +2362,173 @@ fn in_the_horizon_interface_s_and_a_back_up_and_step_left_through_a_cast_in_eith
     c.finish();
     let _ = std::fs::remove_dir_all(&state);
 }
+
+/// A frame hook that notes whether each of its frames saw the player move the character, and asks
+/// once for the run lock when told to.
+#[derive(Debug, Default)]
+struct MovementWatch {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<bool>>>,
+    run: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl dereth_client_runtime::frame_hook::FrameHook for MovementWatch {
+    fn step(&mut self, frame: &mut dereth_client_runtime::frame_hook::HookFrame<'_>) {
+        self.seen.borrow_mut().push(frame.player_input);
+        if self.run.take() {
+            frame.nav(dereth_client_runtime::frame_hook::NavRequest::Autorun(true));
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// What a [`MovementWatch`] saw, and its switch for the run lock.
+type Watched = (
+    std::rc::Rc<std::cell::RefCell<Vec<bool>>>,
+    std::rc::Rc<std::cell::Cell<bool>>,
+);
+
+impl Client {
+    /// The Horizon interface shown on its game screen under `movement`, with a [`MovementWatch`]
+    /// installed.
+    fn horizon_with_watch(
+        &mut self,
+        movement: dereth_client_runtime::orbit::MovementMode,
+    ) -> Watched {
+        self.install_horizon(dereth_horizon::options::StartScreen::Game);
+        self.choose(Interface::Horizon);
+        self.shell
+            .horizon
+            .ui
+            .as_mut()
+            .unwrap()
+            .ui
+            .options
+            .orbit
+            .movement = movement;
+        let watch = MovementWatch::default();
+        let seen = std::rc::Rc::clone(&watch.seen);
+        let run = std::rc::Rc::clone(&watch.run);
+        self.app.install_frame_hook(Box::new(watch));
+        self.frame();
+        self.frame();
+        seen.borrow_mut().clear();
+        (seen, run)
+    }
+}
+
+/// Under either of Horizon's movements, a pad's stick and both mouse buttons held are the player's
+/// own movement: the frame hook hears of them as it hears of a movement key, and its own run lock
+/// is not the player's.
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn the_horizon_stick_and_mouse_run_are_the_players_own_movement_to_a_frame_hook() {
+    use crate::platform::keys::MouseButton;
+    use dereth_client_runtime::orbit::MovementMode;
+    for movement in [MovementMode::Camera, MovementMode::Character] {
+        let state = std::env::temp_dir().join(format!(
+            "dereth-switch-horizon-watch-{movement:?}-{}",
+            std::process::id()
+        ));
+        let mut c = Client::new(&state);
+        let (seen, run) = c.horizon_with_watch(movement);
+        c.app
+            .ui_context()
+            .orbit_sticks(Some((0.0, 1.0)), (0.0, 0.0));
+        c.frame();
+        c.frame();
+        assert!(
+            seen.borrow().iter().any(|s| *s),
+            "{movement:?}: the stick pushed is the player's movement: {:?}",
+            seen.borrow()
+        );
+        c.app.ui_context().orbit_sticks(None, (0.0, 0.0));
+        c.frame();
+        c.frame();
+        seen.borrow_mut().clear();
+        // The hook's own run lock is the client's steering, not the player's movement.
+        run.set(true);
+        for _ in 0..4 {
+            c.frame();
+        }
+        assert!(
+            c.app.char_input.auto_run,
+            "{movement:?}: the run lock is on"
+        );
+        assert!(
+            seen.borrow().iter().all(|s| !*s),
+            "{movement:?}: the hook's own run lock is not the player's: {:?}",
+            seen.borrow()
+        );
+        // Both mouse buttons held over the world.
+        c.shell
+            .queue_window_event(HostEvent::CursorMoved { x: 400.0, y: 250.0 });
+        c.frame();
+        seen.borrow_mut().clear();
+        for button in [MouseButton::Left, MouseButton::Right] {
+            c.shell.queue_window_event(HostEvent::MouseInput {
+                button,
+                pressed: true,
+            });
+            c.frame();
+        }
+        c.frame();
+        assert!(
+            seen.borrow().iter().any(|s| *s),
+            "{movement:?}: both buttons held run the player: {:?}",
+            seen.borrow()
+        );
+        c.finish();
+        let _ = std::fs::remove_dir_all(&state);
+    }
+}
+
+/// A journey's steering under Horizon is the game's own movement, as under the modern interface:
+/// its turning key turns the player (camera-based movement would make it a run to the side), its
+/// forward key runs the way the player faces, and neither is the player's own movement.
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn a_journeys_steering_under_horizon_is_the_games_own_movement() {
+    use dereth_client_contract::actions::{movement as a, Action};
+    use dereth_client_runtime::orbit::MovementMode;
+    for movement in [MovementMode::Camera, MovementMode::Character] {
+        let state = std::env::temp_dir().join(format!(
+            "dereth-switch-horizon-steer2-{movement:?}-{}",
+            std::process::id()
+        ));
+        let mut c = Client::new(&state);
+        let (seen, _) = c.horizon_with_watch(movement);
+        c.app.actions.steer(Action::begin(a::TURN_RIGHT));
+        c.frame();
+        let input = c.app.char_input;
+        assert!(
+            input.turn_right && !input.step_right && !input.forward,
+            "{movement:?}: a turn, not a run or a step: {input:?}"
+        );
+        c.app.actions.steer(Action::end(a::TURN_RIGHT));
+        c.app.actions.steer(Action::begin(a::MOVE_FORWARD));
+        c.frame();
+        assert!(c.app.char_input.forward && !c.app.char_input.turn_right);
+        assert!(
+            !c.app.orbit_keys.held.forward,
+            "{movement:?}: not read as the player's key"
+        );
+        c.app.actions.steer(Action::end(a::MOVE_FORWARD));
+        c.frame();
+        c.frame();
+        assert!(!c.app.char_input.forward);
+        assert!(
+            seen.borrow().iter().all(|s| !*s),
+            "{movement:?}: the journey's keys are not the player's: {:?}",
+            seen.borrow()
+        );
+        c.finish();
+        let _ = std::fs::remove_dir_all(&state);
+    }
+}

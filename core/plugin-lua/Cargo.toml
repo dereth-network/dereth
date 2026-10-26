@@ -1,0 +1,33 @@
+[package]
+name = "dereth-plugin-lua"
+description = "The plugin script engine: one Luau VM per plugin, sandboxed, with a memory cap and a time budget per entry, and the plugin API's bindings in Lua."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+# `build.rs` builds the C and C++ runtime Luau links against in a browser
+# (wasm32-unknown-unknown only; it does nothing on other targets).
+build = "build.rs"
+
+[dependencies]
+# The interface this crate implements (`ScriptEngine`, `ScriptInstance`) and the values it
+# converts. Its only `dereth-*` dependency (`cargo xtask seams`, `seam: plugin-lua deps`).
+dereth-plugin-api.workspace = true
+# Luau, the VM, built from source by `mlua`'s build (a C++ compiler is needed). `luau` selects the
+# engine; `vendored` compiles it rather than looking for an installed one.
+mlua = { version = "0.12", features = ["luau", "vendored"] }
+# The budget clock: `std::time::Instant` on every native target, the page's clock in a browser.
+web-time.workspace = true
+
+# The workspace's lints, less its outright ban on `unsafe`: in a browser the VM's C runtime is partly
+# Rust (`src/wasm_rt.rs`, compiled for wasm32 only), which is the one place `unsafe` is allowed
+# (`#![deny(unsafe_code)]` in `lib.rs`, and `cargo xtask seams`, `seam: plugin-lua unsafe`).
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"

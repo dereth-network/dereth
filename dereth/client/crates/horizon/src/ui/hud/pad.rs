@@ -47,10 +47,24 @@ impl Hud {
         }
         let k = p.scale;
         let (sw, sh) = p.screen;
+        // The game's windows, then each plugin with a window of its own, then logging out.
+        let plugins: Vec<(String, String)> = windows
+            .plugins
+            .frame
+            .bar
+            .iter()
+            .map(|b| (b.name.clone(), b.plugin.clone()))
+            .collect();
+        let names: Vec<&str> = MENU[..MENU.len() - 1]
+            .iter()
+            .map(|(name, _)| *name)
+            .chain(plugins.iter().map(|(name, _)| name.as_str()))
+            .chain(std::iter::once(MENU[MENU.len() - 1].0))
+            .collect();
         #[allow(clippy::cast_precision_loss)]
         // The title bar's room over the entries, and room under the last entry, clear of the
         // frame's foot.
-        let h = kit::BODY_TOP + 38.0 + ENTRY_H * MENU.len() as f32;
+        let h = kit::BODY_TOP + 38.0 + ENTRY_H * names.len() as f32;
         let mut state = kit::WindowState {
             open: true,
             opened_at: ctx.time - 1.0,
@@ -67,7 +81,7 @@ impl Hud {
         self.pad_menu_rect = Some(win.rect);
         windows.pad_menu = Some(win.rect);
         let mut chosen = None;
-        for (i, (name, _)) in MENU.iter().enumerate() {
+        for (i, name) in names.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
                 win.body.x + 10.0 * k,
@@ -86,6 +100,19 @@ impl Hud {
             return;
         };
         ctx.input.pad.menu = false;
+        // A plugin's entry opens or closes its main window, as its button on the bar does.
+        let first_plugin = MENU.len() - 1;
+        if let Some((_, plugin)) = i.checked_sub(first_plugin).and_then(|n| plugins.get(n)) {
+            windows.plugins.push_input(dereth_plugin_ui::Input::Bar {
+                plugin: plugin.clone(),
+            });
+            return;
+        }
+        let i = if i >= first_plugin + plugins.len() {
+            MENU.len() - 1
+        } else {
+            i
+        };
         match MENU[i] {
             (_, Some(id)) => {
                 if !windows.is_open(id) {

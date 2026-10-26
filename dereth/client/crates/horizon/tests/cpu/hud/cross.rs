@@ -241,3 +241,27 @@ fn an_item_cooling_down_on_a_cross_slot_shows_the_sweep() {
     // With no art, the sweep is a dark wash over the slot.
     assert!(dark(&h, slot(&h)), "cooling down");
 }
+
+/// A plugin's command on a slot runs it as the player typing it would: it goes to its plugin,
+/// and nothing goes to the game.
+#[test]
+fn a_plugin_s_command_on_a_slot_goes_to_its_plugin() {
+    use dereth_horizon::ui::hud::cross::PluginCommand;
+    let state = player();
+    let mut h = pad_mode(&state);
+    h.ui.hud.cross.assign(
+        3,
+        Some(CrossBind::Command(PluginCommand::of("test.looter", "loot"))),
+    );
+    h.input.pad.set = Some(CrossSet::Left);
+    h.input.pad.fired = vec![3];
+    let out = h.frame(&state);
+    assert!(out.requests.is_empty() && out.action_taps.is_empty());
+    assert_eq!(
+        h.ui.windows.plugins.take_inputs(),
+        vec![dereth_plugin_ui::Input::Command {
+            plugin: "test.looter".into(),
+            verb: "loot".into(),
+        }]
+    );
+}

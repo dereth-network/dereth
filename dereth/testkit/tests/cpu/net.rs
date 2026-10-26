@@ -158,6 +158,7 @@ pub fn the_handshake_answers_on_the_next_port() {
 }
 
 dereth_testkit::scenarios! {
+    scenario_with_no_plugins_the_audit_says_no_third_party_interface_is_in_use => with_no_plugins_the_audit_says_no_third_party_interface_is_in_use ["net.plugin-audit.with-no-plugins-the-answer-is-that-no-third-party-interface-is-in-use"],
     scenario_the_handshake_answers_on_the_next_port => the_handshake_answers_on_the_next_port ["link.handshake.answers-the-shard-on-the-next-port-and-echoes-its-cookie"],
     scenario_the_cookie_outlives_the_handshake => the_cookie_outlives_the_handshake ["link.referral-cookie.outlives-the-handshake-that-carried-it"],
     scenario_a_silent_shard_is_logged_into_again => a_silent_shard_is_logged_into_again ["link.silent-shard.logs-in-again-once-with-the-cookie-it-was-given"],
@@ -1187,5 +1188,41 @@ pub fn a_burst_of_loss_ages_out_of_the_window() {
     c.assert_behaviour(
         "link.packet-loss.a-burst-ages-out-of-a-window-far-longer-than-the-line-says",
         move |_| in_the_window && still_there && whole_window && gone && longer_than_the_line_says,
+    );
+}
+
+/// The server's two plugin audit questions, answered by a client with nothing installed in its
+/// frame: the list is retail's "not in use" text and the single query fails with `Unknown`, each
+/// with the question's context echoed.
+fn with_no_plugins_the_audit_says_no_third_party_interface_is_in_use() {
+    use dereth_client_runtime::frame_hook::{audit_reply, AuditReply};
+    use dereth_protocol::admin::{AdminQueryPlugin, AdminQueryPluginList};
+    fn ui_event<M: dereth_protocol::Message>(
+        m: &M,
+    ) -> dereth_client_net::client_session::SessionEvent {
+        let mut w = dereth_protocol::archive::Writer::new();
+        w.u32(M::OPCODE.0);
+        m.write(&mut w).expect("the audit query writes");
+        dereth_client_net::client_session::SessionEvent::UiEvent {
+            opcode: M::OPCODE,
+            blob: w.into_inner(),
+        }
+    }
+    let list = audit_reply(&ui_event(&AdminQueryPluginList { context: 0x1234 }), None);
+    let one = audit_reply(
+        &ui_event(&AdminQueryPlugin {
+            context: 5,
+            plugin_name: "Decal".into(),
+        }),
+        None,
+    );
+    let held = matches!(&list, Some(AuditReply::List(r))
+            if r.context == 0x1234 && r.plugin_list == "3rd party API not in use.")
+        && matches!(&one, Some(AuditReply::One(r))
+            if r.context == 5 && r.success == 0 && r.name == "Decal"
+                && r.author == "Unknown" && r.email == "Unknown" && r.webpage == "Unknown");
+    assert!(held, "list {list:?}, one {one:?}");
+    dereth_testkit::behaviours::note_asserted(
+        "net.plugin-audit.with-no-plugins-the-answer-is-that-no-third-party-interface-is-in-use",
     );
 }

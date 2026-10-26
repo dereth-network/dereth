@@ -1,0 +1,9 @@
+says = "A plugin hears every chat line in the order it arrived, with its kind, its type's number and its place in the frame, and its own local line is printed without being sent."
+[scenario]
+session = "long-solo-play"
+character = "+Aldric"
+seconds = 60
+[expect]
+status = "running"
+console = ["0\tdefault\t0\tWelcome to Asheron's Call\n  powered by ACEmulator\n\nFor more information on commands supported by this server, type @acehelp\n", "1\tdefault\t0\tYou have entered the General channel.", "2\tdefault\t0\tYou have entered the Trade channel.", "3\tdefault\t0\tYou have entered the LFG channel.", "0\tdefault\t0\tYou give Society Greeter Calling Stone.", "0\tdefault\t0\tJonathan gives you Academy Exit Token."]
+printed = ["chat-lines loaded"]

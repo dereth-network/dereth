@@ -1,0 +1,25 @@
+says = "nav.stop ends the plugin's journey, which fails as stopped; the player's own movement ends one as interrupted."
+[scenario]
+world = "scripted"
+seconds = 6
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.9]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 1.5
+say = "/halt"
+[[step]]
+after = 2.5
+say = "/go"
+[[step]]
+after = 3.5
+player_moves = true
+[expect]
+status = "running"
+console = ["owner\tconformance.journey-stop", "owner\tnone", "first\tfalse\tstopped", "second\tfalse\tinterrupted"]
+moves = ["travel failed stopped", "travel failed interrupted"]

@@ -1,0 +1,10 @@
+id = "conformance.follow"
+name = "Conformance: follow"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Follows who you ask."
+
+[capabilities]
+required = ["nav.moveto"]

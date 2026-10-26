@@ -25,6 +25,11 @@
 //! files already in `<dir>` (every runner's, in the release workflow) and writes the index over
 //! them.
 //!
+//! **The plugins that come with Dereth** ([`super::plugins`]) go in beside the client:
+//! `plugins/<folder>/` in the Windows archive's folder, `Contents/Resources/plugins/` in the macOS
+//! bundle, and the AppImage's own folder of the app's files; the client lists them in its plugin
+//! panel, each off until the player turns it on.
+//!
 //! **The dat guard.** Only named files are copied, and the deny scan runs over what was staged and
 //! again over each written archive: a file that is not on the package's list, a game data file or
 //! anything named like one, a link, or a file over the cap fails the package. An AppImage is one
@@ -44,6 +49,7 @@ use super::archive::{self, Member};
 use super::guard::{self, Entry, Kind};
 use super::headers;
 use super::notice;
+use super::plugins;
 use super::sign::{self, Signer};
 use super::targets::{self, Os, Target};
 use super::version::{self, Product};
@@ -207,6 +213,21 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     }
     required.sort();
     optional.sort();
+    (required, optional)
+}
+
+/// [`contents`] with the carried plugins' published paths (`plugins/...`) where `target`'s archive
+/// holds them: at the top of the Windows folder, among the macOS bundle's resources. The AppImage
+/// is no archive.
+pub fn package_contents(target: Target, plugins: &[String]) -> (Vec<String>, Vec<String>) {
+    let (mut required, optional) = contents(target);
+    let prefix = match target.os {
+        Os::Windows => "",
+        Os::Mac => "Contents/Resources/",
+        Os::Linux => return (required, optional),
+    };
+    required.extend(plugins.iter().map(|p| format!("{prefix}{p}")));
+    required.sort();
     (required, optional)
 }
 
@@ -503,10 +524,17 @@ fn gather(ws: &Path, dir: &Path, allow_dirty: bool) -> Result<PathBuf, String> {
     Ok(dir.to_path_buf())
 }
 
+/// The plugin engine's compiler flags in a release build: its assertions off.
+pub const LUAU_RELEASE_FLAGS: &str = "-DNDEBUG";
+
 /// The environment a release build runs with: the build stamp, the repository the launcher looks
 /// for its updates in (the one the release files are downloaded from), and the flags that keep
 /// local paths out of the binaries. On Windows the C runtime is linked in, so neither program needs a
 /// Visual C++ redistributable, and the linker writes no time.
+///
+/// The plugin engine's C++ is built as any optimised build of it is, without its own assertions
+/// ([`LUAU_RELEASE_FLAGS`]): each names its source file by the full path it was compiled from,
+/// which holds the builder's home folder, and the compiler's path remapping reaches only Rust.
 pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, String)> {
     let mut flags: Vec<String> = super::local_remaps(ws)
         .iter()
@@ -522,6 +550,7 @@ pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, 
         ("DERETH_BUILD_COMMIT".to_owned(), facts.commit.clone()),
         ("DERETH_BUILD_TARGET".to_owned(), target.triple.to_owned()),
         (SOURCE_URL_ENV.to_owned(), facts.source_url.clone()),
+        ("LUAU_CXXFLAGS".to_owned(), LUAU_RELEASE_FLAGS.to_owned()),
     ];
     if target.os == Os::Mac {
         env.push((
@@ -643,7 +672,8 @@ impl Job<'_> {
         fresh_dir(self.stage)?;
         let client = self.build_client()?;
         let notices = self.notices()?;
-        let launcher = self.build_launcher(&client, &notices)?;
+        let carried = self.stage_plugins()?;
+        let launcher = self.build_launcher(&client, &notices, &carried)?;
         match self.target.os {
             Os::Windows => {
                 let mut members = vec![
@@ -651,11 +681,24 @@ impl Job<'_> {
                     ("dereth-client.exe".to_owned(), client),
                 ];
                 members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
+                members.extend(carried);
                 self.write_archive(&members)
             }
             Os::Linux => self.write_appimage(&launcher, &client),
             Os::Mac => self.write_bundle(&launcher),
         }
+    }
+
+    /// The carried plugins, copied into the staging folder from the tree as git tracks them:
+    /// published path and copy.
+    fn stage_plugins(&self) -> Result<Vec<(String, PathBuf)>, String> {
+        let mut out = Vec::new();
+        for (name, from) in plugins::files(self.ws)? {
+            let to = self.stage.join(&name);
+            copy(&from, &to)?;
+            out.push((name, to));
+        }
+        Ok(out)
     }
 
     /// The client, built with cargo in the workspace.
@@ -749,7 +792,12 @@ impl Job<'_> {
 
     /// The launcher, built with the Tauri CLI: `dereth.exe` on Windows, `Dereth.app` on macOS
     /// (with the client and MoltenVK inside), the AppImage on Linux (with the client inside).
-    fn build_launcher(&self, client: &Path, notices: &Path) -> Result<PathBuf, String> {
+    fn build_launcher(
+        &self,
+        client: &Path,
+        notices: &Path,
+        carried: &[(String, PathBuf)],
+    ) -> Result<PathBuf, String> {
         let t = self.target;
         let tauri_dir = self.ws.join(LAUNCHER_DIR);
         let cargo_target = target_dir().join("launcher");
@@ -768,7 +816,7 @@ impl Job<'_> {
             .parent()
             .unwrap_or(Path::new("."))
             .join("dereth-client");
-        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices)?;
+        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices, carried)?;
         if t.os == Os::Mac {
             let (dylib, _) = self.moltenvk.ok_or("a macOS launcher needs MoltenVK")?;
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
@@ -876,7 +924,7 @@ impl Job<'_> {
     /// it, and write its manifest lines.
     fn finish_tree(&self, dir: &Path, root: &str) -> Result<(), String> {
         let t = self.target;
-        let (required, optional) = contents(t);
+        let (required, optional) = package_contents(t, &plugins::paths(self.ws)?);
         let staged = guard::staged_entries(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let findings = guard::scan_tree(&staged, &required, &optional, FILE_CAP, TOTAL_CAP);
         if !findings.is_empty() {
@@ -922,7 +970,7 @@ impl Job<'_> {
         let file = release_file_name(t, self.version);
         let path = self.out_dir.join(&file);
         write(&path, &bytes)?;
-        check_archive(&path, t, self.version)?;
+        check_archive(self.ws, &path, t, self.version)?;
         println!(
             "  {}: {} bytes, sha256 {}",
             path.display(),
@@ -1112,7 +1160,12 @@ pub fn check_appimage(name: &str, bytes: &[u8]) -> Vec<String> {
 }
 
 /// The deny scan of a written release file.
-pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
+pub(crate) fn check_archive(
+    ws: &Path,
+    path: &Path,
+    target: Target,
+    version: &str,
+) -> Result<(), String> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1121,7 +1174,7 @@ pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Resul
         None => check_appimage(&name, &read(path)?),
         Some(root) => {
             let entries: Vec<Entry> = archive::archive_entries(path, &root)?;
-            let (required, optional) = contents(target);
+            let (required, optional) = package_contents(target, &plugins::paths(ws)?);
             guard::scan_tree(&entries, &required, &optional, FILE_CAP, TOTAL_CAP)
         }
     };
@@ -1178,7 +1231,7 @@ pub(crate) fn write_index(
         ));
     }
     for (name, t) in &launchers {
-        check_archive(&dir.join(name), *t, version)?;
+        check_archive(ws, &dir.join(name), *t, version)?;
     }
 
     // latest.json: every launcher file signed, each signature good, one piece per platform.
@@ -1292,7 +1345,8 @@ pub(crate) fn write_index(
 }
 
 /// The bundle section of the launcher's release configuration for `target`: the client, as the
-/// base name the bundler adds `-<target>` to, and the notices.
+/// base name the bundler adds `-<target>` to, the notices, and the carried plugins (`carried`:
+/// published path and staged copy), each a resource at its published path.
 ///
 /// The launcher is built with its whole configuration compiled in, so a folder named here is
 /// carried by the program. Each is named relative to the app's folder `app_dir`, as the bundler
@@ -1304,6 +1358,7 @@ pub fn bundle_config(
     app_dir: &Path,
     client_base: &Path,
     notices: &Path,
+    carried: &[(String, PathBuf)],
 ) -> Result<serde_json::Value, String> {
     if target.os == Os::Windows {
         return Ok(serde_json::json!({ "createUpdaterArtifacts": false }));
@@ -1313,6 +1368,12 @@ pub fn bundle_config(
         resources.insert(
             relative_to(app_dir, &notices.join(n))?,
             serde_json::Value::from(*n),
+        );
+    }
+    for (name, staged) in carried {
+        resources.insert(
+            relative_to(app_dir, staged)?,
+            serde_json::Value::from(name.as_str()),
         );
     }
     Ok(serde_json::json!({

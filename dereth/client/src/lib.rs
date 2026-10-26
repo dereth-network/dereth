@@ -4,7 +4,11 @@
 //! **Depends on** the client shell (`dereth-client-shell`), scene (`dereth-scene`) and desktop
 //! host (`dereth-desktop`), with renderer backend selection (`dereth-render`), the UI
 //! (`dereth-ui`), host input replay (`dereth-input`), shared types (`dereth-primitives`) and
-//! console (`dereth-console`) and shared application state (`dereth-client-runtime`). On Linux, `dereth-launch` registers its desktop entry.
+//! console (`dereth-console`) and shared application state (`dereth-client-runtime`), and the plugin
+//! host and its engines (`dereth-plugin-api`, `dereth-plugin-host`, `dereth-plugin-lua`,
+//! `dereth-plugin-wasm`), the game data plugins read (`dereth-dat`) and the player's settings the
+//! plugin host follows (`dereth-client-contract`). On Linux, `dereth-launch` registers its desktop
+//! entry.
 //! **Used by** nothing but the client's test kit (`dereth-testkit`).
 //!
 //! **Must never** do another crate's work: if something here starts decoding an asset, transforming
@@ -25,6 +29,8 @@ pub mod app;
 
 // The HUD, with the desktop's platform answers.
 pub mod hud;
+/// Plugins on the desktop: the plugins folder, the stores, and the host in the frame.
+pub mod plugins;
 
 /// The Dereth client, as a product on the desktop host.
 #[derive(Debug, Clone, Copy, Default)]

@@ -1,0 +1,22 @@
+[package]
+name = "dereth-ui-kit"
+description = "The client's widget kit: an immediate-mode interface toolkit, drawn in a skin through the shared overlay every interface ends in."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dereth-primitives.workspace = true
+# The overlay the draw lists are lowered to, and the game's spell notices an interface's input
+# carries.
+dereth-client-contract.workspace = true
+tracing.workspace = true
+# A skin's pieces: their manifest, their atlases and their font table.
+png.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

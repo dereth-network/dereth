@@ -1,0 +1,7 @@
+id = "conformance.ub-lifecycle"
+name = "Lifecycle"
+version = "0.1.0"
+api = "0.7"
+ubscript = true
+entry = "start.lua"
+contexts = ["pregame", "world"]

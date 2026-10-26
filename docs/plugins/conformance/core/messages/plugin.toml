@@ -1,0 +1,6 @@
+id = "conformance.messages"
+name = "Conformance: messages"
+version = "0.1.0"
+api = "0.6"
+[permissions]
+messages = "Reads the appraisal's own message."

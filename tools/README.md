@@ -1,7 +1,7 @@
 # Tools
 
-The workspace's programs include `xtask/`, `corpus/`, `pack/`, `art/` and `pcap/`. They are crates like any
-other, but they are things people run, so each has
+The workspace's programs include `xtask/`, `corpus/`, `pack/`, `art/`, `pcap/` and `plugin/`. They are
+crates like any other, but they are things people run, so each has
 its own page. The workspace carries no scripts: every check and runner is Rust, reached through
 `cargo xtask`. `sweep-timings/` holds the recorded per-test times the sweep deals shards by.
 
@@ -22,6 +22,12 @@ each a failure, never a skip. It holds the known-red table and fails on a stale 
 `DERETH_TEST_SHARDS=N` or `--shards N` sets the process count, `--serial` forces one process,
 and the shard logs and per-test timings go under `sweep/` in cargo's target directory. `cargo
 xtask sweep --help` lists the rest.
+
+## `dereth-plugin` — the plugin author's tool
+
+Packs a plugin folder into a zip, prints a package's content hash (and a zip's SHA-256), makes an
+author key, signs a package (`plugin.sig`) and checks a signature, exactly as the hosts read and
+check them. The formats are in `docs/plugins/packages.md`.
 
 ## `dereth-corpus` — recording sessions and the message corpus
 

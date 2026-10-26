@@ -1,0 +1,7 @@
+id = "conformance.loot-by-hand"
+name = "Conformance: loot-by-hand"
+version = "0.1.0"
+api = "0.2"
+
+[permissions]
+"act.interactive" = "Loots the corpse you click Loot for."

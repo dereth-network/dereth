@@ -511,6 +511,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "net.plugin-audit.with-no-plugins-the-answer-is-that-no-third-party-interface-is-in-use",
+        says: "When the server asks which plugins are running and none is, the client answers \
+               that no third-party interface is in use; asked about one plugin by name, it \
+               answers that it failed, with the name it was asked and Unknown for the author, \
+               the email and the web page.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PLUGIN-AUDIT-NOT-IN-USE"),
+        station: "dereth-testkit::cpu::net::scenario_with_no_plugins_the_audit_says_no_third_party_interface_is_in_use",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "objects.ordered-replies.every-recorded-reply-reaches-a-consumer",
         says: "Every kind of ordered reply this client has a receiver for is carried by the recordings and is \
                handed to that receiver, and between them the receivers take the great majority of the ordered \

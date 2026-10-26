@@ -305,6 +305,43 @@ impl<'a, S: Shell> UiContext<'a, S> {
         (&mut self.app.hud, &self.app.objects)
     }
 
+    /// The step a product installed into the frame (see [`crate::frame_hook`]), for a front end
+    /// that draws what it shows.
+    #[must_use]
+    pub fn frame_hook(&self) -> Option<&dyn crate::frame_hook::FrameHook> {
+        self.app.frame_hook()
+    }
+
+    /// Where a place in the world falls on the screen this frame, in back-buffer pixels. See
+    /// [`App::screen_point`].
+    #[must_use]
+    pub fn screen_point(&self, pos: &dereth_primitives::Position) -> Option<(f32, f32)> {
+        self.app.screen_point(pos)
+    }
+
+    /// [`Self::screen_point`] with the place's depth as the world's drawing stores it. See
+    /// [`App::screen_point_depth`].
+    #[must_use]
+    pub fn screen_point_depth(
+        &self,
+        pos: &dereth_primitives::Position,
+        toward: f32,
+    ) -> Option<(f32, f32, f32)> {
+        self.app.screen_point_depth(pos, toward)
+    }
+
+    /// Where a place in the world falls in the world's own drawing space this frame. See
+    /// [`App::render_point`].
+    #[must_use]
+    pub fn render_point(&self, pos: &dereth_primitives::Position) -> Option<[f32; 3]> {
+        self.app.render_point(pos)
+    }
+
+    /// …writable.
+    pub fn frame_hook_mut(&mut self) -> Option<&mut (dyn crate::frame_hook::FrameHook + 'static)> {
+        self.app.frame_hook_mut()
+    }
+
     /// The presentation.
     #[must_use]
     pub fn present(&self) -> &S::Present {

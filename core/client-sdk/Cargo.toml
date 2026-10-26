@@ -15,6 +15,12 @@ publish = false
 [features]
 # Fixture and mock helpers reached through this facade, enabled by test dependencies.
 test-support = ["dereth-client-runtime/test-support", "dereth-dat/test-support", "dereth-client-net/test-support"]
+# The Luau plugin engine (`plugin_lua`). Off by default: it compiles the Luau VM from C++ source,
+# and a WebAssembly build needs a C++ compiler for that target set up first.
+lua = ["dep:dereth-plugin-lua"]
+# The interpreter compiled plugins run in (`plugin_wasm::interp`). The browser runs them in its own
+# WebAssembly and leaves it off.
+wasm-interpreter = ["dereth-plugin-wasm/interpreter"]
 
 [dependencies]
 dereth-client-runtime.workspace = true
@@ -32,6 +38,10 @@ dereth-transport.workspace = true
 dereth-client-net.workspace = true
 dereth-protocol.workspace = true
 dereth-rules = { workspace = true, default-features = true }
+dereth-plugin-api.workspace = true
+dereth-plugin-host.workspace = true
+dereth-plugin-lua = { workspace = true, optional = true }
+dereth-plugin-wasm.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,16 @@
+says = "A plugin's markers are kept with what they mark and resolved to where it is each frame; a marker goes when removed or when its time is up, and the arrow's turn and distance are from the character."
+[scenario]
+world = "scripted"
+seconds = 3
+[[object]]
+id = 0x80000030
+name = "Signpost"
+type = "misc"
+place = { ns = 42.2, ew = 33.9 }
+[expect]
+status = "running"
+console = ["distance\t24", "removed\ttrue"]
+overlays = """world conformance.markers #1 label="Signpost" color=#00FF00 object=0x80000030 at=42.20N 33.90E
+map conformance.markers #3 label="Road" color=#FF4040 line=[42.20N 33.80E, 42.30N 33.90E]
+arrow conformance.markers #4 label="Signpost" color=#FFD700 object=0x80000030 at=42.20N 33.90E turn=90 distance=24.0
+"""

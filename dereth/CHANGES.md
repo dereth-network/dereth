@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Fixed the client freezing after buying a stack from a shop.
+- Experimental plugin support, off by default.
 
 ## 0.4.6 (2026-10-24)
 

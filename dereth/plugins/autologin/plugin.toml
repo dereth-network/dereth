@@ -1,0 +1,16 @@
+id = "network.dereth.autologin"
+name = "Auto-login"
+version = "0.2.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["pregame", "world"]
+description = "Logs your chosen character in when the character list comes up, tries again while its last session is still in the world, types your commands after login, and switches to the next character on request. In the manner of Mag-Filter."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"session.control" = "Chooses your character at the character list and logs out when you ask to switch."
+"chat.send" = "Types the commands you listed once you are in the world."
+
+[capabilities]
+required = ["session.pregame", "ui.window"]

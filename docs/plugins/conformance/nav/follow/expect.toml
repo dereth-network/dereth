@@ -1,0 +1,16 @@
+says = "A follow closes on its object to within range and holds there until stopped; stopping it lets the run lock go and fails its promise as stopped."
+[scenario]
+world = "scripted"
+seconds = 8
+[[object]]
+id = 0x80000040
+name = "Guard"
+type = "creature"
+place = { ns = 42.3, ew = 33.8 }
+[[step]]
+after = 0.5
+say = "/follow"
+[expect]
+status = "running"
+console = ["owner\tconformance.follow", "follow ended\tfalse\tstopped"]
+moves = ["autorun on", "autorun off"]

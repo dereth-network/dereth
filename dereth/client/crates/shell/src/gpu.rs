@@ -427,6 +427,38 @@ mod imp {
         /// preview spaces it hosts, its glyphs (outline pass first) and its selection inverts, in
         /// that order, with the counters the report reads counted as each is lowered.
         pub fn overlay_items(&mut self, cmds: &[dereth_ui::UiDrawCmd]) -> Vec<OverlayItem> {
+            self.overlay_items_marked(cmds, &mut [])
+        }
+
+        /// [`Self::draw_ui`] with other overlay items drawn among the list's: each of `inserts`
+        /// just before the command at its index (after the list's last for an index past it), and
+        /// `top` over everything.
+        ///
+        /// # Errors
+        /// Any failure from the runtime.
+        pub fn draw_ui_interleaved(
+            &mut self,
+            cmds: &[dereth_ui::UiDrawCmd],
+            inserts: &[(usize, &[OverlayItem])],
+            top: &[OverlayItem],
+        ) -> Result<(), RenderError> {
+            let mut marks: Vec<(usize, usize)> = inserts.iter().map(|(at, _)| (*at, 0)).collect();
+            let mut items = self.overlay_items_marked(cmds, &mut marks);
+            for ((_, at), (_, extra)) in marks.iter().zip(inserts).rev() {
+                let at = (*at).min(items.len());
+                items.splice(at..at, extra.iter().cloned());
+            }
+            items.extend(top.iter().cloned());
+            self.device.draw_overlay(&items)
+        }
+
+        /// [`Self::overlay_items`], noting in each of `marks` (`(command index, _)`) how many
+        /// items stand before that command's.
+        fn overlay_items_marked(
+            &mut self,
+            cmds: &[dereth_ui::UiDrawCmd],
+            marks: &mut [(usize, usize)],
+        ) -> Vec<OverlayItem> {
             // Taken rather than borrowed: draining here guarantees a queue entry for an element
             // that turned out not to be drawn is dropped rather than carried into the next frame.
             let previews = std::mem::take(&mut self.preview_draws);
@@ -436,6 +468,11 @@ mod imp {
             if cmds.is_empty() {
                 return items;
             }
+            let note = |marks: &mut [(usize, usize)], index: usize, len: usize| {
+                for m in marks.iter_mut().filter(|m| m.0 == index) {
+                    m.1 = len;
+                }
+            };
             // A lifted space is drawn after the last command of its subtree, and the subtree's
             // text is held back until then: `(space, rect, subtree, last command, held text)`.
             #[allow(clippy::type_complexity)] // a one-off tuple, named where it is read
@@ -474,6 +511,7 @@ mod imp {
             let fb = self.device.gpu.size();
             for (index, cmd) in cmds.iter().enumerate() {
                 self.settle_lifts(&mut items, &mut lifted, &mut holding, index);
+                note(marks, index, items.len());
                 // Step 6 `DrawSelf`: the element's own blit first, then the glyphs it composes over
                 // it. Both belong to this element and both precede the next command, which is what
                 // keeps the whole overlay in order.
@@ -742,6 +780,9 @@ mod imp {
                 }
             }
             self.settle_lifts(&mut items, &mut lifted, &mut holding, cmds.len());
+            for m in marks.iter_mut().filter(|m| m.0 >= cmds.len()) {
+                m.1 = items.len();
+            }
             items
         }
 
@@ -1298,11 +1339,40 @@ mod imp {
     }
 
     impl crate::present::ClientPresentation for Renderer {
+        fn set_world_marks(&mut self, marks: Vec<crate::present::WorldMark>) {
+            self.device.world_marks = marks;
+        }
+
+        fn depth_probes_supported(&self) -> bool {
+            self.device.gpu.depth_probes_answered()
+        }
+
+        fn request_depth_probes(&mut self, tag: u64, pixels: Vec<(u32, u32)>) {
+            self.device.gpu.request_depth_probes(tag, pixels);
+        }
+
+        fn take_depth_probes(&mut self) -> Option<(u64, Vec<f32>)> {
+            self.device
+                .gpu
+                .take_depth_probes()
+                .map(|p| (p.tag, p.depths))
+        }
+
         fn draw_ui(
             &mut self,
             cmds: &[dereth_ui::UiDrawCmd],
         ) -> Result<(), dereth_client_runtime::present::PresentError> {
             Renderer::draw_ui(self, cmds).map_err(crate::present::present_error)
+        }
+
+        fn draw_ui_interleaved(
+            &mut self,
+            cmds: &[dereth_ui::UiDrawCmd],
+            inserts: &[(usize, &[OverlayItem])],
+            top: &[OverlayItem],
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
+            Renderer::draw_ui_interleaved(self, cmds, inserts, top)
+                .map_err(crate::present::present_error)
         }
 
         fn prepare_ui(

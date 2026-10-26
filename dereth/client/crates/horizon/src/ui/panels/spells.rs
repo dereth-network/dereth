@@ -7,6 +7,7 @@
 //! spells. The tabs follow the world's era: Void magic only where the world has it, and a Create
 //! Spell tab where it has spell research.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 use dereth_ui_screens::panels::spell_examine as words;
 
@@ -33,6 +34,8 @@ enum Tab {
     School(usize),
     Components,
     Research,
+    /// The plugins' commands, while they have any.
+    Plugins,
 }
 
 /// The tabs this world offers, in order.
@@ -155,7 +158,10 @@ impl Windows {
         out: &mut Outcome,
     ) {
         let k = p.scale;
-        let offered = tabs(state);
+        let mut offered = tabs(state);
+        if !self.plugins.frame.commands.is_empty() {
+            offered.push(("Plugins", Tab::Plugins));
+        }
         let labels: Vec<&str> = offered.iter().map(|(n, _)| *n).collect();
         self.actions_tab = self.actions_tab.min(offered.len() - 1);
         kit::tabs(
@@ -176,6 +182,10 @@ impl Windows {
             }
             Tab::Research => {
                 self.research(p, ctx, state, body, out);
+                return;
+            }
+            Tab::Plugins => {
+                self.plugin_commands(p, ctx, body, out);
                 return;
             }
             Tab::School(i) => i,
@@ -336,6 +346,7 @@ impl Windows {
                     from_spell_slot: None,
                     component: false,
                     stance: None,
+                    command: None,
                 });
             }
         }
@@ -585,6 +596,72 @@ impl Windows {
     }
 }
 
+impl Windows {
+    /// The plugins' commands, a row each under the tabs: a slot to put on a cross hotbar
+    /// (confirmed, it starts the bind-to-hotbar notice; pressed with the mouse, it is dragged onto
+    /// a slot), the command, its plugin and what the plugin says it does.
+    fn plugin_commands(
+        &mut self,
+        p: &mut Painter<'_>,
+        ctx: &mut Ctx<'_>,
+        body: Rect,
+        out: &mut Outcome,
+    ) {
+        use crate::ui::hud::cross::{self, CrossBind, PluginCommand};
+        let k = p.scale;
+        let commands = self.plugins.frame.commands.clone();
+        let area = Rect::new(body.x, body.y + 32.0 * k, body.w, body.h - 32.0 * k);
+        let row_h = 44.0 * k;
+        #[allow(clippy::cast_precision_loss)]
+        let content = row_h * commands.len() as f32;
+        let offset = kit::scroll(p, ctx, area, content, &mut self.plugin_commands_scroll);
+        let name = TextStyle::new(Family::Body, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
+        let dim = TextStyle::new(Family::Body, 12.0, ctx.colours.dim()).edge(ctx.colours.edge());
+        p.list.push_clip(area);
+        for (i, c) in commands.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let y = area.y + i as f32 * row_h - offset;
+            if y + row_h < area.y || y > area.bottom() {
+                continue;
+            }
+            let tile = Rect::new(area.x + 4.0 * k, y + 4.0 * k, 36.0 * k, 36.0 * k);
+            let command = PluginCommand::of(&c.plugin, &c.verb);
+            let bind = CrossBind::Command(command);
+            let pressed = cross::draw_slot(p, ctx, tile, None, Some(bind), false, false, false);
+            let text_x = tile.right() + 10.0 * k;
+            let room = area.right() - text_x - 24.0 * k;
+            let line = p.fit(&name, &format!("/{}  ({})", c.verb, c.plugin), room);
+            p.text(&name, text_x, y + 4.0 * k, &line);
+            let help = p.fit(&dim, &c.help, room);
+            p.text(&dim, text_x, y + 22.0 * k, &help);
+            if !pressed {
+                continue;
+            }
+            if ctx.input.pad.mode.is_some() {
+                out.bind_to_hotbar = Some(bind);
+            } else {
+                // Pressed, it can be dragged onto a cross hotbar slot.
+                *ctx.drag = Some(crate::ui::Drag {
+                    item: dereth_primitives::ObjectId(0),
+                    look: None,
+                    spell_look: None,
+                    from_shortcut: None,
+                    icon: None,
+                    origin: ctx.input.mouse,
+                    active: false,
+                    on_click: None,
+                    spell: None,
+                    from_spell_slot: None,
+                    component: false,
+                    stance: None,
+                    command: Some(command),
+                });
+            }
+        }
+        p.list.pop_clip();
+    }
+}
+
 /// The fighting stance's five controls in a row over `r`, each to be put on a cross hotbar slot:
 /// confirming one starts the bind-to-hotbar notice, and the mouse drags it onto a slot. Each
 /// names itself (for the weapon in hand) while the pointer is over it.
@@ -642,6 +719,7 @@ fn stance_controls(
                 from_spell_slot: None,
                 component: false,
                 stance: Some(act),
+                command: None,
             });
         }
     }

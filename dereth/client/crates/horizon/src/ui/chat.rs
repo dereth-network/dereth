@@ -1338,6 +1338,7 @@ impl ChatLog {
             input.h,
         );
         crate::ui::edit::begin(ctx.input, line_key, &text);
+        let blink = (ctx.time * 2.0).fract() < 0.5;
         crate::ui::edit::draw(
             p,
             &mut ctx.input.edit,
@@ -1346,7 +1347,7 @@ impl ChatLog {
             self.text_area,
             input.y + 4.0 * k,
             input.y + 4.0 * k,
-            (ctx.time * 2.0).fract() < 0.5,
+            blink,
         );
         if send {
             // A channel's command sent alone (`/cg`) chooses that channel and sends nothing.

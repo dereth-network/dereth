@@ -171,6 +171,7 @@ replaces; Empyrean's own are marked `(Empyrean only)`. The main ones:
 | `server.log_level` | `info` | `error`, `warn`, `info`, `debug` or `trace`. Anything else logs a warning and uses `info`. |
 | `server.status_address` | empty (off) | The status endpoint's `<ip>:<port>`. |
 | `server.status_public_url` | empty | Where players reach `/status` from outside. With the Dereth Network on, the world tells its hub this and its WebSocket URL. |
+| `server.publish_portals` | `false` | The status endpoint also serves `GET /portals` (below). |
 | `server.interactive_console` | `true` | Read console commands from standard input. |
 | `server.admin_channel` | `true` | A console for programs on this computer, on loopback. Its address and secret are in `admin-channel.json` in the server's folder (SETUP.md, "The console"). |
 | `server.source_url` | empty (the repository the build came from) | Where players are told the source is (see [License](#license)). |
@@ -233,6 +234,33 @@ address. It has no authentication, so keep it on loopback or a private network.
 - `dats` gives the iterations of the server's data files, which it compares a client's against,
   and whether it patches them.
 - `not_ported` lists each unported ACE member this process has reached, and how often.
+
+### The portal table
+
+With `server.publish_portals = true` (default `false`), the endpoint also answers `GET /portals`
+with every portal placed in the world, where it leads and its level limits, so a client can route a
+character through portals. ACE publishes nothing like it. With the switch off, `/portals` is `404`.
+The table is read from the loaded world content (no landblock is loaded for it), once, on the first
+request.
+
+It is `text/tab-separated-values; charset=utf-8`, fields separated by a tab, every line ending in a
+line feed:
+
+```
+dereth-navigation-store	1
+world	<world name>
+portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or ->	-
+```
+
+- One `portal` line for each landblock instance whose weenie is a portal (`WeenieType` Portal) with
+  a destination, ordered by its `from` cell, then its weenie class id (`wcid`, decimal).
+- `from` is where the portal stands and `to` its destination, each written `0x<cell> <x> <y> <z>`:
+  the cell id as eight upper-case hex digits, then the position in that cell to three decimals. A
+  cell stored as a bare landblock (index 0) is written as the outdoor cell its x and y fall in:
+  index = floor(x / 24) * 8 + floor(y / 24) + 1, each axis clamped to 0..7.
+- The level limits are the weenie's `MinLevel` and `MaxLevel` (ints 86 and 87), or `-` without one.
+- A name (the weenie's `Name`) has each tab, line feed and carriage return replaced by a space, and
+  each backslash written `\\`. The world name is written the same way.
 
 ## License
 

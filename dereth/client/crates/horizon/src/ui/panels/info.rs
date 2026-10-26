@@ -7,6 +7,7 @@
 //! the excess costs, each in the game's own words under the figures.
 
 use super::{WindowId, Windows};
+use crate::art::AcArt as _;
 use crate::art::Family;
 use crate::draw::{Rect, WHITE};
 use crate::ui::game::GameState;

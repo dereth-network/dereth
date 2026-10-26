@@ -36,6 +36,7 @@ mod guard;
 mod headers;
 pub mod lyceum;
 mod notice;
+pub(crate) mod plugins;
 pub(crate) mod sign;
 pub(crate) mod targets;
 pub mod version;

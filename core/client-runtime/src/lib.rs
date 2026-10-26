@@ -3,7 +3,7 @@
 //!
 //! **Depends on** the shared data and engine crates (`dereth-primitives`, `dereth-dat`,
 //! `dereth-assets`, `dereth-world-data`, `dereth-landscape`, `dereth-terrain`, `dereth-physics`,
-//! `dereth-animation`),
+//! `dereth-animation`, `dereth-navigation`),
 //! the wire (`dereth-transport`, `dereth-protocol`, `dereth-client-net`), the object model and
 //! contract (`dereth-client-model`, `dereth-client-contract`), shared rules (`dereth-rules`),
 //! display formatting (`dereth-presentation`) and the sound engine
@@ -148,6 +148,15 @@ pub mod anim_hooks;
 
 /// The wire's movement buffer as the motion runtime calls it.
 pub mod movement;
+/// `--nav-proof`: the player walked along a planned route, a developer run.
+pub mod nav_proof;
+/// The travel's planning, off the frame: on a thread of its own, or a slice of each frame.
+pub mod planning;
+/// Lines of sight: whether a straight line between two places is clear of the world.
+pub mod sight;
+/// Journeys for the player's character: planned over walking, portals and recalls, and carried
+/// out as a player would.
+pub mod travel;
 
 /// The per-object physics / animation step, and the simulation half of a scene object.
 pub mod object_step;
@@ -159,6 +168,8 @@ pub mod allegiance_view;
 pub mod cursor;
 /// The questions the game asks the player, whatever UI shows them.
 pub mod dialogs;
+/// The frame's one extension point, which a product installs and the runtime runs once per frame.
+pub mod frame_hook;
 pub mod hud;
 pub mod interaction;
 pub mod trade_view;

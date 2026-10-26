@@ -8,6 +8,7 @@
 //! * **Social** and **Allegiance** (the allegiance window);
 //! * **Map**, **Settings** and **HUD Layout**.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 
 use crate::art::{Family, Sprite};
@@ -34,7 +35,7 @@ mod stats;
 pub mod world;
 
 /// The windows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WindowId {
     Character,
     Inventory,
@@ -65,6 +66,9 @@ pub enum WindowId {
     Vitae,
     /// The load carried, from its lamp.
     Burden,
+    /// A plugin's window, by its number in the plugins' seat
+    /// ([`crate::ui::plugins::PluginSeat::number_of`]).
+    Plugin(u32),
 }
 
 impl WindowId {
@@ -137,6 +141,7 @@ impl WindowId {
             Self::SpellInfo => "Spell",
             Self::Vitae => "Vitae",
             Self::Burden => "Burden",
+            Self::Plugin(_) => "Plugin",
         }
     }
 
@@ -167,6 +172,12 @@ impl WindowId {
             Self::SpellInfo => ((400.0, 394.0), (1040.0, 180.0)),
             Self::Vitae => ((420.0, 434.0), (1240.0, 120.0)),
             Self::Burden => ((420.0, 334.0), (1240.0, 120.0)),
+            // Sized by its nodes and placed in turn: [`Windows::geometry_of`].
+            Self::Plugin(n) => {
+                #[allow(clippy::cast_precision_loss)]
+                let step = (n % 8) as f32 * 32.0;
+                ((400.0, 254.0), (320.0 + step, 200.0 + step))
+            }
         };
         ((w, kit::BODY_TOP + below), at)
     }
@@ -304,6 +315,12 @@ pub struct CharacterOption {
 /// Every window's state.
 #[derive(Debug, Default)]
 pub struct Windows {
+    /// The windows a plugin hides ([`crate::retail_ui`]): open still, but neither drawn nor
+    /// taking the pointer while it does.
+    pub retail_hidden: std::collections::BTreeSet<WindowId>,
+    /// The windows a plugin puts at a place of its own, their top-left corner on the screen;
+    /// where the player left each is kept for when the plugin lets go.
+    pub retail_at: std::collections::BTreeMap<WindowId, (f32, f32)>,
     /// The pad's item menu, open on an item.
     pub item_menu: Option<pad_items::ItemMenu>,
     /// The pad's split box: the stack, and how many to split off.
@@ -371,6 +388,8 @@ pub struct Windows {
     pub spell_tab: usize,
     /// The spellbook's scroll, its chosen spell, and the spell whose forgetting is being asked.
     actions_scroll: f32,
+    /// How far the Spellbook's list of plugin commands is scrolled.
+    plugin_commands_scroll: f32,
     actions_selected: Option<u32>,
     /// The spells the character knew last frame, once the spellbook has come: a spell new to it
     /// opens the Spellbook on it.
@@ -439,10 +458,16 @@ pub struct Windows {
     notebook_search: String,
     /// The world's services' windows.
     pub world: world::WorldWindows,
+    /// The plugins' windows, HUDs, bar and marks.
+    pub plugins: crate::ui::plugins::PluginSeat,
+    /// Each plugin window's size, in layout units, as its nodes need it this frame.
+    plugin_sizes: std::collections::HashMap<u32, (f32, f32)>,
     /// What is typed into the spellbook's search.
     spell_search: String,
     /// The spell the spell information window shows, and whether it is an effect in force.
     info_spell: Option<(u32, bool)>,
+    /// Where the map window's picture of the world was drawn this frame, while it is open.
+    pub map_picture: Option<Rect>,
 }
 
 impl Windows {
@@ -468,17 +493,99 @@ impl Windows {
     pub fn rects(&self, scale: f32) -> Vec<(WindowId, Rect)> {
         self.order
             .iter()
-            .filter(|id| self.is_open(**id) && **id != WindowId::Layout)
+            .filter(|id| {
+                self.is_open(**id) && **id != WindowId::Layout && !self.retail_hidden.contains(id)
+            })
             .map(|id| {
-                let ((w, h), (x, y)) = id.geometry();
+                let ((w, h), (x, y)) = self.geometry_of(*id);
                 let (x, y) = self
-                    .states
+                    .retail_at
                     .get(id)
-                    .and_then(|s| s.pos)
+                    .copied()
+                    .or_else(|| self.states.get(id).and_then(|s| s.pos))
                     .unwrap_or((x * scale, y * scale));
                 (*id, Rect::new(x, y, w * scale, h * scale))
             })
             .collect()
+    }
+
+    /// Window `id`'s size in layout units and where it opens: a plugin window's as its nodes
+    /// need it this frame.
+    fn geometry_of(&self, id: WindowId) -> ((f32, f32), (f32, f32)) {
+        let (size, pos) = id.geometry();
+        match id {
+            WindowId::Plugin(n) => (self.plugin_sizes.get(&n).copied().unwrap_or(size), pos),
+            _ => (size, pos),
+        }
+    }
+
+    /// Bring the plugin windows in line with the plugins' this frame: one the host opened is
+    /// opened (where the player last left it), one it closed is closed, and each is sized as
+    /// its nodes need.
+    pub fn follow_plugins(&mut self, p: &Painter<'_>, ctx: &Ctx<'_>) {
+        let open = self.plugins.open_windows();
+        let shown: Vec<WindowId> = self
+            .order
+            .iter()
+            .copied()
+            .filter(|id| matches!(id, WindowId::Plugin(_)) && self.is_open(*id))
+            .collect();
+        for id in shown {
+            if let WindowId::Plugin(n) = id {
+                if !open.contains(&n) {
+                    self.close(id);
+                    self.order.retain(|w| *w != id);
+                }
+            }
+        }
+        self.plugin_sizes.clear();
+        for n in open {
+            let Some(view) = self.plugins.view(n).cloned() else {
+                continue;
+            };
+            let size = self.plugins.ui.outer_size(p, &ctx.kit, &view);
+            self.plugin_sizes.insert(n, size);
+            let id = WindowId::Plugin(n);
+            if !self.is_open(id) {
+                self.open(id, ctx.time - 1.0);
+                let placed = self
+                    .plugins
+                    .ui
+                    .places()
+                    .into_iter()
+                    .find(|(k, _)| k.0 == view.plugin && k.1 == view.window);
+                if let Some((_, at)) = placed {
+                    if let Some(s) = self.states.get_mut(&id) {
+                        s.pos = Some(at);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Where each plugin window stands, `((plugin, window), (x, y))` in screen pixels, for the
+    /// host to remember.
+    #[must_use]
+    pub fn plugin_places(&self) -> dereth_plugin_ui::Places {
+        self.states
+            .iter()
+            .filter_map(|(id, s)| match id {
+                WindowId::Plugin(n) => {
+                    let v = self.plugins.view(*n)?;
+                    Some(((v.plugin.clone(), v.window.clone()), s.pos?))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The plugins' own window `n`'s nodes, in its body; a close of its frame is the plugin's to
+    /// carry out.
+    fn plugin_window(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, n: u32, body: Rect) {
+        let Some(view) = self.plugins.view(n).cloned() else {
+            return;
+        };
+        self.plugins.ui.body(p, &mut ctx.kit, &view, body);
     }
 
     /// A press on a window brings it to the top, before anything sees the press, so the press
@@ -693,8 +800,22 @@ impl Windows {
             || self.has_text_focus();
         if !capturing && ctx.input.take_key(vk::ESCAPE) {
             if let Some(top) = self.order.iter().rev().find(|w| self.is_open(**w)).copied() {
-                if let Some(s) = self.states.get_mut(&top) {
-                    s.open = false;
+                match top {
+                    // A plugin's window is closed by its plugin, which hears the player's close.
+                    WindowId::Plugin(n) => {
+                        if let Some(v) = self.plugins.view(n) {
+                            let input = dereth_plugin_ui::Input::Close {
+                                plugin: v.plugin.clone(),
+                                window: v.window.clone(),
+                            };
+                            self.plugins.push_input(input);
+                        }
+                    }
+                    _ => {
+                        if let Some(s) = self.states.get_mut(&top) {
+                            s.open = false;
+                        }
+                    }
                 }
             }
         }
@@ -704,9 +825,11 @@ impl Windows {
         }
         let rects = self.rects(p.scale);
         let order: Vec<WindowId> = self.order.clone();
+        self.map_picture = None;
         for id in order {
-            // The HUD draws its own layout window, over the element outlines.
-            if !self.is_open(id) || id == WindowId::Layout {
+            // The HUD draws its own layout window, over the element outlines; a window a plugin
+            // hides is not drawn.
+            if !self.is_open(id) || id == WindowId::Layout || self.retail_hidden.contains(&id) {
                 continue;
             }
             // The windows over this one take the pointer where they cover it.
@@ -718,13 +841,67 @@ impl Windows {
             // The pad's item options and split box are over every window.
             ctx.input.occluders.extend(self.pad_box);
             ctx.input.occluders.extend(self.pad_menu);
-            let (size, pos) = id.geometry();
+            // An open plugin choice's list is over every window.
+            ctx.input.occluders.extend(self.plugins.ui.choice_rect(p));
+            let (size, pos) = self.geometry_of(id);
             let k = p.scale;
             let mut s = self.states.get(&id).copied().unwrap_or_default();
-            let title = Self::window_title(p, state, id, size.0 * k);
+            let title = match id {
+                WindowId::Plugin(n) => self
+                    .plugins
+                    .view(n)
+                    .map(|v| v.tree.text("title").to_owned())
+                    .unwrap_or_default(),
+                _ => Self::window_title(p, state, id, size.0 * k),
+            };
+            let was_open = s.open;
+            // A window a plugin put somewhere stands there, the player's own place kept.
+            let pinned = self.retail_at.get(&id).copied();
+            let left = s.pos;
+            if pinned.is_some() {
+                s.pos = pinned;
+                s.grab = None;
+            }
+            // A plugin's window takes the size the player gives it by its edges and corners.
+            let size = match id {
+                WindowId::Plugin(n) => match self.plugins.view(n).cloned() {
+                    Some(view) => {
+                        let at = (pos.0 * k, pos.1 * k);
+                        let size = self.plugins.ui.resize(p, &mut ctx.kit, &view, &mut s, at);
+                        self.plugin_sizes.insert(n, size);
+                        size
+                    }
+                    None => size,
+                },
+                _ => size,
+            };
             let win = kit::window(p, ctx, &mut s, &title, size, (pos.0 * k, pos.1 * k));
+            if pinned.is_some() {
+                s.pos = left;
+            }
             // Known to the pad's focus by what the window is, whatever its title says now.
-            ctx.input.nav.rename(id.title());
+            match id {
+                WindowId::Plugin(n) => {
+                    ctx.input.nav.rename(&format!("Plugin {n}"));
+                    // One its plugin opened of its own accord does not take the pad's focus.
+                    if self.plugins.view(n).is_some_and(|v| !v.by_player) {
+                        ctx.input.nav.quiet();
+                    }
+                }
+                _ => ctx.input.nav.rename(id.title()),
+            }
+            // A plugin's window is closed by its plugin: the player's close is the plugin's to
+            // hear, and the window stays until the plugin closes it.
+            if let (WindowId::Plugin(n), true, false) = (id, was_open, s.open) {
+                if let Some(v) = self.plugins.view(n) {
+                    let input = dereth_plugin_ui::Input::Close {
+                        plugin: v.plugin.clone(),
+                        window: v.window.clone(),
+                    };
+                    self.plugins.push_input(input);
+                }
+                s.open = true;
+            }
             self.states.insert(id, s);
             let body = win.body;
             match id {
@@ -750,6 +927,7 @@ impl Windows {
                 WindowId::SpellInfo => self.spell_info(p, ctx, state, body, out),
                 WindowId::Vitae => self.vitae(p, ctx, state, body),
                 WindowId::Burden => self.burden(p, ctx, state, body),
+                WindowId::Plugin(n) => self.plugin_window(p, ctx, n, body),
             }
         }
         ctx.input.occluders.clear();
@@ -1449,6 +1627,7 @@ impl Windows {
                         from_spell_slot: None,
                         component: false,
                         stance: None,
+                        command: None,
                     });
                 }
             }
@@ -1503,6 +1682,8 @@ impl Windows {
                 .note(area, crate::ui::nav::Kind::Plain, &input.occluders);
             input.nav.home(area);
         }
+        self.map_picture = Some(area);
+        self.tell_map_presses(ctx, area, fit);
         let style = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
         // The places the map names: framed and named while the pointer is on one, as the game's
         // map notes are.
@@ -1519,6 +1700,22 @@ impl Windows {
                 p.outline(r, 1.5 * k, 0xFFF0_C860);
                 self.tip = Some((note.name.to_owned(), Vec::new()));
             }
+        }
+        // The plugins' points and lines on the map.
+        if !self.plugins.frame.marks.map.is_empty() {
+            let (_, _, markers) = SHIPPED_NOTE_BINDING;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            let place = |ns: f64, ew: f64| {
+                let (mx, my) = place_marker_on_map(markers, ew as f32, ns as f32, (0, 0));
+                Some((
+                    dereth_primitives::num::to_i32(area.x + mx as f32 * fit),
+                    dereth_primitives::num::to_i32(area.y + my as f32 * fit),
+                ))
+            };
+            let glyphs = dereth_plugin_ui::marks::map_glyphs(&self.plugins.frame.marks.map, &place);
+            p.list.push_clip(area);
+            dereth_plugin_ui::layer::glyphs(p, &glyphs);
+            p.list.pop_clip();
         }
         if let Some((n, e)) = state.coords {
             let (_, _, markers) = SHIPPED_NOTE_BINDING;
@@ -1543,6 +1740,45 @@ impl Windows {
                 Align::Centre,
                 &label,
             );
+        }
+    }
+
+    /// A press on the map's picture `area`, drawn `fit` times the picture's own size, told to the
+    /// plugins: the place under the pointer, the button and the modifiers held (the pad's A at the
+    /// map's cursor is a left press there). The press is left to the map, which does nothing else
+    /// with it; one on the picture's margin, beyond the world, is told to no one.
+    fn tell_map_presses(&mut self, ctx: &mut Ctx<'_>, area: Rect, fit: f32) {
+        use dereth_client_contract::panels::map::{MapButton, MapClick};
+        let input = &*ctx.input;
+        if fit <= 0.0 || !input.hover(&area) {
+            return;
+        }
+        let (_, _, markers) = dereth_ui_screens::mapradar::map::SHIPPED_NOTE_BINDING;
+        let at = (
+            f64::from((input.mouse.0 - area.x) / fit),
+            f64::from((input.mouse.1 - area.y) / fit),
+        );
+        let Some((ns, ew)) = dereth_ui_screens::mapradar::map::map_coords_at(markers, at.0, at.1)
+        else {
+            return;
+        };
+        for (pressed, button) in
+            input
+                .pressed
+                .iter()
+                .zip([MapButton::Left, MapButton::Right, MapButton::Middle])
+        {
+            if *pressed {
+                self.plugins
+                    .push_input(dereth_plugin_ui::Input::Map(MapClick {
+                        ns,
+                        ew,
+                        button,
+                        ctrl: input.ctrl,
+                        shift: input.shift,
+                        alt: input.alt,
+                    }));
+            }
         }
     }
 }

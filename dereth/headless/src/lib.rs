@@ -1,14 +1,17 @@
 //! The Dereth client with no window, no device and no UI, driven by a text script of actions.
 //!
 //! **Depends on** the client SDK (`dereth-client-sdk`) alone among this workspace's crates; the
-//! binary also installs a `tracing-subscriber` log on stderr. **Used by** the client's test kit
-//! (`dereth-testkit`); the binary is `--script <file>` around the library.
+//! binary also installs a `tracing-subscriber` log on stderr (and in a file, with `--log-file`).
+//! **Used by** the client's test kit (`dereth-testkit`); the binary is `--script <file>` around
+//! the library, and `--daemon` around [`daemon`].
 //!
 //! **Must never** depend on any other `dereth-*` crate or on anything under `dereth/client/`
 //! (`cargo xtask seams`, `seam: headless deps`), name a key or device message (`seam: action seam
-//! code`), or open a socket, a window or a graphics device. The only files it reads besides a
-//! script are a recorded session under `fixtures/packet-captures/` and the retail data in the
-//! directory `--dat-dir` names (else the working directory or the executable's).
+//! code`), or open a window or a graphics device; it opens a socket only to the server
+//! `--connect` names. The only files it reads besides a script are a recorded session under
+//! `fixtures/packet-captures/`, the retail data in the directory `--dat-dir` names (else the
+//! working directory or the executable's), the password file `--password-file` names and the
+//! plugins' folders.
 //!
 //! It is the runtime's application with nothing plugged in: `NullShell` for the front end,
 //! `NullPresentation` for the device, `Platform::headless` for the window and the clock. [`script`]
@@ -33,6 +36,12 @@
 //! | `world <landblock>` | with `--world`, load a world offline with a body at the landblock's middle |
 //! | `position` | where the body stands: its cell and block-local origin |
 //! | `quit` | stop and shut the client down |
+//! | `plugin load <folder>` / `unload <id>` / `reload <id>` / `list` / `console <id>` | manage plugins ([`plugins`]) |
+//! | `ui dump` | every plugin window's declared tree |
+//! | `ui layout` | every open plugin window laid out, each character a cell: each node's place and size |
+//! | `ui click <plugin> <window> <node>` / `ui set … <node> <json>` / `ui close <plugin> <window>` / `ui resize <plugin> <window> <width> <height>` | a player's input on a plugin window |
+//! | `chat` | the lines queued for the chat windows since the last `chat` |
+//! | `run <secs>` / `run forever` | frames at the wall clock's pace over a connection, for `secs` or until stopped (Ctrl+C) or the connection is lost |
 //!
 //! An `<action>` is a retail action name (`MovementForward`, `MovementJump`, `CameraRotateLeft`) or
 //! an id in decimal or `0x` hex; each edge goes into the runtime's action queue and reaches the
@@ -46,6 +55,9 @@
 //! there is no device to read one from.
 
 pub mod capture;
+pub mod daemon;
+pub mod dialogs;
+pub mod plugins;
 pub mod run;
 pub mod script;
 

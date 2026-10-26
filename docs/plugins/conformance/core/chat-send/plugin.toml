@@ -1,0 +1,8 @@
+id = "conformance.chatsend"
+name = "Conformance: a plugin's own lines"
+version = "0.1.0"
+api = "0.1"
+
+[permissions]
+"chat.send" = "Says what you ask it to."
+"act.interactive" = "Acts when you ask it to."

@@ -1,0 +1,15 @@
+says = "A command a plugin claims reaches it with its arguments when the player types it, and a verb that is one of the client's own commands cannot be claimed."
+[scenario]
+session = "long-solo-play"
+character = "+Aldric"
+seconds = 10
+[[step]]
+after = 5
+say = "/conf alpha  beta"
+[[step]]
+after = 6
+say = "/CONF"
+[expect]
+status = "running"
+console = ["claim t\tfalse\ttrue", "conf\talpha  beta\t2", "conf\t\t0"]
+printed = ["conf answered alpha  beta", "conf answered "]

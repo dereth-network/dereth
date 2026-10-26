@@ -243,7 +243,8 @@ pub struct Config {
     pub headless: bool,
     /// `--frames <n>`: stop after n frames. `None` runs until the loop ends on its own.
     pub frames: Option<u64>,
-    /// `--capture <path>`: write the last frame as a PNG.
+    /// `--capture <path>`: write the last frame as a PNG; with `--enter-world` and `--linger`, the
+    /// frame half a second before the run logs off, so the capture is of the world.
     pub capture: Option<PathBuf>,
     /// `--capture-at <frame>:<path>`, any number of times: once that many frames have been drawn,
     /// write the last of them as a PNG, so one run can record a picture before and after a change.
@@ -332,6 +333,21 @@ pub struct Config {
     /// "stand in the training dungeon" is something a person can type. `None` leaves the body
     /// where the offline character is placed, on the ground in the middle of `landblock`.
     pub start_cell: Option<u32>,
+    /// `--nav-proof <cell>[,<cell>][,nosmite][,nocreatures][,tryrecalls]`: once in the world,
+    /// teleport to the first cell and travel to the second (in a dungeon, without one, to the
+    /// place farthest away by walking) by walking, portals and recalls, then log off. A developer
+    /// run; see [`crate::nav_proof`].
+    pub nav_proof: Option<crate::nav_proof::ProofSpec>,
+    /// `--nav-store <dir>`: where the travel keeps what it learns about portals and recalls, one
+    /// file per world, and finds `hints.tsv`. `None` keeps them beside the preferences file.
+    pub nav_store: Option<PathBuf>,
+    /// `--nav-published <url>`: a server's published portal table (`http://`, `https://`, or a
+    /// file), fetched at start and taken into the travel's store as the server's knowledge.
+    pub nav_published: Option<String>,
+    /// `--nav-prep "<line>;<line>"`: chat lines typed once in the world, as the player types them:
+    /// with `--nav-proof`, before it teleports, to set a test character up; without, five seconds
+    /// after the character is in the world.
+    pub nav_prep: Vec<String>,
     /// `--no-cell-statics`: leave the interior cells' baked objects undrawn and unregistered.
     /// The client has no such switch; this exists so that a person can look at the same room with
     /// and without its furniture, to see exactly what the cell statics contribute.
@@ -441,6 +457,32 @@ pub struct Config {
     /// `logout` logs the character out to character select as the confirmed logout button does,
     /// departure and all. This rebuild's switch.
     pub use_targets: Vec<String>,
+    /// `--real-time`: a `--headless` run keeps the system's clock rather than stepping a simulated
+    /// one a thirtieth of a second each frame. A headless session with a server does so without
+    /// it (see [`Config::keeps_real_time`]): the simulated clock runs ahead of the server's
+    /// whenever frames come faster than thirty a second, and with it the character's movement,
+    /// the timers and every timeout.
+    pub real_time: bool,
+    /// `--simulated-time`: a `--headless` run steps the simulated clock even with a server, for a
+    /// run that must come out the same every time.
+    pub simulated_time: bool,
+
+    // ---- plugins ----
+    /// Load plugins (the default); `--no-plugins` runs the client with none, as retail runs.
+    pub plugins: bool,
+    /// `--plugins <dir>`: a folder of plugin packages (or one package) to load, whatever the
+    /// player's *Plugins (experimental)* setting says. Repeatable.
+    pub plugin_dirs: Vec<PathBuf>,
+    /// `--offer-plugins <dir>`: a folder of plugin packages (or one package) to list beside the
+    /// plugins folder in the settings folder, each off until the player ticks it (the launcher
+    /// passes the plugins it installed). Repeatable.
+    pub offered_plugin_dirs: Vec<PathBuf>,
+    /// `--plugin-dev`: reload a plugin whenever one of its files changes.
+    pub plugin_dev: bool,
+    /// `--plugin-policy <file or https URL>`: the world's plugin policy document, as its world
+    /// entry publishes it (the launcher passes it); absent, the policy of a world that publishes
+    /// none.
+    pub plugin_policy: Option<String>,
 
     // ---- the shell ----
     /// Bring up the UI element tree and flow controller, run the mode machine, and draw the current screen
@@ -513,6 +555,10 @@ impl Default for Config {
             vg_password: String::new(),
             landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
             start_cell: None,
+            nav_proof: None,
+            nav_store: None,
+            nav_published: None,
+            nav_prep: Vec::new(),
             cell_statics: true,
             mesh_collision: true,
             terrain_blending: crate::render_prefs::TerrainBlending::default(),
@@ -533,6 +579,13 @@ impl Default for Config {
             cast: None,
             say: Vec::new(),
             use_targets: Vec::new(),
+            real_time: false,
+            simulated_time: false,
+            plugins: true,
+            plugin_dirs: Vec::new(),
+            offered_plugin_dirs: Vec::new(),
+            plugin_dev: false,
+            plugin_policy: None,
             ui: true,
             sound: true,
             ui_mode: None,
@@ -798,6 +851,30 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
+    // Travel the player along a planned journey: walking, portals and recalls.
+    Switch {
+        long: "nav-proof",
+        short: None,
+        arity: Arity::Required,
+    },
+    // Where that journey's portal knowledge is kept.
+    Switch {
+        long: "nav-store",
+        short: None,
+        arity: Arity::Required,
+    },
+    // A server's published portal table.
+    Switch {
+        long: "nav-published",
+        short: None,
+        arity: Arity::Required,
+    },
+    // Chat lines that set the test character up first.
+    Switch {
+        long: "nav-prep",
+        short: None,
+        arity: Arity::Required,
+    },
     Switch {
         long: "no-cell-statics",
         short: None,
@@ -886,6 +963,42 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "use",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "real-time",
+        short: None,
+        arity: Arity::None,
+    },
+    Switch {
+        long: "simulated-time",
+        short: None,
+        arity: Arity::None,
+    },
+    // Plugins.
+    Switch {
+        long: "no-plugins",
+        short: None,
+        arity: Arity::None,
+    },
+    Switch {
+        long: "plugins",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "offer-plugins",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "plugin-dev",
+        short: None,
+        arity: Arity::None,
+    },
+    Switch {
+        long: "plugin-policy",
         short: None,
         arity: Arity::Required,
     },
@@ -1629,6 +1742,21 @@ impl Config {
             // `--landblock` alone puts the offline body on the terrain, which for a
             // dungeon block is twelve metres of rock above the rooms; this names an interior cell
             // of it instead. Sets `--landblock` too, because a cell id carries its own block.
+            "nav-proof" => {
+                let spec = crate::nav_proof::parse_spec(v)
+                    .map_err(|e| ConfigError::new(format!("--nav-proof: {e}")))?;
+                self.nav_proof = Some(spec);
+            }
+            "nav-store" => self.nav_store = Some(PathBuf::from(v)),
+            "nav-published" => self.nav_published = Some(v.to_owned()),
+            "nav-prep" => {
+                self.nav_prep = v
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(String::from)
+                    .collect();
+            }
             "start-cell" => {
                 let id = u32::from_str_radix(v.trim_start_matches("0x"), 16)
                     .map_err(|_| ConfigError::new(format!("bad --start-cell value {v:?}")))?;
@@ -1666,6 +1794,22 @@ impl Config {
                     .map_err(|_| ConfigError::new(format!("bad --scenery-radius value {v:?}")))?
                     .min(15);
             }
+            // The command line is read twice (around the preferences); a folder is listed once.
+            "plugins" => {
+                let dir = PathBuf::from(v);
+                if !self.plugin_dirs.contains(&dir) {
+                    self.plugin_dirs.push(dir);
+                }
+            }
+            "offer-plugins" => {
+                let dir = PathBuf::from(v);
+                if !self.offered_plugin_dirs.contains(&dir) {
+                    self.offered_plugin_dirs.push(dir);
+                }
+            }
+            "plugin-policy" => self.plugin_policy = Some(v.to_owned()),
+            "real-time" => self.real_time = true,
+            "simulated-time" => self.simulated_time = true,
             "linger" => {
                 self.linger = v
                     .parse::<f64>()
@@ -1703,6 +1847,8 @@ impl Config {
             // accepted so older scripts that pass it keep working.
             "ui" => self.ui = true,
             "no-ui" => self.ui = false,
+            "no-plugins" => self.plugins = false,
+            "plugin-dev" => self.plugin_dev = true,
             "no-connect" => self.connect = false,
             "no-sound" => self.sound = false,
             "ui-mode" => {
@@ -1747,6 +1893,13 @@ impl Config {
     #[must_use]
     pub fn will_connect(&self) -> bool {
         self.connect && !(self.account.is_empty() && self.host.is_empty())
+    }
+
+    /// Whether a headless run keeps the system's clock: when asked (`--real-time`), or when it
+    /// connects to a server and was not told to simulate (`--simulated-time`).
+    #[must_use]
+    pub fn keeps_real_time(&self) -> bool {
+        self.real_time || (self.will_connect() && !self.simulated_time)
     }
 
     /// This is not called by the parser: see the module

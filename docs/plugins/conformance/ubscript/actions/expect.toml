@@ -1,0 +1,30 @@
+says = "A script's actions go through UtilityBelt's queue over the plugin interface's actions: an immediate action at once, the rest one at a time and the highest priority first, each ending with its error, a named and prioritised action, a group in its own order, a removed action never run, and chat lines typed at the interface's pace."
+
+[scenario]
+world = "scripted"
+seconds = 30
+
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+
+[[object]]
+id = 0x80000021
+name = "Long Sword"
+type = "melee_weapon"
+container = "player"
+locations = 0x00100000
+
+[[object]]
+id = 0x80000031
+name = "Pack"
+type = "container"
+container = "player"
+
+[expect]
+status = "running"
+console = ["queued 4 true true false", "done ObjectMoveAction true None ", "done ObjectAppraiseAction true None ", "done ObjectWieldAction true None ", "done ObjectGiveAction true None ", "done ObjectDropAction false TimedOut timed out after 1000 ms", "drop false true 0", "named mine 50000 true false", "awaited true true", "group true 2", "removed false false", "chatted"]
+sent = ["put_item_in_container 0x80000011 0x80000031 0", "appraise 0x80000011", "wield 0x80000021 0x100000", "give 0x80000011 0x80000099 1", "DropItem", "appraise 0x80000011", "appraise 0x80000021", "appraise 0x80000011", "emote waves 1", "emote waves 2", "emote waves 3", "emote waves 4", "emote waves 5"]

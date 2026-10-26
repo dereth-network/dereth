@@ -208,21 +208,123 @@ fn target_rustflags(flags: &[String]) -> String {
     )
 }
 
+/// zig's library folder, from `zig env`: where its C and C++ headers and its copies of the LLVM
+/// runtime sources are.
+fn zig_lib_dir(zig: &str) -> Result<PathBuf, String> {
+    let out = Command::new(zig).arg("env").output().map_err(|e| {
+        format!(
+            "the web client's plugin engine is C++ built for the browser with zig (0.15 or later): \
+             put zig on the path, or name it with ZIG ({e})"
+        )
+    })?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text
+        .lines()
+        .find(|l| l.contains(".lib_dir"))
+        .ok_or_else(|| format!("`{zig} env` names no lib_dir"))?;
+    let dir = line
+        .split('"')
+        .nth(1)
+        .ok_or_else(|| format!("`{zig} env`: {line}"))?
+        .replace("\\\\", "\\");
+    Ok(PathBuf::from(dir))
+}
+
+/// zig as the C build is told to run it, ahead of `clang` or `ar`: named without a final `.exe`,
+/// which the program is found by all the same. The C build reads a command whose first word ends
+/// in `.exe` as that program alone, dropping the words after it.
+fn zig_command(zig: &str) -> &str {
+    let cut = zig.len().saturating_sub(4);
+    if zig.is_char_boundary(cut) && zig[cut..].eq_ignore_ascii_case(".exe") {
+        &zig[..cut]
+    } else {
+        zig
+    }
+}
+
+/// The plugin engine's C++ compiler flags for the browser. Its own assertions are off (`NDEBUG`),
+/// as in any optimised build of it: each names its source file by the full path it was compiled
+/// from, which holds the builder's home folder.
+const LUAU_CXXFLAGS: &[&str] = &[
+    "--target=wasm32-wasi",
+    "-Os",
+    "-DNDEBUG",
+    "-nostdinc",
+    "-fwasm-exceptions",
+    "-mllvm",
+    "-wasm-enable-sjlj",
+    "-D_LIBCPP_ABI_VERSION=1",
+    "-D_LIBCPP_ABI_NAMESPACE=__1",
+    "-D_LIBCPP_HAS_THREADS=0",
+    "-D_LIBCPP_HAS_MUSL_LIBC=1",
+    "-D_LIBCPP_HAS_FILESYSTEM=0",
+    "-D_LIBCPP_HAS_MONOTONIC_CLOCK=1",
+    "-D_LIBCPP_HAS_LOCALIZATION=0",
+    "-D_LIBCPP_HAS_NO_STD_MODULES",
+    "-D_LIBCPP_PSTL_BACKEND_SERIAL",
+    "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE",
+    "-D_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS=0",
+];
+
+/// The environment the plugin engine's C++ (the Luau VM) is built in for the browser: zig's clang
+/// for the compiler, aimed at WebAssembly with its exception handling, zig's C++ library headers,
+/// and the engine's own runtime archive (`luaurt`, which the engine's build script makes) in place
+/// of a C++ standard library.
+fn luau_env(zig: &str) -> Result<Vec<(String, String)>, String> {
+    Ok(luau_vars(zig, &zig_lib_dir(zig)?))
+}
+
+/// [`luau_env`] for the zig named `zig`, whose library folder is `z`.
+fn luau_vars(zig: &str, z: &Path) -> Vec<(String, String)> {
+    let dir = |p: &str| z.join(p).display().to_string();
+    let cxxflags = LUAU_CXXFLAGS.join(" ");
+    let includes = [
+        "libcxx/include",
+        "libcxxabi/include",
+        "include",
+        "libc/include/wasm-wasi-musl",
+        "libc/include/generic-musl",
+        "libc/include/wasm32-wasi-any",
+        "libc/include/any-wasi-any",
+    ]
+    .map(dir)
+    .join(";");
+    let named = zig_command(zig);
+    let clang = format!("{named} clang");
+    vec![
+        ("CXX_wasm32_unknown_unknown".into(), clang.clone()),
+        ("CC_wasm32_unknown_unknown".into(), clang),
+        ("AR_wasm32_unknown_unknown".into(), format!("{named} ar")),
+        ("CXXSTDLIB_wasm32_unknown_unknown".into(), "luaurt".into()),
+        ("LUAU_CXXFLAGS".into(), cxxflags),
+        ("LUAU_INCLUDE_DIRS".into(), includes),
+        ("ZIG".into(), zig.to_owned()),
+    ]
+}
+
 /// Builds the module, runs the bindgen step into `www/pkg/`, and puts the Horizon interface's art
 /// beside it.
 fn build(ws: &Path, dev: bool) -> Result<(), String> {
     let profile = if dev { "release" } else { "web-release" };
-    run(Command::new(env!("CARGO")).current_dir(ws).args([
-        "build",
-        "--profile",
-        profile,
-        "--target",
-        "wasm32-unknown-unknown",
-        "-p",
-        "dereth-web",
-        "--config",
-        &target_rustflags(&remap_flags()),
-    ]))?;
+    let zig = std::env::var("ZIG").unwrap_or_else(|_| "zig".to_owned());
+    let env = luau_env(&zig)?;
+    // A compiler cache named in `RUSTC_WRAPPER` would be put in front of zig too, and cannot run
+    // it, so the WebAssembly build runs without one.
+    run(Command::new(env!("CARGO"))
+        .current_dir(ws)
+        .envs(env)
+        .env_remove("RUSTC_WRAPPER")
+        .args([
+            "build",
+            "--profile",
+            profile,
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            "dereth-web",
+            "--config",
+            &target_rustflags(&remap_flags()),
+        ]))?;
     let wasm = target_dir(ws)
         .join("wasm32-unknown-unknown")
         .join(profile)
@@ -780,6 +882,49 @@ mod tests {
         assert_eq!(
             target_rustflags(&[]),
             "target.wasm32-unknown-unknown.rustflags=[]"
+        );
+    }
+
+    fn var<'a>(vars: &'a [(String, String)], name: &str) -> &'a str {
+        vars.iter()
+            .find(|(k, _)| k == name)
+            .map_or("", |(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn zig_named_with_its_exe_is_run_without_it_so_its_command_word_is_kept() {
+        for (named, run) in [
+            (r"C:\tools\zig\zig.exe", r"C:\tools\zig\zig"),
+            ("C:/tools/zig/ZIG.EXE", "C:/tools/zig/ZIG"),
+            ("zig", "zig"),
+            ("/usr/local/bin/zig", "/usr/local/bin/zig"),
+        ] {
+            let vars = luau_vars(named, Path::new("lib"));
+            assert_eq!(
+                var(&vars, "CXX_wasm32_unknown_unknown"),
+                format!("{run} clang")
+            );
+            assert_eq!(
+                var(&vars, "CC_wasm32_unknown_unknown"),
+                format!("{run} clang")
+            );
+            assert_eq!(var(&vars, "AR_wasm32_unknown_unknown"), format!("{run} ar"));
+            assert_eq!(
+                var(&vars, "ZIG"),
+                named,
+                "the engine's own build runs zig as named"
+            );
+        }
+    }
+
+    #[test]
+    fn the_plugin_engine_is_built_for_the_browser_without_its_assertions() {
+        let vars = luau_vars("zig", Path::new("lib"));
+        assert!(
+            var(&vars, "LUAU_CXXFLAGS")
+                .split_whitespace()
+                .any(|f| f == "-DNDEBUG"),
+            "{vars:?}"
         );
     }
 

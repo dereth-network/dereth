@@ -1,0 +1,9 @@
+says = "What the plugin interface cannot do is refused plainly: a member, an event or a module that cannot be answered here raises an error saying why, and an action that cannot be carried out ends failed with the reason."
+
+[scenario]
+world = "scripted"
+seconds = 2
+
+[expect]
+status = "running"
+console = ["window messages false OnWindowMessage is not available here: a plugin never sees the keyboard or the mouse; declare a hotkey for a command", "chat input false OnChatInput is not available here: a plugin hears only the commands it claims; claim one with commands.add", "self buffs false SpellBook.GetSelfBuffs is not available here: choosing the buffs to cast is the plugins' own (the Buffbot's profiles)", "dats false dats is not available here: a plugin reads the game's data through game.data (landblocks and dungeon cells)", "remote exec false UBNetModule.RemoteExec is not available here: a script's code never crosses to another client; publish a message on a channel instead", "custom folder false FileSystem.GetCustom is not available here: a plugin reaches only its own package and its own data folder", "unknown member false World has no member NoSuchThing", "swear false Exception AllegianceSwear is not available here: the plugin interface has no allegiance actions", "train false Exception SkillAdvance is not available here: the plugin interface does not train skills"]

@@ -1,0 +1,22 @@
+says = "Where no node says grow, the last list or text box of the window, and of each tab's page, grows; what holds a growing node grows with it."
+[[step]]
+after = 0
+bar = "conformance.layout-auto"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 20
+[expect]
+status = "running"
+layout = """
+window conformance.layout-auto main
+window #main 280x320
+  tabs #pages 0,0 280x320
+    group 0,25 280x295
+      list #only 0,0 280x295 columns=270 rows=15
+    group 0,25 280x295
+      list #first 0,0 280x58 columns=270 rows=2
+      textbox #notes 0,61 280x215
+      label #foot 0,279 280x16
+"""

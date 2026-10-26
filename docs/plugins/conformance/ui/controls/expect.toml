@@ -1,0 +1,24 @@
+says = "A tabs node, a number and a choice are kept in the tree; the player's change of each reaches the plugin as an event and stays on the node, and a tabs node that holds anything but group pages is refused."
+[[step]]
+after = 0
+bar = "conformance.controls"
+[[step]]
+after = 1
+set = "main.range"
+value = 6
+[[step]]
+after = 2
+set = "main.mode"
+value = "recall"
+[expect]
+status = "running"
+console = ["tabs hold groups\tfalse\ttrue", "changed\trange\t6", "changed\tmode\trecall"]
+ui = """
+window conformance.controls main open=true
+window #main title="Controls"
+  tabs #pages selected=1
+    group title="One"
+      number #range max=10 min=0 step=2 text="Range" value=6
+    group title="Two"
+      choice #mode options=["stop","recall"] text="Mode" value="recall"
+"""

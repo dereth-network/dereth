@@ -460,6 +460,48 @@ fn advanced_combat_mode_fires_once() {
     );
 }
 
+/// An extension stopping the attack drops a swing released while the last swing's answer was
+/// awaited: the answer, when it comes, no longer charges it again to send at whatever is selected
+/// then.
+/// Behaviour: plugins.automation.stopping-an-attack-cancels-it-and-fails-its-promise
+#[test]
+fn stopping_an_attack_drops_a_release_waiting_for_the_last_swings_answer() {
+    let swings = |req: &RecordingRequests| {
+        req.0
+            .iter()
+            .filter(|r| matches!(r, Request::TargetedMeleeAttack(_)))
+            .count()
+    };
+    let release = |w: &mut World, req: &mut RecordingRequests| {
+        w.combat.ui_requested_power = 0.5;
+        w.combat.attack_server_response_pending = true;
+        w.start_attack_request(true, LocalTime(0.0)).unwrap();
+        w.end_attack_request(req, AttackHeight::Medium, None, true, LocalTime(1.0));
+        assert!(
+            w.combat.attack_when_response_received && swings(req) == 0,
+            "premise: the release waits for the answer"
+        );
+    };
+    // Not stopped: the answer charges it again, and it goes out when the bar arrives.
+    let mut w = world();
+    let mut req = RecordingRequests::default();
+    release(&mut w, &mut req);
+    w.handle_attack_done(&mut req, 0x36, true, LocalTime(1.5));
+    let _ = w.combat_power_bar_use_time(&mut req, true, LocalTime(3.0));
+    assert!(
+        swings(&req) > 0,
+        "the waiting release goes out after the answer"
+    );
+    // Stopped: it does not.
+    let mut w = world();
+    let mut req = RecordingRequests::default();
+    release(&mut w, &mut req);
+    w.stop_attack(&mut req);
+    w.handle_attack_done(&mut req, 0x36, true, LocalTime(1.5));
+    let _ = w.combat_power_bar_use_time(&mut req, true, LocalTime(3.0));
+    assert_eq!(swings(&req), 0, "dropped: {:?}", req.0);
+}
+
 /// The power-bar duration is 1.000 seconds, or 0.800 seconds while dual-wielding, and
 /// the result is clamped to `[0, 1]`.
 #[test]

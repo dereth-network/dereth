@@ -103,6 +103,24 @@ The on-disk formats, one page per record kind; start with [formats/README.md](fo
 | [formats/30-spell-tables.md](formats/30-spell-tables.md) — Spells, spell sets and components — including the obfuscation and the per-account formula randomisation | file format |
 | [formats/31-skill-xp-tables.md](formats/31-skill-xp-tables.md) — Skills, the vital formulas and the experience curves | file format |
 
+### Plugins
+
+The plugin interface: what a plugin package declares, hears, reads and shows, and the conformance
+suite a host is tested with; start with [plugins/README.md](plugins/README.md).
+
+| Page | Provenance |
+|---|---|
+| [plugins/README.md](plugins/README.md) — what a plugin is, how it runs, host capabilities | design |
+| [plugins/manifest.md](plugins/manifest.md) — `plugin.toml` and the package | design |
+| [plugins/permissions.md](plugins/permissions.md) — what a plugin may do, and how it is granted | design |
+| [plugins/events.md](plugins/events.md) — the events and their order | design |
+| [plugins/api.md](plugins/api.md) — the Lua functions | design |
+| [plugins/ui.md](plugins/ui.md) — declared windows | design |
+| [plugins/audit.md](plugins/audit.md) — the server's plugin audit and the client's answers | wire format, design |
+| [plugins/conformance.md](plugins/conformance.md) — test plugins, profiles and the host driver | design |
+| [plugins/guide/README.md](plugins/guide/README.md) — writing a plugin in Lua or WebAssembly, its lifecycle and sandbox, installing and updating, and each bundled sample walked through | design |
+| [plugins/reference/README.md](plugins/reference/README.md) — every operation, permission, capability, UI node, limit and conformance case, generated from the code | design |
+
 ### Message catalogue
 
 What the client sends and expects above a reassembled message; start with [networking/messages/README.md](networking/messages/README.md).

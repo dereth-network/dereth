@@ -107,6 +107,27 @@ impl Interaction {
         std::mem::take(&mut self.pending_link_confirmations)
     }
 
+    /// Ask the player the travel's question (a journey that would hand a token back), through the
+    /// dialog service, as every interface shows its questions.
+    pub fn ask_travel(&mut self, question: String) {
+        self.pending_travel_questions.push(question);
+    }
+
+    /// The travel's questions since the dialog service last asked.
+    pub fn take_travel_questions(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_travel_questions)
+    }
+
+    /// The player answered the travel's question (or it went unanswered: no).
+    pub fn answer_travel(&mut self, yes: bool) {
+        self.travel_answer = Some(yes);
+    }
+
+    /// The player's answer to the travel's question, once.
+    pub fn take_travel_answer(&mut self) -> Option<bool> {
+        self.travel_answer.take()
+    }
+
     /// A chat link's question answered yes: the host opens `url` in the browser. When the host
     /// could not, the player is told so, with the address, as the game's own errors are, so it can
     /// be opened by hand.

@@ -43,6 +43,7 @@ use crate::vertex::{VertexElement, VertexFormat};
 use crate::RenderError;
 
 mod mipgen;
+mod probes;
 mod samplers;
 mod terrain;
 
@@ -124,6 +125,11 @@ struct Frame {
     /// Upload arenas this frame outgrew. They stay alive until the fence proves the GPU has
     /// finished with the command list that still references their addresses. See `upload_bytes`.
     retired: Vec<ID3D12Resource>,
+    /// The depth probes this frame's list reads back: the tag and how many; read from
+    /// [`Self::probe_readback`] when the slot's fence has passed.
+    probe: Option<(u64, usize)>,
+    /// The slot's read-back buffer for its depth probes, four bytes a probe, made on first use.
+    probe_readback: Option<ID3D12Resource>,
 }
 
 /// What one texture upload's command list used, kept until the fence passes `fence`.
@@ -209,6 +215,12 @@ pub struct Gpu {
     released_in_frame: Vec<(u32, Option<ID3D12Resource>)>,
     /// True between `begin_frame` and `end_frame`.
     frame_open: bool,
+    /// The depth probes asked for this frame: the tag and the pixels.
+    probe_request: Option<(u64, Vec<(u32, u32)>)>,
+    /// The newest depth probes read back, until they are taken.
+    probe_result: Option<crate::device::DepthProbes>,
+    /// The pass that reads the depth probes, made on first use. See `d3d12/probes.rs`.
+    probe_pass: Option<probes::ProbePass>,
     /// How many times each of [`Gpu::bind_texture`]'s four samplers has been bound
     /// since the counters were last cleared, so a caller's *choice of sampler* is observable from
     /// a test rather than inferable only by reading the call site. A `Cell` because
@@ -358,6 +370,8 @@ impl Gpu {
                 upload_used: 0,
                 high_water: 0,
                 retired: Vec::new(),
+                probe: None,
+                probe_readback: None,
             });
         }
 
@@ -425,6 +439,9 @@ impl Gpu {
             pending_uploads: Vec::new(),
             released_in_frame: Vec::new(),
             frame_open: false,
+            probe_request: None,
+            probe_result: None,
+            probe_pass: None,
             sampler_binds: std::cell::Cell::new([0; SAMPLER_COUNT as usize]),
             stage1_binds: std::cell::Cell::new(0),
             texture_book: crate::device::TextureBook::new(DescriptorAllocator::new(
@@ -592,6 +609,8 @@ impl Gpu {
         })
     }
 
+    /// The depth plane. It is made typeless, viewed as [`DEPTH_FORMAT`] for the depth test and as
+    /// its depth alone by the depth probes' pass (`d3d12/probes.rs`).
     fn create_depth(
         device: &ID3D12Device,
         cfg: &DeviceConfig,
@@ -602,7 +621,7 @@ impl Gpu {
             Height: cfg.height,
             DepthOrArraySize: 1,
             MipLevels: 1,
-            Format: DEPTH_FORMAT,
+            Format: DXGI_FORMAT_R24G8_TYPELESS,
             SampleDesc: DXGI_SAMPLE_DESC {
                 Count: 1,
                 Quality: 0,
@@ -651,10 +670,24 @@ impl Gpu {
                 unsafe { self.device.CreateRenderTargetView(texture, None, handle) };
             }
         }
+        // The plane is typeless, so its view names the format.
+        let view = D3D12_DEPTH_STENCIL_VIEW_DESC {
+            Format: DEPTH_FORMAT,
+            ViewDimension: D3D12_DSV_DIMENSION_TEXTURE2D,
+            Flags: D3D12_DSV_FLAG_NONE,
+            Anonymous: D3D12_DEPTH_STENCIL_VIEW_DESC_0 {
+                Texture2D: D3D12_TEX2D_DSV { MipSlice: 0 },
+            },
+        };
         // SAFETY: the DSV heap has one descriptor and `self.depth` is a depth-stencil resource.
         unsafe {
             let dsv = self.dsv_heap.GetCPUDescriptorHandleForHeapStart();
-            self.device.CreateDepthStencilView(&self.depth, None, dsv);
+            self.device
+                .CreateDepthStencilView(&self.depth, Some(&view), dsv);
+        }
+        // A new plane needs the probe pass's view of it too.
+        if let Some(pass) = &self.probe_pass {
+            pass.view(&self.device, &self.depth);
         }
         Ok(())
     }
@@ -1118,6 +1151,9 @@ impl Gpu {
         // now go back into circulation. This is the only place a released slot re-enters it during
         // normal frame pacing; `upload_texture` runs it once more behind its own `wait_idle`.
         self.collect_retired();
+        if let Some((tag, n)) = self.frames[self.frame_index].probe.take() {
+            self.read_depth_probes(tag, n);
+        }
         let frame = &mut self.frames[self.frame_index];
         frame.upload_used = 0;
         // The fence wait above proves the GPU is done with last time's command list, so the arenas
@@ -1191,6 +1227,9 @@ impl Gpu {
     /// # Errors
     /// Any failure from the runtime.
     pub fn end_frame(&mut self) -> Result<(), RenderError> {
+        if let Some((tag, pixels)) = self.probe_request.take() {
+            self.record_depth_probes(tag, &pixels)?;
+        }
         let (_, back) = self.current_rtv();
         // SAFETY: the list is open and every resource is alive.
         unsafe {
@@ -1241,6 +1280,17 @@ impl Gpu {
         };
         self.frame_stamp += 1;
         Ok(())
+    }
+
+    /// Ask for the depth at `pixels` once this frame is drawn. See `Gpu::request_depth_probes`.
+    pub fn request_depth_probes(&mut self, tag: u64, mut pixels: Vec<(u32, u32)>) {
+        pixels.truncate(crate::device::MAX_DEPTH_PROBES);
+        self.probe_request = (!pixels.is_empty()).then_some((tag, pixels));
+    }
+
+    /// The newest depth probes read back. See `Gpu::take_depth_probes`.
+    pub fn take_depth_probes(&mut self) -> Option<crate::device::DepthProbes> {
+        self.probe_result.take()
     }
 
     /// Block until every submitted frame has retired.
@@ -3440,6 +3490,78 @@ mod tests {
             gpu.frame_stamp, 1000,
             "the frame stamp is bumped once per frame"
         );
+        gpu.wait_idle().expect("idle");
+    }
+
+    /// The depth at any pixel of a wide frame reads back as the frame left it, in the order
+    /// asked: the cleared far plane on the left half, the near quad's depth on the right, at the
+    /// centre columns and at both edges; a pixel past the frame reads its nearest edge. A frame
+    /// reads back four bytes a probe, never the depth plane.
+    #[test]
+    fn depth_probes_read_the_depth_at_any_pixel_of_a_wide_frame_four_bytes_a_probe() {
+        let (w, h) = (5120, 16);
+        let Some(mut gpu) = warp(w, h) else { return };
+        let tex = gpu.upload_texture(&white()).expect("upload");
+        let pixels = [
+            (2560, 8),
+            (0, 0),
+            (2569, 3),
+            (2559, 7),
+            (w + 40, 2),
+            (1, h - 1),
+            (w - 1, h - 1),
+        ];
+        let mut answer = None;
+        for frame in 0..8u64 {
+            gpu.begin_frame().expect("begin");
+            if let Some(a) = gpu.take_depth_probes() {
+                answer = Some(a);
+                gpu.end_frame().expect("end");
+                break;
+            }
+            gpu.bind_texture(tex, 0);
+            gpu.draw_dynamic(
+                &opaque_key(),
+                &crate::DrawConstants::default(),
+                &identity_frame(),
+                &PerDrawConstants::identity(),
+                &quad_142(0.0, -1.0, 1.0, 1.0, 0.25, 0xFFFF_FFFF),
+            )
+            .expect("the near right half");
+            if frame == 0 {
+                gpu.request_depth_probes(1, pixels.to_vec());
+            }
+            gpu.end_frame().expect("end");
+            gpu.wait_idle().expect("idle");
+        }
+        let answer = answer.expect("the depth probes come back within eight frames");
+        assert_eq!(answer.tag, 1, "the tag comes back with its depths");
+        assert_eq!(answer.depths.len(), pixels.len(), "one depth a pixel");
+        let near = [true, false, true, false, true, false, true];
+        for ((&(x, y), &d), near) in pixels.iter().zip(&answer.depths).zip(near) {
+            let want = if near { 0.25 } else { 1.0 };
+            assert!(
+                (d - want).abs() < 1e-6,
+                "({x}, {y}): depth {d}, want {want}"
+            );
+        }
+        let readbacks: Vec<u64> = gpu
+            .frames
+            .iter()
+            .filter_map(|f| f.probe_readback.as_ref())
+            // SAFETY: a pure query on a live resource.
+            .map(|b| unsafe { b.GetDesc() }.Width)
+            .collect();
+        assert!(!readbacks.is_empty(), "a frame read the probes back");
+        for width in readbacks {
+            assert_eq!(
+                width,
+                probes::PROBE_BYTES,
+                "a frame's read-back holds four bytes a probe, not the {} of the depth plane",
+                u64::from(w) * u64::from(h) * 4
+            );
+        }
+        gpu.release_texture(tex);
         gpu.wait_idle().expect("idle");
     }
 

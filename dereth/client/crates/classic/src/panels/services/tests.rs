@@ -1589,7 +1589,12 @@ fn a_click_on_the_map_teleports_only_a_character_allowed_to() {
         y: 25 + 166,
         pressed: true,
     };
-    assert!(event(&mut *p, press.clone(), &v).is_empty());
+    let teleports = |out: &[PanelAction]| {
+        out.iter()
+            .filter(|a| matches!(a, PanelAction::Host(HostAction::MapTeleport { .. })))
+            .count()
+    };
+    assert_eq!(teleports(&event(&mut *p, press.clone(), &v)), 0);
     let pregame = PregameView::default();
     let keyboard = KeyboardState::default();
     let settings = ClassicSettings::default();
@@ -1604,10 +1609,52 @@ fn a_click_on_the_map_teleports_only_a_character_allowed_to() {
         map_teleport_allowed: true,
         classic: &ClassicState::default(),
     };
-    assert!(matches!(
-        p.event(press, &allowed).as_slice(),
-        [PanelAction::Host(HostAction::MapTeleport { .. })]
-    ));
+    assert_eq!(teleports(&p.event(press, &allowed)), 1);
+}
+
+/// A left or a right press on the map page's map is told to the plugins with the coordinates a
+/// marker on the pixel pressed is placed from; a move is no press, and a press on the frame round
+/// the map, or on the house page, is told to no one.
+#[test]
+fn a_press_on_the_map_is_told_to_the_plugins_where_it_falls() {
+    use crate::panels::services::world::map_marker;
+    use dereth_client_contract::panels::map::MapButton;
+    let v = View::default();
+    let mut p = make("map").unwrap();
+    let told = |out: Vec<PanelAction>| -> Vec<(f64, f64, MapButton)> {
+        out.into_iter()
+            .filter_map(|a| match a {
+                PanelAction::Host(HostAction::MapClick { ns, ew, button }) => {
+                    Some((ns, ew, button))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let pointer = |x, y, pressed| ControlEvent::Pointer {
+        x,
+        y: 25 + y,
+        pressed,
+    };
+    let (x, y) = map_marker(42.2, 33.8);
+    let left = told(event(&mut *p, pointer(x, y, true), &v));
+    let [(ns, ew, MapButton::Left)] = left.as_slice() else {
+        panic!("one left press: {left:?}");
+    };
+    assert_eq!(map_marker(*ns, *ew), (x, y), "{ns}, {ew}");
+    assert!(told(event(&mut *p, pointer(x, y, false), &v)).is_empty());
+    let right = with_context(&v, |c| {
+        p.input(&crate::widgets::Input::RightClick { x, y: 25 + y }, c)
+    })
+    .map(told)
+    .unwrap_or_default();
+    assert!(
+        matches!(right.as_slice(), [(n, e, MapButton::Right)] if (n, e) == (ns, ew)),
+        "{right:?}"
+    );
+    assert!(told(event(&mut *p, pointer(10, 100, true), &v)).is_empty());
+    activate(&mut *p, "house", &v);
+    assert!(told(event(&mut *p, pointer(x, y, true), &v)).is_empty());
 }
 /// The stretched page's list grows, and its buttons keep to the foot of the page.
 #[test]

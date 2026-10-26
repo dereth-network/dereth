@@ -1,0 +1,29 @@
+# Places of Dereth: name | map coordinates | type. Approximate, from the public maps players trade.
+# The type is town, outpost, dungeon, portal, lifestone or landmark; a line without one is a town.
+Holtburg | 42.2N 33.8E | town
+Shoushi | 33.5S 72.8E | town
+Yaraq | 21.5S 1.8W | town
+Arwic | 33.6N 56.8E | town
+Cragstone | 25.6N 49.1E | town
+Rithwic | 10.9N 59.3E | town
+Eastham | 17.1N 63.4E | town
+Glenden Wood | 29.9N 26.3E | town
+Lytelthorpe | 0.8S 51.0E | town
+Samsur | 3.2S 19.2E | town
+Zaikhal | 13.4N 0.2E | town
+Al-Arqas | 31.3S 13.4E | town
+Uziz | 24.7S 28.1E | town
+Khayyaban | 47.0S 25.2E | town
+Qalaba'r | 74.6S 19.6E | town
+Yanshi | 12.4S 42.4E | town
+Tufa | 13.4S 83.4E | town
+Hebian-To | 38.4S 82.6E | town
+Nanto | 52.1S 82.1E | town
+Sawato | 54.4S 35.4E | town
+Baishi | 49.4S 62.8E | town
+Mayoi | 62.2S 82.3E | town
+Dryreach | 8.1N 73.6E | town
+Xarabydun | 41.4S 15.9W | town
+Plateau Village | 44.2S 61.1W | town
+Stonehold | 68.5N 21.5W | town
+Fort Tethana | 71.5N 72.1W | town

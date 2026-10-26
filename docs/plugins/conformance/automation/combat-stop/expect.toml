@@ -1,0 +1,18 @@
+says = "combat.stop cancels a swing already sent with the server, drops one still charging before it goes, and fails the plugin's attacks in flight or queued as stopped."
+[scenario]
+world = "scripted"
+seconds = 5
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+"""
+[expect]
+status = "running"
+console = ["sent then stopped	true	nil", "sent	false	stopped", "charging	false	stopped", "queued	false	stopped"]
+sent = ["ChangeCombatMode", "melee_attack 0x80000050", "CancelAttack"]

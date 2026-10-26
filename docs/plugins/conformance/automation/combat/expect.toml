@@ -1,0 +1,18 @@
+says = "A plugin enters combat through the combat toggle, swings at a target with the combat window's own requests (height and power), and returns to peace; each settles on what the client saw."
+[scenario]
+world = "scripted"
+seconds = 7
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+"""
+[expect]
+status = "running"
+console = ["mode	true	2", "fighting	true", "swing	true	cancelled", "peace	true	1", "fighting	false"]
+sent = ["ChangeCombatMode", "melee_attack 0x80000050", "CancelAttack", "ChangeCombatMode"]

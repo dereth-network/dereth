@@ -133,6 +133,7 @@ impl Windows {
                         from_spell_slot: None,
                         component: false,
                         stance: None,
+                        command: None,
                     });
                 }
             }

@@ -1,0 +1,24 @@
+says = "A window shorter than its nodes' least height scrolls through them: they are laid out at their least height (a list at three rows), as wide as the body less the scrollbar's room."
+[[step]]
+after = 0
+bar = "conformance.layout-scroll"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 10
+[expect]
+status = "running"
+layout = """
+window conformance.layout-scroll main
+window #main 280x160 scrolls=276
+  number #n1 0,0 269x22 label=70
+  number #n2 0,25 269x22 label=70
+  number #n3 0,50 269x22 label=70
+  number #n4 0,75 269x22 label=70
+  number #n5 0,100 269x22 label=70
+  number #n6 0,125 269x22 label=70
+  number #n7 0,150 269x22 label=70
+  number #n8 0,175 269x22 label=70
+  list #log 0,200 269x76 columns=259 rows=3
+"""

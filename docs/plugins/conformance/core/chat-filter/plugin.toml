@@ -1,0 +1,6 @@
+id = "conformance.chatfilter"
+name = "Conformance: chat-filter"
+version = "0.1.0"
+api = "0.1"
+[permissions]
+"chat.filter" = "Hides the sparring lines."

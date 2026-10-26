@@ -1,0 +1,10 @@
+-- Following an object runs until it is stopped: the character closes to within range and waits.
+commands.add("follow", "follow the guard", function()
+	task.spawn(function()
+		print("follow ended", pawait(nav.follow(0x80000040, 3)))
+	end)
+	task.after(6000, function()
+		print("owner", nav.owner())
+		nav.stop()
+	end)
+end)

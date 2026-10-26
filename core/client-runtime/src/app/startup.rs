@@ -251,6 +251,20 @@ impl<S: Shell> App<S> {
         // is moved into it.
         // Every patch goes into the world's overlay, never into the locked files.
         let ddd = crate::world_overlay::patcher(&store, &cfg);
+        // The travel's store: in `--nav-store`'s folder, or beside the preferences file.
+        let travel = crate::travel::Travel::new(match cfg.nav_store.clone() {
+            Some(dir) => crate::travel::StoreFiles {
+                dir: Some(dir),
+                prefix: String::new(),
+            },
+            None => crate::travel::StoreFiles {
+                dir: cfg
+                    .preferences_file
+                    .parent()
+                    .map(std::path::Path::to_path_buf),
+                prefix: String::from("navigation-"),
+            },
+        });
         // The object identity verdicts start now, whatever look is chosen, so a later switch to
         // the other era's look is instant.
         let scene_cfg = cfg.scene_config();
@@ -296,6 +310,16 @@ impl<S: Shell> App<S> {
             link,
             server_stub,
             script: EnterWorldScript::default(),
+            nav_proof: None,
+            travel,
+            travel_status: crate::travel::TravelStatus::default(),
+            nav_spells: None,
+            nav_academies: None,
+            travel_fizzles: 0,
+            published_portals: std::sync::Arc::default(),
+            player_moves: 0,
+            hook_player_moves: 0,
+            travel_player_moves: 0,
             last_link_status: None,
             last_rejected: 0,
             last_net_error: None,
@@ -352,6 +376,12 @@ impl<S: Shell> App<S> {
             hud: S::Hud::default(),
             teleport: crate::teleport::Teleport::new(),
             anim_assets,
+            frame_hook: None,
+            hook_control_losses: 0,
+            hook_chat: Vec::new(),
+            hook_outcomes: Vec::new(),
+            hook_messages: Vec::new(),
+            hook_quit_pending: false,
             object_identity,
         };
         // A world overlay refused at the start ends the session before it began: the interface
@@ -579,6 +609,11 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::{interface, store};
         self.duties.preferences_started = true;
         self.register_display_modes();
+        // A client that runs plugins offers their switch, off, and the profile keeps it, so it is
+        // registered before the profile is read.
+        if self.cfg.plugins {
+            dereth_client_contract::options::plugins::register();
+        }
         let ini = crate::platform::files::read_to_string(&self.cfg.preferences_file)
             .ok()
             .and_then(|t| {

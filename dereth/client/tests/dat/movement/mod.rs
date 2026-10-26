@@ -2,6 +2,7 @@ mod command_lists;
 mod door_turn_and_open;
 mod emote_motion_keys;
 mod focus_loss;
+mod hook_held_controls;
 mod jump_charge_release;
 mod jump_key_binding;
 mod jump_skill_inquiry;

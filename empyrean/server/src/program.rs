@@ -295,6 +295,8 @@ pub fn main(options: &Options) -> ExitCode {
     // console `exit`, ACE's `Environment.Exit` at the end of `ShutdownServer`).
     let (stop, stop_rx) = mpsc::channel::<StopCause>();
     let world_loop_ended = Arc::new(AtomicBool::new(false));
+    // Not ACE: the status endpoint's portal table reads the same content, off the world thread.
+    let portal_content = Arc::clone(&content);
     let world_thread = {
         let loop_ended = Arc::clone(&world_loop_ended);
         let clock = Arc::clone(&clock);
@@ -493,7 +495,7 @@ pub fn main(options: &Options) -> ExitCode {
     // ACE: ModManager.RegisterCommands
     // Not ported: without a mod loader there are no mod commands to register.
 
-    let status = start_status_endpoint(options, &config, &commands, started);
+    let status = start_status_endpoint(options, &config, &commands, started, &portal_content);
 
     // Not ACE: the admin channel (`server.admin_channel`), never in the updater's health check,
     // which must leave the running server's file alone.
@@ -1164,12 +1166,14 @@ fn send(commands: &Sender<WorldCommand>, command: WorldCommand) {
 }
 
 /// Not ACE: starts the status endpoint when `--status` or `server.status_address` names an
-/// address. Each request takes its snapshot on the world thread through `commands`.
+/// address. Each request takes its snapshot on the world thread through `commands`. With
+/// `server.publish_portals` on, it also serves `content`'s portal table.
 fn start_status_endpoint(
     options: &Options,
     config: &MasterConfiguration,
     commands: &Sender<WorldCommand>,
     started: std::time::Instant,
+    content: &Arc<dyn WorldDatabase>,
 ) -> Option<empyrean_server::status_endpoint::StatusEndpoint> {
     use empyrean_server::status_endpoint::{self, StatusSnapshot};
     let addr = match status_endpoint::status_address(
@@ -1207,11 +1211,19 @@ fn start_status_endpoint(
         s.websocket_url.clone_from(&websocket_url);
         Some(s)
     };
-    match status_endpoint::start(addr, allowed_origins, snapshot) {
+    let portals = config.server.publish_portals.then(|| {
+        empyrean_server::portal_table::PortalTable::new(
+            &config.server.world_name,
+            Arc::clone(content),
+        )
+    });
+    let publishing = portals.is_some();
+    match status_endpoint::start(addr, allowed_origins, portals, snapshot) {
         Ok(endpoint) => {
             log::info!(
-                "Status endpoint: http://{}/status and /health",
-                endpoint.local_addr()
+                "Status endpoint: http://{}/status and /health{}",
+                endpoint.local_addr(),
+                if publishing { " and /portals" } else { "" }
             );
             Some(endpoint)
         }

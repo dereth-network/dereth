@@ -87,11 +87,12 @@ pub trait Product: 'static {
 /// The start of a desktop product's `main`, before the client exists: parse `argv` (without the
 /// program name), make the first-run copy and load the preferences, find the retail dats, make the
 /// settings folder and install the log. Answers the configuration to bring the client up with, or
-/// the sentence to end the run with.
+/// the sentence to end the run with. The log's writer comes with it, to be held to the end of the
+/// run: dropping it drains the lines still on their way.
 ///
 /// # Errors
 /// The text the product shows and exits with: a command line that does not parse, or no retail dats.
-pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
+pub fn start<P: Product>(argv: &[String]) -> Result<(Config, logging::Guard), String> {
     // Step 9: parse the command line. On failure -> corestrings 205 -> exit.
     let default_preferences =
         crate::folders::default_preferences_file(P::SETTINGS_DIR_NAME).unwrap_or_default();
@@ -151,7 +152,7 @@ pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
             let _ = std::fs::create_dir_all(dir);
         }
     }
-    crate::logging::install::<P>(&cfg);
+    let log = crate::logging::install::<P>(&cfg);
     // The crash log's path is not logged: it holds the pid, and stderr stays byte-identical
     // across runs. The pid is on every line of the file itself, which makes each run's record
     // independently identifiable.
@@ -168,5 +169,5 @@ pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
             Err(e) => tracing::warn!("could not carry settings over from {}: {e}", from.display()),
         }
     }
-    Ok(cfg)
+    Ok((cfg, log))
 }

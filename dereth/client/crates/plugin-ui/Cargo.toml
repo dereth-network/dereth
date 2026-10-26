@@ -1,0 +1,27 @@
+[package]
+name = "dereth-plugin-ui"
+description = "Plugin windows on the desktop: each declared window tree laid out and drawn by the widget kit in the skin of the interface it is drawn under, and the player's input handed back."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The declared tree (`UiNode`) and its values.
+dereth-plugin-api.workspace = true
+# The client's own questions to the player and their answers.
+dereth-client-contract.workspace = true
+# The widget kit the windows are drawn with, in the skin of the interface they are drawn under.
+dereth-ui-kit.workspace = true
+# The numbers the marks are placed with.
+dereth-primitives.workspace = true
+# The game's font records, which the plain skin draws its text in.
+dereth-assets.workspace = true
+# A plugin's pictures (`image` nodes) are PNG files from its package or fetched by it; decoded here
+# into the kit's pictures. Pure Rust, so the browser build has it too.
+png.workspace = true
+
+[lints]
+workspace = true

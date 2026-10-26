@@ -64,6 +64,18 @@ dereth-physics.workspace = true
 # `core/*/src` or `dereth/*/src` gains an edge, because nothing there may depend on this crate at all.
 dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
 dereth-transport.workspace = true
+# The plugin conformance driver (`src/plugins.rs`, `src/conformance.rs`): the host, the interface,
+# the Luau engine, and `toml` for each case's `expect.toml`.
+dereth-plugin-api.workspace = true
+dereth-plugin-host.workspace = true
+# The journey search, for the scripted world's travel.
+dereth-navigation.workspace = true
+dereth-plugin-lua.workspace = true
+dereth-plugin-wasm = { workspace = true, default-features = true }
+toml.workspace = true
+# The scripted world's spell table (`plugins::scripted_spell_table`), so a plugin's casting runs
+# with no game data.
+dereth-assets = { path = "../../core/assets" }
 
 [dev-dependencies]
 dereth-terrain.workspace = true

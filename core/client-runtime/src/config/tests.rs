@@ -918,3 +918,61 @@ fn everything_the_client_saves_hangs_off_the_preferences_files_directory() {
         dereth_client_contract::persist::ScreenLayout::default_path(&dir.to_string_lossy());
     assert!(layout.starts_with("root/dir"), "{layout}");
 }
+
+/// Behaviour: none (a switch's parse: the headless clock a run asks for).
+#[test]
+fn a_headless_session_with_a_server_keeps_real_time_unless_told_to_simulate() {
+    // No server: simulated unless asked.
+    assert!(!parse(&["--headless"]).unwrap().keeps_real_time());
+    assert!(parse(&["--headless", "--real-time"])
+        .unwrap()
+        .keeps_real_time());
+    // A server: real time unless told to simulate.
+    let server = ["--headless", "-a", "acct", "-h", "127.0.0.1:9000"];
+    assert!(parse(&server).unwrap().keeps_real_time());
+    let mut simulated = server.to_vec();
+    simulated.push("--simulated-time");
+    assert!(!parse(&simulated).unwrap().keeps_real_time());
+}
+
+/// Behaviour: none (the plugin folders a command line names, read around the preferences).
+#[test]
+fn each_plugin_folder_named_is_listed_once() {
+    let argv: Vec<String> = [
+        "--plugins",
+        "a",
+        "--plugins",
+        "b",
+        "--offer-plugins",
+        "c",
+        "--offer-plugins",
+        "c",
+        "--headless",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    let c = Config::from_args_and_prefs_at(&argv, Path::new("")).unwrap();
+    assert_eq!(c.plugin_dirs, [PathBuf::from("a"), PathBuf::from("b")]);
+    assert_eq!(c.offered_plugin_dirs, [PathBuf::from("c")]);
+}
+
+/// Behaviour: none (a switch's parse: the travel switches take any value).
+#[test]
+fn travel_switches_take_their_values_even_lines_that_begin_with_a_slash() {
+    let c = parse(&[
+        "--nav-prep",
+        "/journey Drudge Hideout; @heal ",
+        "--nav-store",
+        "store",
+        "--nav-published",
+        "http://127.0.0.1:19341/portals",
+    ])
+    .expect("parses");
+    assert_eq!(c.nav_prep, ["/journey Drudge Hideout", "@heal"]);
+    assert_eq!(c.nav_store, Some(PathBuf::from("store")));
+    assert_eq!(
+        c.nav_published.as_deref(),
+        Some("http://127.0.0.1:19341/portals")
+    );
+}

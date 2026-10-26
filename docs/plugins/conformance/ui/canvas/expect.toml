@@ -1,0 +1,16 @@
+says = "A canvas keeps its draw commands and takes new ones, a chart keeps its series, and a draw command of no known operation is refused."
+[[step]]
+after = 0
+bar = "conformance.canvas"
+[scenario]
+world = "scripted"
+seconds = 1
+[expect]
+status = "running"
+console = ["bad op\tfalse", "redrawn\t1"]
+ui = """
+window conformance.canvas map open=true
+hud #map anchor="top_left"
+  canvas #c background="#101010" draw=[{"fill":true,"op":"circle","r":5,"x":20,"y":10}] height=20 width=40
+  chart #xp height=30 series=[{"label":"xp","values":[1,3,2]}] width=60
+"""

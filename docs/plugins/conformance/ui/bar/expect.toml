@@ -1,0 +1,14 @@
+says = "The plugin bar lists each plugin active here with what it says it is doing (running, paused or idle; error when it stopped on a fault); a click on it opens its main window, or closes it when open, and the plugin hears ui.opened or ui.closed."
+[[step]]
+after = 1
+bar = "conformance.bar"
+[[step]]
+after = 2
+bar = "conformance.bar"
+[[step]]
+after = 3
+bar = "conformance.bar"
+[expect]
+status = "running"
+console = ["bad status\tfalse", "opened\tmain", "closed\tmain", "opened\tmain"]
+bar = ["conformance.bar\tpaused\topen"]

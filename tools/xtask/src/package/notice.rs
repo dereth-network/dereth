@@ -275,6 +275,7 @@ DERETH
         mit = indent(f.mit_licence.trim_end()),
     );
     out.push_str(&font_sections(f.fonts));
+    out.push_str(PLUGINS_SECTION);
     if let Some(licence) = f.moltenvk_licence {
         out.push_str(&moltenvk_section("client", licence));
     }
@@ -423,6 +424,16 @@ LYCEUM
     out
 }
 
+/// What every notice says of the plugins that come with Dereth.
+pub const PLUGINS_SECTION: &str = "
+
+THE PLUGINS
+
+The plugins folder holds the sample plugins that come with Dereth, part of Dereth under its MIT
+licence. Each is off until you turn it on in the client's plugin panel (/plugin). Some of the
+Tank's routes and loot profiles are other people's, shared under the BSD 2-Clause and MIT
+licences: plugins/tank/THIRD-PARTY.md names each one and carries its licence.";
+
 /// Everything the web client's `NOTICE.txt` states.
 #[derive(Debug, Clone)]
 pub struct WebFacts<'a> {
@@ -488,6 +499,7 @@ THE {upper} TYPEFACE
             text = indent(text.trim_end()),
         ));
     }
+    out.push_str(PLUGINS_SECTION);
     out.push_str(&format!(
         "
 

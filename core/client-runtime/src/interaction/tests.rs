@@ -1035,3 +1035,54 @@ fn an_interface_text_property_goes_to_the_server_a_few_seconds_after_the_last_ch
     inter.run_player_module_use_time(&mut game, ServerTime(60.0));
     assert_eq!(sent(&inter), 1, "and only one");
 }
+
+/// Behaviour: plugins.chat.a-plugins-own-line-is-never-taken-for-a-command
+#[test]
+fn a_line_sent_on_the_players_behalf_is_never_an_extensions_command_and_stays_out_of_the_history() {
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    inter.set_extension_verbs(vec!["go".to_owned(), "plugin".to_owned()]);
+    inter.queue(
+        Vec::new(),
+        vec![
+            UiRequest::ChatLineOnBehalf {
+                window: 1,
+                text: "/go now".into(),
+            },
+            UiRequest::ChatLineOnBehalf {
+                window: 1,
+                text: "\u{FF0F}plugin unload network.dereth.tank".into(),
+            },
+        ],
+    );
+    inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+    assert!(
+        inter.take_extension_commands().is_empty(),
+        "neither line is taken for a command"
+    );
+    assert!(
+        game.chat
+            .entries
+            .get(&1)
+            .is_none_or(|e| e.history().is_empty()),
+        "nor kept in the history"
+    );
+    inter.queue(
+        Vec::new(),
+        vec![UiRequest::ChatLine {
+            window: 1,
+            text: "/go now".into(),
+        }],
+    );
+    inter.run_ui_requests(&mut game, false, ServerTime(2.0));
+    let typed = inter.take_extension_commands();
+    assert_eq!(
+        typed
+            .iter()
+            .map(|c| (c.verb.as_str(), c.args.as_str()))
+            .collect::<Vec<_>>(),
+        [("go", "now")],
+        "the same line typed is the command"
+    );
+    assert_eq!(game.chat.entries[&1].history(), ["/go now"]);
+}

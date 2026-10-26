@@ -1,0 +1,29 @@
+says = "A script reaches UtilityBelt's other modules and globals over the plugin interface: its own folder read only and its data folder read and written, JSON, dates and spans, regular expressions, coordinates, marks in the world, enumerations and their flags, property tables by typed id or by number, vectors, and the client's message stream."
+
+[scenario]
+world = "scripted"
+seconds = 4
+
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+
+[[object]]
+id = 0x80000021
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.25, ew = 33.8 }
+
+[host]
+data_folder = true
+
+[expect]
+status = "running"
+console = ["data hello true 1", "own true second line false", "read only false true", "json true d {\"x\":1,\"y\":[1,2]}", "span true 120", "regex true Bob true", "coords 24 0", "enum Value 19 16 Melee, Missile true true", "dict 900 900 true true", "vector 4 6 <1, 2, 3>", "message Item_SetAppraiseInfo true"]
+overlays = """
+world ubscript.modules #1 color=#FF0000 object=0x80000021 at=42.25N 33.80E
+shape ubscript.modules #2 label="Here" color=#00FF00 object=0x80000021 at=42.25N 33.80E shape=text path=0
+"""

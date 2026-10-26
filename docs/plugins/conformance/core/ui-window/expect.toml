@@ -1,0 +1,33 @@
+says = "A declared window is kept as a tree; a click and a change reach the plugin as events, the plugin's property changes show in the tree, and a malformed node, a text over 4,096 characters, a window over 64 KiB of text and a canvas over 1,000 commands are refused."
+[[step]]
+after = 0
+bar = "conformance.ui"
+[[step]]
+after = 1
+click = "main.add"
+[[step]]
+after = 2
+click = "main.add"
+[[step]]
+after = 3
+set = "main.auto"
+value = true
+[expect]
+status = "running"
+console = [
+  "bad property refused\tfalse\ttrue",
+  "long text refused\tfalse\ttrue",
+  "too much text refused\tfalse\ttrue",
+  "too many commands refused\tfalse\ttrue",
+  "long change refused\tfalse",
+  "changed\tauto\ttrue",
+]
+ui = """
+window conformance.ui main open=true
+window #main title="Conformance"
+  label #count text="2"
+  button #add text="Add"
+  toggle #auto text="Auto" value=true
+  meter #bar max=4 style="mana" value=2
+  list #rows columns=["A","B"] rows=[["x",1]]
+"""

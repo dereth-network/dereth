@@ -18,8 +18,10 @@ pub mod layout;
 pub mod nav;
 pub mod paint;
 pub mod panels;
+pub mod plugins;
 pub mod pregame;
 
+use crate::art::AcArt as _;
 use std::sync::Arc;
 
 use dereth_client_contract::pregame::CharacterAction;
@@ -29,20 +31,7 @@ use crate::art::Art;
 use crate::draw::DrawList;
 use crate::options::{HorizonOptions, StartScreen};
 
-/// A time or a small fraction of one, narrowed for drawing arithmetic.
-#[must_use]
-pub fn narrow(v: f64) -> f32 {
-    // A drawing fraction or a few seconds; never beyond f32's range.
-    #[allow(clippy::cast_possible_truncation)]
-    let f = v as f32;
-    f
-}
-
-/// A sine wave of `time` at `rate` radians a second, from `0` to `1`.
-#[must_use]
-pub fn wave(time: f64, rate: f64) -> f32 {
-    narrow(dereth_primitives::num::math::sin(time * rate) * 0.5 + 0.5)
-}
+pub use dereth_ui_kit::{narrow, wave};
 
 /// The action that toggles between peace and the combat mode the wielded weapon calls for.
 pub const ACTION_TOGGLE_COMBAT: u32 = 0x1000_005A;
@@ -73,6 +62,9 @@ pub struct Drag {
     /// One of the fighting stance's controls, picked up from the spellbook's Combat page: only a
     /// cross hotbar slot takes it.
     pub stance: Option<hud::cross::PowerAct>,
+    /// A plugin's command, picked up from the spellbook's Plugins page: only a cross hotbar slot
+    /// takes it.
+    pub command: Option<hud::cross::PluginCommand>,
 }
 
 /// How far the pointer must move, in pixels, before a press becomes a drag.
@@ -111,6 +103,9 @@ pub struct Outcome {
     pub settings: Vec<(String, String)>,
     /// The game's boxes answered: `(id, yes)`, OK counting as yes.
     pub answers: Vec<(u64, bool)>,
+    /// The player's answer to the plugin host's question ([`game::GameState::host_question`]),
+    /// with its id.
+    pub host_reply: Option<dereth_client_runtime::dialogs::HostReply>,
     /// Objects to select by name, from a script: the nearest on the radar with that name.
     pub select: Vec<String>,
     /// The spell whose details the spellbook shows.
@@ -125,6 +120,8 @@ pub struct Outcome {
     pub bind_to_hotbar: Option<hud::cross::CrossBind>,
     /// A drop on a cross hotbar slot: the slot, and what it binds there.
     pub cross_bind: Option<(usize, hud::cross::CrossBind)>,
+    /// Plugins' commands the player ran from a cross hotbar slot, `(plugin, verb)`.
+    pub plugin_commands: Vec<(String, String)>,
     /// The book window was closed.
     pub book_closed: bool,
     /// An allegiance action to ask about: the action, the other player, the question's string
@@ -163,6 +160,9 @@ pub struct HorizonUi {
     said: usize,
     /// What the player has in hand.
     pub drag: Option<Drag>,
+    /// Where the plugin host's question's buttons were drawn last frame, first to last; none
+    /// while it asks nothing.
+    pub host_buttons: Vec<crate::draw::Rect>,
 }
 
 impl HorizonUi {
@@ -194,6 +194,7 @@ impl HorizonUi {
             in_world_since: None,
             said: 0,
             drag: None,
+            host_buttons: Vec::new(),
         }
     }
 
@@ -236,6 +237,7 @@ impl HorizonUi {
                 // The sample player speaks where the game would let them.
                 let mut s = self.preview_state();
                 s.chat_focus = state.chat_focus.clone();
+                s.host_question.clone_from(&state.host_question);
                 s
             };
             &preview
@@ -274,14 +276,31 @@ impl HorizonUi {
             self.in_world_since = None;
         }
         let mut ctx = kit::Ctx {
-            time: self.time,
-            dt,
-            input,
-            colours: &self.colours,
-            hot: false,
+            kit: dereth_ui_kit::widgets::Ctx {
+                time: self.time,
+                dt,
+                input,
+                colours: &self.colours,
+                hot: false,
+            },
             drag: &mut self.drag,
             drops: Vec::new(),
         };
+        // The plugin host's own windows (the plugin panel) and its dialog for a file take the
+        // presses on them: nothing under them takes one first. While the dialog is up, Escape is
+        // its own: it refuses it.
+        let (mx, my) = ctx.input.mouse;
+        let seat = &self.windows.plugins;
+        let asked = state.host_question.is_some() && seat.host.asking.id().is_some();
+        let on_host = seat
+            .host
+            .rects(&seat.frame.views)
+            .iter()
+            .chain(asked.then_some(&seat.host.asking.drawn.frame))
+            .any(|r| r.contains(mx, my));
+        let held_for_host_window = on_host.then(|| std::mem::take(&mut ctx.input.pressed));
+        let held_escape =
+            state.host_question.is_some() && ctx.input.take_key(dereth_ui_kit::input::vk::ESCAPE);
         // The screen follows the game: the world is up once the player is in it.
         if state.in_world && self.screen != Screen::Game {
             self.screen = Screen::Game;
@@ -291,6 +310,12 @@ impl HorizonUi {
         }
         match self.screen {
             Screen::Lobby | Screen::Entering | Screen::Creation => {
+                // The plugin windows over the screen stand over its controls; their HUDs do not.
+                let occluders = std::mem::replace(
+                    &mut ctx.input.occluders,
+                    self.windows.plugins.pregame_over().to_vec(),
+                );
+                let from = ctx.input.nav.targets.len();
                 self.pregame.frame(
                     &mut self.screen,
                     &mut p,
@@ -299,6 +324,13 @@ impl HorizonUi {
                     &self.options,
                     &mut out,
                 );
+                ctx.input.occluders = occluders;
+                let game: Vec<crate::draw::Rect> = ctx.input.nav.targets
+                    [from.min(ctx.input.nav.targets.len())..]
+                    .iter()
+                    .map(|t| t.rect)
+                    .collect();
+                self.windows.plugins.pregame(&mut p, &mut ctx, &game);
             }
             Screen::Game => {
                 // A modal box takes this frame's presses, keys and typing before anything under
@@ -334,6 +366,10 @@ impl HorizonUi {
                     });
                 let held_press = on_a_box.then(|| std::mem::take(&mut ctx.input.pressed));
                 self.hud.other_text_focus = self.windows.has_text_focus();
+                // The plugins' windows open, closed and sized as the plugins have them; a press
+                // off an open plugin choice's list closes it before anything under it sees it.
+                self.windows.follow_plugins(&p, &ctx);
+                self.windows.plugins.ui.begin(&p, &mut ctx.kit);
                 // The HUD is under every window: the pointer over a window is not over it.
                 ctx.input.occluders = self
                     .windows
@@ -346,7 +382,16 @@ impl HorizonUi {
                 // The log window's popped-out tabs are over the HUD too.
                 ctx.input.occluders.extend(self.hud.log.popped_rects());
                 ctx.input.occluders.extend(self.hud.log.menu_rect());
+                // An open plugin choice's list is over it too. A plugin's HUD is not: the HUD's
+                // own elements and controls take the pointer under one.
+                ctx.input
+                    .occluders
+                    .extend(self.windows.plugins.ui.choice_rect(&p));
+                // The plugins' labels in the world, under the whole HUD.
+                self.windows.plugins.labels(&mut p);
+                self.hud.plugin_radar = self.windows.plugins.frame.marks.radar.clone();
                 self.hud.screen_middle = p.screen.0 / 2.0;
+                let hud_from = ctx.input.nav.targets.len();
                 self.hud
                     .pad_world(&mut ctx, state, &mut self.windows, &mut out);
                 self.hud
@@ -354,6 +399,37 @@ impl HorizonUi {
                 self.hud
                     .frame(&mut p, &mut ctx, state, &mut self.windows, &mut out);
                 self.hud.alt_ring(&mut p, &ctx, state);
+                // The plugins' HUDs, bar and arrow: over the HUD's own elements and under every
+                // window.
+                let hud_occluders = std::mem::take(&mut ctx.input.occluders);
+                ctx.input.occluders = self
+                    .windows
+                    .rects(scale)
+                    .into_iter()
+                    .map(|(_, r)| r)
+                    .chain(self.windows.pad_box)
+                    .chain(self.hud.pad_menu_rect)
+                    .chain(self.windows.plugins.ui.choice_rect(&p))
+                    .collect();
+                let editing = self.windows.is_open(panels::WindowId::Layout);
+                // The HUD's own elements as drawn this frame, and its controls.
+                let game: Vec<crate::draw::Rect> = self
+                    .hud
+                    .layout
+                    .outlines
+                    .iter()
+                    .filter(|(name, _)| !crate::ui::layout::is_plugin_hud(name))
+                    .map(|(_, r)| *r)
+                    .chain(
+                        ctx.input.nav.targets[hud_from.min(ctx.input.nav.targets.len())..]
+                            .iter()
+                            .map(|t| t.rect),
+                    )
+                    .collect();
+                self.windows
+                    .plugins
+                    .huds(&mut p, &mut ctx, &mut self.hud.layout, editing, &game);
+                ctx.input.occluders = hud_occluders;
                 self.windows.spell_tab = self.hud.spell_tab();
                 self.windows.options_page.scale = self.options.scale;
                 self.windows.options_page.window = screen;
@@ -391,6 +467,9 @@ impl HorizonUi {
                 ctx.input.occluders.truncate(windows_only);
                 self.hud.layout_overlay(&mut p, &mut ctx, &mut self.windows);
                 self.windows.frame(&mut p, &mut ctx, state, &mut out);
+                // An open plugin choice's list and a plugin control's tooltip, over every window.
+                ctx.input.occluders.clear();
+                self.windows.plugins.ui.top(&mut p, &mut ctx.kit);
                 self.hud.pad_menu(&mut p, &mut ctx, &mut self.windows);
                 if let Some(text) = out.chat_prefill.take() {
                     self.hud.open_chat(text);
@@ -416,6 +495,12 @@ impl HorizonUi {
                 if let Some(bind) = out.bind_to_hotbar.take() {
                     self.hud.cross.binding = Some(bind);
                 }
+                // A slot's plugin command goes to the plugin as the player's own.
+                for (plugin, verb) in std::mem::take(&mut out.plugin_commands) {
+                    self.windows
+                        .plugins
+                        .push_input(dereth_plugin_ui::Input::Command { plugin, verb });
+                }
             }
         }
         if state.disconnected {
@@ -429,6 +514,26 @@ impl HorizonUi {
                 out.quit = true;
             }
         }
+        // The plugin host's own tier over everything: its windows, then its question.
+        ctx.input.occluders.clear();
+        if let Some(pressed) = held_for_host_window {
+            ctx.input.pressed = pressed;
+        }
+        if held_escape {
+            ctx.input.keys.push(dereth_ui_kit::input::vk::ESCAPE);
+        }
+        let seat = &mut self.windows.plugins;
+        seat.host.windows(&mut p, &mut ctx.kit, &seat.frame.views);
+        seat.host
+            .ask(&mut p, &mut ctx.kit, state.host_question.as_ref());
+        self.host_buttons = if state.host_question.is_some() {
+            seat.host.asking.drawn.buttons.clone()
+        } else {
+            Vec::new()
+        };
+        if let Some(reply) = seat.host.take_reply() {
+            out.host_reply = Some(reply);
+        }
         hud::pad::overlays(&mut p, &mut ctx);
         self.drops = std::mem::take(&mut ctx.drops);
         self.pointer_over_ui = ctx.hot || ctx.input.captured;
@@ -439,6 +544,7 @@ impl HorizonUi {
             || self.text_focus
             || self.drag.is_some()
             || state.prompts.iter().any(|p| p.modal)
+            || state.host_question.is_some()
             || self.hud.wants_escape()
             || self.windows.any_open()
             || (self.screen == Screen::Game
@@ -527,9 +633,10 @@ fn drag_step(
     let Some(drag) = ctx.drag.as_mut() else {
         return;
     };
-    let (mx, my) = ctx.input.mouse;
+    // The kit's share of the context, beside what is in hand.
+    let (mx, my) = ctx.kit.input.mouse;
     if !drag.active
-        && ctx.input.down[0]
+        && ctx.kit.input.down[0]
         && ((mx - drag.origin.0).abs() > DRAG_THRESHOLD
             || (my - drag.origin.1).abs() > DRAG_THRESHOLD)
     {
@@ -545,7 +652,7 @@ fn drag_step(
         }
     }
     if drag.active {
-        ctx.input.captured = true;
+        ctx.kit.input.captured = true;
         if let Some(icon) = drag_picture(p, drag) {
             draw_lifted(p, &icon, (mx, my));
         }
@@ -568,16 +675,17 @@ fn drag_step(
     if let Some((_, Some(kit::Drop::CrossSlot(index)))) =
         ctx.drops.iter().rev().find(|(r, _)| r.contains(mx, my))
     {
-        let bind = match (drag.stance, drag.spell) {
-            (Some(act), _) => hud::cross::CrossBind::Power(act),
-            (None, Some(id)) => hud::cross::CrossBind::Spell(id),
-            (None, None) => hud::cross::CrossBind::Item(drag.item),
+        let bind = match (drag.command, drag.stance, drag.spell) {
+            (Some(c), _, _) => hud::cross::CrossBind::Command(c),
+            (None, Some(act), _) => hud::cross::CrossBind::Power(act),
+            (None, None, Some(id)) => hud::cross::CrossBind::Spell(id),
+            (None, None, None) => hud::cross::CrossBind::Item(drag.item),
         };
         out.cross_bind = Some((*index, bind));
         return;
     }
-    // A stance control lands nowhere but on a cross hotbar slot.
-    if drag.stance.is_some() {
+    // A stance control or a plugin's command lands nowhere but on a cross hotbar slot.
+    if drag.stance.is_some() || drag.command.is_some() {
         return;
     }
     if let Some(spell_id) = drag.spell {

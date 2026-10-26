@@ -1,0 +1,45 @@
+[package]
+name = "dereth-plugin-host"
+description = "The plugin host: loads plugin packages into VMs, holds each to the world's policy, turns each frame into events, runs timers, keeps each plugin's store and declared windows, and answers the server's plugin audit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The interface: the manifest, permissions, events, the UI tree, values and the engine boundary.
+dereth-plugin-api.workspace = true
+# The game, as the headless client reaches it: the frame hook the host installs itself as
+# (`dereth-client-runtime`), the object model it reads (`dereth-client-model`) and the view and
+# chat types (`dereth-client-contract`). No crate under `dereth/client/` (`cargo xtask seams`,
+# `seam: plugin-host names no client crate`).
+dereth-client-runtime.workspace = true
+dereth-client-model.workspace = true
+dereth-client-contract.workspace = true
+# The portal store's types, read for `nav.known_portals` and journeys' targets.
+dereth-navigation.workspace = true
+dereth-primitives.workspace = true
+# The appraisal profile's types, read for the loot matcher.
+dereth-protocol.workspace = true
+# The game rules the reads and the loot matcher classify objects by.
+dereth-rules.workspace = true
+# The game's data files' records, decoded for plugins that draw maps (`gamedata`).
+dereth-assets.workspace = true
+# The world's policy document.
+toml.workspace = true
+# The loot profiles' patterns: Perl classes and case folding, without the large Unicode property
+# tables (a pattern that names one does not compile and is matched as plain text).
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
+tracing.workspace = true
+# The frame's clock for the plugins' time: each plugin's, and all of theirs, in one frame.
+web-time.workspace = true
+# Packages: their files, manifest and zip form.
+dereth-plugin-package.workspace = true
+
+[dev-dependencies]
+dereth-plugin-lua.workspace = true
+
+[lints]
+workspace = true

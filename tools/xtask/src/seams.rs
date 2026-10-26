@@ -49,6 +49,15 @@
 //!     application and the runtime's internals behind it. Each step of the frame hands a front end
 //!     a `UiContext`, and that is all of the game it reaches -- the same for the modern UI as for
 //!     any other. (Its screens, `dereth-ui-screens`, cannot name the runtime at all: rule 2.)
+//! 11. **The plugin host's crates** keep to their layers. `dereth-plugin-api` (the interface
+//!     as types) depends directly on [`PLUGIN_API_DIRECT`] only; `dereth-plugin-package` (packages
+//!     as files) on [`PLUGIN_PACKAGE_DIRECT`] only; `dereth-plugin-wasm` (compiled plugins) on
+//!     [`PLUGIN_WASM_DIRECT`] only; `dereth-plugin-lua` (the engine)
+//!     on [`PLUGIN_LUA_DIRECT`] only, with no other `dereth-*` crate in its tree, and holds its
+//!     `unsafe` to the Rust half of the VM's C runtime in a browser, compiled for wasm32 only
+//!     ([`plugin_lua_code_violations`]); and
+//!     `dereth-plugin-host` reaches the game as the headless client does, with no crate under
+//!     `dereth/client/` anywhere in its tree and none of their names in its code.
 //! 8. **One place finds the retail dats.** No workspace file outside `core/dat/` joins a retail dat
 //!    file name onto a path ([`dat_path_violations`]): the client, the server and every test find
 //!    the directory with `dereth_dat::locate_modern_dats` (the tests through `dereth_dat::testing`)
@@ -288,6 +297,40 @@ const HOST_NAMES_NO_SCREEN: [&str; 8] = [
 /// facade).
 pub const LIBRARY_NO_SUBSCRIBER: &[&str] = &["tracing-subscriber"];
 
+/// `dereth-plugin-api`'s allowed direct production dependencies: the interface as types needs the
+/// game's identifiers and nothing else.
+pub const PLUGIN_API_DIRECT: &[&str] = &["dereth-primitives"];
+
+/// `dereth-plugin-package`'s allowed direct production dependencies: the interface and the formats
+/// a package is made of. The launcher builds it, so it stays this small.
+pub const PLUGIN_PACKAGE_DIRECT: &[&str] =
+    &["dereth-plugin-api", "toml", "zip", "sha2", "ed25519-dalek"];
+
+/// `dereth-plugin-wasm`'s allowed direct production dependencies: the interface, reading and
+/// rewriting modules, the host's loan to the imports, the budget clock, and the interpreter.
+pub const PLUGIN_WASM_DIRECT: &[&str] = &[
+    "dereth-plugin-api",
+    "wasmparser",
+    "wasm-encoder",
+    "scoped-tls-hkt",
+    "web-time",
+    "wasmi",
+];
+
+/// The one file of `dereth-plugin-lua` allowed `unsafe`: the Rust half of the Luau VM's C runtime in
+/// a browser, and the declaration that compiles it for wasm32 only.
+const PLUGIN_LUA_UNSAFE_FILE: &str = "src/wasm_rt.rs";
+const PLUGIN_LUA_UNSAFE_DECL: &str =
+    "#[cfg(target_arch = \"wasm32\")]\n#[allow(unsafe_code)]\npub mod wasm_rt;";
+
+/// `dereth-plugin-lua`'s allowed direct production dependencies: the interface, the Luau VM and
+/// the budget clock.
+pub const PLUGIN_LUA_DIRECT: &[&str] = &["dereth-plugin-api", "mlua", "web-time"];
+
+/// Platform crates no plugin crate reaches. (The Luau VM's bindings use the C library's types, so
+/// `libc` itself is not one of them.)
+const PLUGIN_FORBIDDEN: &[&str] = &["winit", "windows", "cpal", "ash"];
+
 /// One package in a `cargo tree --prefix depth` listing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeEntry {
@@ -399,6 +442,44 @@ pub fn primitives_code_violations(files: &[(PathBuf, String)]) -> Vec<String> {
                 file.display(),
                 PRIMITIVES_UNSAFE_DECL.replace('\n', " ")
             ));
+        }
+    }
+    out
+}
+
+/// The plugin engine's `unsafe` rule over its production code: `unsafe` only in
+/// [`PLUGIN_LUA_UNSAFE_FILE`], declared for wasm32 only, and denied everywhere else by the crate.
+pub fn plugin_lua_code_violations(files: &[(PathBuf, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    let unix = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    for (file, text) in files {
+        let name = unix(file);
+        if name.ends_with(PLUGIN_LUA_UNSAFE_FILE) {
+            continue;
+        }
+        let is_lib = name.ends_with("src/lib.rs");
+        for (i, line) in text.lines().enumerate() {
+            let code = strip_comment(line).trim();
+            let allowed =
+                is_lib && (code == "#![deny(unsafe_code)]" || code == "#[allow(unsafe_code)]");
+            if !allowed && (names_ident(code, "unsafe") || names_ident(code, "unsafe_code")) {
+                out.push(format!(
+                    "{}:{}: unsafe code outside {PLUGIN_LUA_UNSAFE_FILE}: {}",
+                    file.display(),
+                    i + 1,
+                    line.trim()
+                ));
+            }
+        }
+        if is_lib {
+            let text = text.replace("\r\n", "\n");
+            if !text.contains(PLUGIN_LUA_UNSAFE_DECL) || !text.contains("#![deny(unsafe_code)]") {
+                out.push(format!(
+                    "{}: must deny unsafe code and declare `wasm_rt` exactly as `{}`",
+                    file.display(),
+                    PLUGIN_LUA_UNSAFE_DECL.replace('\n', " ")
+                ));
+            }
         }
     }
     out
@@ -614,6 +695,40 @@ pub fn sdk_violations(tree: &[TreeEntry], client_crates: &[String]) -> Vec<Strin
     let mut forbidden: Vec<&str> = vec!["dereth-client"];
     forbidden.extend(client_crates.iter().map(String::as_str));
     tree_violations("dereth-client-sdk", tree, &forbidden)
+}
+
+/// A plugin crate's rule over its production tree: its direct dependencies are within `direct`, and
+/// the only `dereth-*` crates anywhere in it are `dereth-primitives`, `dereth-plugin-api` and itself.
+pub fn plugin_layer_violations(krate: &str, tree: &[TreeEntry], direct: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in tree {
+        if e.depth == 1 && !direct.contains(&e.name.as_str()) {
+            out.push(format!(
+                "{krate} depends directly on `{}`; allowed: {}",
+                e.name,
+                direct.join(", ")
+            ));
+        }
+        if e.depth > 0
+            && e.name.starts_with("dereth-")
+            && !["dereth-primitives", "dereth-plugin-api", krate].contains(&e.name.as_str())
+        {
+            out.push(format!(
+                "{krate}'s tree contains `{}` (depth {})",
+                e.name, e.depth
+            ));
+        }
+    }
+    out.extend(tree_violations(krate, tree, PLUGIN_FORBIDDEN));
+    dedup(out)
+}
+
+/// The plugin host's rule over its production tree: neither `dereth-client` nor any crate under
+/// `dereth/client/crates/` (`client_crates`) appears at any depth.
+pub fn plugin_host_violations(tree: &[TreeEntry], client_crates: &[String]) -> Vec<String> {
+    let mut forbidden: Vec<&str> = vec!["dereth-client"];
+    forbidden.extend(client_crates.iter().map(String::as_str));
+    tree_violations("dereth-plugin-host", tree, &forbidden)
 }
 
 /// The client-crates rule: every crate in `crates` has none of [`PRESENTATION_FORBIDDEN`] in its
@@ -1683,6 +1798,10 @@ pub fn reports() -> Vec<Report> {
         &ws,
         "dereth-primitives",
     )));
+    let plugin_lua_code = Ok(plugin_lua_code_violations(&crate_src(
+        &ws,
+        "dereth-plugin-lua",
+    )));
     let contract =
         cargo_tree(&ws, "dereth-client-contract", "normal").map(|t| contract_violations(&t));
     let screens_tree = cargo_tree(&ws, "dereth-ui-screens", "normal,build,dev")
@@ -1719,6 +1838,22 @@ pub fn reports() -> Vec<Report> {
         .map(|t| headless_violations(&t, &crates));
     let sdk = cargo_tree(&ws, "dereth-client-sdk", "normal,build,dev")
         .map(|t| sdk_violations(&t, &crates));
+    let plugin_api = cargo_tree(&ws, "dereth-plugin-api", "normal")
+        .map(|t| plugin_layer_violations("dereth-plugin-api", &t, PLUGIN_API_DIRECT));
+    let plugin_package = cargo_tree(&ws, "dereth-plugin-package", "normal")
+        .map(|t| plugin_layer_violations("dereth-plugin-package", &t, PLUGIN_PACKAGE_DIRECT));
+    let plugin_wasm = cargo_tree(&ws, "dereth-plugin-wasm", "normal")
+        .map(|t| plugin_layer_violations("dereth-plugin-wasm", &t, PLUGIN_WASM_DIRECT));
+    let plugin_lua = cargo_tree(&ws, "dereth-plugin-lua", "normal")
+        .map(|t| plugin_layer_violations("dereth-plugin-lua", &t, PLUGIN_LUA_DIRECT));
+    let plugin_host = cargo_tree(&ws, "dereth-plugin-host", "normal").map(|t| {
+        let mut v = plugin_host_violations(&t, &crates);
+        v.extend(code_violations(
+            &crate_sources(&ws, "dereth-plugin-host"),
+            CORE_NAMES_NOT,
+        ));
+        v
+    });
     let action_seam_files: Vec<(PathBuf, String)> = ACTION_SEAM_CRATES
         .iter()
         .flat_map(|k| crate_sources(&ws, k))
@@ -1947,6 +2082,48 @@ pub fn reports() -> Vec<Report> {
             "seam: client-sdk deps",
             sdk,
             "nothing under dereth/client/ in any table: no dereth-input".to_owned(),
+        ),
+        row(
+            "seam: plugin-api deps",
+            plugin_api,
+            format!(
+                "direct deps within {}; no other dereth-* or platform crate",
+                PLUGIN_API_DIRECT.join(", ")
+            ),
+        ),
+        row(
+            "seam: plugin-package deps",
+            plugin_package,
+            format!(
+                "direct deps within {}; no other dereth-* or platform crate",
+                PLUGIN_PACKAGE_DIRECT.join(", ")
+            ),
+        ),
+        row(
+            "seam: plugin-wasm deps",
+            plugin_wasm,
+            format!(
+                "direct deps within {}; no other dereth-* or platform crate",
+                PLUGIN_WASM_DIRECT.join(", ")
+            ),
+        ),
+        row(
+            "seam: plugin-lua deps",
+            plugin_lua,
+            format!(
+                "direct deps within {}; no other dereth-* or platform crate",
+                PLUGIN_LUA_DIRECT.join(", ")
+            ),
+        ),
+        row(
+            "seam: plugin-lua unsafe",
+            plugin_lua_code,
+            format!("unsafe only in {PLUGIN_LUA_UNSAFE_FILE}, compiled for wasm32 only"),
+        ),
+        row(
+            "seam: plugin-host names no client crate",
+            plugin_host,
+            "nothing under dereth/client/ in its tree or its code".to_owned(),
         ),
         row(
             "seam: action seam code",
@@ -2351,6 +2528,51 @@ mod tests {
     }
 
     #[test]
+    fn the_plugin_crates_keep_to_their_layers() {
+        let api = tree(&[
+            (0, "dereth-plugin-api"),
+            (1, "dereth-primitives"),
+            (2, "thiserror"),
+        ]);
+        assert!(plugin_layer_violations("dereth-plugin-api", &api, PLUGIN_API_DIRECT).is_empty());
+        let planted = tree(&[
+            (0, "dereth-plugin-api"),
+            (1, "dereth-primitives"),
+            (1, "serde"),
+        ]);
+        assert_eq!(
+            plugin_layer_violations("dereth-plugin-api", &planted, PLUGIN_API_DIRECT).len(),
+            1
+        );
+        let lua = tree(&[
+            (0, "dereth-plugin-lua"),
+            (1, "dereth-plugin-api"),
+            (2, "dereth-primitives"),
+            (1, "mlua"),
+            (1, "web-time"),
+        ]);
+        assert!(plugin_layer_violations("dereth-plugin-lua", &lua, PLUGIN_LUA_DIRECT).is_empty());
+        let reaching = tree(&[
+            (0, "dereth-plugin-lua"),
+            (1, "dereth-plugin-api"),
+            (2, "dereth-client-model"),
+        ]);
+        assert_eq!(
+            plugin_layer_violations("dereth-plugin-lua", &reaching, PLUGIN_LUA_DIRECT).len(),
+            1
+        );
+        let host = tree(&[
+            (0, "dereth-plugin-host"),
+            (1, "dereth-client-runtime"),
+            (2, "dereth-ui"),
+        ]);
+        assert_eq!(
+            plugin_host_violations(&host, &["dereth-ui".to_owned()]).len(),
+            1
+        );
+    }
+
+    #[test]
     fn parses_depth_prefixed_tree_lines() {
         let text =
             "0dereth-client-contract v0.0.0 (C:\\x)\n1dereth-primitives v0.0.0 (C:\\y)\n2thiserror v2.0.20\n\
@@ -2412,6 +2634,32 @@ mod tests {
         assert_eq!(primitives_violations(&dere).len(), 1);
         let platform = tree(&[(0, "dereth-primitives"), (1, "pxfm"), (2, "windows-sys")]);
         assert_eq!(primitives_violations(&platform).len(), 1);
+    }
+
+    #[test]
+    fn the_plugin_engine_allows_unsafe_in_its_browser_runtime_only() {
+        let lib = format!("#![deny(unsafe_code)]\n\n{PLUGIN_LUA_UNSAFE_DECL}\nuse x;\n");
+        let clean = vec![
+            (PathBuf::from("core/plugin-lua/src/lib.rs"), lib.clone()),
+            (
+                PathBuf::from("core/plugin-lua/src/wasm_rt.rs"),
+                "pub unsafe extern \"C\" fn malloc() {}\n".to_owned(),
+            ),
+        ];
+        assert!(plugin_lua_code_violations(&clean).is_empty());
+        let stray = vec![
+            (PathBuf::from("core/plugin-lua/src/lib.rs"), lib),
+            (
+                PathBuf::from("core/plugin-lua/src/tests.rs"),
+                "fn f() { unsafe { g() } }\n".to_owned(),
+            ),
+        ];
+        assert_eq!(plugin_lua_code_violations(&stray).len(), 1);
+        let ungated = vec![(
+            PathBuf::from("core/plugin-lua/src/lib.rs"),
+            "#![deny(unsafe_code)]\n#[allow(unsafe_code)]\npub mod wasm_rt;\n".to_owned(),
+        )];
+        assert_eq!(plugin_lua_code_violations(&ungated).len(), 1);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use std::sync::{Arc, OnceLock};
 
 use empyrean_common::dotnet::DotNetDict;
 use empyrean_common::era::EraId;
+use empyrean_entity::enums::WeenieType;
 
 use crate::entity::HouseListResults;
 use crate::import::WorldContent;
@@ -60,6 +61,16 @@ macro_rules! world_database_api {
 
             /// Not ACE (V460): every death treasure forgotten.
             fn clear_death_treasure_cache(&self) {}
+
+            /// Not ACE: every landblock instance whose weenie is of `weenie_type`, with its weenie,
+            /// in instance guid order, read in one pass without loading any landblock. Empty for
+            /// content with no pack.
+            fn get_landblock_instances_of_type(
+                &self,
+                _weenie_type: WeenieType,
+            ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
+                Vec::new()
+            }
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
@@ -95,6 +106,13 @@ macro_rules! world_database_api {
                 ids.sort_unstable();
                 ids
             }
+
+            fn get_landblock_instances_of_type(
+                &self,
+                weenie_type: WeenieType,
+            ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
+                WorldDatabaseWithEntityCache::get_landblock_instances_of_type(self, weenie_type)
+            }
         }
 
         impl WorldDatabase for MemContent {
@@ -129,6 +147,13 @@ macro_rules! world_database_api {
                     .collect();
                 ids.sort_unstable();
                 ids
+            }
+
+            fn get_landblock_instances_of_type(
+                &self,
+                weenie_type: WeenieType,
+            ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
+                self.db().get_landblock_instances_of_type(weenie_type)
             }
         }
     };

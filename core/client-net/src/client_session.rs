@@ -237,6 +237,9 @@ pub struct Session<T: Transport> {
     /// event would arrive a drain later.
     exit_world_disconnects: u32,
     enter_worlds: u32,
+    /// The blobs sent since the last [`Session::take_sent`], while a reader has asked for them
+    /// ([`Session::keep_sent`]); `None` otherwise, so nothing is kept for nobody.
+    sent: Option<Vec<Vec<u8>>>,
 }
 
 impl<T: Transport> Session<T> {
@@ -264,7 +267,31 @@ impl<T: Transport> Session<T> {
             queues: phases::IncomingQueues::default(),
             exit_world_disconnects: 0,
             enter_worlds: 0,
+            sent: None,
         }
+    }
+
+    /// Keep a copy of every blob sent from now on (`true`), or stop and drop what was kept.
+    pub fn keep_sent(&mut self, on: bool) {
+        match (on, self.sent.is_some()) {
+            (true, false) => self.sent = Some(Vec::new()),
+            (false, true) => self.sent = None,
+            _ => {}
+        }
+    }
+
+    /// The blobs sent since the last call, in order, each `[opcode][body]` as it went to the
+    /// transport (a game action with its ordered-action header). Empty unless [`Self::keep_sent`].
+    pub fn take_sent(&mut self) -> Vec<Vec<u8>> {
+        self.sent.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// Hand a blob to the transport, keeping a copy when asked to.
+    fn transmit(&mut self, queue: NetQueue, ordered: bool, payload: &[u8]) {
+        if let Some(sent) = &mut self.sent {
+            sent.push(payload.to_vec());
+        }
+        self.transport.send(queue, ordered, payload);
     }
 
     /// How many exit-world disconnect and enter-world calls the transport is owed; both counters
@@ -717,7 +744,7 @@ impl<T: Transport> Session<T> {
             field: "send_action",
             reason: "this opcode is not a game action; use the bare senders",
         })?;
-        self.transport.send(blob.queue, blob.ordered, &blob.payload);
+        self.transmit(blob.queue, blob.ordered, &blob.payload);
         Ok(stamp)
     }
 
@@ -743,7 +770,7 @@ impl<T: Transport> Session<T> {
     /// Send a message that is not a game action: no `OrderedActionHeader`, on its own queue.
     fn send_bare<M: Message>(&mut self, m: &M) {
         if let Ok(blob) = outbound::build(&mut self.counter, m) {
-            self.transport.send(blob.queue, blob.ordered, &blob.payload);
+            self.transmit(blob.queue, blob.ordered, &blob.payload);
         }
     }
 
@@ -754,7 +781,7 @@ impl<T: Transport> Session<T> {
         message: &dereth_protocol::turbine::SendToRoomById,
     ) -> Result<(), MessageError> {
         let blob = outbound::build(&mut self.counter, message)?;
-        self.transport.send(blob.queue, blob.ordered, &blob.payload);
+        self.transmit(blob.queue, blob.ordered, &blob.payload);
         Ok(())
     }
 

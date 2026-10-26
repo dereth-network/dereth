@@ -8,8 +8,10 @@
 //! `dereth-audio`, `dereth-world-data`), the drawn world (`dereth-scene`, with `dereth-render` and `dereth-world-render`),
 //! the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`), the classic interface it
 //! runs when that is chosen (`dereth-classic-ui`, with `dereth-classic-dat` for its portal and its
-//! fonts), and the Horizon interface it runs when that is chosen (`dereth-horizon`). **Used by** the
-//! desktop client (`dereth-client`) and the browser client (`dereth-web`).
+//! fonts), the Horizon interface it runs when that is chosen (`dereth-horizon`), and the plugin host
+//! it draws the windows of (`dereth-plugin-host`, `dereth-plugin-api`, `dereth-plugin-ui`, with the
+//! widget kit they are drawn with, `dereth-ui-kit`). **Used
+//! by** the desktop client (`dereth-client`) and the browser client (`dereth-web`).
 //!
 //! **Must never** reach a platform itself: no window system, no operating system call and no sound
 //! device (`cargo xtask seams`, `seam: application halves`). Everything platform-specific arrives

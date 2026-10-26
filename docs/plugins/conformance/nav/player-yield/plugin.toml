@@ -1,0 +1,10 @@
+id = "conformance.nav-player-yield"
+name = "Conformance: automation yields to the player"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"auto.nav" = "Walks on its own."
+
+[capabilities]
+required = ["nav.moveto"]

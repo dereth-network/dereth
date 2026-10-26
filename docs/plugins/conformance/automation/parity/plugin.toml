@@ -1,0 +1,7 @@
+id = "conformance.parity"
+name = "Conformance: read parity"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"read.chat.private" = "Unused."

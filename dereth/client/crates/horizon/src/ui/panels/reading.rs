@@ -8,6 +8,7 @@
 //! component with how many are carried and how many the player wants kept, which the game's
 //! component buying fills to.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::panels::salvage::SalvageAction;
 use dereth_client_contract::UiRequest;
 

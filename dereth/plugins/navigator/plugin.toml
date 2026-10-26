@@ -1,0 +1,16 @@
+id = "network.dereth.navigator"
+name = "Navigator"
+version = "0.4.0"
+api = "0.7"
+entry = "main.lua"
+description = "Points the way, in the manner of GoArrow: one Where to? search for places by name and type (towns, dungeons, portals, lifestones, recalls, places of your own, coordinates), Go to travel there through portals and recalls or on foot, Point for the arrow alone; an arrow HUD with your coordinates and the way; saved places, coordinates seen in chat and spots clicked on the map; the ways to a place, a map of the dungeon you are in, and VTank routes walked."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"act.interactive" = "Goes to the place you pick when you click Go or type /nav go or /nav travel, through portals and by your recalls where the client makes journeys."
+"auto.nav" = "Carries on along a route between points, where the world allows it."
+
+[capabilities]
+required = ["ui.window"]
+optional = ["ui.hud", "overlay.arrow", "overlay.world", "overlay.map", "map.clicks", "nav.moveto", "nav.journey", "game.data"]

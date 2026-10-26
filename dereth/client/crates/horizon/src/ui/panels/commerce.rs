@@ -8,6 +8,7 @@
 //! trade: what each side offers, an item dropped on your side offered, and Accept, Decline, Clear
 //! and Close.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::view::{ShopRow, TradeRow};
 use dereth_client_contract::UiRequest;
 use dereth_primitives::ObjectId;

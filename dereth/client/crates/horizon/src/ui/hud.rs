@@ -10,6 +10,7 @@
 //! * the log window (chat, with tabs and an input line) at the bottom left;
 //! * the main menu at the bottom right.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 
 use crate::art::{Family, Sprite};
@@ -67,6 +68,8 @@ pub struct Hud {
     level_banner_at: Option<f64>,
     /// Where the player has put each element.
     pub layout: crate::ui::layout::HudLayout,
+    /// The elements a plugin hides ([`crate::retail_ui`]), by their layout names.
+    pub retail_hidden: std::collections::BTreeSet<&'static str>,
     /// The shortcut slots a drag can land on, on screen, with their slot numbers.
     pub drop_slots: Vec<(Rect, u32)>,
     /// The world and character the layout was loaded for.
@@ -100,6 +103,8 @@ pub struct Hud {
     radar_heading: Option<(f32, f64)>,
     /// The minimap turns with the character; otherwise it stands north up.
     pub minimap_rotates: bool,
+    /// The plugins' blips for the minimap this frame.
+    pub plugin_radar: Vec<dereth_plugin_ui::RadarMark>,
     /// What the HUD's clicks asked the information windows to show this frame.
     asks: Vec<crate::ui::panels::info::Ask>,
     /// The pad's cross hotbars, their sets and what is bound to them.
@@ -579,11 +584,14 @@ impl Hud {
         if !state.teleporting {
             self.nameplates(p, ctx, state);
         }
+        // An element a plugin hides is not drawn at all, and takes no pointer.
         macro_rules! element {
             ($name:literal, $call:expr) => {{
-                let open = self.layout.begin($name, p, ctx, editing);
-                $call;
-                self.layout.end(open, p, ctx);
+                if !self.retail_hidden.contains($name) {
+                    let open = self.layout.begin($name, p, ctx, editing);
+                    $call;
+                    self.layout.end(open, p, ctx);
+                }
             }};
         }
         element!("server", self.server_info(p, ctx, state));
@@ -699,7 +707,7 @@ impl Hud {
         let dim = TextStyle::new(Family::Body, 12.0, 0xFFB0_B0B0).edge(0xFF00_0000);
         match self.layout.selected_placement() {
             Some((name, pl)) => {
-                let title = crate::ui::layout::element_title(name);
+                let title = crate::ui::layout::element_title(&name);
                 p.text(&text, body.x + 8.0 * k, body.y + 4.0 * k, &title);
                 let pct = dereth_primitives::num::to_i32((pl.scale * 100.0).round());
                 let line = format!("Size {pct}%   X {:+.0}  Y {:+.0}", pl.dx, pl.dy);
@@ -1386,6 +1394,7 @@ impl Hud {
                                 from_spell_slot: None,
                                 component: false,
                                 stance: None,
+                                command: None,
                             });
                         }
                         // A spell is picked up by the press, and cast by a release that did not
@@ -1413,6 +1422,7 @@ impl Hud {
                                 from_spell_slot: Some((self.spell_tab, j)),
                                 component: false,
                                 stance: None,
+                                command: None,
                             });
                         }
                         (None, None) => out.requests.extend(action),
@@ -1800,6 +1810,17 @@ impl Hud {
             if dist <= (12.0 * k).powi(2) && hovered.is_none_or(|(d, _)| dist < d) {
                 hovered = Some((dist, b));
             }
+        }
+        // The plugins' blips, over the game's, turned as they are.
+        if !self.plugin_radar.is_empty() {
+            let glyphs = dereth_plugin_ui::marks::radar_glyphs(
+                &self.plugin_radar,
+                centre,
+                radius,
+                range,
+                lag,
+            );
+            dereth_plugin_ui::layer::glyphs(p, &glyphs);
         }
         // Where the camera looks, a soft cone from the centre, under the player's arrow.
         if let Some(cone) = own.then(|| p.piece("minimap.cone")).flatten() {

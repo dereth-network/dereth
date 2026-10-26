@@ -1,0 +1,14 @@
+says = "Entering and leaving portal space and the character's death are events, in order, and a meta's portal and death conditions hold at its next check after them."
+[scenario]
+world = "scripted"
+seconds = 7
+[[step]]
+after = 2
+teleport = [42.5, 33.5]
+[[step]]
+after = 5
+die = true
+[expect]
+status = "running"
+console = ["event	portal_enter", "state	Hunting	->	Portal", "in portal space", "event	portal_exit", "state	Portal	->	Arrived", "event	death	1", "state	Arrived	->	Dead"]
+place = [42.5, 33.5]

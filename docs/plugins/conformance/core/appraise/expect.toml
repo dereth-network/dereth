@@ -1,0 +1,20 @@
+says = "An appraisal settles its promise with what it told and raises the appraised event; one nobody answers fails as a timeout."
+[scenario]
+world = "scripted"
+seconds = 8
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+magical = true
+ints = { 105 = 7 }
+spells = [2074, 2075]
+[[step]]
+after = 1
+say = "/id"
+[expect]
+status = "running"
+console = ["appraised\t0x80000011", "workmanship\t7\tspells\t2", "class\tJewelry\tint\t7\tvalue\t900", "unknown\tfalse\ttimeout"]
+sent = ["appraise 0x80000011", "appraise 0x80000099"]

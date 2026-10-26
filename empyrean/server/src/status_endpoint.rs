@@ -18,6 +18,12 @@
 //!   (`empyrean_common::not_ported::global_snapshot`).
 //! - `GET /v1/world`: the same document, at the address a launcher's world registry names.
 //!
+//! With `server.publish_portals` on, it also answers `GET /portals` with the world's portal table
+//! (`503` until the table, built once on a thread of its own from start-up, is ready)
+//! ([`crate::portal_table`]: where each placed portal stands, where it leads and its level limits,
+//! as `text/tab-separated-values`), built from the world content on the first request and kept;
+//! with it off, `/portals` is `404` like any other path.
+//!
 //! The snapshot is taken on the world thread (a command through the world queue), so the
 //! endpoint never reads the world from another thread. Anything else is `404`, or `405` for a method
 //! other than `GET`/`HEAD`. One request per connection; the listener is meant for loopback or a
@@ -36,6 +42,8 @@ use std::time::Duration;
 use empyrean_world::managers::world_manager::WorldStatusState;
 use empyrean_world::managers::{landblock_manager, player_manager};
 use empyrean_world::World;
+
+use crate::portal_table::PortalTable;
 
 /// How long a request waits for the world thread's snapshot before answering 503.
 pub const WORLD_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
@@ -228,9 +236,19 @@ pub fn status_address(cli: Option<&str>, config: &str) -> Result<Option<SocketAd
 }
 
 /// The response to one request, given its request line and a way to get the world's snapshot
-/// (`None` when the world did not answer in time).
+/// (`None` when the world did not answer in time), with no portal table published.
 #[must_use]
 pub fn respond(request_line: &str, snapshot: impl FnOnce() -> Option<StatusSnapshot>) -> Vec<u8> {
+    respond_with_portals(request_line, snapshot, None)
+}
+
+/// [`respond`], also answering `/portals` from `portals` when it is published.
+#[must_use]
+pub fn respond_with_portals(
+    request_line: &str,
+    snapshot: impl FnOnce() -> Option<StatusSnapshot>,
+    portals: Option<&PortalTable>,
+) -> Vec<u8> {
     let mut parts = request_line.split_whitespace();
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let path = target.split('?').next().unwrap_or("");
@@ -249,6 +267,15 @@ pub fn respond(request_line: &str, snapshot: impl FnOnce() -> Option<StatusSnaps
                 503,
                 "application/json",
                 "{\"error\":\"the world thread did not answer\"}\n",
+                head_only,
+            ),
+        },
+        "/portals" if portals.is_some() => match portals.and_then(PortalTable::ready) {
+            Some(document) => response(200, "text/tab-separated-values", document, head_only),
+            None => response(
+                503,
+                "text/plain",
+                "the portal table is being built; ask again shortly\n",
                 head_only,
             ),
         },
@@ -333,14 +360,16 @@ impl StatusEndpoint {
 
 /// Binds the endpoint and serves it on a thread of its own until the process ends or the
 /// endpoint is [shut down](StatusEndpoint::shutdown). `snapshot` is called once per `/status` or
-/// `/health` request and must answer within its own timeout. A request from a page origin in
-/// `allowed_origins` is answered with that origin allowed.
+/// `/health` request and must answer within its own timeout. `portals`, when given, is served as
+/// `/portals`. A request from a page origin in `allowed_origins` is answered with that origin
+/// allowed.
 ///
 /// # Errors
 /// The address cannot be bound, or the thread cannot start.
 pub fn start(
     addr: SocketAddr,
     allowed_origins: Vec<String>,
+    portals: Option<PortalTable>,
     snapshot: impl Fn() -> Option<StatusSnapshot> + Send + 'static,
 ) -> Result<StatusEndpoint, String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
@@ -355,7 +384,9 @@ pub fn start(
                     break;
                 }
                 match stream {
-                    Ok(stream) => serve_one(stream, &allowed_origins, &snapshot),
+                    Ok(stream) => {
+                        serve_one(stream, &allowed_origins, portals.as_ref(), &snapshot);
+                    }
                     Err(e) => log::warn!("Status endpoint: accept failed: {e}"),
                 }
             }
@@ -367,6 +398,7 @@ pub fn start(
 fn serve_one(
     mut stream: TcpStream,
     allowed_origins: &[String],
+    portals: Option<&PortalTable>,
     snapshot: &dyn Fn() -> Option<StatusSnapshot>,
 ) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
@@ -389,7 +421,7 @@ fn serve_one(
             .eq_ignore_ascii_case("origin")
             .then(|| value.trim())
     });
-    let mut answer = respond(request_line, snapshot);
+    let mut answer = respond_with_portals(request_line, snapshot, portals);
     if let Some(header) = cors_header(origin, allowed_origins) {
         answer = with_header(answer, &header);
     }

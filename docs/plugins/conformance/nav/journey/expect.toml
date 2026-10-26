@@ -1,0 +1,25 @@
+says = "A journey to a dungeon walks to the portal that leads there, uses it and walks on to the goal; its legs and what the use taught reach the plugin as events, its promise settles on arrival, and the world's store keeps the portal's destination as learned."
+[scenario]
+world = "scripted"
+seconds = 12
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.85]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+status = "running"
+console = [
+	"planned\twalk portal walk",
+	"leg\t1\twalk\t",
+	"leg\t2\tportal\tDrudge Hideout",
+	"learned\tportal\tDrudge Hideout\t0x019E0114",
+	"leg\t3\twalk\t",
+	"arrived\ttrue\t1",
+	"known\tDrudge Hideout\thint\t0",
+	"known\tDrudge Hideout\tlearned\t1",
+]
+moves = ["travel portal Drudge Hideout", "travel arrived"]

@@ -1,0 +1,10 @@
+id = "conformance.path"
+name = "Conformance: path and sight"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Asks for routes where you ask."
+
+[capabilities]
+required = ["nav.path"]

@@ -1,0 +1,5 @@
+id = "conformance.hotkeys"
+name = "Conformance: hotkeys"
+version = "0.1.0"
+api = "0.6"
+contexts = ["pregame", "world"]

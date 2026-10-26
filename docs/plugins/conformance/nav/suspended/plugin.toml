@@ -1,0 +1,10 @@
+id = "conformance.nav-suspended"
+name = "Conformance: a suspended plugin lets go"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"act.interactive" = "Walks where you ask."
+
+[capabilities]
+required = ["nav.moveto"]

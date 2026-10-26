@@ -9,6 +9,7 @@
 //! the interface answers itself (the shortcut and window keys, logging out) and the mouse actions
 //! that began over the world, and gives the rest back.
 
+use crate::art::AcArt as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -127,6 +128,9 @@ pub struct HorizonFrontEnd {
     strings: crate::strings::Strings,
     /// The game's questions and messages on screen.
     pub dialogs: HorizonDialogs,
+    /// The plugin host's question on screen, and the player's answer to it not yet taken.
+    host_question: Option<dereth_client_runtime::dialogs::HostQuestion>,
+    host_reply: Option<dereth_client_runtime::dialogs::HostReply>,
     /// The object the examine window shows, and the last examine request seen.
     examining: Option<ObjectId>,
     examine_serial: u64,
@@ -247,6 +251,8 @@ impl HorizonFrontEnd {
             world_press: [false; 2],
             strings: crate::strings::Strings::default(),
             dialogs: HorizonDialogs::default(),
+            host_question: None,
+            host_reply: None,
             examining: None,
             examine_serial: 0,
             examine_close: false,
@@ -845,6 +851,7 @@ impl HorizonFrontEnd {
         state.chat_cleared = std::mem::take(&mut self.chat_cleared);
         self.ping(cx, now);
         state.ping_ms = self.ping_ms;
+        state.host_question.clone_from(&self.host_question);
         let shown = self.dialogs.shown();
         let waiting = shown
             .iter()
@@ -1219,8 +1226,35 @@ impl HorizonFrontEnd {
         }
     }
 
+    /// Put the plugin host's question to the player in this interface's own dialog, or take it
+    /// down (`None`). A question with another id replaces the one shown.
+    pub fn set_host_question(
+        &mut self,
+        question: Option<dereth_client_runtime::dialogs::HostQuestion>,
+    ) {
+        if self.host_question.as_ref().map(|q| q.id) != question.as_ref().map(|q| q.id) {
+            self.host_reply = None;
+        }
+        self.host_question = question;
+    }
+
+    /// The plugin host's question this interface shows.
+    #[must_use]
+    pub fn host_question(&self) -> Option<&dereth_client_runtime::dialogs::HostQuestion> {
+        self.host_question.as_ref()
+    }
+
+    /// The player's answer to the plugin host's question since the last call, with its id. Only
+    /// the player's press on the question's own buttons (or its keys) gives one.
+    pub fn take_host_reply(&mut self) -> Option<dereth_client_runtime::dialogs::HostReply> {
+        self.host_reply.take()
+    }
+
     /// What the player asked for this frame, handed to the runtime.
     fn carry_out<S: Shell>(&mut self, cx: &mut Cx<'_, S>, out: crate::ui::Outcome) {
+        if let Some(reply) = out.host_reply {
+            self.host_reply = Some(reply);
+        }
         for (id, yes) in out.answers {
             if id == RESOLUTION_PROMPT {
                 use dereth_client_contract::resolution::{ResolutionAction, ResolutionPromptKind};
@@ -1792,9 +1826,57 @@ impl HorizonFrontEnd {
         self.overlay.items()
     }
 
+    /// The plugins this frame, as the host has them: their windows, HUDs, bar and marks.
+    pub fn set_plugins(&mut self, frame: crate::ui::plugins::PluginFrame) {
+        self.ui.windows.plugins.frame = frame;
+    }
+
+    /// The game's panels the plugins hide or move this frame ([`crate::retail_ui`]).
+    pub fn set_retail_ui(&mut self, asked: &[crate::retail_ui::Ask]) {
+        crate::retail_ui::follow(&mut self.ui, asked);
+    }
+
+    /// What the player did on the plugins' windows, HUDs and bar since the last call.
+    pub fn take_plugin_inputs(&mut self) -> Vec<dereth_plugin_ui::Input> {
+        self.ui.windows.plugins.take_inputs()
+    }
+
+    /// Where each plugin window stands (screen pixels) and the size the player gave it, and the
+    /// plugin bar, for the host to remember.
+    #[must_use]
+    pub fn plugin_places(
+        &self,
+    ) -> (
+        dereth_plugin_ui::Places,
+        dereth_plugin_ui::Sizes,
+        Option<dereth_plugin_ui::BarPlace>,
+    ) {
+        (
+            self.ui.windows.plugin_places(),
+            self.ui.windows.plugins.ui.sizes(),
+            self.ui.windows.plugins.bar_place(),
+        )
+    }
+
+    /// Where plugin window `(plugin, window)` opens, where the player last left it.
+    pub fn plugin_place_hint(&mut self, plugin: &str, window: &str, x: f32, y: f32) {
+        self.ui.windows.plugins.ui.place_hint(plugin, window, x, y);
+    }
+
+    /// The size plugin window `(plugin, window)` opens at, as the player last left it (layout
+    /// units, frame and all).
+    pub fn plugin_size_hint(&mut self, plugin: &str, window: &str, width: f32, height: f32) {
+        self.ui
+            .windows
+            .plugins
+            .ui
+            .size_hint(plugin, window, width, height);
+    }
+
     /// The interface is put away for another: every press it holds is let go, and its boxes come
     /// down unanswered.
     pub fn suspend(&mut self) {
+        self.ui.windows.plugins.ui.let_go();
         self.frame_input = InputFrame::default();
         self.world_press = [false; 2];
         self.ui.drag = None;

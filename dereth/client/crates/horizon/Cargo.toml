@@ -28,6 +28,11 @@ dereth-dat.workspace = true
 # The string tables the option labels and the game's messages are read from.
 dereth-assets.workspace = true
 dereth-input.workspace = true
+# The widget kit the interface is drawn with: its draw lists, art, text, widgets and the pad's focus.
+dereth-ui-kit.workspace = true
+# The plugins' windows, HUDs and marks, seated among the interface's own, and their declared trees.
+dereth-plugin-ui.workspace = true
+dereth-plugin-api.workspace = true
 # Character creation's model, and the rules its skill classes come from.
 dereth-chargen.workspace = true
 dereth-rules.workspace = true

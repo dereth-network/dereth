@@ -1,0 +1,10 @@
+says = "The spell book comes in id order, whole or a page at a time (counting from 1); a page past the end is empty; each spell carries its category and how long it lasts."
+[scenario]
+world = "scripted"
+seconds = 3
+[[step]]
+after = 1
+say = "/book"
+[expect]
+status = "running"
+console = ["all\t10", "page\tHeal Self I,Imperil Other I", "last\tRevitalize Self I,Stamina to Mana Self I,Might of the Lugians,Blade Protection Self I", "past\t0", "category\t1133\t1133", "duration\t1800"]

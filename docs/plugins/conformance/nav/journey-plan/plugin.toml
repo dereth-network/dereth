@@ -1,0 +1,10 @@
+id = "conformance.journey-plan"
+name = "Conformance: journey plan"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Plans where you ask."
+
+[capabilities]
+required = ["nav.journey"]

@@ -33,6 +33,13 @@ dereth-primitives.workspace = true
 dereth-client-contract.workspace = true
 # The application state machine, its frame loop and the platform seams the host fills.
 dereth-client-runtime.workspace = true
+# The plugin host, reached through the runtime's frame hook, and the crate that builds its
+# windows in this interface.
+dereth-plugin-host.workspace = true
+dereth-plugin-ui.workspace = true
+# The widget kit the plugins' layer over the modern and the classic interface is drawn with.
+dereth-ui-kit.workspace = true
+dereth-plugin-api.workspace = true
 dereth-client-model.workspace = true
 dereth-client-net = { workspace = true, default-features = true }
 dereth-protocol.workspace = true
@@ -63,6 +70,8 @@ dereth-client-shell = { path = ".", default-features = false, features = ["test-
 dereth-dat = { workspace = true, features = ["test-support"] }
 # `DERETH_TEST_RENDERER`: the backend a test's device comes up on.
 dereth-render = { workspace = true, features = ["mock", "test-support"] }
+# The engine of the plugins the tests load into a plugin host.
+dereth-plugin-lua.workspace = true
 
 [lints]
 workspace = true

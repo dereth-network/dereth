@@ -1,0 +1,4 @@
+id = "conformance.sandbox"
+name = "Conformance: sandbox"
+version = "0.1.0"
+api = "0.1"

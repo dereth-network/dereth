@@ -1,0 +1,22 @@
+UTL
+1
+3
+Academy quest items
+
+0;1;1
+50
+^(Academy Token|Carpenter Wasp Wing|Bellows)$
+1
+Protection Orb
+
+0;10;1
+1
+21
+^Protection Orb$
+1
+Healing
+
+0;1;1
+68
+^(Health Draught|Potion of Healing|Stamina Potion|Mana Potion)$
+1

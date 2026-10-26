@@ -1,0 +1,17 @@
+id = "network.dereth.follow"
+name = "Follow"
+version = "0.2.0"
+api = "0.7"
+entry = "main.lua"
+description = "Multi-box follow: one client leads, the player's other clients on the machine follow its character, and a line typed at the leader is typed at every follower. A window lists your other clients to lead or follow."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"peers.local" = "Talks to Follow in your other clients on this machine: where each character is, and the lines the leader sends."
+"act.interactive" = "Follows the leader when you click Follow or type /follow."
+"auto.nav" = "Walks to where the leader was last seen when it is out of sight, where the world allows it."
+"chat.send" = "Types the lines the leader sends to its followers."
+
+[capabilities]
+required = ["peers.local", "nav.moveto", "ui.window"]

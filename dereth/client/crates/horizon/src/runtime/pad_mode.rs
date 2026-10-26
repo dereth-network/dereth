@@ -793,6 +793,7 @@ mod tests {
             kind,
             cancel: None,
             steps: None,
+            quiet: false,
         };
         let target = |l: usize| Target {
             rect: Rect::new(1.0, 1.0, 5.0, 5.0),

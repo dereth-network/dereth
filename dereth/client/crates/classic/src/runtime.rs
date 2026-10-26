@@ -138,6 +138,8 @@ pub struct ClassicUi {
     shift: bool,
     ctrl: bool,
     alt: bool,
+    /// The presses on the map page's map since the plugins were last told.
+    map_clicks: Vec<dereth_client_contract::panels::map::MapClick>,
     /// The keys held down, so a repeated press is told from a new one.
     held_keys: std::collections::BTreeSet<u16>,
     /// Wheel movement not yet a whole step.
@@ -166,6 +168,30 @@ pub struct ClassicUi {
 /// How long after Configure Keyboard a leaving of the world still opens the key page, in
 /// seconds: longer than a logging-out character takes to leave.
 const KEYBOARD_ON_LEAVING_WAIT: f64 = 60.0;
+/// The interface's `items` with what is drawn among them from elsewhere, bottom to top: `under`,
+/// the items before the modal box (`at`), `between`, the items from the modal box to the pointer
+/// (`pointer`), `over`, and the pointer's items.
+#[must_use]
+pub fn stack_overlay(
+    items: &[dereth_client_contract::overlay::OverlayItem],
+    at: Option<usize>,
+    pointer: Option<usize>,
+    under: &[dereth_client_contract::overlay::OverlayItem],
+    between: &[dereth_client_contract::overlay::OverlayItem],
+    over: &[dereth_client_contract::overlay::OverlayItem],
+) -> Vec<dereth_client_contract::overlay::OverlayItem> {
+    let at = at.unwrap_or(items.len()).min(items.len());
+    let pointer = pointer.unwrap_or(items.len()).clamp(at, items.len());
+    let mut all = Vec::with_capacity(under.len() + items.len() + between.len() + over.len());
+    all.extend_from_slice(under);
+    all.extend_from_slice(&items[..at]);
+    all.extend_from_slice(between);
+    all.extend_from_slice(&items[at..pointer]);
+    all.extend_from_slice(over);
+    all.extend_from_slice(&items[pointer..]);
+    all
+}
+
 impl std::fmt::Debug for ClassicUi {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClassicUi")
@@ -243,6 +269,7 @@ impl ClassicUi {
             shift: false,
             ctrl: false,
             alt: false,
+            map_clicks: Vec::new(),
             held_keys: std::collections::BTreeSet::new(),
             wheel: 0.0,
             desktop: Desktop::new(factory, size),
@@ -1303,6 +1330,17 @@ impl ClassicUi {
                     ask(cx, UiRequest::MapTeleport { x: lx, y: ly });
                 }
             }
+            HostAction::MapClick { ns, ew, button } => {
+                self.map_clicks
+                    .push(dereth_client_contract::panels::map::MapClick {
+                        ns,
+                        ew,
+                        button,
+                        ctrl: self.ctrl,
+                        shift: self.shift,
+                        alt: self.alt,
+                    });
+            }
             HostAction::TestSpellFormula { components } => {
                 ask(cx, UiRequest::TestSpellFormula { components });
             }
@@ -1691,6 +1729,12 @@ impl ClassicUi {
     #[must_use]
     pub fn hides_world(&self) -> bool {
         !self.last_in_world
+    }
+    /// Whether one of the interface's own boxes, panels or controls is under `(x, y)` (a screen
+    /// that fills the window only where one of its controls is).
+    #[must_use]
+    pub fn game_control_at(&self, x: i32, y: i32) -> bool {
+        self.desktop.game_control_at(x, y)
     }
     #[must_use]
     pub fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool {
@@ -2745,8 +2789,17 @@ impl ClassicUi {
         let size = cx.present().size();
         let store = std::sync::Arc::clone(cx.store());
         let shown = self.previews.shown().to_vec();
+        let modal_at = self.desktop.modal_at;
+        // The pointer is the last thing drawn.
+        let pointer_at = self
+            .screen
+            .commands
+            .len()
+            .saturating_sub(self.cursor_commands.len());
         if let Some(canvas) = &mut self.canvas {
             canvas.resize(size);
+            canvas.split_at(Some(modal_at));
+            canvas.pointer_at(Some(pointer_at));
             if let Err(e) = canvas.load_runtime_images(&self.screen, &store) {
                 self.errors.push(e.to_string());
                 return;
@@ -2779,6 +2832,95 @@ impl ClassicUi {
             present.draw_overlay(canvas.items())?;
         }
         Ok(())
+    }
+
+    /// [`Self::draw_ui`] with `under` drawn under everything of this interface's (over the game
+    /// view, under its panels and windows: labels standing in the world), `between` over its
+    /// windows and under its modal box and what stands over that (the world's names, the target
+    /// and the pointer): where a layer of windows from elsewhere stands; and `over` over all of
+    /// it but the pointer: the client's own question.
+    ///
+    /// # Errors
+    /// Whatever the device answers.
+    pub fn draw_ui_with(
+        &mut self,
+        present: &mut dyn Presentation,
+        under: &[dereth_client_contract::overlay::OverlayItem],
+        between: &[dereth_client_contract::overlay::OverlayItem],
+        over: &[dereth_client_contract::overlay::OverlayItem],
+    ) -> Result<(), dereth_client_runtime::present::PresentError> {
+        let (items, at, pointer) = match &self.canvas {
+            Some(canvas) => {
+                let items = canvas.items();
+                (items, canvas.split(), canvas.pointer())
+            }
+            None => (&[][..], None, None),
+        };
+        let all = stack_overlay(items, at, pointer, under, between, over);
+        if all.is_empty() {
+            return Ok(());
+        }
+        present.draw_overlay(&all)
+    }
+
+    /// Where this frame's items of the modal box and of the pointer start, among how many: what is
+    /// drawn here from elsewhere stands at those marks.
+    #[must_use]
+    pub fn overlay_marks(&self) -> Option<(Option<usize>, Option<usize>, usize)> {
+        let canvas = self.canvas.as_ref()?;
+        Some((canvas.split(), canvas.pointer(), canvas.items().len()))
+    }
+
+    /// Whether this interface's modal box is up: nothing under it takes the pointer.
+    #[must_use]
+    pub fn modal_up(&self) -> bool {
+        self.desktop.modal_up()
+    }
+
+    /// The radar's middle and its radius to the rim, in screen pixels, while the game screen shows
+    /// it.
+    #[must_use]
+    pub fn radar_area(&self) -> Option<((f32, f32), f32)> {
+        if !self.last_in_world {
+            return None;
+        }
+        let (w, h) = self.desktop.layout().size;
+        let r = crate::panels::hud::radar_rect(
+            i32::try_from(w).unwrap_or(800),
+            i32::try_from(h).unwrap_or(600),
+            self.classic.stretched(),
+            !self.classic.active_right.is_empty(),
+        );
+        let radius = if r.w == 80 { 32.0 } else { 50.0 };
+        #[allow(clippy::cast_precision_loss)]
+        Some((((r.x + r.w / 2) as f32, (r.y + r.h / 2) as f32), radius))
+    }
+
+    /// The game's panels the plugins hide this frame, by the names plugins give them: each with a
+    /// counterpart here ([`crate::desktop::retail_ui_counterpart`]) is neither drawn nor takes the
+    /// pointer while it is hidden.
+    pub fn set_retail_hidden(&mut self, hidden: &[&str]) {
+        let hidden: std::collections::BTreeSet<String> = hidden
+            .iter()
+            .filter(|p| crate::desktop::retail_ui_counterpart(p))
+            .map(|p| (*p).to_owned())
+            .collect();
+        if hidden != self.classic.retail_hidden {
+            self.classic.retail_hidden.clone_from(&hidden);
+            self.desktop.set_retail_hidden(hidden);
+        }
+    }
+
+    /// Where coordinates north and east fall on screen on the map page's map, while it shows.
+    #[must_use]
+    pub fn map_point(&self, north: f64, east: f64) -> Option<(i32, i32)> {
+        self.desktop.map_point(north, east)
+    }
+
+    /// The presses on the map page's map since the last call: the place under the pointer, the
+    /// button and the modifiers held, for the plugins listening.
+    pub fn take_map_clicks(&mut self) -> Vec<dereth_client_contract::panels::map::MapClick> {
+        std::mem::take(&mut self.map_clicks)
     }
 }
 
@@ -3336,6 +3478,55 @@ fn changed_options(
             ((old[i] & mask != 0) != on).then_some((option, on))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod overlay_stack_tests {
+    //! Behaviour: none (where what is drawn from elsewhere stands among this interface's items).
+    use super::stack_overlay;
+    use dereth_client_contract::overlay::{OverlayItem, PreviewSpace};
+
+    /// An item told apart by `n`.
+    fn item(n: u32) -> OverlayItem {
+        OverlayItem::Preview {
+            space: PreviewSpace::Portal,
+            rect: dereth_primitives::Viewport {
+                x: n,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        }
+    }
+
+    fn names(items: &[OverlayItem]) -> Vec<u32> {
+        items
+            .iter()
+            .map(|i| match i {
+                OverlayItem::Preview { rect, .. } => rect.x,
+                _ => u32::MAX,
+            })
+            .collect()
+    }
+
+    /// What is drawn from elsewhere stands under the interface, over its windows and under its
+    /// modal box, or over everything of it but its pointer.
+    #[test]
+    fn the_clients_question_stands_over_everything_of_the_interface_but_its_pointer() {
+        let items: Vec<OverlayItem> = (0..5).map(item).collect();
+        let all = stack_overlay(
+            &items,
+            Some(2),
+            Some(4),
+            &[item(10)],
+            &[item(20)],
+            &[item(30)],
+        );
+        assert_eq!(names(&all), [10, 0, 1, 20, 2, 3, 30, 4]);
+        // No modal box and no pointer drawn: both marks at the end.
+        let all = stack_overlay(&items, None, None, &[], &[item(20)], &[item(30)]);
+        assert_eq!(names(&all), [0, 1, 2, 3, 4, 20, 30]);
+    }
 }
 
 #[cfg(test)]

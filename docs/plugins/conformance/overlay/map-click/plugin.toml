@@ -1,0 +1,7 @@
+id = "conformance.mapclick"
+name = "Conformance: map clicks"
+version = "0.1.0"
+api = "0.7"
+
+[capabilities]
+required = ["map.clicks", "overlay.map", "overlay.arrow"]

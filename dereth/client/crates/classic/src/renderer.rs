@@ -332,6 +332,15 @@ pub struct Canvas {
     next_key: u64,
     /// This frame's overlay, built outside the frame bracket and drawn inside it.
     items: Vec<OverlayItem>,
+    /// The command whose items' start is marked, and where they start this frame.
+    split_at: Option<usize>,
+    split_item: Option<usize>,
+    /// The pointer's first command, and where its items start this frame.
+    pointer_at: Option<usize>,
+    pointer_item: Option<usize>,
+    /// The items before this one are closed: a batch drawn after a mark never joins one drawn
+    /// before it, so what is drawn at the mark from elsewhere stands between them.
+    closed: usize,
 }
 impl std::fmt::Debug for Canvas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -731,6 +740,11 @@ impl Canvas {
             white: None,
             next_key: 1,
             items: Vec::new(),
+            split_at: None,
+            split_item: None,
+            pointer_at: None,
+            pointer_item: None,
+            closed: 0,
         })
     }
     pub fn font_metrics(&self) -> FontMetrics {
@@ -812,8 +826,22 @@ impl Canvas {
         if (screen.width, screen.height) != self.size {
             return Err("renderer/screen size mismatch".into());
         }
+        self.split_item = None;
+        self.pointer_item = None;
+        self.closed = 0;
         let mut start = 0;
         for (at, command) in screen.commands.iter().enumerate() {
+            if Some(at) == self.split_at || Some(at) == self.pointer_at {
+                self.draw_prepared(present, &screen.commands[start..at])?;
+                start = at;
+                if Some(at) == self.split_at {
+                    self.split_item = Some(self.items.len());
+                }
+                if Some(at) == self.pointer_at {
+                    self.pointer_item = Some(self.items.len());
+                }
+                self.closed = self.items.len();
+            }
             if let Command::Preview { index } = command {
                 self.draw_prepared(present, &screen.commands[start..at])?;
                 start = at + 1;
@@ -830,10 +858,44 @@ impl Canvas {
                 }
             }
         }
-        self.draw_prepared(present, &screen.commands[start..])
+        self.draw_prepared(present, &screen.commands[start..])?;
+        if self.split_item.is_none() && self.split_at.is_some() {
+            self.split_item = Some(self.items.len());
+        }
+        if self.pointer_item.is_none() && self.pointer_at.is_some() {
+            self.pointer_item = Some(self.items.len());
+        }
+        Ok(())
+    }
+    /// Mark command `at` of the next screen composed: [`Self::split`] answers where its items
+    /// start, for what is drawn there from elsewhere.
+    pub fn split_at(&mut self, at: Option<usize>) {
+        self.split_at = at;
+    }
+    /// Where the items of the command [`Self::split_at`] marked start, in the last screen
+    /// composed.
+    #[must_use]
+    pub fn split(&self) -> Option<usize> {
+        self.split_item
+    }
+    /// Mark command `at` of the next screen composed as the pointer's first: [`Self::pointer`]
+    /// answers where its items start.
+    pub fn pointer_at(&mut self, at: Option<usize>) {
+        self.pointer_at = at;
+    }
+    /// Where the pointer's items start, in the last screen composed.
+    #[must_use]
+    pub fn pointer(&self) -> Option<usize> {
+        self.pointer_item
     }
     /// Draw preview space `space` into `rect` first, under everything else this frame.
     pub fn prepend_preview(&mut self, space: PreviewSpace, [x, y, w, h]: [i32; 4]) {
+        for at in [&mut self.split_item, &mut self.pointer_item]
+            .into_iter()
+            .flatten()
+        {
+            *at += 1;
+        }
         self.items.insert(
             0,
             OverlayItem::Preview {
@@ -902,7 +964,7 @@ impl Canvas {
         } else {
             OverlayMaterial::Image
         };
-        push_batch(&mut self.items, material, texture, vertices);
+        push_batch(&mut self.items, self.closed, material, texture, vertices);
     }
 
     fn draw_prepared<P: Presentation + ?Sized>(
@@ -1284,10 +1346,11 @@ impl Canvas {
 }
 
 /// Add one command's triangles to the overlay. A command drawn with the same texture and
-/// material as the one before it joins that batch: the order on the screen is the same, and the
-/// device draws one batch, not two.
+/// material as the one before it joins that batch, unless that batch is one of the first `closed`
+/// items: the order on the screen is the same, and the device draws one batch, not two.
 fn push_batch(
     items: &mut Vec<OverlayItem>,
+    closed: usize,
     material: OverlayMaterial,
     texture: TextureSlot,
     vertices: &[OverlayVertex],
@@ -1295,12 +1358,13 @@ fn push_batch(
     if vertices.is_empty() {
         return;
     }
+    let open = items.len() > closed;
     if let Some(OverlayItem::Triangles {
         material: last_material,
         texture: last_texture,
         vertices: last_vertices,
         ..
-    }) = items.last_mut()
+    }) = items.last_mut().filter(|_| open)
     {
         if *last_material == material && *last_texture == texture {
             last_vertices.extend_from_slice(vertices);
@@ -1563,6 +1627,65 @@ mod layout_tests {
         assert_eq!(stack(&a), 25);
     }
 
+    /// The canvas marks where the modal box's items and the pointer's start, each at its own
+    /// command and in a batch of its own (one of the same texture before a mark is not joined
+    /// across it), and a preview put first moves both marks along.
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads installed interface art")]
+    fn a_composed_screen_marks_where_the_modal_box_and_the_pointer_begin() {
+        use dereth_classic_dat::fonts::{FontAtlas, FontSource, FontSpec};
+        struct NoFonts;
+        impl FontSource for NoFonts {
+            fn rasterize(&self, _: &FontSpec) -> std::result::Result<FontAtlas, String> {
+                Ok(FontAtlas::default())
+            }
+        }
+        let portal = std::path::PathBuf::from(
+            std::env::var_os("DERETH_CLASSIC_PORTAL").expect("interface portal"),
+        );
+        let art = Arc::new(
+            ClassicArt::new(
+                dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
+                &NoFonts,
+            )
+            .unwrap(),
+        );
+        let mut canvas = Canvas::new(art, (64, 64)).unwrap();
+        let fill = |x| Command::Fill {
+            x,
+            y: 0,
+            width: 4,
+            height: 4,
+            color: 0xFF80_8080,
+        };
+        let screen = Screen {
+            width: 64,
+            height: 64,
+            commands: vec![fill(0), fill(8), fill(16), fill(24)],
+        };
+        let mut present = dereth_client_runtime::present::NullPresentation::new(64, 64);
+        canvas.split_at(Some(1));
+        canvas.pointer_at(Some(3));
+        canvas.compose(&mut present, &screen, &|_| None).unwrap();
+        let (at, pointer, len) = (
+            canvas.split().expect("the modal mark"),
+            canvas.pointer().expect("the pointer mark"),
+            canvas.items().len(),
+        );
+        assert!(
+            0 < at && at < pointer && pointer < len,
+            "{at} {pointer} {len}"
+        );
+        canvas.prepend_preview(PreviewSpace::Portal, [0, 0, 8, 8]);
+        assert_eq!(
+            (canvas.split(), canvas.pointer()),
+            (Some(at + 1), Some(pointer + 1))
+        );
+        canvas.pointer_at(None);
+        canvas.compose(&mut present, &screen, &|_| None).unwrap();
+        assert_eq!(canvas.pointer(), None, "no pointer marked");
+    }
+
     #[test]
     #[cfg_attr(not(feature = "retail-dats"), ignore = "reads installed interface art")]
     fn canvases_and_resource_metrics_keep_each_supplied_art_font_source() {
@@ -1705,12 +1828,12 @@ mod layout_tests {
             ]
         };
         let mut items = Vec::new();
-        push_batch(&mut items, OverlayMaterial::Image, a, &v(1.0));
-        push_batch(&mut items, OverlayMaterial::Image, a, &v(2.0));
-        push_batch(&mut items, OverlayMaterial::Image, a, &[]);
-        push_batch(&mut items, OverlayMaterial::Invert, a, &v(3.0));
-        push_batch(&mut items, OverlayMaterial::Image, b, &v(4.0));
-        push_batch(&mut items, OverlayMaterial::Image, a, &v(5.0));
+        push_batch(&mut items, 0, OverlayMaterial::Image, a, &v(1.0));
+        push_batch(&mut items, 0, OverlayMaterial::Image, a, &v(2.0));
+        push_batch(&mut items, 0, OverlayMaterial::Image, a, &[]);
+        push_batch(&mut items, 0, OverlayMaterial::Invert, a, &v(3.0));
+        push_batch(&mut items, 0, OverlayMaterial::Image, b, &v(4.0));
+        push_batch(&mut items, 0, OverlayMaterial::Image, a, &v(5.0));
         let batches: Vec<(u64, Vec<f32>)> = items
             .iter()
             .map(|item| match item {

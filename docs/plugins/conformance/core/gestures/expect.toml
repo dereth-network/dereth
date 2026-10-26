@@ -1,0 +1,22 @@
+says = "Without a gesture an action needs the world's leave: a published policy that allows a domain only with a gesture refuses it, and one that denies a domain refuses it with a gesture too; a character's advancement always needs a gesture; and a typed command makes the plugin's actions interactive."
+[scenario]
+world = "scripted"
+seconds = 3
+[[object]]
+id = 0x80000021
+name = "Stone"
+type = "misc"
+container = "player"
+[host]
+policy_document = """policy_version = 1
+[automation]
+craft = "interactive-only"
+vendor = "deny"
+"""
+[[step]]
+after = 1
+say = "/go"
+[expect]
+status = "running"
+console = ["automated raise\tfalse\ttrue", "activation\t0", "automated move\tfalse\tdenied_by_world", "automated vendor\tfalse\tdenied_by_world", "activation live\ttrue", "interactive vendor\tfalse\tdenied_by_world", "interactive move\ttrue\tnil"]
+sent = ["put_item_in_container 0x80000021 0x50000001 0"]

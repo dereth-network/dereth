@@ -1,0 +1,19 @@
+says = "A window declared resizable takes the size the player gives it, within the bounds it declared (cells wide, lines high), keeps it when the plugin declares the window again, and the plugin hears ui.resized."
+[[step]]
+after = 1
+resize = "main"
+width = 100
+height = 2
+[[step]]
+after = 2
+resize = "main"
+width = 40
+height = 12
+[expect]
+status = "running"
+console = ["resized\tmain\t60\t4", "resized\tmain\t40\t12"]
+ui = """
+window conformance.resize main open=true size=40x12
+window #main max_height=30 max_width=60 min_height=4 min_width=20 resizable=true title="Resize"
+  label text="hello"
+"""

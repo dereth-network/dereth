@@ -1190,6 +1190,14 @@ impl WorldDatabaseWithEntityCache {
     pub fn get_landblock_instances_by_wcid(&self, wcid: u32) -> Vec<LandblockInstance> {
         self.base.get_landblock_instances_by_wcid(wcid)
     }
+    /// Not ACE: see [`WorldDatabaseBase::get_landblock_instances_of_type`].
+    #[must_use]
+    pub fn get_landblock_instances_of_type(
+        &self,
+        weenie_type: WeenieType,
+    ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
+        self.base.get_landblock_instances_of_type(weenie_type)
+    }
     // ACE: WorldDatabase.GetAllSpellNames
     #[must_use]
     pub fn get_all_spell_names(&self) -> DotNetDict<u32, String> {

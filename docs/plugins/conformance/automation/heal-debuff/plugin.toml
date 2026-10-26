@@ -1,0 +1,9 @@
+id = "conformance.heal-debuff"
+name = "Conformance: heal-debuff"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"auto.heal" = "Heals on its own."
+"auto.buff" = "Buffs on its own."
+"auto.combat" = "Debuffs on its own."

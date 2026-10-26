@@ -1,0 +1,20 @@
+says = "A plan answers the journey's legs and expected seconds without moving the character; with portals left out, a dungeon has no journey."
+[scenario]
+world = "scripted"
+seconds = 3
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.85]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.5
+say = "/plan"
+[expect]
+status = "running"
+console = [
+	"legs\twalk portal walk\ttrue",
+	"without portals\tfalse\tno_path",
+]
+moves = []
+place = [42.2, 33.8]

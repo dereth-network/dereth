@@ -36,6 +36,8 @@ impl ModalPlacement {
 struct Modal {
     placement: ModalPlacement,
     default_accept: bool,
+    /// Whether a typed Y or O says yes to it, as N or C says no.
+    yes_by_letter: bool,
     accept_label: String,
     reject_label: Option<String>,
     id: String,
@@ -68,8 +70,40 @@ pub struct Desktop {
     pub previews: Vec<Preview>,
     pub preview_owners: Vec<u64>,
     pub errors: Vec<String>,
+    /// Where the modal box's commands start in the last screen drawn: what stands over the
+    /// windows and under the box goes there.
+    pub modal_at: usize,
+    /// The game's panels a plugin hides, by the names plugins give them: their windows are
+    /// neither drawn nor take the pointer.
+    retail_hidden: std::collections::BTreeSet<String>,
 }
 impl Desktop {
+    /// Whether a modal box is up.
+    #[must_use]
+    pub fn modal_up(&self) -> bool {
+        self.modal.is_some()
+    }
+
+    /// Where the map page's map stands on screen, while a window shows it: the screen point of the
+    /// map's own origin.
+    #[must_use]
+    pub fn map_origin(&self) -> Option<(i32, i32)> {
+        let visible = self.visible_tokens();
+        self.windows
+            .iter()
+            .filter(|w| visible.contains(&w.token))
+            .find_map(|w| w.panel.map_origin().map(|(dx, dy)| (w.x + dx, w.y + dy)))
+    }
+
+    /// Where coordinates north and east fall on screen on the map page's map, while a window shows
+    /// it; `None` for a place off the map's picture.
+    #[must_use]
+    pub fn map_point(&self, north: f64, east: f64) -> Option<(i32, i32)> {
+        let (ox, oy) = self.map_origin()?;
+        let at = crate::panels::services::world::map_marker(north, east);
+        crate::panels::services::world::on_map(at).then_some((ox + at.0, oy + at.1))
+    }
+
     pub fn layout(&self) -> Layout {
         Layout {
             size: self.size,
@@ -230,8 +264,19 @@ impl Desktop {
             .iter()
             .filter(|w| !right_pane(&w.key) || Some(w.token) == right)
             .filter(|w| !external || !matches!(w.key.as_str(), "combat" | "spell-favorites"))
+            .filter(|w| {
+                !self
+                    .retail_hidden
+                    .iter()
+                    .any(|panel| hides_window(panel, &w.key))
+            })
             .map(|w| w.token)
             .collect()
+    }
+
+    /// The game's panels a plugin hides now, by the names plugins give them.
+    pub fn set_retail_hidden(&mut self, hidden: std::collections::BTreeSet<String>) {
+        self.retail_hidden = hidden;
     }
     pub fn focused_control(&self) -> Option<&str> {
         self.windows
@@ -318,6 +363,7 @@ impl Desktop {
                 .unwrap_or(false),
             accept_label: "Yes".into(),
             reject_label: Some("No".into()),
+            yes_by_letter: true,
             id,
             origin: 0,
             text,
@@ -345,6 +391,14 @@ impl Desktop {
         for modal in self.modal.iter_mut().chain(self.dialog_queue.iter_mut()) {
             if modal.id == id {
                 modal.default_accept = accept;
+            }
+        }
+    }
+    /// Whether a typed Y or O says yes to box `id`; with it off, only its accept button does.
+    pub fn set_dialog_yes_by_letter(&mut self, id: &str, on: bool) {
+        for modal in self.modal.iter_mut().chain(self.dialog_queue.iter_mut()) {
+            if modal.id == id {
+                modal.yes_by_letter = on;
             }
         }
     }
@@ -531,6 +585,8 @@ impl Desktop {
             previews: vec![],
             preview_owners: vec![],
             errors: vec![],
+            modal_at: 0,
+            retail_hidden: std::collections::BTreeSet::new(),
         }
     }
     /// Open panel `id` on `object` (or bring it forward and point it at `object`).
@@ -912,6 +968,16 @@ impl Desktop {
         self.capture.is_some()
     }
     pub fn pointer_over_panel(&self, x: i32, y: i32) -> bool {
+        self.over(x, y, false)
+    }
+    /// Whether one of the interface's own boxes, panels or controls stands at `(x, y)`: a screen
+    /// that fills the window (the world's HUD, a screen before the world) only where one of its
+    /// controls is, its bare ground being no control.
+    #[must_use]
+    pub fn game_control_at(&self, x: i32, y: i32) -> bool {
+        self.over(x, y, true)
+    }
+    fn over(&self, x: i32, y: i32, screens_by_controls: bool) -> bool {
         let visible = self.visible_tokens();
         // A notice over the side column covers only its own rectangle; any other dialog covers
         // the whole window.
@@ -931,7 +997,10 @@ impl Desktop {
                 if !visible.contains(&w.token) {
                     return false;
                 }
-                if w.key == "hud" {
+                if w.key == "hud"
+                    || (screens_by_controls
+                        && crate::panels::pregame::IDS.contains(&w.key.as_str()))
+                {
                     return w.controls.contains_control(x - w.x, y - w.y);
                 }
                 rect(
@@ -1147,9 +1216,14 @@ impl Desktop {
             w.controls.sync(&w.frame);
         }
     }
-    fn modal_frame(size: (u32, u32), stretched: bool, modal: &Modal) -> PanelFrame {
-        let mut f = PanelFrame::new(size.0, size.1);
-        let (x, y, w, h) = match modal.placement {
+    /// Where the modal box stands, while one is up.
+    #[must_use]
+    pub fn modal_rect(&self) -> Option<crate::widgets::Rect> {
+        let (x, y, w, h) = Self::modal_place(self.size, self.stretched, self.modal.as_ref()?);
+        Some(rect(x, y, w, h))
+    }
+    fn modal_place(size: (u32, u32), stretched: bool, modal: &Modal) -> (i32, i32, i32, i32) {
+        match modal.placement {
             ModalPlacement::Hud => (
                 size.0 as i32 - 300,
                 if stretched { 53 } else { size.1 as i32 - 427 },
@@ -1163,7 +1237,11 @@ impl Desktop {
                 253,
             ),
             ModalPlacement::Fixed { x, y } => (x, y, 403, 253),
-        };
+        }
+    }
+    fn modal_frame(size: (u32, u32), stretched: bool, modal: &Modal) -> PanelFrame {
+        let mut f = PanelFrame::new(size.0, size.1);
+        let (x, y, w, h) = Self::modal_place(size, stretched, modal);
         let hud = modal.placement == ModalPlacement::Hud;
         f.image(
             if hud { "0600128A" } else { "06000523" },
@@ -1236,7 +1314,11 @@ impl Desktop {
                     key: crate::widgets::Key::Escape,
                     ..
                 } => Some(false),
-                Input::Text(text) if matches!(text.as_str(), "y" | "Y" | "o" | "O") => Some(true),
+                Input::Text(text)
+                    if modal.yes_by_letter && matches!(text.as_str(), "y" | "Y" | "o" | "O") =>
+                {
+                    Some(true)
+                }
                 Input::Text(text) if matches!(text.as_str(), "c" | "C" | "n" | "N") => Some(false),
                 _ => None,
             };
@@ -1504,6 +1586,7 @@ impl Desktop {
                 self.preview_owners.push(w.token);
             }
         }
+        self.modal_at = screen.commands.len();
         if let Some(modal) = &mut self.modal {
             let f = Self::modal_frame(self.size, self.stretched, modal);
             modal.controls.sync(&f);
@@ -1512,6 +1595,42 @@ impl Desktop {
         screen
     }
 }
+/// Whether the game's panel `name` (as plugins name it) is something this interface has: a part
+/// of its HUD (`chat`, `vitals`, `radar`, `toolbar`) or a kind of its windows (`panels`, the side
+/// pages; `environment`, the windows docked under the world for a vendor, a container, a trade,
+/// salvage and maintenance; `combat`, the combat and spell bars docked there; `examination`).
+/// `side_vitals` and `power_bar` have none: one vitals strip here, and the power bar is part of
+/// the combat bar. Its windows and parts are docked, so a panel is hidden here but never moved.
+#[must_use]
+pub fn retail_ui_counterpart(name: &str) -> bool {
+    matches!(
+        name,
+        "chat"
+            | "vitals"
+            | "radar"
+            | "toolbar"
+            | "panels"
+            | "environment"
+            | "combat"
+            | "examination"
+    )
+}
+
+/// Whether hiding the game's panel `panel` hides the window `key`.
+fn hides_window(panel: &str, key: &str) -> bool {
+    let examine = key.starts_with("examine");
+    match panel {
+        "panels" => right_pane(key) && !examine,
+        "examination" => examine,
+        "environment" => matches!(
+            key,
+            "vendor" | "external-container" | "trade" | "salvage" | "maintenance"
+        ),
+        "combat" => matches!(key, "combat" | "spell-favorites"),
+        _ => false,
+    }
+}
+
 fn right_pane(id: &str) -> bool {
     !crate::panels::pregame::IDS.contains(&id)
         && !matches!(
@@ -2099,6 +2218,52 @@ mod tests {
             classic: &classic,
         });
     }
+    /// The windows of a panel a plugin hides are neither drawn nor take the pointer, open still:
+    /// the side pages for `panels`, the windows docked for a vendor and the like for
+    /// `environment`; the panels this interface has nothing like hide nothing; let go, they are
+    /// back.
+    #[test]
+    fn the_windows_of_a_panel_a_plugin_hides_are_neither_drawn_nor_hit_and_come_back() {
+        context_test(|c| {
+            let mut d = Desktop::new(crate::panels::factory, (800, 600));
+            d.open("hud", c);
+            d.open("inventory", c);
+            d.open("vendor", c);
+            assert!(d.is_visible("inventory") && d.is_visible("vendor"));
+            d.set_retail_hidden(["panels".to_owned()].into());
+            assert!(!d.is_visible("inventory"), "a side page is hidden");
+            assert!(d.is_open("inventory"), "and open still");
+            assert!(d.is_visible("vendor") && d.is_visible("hud"));
+            d.set_retail_hidden(["environment".to_owned()].into());
+            assert!(!d.is_visible("vendor") && d.is_visible("inventory"));
+            d.set_retail_hidden(["side_vitals".to_owned(), "power_bar".to_owned()].into());
+            assert!(d.is_visible("vendor") && d.is_visible("inventory"));
+            assert!(!retail_ui_counterpart("side_vitals") && !retail_ui_counterpart("power_bar"));
+            d.set_retail_hidden(Default::default());
+            assert!(d.is_visible("inventory") && d.is_visible("vendor"), "back");
+        });
+    }
+
+    /// A place on the map page's map is on screen where the map shows it; a place off the map's
+    /// picture, and any place while no window shows the map, is nowhere.
+    #[test]
+    fn a_place_off_the_map_s_picture_is_nowhere_on_it() {
+        context_test(|c| {
+            let mut d = Desktop::new(crate::panels::factory, (800, 600));
+            assert_eq!(d.map_point(0.0, 0.0), None, "no map shown");
+            d.open("hud", c);
+            d.open("map", c);
+            let (ox, oy) = d.map_origin().expect("the map shows");
+            let middle = d.map_point(0.0, 0.0).expect("the middle of the map");
+            assert!(crate::panels::services::world::on_map((
+                middle.0 - ox,
+                middle.1 - oy
+            )));
+            assert_eq!(d.map_point(250.0, 0.0), None, "far north of the map");
+            assert_eq!(d.map_point(0.0, -250.0), None, "far west of it");
+        });
+    }
+
     #[test]
     fn replacing_a_visible_dialog_answers_only_the_latest_context_and_keeps_queue() {
         context_test(|c| {
@@ -2248,6 +2413,41 @@ mod tests {
             assert_eq!(d.host_actions.pop(), Some(HostAction::ConfirmBinding(true)));
             assert_eq!(Desktop::pregame_dialog_default("keyboard"), Some(true));
             assert_eq!(Desktop::pregame_dialog_default("login"), Some(false));
+        });
+    }
+    #[test]
+    fn a_box_whose_yes_takes_no_letter_is_said_yes_to_only_by_its_accept_button() {
+        context_test(|c| {
+            let mut d = Desktop::new(|_, _, _| None, (800, 600));
+            let choice = |yes| vec![PanelAction::Host(HostAction::ConfirmBinding(yes))];
+            d.show_dialog("ask".into(), "Allow?".into(), choice(true), choice(false));
+            d.set_dialog_default("ask", false);
+            d.set_dialog_yes_by_letter("ask", false);
+            for letter in ["y", "Y", "o", "O"] {
+                d.input(Input::Text(letter.into()), c);
+            }
+            assert!(d.modal_open(), "no letter says yes");
+            assert!(d.host_actions.is_empty());
+            d.input(
+                Input::Key {
+                    key: crate::widgets::Key::Enter,
+                    shift: false,
+                },
+                c,
+            );
+            assert_eq!(
+                d.host_actions.pop(),
+                Some(HostAction::ConfirmBinding(false)),
+                "Enter is its No"
+            );
+            d.show_dialog("ask".into(), "Allow?".into(), choice(true), choice(false));
+            d.set_dialog_yes_by_letter("ask", false);
+            d.input(Input::Text("n".into()), c);
+            assert_eq!(
+                d.host_actions.pop(),
+                Some(HostAction::ConfirmBinding(false)),
+                "a letter still says no"
+            );
         });
     }
 }

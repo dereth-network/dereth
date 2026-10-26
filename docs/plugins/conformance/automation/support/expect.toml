@@ -1,0 +1,31 @@
+says = "Beneficial spells cast on another character are their own domain, support: a world that denies combat and allows support lets a plugin take up its caster, enter the magic stance and buff another player for support, and refuses its debuff on a monster."
+[scenario]
+world = "scripted"
+seconds = 4
+[[object]]
+id = 0x50000070
+name = "Brann"
+type = "creature"
+player = true
+place = { ns = 42.2, ew = 33.8005 }
+[[object]]
+id = 0x80000071
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[[object]]
+id = 0x80000072
+name = "Wand"
+type = "caster"
+container = "player"
+locations = 0x01000000
+[host]
+policy_document = """policy_version = 1
+[automation]
+support = "allow"
+combat = "deny"
+"""
+[expect]
+status = "running"
+console = ["the magic stance for support	true	nil", "a buff on another player	true	nil", "a debuff on a monster	false	denied_by_world", "peace for support	true	1", "the stance with no purpose	false	denied_by_world", "a purpose that is not a spell's	false"]
+sent = ["wield 0x80000072 0x1000000", "ChangeCombatMode", "cast 2", "ChangeCombatMode"]

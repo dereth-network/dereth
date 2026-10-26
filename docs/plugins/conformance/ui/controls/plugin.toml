@@ -1,0 +1,8 @@
+id = "conformance.controls"
+name = "Conformance: controls"
+version = "0.1.0"
+api = "0.5"
+contexts = ["pregame", "world"]
+
+[capabilities]
+required = ["ui.window"]

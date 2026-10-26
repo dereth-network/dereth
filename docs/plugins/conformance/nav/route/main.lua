@@ -1,0 +1,12 @@
+-- A VTank route read with dereth.nav and walked once: each point in turn, the pause slept.
+local nav_lib = require("dereth.nav")
+local route = nav_lib.load(files.package("loop.nav"))
+print("route", route.kind, #route.points, route.points[2].kind)
+commands.add("walk", "walk the route", function()
+	task.spawn(function()
+		route:walk({ range = 2, on_point = function(i, p)
+			print("reached", i, p.kind)
+		end })
+		print("done")
+	end)
+end)

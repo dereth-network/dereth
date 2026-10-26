@@ -1,0 +1,18 @@
+says = "A plugin hears each message the client sent and received, by its name or as any message, decoded into its fields, and has no way to send one."
+[scenario]
+world = "scripted"
+seconds = 4
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+ints = { 105 = 7 }
+[[step]]
+after = 1
+say = "/id"
+[expect]
+status = "running"
+console = ["stream version	1", "sent	Item_Appraise	0x00C8	0x80000011", "received	Item_SetAppraiseInfo	received	0x80000011	objects::ItemSetAppraiseInfo	1", "any	true	true", "send	true	true"]
+sent = ["appraise 0x80000011"]

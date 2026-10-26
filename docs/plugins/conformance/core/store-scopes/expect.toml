@@ -1,0 +1,10 @@
+says = "The global, world and character stores each keep plain values, and a write past the quota is refused without changing the store."
+[scenario]
+world = "scripted"
+character = "Tester"
+seconds = 1
+[host]
+store_quota = 64
+[expect]
+status = "running"
+console = ["global\t1\tworld\ttrue\tcharacter\tTester", "quota\tfalse\ttrue", "after\tnil\t1"]

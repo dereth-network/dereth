@@ -1,0 +1,18 @@
+says = "A world's published policy document sets each domain's rule, denies what it leaves out, and is what plugins read."
+[scenario]
+world = "scripted"
+seconds = 1
+[host]
+policy_document = """policy_version = 1
+world = "Conformance"
+[automation]
+loot = "allow"
+nav = "interactive-only"
+[limits]
+peers_local = 2
+[notes]
+text = "No unattended combat."
+"""
+[expect]
+status = "running"
+console = ["policy\ttrue\tallow\tdeny\tinteractive-only\tdeny", "notes\tNo unattended combat.\t2"]

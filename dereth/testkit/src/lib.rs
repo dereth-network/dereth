@@ -5,7 +5,10 @@
 //! scenario reaches through them (`dereth-client-shell`, `dereth-desktop`,
 //! `dereth-client-runtime`, `dereth-client-model`, `dereth-rules`,
 //! `dereth-client-contract`, `dereth-client-net`, `dereth-input`, `dereth-ui`, `dereth-ui-screens`,
-//! `dereth-primitives`, `dereth-dat`, `dereth-physics`, `dereth-transport`, `dereth-protocol`).
+//! `dereth-primitives`, `dereth-dat`, `dereth-physics`, `dereth-transport`, `dereth-protocol`), and
+//! the plugin host a conformance case runs (`dereth-plugin-api`, `dereth-plugin-host`,
+//! `dereth-plugin-lua` and `dereth-plugin-wasm`, with `toml` for the cases' expectations, and `dereth-assets` for the scripted
+//! world's spell table, and `dereth-navigation` for its journeys).
 //! **Used by** nothing: it is a workspace member only so its tests are built and run.
 //!
 //! **Must never** be depended on from any crate's `src/` or from `tools/`, and it holds no oracle
@@ -20,6 +23,8 @@
 //! | [`golden`] | one output file per run instead of a dozen counters |
 //! | [`Inbound::from_corpus`] | messages from the recorded corpus, whose bytes are proved once |
 //! | [`input_steps`] | the action and input driver scenarios share |
+//! | [`plugins`], [`conformance`] | the plugin host over a replayed recording, and the spec's conformance cases run on it |
+//! | [`plugin_reference`] | the plugin reference pages of the spec, generated from the plugin interface's code |
 //!
 //! ```no_run
 //! use dereth_testkit::{HeadlessClient, Given, Inbound, Player};
@@ -49,6 +54,7 @@ pub mod adapters_shell;
 pub mod adapters_social;
 pub mod behaviours;
 pub mod client;
+pub mod conformance;
 pub mod corpus_steps;
 pub mod divergences;
 pub mod golden;
@@ -57,8 +63,11 @@ pub mod input_steps;
 mod login;
 pub mod outbound;
 pub mod player;
+pub mod plugin_reference;
+pub mod plugins;
 pub mod replay;
 mod scenarios;
+pub mod scripted_travel;
 pub mod tier_census;
 pub mod ui_snapshot;
 pub mod view;

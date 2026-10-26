@@ -602,7 +602,7 @@ impl<S: Shell> App<S> {
         let wanted = self.cfg.start_char.clone();
 
         // The `--linger` deadline, checked before the batch so a run with no traffic still ends.
-        if self.script == EnterWorldScript::Entering && self.cfg.linger > 0.0 {
+        if scripted && self.script == EnterWorldScript::Entering && self.cfg.linger > 0.0 {
             if let Some(at) = self.playable_at {
                 if self.timer.local_time - at >= self.cfg.linger {
                     tracing::info!("logging off");
@@ -866,12 +866,16 @@ impl<S: Shell> App<S> {
                     // method exists so the same decision is reachable from a test.
                     self.pending_auto_layout = true;
                 }
-                SessionEvent::StateChanged(SessionState::Playable) if scripted => {
-                    // `--linger` holds the session in the world so the objects have time to move.
-                    // Without it a scripted run logs off in the same frame `0x0013` arrives, which
-                    // is the default.
+                SessionEvent::StateChanged(SessionState::Playable) => {
+                    // In the world, in every session: the travel carries a journey out from where
+                    // the character stands from now on, whoever asked for it.
                     self.playable_at = Some(self.timer.local_time);
-                    if self.cfg.linger <= 0.0 {
+                    if !scripted {
+                        tracing::info!("session Playable");
+                    } else if self.cfg.linger <= 0.0 {
+                        // `--linger` holds the session in the world so the objects have time to
+                        // move. Without it a scripted run logs off in the same frame `0x0013`
+                        // arrives, which is the default.
                         tracing::info!("logging off");
                         link.net.session.log_off();
                         self.script = EnterWorldScript::LoggingOff;
@@ -879,7 +883,11 @@ impl<S: Shell> App<S> {
                         tracing::info!("in world; staying {} s", self.cfg.linger);
                     }
                 }
-                SessionEvent::StateChanged(s) => tracing::info!("session {s:?}"),
+                SessionEvent::StateChanged(s) => {
+                    // Out of the world: no journey is carried out until it is playable again.
+                    self.playable_at = None;
+                    tracing::info!("session {s:?}");
+                }
                 SessionEvent::LoggedOff => {
                     tracing::info!("logged off");
                     // **The loop does not end on every `0xF653`.**
@@ -1338,7 +1346,32 @@ impl<S: Shell> App<S> {
             // that every handler in the batch reads the instant the packet was processed — which
             // is what reads in retail.
             self.hud.now = now;
-            let _ = self.apply_hud_events(shell, events);
+            let lines = self.apply_hud_events(shell, events);
+            self.gather_hook_chat(lines);
+            // A spell that fizzled, for the travel to cast again.
+            self.travel_fizzles += crate::frame_hook::outcomes_of(events)
+                .iter()
+                .filter(|o| {
+                    matches!(
+                        o,
+                        crate::frame_hook::Outcome::WeenieError {
+                            code: crate::travel::FIZZLED
+                        }
+                    )
+                })
+                .count();
+            if let Some(hook) = &self.frame_hook {
+                self.hook_outcomes
+                    .extend(crate::frame_hook::outcomes_of(events));
+                if hook.wants_messages() {
+                    self.hook_messages.extend(
+                        events
+                            .iter()
+                            .filter_map(crate::frame_hook::WireMessage::received),
+                    );
+                }
+            }
+            self.answer_plugin_audit(&event);
             self.interaction.last_use_time = now;
             let (geometry, radius) = self.current_selection_geometry();
             let hud = &mut self.hud;

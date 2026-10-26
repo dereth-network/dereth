@@ -267,6 +267,28 @@ pub fn land_content(
     }
 }
 
+/// One landblock's outdoor placements at full detail, as the world places them: the generated
+/// scenery with its scale, then the landblock-information statics. Empty for a block the cell
+/// file does not have.
+#[must_use]
+pub fn land_placements(store: &RetailDatStore, region: &Region, block: u16) -> Vec<CellStatic> {
+    let (bx, by) = dereth_world_data::landblock::block_xy(block);
+    let Some(lb) = read_landblock(store, bx, by) else {
+        return Vec::new();
+    };
+    let table = dereth_terrain::land::mesh::height_table(region);
+    let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
+        &lb,
+        region,
+        &table,
+        bx,
+        by,
+        1,
+        dereth_landscape::Direction::InViewerBlock,
+    );
+    land_content(store, region, &lb, &mesh, bx, by, true).land_statics
+}
+
 /// One landblock's interior contents, from its decoded cells in load order: the house
 /// restriction each cell record names, and each cell's static objects when `want_statics`.
 ///

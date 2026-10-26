@@ -1,0 +1,28 @@
+says = "A shape, a world marker or a nametags layer may ask to stay on top of whatever stands in front of it, and a nametags layer labels only its nearest objects, nearest first and as many as its limit."
+[scenario]
+world = "scripted"
+seconds = 2
+[[object]]
+id = 0x80000021
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.85 }
+[[object]]
+id = 0x80000022
+name = "Drudge Slinker"
+type = "creature"
+place = { ns = 42.2, ew = 33.9 }
+[[object]]
+id = 0x80000023
+name = "Drudge Ravener"
+type = "creature"
+place = { ns = 42.2, ew = 33.95 }
+[expect]
+status = "running"
+console = ["limit on a ring\tfalse", "on_top not a boolean\tfalse"]
+overlays = """shape conformance.depth #1 color=#FFD700 object=0x80000021 at=42.20N 33.85E shape=ring path=33 span=0.4 on_top
+shape conformance.depth #2 color=#FFD700 object=0x80000022 at=42.20N 33.90E shape=ring path=33 span=0.4
+world conformance.depth #3 label="Far" color=#FFD700 object=0x80000023 at=42.20N 33.95E on_top
+nametag conformance.depth #4 label="Drudge Skulker" color=#FFFFFF object=0x80000021 at=42.20N 33.85E
+nametag conformance.depth #4 label="Drudge Slinker" color=#FFFFFF object=0x80000022 at=42.20N 33.90E
+"""

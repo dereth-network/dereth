@@ -206,6 +206,13 @@ pub const SECTIONS: &[Section] = &[
                  none.",
             ),
             e(
+                "publish_portals",
+                "PublishPortals",
+                "Also serve GET /portals on the status endpoint: every portal placed in the world,\n\
+                 with its destination and level limits, as a tab-separated table that clients use to\n\
+                 route through portals. Off by default; it needs status_address.",
+            ),
+            e(
                 "interactive_console",
                 "InteractiveConsole",
                 "Read console commands from standard input. Set it false when the server runs as a\n\

@@ -99,12 +99,55 @@ struct MapHouse {
     queried: bool,
     hover: Option<(EraId, MapNote)>,
 }
+/// The map's picture on the map page, from the map's origin: `(x, y, w, h)`.
+pub const MAP_AREA: (i32, i32, i32, i32) = (22, 33, 257, 267);
+
+/// Whether a point from the map's origin falls on the map's picture.
+#[must_use]
+pub fn on_map((x, y): (i32, i32)) -> bool {
+    let (ax, ay, w, h) = MAP_AREA;
+    (ax..ax + w).contains(&x) && (ay..ay + h).contains(&y)
+}
+
 fn marker(lx: i32, ly: i32) -> (i32, i32) {
     (lx * 245 / 2048 + 28, (2047 - ly) * 245 / 2048 + 44)
+}
+
+/// Where coordinates north and east fall on the map page's map, from its origin.
+#[must_use]
+pub fn map_marker(north: f64, east: f64) -> (i32, i32) {
+    let lx = dereth_primitives::num::to_i32_f64(((east - 0.5) * 10.0 + 1024.0).round());
+    let ly = dereth_primitives::num::to_i32_f64(((north - 0.5) * 10.0 + 1024.0).round());
+    marker(lx, ly)
+}
+
+/// The coordinates north and east under the pixel `(x, y)` of the map page, from the map's
+/// origin: read at the pixel's middle, so [`map_marker`] puts them back on that pixel. `None` off
+/// the part of the picture that shows the world.
+#[must_use]
+pub fn map_coords(x: i32, y: i32) -> Option<(f64, f64)> {
+    if !(28..273).contains(&x) || !(44..289).contains(&y) {
+        return None;
+    }
+    // The landscape cell under the pixel's middle, as `marker` scales it: 2048 across 245.
+    let lx = (f64::from(x - 28) + 0.5) * 2048.0 / 245.0;
+    let ly = 2047.0 - (f64::from(y - 44) + 0.5) * 2048.0 / 245.0;
+    Some(((ly - 1024.0) / 10.0 + 0.5, (lx - 1024.0) / 10.0 + 0.5))
+}
+
+/// A press of `button` on the map page at `(x, y)`, from the map's origin, told to the plugins
+/// where it falls on the world.
+fn map_press(x: i32, y: i32, button: shared_map::MapButton) -> Option<PanelAction> {
+    let (ns, ew) = map_coords(x, y)?;
+    Some(PanelAction::Host(HostAction::MapClick { ns, ew, button }))
 }
 impl Panel for MapHouse {
     fn id(&self) -> &'static str {
         "map-house"
+    }
+    fn map_origin(&self) -> Option<(i32, i32)> {
+        // Under the page's two tabs.
+        (!self.house).then_some((0, 25))
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
         let mut f = if self.house {
@@ -116,7 +159,10 @@ impl Panel for MapHouse {
                 ("06001270", rect(0, 300, 300, 32)),
                 ("06001271", rect(0, 33, 22, 267)),
                 ("06001272", rect(279, 33, 21, 267)),
-                ("0600127D", rect(22, 33, 257, 267)),
+                (
+                    "0600127D",
+                    rect(MAP_AREA.0, MAP_AREA.1, MAP_AREA.2, MAP_AREA.3),
+                ),
             ] {
                 f.image(did, r, false, false);
             }
@@ -192,19 +238,37 @@ impl Panel for MapHouse {
         );
         f
     }
+    fn input(
+        &mut self,
+        input: &crate::widgets::Input,
+        _context: &Context<'_>,
+    ) -> Option<Vec<PanelAction>> {
+        // A right press on the map is told to the plugins; the map does nothing else with it.
+        match *input {
+            crate::widgets::Input::RightClick { x, y } if !self.house => {
+                map_press(x, y - 25, shared_map::MapButton::Right).map(|a| vec![a])
+            }
+            _ => None,
+        }
+    }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         if let ControlEvent::Pointer { x, y, pressed } = e {
             let y = y - 25;
+            let mut out = Vec::new();
             if !self.house {
                 let profile = shared_map::profile(c.game);
                 self.hover = map_region(x, y, profile).map(|note| (profile, note));
                 if pressed && c.map_teleport_allowed {
                     if let Some((lx, ly)) = map_destination(x, y) {
-                        return vec![PanelAction::Host(HostAction::MapTeleport { lx, ly })];
+                        out.push(PanelAction::Host(HostAction::MapTeleport { lx, ly }));
                     }
                 }
+                // Every press on the map is told to the plugins as well.
+                if pressed {
+                    out.extend(map_press(x, y, shared_map::MapButton::Left));
+                }
             }
-            return vec![];
+            return out;
         }
         if let ControlEvent::Activate(id) = e {
             match id.as_str() {
@@ -260,6 +324,27 @@ mod tests {
     fn map_markers_follow_integer_projection_and_inverted_north() {
         assert_eq!(marker(0, 2047), (28, 44));
         assert_eq!(marker(2047, 0), (272, 288));
+    }
+    /// Every pixel of the map's world reads back the coordinates a marker puts on that pixel;
+    /// Holtburg's reads back Holtburg to within a pixel, and the frame round the map reads nothing.
+    #[test]
+    fn a_pixel_of_the_map_reads_back_the_coordinates_its_marker_is_placed_from() {
+        for y in 44..289 {
+            for x in 28..273 {
+                let (north, east) = map_coords(x, y).expect("on the map");
+                assert_eq!(map_marker(north, east), (x, y), "{north}, {east}");
+            }
+        }
+        let (x, y) = map_marker(42.2, 33.8);
+        let (north, east) = map_coords(x, y).expect("Holtburg is on the map");
+        // A pixel is 2048 / 245 landscape cells across, under 0.85 of a unit.
+        assert!(
+            (north - 42.2).abs() < 0.85 && (east - 33.8).abs() < 0.85,
+            "{north}, {east}"
+        );
+        for (x, y) in [(27, 100), (273, 100), (100, 43), (100, 289)] {
+            assert_eq!(map_coords(x, y), None, "({x}, {y})");
+        }
     }
     #[test]
     fn zero_coordinate_has_no_hemisphere() {

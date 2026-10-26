@@ -1,0 +1,11 @@
+-- Into combat, then one swing at the target: each a promise settled by what the client saw.
+on("session.login", function()
+	task.spawn(function()
+		print("mode", pawait(combat.set_mode("combat")))
+		print("fighting", combat.fighting())
+		local ok, how = pawait(combat.attack(0x80000050, { height = "high", power = 0.8 }))
+		print("swing", ok, ok and how.ended or how)
+		print("peace", pawait(combat.set_mode("peace")))
+		print("fighting", combat.fighting())
+	end)
+end)

@@ -9,6 +9,7 @@
 //! What the world's era does not have is not offered: no house window without housing, no Game
 //! Center without chess, no Create Spell without spell research.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::panels::slumlord::{HouseOp, PaymentAction, PaymentListsView};
 use dereth_client_contract::research::{Formula, ResearchSuccess, FORMULA_SLOTS};
 use dereth_client_contract::view::{
@@ -733,6 +734,7 @@ impl Windows {
                         from_spell_slot: None,
                         component: true,
                         stance: None,
+                        command: None,
                     });
                 }
             }

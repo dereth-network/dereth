@@ -78,7 +78,7 @@ fn minimap_middle(h: &Harness) -> (f32, f32) {
             .outlines
             .iter()
             .find(|(n, _)| *n == "minimap")
-            .copied()
+            .cloned()
             .expect("the minimap's outline");
     (r.x + r.w / 2.0, r.y + r.h / 2.0)
 }
@@ -292,4 +292,176 @@ fn a_layout_kept_by_the_name_alone_is_carried_over_to_each_world_and_left_in_pla
         ["chat"]
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A plugin's HUD with one button, at the middle of the screen.
+fn plugin_hud(window: &str) -> dereth_horizon::ui::plugins::PluginFrame {
+    use dereth_plugin_api::{UiNode, Value};
+    let node = |kind: &str| Value::map().with("kind", kind);
+    let tree = UiNode::window_from_value(
+        &node("hud")
+            .with("id", window)
+            .with("anchor", "center")
+            .with(
+                "children",
+                vec![node("button").with("id", "go").with("text", "Go")],
+            ),
+    )
+    .expect("a valid HUD");
+    dereth_horizon::ui::plugins::PluginFrame {
+        views: vec![dereth_plugin_ui::WindowView {
+            tier: dereth_plugin_ui::Tier::Plugin,
+            plugin: "test.looter".into(),
+            window: window.into(),
+            tree: std::sync::Arc::new(tree),
+            open: true,
+            revision: 1,
+            images: Vec::new(),
+            size: None,
+            by_player: true,
+        }],
+        ..Default::default()
+    }
+}
+
+/// A plugin's HUD is an element of the HUD layout: outlined and named in the editor, moved by a
+/// drag, kept by Save under its plugin and window, and once the editor is closed its button
+/// answers where it was moved to.
+#[test]
+fn a_plugin_s_hud_is_moved_in_hud_layout_kept_by_save_and_answers_where_it_was_put() {
+    let state = in_world();
+    let file = layout_file("plugin");
+    let mut h = in_world_with(&file, HorizonOptions::default(), &state);
+    h.ui.windows.plugins.frame = plugin_hud("my hud");
+    h.frame(&state);
+    h.frame(&state);
+    let name = dereth_horizon::ui::layout::plugin_hud("test.looter", "my hud");
+    assert_eq!(name, "plugin:test.looter/my%20hud", "one word for the file");
+    assert_eq!(
+        dereth_horizon::ui::layout::element_title(&name),
+        "test.looter: my hud"
+    );
+    let outline = |h: &Harness| {
+        h.ui.hud
+            .layout
+            .outlines
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, r)| *r)
+            .expect("the plugin's HUD is outlined")
+    };
+    let before = outline(&h);
+    open_layout(&mut h, &state);
+    let c = (before.x + before.w / 2.0, before.y + before.h / 2.0);
+    drag(&mut h, &state, c, (c.0 + 200.0, c.1 + 100.0));
+    {
+        let b = button(&h, 0);
+        click_at(&mut h, &state, b)
+    };
+    let kept = std::fs::read_to_string(&file).expect("Save keeps the layout");
+    assert_eq!(kept, format!("{name} 200.0 100.0 1.00\n"));
+    {
+        let b = button(&h, 2);
+        click_at(&mut h, &state, b)
+    };
+    assert!(!h.ui.windows.is_open(WindowId::Layout));
+    h.frame(&state);
+    let after = outline(&h);
+    assert_eq!(
+        (after.x - before.x, after.y - before.y),
+        (200.0, 100.0),
+        "drawn where it was put"
+    );
+    let go = h
+        .input
+        .nav
+        .last
+        .targets
+        .iter()
+        .map(|t| t.rect)
+        .find(|r| after.contains(r.x + 1.0, r.y + 1.0))
+        .expect("its button, a stop for the pad where the HUD now is");
+    h.move_to(go.x + go.w / 2.0, go.y + go.h / 2.0);
+    h.press();
+    h.frame(&state);
+    h.release();
+    h.frame(&state);
+    assert_eq!(
+        h.ui.windows.plugins.take_inputs(),
+        vec![dereth_plugin_ui::Input::Click {
+            plugin: "test.looter".into(),
+            window: "my hud".into(),
+            node: "go".into(),
+        }],
+        "its button answers where it was put"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+/// While the player has the HUDs unlocked, a plugin's HUD is outlined and a press on it moves it,
+/// with no editor open: its place is kept in the character's layout file at once, and its button
+/// takes no click; locked again, it stands where it was put and its button answers.
+#[test]
+fn unlocked_a_plugins_hud_is_moved_by_a_drag_and_kept_at_once() {
+    let state = in_world();
+    let file = layout_file("unlocked");
+    let mut h = in_world_with(&file, HorizonOptions::default(), &state);
+    let mut frame = plugin_hud("hud");
+    frame.huds_unlocked = true;
+    h.ui.windows.plugins.frame = frame;
+    h.frame(&state);
+    h.frame(&state);
+    let name = dereth_horizon::ui::layout::plugin_hud("test.looter", "hud");
+    let outline = |h: &Harness| {
+        h.ui.hud
+            .layout
+            .outlines
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, r)| *r)
+            .expect("the plugin's HUD is drawn")
+    };
+    let before = outline(&h);
+    let c = (before.x + before.w / 2.0, before.y + before.h / 2.0);
+    drag(&mut h, &state, c, (c.0 - 150.0, c.1 + 60.0));
+    assert!(
+        h.ui.windows.plugins.take_inputs().is_empty(),
+        "unlocked, its button takes no click"
+    );
+    let kept = std::fs::read_to_string(&file).expect("the place is kept at once");
+    assert_eq!(kept, format!("{name} -150.0 60.0 1.00\n"));
+    let mut frame = plugin_hud("hud");
+    frame.huds_unlocked = false;
+    h.ui.windows.plugins.frame = frame;
+    h.frame(&state);
+    let after = outline(&h);
+    assert_eq!(
+        (after.x - before.x, after.y - before.y),
+        (-150.0, 60.0),
+        "drawn where it was put"
+    );
+    let go = h
+        .input
+        .nav
+        .last
+        .targets
+        .iter()
+        .map(|t| t.rect)
+        .find(|r| after.contains(r.x + 1.0, r.y + 1.0))
+        .expect("its button");
+    h.move_to(go.x + go.w / 2.0, go.y + go.h / 2.0);
+    h.press();
+    h.frame(&state);
+    h.release();
+    h.frame(&state);
+    assert_eq!(
+        h.ui.windows.plugins.take_inputs(),
+        vec![dereth_plugin_ui::Input::Click {
+            plugin: "test.looter".into(),
+            window: "hud".into(),
+            node: "go".into(),
+        }],
+        "locked, its button answers"
+    );
+    let _ = std::fs::remove_dir_all(file.parent().unwrap());
 }

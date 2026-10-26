@@ -1,0 +1,25 @@
+[package]
+name = "dereth-plugin"
+description = "The plugin author's tool: packs a plugin folder into a zip, prints a zip's SHA-256, and builds a Rust plugin as a component."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "dereth-plugin"
+path = "src/main.rs"
+
+[dependencies]
+# The package: reading a folder's or a zip's files exactly as the hosts read them, and a compiled
+# plugin's source hash.
+dereth-plugin-package.workspace = true
+# A Rust plugin's core module made a component, and its crate's name read from its manifest.
+wit-component = "0.245"
+toml.workspace = true
+# The zip file's own SHA-256, for an index or a release page.
+sha2.workspace = true
+
+[lints]
+workspace = true

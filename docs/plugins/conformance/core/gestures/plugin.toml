@@ -1,0 +1,8 @@
+id = "conformance.gestures"
+name = "Conformance: gestures"
+version = "0.1.0"
+api = "0.2"
+
+[permissions]
+"act.interactive" = "Moves what you ask it to."
+"auto.vendor" = "Closes the vendor on its own."

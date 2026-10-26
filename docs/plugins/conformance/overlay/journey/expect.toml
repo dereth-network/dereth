@@ -1,0 +1,23 @@
+says = "The host draws a plugin's journey while it runs: an arrow to where the leg goes, the way still to go on the map, and the portal ahead on the map and radar."
+[scenario]
+world = "scripted"
+seconds = 1.5
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.9]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 1.0
+say = "/look"
+[expect]
+status = "running"
+console = ["leg\t1\twalk"]
+overlays = """arrow conformance.journey-drawn #-1 label="Walk" color=#40C0FF at=42.20N 33.90E turn=90 distance=20.0
+map conformance.journey-drawn #-2 label="Journey" color=#40C0FF line=[42.20N 33.82E, 42.20N 33.90E, 0x019E0114 10.0 -40.0 0.0, 0x019E0120 20.0 -40.0 0.0]
+map conformance.journey-drawn #-3 label="Portal: Drudge Hideout" color=#40C0FF at=42.20N 33.90E points=[42.20N 33.90E]
+radar conformance.journey-drawn #-4 label="Portal: Drudge Hideout" color=#40C0FF at=42.20N 33.90E
+"""

@@ -1,0 +1,12 @@
+says = "A movement no gesture asked for gives way to the player: the player's own movement ends it, and for five seconds after it such a movement is refused as player_moving."
+[scenario]
+world = "scripted"
+seconds = 10
+[host]
+policy = { nav = "allow" }
+[[step]]
+after = 2
+player_moves = true
+[expect]
+status = "running"
+console = ["first\tfalse\tinterrupted", "soon after\tfalse\tplayer_moving", "moving\tconformance.nav-player-yield"]

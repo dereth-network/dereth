@@ -17,6 +17,7 @@
 //! the other settings, in `horizon-cross-<server>-<name>.txt`: at login the server's sets win,
 //! and where the server has none yet the copy is read and sent up once.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 use dereth_primitives::ObjectId;
 
@@ -150,6 +151,68 @@ pub enum CrossBind {
     Power(PowerAct),
     /// The character: an item armed to be used on something is used on them.
     Myself,
+    /// A plugin's command, run as the player typing it would.
+    Command(PluginCommand),
+}
+
+/// A plugin's command a slot holds: its plugin's id and its verb, kept once for the whole
+/// interface so a slot stays a small copyable value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PluginCommand(u32);
+
+/// Every plugin command a slot has held, `(plugin, verb)`, by its number.
+static COMMANDS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+impl PluginCommand {
+    /// Plugin `plugin`'s command `verb`: the same value each time for the same pair.
+    #[must_use]
+    pub fn of(plugin: &str, verb: &str) -> Self {
+        let verb = verb.to_ascii_lowercase();
+        let mut all = COMMANDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let at = all
+            .iter()
+            .position(|(p, v)| p == plugin && *v == verb)
+            .unwrap_or_else(|| {
+                all.push((plugin.to_owned(), verb));
+                all.len() - 1
+            });
+        Self(u32::try_from(at).unwrap_or(u32::MAX))
+    }
+
+    /// Its plugin's id and its verb.
+    #[must_use]
+    pub fn parts(self) -> (String, String) {
+        COMMANDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(self.0 as usize)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// `<plugin>/<verb>`, as the bars are kept.
+    #[must_use]
+    pub fn text(self) -> String {
+        let (plugin, verb) = self.parts();
+        format!("{plugin}/{verb}")
+    }
+
+    /// [`Self::text`] read back: `None` unless the plugin's id and the verb are of the characters
+    /// they may hold (so neither can break the line or the list it is kept in).
+    #[must_use]
+    pub fn read(text: &str) -> Option<Self> {
+        let (plugin, verb) = text.split_once('/')?;
+        let id = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.';
+        let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+        (!plugin.is_empty()
+            && plugin.chars().all(id)
+            && !verb.is_empty()
+            && verb.len() <= 32
+            && verb.chars().all(word))
+        .then(|| Self::of(plugin, verb))
+    }
 }
 
 /// The cross hotbars.
@@ -325,6 +388,7 @@ fn bar_text(set: &[Option<CrossBind>; SLOTS]) -> String {
                 format!("c{n}")
             }
             Some(CrossBind::Myself) => "m".to_owned(),
+            Some(CrossBind::Command(c)) => format!("p{}", c.text()),
         })
         .collect::<Vec<_>>()
         .join(",")
@@ -345,6 +409,7 @@ fn read_bar(text: &str) -> [Option<CrossBind>; SLOTS] {
                 .and_then(|n| PowerAct::ALL.get(n).copied())
                 .map(CrossBind::Power),
             Some(("m", "")) => Some(CrossBind::Myself),
+            Some(("p", command)) => PluginCommand::read(command).map(CrossBind::Command),
             _ => None,
         };
     }
@@ -463,6 +528,7 @@ pub fn parse(text: &str) -> (Vec<[Option<CrossBind>; SLOTS]>, usize) {
                 .find(|p| p.word() == value)
                 .map(CrossBind::Power),
             "self" => Some(CrossBind::Myself),
+            "command" => PluginCommand::read(value).map(CrossBind::Command),
             _ => None,
         };
         for b in bars {
@@ -499,6 +565,7 @@ pub fn to_text(sets: &[[Option<CrossBind>; SLOTS]], magic: usize) -> String {
                 CrossBind::Spell(id) => ("spell", id.to_string()),
                 CrossBind::Power(p) => ("power", p.word().to_owned()),
                 CrossBind::Myself => ("self", "-".to_owned()),
+                CrossBind::Command(c) => ("command", c.text()),
             };
             let _ = writeln!(text, "{} {} {kind} {value}", bar_name(s), i + 1);
         }
@@ -554,6 +621,7 @@ fn look(p: &Painter<'_>, state: &GameState, bind: CrossBind) -> (Option<Sprite>,
             state.main_pack.as_ref().and_then(|m| p.art.ac_item_drag(m)),
             state.name.clone(),
         ),
+        CrossBind::Command(c) => (None, format!("/{}", c.parts().1)),
     }
 }
 
@@ -593,6 +661,7 @@ pub fn use_bind(state: &GameState, bind: CrossBind, out: &mut Outcome) {
         }),
         CrossBind::Spell(spell_id) => out.requests.push(UiRequest::CastSpell { spell_id }),
         CrossBind::Power(a) => out.action_taps.push(a.action(missile(state))),
+        CrossBind::Command(c) => out.plugin_commands.push(c.parts()),
     }
 }
 
@@ -864,9 +933,14 @@ pub fn draw_slot(
     } else {
         kit::icon_slot(p, ctx, r, icon, tint)
     };
-    if let (Some(CrossBind::Power(a)), None) = (bind, stance.as_ref()) {
+    let words = match (bind, stance.as_ref()) {
+        (Some(CrossBind::Power(a)), None) => Some(a.name(missile).replace(' ', "\n")),
+        // A plugin's command, which has no picture, by its verb.
+        (Some(CrossBind::Command(c)), _) => Some(format!("/{}", c.parts().1)),
+        _ => None,
+    };
+    if let Some(words) = words {
         let small = TextStyle::new(Family::Body, 10.0, 0xFFEE_E1C5).edge(0xFF00_0000);
-        let words = a.name(missile).replace(' ', "\n");
         for (n, line) in words.lines().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             p.text_in(
@@ -1087,6 +1161,38 @@ mod tests {
             1,
             "there is no ninth magic bar"
         );
+    }
+
+    /// A plugin's command on a slot is kept, in the file and in the server's copy, by its plugin
+    /// and its verb, and read back the same; one whose name could break the line or the list is
+    /// not read.
+    #[test]
+    fn a_plugin_s_command_on_a_slot_is_kept_by_its_plugin_and_verb() {
+        let loot = CrossBind::Command(PluginCommand::of("test.looter", "Loot"));
+        let (mut sets, _) = parse("");
+        sets[PEACE][4] = Some(loot);
+        let text = to_text(&sets, 0);
+        assert!(
+            text.contains("peace 5 command test.looter/loot\n"),
+            "{text}"
+        );
+        assert_eq!(parse(&text).0[PEACE][4], Some(loot));
+        let server = encode(&sets, 0);
+        assert!(server.contains(",ptest.looter/loot,"), "{server}");
+        assert_eq!(decode(&server).expect("the copy").0[PEACE][4], Some(loot));
+        assert_eq!(
+            PluginCommand::of("test.looter", "loot"),
+            PluginCommand::of("test.looter", "LOOT")
+        );
+        for bad in [
+            "test.looter/lo,ot",
+            "test.looter/lo|ot",
+            "Test/loot",
+            "/loot",
+            "test.looter/",
+        ] {
+            assert_eq!(PluginCommand::read(bad), None, "{bad}");
+        }
     }
 
     #[test]

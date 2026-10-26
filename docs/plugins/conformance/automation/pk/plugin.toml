@@ -1,0 +1,8 @@
+id = "conformance.pk"
+name = "Conformance: player killer"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Fights when you ask."
+"auto.combat" = "Fights on its own."

@@ -1,0 +1,16 @@
+says = "A script in a package that names it a UtilityBelt script and is active before the world starts at the character list, logs a character in with UtilityBelt's action, hears the client's state change, loads a module of its own with its globals, and hears its own end when unloaded."
+
+[scenario]
+world = "scripted"
+seconds = 4
+
+[scenario.pregame]
+characters = ["Alpha", "Bravo"]
+
+[[step]]
+after = 3
+unload = "conformance.ub-lifecycle"
+
+[expect]
+status = "absent"
+printed = ["[Lifecycle] state Character_Select_Screen 2 Bravo true", "[Lifecycle] now Entering_Game", "[Lifecycle] now In_Game", "[Lifecycle] login true In_Game Bravo", "[Lifecycle] end Lifecycle In_Game"]

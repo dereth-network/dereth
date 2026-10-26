@@ -229,7 +229,7 @@ impl World {
 
     /// The target-compatibility check, called as `(target, source, false, true)`. All seven
     /// format literals were checked against the retail strings. No added newline.
-    fn report_target_compatibility(
+    pub(super) fn report_target_compatibility(
         &self,
         out: &mut dyn NoticeSink,
         target: ObjectId,

@@ -553,108 +553,119 @@ impl Panel for Hud {
                 );
             }
         }
-        append(&mut f, self.vitals.frame(c), 0, 0, "vitals:");
-        append(
-            &mut f,
-            Radar { size: radar.w }.frame(c),
-            radar.x,
-            radar.y,
-            "radar:",
-        );
-        // The radar takes clicks on its blips, over the world as well as over the side column.
-        f.button("radar-hit", radar, "", true).paint = false;
-        // The player's coordinates under the radar dial, in the final client's form
-        // ("42.2N, 33.8E"), with the "coordinates below radar" character option.
-        if c.classic.coordinates_on_radar() {
-            if let Some(coords) = c.game.player_coords() {
-                let text = dereth_presentation::coordinates::update_coordinates(coords).combined;
-                f.text_box(
-                    rect(radar.x - 20, radar.y + radar.h - 1, radar.w + 40, 14),
-                    text,
-                    "14-6",
-                    0xffd2_d2c8,
-                    TextAlign::Center,
-                    false,
-                    None,
-                );
+        // A part of the HUD a plugin hides is not drawn, and takes no pointer.
+        let hidden = |part: &str| c.classic.retail_hidden.contains(part);
+        if !hidden("vitals") {
+            append(&mut f, self.vitals.frame(c), 0, 0, "vitals:");
+        }
+        if !hidden("radar") {
+            append(
+                &mut f,
+                Radar { size: radar.w }.frame(c),
+                radar.x,
+                radar.y,
+                "radar:",
+            );
+            // The radar takes clicks on its blips, over the world as well as over the side column.
+            f.button("radar-hit", radar, "", true).paint = false;
+            // The player's coordinates under the radar dial, in the final client's form
+            // ("42.2N, 33.8E"), with the "coordinates below radar" character option.
+            if c.classic.coordinates_on_radar() {
+                if let Some(coords) = c.game.player_coords() {
+                    let text =
+                        dereth_presentation::coordinates::update_coordinates(coords).combined;
+                    f.text_box(
+                        rect(radar.x - 20, radar.y + radar.h - 1, radar.w + 40, 14),
+                        text,
+                        "14-6",
+                        0xffd2_d2c8,
+                        TextAlign::Center,
+                        false,
+                        None,
+                    );
+                }
             }
         }
-        append(&mut f, self.chat.frame(c), r.chat.x, r.chat.y, "chat:");
-        // The chat's top bar takes the pointer, so a drag on it can change the chat's height.
-        f.button(
-            "chat-divider",
-            rect(r.chat.x, r.chat.y, r.chat.w - 16, 10),
-            "",
-            true,
-        )
-        .paint = false;
-        let x = r.toolbar.x;
-        let y = r.toolbar.y;
-        image(&mut f, 0x0600112b, rect(x + 55, y, 7, 27), false, None);
-        let quests = quest_page(c.game);
-        if quests.is_none() {
-            image(&mut f, 0x0600112c, rect(x + 237, y, 10, 27), false, None);
+        if !hidden("chat") {
+            append(&mut f, self.chat.frame(c), r.chat.x, r.chat.y, "chat:");
+            // The chat's top bar takes the pointer, so a drag on it can change the chat's height.
+            f.button(
+                "chat-divider",
+                rect(r.chat.x, r.chat.y, r.chat.w - 16, 10),
+                "",
+                true,
+            )
+            .paint = false;
         }
-        image(
-            &mut f,
-            0x0600120f,
-            rect(x + 295, y + 58, 14, 32),
-            false,
-            None,
-        );
-        append(&mut f, self.shortcuts.frame(c), x, y + 58, "shortcut:");
-        for (id, dx, w, [normal, selected, pressed]) in toolbar_buttons(quests.is_some()) {
-            let active = button_pages(id).contains(&c.classic.active_right.as_str());
+        if !hidden("toolbar") {
+            let x = r.toolbar.x;
+            let y = r.toolbar.y;
+            image(&mut f, 0x0600112b, rect(x + 55, y, 7, 27), false, None);
+            let quests = quest_page(c.game);
+            if quests.is_none() {
+                image(&mut f, 0x0600112c, rect(x + 237, y, 10, 27), false, None);
+            }
+            image(
+                &mut f,
+                0x0600120f,
+                rect(x + 295, y + 58, 14, 32),
+                false,
+                None,
+            );
+            append(&mut f, self.shortcuts.frame(c), x, y + 58, "shortcut:");
+            for (id, dx, w, [normal, selected, pressed]) in toolbar_buttons(quests.is_some()) {
+                let active = button_pages(id).contains(&c.classic.active_right.as_str());
+                button(
+                    &mut f,
+                    id,
+                    rect(x + dx, y, w, 27),
+                    [if active { selected } else { normal }, pressed, normal],
+                );
+            }
             button(
                 &mut f,
-                id,
-                rect(x + dx, y, w, 27),
-                [if active { selected } else { normal }, pressed, normal],
+                "use",
+                rect(x + 55, y + 27, 23, 31),
+                [0x06001129, 0x0600112a, 0x0600120e],
+            );
+            button(
+                &mut f,
+                "examine",
+                rect(x + 224, y + 27, 22, 31),
+                [0x06001127, 0x06001128, 0x06001127],
+            );
+            selected_object(
+                &mut f,
+                c,
+                x,
+                y,
+                self.split_draft
+                    .as_ref()
+                    .filter(|(id, _)| Some(*id) == c.game.selected_object())
+                    .map(|(_, text)| text.as_str()),
+            );
+            let combat_art = match c.game.combat_mode() {
+                2 => [0x060010f5, 0x0600119d, 0x060010f5],
+                4 => [0x060010f6, 0x0600119e, 0x060010f6],
+                8 => [0x06001959, 0x0600195a, 0x06001959],
+                _ => [0x060010f7, 0x0600119c, 0x060010f7],
+            };
+            button(&mut f, "combat", rect(x, y, 55, 58), combat_art);
+            button(
+                &mut f,
+                "inventory",
+                rect(x + 246, y, 63, 58),
+                [
+                    if c.classic.active_right == "inventory" {
+                        0x060010ee
+                    } else {
+                        0x0600113d
+                    },
+                    0x060010ee,
+                    0x060010ee,
+                ],
             );
         }
-        button(
-            &mut f,
-            "use",
-            rect(x + 55, y + 27, 23, 31),
-            [0x06001129, 0x0600112a, 0x0600120e],
-        );
-        button(
-            &mut f,
-            "examine",
-            rect(x + 224, y + 27, 22, 31),
-            [0x06001127, 0x06001128, 0x06001127],
-        );
-        selected_object(
-            &mut f,
-            c,
-            x,
-            y,
-            self.split_draft
-                .as_ref()
-                .filter(|(id, _)| Some(*id) == c.game.selected_object())
-                .map(|(_, text)| text.as_str()),
-        );
-        let combat_art = match c.game.combat_mode() {
-            2 => [0x060010f5, 0x0600119d, 0x060010f5],
-            4 => [0x060010f6, 0x0600119e, 0x060010f6],
-            8 => [0x06001959, 0x0600195a, 0x06001959],
-            _ => [0x060010f7, 0x0600119c, 0x060010f7],
-        };
-        button(&mut f, "combat", rect(x, y, 55, 58), combat_art);
-        button(
-            &mut f,
-            "inventory",
-            rect(x + 246, y, 63, 58),
-            [
-                if c.classic.active_right == "inventory" {
-                    0x060010ee
-                } else {
-                    0x0600113d
-                },
-                0x060010ee,
-                0x060010ee,
-            ],
-        );
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
@@ -2028,6 +2039,53 @@ mod tests {
             vec![PanelAction::Toggle("contracts".into())]
         );
     }
+    /// A part of the HUD a plugin hides is not drawn and takes no pointer: the chat with its
+    /// divider, the radar with its blips, the vitals and the toolbar each go, and the rest stays.
+    #[test]
+    fn a_part_of_the_hud_a_plugin_hides_is_neither_drawn_nor_takes_the_pointer() {
+        let resources = crate::resources::Resources::default();
+        let g = World::default();
+        let (p, k, s) = Default::default();
+        let ids = |state: &ClassicState| -> Vec<String> {
+            let c = context(&resources, &g, state, &p, &k, &s);
+            Hud::default()
+                .frame(&c)
+                .controls
+                .iter()
+                .map(|c| c.id.clone())
+                .collect()
+        };
+        let has = |ids: &[String], prefix: &str| ids.iter().any(|i| i.starts_with(prefix));
+        let all = ids(&ClassicState::default());
+        for part in [
+            "chat:",
+            "chat-divider",
+            "radar-hit",
+            "vitals:",
+            "inventory",
+            "use",
+        ] {
+            assert!(has(&all, part), "{part} is up: {all:?}");
+        }
+        let mut state = ClassicState {
+            retail_hidden: ["chat", "radar"].map(str::to_owned).into(),
+            ..ClassicState::default()
+        };
+        let some = ids(&state);
+        for part in ["chat:", "chat-divider", "radar-hit"] {
+            assert!(!has(&some, part), "{part} is hidden");
+        }
+        for part in ["vitals:", "inventory", "use"] {
+            assert!(has(&some, part), "{part} stays");
+        }
+        state.retail_hidden = ["vitals", "toolbar"].map(str::to_owned).into();
+        let others = ids(&state);
+        for part in ["vitals:", "inventory", "use", "combat", "shortcut:"] {
+            assert!(!has(&others, part), "{part} is hidden");
+        }
+        assert!(has(&others, "chat:"), "the chat is back");
+    }
+
     fn with_context(g: &World, f: impl FnOnce(&Context<'_>)) {
         let resources = crate::resources::Resources::default();
         f(&context(

@@ -104,6 +104,14 @@ feedback,channel: 0x1A, text},
                 self.stats.ui_requests_handled += 1;
                 continue;
             }
+            // A line sent on the player's behalf goes where a typed one goes, but the player did
+            // not type it: it is never an extension's command and stays out of the history.
+            let (r, player_typed) = match r {
+                UiRequest::ChatLineOnBehalf { text, window } => {
+                    (UiRequest::ChatLine { text, window }, false)
+                }
+                r => (r, true),
+            };
             match r {
                 UiRequest::Select(id) => {
                     // Selection assignment with `(ulong id, int force)` takes
@@ -203,6 +211,22 @@ feedback,channel: 0x1A, text},
                 UiRequest::Use(id) => self.use_object(id, game, &mut req, &mut out, now),
                 UiRequest::ExecuteTargetItem(id) => {
                     self.execute_target_mode_for_item(id, game, &mut req, &mut out, now);
+                }
+                UiRequest::UseOn {
+                    item,
+                    target,
+                    equipped,
+                } => {
+                    use dereth_client_model::inventory::use_object::UseOutcome;
+                    let split = game.split;
+                    let outcome =
+                        game.use_object_on(&mut req, &mut out, item, target, equipped, split, now);
+                    if matches!(
+                        outcome,
+                        UseOutcome::Refused(_) | UseOutcome::TargetIncompatible
+                    ) {
+                        self.stats.uses_refused += 1;
+                    }
                 }
                 UiRequest::CloseExternalContainer(id) => {
                     self.use_object(id, game, &mut req, &mut out, now);
@@ -461,25 +485,37 @@ feedback,channel: 0x1A, text},
                     if text.is_empty() {
                         continue;
                     }
-                    game.chat
-                        .entries
-                        .entry(window)
-                        .or_default()
-                        .submit(&text, self.chat_interface);
-                    let Some(narrow) = game
-                        .chat
-                        .text_conversion
-                        .narrow(&text.encode_utf16().collect::<Vec<_>>())
+                    if player_typed {
+                        game.chat
+                            .entries
+                            .entry(window)
+                            .or_default()
+                            .submit(&text, self.chat_interface);
+                    }
+                    // Existing narrow-message String storage is a bijective BYTE SPELLING:
+                    // cp1252::encode writes these exact bytes, even when ACP is not1252.
+                    // This is NOT ACP decoding to Unicode, and must not be used for display.
+                    let Some(text) =
+                        crate::frame_hook::submitted_line(&*game.chat.text_conversion, &text)
                     else {
                         // Explicit unsupported host/count, not guessed ANSI bytes or Say fallback.
                         self.stats.chat_commands_refused += 1;
                         self.stats.ui_requests_handled += 1;
                         continue;
                     };
-                    // Existing narrow-message String storage is a bijective BYTE SPELLING:
-                    // cp1252::encode writes these exact bytes, even when ACP is not1252.
-                    // This is NOT ACP decoding to Unicode, and must not be used for display.
-                    let text = dereth_primitives::text::cp1252::decode(&narrow);
+                    // A line the player typed whose verb an installed frame hook claims goes to
+                    // the hook, before the client's own interpreter would forward it to the
+                    // server as speech.
+                    if let Some(c) = player_typed
+                        .then(|| {
+                            crate::frame_hook::claim_line(&text, &self.extension_verbs, &self.chat)
+                        })
+                        .flatten()
+                    {
+                        self.extension_typed.push(c);
+                        self.stats.ui_requests_handled += 1;
+                        continue;
+                    }
                     let focus =
                         dereth_client_model::cmd::TalkFocus::from_raw(game.chat.talk_focus as u32)
                             .unwrap_or(dereth_client_model::cmd::TalkFocus::Say);
@@ -1125,9 +1161,17 @@ feedback,channel: 0x1A, text},
                                 if !self.controlled_by_server && !keep_moving {
                                     self.stop_completely_requested = true;
                                 }
+                            } else {
+                                tracing::debug!(
+                                    target: "dereth::interaction",
+                                    "cast {spell_id}: nothing sent (no spell table, or a spell it does not know)"
+                                );
                             }
                         }
-                        Err(_) => self.stats.requests_refused += 1,
+                        Err(e) => {
+                            tracing::debug!(target: "dereth::interaction", "cast {spell_id} refused: {e}");
+                            self.stats.requests_refused += 1;
+                        }
                     }
                 }
                 // ---- the combat window's own three controls -----------------------------------
@@ -1168,6 +1212,11 @@ feedback,channel: 0x1A, text},
                     game.combat.set_ui_requested_power_from_scrollbar(position);
                     self.stats.desired_power_changes += 1;
                 }
+                // The combat toggle key's own arm: the toggle runs at the frame's combat step.
+                UiRequest::ToggleCombatMode => self.toggle_combat_mode(),
+                // The escape key's abort of an automatic attack, without its stop of the body, and
+                // a swing still charging dropped.
+                UiRequest::CombatAbortAttack => game.stop_attack(&mut req),
                 // The radar padlock's request reaches the same native setter as the
                 // lock-UI command: bit 24 of the second options word, then broadcast option
                 // `0x33`. The latter emits one immediate 0x0005 because LockUI is auto-save. Queue the
@@ -1479,6 +1528,17 @@ feedback,channel: 0x1A, text},
                         self.stats.house_lord_queries += 1;
                     }
                 }
+                // A plugin's appraisal: the request alone, so no examination window opens.
+                UiRequest::Appraise(id) => {
+                    if id.0 != 0 {
+                        game.attempt_appraise(&mut req, id);
+                    }
+                }
+                UiRequest::Inventory(intent) => {
+                    if !self.inventory_intent(intent, game, &mut req, &mut out, now) {
+                        self.stats.requests_refused += 1;
+                    }
+                }
                 // ---- the chess window's three gestures ---------------------------
                 //
                 // The chess panel's two element-message paths and its resign-dialog answer
@@ -1521,6 +1581,74 @@ feedback,channel: 0x1A, text},
         }
         self.absorb(game, out, req);
         unowned
+    }
+
+    /// A plugin's inventory operation: the game operation the matching drag ends in, quietly (a
+    /// refusal is the plugin's to report). Answers whether a request went out.
+    fn inventory_intent(
+        &mut self,
+        intent: dereth_client_contract::view::InventoryIntent,
+        game: &mut dereth_client_model::World,
+        req: &mut RecordingRequests,
+        out: &mut Notices,
+        now: ServerTime,
+    ) -> bool {
+        use dereth_client_contract::view::InventoryIntent as I;
+        let r = match intent {
+            I::PutInContainer {
+                item,
+                container,
+                place,
+            } => game.attempt_put_in_container(req, out, item, container, place, now, true),
+            I::SplitToContainer {
+                item,
+                container,
+                place,
+                amount,
+            } => {
+                game.attempt_split_to_container(req, out, item, container, place, amount, now, true)
+            }
+            I::Merge {
+                item,
+                target,
+                amount,
+            } => game.attempt_merge(req, out, item, target, amount, now, true),
+            I::Drop { item } => game.attempt_put_in_3d(req, out, item, now, true),
+            I::Give {
+                item,
+                target,
+                amount,
+            } => game.attempt_give(req, out, item, target, amount, now, true),
+            I::Wield { item } => {
+                use dereth_rules::slots::{loc, SlotSide};
+                let valid = game
+                    .weenie(item)
+                    .and_then(|w| w.pwd.valid_locations)
+                    .unwrap_or(0);
+                // The whole stack, as the stack slider holds it untouched.
+                let whole = dereth_client_model::inventory::SplitState::whole_stack(u32::from(
+                    game.weenie(item)
+                        .and_then(|w| w.pwd.stack_size)
+                        .unwrap_or(0),
+                ));
+                return if valid & loc::CLOTHING != 0 {
+                    game.auto_wear(req, out, item, whole, now, true).is_ok()
+                } else {
+                    game.auto_wield(
+                        req,
+                        out,
+                        item,
+                        SlotSide::Null,
+                        true,
+                        true,
+                        false,
+                        whole,
+                        now,
+                    )
+                };
+            }
+        };
+        r.is_ok()
     }
 
     /// A completed drag, from an item list or the paper doll onto somewhere.

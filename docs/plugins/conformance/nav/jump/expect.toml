@@ -1,0 +1,23 @@
+says = "A jump faces its heading, charges for the time asked holding the walk key and the direction it leaps in, then leaps; with no direction it goes straight up; the player's own movement while it charges puts it down without a leap, and a charge past the full bar or an unknown direction is refused."
+[scenario]
+world = "scripted"
+seconds = 5
+[[step]]
+after = 0.5
+say = "/hop"
+[[step]]
+after = 2.5
+say = "/up"
+[[step]]
+after = 3.2
+say = "/long"
+[[step]]
+after = 3.5
+say = "/charge"
+[[step]]
+after = 3.8
+player_moves = true
+[expect]
+status = "running"
+console = ["hop\ttrue\ttrue\t90\ttrue", "up\ttrue\ttrue", "long\tfalse", "sideways\tfalse", "charge\tfalse\tinterrupted"]
+moves = ["face 90", "hold jump", "hold walk", "hold forward", "let go jump", "leap 0.5 s forward", "let go walk", "let go forward", "hold jump", "let go jump", "leap 0.0 s up", "hold jump", "put down jump"]

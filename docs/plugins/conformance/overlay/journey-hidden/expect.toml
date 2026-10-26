@@ -1,0 +1,25 @@
+says = "A journey asked for with show = false is not drawn, and nav.show_journey hides a drawn one; it answers false for a plugin with no journey."
+[scenario]
+world = "scripted"
+seconds = 2
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.9]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.2
+say = "/hide"
+[[step]]
+after = 0.5
+say = "/go"
+[[step]]
+after = 1.0
+say = "/show"
+[[step]]
+after = 1.5
+say = "/hide"
+[expect]
+status = "running"
+console = ["hidden\tfalse", "shown\ttrue", "hidden\ttrue"]
+overlays = ""

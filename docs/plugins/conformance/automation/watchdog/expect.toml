@@ -1,0 +1,7 @@
+says = "A meta's watchdog enters its state when the character has not moved the distance in the time; setting it again does not restart its clock."
+[scenario]
+world = "scripted"
+seconds = 6
+[expect]
+status = "running"
+console = ["state	Waiting	->	Stuck	true", "state	Stuck	->	Done	true"]

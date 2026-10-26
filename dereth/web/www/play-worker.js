@@ -10,6 +10,9 @@ import {
   FULL, flushOverlay, holdOverlay, listOverlays, openFiles, openStore, removeOverlay, removeSet,
   scanSets, storeSet,
 } from './datfiles.js';
+import { installPluginIo, fetchPluginPolicy } from './plugin-io.js';
+
+installPluginIo();
 
 const log = (text) => postMessage({ log: String(text) });
 const params = new URLSearchParams(location.search);
@@ -105,6 +108,103 @@ globalThis.derethSettingsSave = (bytes) => {
   settings.flush();
 };
 
+// Plugins the player added to this page: under `plugins/` in the origin's private storage, one
+// folder per plugin or a plugin's zip file, read into one bundle before the client starts (each file's path and its
+// bytes, each preceded by its length, as the settings file is laid out).
+let pluginBundle = new Uint8Array(0);
+async function pluginsDir(create) {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle('plugins', { create });
+}
+// Files as one bundle: each path and its bytes, each preceded by its length.
+function bundleOf(files) {
+  const parts = [];
+  const enc = new TextEncoder();
+  const put = (bytes) => {
+    const len = new Uint8Array(4);
+    new DataView(len.buffer).setUint32(0, bytes.length, true);
+    parts.push(len, bytes);
+  };
+  for (const f of files) {
+    put(enc.encode(f.path));
+    put(f.bytes);
+  }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+async function readPlugins() {
+  const files = [];
+  const walk = async (dir, prefix) => {
+    for await (const [name, handle] of dir.entries()) {
+      const path = prefix ? `${prefix}/${name}` : name;
+      if (handle.kind === 'directory') {
+        await walk(handle, path);
+      } else {
+        const file = await handle.getFile();
+        files.push({ path, bytes: new Uint8Array(await file.arrayBuffer()) });
+      }
+    }
+  };
+  try {
+    await walk(await pluginsDir(false), '');
+  } catch {
+    return new Uint8Array(0);
+  }
+  return bundleOf(files);
+}
+// The plugins that come with the client: in a release, served beside the page under `plugins/`,
+// listed by `plugins/index.json`. Read once into a bundle of the same form; none when the page is
+// served without them. The client lists them, each off until the player turns it on.
+let bundledPlugins = null;
+async function readBundledPlugins() {
+  if (bundledPlugins) return bundledPlugins;
+  try {
+    const index = await fetch('plugins/index.json');
+    if (!index.ok) return (bundledPlugins = new Uint8Array(0));
+    const files = [];
+    for (const path of (await index.json()).files || []) {
+      const r = await fetch(`plugins/${path}`);
+      if (!r.ok) throw new Error(`plugins/${path}: HTTP ${r.status}`);
+      files.push({ path, bytes: new Uint8Array(await r.arrayBuffer()) });
+    }
+    bundledPlugins = bundleOf(files);
+  } catch (e) {
+    log(`the plugins that come with the client did not load: ${e?.message ?? e}`);
+    bundledPlugins = new Uint8Array(0);
+  }
+  return bundledPlugins;
+}
+let bundledBundle = new Uint8Array(0);
+globalThis.derethBundledPluginsLoad = () => bundledBundle;
+// Keep the files of one added plugin folder, or added zips: `files` is [{ path, bytes }], each
+// path starting with the folder's name, or a zip's file name alone.
+async function addPlugins(files) {
+  const dir = await pluginsDir(true);
+  for (const f of files) {
+    const names = f.path.split('/').filter((n) => n && n !== '.' && n !== '..');
+    let at = dir;
+    for (const n of names.slice(0, -1)) at = await at.getDirectoryHandle(n, { create: true });
+    const handle = await at.getFileHandle(names[names.length - 1], { create: true });
+    const access = await handle.createSyncAccessHandle();
+    access.truncate(0);
+    access.write(f.bytes, { at: 0 });
+    access.flush();
+    access.close();
+  }
+  log(`kept ${files.length} plugin file(s); turn each on in the client with /plugin`);
+}
+async function removePlugins() {
+  const root = await navigator.storage.getDirectory();
+  await root.removeEntry('plugins', { recursive: true }).catch(() => {});
+  log('removed every added plugin');
+}
+globalThis.derethPluginsLoad = () => pluginBundle;
+
 // The data files open now, by what was asked for (a later start for other files opens them
 // again), and the store opened over them, by the files and the set the world is drawn from.
 let datsKey = null;
@@ -147,6 +247,9 @@ async function start(msg) {
   marks.dats = performance.now();
   if (!settings) await openSettings();
   log(overlay ? `the world's overlay is kept in ${overlay}` : 'no overlay is kept for this world');
+  pluginBundle = await readPlugins();
+  bundledBundle = await readBundledPlugins();
+  await fetchPluginPolicy(msg.pluginPolicy);
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   pageNow = pageNow ?? msg.page;
@@ -400,6 +503,8 @@ onmessage = async (ev) => {
     if (msg.cmd === 'logoff') logOff();
     if (msg.cmd === 'page') setPage(msg.page);
     if (msg.cmd === 'audio') audioState.started = true;
+    if (msg.cmd === 'addPlugins') await addPlugins(msg.files);
+    if (msg.cmd === 'removePlugins') await removePlugins();
   } catch (e) {
     log(`error: ${e?.message ?? e}`);
   }

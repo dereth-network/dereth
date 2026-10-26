@@ -63,7 +63,7 @@ impl Placement {
 /// An element being drawn: where its quads begin in the list, and the pointer it was lent.
 #[derive(Debug)]
 pub struct Open {
-    name: &'static str,
+    name: String,
     first_quad: usize,
     mouse: (f32, f32),
 }
@@ -73,19 +73,23 @@ pub struct Open {
 pub struct HudLayout {
     pub placements: BTreeMap<String, Placement>,
     /// Each element's outline this frame, after its placement.
-    pub outlines: Vec<(&'static str, Rect)>,
+    pub outlines: Vec<(String, Rect)>,
     /// The element the editor has selected, and where in it the drag took hold.
-    pub selected: Option<&'static str>,
+    pub selected: Option<String>,
     grab: Option<(f32, f32)>,
     /// Each element's top-left corner as it drew itself, before its placement: what it is moved
     /// and scaled about.
-    pivots: std::collections::HashMap<&'static str, (f32, f32)>,
+    pivots: std::collections::HashMap<String, (f32, f32)>,
     /// How far each element was moved, after its placement, to keep it on the screen.
-    nudges: std::collections::HashMap<&'static str, (f32, f32)>,
+    nudges: std::collections::HashMap<String, (f32, f32)>,
     /// The file the layout was loaded from and is saved to.
     pub file: Option<PathBuf>,
     /// The placements as last loaded or saved.
     saved: BTreeMap<String, Placement>,
+    /// Elements a plugin has put at a place of its own: their top-left corner on the screen, at
+    /// their own size, whatever the player's placement says (which is kept for when the plugin
+    /// lets go).
+    pub pinned: std::collections::HashMap<String, (f32, f32)>,
 }
 
 /// The file, in the settings folder, a character's layout is kept in: by its world's address
@@ -190,25 +194,32 @@ impl HudLayout {
         self.placements.get(name).copied().unwrap_or_default()
     }
 
+    /// Where element `name`, drawn with its top-left at `pivot`, goes at `k` screen pixels a
+    /// layout unit: where a plugin put it, else the player's placement.
+    fn placement_at(&self, name: &str, pivot: (f32, f32), k: f32) -> Placement {
+        match self.pinned.get(name) {
+            Some(&(x, y)) => Placement {
+                dx: (x - pivot.0) / k.max(f32::EPSILON),
+                dy: (y - pivot.1) / k.max(f32::EPSILON),
+                scale: 1.0,
+            },
+            None => self.placement(name),
+        }
+    }
+
     /// Start drawing element `name`: lend it the pointer in its own frame. While `editing`, the
     /// element sees no pointer at all.
-    pub fn begin(
-        &self,
-        name: &'static str,
-        p: &Painter<'_>,
-        ctx: &mut Ctx<'_>,
-        editing: bool,
-    ) -> Open {
+    pub fn begin(&self, name: &str, p: &Painter<'_>, ctx: &mut Ctx<'_>, editing: bool) -> Open {
         let open = Open {
-            name,
+            name: name.to_owned(),
             first_quad: p.list.quads.len(),
             mouse: ctx.input.mouse,
         };
         if editing {
             ctx.input.mouse = (-10_000.0, -10_000.0);
         } else if let Some(pivot) = self.pivot(name) {
-            let pl = self.placement(name);
             let k = p.scale;
+            let pl = self.placement_at(name, pivot, k);
             let (nx, ny) = self.nudge(name);
             let (mx, my) = ctx.input.mouse;
             let (mx, my) = (mx - nx, my - ny);
@@ -236,9 +247,9 @@ impl HudLayout {
             );
             bounds = Rect::new(x0, y0, x1 - x0, y1 - y0);
         }
-        let pl = self.placement(open.name);
         let k = p.scale;
         let pivot = (bounds.x, bounds.y);
+        let pl = self.placement_at(&open.name, pivot, k);
         let map = |r: Rect| {
             Rect::new(
                 pivot.0 + (r.x - pivot.0) * pl.scale + pl.dx * k,
@@ -260,8 +271,8 @@ impl HudLayout {
                 q.clip = q.clip.map(moved);
             }
         }
-        self.pivots.insert(open.name, pivot);
-        self.nudges.insert(open.name, nudge);
+        self.pivots.insert(open.name.clone(), pivot);
+        self.nudges.insert(open.name.clone(), nudge);
         self.outlines.push((open.name, moved(bounds)));
     }
 
@@ -272,10 +283,10 @@ impl HudLayout {
     /// Where a rectangle element `name` drew is shown, after its placement.
     #[must_use]
     pub fn map_rect(&self, name: &str, r: Rect, k: f32) -> Rect {
-        let pl = self.placement(name);
         let Some(pivot) = self.pivot(name) else {
             return r;
         };
+        let pl = self.placement_at(name, pivot, k);
         let (nx, ny) = self.nudge(name);
         Rect::new(
             pivot.0 + (r.x - pivot.0) * pl.scale + pl.dx * k + nx,
@@ -296,10 +307,10 @@ impl HudLayout {
         let label = TextStyle::new(Family::Body, 12.0, 0xFFFF_FFFF).edge(0xFF00_0000);
         let outlines = std::mem::take(&mut self.outlines);
         // Drag the selected element while the button is held.
-        if let (Some(name), Some((gx, gy))) = (self.selected, self.grab) {
+        if let (Some(name), Some((gx, gy))) = (self.selected.clone(), self.grab) {
             if ctx.input.down[0] {
                 if let Some((_, r)) = outlines.iter().find(|(n, _)| *n == name) {
-                    let pl = self.placements.entry(name.to_owned()).or_default();
+                    let pl = self.placements.entry(name).or_default();
                     pl.dx += (ctx.input.mouse.0 - gx - r.x) / k;
                     pl.dy += (ctx.input.mouse.1 - gy - r.y) / k;
                 }
@@ -309,7 +320,7 @@ impl HudLayout {
             }
         }
         for (name, r) in &outlines {
-            let selected = self.selected == Some(*name);
+            let selected = self.selected.as_deref() == Some(name.as_str());
             let over = ctx.input.hover(r);
             let fill = if selected {
                 0x40FF_C040
@@ -330,13 +341,13 @@ impl HudLayout {
             }
             p.text(&label, r.x + 4.0 * k, r.y + 2.0 * k, &element_title(name));
             if over && ctx.input.pressed[0] && !ctx.input.captured {
-                self.selected = Some(name);
+                self.selected = Some(name.clone());
                 self.grab = Some((ctx.input.mouse.0 - r.x, ctx.input.mouse.1 - r.y));
                 ctx.input.pressed[0] = false;
                 ctx.input.captured = true;
             }
             if selected && over && ctx.input.wheel != 0.0 {
-                let pl = self.placements.entry((*name).to_owned()).or_default();
+                let pl = self.placements.entry(name.clone()).or_default();
                 let step = if ctx.input.wheel > 0.0 { 0.1 } else { -0.1 };
                 pl.scale = (pl.scale + step).clamp(SCALE_RANGE.0, SCALE_RANGE.1);
                 ctx.input.wheel = 0.0;
@@ -348,14 +359,49 @@ impl HudLayout {
 
     /// The selected element's placement, for the layout window.
     #[must_use]
-    pub fn selected_placement(&self) -> Option<(&'static str, Placement)> {
-        self.selected.map(|n| (n, self.placement(n)))
+    pub fn selected_placement(&self) -> Option<(String, Placement)> {
+        self.selected
+            .as_ref()
+            .map(|n| (n.clone(), self.placement(n)))
     }
 }
 
-/// An element's name as the editor labels it.
+/// The layout's name for HUD `window` of plugin `plugin`: one word, as the layout file keeps its
+/// names, the window's spaces (any white space) and percent signs written as `%20` and `%25`.
+#[must_use]
+pub fn plugin_hud(plugin: &str, window: &str) -> String {
+    let window: String = window
+        .chars()
+        .map(|c| match c {
+            '%' => "%25".to_owned(),
+            c if c.is_whitespace() => "%20".to_owned(),
+            c => c.to_string(),
+        })
+        .collect();
+    format!("{PLUGIN_HUD}{plugin}/{window}")
+}
+
+/// What a plugin HUD's layout name starts with.
+const PLUGIN_HUD: &str = "plugin:";
+
+/// Whether layout name `name` is a plugin's HUD's.
+#[must_use]
+pub fn is_plugin_hud(name: &str) -> bool {
+    name.starts_with(PLUGIN_HUD)
+}
+
+/// An element's name as the editor labels it: a plugin's HUD by its plugin and its window.
 #[must_use]
 pub fn element_title(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix(PLUGIN_HUD) {
+        return match rest.split_once('/') {
+            Some((plugin, window)) => format!(
+                "{plugin}: {}",
+                window.replace("%20", " ").replace("%25", "%")
+            ),
+            None => rest.to_owned(),
+        };
+    }
     match name {
         "parameter" => "Parameter Bar",
         "stance" => "Stance Gauge",

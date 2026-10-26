@@ -182,13 +182,51 @@ worker.onerror = (e) => show(`worker error: ${e.message}`);
 
 // ---- the front page ------------------------------------------------------------------------------
 
+// Plugins: a folder the player picks is copied into this browser's private storage by the worker
+// and loads when the client starts; the client asks before granting what a plugin asks for.
+$('add-plugin').addEventListener('click', () => $('plugin-folder').click());
+$('plugin-folder').addEventListener('change', async () => {
+  const picked = [...$('plugin-folder').files];
+  const files = await Promise.all(picked.map(async (f) => ({
+    path: f.webkitRelativePath || f.name,
+    bytes: new Uint8Array(await f.arrayBuffer()),
+  })));
+  if (!files.some((f) => f.path.endsWith('/plugin.toml'))) {
+    $('plugin-note').textContent = 'That folder has no plugin.toml: pick the plugin\'s own folder.';
+    return;
+  }
+  $('plugin-note').textContent = '';
+  worker.postMessage({ cmd: 'addPlugins', files });
+  $('plugin-folder').value = '';
+});
+// A plugin's zip is kept as it is, beside the folders; the client reads it when it starts.
+$('add-plugin-zip').addEventListener('click', () => $('plugin-zip').click());
+$('plugin-zip').addEventListener('change', async () => {
+  const picked = [...$('plugin-zip').files].filter((f) => f.name.toLowerCase().endsWith('.zip'));
+  const files = await Promise.all(picked.map(async (f) => ({
+    path: f.name,
+    bytes: new Uint8Array(await f.arrayBuffer()),
+  })));
+  if (files.length) worker.postMessage({ cmd: 'addPlugins', files });
+  $('plugin-zip').value = '';
+});
+$('remove-plugins').addEventListener('click', () => worker.postMessage({ cmd: 'removePlugins' }));
+
 // Start the client on what the front page chose: the data files, the server, the account, what
 // the launcher says about the world, and the folder its overlay is kept in.
 function launch(choice) {
   $('go').disabled = true;
   if (!audio) openAudio(48000);
   $('launch').style.display = 'none';
-  worker.postMessage({ cmd: 'start', ...choice, width: size[0], height: size[1], page: page() });
+  worker.postMessage({
+    cmd: 'start',
+    ...choice,
+    width: size[0],
+    height: size[1],
+    page: page(),
+    // `?plugin_policy=https://…`: the world's plugin policy document, from its world entry.
+    pluginPolicy: params.get('plugin_policy') || undefined,
+  });
   view.focus();
 }
 

@@ -1,0 +1,5 @@
+id = "conformance.inputs"
+name = "Conformance: inputs"
+version = "0.1.0"
+api = "0.6"
+contexts = ["pregame", "world"]

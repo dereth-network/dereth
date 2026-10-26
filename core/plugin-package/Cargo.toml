@@ -1,0 +1,23 @@
+[package]
+name = "dereth-plugin-package"
+description = "Plugin packages as files: read from a folder's bytes or a zip, and their manifest, with no game, no engine and no I/O in it; and a compiled plugin's source hash."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Production dependencies (`cargo xtask seams`, `seam: plugin-package deps`): the interface's
+# manifest types and the four formats a package is made of. Light enough for the launcher, which
+# installs packages, and the author's tool, which makes them.
+[dependencies]
+dereth-plugin-api.workspace = true
+# `plugin.toml`.
+toml.workspace = true
+# Zip packages, read from bytes and written (Deflate in pure Rust).
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# A compiled plugin's source hash.
+sha2.workspace = true
+
+[lints]
+workspace = true

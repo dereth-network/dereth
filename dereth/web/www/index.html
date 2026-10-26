@@ -149,6 +149,15 @@
       <p id="persist-note" class="note"></p>
       <div id="sets" class="kept"></div>
       <div id="overlays" class="kept"></div>
+      <label>Plugins (experimental)</label>
+      <div class="btns">
+        <button type="button" id="add-plugin" class="btn" title="Keep a plugin's folder (the one holding its plugin.toml) in this browser">Add a plugin folder…</button>
+        <button type="button" id="add-plugin-zip" class="btn" title="Keep a plugin's zip in this browser as it is">Add a plugin zip…</button>
+        <button type="button" id="remove-plugins" class="btn">Remove all plugins</button>
+      </div>
+      <p id="plugin-note" class="note bad"></p>
+      <input id="plugin-folder" type="file" webkitdirectory class="hidden">
+      <input id="plugin-zip" type="file" accept=".zip,application/zip" multiple class="hidden">
     </section>
   </div>
 </div>

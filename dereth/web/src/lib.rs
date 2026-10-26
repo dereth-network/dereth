@@ -27,9 +27,9 @@
 //! synchronous read the worker answers (`dats::BrowserFile`), a world's overlay is kept in the
 //! browser's own storage through the same kind of calls (`overlay`), datagrams cross the
 //! WebSocket with a two-byte port in front ([`frame`]), and [`play`] runs the client shell's whole
-//! application on the browser's host ([`host`]), one frame per animation frame. The front page's
-//! launcher ([`front`]) is the desktop launcher's own logic. Everything else here is
-//! platform-neutral and tested on the host.
+//! application on the browser's host ([`host`]), one frame per animation frame, with the plugins
+//! the player added to the page ([`plugins`]). The front page's launcher ([`front`]) is the
+//! desktop launcher's own logic. Everything else here is platform-neutral and tested on the host.
 
 pub mod dats;
 pub mod frame;
@@ -37,6 +37,7 @@ pub mod front;
 pub mod host;
 pub mod keycodes;
 pub mod play;
+pub mod plugins;
 pub mod server_url;
 pub mod settings;
 
@@ -44,3 +45,5 @@ pub mod settings;
 pub mod browser;
 #[cfg(target_arch = "wasm32")]
 pub mod overlay;
+#[cfg(target_arch = "wasm32")]
+pub mod plugin_wasm;

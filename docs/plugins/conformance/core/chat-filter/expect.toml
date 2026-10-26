@@ -1,0 +1,8 @@
+says = "A plugin hides incoming lines, and those lines are not shown."
+[scenario]
+session = "long-solo-play"
+character = "+Aldric"
+seconds = 90
+[expect]
+status = "running"
+hidden = ["You stab Sparring Golem for 6 points of piercing damage!\n", "You stab Sparring Golem for 6 points of piercing damage!\n", "Sparring Golem evaded your attack.\n"]

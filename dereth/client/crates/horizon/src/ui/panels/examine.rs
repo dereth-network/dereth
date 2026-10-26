@@ -1,6 +1,7 @@
 //! The examine window: the game's appraisal of an item, a creature or a player, laid out as item
 //! details, in the words and order of the game's own examine panel.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 
 use super::{WindowId, Windows};

@@ -1,0 +1,8 @@
+says = "A plugin hears the login, the entry into the world, and then each change of experience, vitals and selection, in the order the client applied the messages behind them."
+[scenario]
+session = "long-solo-play"
+character = "+Aldric"
+seconds = 1050
+[expect]
+status = "running"
+console = ["login\t+Brann", "enter_world", "xp\t11\t11", "xp\t39\t28", "xp\t67\t28", "xp\t95\t28", "xp\t123\t28", "xp\t1123\t1000", "xp\t3123\t2000", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3123\t0", "xp\t3151\t28", "xp\t6151\t3000", "xp\t11151\t5000", "xp\t23651\t12500"]

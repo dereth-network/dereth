@@ -1,0 +1,19 @@
+says = "A journey with no gesture behind it needs the world's leave: a world that allows navigation only with a gesture refuses it."
+[scenario]
+world = "scripted"
+seconds = 1
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.85]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+nav = "interactive-only"
+"""
+[expect]
+status = "running"
+console = ["automated\tfalse\tdenied_by_world"]
+moves = []

@@ -14,8 +14,8 @@ autotests = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# The data store the page's files are opened into.
-dereth-client-sdk.workspace = true
+# The data store the page's files are opened into, and the plugin host with its Luau engine.
+dereth-client-sdk = { workspace = true, features = ["lua"] }
 # The graphics device on its `wgpu` backend: WebGPU in a browser that has it, WebGL 2 in one that
 # does not. The page prepares the device and the client comes up on it.
 dereth-render = { workspace = true, features = ["wgpu"] }

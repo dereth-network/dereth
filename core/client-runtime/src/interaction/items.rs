@@ -98,8 +98,11 @@ impl Interaction {
                 self.set_target_mode(TargetMode::UseTarget);
                 self.stats.target_modes_armed += 1;
             }
-            UseOutcome::Refused(_) => self.stats.uses_refused += 1,
+            UseOutcome::Refused(_) | UseOutcome::TargetIncompatible => {
+                self.stats.uses_refused += 1;
+            }
             UseOutcome::Dispatched { .. }
+            | UseOutcome::UseWithTargetSent
             | UseOutcome::UseEventSent
             | UseOutcome::NoObject
             | UseOutcome::Throttled

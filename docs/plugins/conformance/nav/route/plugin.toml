@@ -1,0 +1,10 @@
+id = "conformance.route"
+name = "Conformance: route"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"act.interactive" = "Walks the route."
+
+[capabilities]
+required = ["nav.moveto"]

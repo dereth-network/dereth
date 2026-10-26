@@ -1,0 +1,39 @@
+says = "An item used on a target sends one use-with-target request and settles at the server's acknowledgement: a wielded caster's own spell cast on the character keeps the caster in hand, a kit from the pack is used on the character and a lockpick on a door; an item used on what it does not take is refused by the client with nothing sent, and a use's purpose is only a heal."
+[scenario]
+world = "scripted"
+seconds = 6
+[[object]]
+id = 0x80000040
+name = "Casting Stein"
+type = "caster"
+worn = true
+locations = 0x01000000
+spell_id = 1679
+useability = 0x000A0004
+target_type = "creature"
+[[object]]
+id = 0x80000041
+name = "Healing Kit"
+type = "misc"
+container = "player"
+useability = 0x000A0008
+target_type = "creature"
+[[object]]
+id = 0x80000042
+name = "Plain Lockpick"
+type = 0x4000
+container = "player"
+useability = 0x00200008
+target_type = 0x280
+[[object]]
+id = 0x80000043
+name = "Door"
+type = "misc"
+place = { ns = 42.2, ew = 33.80001 }
+door = "locked"
+[[step]]
+after = 1
+say = "/go"
+[expect]
+console = ["stein\ttrue\tnil", "still wielded\ttrue", "kit\ttrue\tnil", "pick\ttrue\tnil", "stein on the door\tfalse\trefused by the client", "purpose\tfalse\ttrue"]
+sent = ["use_with_target 0x80000040 0x50000001", "use_with_target 0x80000041 0x50000001", "use_with_target 0x80000042 0x80000043"]

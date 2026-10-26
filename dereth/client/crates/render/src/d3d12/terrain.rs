@@ -899,7 +899,7 @@ impl Gpu {
 }
 
 /// Serialize and create a root signature.
-fn serialize_root_signature(
+pub(super) fn serialize_root_signature(
     device: &ID3D12Device,
     params: &[D3D12_ROOT_PARAMETER],
     flags: D3D12_ROOT_SIGNATURE_FLAGS,

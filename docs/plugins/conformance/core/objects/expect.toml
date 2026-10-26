@@ -1,0 +1,36 @@
+says = "A plugin hears an object's state change with the keys that changed and its walking past a metre, reads every property type an appraisal or the object's own qualities carry and a creature's health, and finds objects by property conditions, class, distance and a predicate."
+[scenario]
+world = "scripted"
+seconds = 6
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = "player"
+value = 900
+ints = { 105 = 7 }
+spells = [2074, 2075]
+int64s = { 6 = 123456789012 }
+floats = { 167 = 1.5 }
+strings = { 16 = "A ring of note" }
+bools = { 69 = true }
+dids = { 50 = 0x06001234 }
+[[object]]
+id = 0x80000021
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.25, ew = 33.8 }
+health = [30, 50]
+[[step]]
+after = 1
+say = "/look"
+[[step]]
+after = 3
+move_object = { id = 0x80000021, ns = 42.3, ew = 33.8 }
+[[step]]
+after = 4
+move_object = { id = 0x80000021, ns = 42.3005, ew = 33.8 }
+[expect]
+status = "running"
+console = ["changed\t0x80000011\tappraisal", "changed\t0x80000021\tappraisal,health", "int64\t123456789012\tfloat\t1.5\tstring\tA ring of note", "bool\ttrue\tdid\t0x06001234\tiid\tnil", "prop\t7\ttrue", "health\t30\t50\t0.6", "spells\t2\ttrue", "where\t0x80000011", "string\t0x80000011", "class\t0x80000021\t0x80000011", "nearest\t0x80000021", "pred\t0x80000011", "bad\tfalse\ttrue", "moved\t0x80000021\ttrue"]
+sent = ["appraise 0x80000011", "appraise 0x80000021"]

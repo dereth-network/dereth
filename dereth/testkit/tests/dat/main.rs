@@ -22,6 +22,7 @@ mod magic;
 mod net;
 mod objects;
 mod panels;
+mod plugins;
 mod shell;
 mod social;
 mod ui;

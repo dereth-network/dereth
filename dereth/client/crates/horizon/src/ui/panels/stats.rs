@@ -5,6 +5,7 @@
 //! A raise waits for the game's answer before the same row can be raised again, as the game's
 //! own panels hold their raise buttons down until the new value comes.
 
+use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
 
 use super::Windows;

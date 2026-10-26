@@ -227,8 +227,20 @@ impl<S: Shell> App<S> {
             }
             self.play_transient_motions();
         }
-        let mut events = std::mem::take(&mut self.orbit_pending);
+        // The client's own steering (a journey's keys, a frame hook's run lock) first, as the
+        // game's own movement under any interface; then the player's.
+        let mut events = self.actions.take_steered();
+        let pending = std::mem::take(&mut self.orbit_pending);
         let taken = self.actions.take();
+        // The player moved the character: a key, or an interface's stick or mouse buttons.
+        if pending
+            .iter()
+            .chain(&taken)
+            .any(crate::actions::is_movement)
+        {
+            self.player_moves += 1;
+        }
+        events.extend(pending);
         // Under the orbit camera the movement keys are turned into the game's movement as it reads
         // them; the mouse's asks are already the game's.
         match self.orbit {

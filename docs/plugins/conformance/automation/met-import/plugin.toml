@@ -1,0 +1,10 @@
+id = "conformance.met-import"
+name = "Conformance: met-import"
+version = "0.1.0"
+api = "0.4"
+
+[permissions]
+"auto.nav" = "Walks the meta's route."
+
+[capabilities]
+required = ["nav.moveto"]

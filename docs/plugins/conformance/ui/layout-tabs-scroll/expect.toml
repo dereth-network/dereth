@@ -1,0 +1,28 @@
+says = "A window with tabs shorter than its page keeps its row of tabs where it is and scrolls the page alone: the body does not scroll, and the page's nodes are laid out at their least height, as wide as the page less the scrollbar's room."
+[[step]]
+after = 0
+bar = "conformance.layout-tabs-scroll"
+[[step]]
+after = 1
+resize = "main"
+width = 40
+height = 8
+[expect]
+status = "running"
+layout = """
+window conformance.layout-tabs-scroll main
+window #main 280x128
+  label #status 0,0 280x16
+  tabs #pages 0,19 280x109
+    group 0,25 280x84 scrolls=197
+      number #n1 0,0 269x22 label=70
+      number #n2 0,25 269x22 label=70
+      number #n3 0,50 269x22 label=70
+      number #n4 0,75 269x22 label=70
+      number #n5 0,100 269x22 label=70
+      number #n6 0,125 269x22 label=70
+      number #n7 0,150 269x22 label=70
+      number #n8 0,175 269x22 label=70
+    group 0,25 280x84
+      list #log 0,0 280x84 columns=270 rows=3
+"""

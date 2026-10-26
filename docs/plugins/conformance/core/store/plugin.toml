@@ -1,0 +1,4 @@
+id = "conformance.store"
+name = "Conformance: store"
+version = "0.1.0"
+api = "0.1"

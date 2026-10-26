@@ -1,0 +1,35 @@
+says = "A click starts a loot: the corpse is opened, only the item the profile cannot decide unseen is appraised, and each keeper is moved to the pack after the one before has arrived."
+[scenario]
+world = "scripted"
+seconds = 5
+[[object]]
+id = 0x80000010
+name = "Corpse of a Drudge"
+type = "container"
+corpse = true
+[[object]]
+id = 0x80000011
+name = "Gold Ring"
+type = "jewelry"
+container = 0x80000010
+value = 900
+[[object]]
+id = 0x80000012
+name = "Rusty Dagger"
+type = "melee_weapon"
+container = 0x80000010
+value = 5
+ints = { 105 = 3 }
+[[object]]
+id = 0x80000013
+name = "Opal"
+type = "gem"
+container = 0x80000010
+value = 50
+[[step]]
+after = 1
+click = "main.loot"
+[expect]
+status = "running"
+console = ["opened\t0x80000010", "added\tGold Ring", "kept\tGold Ring\tRings", "left\tRusty Dagger", "added\tOpal", "kept\tOpal\tGems", "done\t2"]
+sent = ["use 0x80000010", "put_item_in_container 0x80000011 0x50000001 0", "appraise 0x80000012", "put_item_in_container 0x80000013 0x50000001 0"]

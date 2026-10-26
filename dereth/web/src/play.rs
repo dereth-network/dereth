@@ -257,8 +257,18 @@ impl Play {
     /// The client's cleanup, in its order: the keymap and the preferences saved, the connection
     /// closed and the interface taken down. Log off first ([`Self::log_off`]) and send what that
     /// queues: the cleanup's own goodbye goes out with the connection it closes.
-    pub fn shut_down(self) -> dereth_client_runtime::shutdown::CleanupLog {
+    pub fn shut_down(mut self) -> dereth_client_runtime::shutdown::CleanupLog {
+        crate::plugins::flush(&mut self.app);
         self.app.shutdown()
+    }
+
+    /// Run `packages` as plugins, from the next frame on.
+    pub fn install_plugins(
+        &mut self,
+        packages: Vec<dereth_client_sdk::plugins::Package>,
+        extras: crate::plugins::Extras,
+    ) {
+        crate::plugins::install(&mut self.app, packages, extras);
     }
 
     /// The session's will, framed for the WebSocket: the log-off's datagrams, for its far end to

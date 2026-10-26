@@ -731,7 +731,7 @@ pub fn screen(dats: Option<PathBuf>) -> Result<(), String> {
     .map_err(|e| e.detail)?;
     cfg.width = 900;
     cfg.height = 620;
-    dereth_desktop::logging::install::<Lyceum>(&cfg);
+    let _log = dereth_desktop::logging::install::<Lyceum>(&cfg);
     let text = text();
     let recent_file = settings.join(RECENT_FILE);
     let mut screen =

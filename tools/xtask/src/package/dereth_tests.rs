@@ -257,10 +257,19 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
     let stage = ws.join("target").join("package").join("stage").join("x");
     let client = stage.join("bin").join("dereth-client");
     let notices = stage.join("notices");
-    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices).unwrap();
+    let carried = vec![(
+        "plugins/tank/plugin.toml".to_owned(),
+        stage.join("plugins").join("tank").join("plugin.toml"),
+    )];
+    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices, &carried).unwrap();
     assert_eq!(win, serde_json::json!({ "createUpdaterArtifacts": false }));
     for t in [target(MAC_ARM), target(LINUX)] {
-        let c = dereth::bundle_config(t, &app, &client, &notices).unwrap();
+        let c = dereth::bundle_config(t, &app, &client, &notices, &carried).unwrap();
+        assert_eq!(
+            c["resources"]["../../target/package/stage/x/plugins/tank/plugin.toml"],
+            "plugins/tank/plugin.toml",
+            "a carried plugin is a resource at its published path"
+        );
         assert_eq!(
             c["externalBin"],
             serde_json::json!(["../../target/package/stage/x/bin/dereth-client"])
@@ -275,6 +284,144 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
             "{text}"
         );
     }
+}
+
+/// While plugins are experimental a release carries none of the sample plugins: neither the
+/// Windows folder nor the macOS bundle holds a `plugins` folder.
+#[test]
+fn a_release_carries_no_plugins_while_they_are_experimental() {
+    let ws = workspace_root();
+    let paths = super::plugins::paths(&ws).expect("the carried plugins");
+    if super::plugins::SHIPPED {
+        let carried = super::plugins::carried(&ws).expect("carried");
+        assert_eq!(paths.len(), carried.len());
+        return;
+    }
+    assert!(paths.is_empty(), "{paths:?}");
+    for t in [WINDOWS, MAC_ARM] {
+        let (required, optional) = dereth::package_contents(target(t), &paths);
+        assert!(
+            required
+                .iter()
+                .chain(optional.iter())
+                .all(|p| !p.starts_with("plugins/") && !p.contains("/plugins/")),
+            "{t}: {required:?}"
+        );
+    }
+}
+
+/// The plugins a release that carries them would carry are the listed sample folders as git
+/// tracks them, published under `plugins/`: the Windows folder holds them at its top and the macOS
+/// bundle among its resources, both scanned for them; a folder with no manifest, or a file of a
+/// kind no plugin is made of, is refused, and a sample not on the list is not carried.
+#[test]
+fn the_carried_plugins_go_beside_the_client_and_nothing_else_of_the_samples() {
+    let ws = workspace_root();
+    let paths: Vec<String> = super::plugins::carried(&ws)
+        .expect("the carried plugins")
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    for need in [
+        "plugins/tank/plugin.toml",
+        "plugins/tank/THIRD-PARTY.md",
+        "plugins/trackers/main.lua",
+        "plugins/trackers/plugin.toml",
+        "plugins/navigator/locations.txt",
+    ] {
+        assert!(paths.contains(&need.to_owned()), "{need}");
+    }
+    assert!(
+        paths.iter().all(|p| super::plugins::BUNDLED
+            .iter()
+            .any(|f| p.starts_with(&format!("plugins/{f}/")))),
+        "only the listed samples"
+    );
+    let (win, _) = dereth::package_contents(target(WINDOWS), &paths);
+    assert!(win.contains(&"plugins/tank/plugin.toml".to_owned()));
+    assert!(win.contains(&"dereth-client.exe".to_owned()));
+    let (mac, _) = dereth::package_contents(target(MAC_ARM), &paths);
+    assert!(mac.contains(&"Contents/Resources/plugins/tank/plugin.toml".to_owned()));
+    let (linux, _) = dereth::package_contents(target(LINUX), &paths);
+    assert!(linux.is_empty(), "the AppImage is no archive");
+
+    let tracked =
+        |files: &[&str]| -> Vec<String> { files.iter().map(|f| (*f).to_owned()).collect() };
+    let mut listing = tracked(&[
+        "dereth/plugins/unlisted/plugin.toml",
+        "dereth/plugins/unlisted/main.lua",
+    ]);
+    for folder in super::plugins::BUNDLED {
+        listing.push(format!("dereth/plugins/{folder}/plugin.toml"));
+        listing.push(format!("dereth/plugins/{folder}/main.lua"));
+    }
+    let carried = super::plugins::from_listing(&ws, &listing).expect("carried");
+    assert_eq!(carried.len(), super::plugins::BUNDLED.len() * 2);
+    assert!(carried.iter().all(|(p, _)| !p.contains("unlisted")));
+    let mut odd = listing.clone();
+    odd.push("dereth/plugins/tank/cell.dat".into());
+    odd.push("dereth/plugins/tank/tool.exe".into());
+    let refused = super::plugins::from_listing(&ws, &odd).expect_err("refused");
+    assert!(
+        refused.contains("cell.dat") && refused.contains("tool.exe"),
+        "{refused}"
+    );
+    let mut bare = listing;
+    bare.retain(|p| p != "dereth/plugins/trackers/plugin.toml");
+    let refused = super::plugins::from_listing(&ws, &bare).expect_err("refused");
+    assert!(
+        refused.contains("trackers") && refused.contains("plugin.toml"),
+        "{refused}"
+    );
+}
+
+/// The Windows zip with the carried plugins reads back and passes the scan; one of them missing,
+/// or a plugin file the tree does not carry, refuses it.
+#[test]
+fn a_windows_zip_with_the_carried_plugins_passes_and_a_missing_or_stray_one_refuses_it() {
+    let w = target(WINDOWS);
+    let paths: Vec<String> = super::plugins::carried(&workspace_root())
+        .expect("the carried plugins")
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    let (required, optional) = dereth::package_contents(w, &paths);
+    let members: Vec<Member> = required
+        .iter()
+        .map(|n| Member {
+            name: n.clone(),
+            bytes: n.as_bytes().to_vec(),
+            executable: n.ends_with(".exe"),
+        })
+        .collect();
+    let root = dereth::archive_root(w, V).expect("a zip");
+    let scan = |members: &[Member]| {
+        let bytes = archive::zip_bytes(&root, members, 1_700_000_000).expect("zip");
+        let entries =
+            archive::relative_to_root(archive::zip_entries(&bytes).expect("reads"), &root);
+        guard::scan_tree(
+            &entries,
+            &required,
+            &optional,
+            dereth::FILE_CAP,
+            dereth::TOTAL_CAP,
+        )
+    };
+    assert_eq!(scan(&members), Vec::<String>::new());
+    let mut short = members.clone();
+    short.retain(|m| m.name != "plugins/trackers/main.lua");
+    assert!(scan(&short)
+        .iter()
+        .any(|f| f.contains("plugins/trackers/main.lua") && f.contains("missing")));
+    let mut stray = members;
+    stray.push(Member {
+        name: "plugins/tank/routes/mine.nav".into(),
+        bytes: b"uTank2 NAV 1.2".to_vec(),
+        executable: false,
+    });
+    assert!(scan(&stray)
+        .iter()
+        .any(|f| f.contains("mine.nav") && f.contains("not on the allowlist")));
 }
 
 /// A path is named relative to a folder by climbing to what they share; a folder on another
@@ -612,6 +759,12 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     let windows = super::notice::dereth_notice(&facts(None));
     assert!(!windows.contains("MOLTENVK"));
     assert!(windows.contains("CINZEL"));
+    // The carried plugins: off until turned on, and where the Tank's other authors' licences are.
+    assert!(
+        windows.contains("THE PLUGINS")
+            && windows.contains("plugins/tank/THIRD-PARTY.md")
+            && windows.contains("off until you turn it on")
+    );
 }
 
 /// A Developer ID signs the macOS bundle under the hardened runtime; an ad-hoc signature leaves it
@@ -631,6 +784,27 @@ fn only_a_developer_id_turns_on_the_hardened_runtime() {
 
 /// The launcher is built knowing the repository the release is downloaded from, and looks for its
 /// updates among that repository's releases.
+/// Every release build compiles the plugin engine without its assertions, whose messages would
+/// carry the building machine's folders into the client.
+#[test]
+fn a_release_build_compiles_the_plugin_engine_without_its_assertions() {
+    let facts = super::BuildFacts {
+        commit: "a".repeat(40),
+        branch: "dereth-v0.2.0".to_owned(),
+        number: "1".to_owned(),
+        epoch: 1_700_000_000,
+        source_url: "https://github.com/dereth-network/dereth".to_owned(),
+    };
+    for triple in [WINDOWS, LINUX, MAC_ARM] {
+        let env = dereth::build_env(&workspace_root(), &facts, target(triple));
+        assert!(
+            env.iter().any(|(k, v)| k == "LUAU_CXXFLAGS"
+                && v.split_whitespace().any(|f| f == "-DNDEBUG")),
+            "{triple}: {env:?}"
+        );
+    }
+}
+
 #[test]
 fn a_release_build_is_told_the_repository_it_updates_from() {
     let facts = super::BuildFacts {

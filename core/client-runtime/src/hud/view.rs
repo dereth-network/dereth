@@ -838,6 +838,51 @@ impl GameView for HudView<'_> {
         self.hud.spell_entry(spell_id)
     }
 
+    fn spell_category(&self, spell_id: u32) -> Option<u32> {
+        self.hud
+            .spell_table
+            .as_ref()?
+            .spells
+            .get(&spell_id)
+            .map(|b| b.category)
+            .filter(|c| *c != 0)
+    }
+
+    fn spell_cost(&self, spell_id: u32) -> Option<(i32, i32)> {
+        self.hud
+            .spell_table
+            .as_ref()?
+            .spells
+            .get(&spell_id)
+            .map(|b| (b.power, b.base_mana))
+    }
+
+    fn spell_duration(&self, spell_id: u32) -> Option<f64> {
+        self.hud
+            .spell_table
+            .as_ref()?
+            .spells
+            .get(&spell_id)?
+            .duration
+            .map(|(d, _, _)| d)
+    }
+
+    fn has_spell(&self, spell_id: u32) -> bool {
+        self.hud
+            .spell_table
+            .as_ref()
+            .is_some_and(|t| t.spells.contains_key(&spell_id))
+    }
+
+    fn spell_description(&self, spell_id: u32) -> Option<String> {
+        self.hud
+            .spell_table
+            .as_ref()?
+            .spells
+            .get(&spell_id)
+            .map(|b| b.description.clone())
+    }
+
     /// `(spell)` — the **book itself**, not the join
     /// [`Self::spellbook`] hands the panel.
     ///

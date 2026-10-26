@@ -1,0 +1,18 @@
+says = "A plugin draws lines, rings, squares and floating text in the world, each resolved every frame to an outline in the world where its object or place is, and the nametags layer labels each object of the kinds it names within its range."
+[scenario]
+world = "scripted"
+seconds = 2
+[[object]]
+id = 0x80000021
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.9 }
+[expect]
+status = "running"
+console = ["line without an end\tfalse", "shape on a world marker\tfalse"]
+overlays = """shape conformance.shapes #1 label="Target" color=#FFD700 object=0x50000001 at=42.20N 33.80E shape=line path=2 span=24.0
+shape conformance.shapes #2 color=#FF0000 object=0x80000021 at=42.20N 33.90E shape=ring path=33 span=0.6
+shape conformance.shapes #3 color=#FFD700 at=42.21N 33.80E shape=square path=5 span=4.0
+shape conformance.shapes #4 label="Camp" color=#FFD700 at=42.20N 33.85E shape=text path=0
+nametag conformance.shapes #5 label="Drudge Skulker" color=#FFFFFF object=0x80000021 at=42.20N 33.90E
+"""

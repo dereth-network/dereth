@@ -1,0 +1,24 @@
+says = "In a world whose policy asks for read parity, a plugin's search finds only what the radar shows and what the character holds."
+[scenario]
+world = "scripted"
+seconds = 1
+[[object]]
+id = 0x80000060
+name = "Hidden Chest"
+type = "container"
+place = { ns = 42.2, ew = 33.81 }
+[[object]]
+id = 0x80000061
+name = "Pack Gem"
+type = "gem"
+container = "player"
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+[limits]
+read_parity = true
+"""
+[expect]
+status = "running"
+console = ["found\tPack Gem"]

@@ -117,6 +117,11 @@ impl<H: Host> App<H> {
             window_events,
             |cfg| match platform {
                 Some(p) => Ok(p),
+                // A headless session with a server keeps real time (unless `--simulated-time`),
+                // and any headless run does with `--real-time`.
+                None if cfg.headless && cfg.keeps_real_time() => {
+                    Ok(Platform::headless_live(cfg.width, cfg.height))
+                }
                 None if cfg.headless => Ok(Platform::headless(cfg.width, cfg.height)),
                 None => H::open_platform(cfg, opened_events),
             },
@@ -162,6 +167,26 @@ impl<H: Host> App<H> {
     /// Run the main loop: frame after frame until one asks to stop. Returns the number of frames drawn.
     pub fn run(&mut self) -> u64 {
         self.core.run(&mut self.shell)
+    }
+
+    /// The main loop as [`Self::run`] runs it, calling `at` once, after the frame in which the
+    /// character has been in the world `secs` seconds: a scripted run's moment to look at the
+    /// world before `--linger` logs it off.
+    pub fn run_with_moment(&mut self, secs: f64, mut at: impl FnMut(&mut Self)) -> u64 {
+        self.core.state = dereth_client_runtime::app::AppState::Running;
+        let mut done = false;
+        while self.core.frame(&mut self.shell) {
+            let in_world = self
+                .core
+                .playable_at
+                .map(|t| self.core.timer.local_time - t);
+            if !done && in_world.is_some_and(|s| s >= secs) {
+                done = true;
+                at(self);
+            }
+        }
+        self.core.state = dereth_client_runtime::app::AppState::ShuttingDown;
+        self.core.frames_drawn()
     }
 
     /// One iteration of the frame, in the documented order. Returns false when the loop should
@@ -465,6 +490,36 @@ impl<H: Host> App<H> {
     #[must_use]
     pub fn ui_draw_list(&self) -> &[dereth_ui::UiDrawCmd] {
         &self.shell.shared.ui_draw_list
+    }
+
+    /// The plugins' layer over the modern and the classic interface, as last drawn: its windows
+    /// and where a press is its, for the tests.
+    #[must_use]
+    pub fn plugin_layer(&self) -> &dereth_plugin_ui::Layer {
+        &self.shell.plugins.layer.layer
+    }
+
+    /// The classic interface, once it has been brought up, for the tests.
+    #[must_use]
+    pub fn classic_ui_mut(&mut self) -> Option<&mut dereth_classic_ui::runtime::ClassicUi> {
+        self.shell.classic.ui.as_mut()
+    }
+
+    /// The controls the shown interface's widget kit noted last frame, each with its place on
+    /// screen and its panel, for the tests: the plugins' layer's under the modern and the classic
+    /// interface, Horizon's own (the plugins' windows among them) under Horizon.
+    #[must_use]
+    pub fn kit_controls(&self) -> &dereth_ui_kit::nav::Snapshot {
+        match self.shell.horizon.ui.as_ref() {
+            Some(ui) if self.shell.horizon.active => &ui.frame_input.nav.last,
+            _ => &self.shell.plugins.layer.input.nav.last,
+        }
+    }
+
+    /// The interface shown now.
+    #[must_use]
+    pub fn shown_interface(&self) -> dereth_client_contract::options::interface::Interface {
+        self.shell.shown_interface()
     }
 
     /// What the cursor path did this session — [`crate::cursor::CursorStats`].

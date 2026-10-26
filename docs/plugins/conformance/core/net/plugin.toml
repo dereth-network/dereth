@@ -1,0 +1,10 @@
+id = "conformance.net"
+name = "Conformance: net"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"net.http" = "Reads the notice board."
+
+[net]
+domains = ["example.org"]

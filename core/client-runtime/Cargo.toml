@@ -56,6 +56,8 @@ dereth-terrain.workspace = true
 # `character.rs` drives the collision and movement engine and the motion tables; it names no
 # device: `dereth-physics` is `dereth-primitives` alone.
 dereth-physics.workspace = true
+# nav_proof.rs -- `--nav-proof`'s route planner.
+dereth-navigation.workspace = true
 # `camera.rs`'s `apply_preference_requests` filters `UiRequest::SetPreference`, which is
 # `dereth-client-contract`'s type; `dereth_ui_screens::{PrefValue, UiRequest}` are re-exports of
 # these.

@@ -1,0 +1,29 @@
+says = "A portal that refuses the character is learned as refused, and the journey is planned again by another way, which is told with the reason."
+[scenario]
+world = "scripted"
+seconds = 20
+[[portal]]
+name = "Underground Passage"
+class = 14449
+at = [42.2, 33.83]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+refuses = true
+[[portal]]
+name = "Drudge Hideout"
+class = 2068
+at = [42.2, 33.9]
+to = { cell = 0x019E0114, x = 10, y = -40, z = 0 }
+[[step]]
+after = 0.5
+say = "/go"
+[expect]
+status = "running"
+console = [
+	"planned\tUnderground Passage\tfirst",
+	"learned\trefusal\tUnderground Passage",
+	"planned\tDrudge Hideout\tportal Underground Passage refused",
+	"learned\tportal\tDrudge Hideout",
+	"arrived\ttrue",
+	"retired\tUnderground Passage\tlearned",
+]
+moves = ["travel portal Underground Passage", "travel portal Drudge Hideout", "travel arrived"]

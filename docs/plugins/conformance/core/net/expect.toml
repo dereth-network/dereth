@@ -1,0 +1,9 @@
+says = "A plugin's HTTPS requests reach only the domains its manifest lists (and their subdomains), at the port listed (443 when none is), over https and never to an address; a request to another domain fails, saying so, and each settles with the answer or why it failed."
+[net]
+"https://news.example.org/board.txt" = "board.txt"
+[[step]]
+after = 1
+say = "/noop"
+[expect]
+status = "running"
+console = ["plain http\tfalse\ttrue", "address\tfalse\ttrue", "board\t200\tWelcome\n", "missing\tfalse\tnot found", "other domain\tfalse\texample.com:443 is not among the domains this plugin's manifest lists", "other port\tfalse\texample.org:8443 is not among the domains this plugin's manifest lists"]

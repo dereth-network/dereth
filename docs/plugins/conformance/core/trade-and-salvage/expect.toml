@@ -1,0 +1,48 @@
+says = "A trade and a salvage end at the server's word: the vendor's wares open, an item is sold, five of a stackable are bought (the stack the vendor's list gives it, not one), and an item salvaged leaves the pack for a bag of its material; a loot profile's salvage combining reads as its ranges."
+[scenario]
+world = "scripted"
+seconds = 8
+[[object]]
+id = 0x80000030
+name = "Tester the Shopkeeper"
+type = "creature"
+place = { ns = 42.2, ew = 33.80001 }
+vendor = { buys = "melee_weapon" }
+[[object]]
+id = 0x80000031
+name = "Prismatic Taper"
+type = "spell_component"
+container = 0x80000030
+value = 5
+max_stack = 1000
+[[object]]
+id = 0x80000032
+name = "Bread"
+type = "food"
+container = 0x80000030
+value = 10
+[[object]]
+id = 0x80000033
+name = "Rusty Dagger"
+type = "melee_weapon"
+container = "player"
+value = 50
+[[object]]
+id = 0x80000034
+name = "Steel Sword"
+type = "melee_weapon"
+container = "player"
+value = 200
+material = 64
+workmanship = 6.0
+[[object]]
+id = 0x80000035
+name = "Ust"
+type = "salvaging_tool"
+container = "player"
+[[step]]
+after = 1
+say = "/go"
+[expect]
+console = ["combine\t1-6,7-10\t64\t1-1,2-2", "open\ttrue\tnil", "wares\tPrismatic Taper 5, Bread 10", "sell\ttrue\tnil", "buy\ttrue\tnil", "tapers\t5", "salvage\ttrue\tnil", "bag\t64\t6"]
+sent = ["use 0x80000030", "vendor_sell 0x80000030 0x80000033", "vendor_buy 0x80000030 0x80000031x5", "CreateTinkeringTool"]

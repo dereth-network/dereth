@@ -1,0 +1,8 @@
+says = "The character store opens once a character is logged in, and holds numbers, strings, lists and tables but not functions."
+[scenario]
+session = "long-solo-play"
+character = "+Aldric"
+seconds = 2
+[expect]
+status = "running"
+console = ["before login\tfalse", "visits\t1\t3\t3", "function refused\tfalse"]

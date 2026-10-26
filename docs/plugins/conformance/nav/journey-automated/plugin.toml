@@ -1,0 +1,10 @@
+id = "conformance.journey-automated"
+name = "Conformance: journey automated"
+version = "0.1.0"
+api = "0.3"
+
+[permissions]
+"auto.nav" = "Travels on its own."
+
+[capabilities]
+required = ["nav.journey"]

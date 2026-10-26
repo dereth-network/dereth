@@ -1,0 +1,23 @@
+says = "A HUD is kept as a tree with its anchor, its nodes change like a window's, and a bad anchor, a HUD inside a window or a control in a HUD other than a button, a toggle or a list is refused."
+[[step]]
+after = 0
+bar = "conformance.hud"
+[[step]]
+after = 1
+say = "/none"
+[expect]
+status = "running"
+console = [
+  "bad anchor refused\tfalse\ttrue",
+  "nested refused\tfalse",
+  "an input refused\tfalse\ttrue",
+  "textbox refused\tfalse",
+  "number refused\tfalse",
+  "choice refused\tfalse",
+  "slider refused\tfalse",
+]
+ui = """
+window conformance.hud xp open=true
+hud #xp anchor="top_right"
+  label #rate text="12/h"
+"""

@@ -1,0 +1,16 @@
+id = "network.dereth.looter"
+name = "Looter"
+version = "0.2.0"
+api = "0.7"
+entry = "main.lua"
+description = "Loots the open corpse or chest by your loot profile when you click Loot, or on its own where you allow it, and counts what it kept. Its window picks the profile and shows its rules in plain words. While the Tank runs, the Tank loots and Looter waits."
+authors = ["Dereth"]
+license = "MIT"
+
+[permissions]
+"act.interactive" = "Opens the corpse and moves what your profile keeps when you click Loot."
+"auto.loot" = "Loots each corpse you open, without a click, when Auto is ticked."
+"plugins.call" = "Asks the Tank whether it is running, so the two never loot one corpse at once."
+
+[capabilities]
+required = ["ui.window"]

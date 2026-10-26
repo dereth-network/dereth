@@ -397,6 +397,26 @@ pub(crate) fn as_bytes<T: Copy>(v: &T) -> &[u8] {
     }
 }
 
+/// The depth the world left at a few back-buffer pixels, read once the frame that drew it has
+/// finished: one depth a pixel asked for, in the order asked (0 at the near plane, 1 at the far
+/// one), with the tag the request carried so the asker can tell which request it answers.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DepthProbes {
+    pub tag: u64,
+    pub depths: Vec<f32>,
+}
+
+/// The most depth probes one frame reads.
+pub const MAX_DEPTH_PROBES: usize = 256;
+
+/// A D24 depth texel (the depth in the low 24 bits) as a depth from 0 to 1.
+#[must_use]
+pub fn unorm24_depth(texel: u32) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // 24 bits fit an f32's mantissa
+    let d = (texel & 0x00FF_FFFF) as f32 / 16_777_215.0;
+    d
+}
+
 /// A back-buffer read-back. The golden-image harness consumes this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedImage {
@@ -792,6 +812,31 @@ impl Gpu {
     /// The backend's own.
     pub fn capture(&mut self) -> Result<CapturedImage, RenderError> {
         dispatch!(self, g => g.capture())
+    }
+
+    /// Read the depth at these back-buffer pixels once the frame now being drawn is finished
+    /// (at most [`MAX_DEPTH_PROBES`]; a pixel outside the back buffer reads its nearest edge
+    /// pixel). The answer comes back through [`Self::take_depth_probes`] a frame or two later,
+    /// carrying `tag`; nothing waits for it. A later request in the same frame replaces this one.
+    pub fn request_depth_probes(&mut self, tag: u64, pixels: Vec<(u32, u32)>) {
+        dispatch!(self, g => g.request_depth_probes(tag, pixels));
+    }
+
+    /// The newest answer to [`Self::request_depth_probes`] that has arrived since the last call.
+    pub fn take_depth_probes(&mut self) -> Option<DepthProbes> {
+        dispatch!(self, g => g.take_depth_probes())
+    }
+
+    /// Whether [`Self::request_depth_probes`] is answered: by every device, but by the `wgpu`
+    /// device not while the high-fidelity presentation draws its frames.
+    #[must_use]
+    pub fn depth_probes_answered(&self) -> bool {
+        match self {
+            #[cfg(feature = "wgpu")]
+            Gpu::Wgpu(g) => g.depth_probes_answered(),
+            #[allow(unreachable_patterns)]
+            _ => true,
+        }
     }
 
     // --- drawing -----------------------------------------------------------------------------

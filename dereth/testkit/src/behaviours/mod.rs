@@ -252,6 +252,7 @@ pub mod movement;
 pub mod net;
 pub mod objects;
 pub mod panels;
+pub mod plugins;
 pub mod presentation;
 pub mod rendering;
 pub mod selection;
@@ -317,6 +318,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "panels",
         rows: panels::ROWS,
+    },
+    Subject {
+        name: "plugins",
+        rows: plugins::ROWS,
     },
     Subject {
         name: "presentation",

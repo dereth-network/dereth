@@ -1,0 +1,18 @@
+says = "An attack settles on what the server does with it: the end of the attack sequence after a swing is a swing made, a refusal before it fails with the refusal's code, and an attack the client did not make fails at once."
+[scenario]
+world = "scripted"
+seconds = 8
+attack_refusals = [0x1D]
+[[object]]
+id = 0x80000050
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.2, ew = 33.801 }
+[host]
+policy_document = """policy_version = 1
+[automation]
+default = "allow"
+"""
+[expect]
+status = "running"
+console = ["peace	false	refused by the client", "mode	true	2", "refused	false	refused (0x001D)", "swing	true	cancelled"]

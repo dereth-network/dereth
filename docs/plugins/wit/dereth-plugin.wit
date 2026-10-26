@@ -1,0 +1,286 @@
+// The Dereth plugin interface for compiled plugins (WebAssembly components).
+// Generated from the plugin API's schema; the Lua definitions come from the same schema.
+// Do not edit: regenerate it (`docs/plugins/wasm.md` says how).
+
+package dereth:plugin@0.7.0;
+
+/// The host: every operation a plugin reaches. An operation that fails (a missing
+/// permission, wrong arguments) answers `err` with the reason.
+interface host {
+    /// Any value, as JSON text: a table, an array, a string, a number, a boolean or null.
+    type value = string;
+
+    /// A line for the plugin's own console.
+    console-print: func(text: string) -> result<_, string>;
+
+    /// Hear an event by name from now on (delivered to `deliver`).
+    events-subscribe: func(event: string) -> result<_, string>;
+
+    /// Stop hearing an event.
+    events-unsubscribe: func(event: string) -> result<_, string>;
+
+    /// Print a line in the chat window, for the player only; `style` is a chat kind.
+    chat-print: func(text: string, style: option<string>) -> result<_, string>;
+
+    /// Hide an incoming chat line (by its `chat.line` event's `line`); needs `chat.filter`.
+    chat-hide: func(line: s64) -> result<_, string>;
+
+    /// Say a line, or type a command, as the player would in the chat bar.
+    chat-send: func(text: string) -> result<_, string>;
+
+    /// Claim a typed `/verb`; the line arrives as a `command` event.
+    commands-add: func(verb: string, help: string) -> result<_, string>;
+
+    /// Give up a claimed `/verb`.
+    commands-remove: func(verb: string) -> result<_, string>;
+
+    /// Start a timer; each time it is due a `task.timer` event with its id arrives.
+    task-timer: func(ms: f64, repeat: bool) -> result<s64, string>;
+
+    /// Cancel a timer.
+    task-cancel: func(timer: s64) -> result<_, string>;
+
+    /// Report an error the plugin caught, to its console.
+    task-error: func(message: string) -> result<_, string>;
+
+    /// A value kept in a store scope (`global`, `world` or `character`).
+    store-get: func(scope: string, key: string) -> result<value, string>;
+
+    /// Keep a value in a store scope; `null` removes it.
+    store-set: func(scope: string, key: string, data: value) -> result<_, string>;
+
+    /// A field of the player's character (`name`, `health`, `xp`, `position`, ...).
+    player-get: func(field: string) -> result<value, string>;
+
+    /// The character's own integer property `key`, or null.
+    player-int: func(key: s64) -> result<value, string>;
+
+    /// Whether the client knows the object.
+    object-exists: func(object: s64) -> result<bool, string>;
+
+    /// A field of an object (`name`, `class`, `container`, `position`, ...).
+    object-get: func(object: s64, field: string) -> result<value, string>;
+
+    /// The object's distance from the character in metres, or null.
+    object-distance: func(object: s64) -> result<value, string>;
+
+    /// An integer property of an object, or null.
+    object-int: func(object: s64, key: s64) -> result<value, string>;
+
+    /// A float property of an object, or null.
+    object-float: func(object: s64, key: s64) -> result<value, string>;
+
+    /// A string property of an object, or null.
+    object-string: func(object: s64, key: s64) -> result<value, string>;
+
+    /// A boolean property of an object, or null.
+    object-bool: func(object: s64, key: s64) -> result<value, string>;
+
+    /// A 64-bit integer property of an object, or null.
+    object-int64: func(object: s64, key: s64) -> result<value, string>;
+
+    /// A data-id property of an object (a number naming game data), or null.
+    object-did: func(object: s64, key: s64) -> result<value, string>;
+
+    /// An instance-id property of an object (another object's id), or null.
+    object-iid: func(object: s64, key: s64) -> result<value, string>;
+
+    /// What the client knows of an object's health (`current`, `max`, `fraction`), or null.
+    object-health: func(object: s64) -> result<value, string>;
+
+    /// The last appraisal of an object, or null.
+    object-appraisal: func(object: s64) -> result<value, string>;
+
+    /// Every property the client knows of an object (`ints`, `int64s`, `floats`, `strings`, `bools`, `dids`, `iids`, each by number), or one type's, or null.
+    object-properties: func(object: s64, %type: option<string>) -> result<value, string>;
+
+    /// The ids of the items the character holds.
+    inventory-items: func() -> result<value, string>;
+
+    /// The container the character has open, or null.
+    inventory-open-container: func() -> result<value, string>;
+
+    /// Free slots in the main pack, or null.
+    inventory-free-slots: func() -> result<value, string>;
+
+    /// The character's packs in the order the main pack shows them, the main pack first: `id`, `name`, `capacity`, `used` each, or null.
+    inventory-packs: func() -> result<value, string>;
+
+    /// The open vendor, or null.
+    vendor-info: func() -> result<value, string>;
+
+    /// The open trade, or null.
+    trade-info: func() -> result<value, string>;
+
+    /// A spell of the spell table, or null.
+    magic-spell: func(spell: s64) -> result<value, string>;
+
+    /// The character's spell book, in id order: every spell it knows that the spell table has, or `count` of them from the `from`th (from 1).
+    magic-known: func(%from: option<s64>, count: option<s64>) -> result<value, string>;
+
+    /// A text file of the plugin's own package.
+    files-package: func(path: string) -> result<option<string>, string>;
+
+    /// Every file of the plugin's own package, by path.
+    files-package-list: func() -> result<value, string>;
+
+    /// Ask for an action (`act.use`, `combat.attack`, `nav.move_to`, `net.fetch`, ...); answers its id, and its end arrives as `action.completed` or `action.failed`.
+    act-request: func(action: string, args: value) -> result<option<s64>, string>;
+
+    /// The plugin moving the character, or none.
+    nav-owner: func() -> result<option<string>, string>;
+
+    /// The journey this plugin has under way (its legs, the leg being carried out, where that leg goes, the way still to go, the goal), or null.
+    nav-journey: func() -> result<value, string>;
+
+    /// Show or hide the host's drawing of this plugin's journey (the arrow, the way on the map and radar); false when it has none.
+    nav-show-journey: func(on: bool) -> result<bool, string>;
+
+    /// The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired.
+    nav-known-portals: func() -> result<value, string>;
+
+    /// Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing.
+    nav-recalls: func() -> result<value, string>;
+
+    /// Whether a straight line from the character (or `from`) to an object or a place is clear of the world's walls, ground and the objects that stop a body, a metre above each end; null where the host cannot tell.
+    nav-sight: func(target: value, %from: option<value>) -> result<option<bool>, string>;
+
+    /// A VTank meta file's text, read.
+    meta-parse: func(text: string) -> result<value, string>;
+
+    /// A text file of the plugin's data folder (the player's files for it), or null.
+    files-data: func(path: string) -> result<option<string>, string>;
+
+    /// Every file in the plugin's data folder, by path.
+    files-data-list: func() -> result<value, string>;
+
+    /// Save a text file to the plugin's data folder (at most 4 MiB, 1000 files).
+    files-save-data: func(path: string, text: string) -> result<bool, string>;
+
+    /// A VTank settings profile's text, read: each table by name, as rows of columns.
+    profile-usd: func(text: string) -> result<value, string>;
+
+    /// A VTank route file's text, read.
+    nav-parse: func(text: string) -> result<value, string>;
+
+    /// The first match of a pattern in a text, with its groups, or null.
+    text-match: func(pattern: string, text: string, ignore-case: bool) -> result<value, string>;
+
+    /// The session: its phase, the character list, portal space.
+    session-info: func() -> result<value, string>;
+
+    /// Send a message to this plugin's copies in the player's other clients.
+    peers-send: func(channel: string, data: value) -> result<value, string>;
+
+    /// Add a marker (`world`, `radar`, `map` or `arrow`); answers its id.
+    overlay-add: func(kind: string, marker: value) -> result<value, string>;
+
+    /// Remove a marker.
+    overlay-remove: func(marker: s64) -> result<bool, string>;
+
+    /// Remove every marker of a kind, or all.
+    overlay-clear: func(kind: option<string>) -> result<_, string>;
+
+    /// A landblock of the game's data (`0xXXYY`, or a cell within it): its 9 by 9 heights, terrain and roads, and its cells, or null.
+    data-landblock: func(landblock: s64) -> result<value, string>;
+
+    /// A dungeon or building cell of the game's data: its place, its portals and the cells seen from it, its floor's outline and its box, or null.
+    data-cell: func(cell: s64) -> result<value, string>;
+
+    /// Hide or show (`hidden`) and move (`x`, `y`) one of the game's own panels.
+    retail-ui-set: func(panel: string, state: value) -> result<_, string>;
+
+    /// Give one of the game's own panels back as the player had it.
+    retail-ui-reset: func(panel: string) -> result<_, string>;
+
+    /// Offer a service to the other plugins in this client (only those `allow` lists, a list of plugin ids, when given); its calls arrive as `service.call` events.
+    services-offer: func(service: string, allow: option<value>) -> result<_, string>;
+
+    /// Stop offering a service.
+    services-withdraw: func(service: string) -> result<_, string>;
+
+    /// Answer a `service.call`: its value, or the error it failed with.
+    services-reply: func(call: s64, data: value, error: option<string>) -> result<bool, string>;
+
+    /// The services this plugin may call: `{ plugin, service }` each.
+    services-list: func() -> result<value, string>;
+
+    /// The world's plugin policy.
+    policy-info: func() -> result<value, string>;
+
+    /// Read a VTank loot profile; answers its handle.
+    loot-load: func(text: string) -> result<s64, string>;
+
+    /// A loaded loot profile's rules.
+    loot-rules: func(profile: s64) -> result<value, string>;
+
+    /// The rule an item meets first, or null.
+    loot-classify: func(profile: s64, object: s64) -> result<value, string>;
+
+    /// Whether an item must be appraised before it can be classified.
+    loot-needs-appraisal: func(profile: s64, object: s64) -> result<bool, string>;
+
+    /// A loaded loot profile's salvage combining: the workmanship ranges by material, or null.
+    loot-salvage-combine: func(profile: s64) -> result<value, string>;
+
+    /// Seconds left of the activation the player's last gesture gave.
+    permissions-activation: func() -> result<f64, string>;
+
+    /// Whether the plugin may use what a permission covers: every one but net.http, which its manifest must name.
+    permissions-has: func(permission: string) -> result<bool, string>;
+
+    /// The ids of the objects a filter matches (by name, class, type, container, wielder, distance and property conditions).
+    world-find: func(filter: value) -> result<value, string>;
+
+    /// The selected object, or null.
+    world-selection: func() -> result<value, string>;
+
+    /// Declare (or replace) a window from its UI tree; a new one opens only while the plugin answers the player.
+    ui-window: func(tree: value) -> result<_, string>;
+
+    /// Declare (or replace) a HUD from its UI tree; a new one opens only while the plugin answers the player.
+    ui-hud: func(tree: value) -> result<_, string>;
+
+    /// A property of a node of a declared window.
+    ui-get: func(window: string, node: string, property: string) -> result<value, string>;
+
+    /// Set a property of a node of a declared window.
+    ui-set: func(window: string, node: string, property: string, data: value) -> result<_, string>;
+
+    /// Close a declared window.
+    ui-close: func(window: string) -> result<_, string>;
+
+    /// Show a declared window again, while the plugin answers the player; otherwise it stays closed.
+    ui-show: func(window: string) -> result<_, string>;
+
+    /// Show a line briefly at the top of the screen with the plugin's name (1 to 30 seconds, 5 when left out; three at once a plugin).
+    ui-toast: func(text: string, seconds: option<f64>) -> result<_, string>;
+
+    /// What the plugin bar shows the plugin doing: running, paused or idle.
+    ui-status: func(status: string) -> result<_, string>;
+
+    /// The host's name and API version.
+    host-info: func() -> result<value, string>;
+
+    /// Whether the host offers a capability.
+    host-has: func(capability: string) -> result<bool, string>;
+
+    /// Seconds since the plugin loaded, on the frame clock.
+    time-clock: func() -> result<f64, string>;
+
+    /// The game's time, as Unix seconds.
+    time-unix: func() -> result<s64, string>;
+}
+
+/// A compiled plugin.
+world plugin {
+    import host;
+
+    /// The plugin's start: what a Lua plugin's entry file does at its top level (subscribe to
+    /// events, claim commands, declare windows).
+    export init: func() -> result<_, string>;
+
+    /// One event: its name and its data (JSON). Answers a value (JSON; `null` for none), which
+    /// for `plugin.unload` is the state handed to the next load.
+    export deliver: func(event: string, data: string) -> result<string, string>;
+}

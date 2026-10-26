@@ -1,0 +1,34 @@
+[package]
+name = "dereth-plugin-wasm"
+description = "Compiled plugins: WebAssembly components against the plugin interface's WIT description, run by a host's own WebAssembly runtime, with no game, no platform and no I/O in it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Production dependencies (`cargo xtask seams`, `seam: plugin-wasm deps`).
+[dependencies]
+# The engine boundary, values and the API schema the imports are checked against.
+dereth-plugin-api.workspace = true
+# Reading a component and its core module, and checking the module.
+wasmparser = "0.245"
+# Rewriting the module: the fuel it counts its work in, and its memory cap.
+wasm-encoder = { version = "0.245", default-features = false, features = ["wasmparser"] }
+# The host lent to the module's imports for one entry, with no `unsafe` of this crate's own.
+scoped-tls-hkt = "0.1"
+# The budget clock: the host's time answering a module's calls is the entry's time.
+web-time.workspace = true
+# The runtime on the desktop and headless: an interpreter in Rust. Its dispatch loop rather than
+# its tail-call dispatch, whose stack use grows with every instruction where the compiler does not
+# turn those calls into jumps.
+wasmi = { version = "2", optional = true, default-features = false, features = ["std", "stable", "validate", "portable-dispatch"] }
+
+[features]
+default = ["interpreter"]
+# `interp::Interpreter`, over `wasmi`. The browser client runs modules in the browser's own
+# WebAssembly instead and leaves this off.
+interpreter = ["dep:wasmi"]
+
+[lints]
+workspace = true

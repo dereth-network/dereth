@@ -28,6 +28,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - New console commands set up a playtest character from a template, backing it up first.
 - A retail client joining a world with its own data is told to play it with Dereth.
 - Houses added to a world after retail can be bought and used.
+- An operator can publish the world's portal table, so clients can route through portals.
 
 ## 0.3.3 (2026-10-20)
 

@@ -1,0 +1,58 @@
+says = "Expressions in VTank's language evaluate with its operators, precedence, variables, lists, patterns and game functions; an unsupported function or a malformed expression is an error, not a value."
+[scenario]
+world = "scripted"
+character = "Tester"
+seconds = 3
+[[object]]
+id = 0x80000071
+name = "Corpse of a Drudge"
+type = "container"
+corpse = true
+place = { ns = 42.2, ew = 33.81 }
+[[object]]
+id = 0x80000072
+name = "Drudge Skulker"
+type = "creature"
+place = { ns = 42.21, ew = 33.8 }
+[[object]]
+id = 0x80000073
+name = "Pyreal"
+type = "money"
+container = "player"
+[expect]
+status = "running"
+console = [
+  "1+2*3\t7",
+  "(1+2)*3\t9",
+  "`a`+`b`+1\tab1",
+  "7/2\t3.5",
+  "-4+10%3\t-3",
+  "1==1&&2>1\tTrue",
+  "1==2||3<=2\tFalse",
+  "!0\tTrue",
+  "getvar[x]==0\tTrue",
+  "$x=5\t5",
+  "$x+1\t6",
+  "setvar[name, Bob]\tBob",
+  "getvar[name]\tBob",
+  "testvar[nope]\tFalse",
+  "iif[getvar[x]>3,big,small]\tbig",
+  "\\/t +getcharstringprop[1]+\\, hi\\.\t/t Tester, hi.",
+  "`(fol|lead)low`#`Please follow me`\tTrue",
+  "(fol|lead)low#`Please follow me`\terror\tunexpected word in (fol|lead)low#`Please follow me`",
+  "(xyz)#abc\tFalse",
+  "$l=listcreate[a,b]\t[a,b]",
+  "listadd[$l,c]\t[a,b,c]",
+  "listcount[$l]\t3",
+  "listcontains[$l,b]\tTrue",
+  "listgetitem[$l,2]\tc",
+  "getgvar[qnxc-chars]\t",
+  "wobjectgetname[wobjectfindnearestbynameandobjectclass[27,Corpse of a Drudge]]\tCorpse of a Drudge",
+  "wobjectgetname[wobjectfindnearestmonster[]]\tDrudge Skulker",
+  "coordinatedistancewithz[getplayercoordinates[],wobjectgetphysicscoordinates[wobjectfindnearestmonster[]]]<30\tTrue",
+  "getplayerlandcell[]>0\tTrue",
+  "isportaling[]\tFalse",
+  "getinventorycountbyname[Pyreal]\t1",
+  "nosuchfunction[]\terror\tthe expression function nosuchfunction[] is not supported",
+  "1+\terror\tan expression ends early: 1+",
+]

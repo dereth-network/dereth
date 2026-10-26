@@ -72,7 +72,8 @@ fn run() -> Result<(), String> {
     // parse the command line, make the settings folder and install the log.
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     let replay = input_replay::Replay::load(&mut argv)?;
-    let cfg = dereth_desktop::start::<Dereth>(&argv)?;
+    // The log's writer is held to the end of the run, and drained when it goes.
+    let (cfg, _log) = dereth_desktop::start::<Dereth>(&argv)?;
     run_with(cfg, replay)
 }
 
@@ -93,6 +94,7 @@ fn fatal(e: dereth_client_runtime::app::StartupError) -> String {
 fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), String> {
     let capture = cfg.capture.clone();
     let headless = cfg.headless;
+    let linger = cfg.linger;
     let mut scene = cfg.scene_config();
     let want_world = cfg.world;
     let terrain_blending = cfg.terrain_blending;
@@ -101,9 +103,34 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     let cfg_ui_mode = cfg.ui_mode;
     let host = cfg.host.clone();
     let account = cfg.account.clone();
+    let plugins = cfg.plugins.then(|| dereth_client::plugins::DesktopPlugins {
+        settings_dir: dereth_desktop::folders::default_settings_dir(
+            <dereth_client::Dereth as dereth_desktop::Product>::SETTINGS_DIR_NAME,
+        ),
+        extra_dirs: cfg.plugin_dirs.clone(),
+        offered_dirs: cfg.offered_plugin_dirs.clone(),
+        bundled_dir: std::env::current_exe()
+            .ok()
+            .and_then(|exe| dereth_client::plugins::bundled_dir_for(&exe)),
+        watch: cfg.plugin_dev,
+        policy: cfg.plugin_policy.clone(),
+    });
 
+    let nav_published = cfg.nav_published.clone();
     // initialize the client application and its presentation.
     let mut app = dereth_client::app::App::new(cfg).map_err(fatal)?;
+    // The server's published portal table, fetched off the frame's thread.
+    if let Some(source) = nav_published {
+        let inbox = std::sync::Arc::clone(&app.published_portals);
+        std::thread::spawn(move || match dereth_client::plugins::fetch_text(&source) {
+            Ok(text) => {
+                if let Ok(mut slot) = inbox.lock() {
+                    *slot = Some(text);
+                }
+            }
+            Err(e) => tracing::warn!("--nav-published: {e}"),
+        });
+    }
     tracing::info!(
         "{} device, {}x{}",
         app.renderer_mut().adapter(),
@@ -126,6 +153,9 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     // say, because the pump has somewhere to send a `MSG` and the device is the thing being
     // proved; the screens come up with `--ui`.
     app.start_shell().map_err(fatal)?;
+    if let Some(plugins) = &plugins {
+        plugins.install(&mut app);
+    }
 
     if want_world && cfg_connect {
         // With a server the block to build the landscape around is the one the *server*
@@ -164,7 +194,9 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     // button because a run without the UI has no buttons to press.
     app.play_startup_sound();
 
-    // run the client frame loop.
+    // run the client frame loop. With `--linger`, a capture is of the world, a moment before the
+    // run logs off.
+    let mut captured = false;
     let frames = if let Some(mut replay) = replay {
         app.state = dereth_client_runtime::app::AppState::Running;
         let mut frame = 1;
@@ -180,12 +212,22 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
         }
         app.state = dereth_client_runtime::app::AppState::ShuttingDown;
         app.frames_drawn()
+    } else if let (Some(path), true) = (&capture, headless && linger > 0.0) {
+        app.run_with_moment((linger - 0.5).max(0.0), |app| {
+            match app.renderer_mut().capture_png(path) {
+                Ok(()) => {
+                    tracing::info!("wrote {} (in the world)", path.display());
+                    captured = true;
+                }
+                Err(e) => tracing::warn!("capture in the world: {e}"),
+            }
+        })
     } else {
         app.run()
     };
     app.log_run_report(frames, cfg_connect, want_ui);
 
-    if let Some(path) = capture {
+    if let Some(path) = capture.filter(|_| !captured) {
         if !headless {
             tracing::warn!("--capture reads the offscreen target and needs --headless");
         }
@@ -197,6 +239,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
 
     // clean up the client, in the documented order; the log is printed rather
     // than dropped so a windowed run says what it tore down and in what order.
+    dereth_client::plugins::flush(&mut app);
     let log = app.shutdown();
     for (step, outcome) in &log.0 {
         tracing::debug!("cleanup {step:?}: {outcome:?}");

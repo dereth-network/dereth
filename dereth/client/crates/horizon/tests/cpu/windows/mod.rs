@@ -1,12 +1,14 @@
 //! The windows of the world's services and of reading: books, the character window, examining,
-//! the notebook, the spellbook, the information windows, housing, chess and the barber; and the
-//! title bar every window keeps to.
+//! the notebook, the spellbook, the information windows, housing, chess and the barber; the
+//! plugins' windows; and the title bar every window keeps to.
 
 mod books;
 mod character;
 mod examine;
+mod frame_art;
 mod info;
 mod notebook;
+mod plugins;
 mod settings;
 mod slot_frames;
 mod spellbook;

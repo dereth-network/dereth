@@ -3,6 +3,7 @@
 //! a click.
 
 use super::Hud;
+use crate::art::AcArt as _;
 use crate::art::Family;
 use crate::draw::{Rect, WHITE};
 use crate::ui::game::GameState;

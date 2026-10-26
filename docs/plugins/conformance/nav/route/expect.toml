@@ -1,0 +1,10 @@
+says = "A route read from a VTank .nav file is walked point by point with the plugin's movement, its pause slept, and a once route ends."
+[scenario]
+world = "scripted"
+seconds = 30
+[[step]]
+after = 0.5
+say = "/walk"
+[expect]
+status = "running"
+console = ["route\tonce\t3\tpause", "reached\t1\tpoint", "reached\t2\tpause", "reached\t3\tpoint", "done"]

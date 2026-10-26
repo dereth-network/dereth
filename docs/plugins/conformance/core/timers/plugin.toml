@@ -1,0 +1,5 @@
+id = "conformance.timers"
+name = "Conformance: timers"
+version = "0.1.0"
+contexts = ["pregame", "world"]
+api = "0.1"
