@@ -1,7 +1,7 @@
 [package]
 name = "dereth-network-hub"
 description = "The Dereth Network's hub: the world registry and the links between worlds, routing tells, presence, rooms and channels."
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98"
 license = "AGPL-3.0-only"
