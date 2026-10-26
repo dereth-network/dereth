@@ -10,7 +10,7 @@
 //!
 //! This module is the choosing and the checking, over bytes the launcher fetched.
 
-use crate::releases::Version;
+use crate::releases::{Need, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -59,6 +59,18 @@ impl Product {
     #[must_use]
     pub fn tag(self, version: &str) -> String {
         format!("{}-v{version}", self.name())
+    }
+
+    /// What the release list is read for to offer this product: its newest release.
+    #[must_use]
+    pub fn newest_release(self) -> Need {
+        Need::Newest(self.tag(""))
+    }
+
+    /// What the release list is read for to update from `version`: every newer release.
+    #[must_use]
+    pub fn releases_since(self, version: Version) -> Need {
+        Need::Since(self.tag(""), version)
     }
 
     /// The release file for the target `triple`, as the release packaging names it; `None` when
@@ -165,7 +177,7 @@ fn notes_of(body: &str) -> String {
 
 /// What a releases API answer that is not a list says, in words for a person: GitHub answers a
 /// rate limit, or an unknown repository, with a document holding a `message`.
-fn listing_error(json: &[u8]) -> String {
+pub(crate) fn listing_error(json: &[u8]) -> String {
     let message = serde_json::from_slice::<serde_json::Value>(json)
         .ok()
         .and_then(|v| v.get("message")?.as_str().map(str::to_owned));

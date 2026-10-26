@@ -141,11 +141,11 @@ fn check_offer(dir: &Path) -> Result<(), String> {
         );
     }
     let current = metadata::version(&definition.version).ok_or("Invalid Empyrean version")?;
-    let mut releases: Vec<_> =
-        metadata::releases(&components::release_list(false)?, Product::Empyrean)?
-            .into_iter()
-            .filter(|r| metadata::version(&r.version).is_some_and(|v| v > current))
-            .collect();
+    let list = components::release_list(false, &[Product::Empyrean.releases_since(current)])?;
+    let mut releases: Vec<_> = metadata::releases(&list, Product::Empyrean)?
+        .into_iter()
+        .filter(|r| metadata::version(&r.version).is_some_and(|v| v > current))
+        .collect();
     // Take the newest patch first; otherwise offer the next declared upgrade step.
     releases.sort_by_key(|r| {
         let version = metadata::version(&r.version).expect("filtered version");

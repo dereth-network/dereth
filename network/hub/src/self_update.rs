@@ -541,6 +541,70 @@ pub trait Fetcher: std::fmt::Debug {
     /// # Errors
     /// When it does not answer `200`, or answers more than the limit for `what`.
     fn get(&self, url: &str, what: Fetching) -> Result<Vec<u8>, String>;
+
+    /// A page of the releases API's list: its body, and the next page's address when the answer's
+    /// `Link` header names one ([`next_page`]). A fetcher that reads no headers names none.
+    ///
+    /// # Errors
+    /// As [`Fetcher::get`].
+    fn list_page(&self, url: &str) -> Result<(Vec<u8>, Option<String>), String> {
+        Ok((self.get(url, Fetching::List)?, None))
+    }
+}
+
+/// The most pages of the releases API's list the updater reads: a thousand releases.
+pub const MAX_PAGES: usize = 10;
+
+/// The next page's address in a releases API answer's `Link` header
+/// (`<https://...&page=2>; rel="next", <https://...&page=4>; rel="last"`), when it names one.
+#[must_use]
+pub fn next_page(link: &str) -> Option<String> {
+    link.split(',').find_map(|entry| {
+        let (url, params) = entry.trim().split_once(';')?;
+        let url = url.trim().strip_prefix('<')?.strip_suffix('>')?;
+        let next = params.split(';').any(|p| {
+            p.trim().strip_prefix("rel=").is_some_and(|rel| {
+                rel.trim_matches('"')
+                    .split_whitespace()
+                    .any(|r| r.eq_ignore_ascii_case("next"))
+            })
+        });
+        next.then(|| url.to_owned())
+    })
+}
+
+/// `scheme://host` of `url`.
+fn origin(url: &str) -> &str {
+    let after = url.find("://").map_or(0, |i| i + 3);
+    let end = url[after..].find('/').map_or(url.len(), |i| after + i);
+    &url[..end]
+}
+
+/// The hub releases `source` lists, read a page at a time until a page holds one at or below
+/// `current`: the API lists the newest first, so the pages after it hold none newer. At most
+/// [`MAX_PAGES`] pages; a next page on another host is not followed.
+///
+/// # Errors
+/// When a page cannot be fetched or read.
+pub fn list_releases(
+    fetcher: &dyn Fetcher,
+    source: &Source,
+    current: &Version,
+) -> Result<Vec<Published>, String> {
+    let first = format!("{}/releases?per_page=100", source.api);
+    let mut url = first.clone();
+    let mut all = Vec::new();
+    for _ in 0..MAX_PAGES {
+        let (body, next) = fetcher.list_page(&url)?;
+        let page = parse_releases(&body)?;
+        let reached = page.iter().any(|p| p.version <= *current);
+        all.extend(page);
+        match next {
+            Some(next) if !reached && origin(&next) == origin(&first) => url = next,
+            _ => break,
+        }
+    }
+    Ok(all)
 }
 
 /// [`Fetcher`] over the hub's own HTTP client. Any address will do: the operator names the
@@ -548,8 +612,9 @@ pub trait Fetcher: std::fmt::Debug {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Https;
 
-impl Fetcher for Https {
-    fn get(&self, url: &str, what: Fetching) -> Result<Vec<u8>, String> {
+impl Https {
+    /// The `200` answer `url` gives, within the limit for `what`.
+    fn answer(url: &str, what: Fetching) -> Result<crate::fetch::Response, String> {
         let (accept, limit, timeout) = match what {
             Fetching::List => (
                 "application/vnd.github+json",
@@ -592,7 +657,23 @@ impl Fetcher for Https {
                 limit / (1024 * 1024)
             ));
         }
-        Ok(r.body)
+        Ok(r)
+    }
+}
+
+impl Fetcher for Https {
+    fn get(&self, url: &str, what: Fetching) -> Result<Vec<u8>, String> {
+        Ok(Self::answer(url, what)?.body)
+    }
+
+    fn list_page(&self, url: &str) -> Result<(Vec<u8>, Option<String>), String> {
+        let r = Self::answer(url, Fetching::List)?;
+        let next = r
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("link"))
+            .and_then(|(_, link)| next_page(link));
+        Ok((r.body, next))
     }
 }
 
@@ -921,8 +1002,7 @@ impl Updater {
     /// # Errors
     /// When the releases cannot be listed.
     pub fn check(&self, policy: Policy) -> Result<Check, String> {
-        let url = format!("{}/releases?per_page=100", self.source.api);
-        let all = parse_releases(&self.fetcher.get(&url, Fetching::List)?)?;
+        let all = list_releases(self.fetcher.as_ref(), &self.source, &self.current)?;
         let found: Vec<Published> = all
             .into_iter()
             .filter(|p| p.version > self.current)
@@ -1592,5 +1672,159 @@ mod tests {
         assert!(Source::parse(SOURCE_URL).is_ok(), "this build's source");
         assert!(v("0.1.2-rc.1") < v("0.1.2") && v("0.1.2") < v("0.1.10"));
         assert!(Version::parse("01.2.3").is_err() && Version::parse("1.2").is_err());
+    }
+
+    /// The releases API's list served a page at a time, each page naming the next in its `Link`
+    /// header as GitHub does, and the pages asked for.
+    #[derive(Debug)]
+    struct Pages {
+        pages: Vec<Result<Vec<&'static str>, String>>,
+        asked: std::cell::RefCell<Vec<usize>>,
+        /// Where the next pages are said to be.
+        next_at: &'static str,
+    }
+
+    impl Pages {
+        fn new(pages: Vec<Vec<&'static str>>) -> Self {
+            Self {
+                pages: pages.into_iter().map(Ok).collect(),
+                asked: std::cell::RefCell::default(),
+                next_at: "https://api.github.com/repositories/1/releases?per_page=100",
+            }
+        }
+    }
+
+    impl Fetcher for Pages {
+        fn get(&self, url: &str, _: Fetching) -> Result<Vec<u8>, String> {
+            Err(format!("{url} is read as a page of the list"))
+        }
+
+        fn list_page(&self, url: &str) -> Result<(Vec<u8>, Option<String>), String> {
+            let n = url
+                .rsplit_once("&page=")
+                .map_or(1, |(_, n)| n.parse::<usize>().expect("a page"));
+            self.asked.borrow_mut().push(n);
+            let tags = self.pages[n - 1].clone()?;
+            let body = format!(
+                "[{}]",
+                tags.iter()
+                    .map(|t| format!(r#"{{"tag_name": "{t}", "assets": []}}"#))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            let link = format!(
+                "<{}&page={}>; rel=\"next\", <{}&page={}>; rel=\"last\"",
+                self.next_at,
+                n + 1,
+                self.next_at,
+                self.pages.len()
+            );
+            let next = (n < self.pages.len()).then(|| next_page(&link)).flatten();
+            Ok((body.into_bytes(), next))
+        }
+    }
+
+    fn github() -> Source {
+        Source::parse("https://github.com/dereth-network/dereth").expect("GitHub")
+    }
+
+    fn versions(found: &[Published]) -> Vec<String> {
+        found.iter().map(|p| p.version.to_string()).collect()
+    }
+
+    /// Spec: hub: the releases API's `Link` header names the next page of the list.
+    #[test]
+    fn the_link_header_names_the_next_page() {
+        let at = "https://api.github.com/repositories/1/releases?per_page=100";
+        assert_eq!(
+            next_page(&format!(
+                "<{at}&page=2>; rel=\"next\", <{at}&page=5>; rel=\"last\""
+            ))
+            .as_deref(),
+            Some(format!("{at}&page=2").as_str())
+        );
+        assert_eq!(
+            next_page(&format!(
+                "<{at}&page=4>; rel=\"prev\", <{at}&page=1>; rel=\"first\""
+            )),
+            None,
+            "the last page"
+        );
+        assert_eq!(
+            next_page("<https://mirror.test/r?page=2>; rel=next").as_deref(),
+            Some("https://mirror.test/r?page=2")
+        );
+        assert_eq!(next_page(""), None);
+    }
+
+    /// Spec: hub: the list is read a page at a time, down to the first page holding a hub
+    /// release at or below this build's version, and no further: the newer ones are all above it.
+    #[test]
+    fn the_list_is_read_down_to_a_release_at_or_below_this_build() {
+        let pages = Pages::new(vec![
+            vec!["empyrean-v0.3.5", "network-hub-v0.4.0", "dereth-v0.4.6"],
+            vec!["lyceum-v0.1.0", "network-hub-v0.3.2"],
+            vec![
+                "empyrean-v0.3.4",
+                "network-hub-v0.3.1",
+                "network-hub-v0.3.0",
+            ],
+            vec!["network-hub-v0.2.0"],
+        ]);
+        let found = list_releases(&pages, &github(), &v("0.3.1")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), [1, 2, 3]);
+        assert_eq!(versions(&found), ["0.4.0", "0.3.2", "0.3.1", "0.3.0"]);
+
+        // A build whose own version was never released stops below it all the same.
+        let pages = Pages::new(vec![
+            vec!["network-hub-v0.4.0"],
+            vec!["network-hub-v0.3.2-rc.1"],
+            vec!["network-hub-v0.3.1"],
+        ]);
+        list_releases(&pages, &github(), &v("0.3.2-rc.2")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), [1, 2]);
+
+        // The newest is on the first page: one page, as before.
+        let pages = Pages::new(vec![vec!["network-hub-v0.3.1"], vec!["network-hub-v0.3.0"]]);
+        list_releases(&pages, &github(), &v("0.3.1")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), [1]);
+    }
+
+    /// Spec: hub: a newer hub release a hundred other releases have pushed off the first page is
+    /// still found, and the reading stops after ten pages.
+    #[test]
+    fn a_release_on_a_later_page_is_found_and_ten_pages_are_the_most_read() {
+        let mut list = vec![vec!["empyrean-v0.3.5"]; 4];
+        list.push(vec!["network-hub-v0.3.2", "network-hub-v0.3.1"]);
+        let pages = Pages::new(list);
+        let found = list_releases(&pages, &github(), &v("0.3.1")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), [1, 2, 3, 4, 5]);
+        assert_eq!(versions(&found), ["0.3.2", "0.3.1"]);
+
+        let pages = Pages::new(vec![vec!["empyrean-v0.3.5"]; MAX_PAGES + 3]);
+        let found = list_releases(&pages, &github(), &v("0.3.1")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), (1..=MAX_PAGES).collect::<Vec<_>>());
+        assert!(found.is_empty());
+    }
+
+    /// Spec: hub: a page refused partway (GitHub's hourly limit) fails the check, as a refused
+    /// first page does, and a next page on another host is not read.
+    #[test]
+    fn a_page_refused_partway_fails_the_check_and_another_host_is_not_read() {
+        let mut pages = Pages::new(vec![
+            vec!["empyrean-v0.3.5"],
+            vec!["network-hub-v0.4.0"],
+            vec!["network-hub-v0.3.1"],
+        ]);
+        pages.pages[1] = Err("https://api.github.com/... refused the request (HTTP 403)".into());
+        let e = list_releases(&pages, &github(), &v("0.3.1")).expect_err("refused");
+        assert!(e.contains("HTTP 403"), "{e}");
+        assert_eq!(*pages.asked.borrow(), [1, 2]);
+
+        let mut pages = Pages::new(vec![vec!["empyrean-v0.3.5"], vec!["network-hub-v0.4.0"]]);
+        pages.next_at = "https://elsewhere.test/releases?per_page=100";
+        let found = list_releases(&pages, &github(), &v("0.3.1")).expect("listed");
+        assert_eq!(*pages.asked.borrow(), [1]);
+        assert!(found.is_empty());
     }
 }

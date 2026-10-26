@@ -87,7 +87,7 @@ impl Updater {
     pub fn check(&self, policy: Policy) -> Result<Check, String> {
         let current = self.current()?;
         let mut found = Vec::new();
-        for published in source::list(&self.agent, &self.source)? {
+        for published in source::list(&self.agent, &self.source, &current)? {
             if published.version <= current {
                 continue;
             }

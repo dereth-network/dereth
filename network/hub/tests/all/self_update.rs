@@ -561,7 +561,9 @@ fn one_before_this_build() -> (Version, Policy) {
 
 /// Spec: hub: the built hub, published as a release on a web server and reached through a
 /// redirect, is downloaded, checked, run (naming its own version and its registry schema) and
-/// installed in place of the binary; published under another version, it is refused.
+/// installed in place of the binary; published under another version, it is refused. The two
+/// releases are on two pages of the release list, the first naming the second in its `Link`
+/// header as GitHub's does.
 #[test]
 fn the_built_hub_installs_from_a_release_served_over_http() {
     let target = this_target().expect("this build's target");
@@ -579,8 +581,8 @@ fn the_built_hub_installs_from_a_release_served_over_http() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
     let base = format!("http://{}", listener.local_addr().expect("an address"));
     let mut routes = HashMap::new();
-    let mut list = Vec::new();
-    for version in [this.as_str(), wrong.as_str()] {
+    let mut pages = Vec::new();
+    for version in [wrong.as_str(), this.as_str()] {
         let (name, bytes) = archive(version, target, &built);
         let sums = format!("{}  {name}\n", sha256_hex(&bytes));
         // The download address answers with a redirect to where the file is, as GitHub's does.
@@ -600,17 +602,33 @@ fn the_built_hub_installs_from_a_release_served_over_http() {
             format!("/files/{version}/SHA256SUMS"),
             (200, String::new(), sums.into_bytes()),
         );
-        list.push(serde_json::json!({
+        pages.push(serde_json::json!([{
             "tag_name": format!("network-hub-v{version}"),
             "assets": [
                 { "name": "SHA256SUMS", "browser_download_url": format!("{base}/files/{version}/SHA256SUMS") },
                 { "name": name, "browser_download_url": format!("{base}/download/{version}/{name}") },
             ],
-        }));
+        }]));
     }
+    let first = "/repos/someone/hub/releases?per_page=100";
     routes.insert(
-        "/repos/someone/hub/releases?per_page=100".to_owned(),
-        (200, String::new(), serde_json::to_vec(&list).expect("json")),
+        first.to_owned(),
+        (
+            200,
+            format!(
+                "Link: <{base}{first}&page=2>; rel=\"next\", <{base}{first}&page=2>; rel=\"last\"
+"
+            ),
+            serde_json::to_vec(&pages[0]).expect("json"),
+        ),
+    );
+    routes.insert(
+        format!("{first}&page=2"),
+        (
+            200,
+            String::new(),
+            serde_json::to_vec(&pages[1]).expect("json"),
+        ),
     );
     serve(listener, routes);
     let (from, policy) = one_before_this_build();

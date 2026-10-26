@@ -103,8 +103,11 @@ A consumer refuses a `schema` it does not know; fields may be added without chan
 
 A host, the launcher, or any other tool finds the newest web client like this:
 
-1. List the repository's releases: `GET https://api.github.com/repos/dereth-network/dereth/releases`
-   (newest first; page with `?per_page=100&page=2` and on).
+1. List the repository's releases:
+   `GET https://api.github.com/repos/dereth-network/dereth/releases?per_page=100`, newest first, a
+   hundred to a page. Every product's releases share the list, so the newest web release can be
+   on a later page: when a page does not hold one, read the next, whose address is the
+   `rel="next"` entry of the answer's `Link` header (the last page has none).
 2. Take the first that is published (`"draft": false`), is not a pre-release
    (`"prerelease": false`, unless the host wants pre-releases), and whose `tag_name` starts with
    `dereth-web-v`. The repository's other releases (`dereth-v…`, `empyrean-v…`) are other
@@ -117,13 +120,18 @@ A host, the launcher, or any other tool finds the newest web client like this:
    step (a rename or a symbolic link), so no visitor is served half of each. Keep every file on
    a short cache (see [Headers](#headers)).
 
-For example, with `curl` and `jq`:
+For example, with `curl` and `jq`, a page at a time:
 
 ```text
-curl -s "https://api.github.com/repos/dereth-network/dereth/releases?per_page=100" \
-  | jq -r '[.[] | select(.draft == false and .prerelease == false
-                  and (.tag_name | startswith("dereth-web-v")))][0]
-           | .assets[] | select(.name == "web.json") | .browser_download_url'
+url="https://api.github.com/repos/dereth-network/dereth/releases?per_page=100"
+while [ -n "$url" ]; do
+  curl -s -D head.txt -o page.json "$url"
+  web=$(jq -r '[.[] | select(.draft == false and .prerelease == false
+                       and (.tag_name | startswith("dereth-web-v")))][0]
+               | .assets[]? | select(.name == "web.json") | .browser_download_url' page.json)
+  if [ -n "$web" ]; then echo "$web"; break; fi
+  url=$(tr -d '\r' < head.txt | sed -n 's/^[Ll]ink:.*<\([^>]*\)>; rel="next".*/\1/p')
+done
 ```
 
 A release never carries game data: the bundle is built from an allowlist, and the packaging

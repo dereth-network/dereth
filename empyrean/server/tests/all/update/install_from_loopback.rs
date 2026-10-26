@@ -578,6 +578,8 @@ fn managed_updater(installation: &Installation) -> Updater {
     installation.updater(&Loopback {
         base: "http://127.0.0.1:1".into(),
         files: Arc::default(),
+        links: Arc::default(),
+        asked: Arc::default(),
     })
 }
 

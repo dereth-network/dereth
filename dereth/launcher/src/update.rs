@@ -1,13 +1,13 @@
 //! The launcher updating itself, and with it the Dereth client that ships beside it.
 //!
-//! At start the launcher lists its repository's GitHub releases through GitHub's REST API, picks
-//! the newest published Dereth release ([`dereth_launch::releases`]) and reads that release's
-//! `latest.json` (or the `latest.json` that `DERETH_UPDATE_URL` names). When it names a newer
-//! version for this platform, the launcher downloads that release in the background. When the
-//! list cannot be had, or holds no Dereth release, there is no update this time: the player is not
-//! told, and the next start tries again. The download is checked against the
-//! update-signing public key in `tauri.conf.json`: an unsigned or wrongly signed file is refused.
-//! Once it is in, the page offers a restart.
+//! At start the launcher lists its repository's GitHub releases through GitHub's REST API, as many
+//! pages as it takes to reach a Dereth release, picks the newest published Dereth release
+//! ([`dereth_launch::releases`]) and reads that release's `latest.json` (or the `latest.json`
+//! that `DERETH_UPDATE_URL` names). When it names a newer version for this platform, the launcher
+//! downloads that release in the background. When the list cannot be had, or holds no Dereth
+//! release, there is no update this time: the player is not told, and the next start tries again.
+//! The download is checked against the update-signing public key in `tauri.conf.json`: an
+//! unsigned or wrongly signed file is refused. Once it is in, the page offers a restart.
 //!
 //! Installing differs by system. On macOS and Linux the updater replaces the app bundle or the
 //! AppImage itself. On Windows the release is a zip with no installer, which the updater cannot
@@ -22,6 +22,7 @@
 
 use std::sync::Mutex;
 
+use dereth_launch::releases;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -74,7 +75,7 @@ pub fn check(app: &AppHandle, is_release: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let found =
-            tauri::async_runtime::spawn_blocking(move || manifest_url(override_url, list_releases))
+            tauri::async_runtime::spawn_blocking(move || manifest_url(override_url, list_page))
                 .await
                 .ok()
                 .flatten();
@@ -92,22 +93,27 @@ pub fn check(app: &AppHandle, is_release: bool) {
 }
 
 /// Where the `latest.json` to update from is: the one `DERETH_UPDATE_URL` names when it is set,
-/// else the newest Dereth release's, found in the source repository's releases as `list` fetches
-/// them. `None`, logged and not shown, when the list cannot be fetched or read, or holds no
+/// else the newest Dereth release's, found in the source repository's releases as `fetch` fetches
+/// their pages. `None`, logged and not shown, when the list cannot be fetched or read, or holds no
 /// Dereth release to update from: not reaching GitHub is no reason to bother the player.
 fn manifest_url(
     override_url: Option<String>,
-    list: impl FnOnce(&str) -> Result<Vec<u8>, String>,
+    mut fetch: impl FnMut(&str) -> Result<releases::Page, String>,
 ) -> Option<String> {
     if override_url.is_some() {
         return override_url;
     }
-    let source = dereth_launch::releases::SOURCE_URL;
-    let Some(api) = dereth_launch::releases::releases_api_url(source) else {
+    let source = releases::SOURCE_URL;
+    let Some(api) = releases::releases_api_url(source) else {
         eprintln!("dereth: no update check: {source} is not a GitHub repository");
         return None;
     };
-    match list(&api).and_then(|json| dereth_launch::releases::newest_update_release(&json)) {
+    let mut listing = releases::Listing::new(&api);
+    let needs = [releases::Need::Newest(releases::TAG_PREFIX.to_owned())];
+    match listing
+        .read(&needs, &mut fetch)
+        .and_then(|()| releases::newest_update_release(&listing.json()))
+    {
         Ok(Some(release)) => Some(release.manifest_url),
         Ok(None) => {
             eprintln!(
@@ -122,8 +128,9 @@ fn manifest_url(
     }
 }
 
-/// The releases API's answer at `url`. GitHub asks every caller for a User-Agent.
-fn list_releases(url: &str) -> Result<Vec<u8>, String> {
+/// The page of the releases API's list at `url`, and the next page's address from its `Link`
+/// header. GitHub asks every caller for a User-Agent.
+fn list_page(url: &str) -> Result<releases::Page, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(15)))
         .build()
@@ -137,12 +144,19 @@ fn list_releases(url: &str) -> Result<Vec<u8>, String> {
         .header("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| format!("{url}: {e}"))?;
+    let next = resp
+        .headers()
+        .get("link")
+        .and_then(|l| l.to_str().ok())
+        .and_then(releases::next_page);
     // A page of 100 releases, each listing its files, runs to a few megabytes.
-    resp.body_mut()
+    let body = resp
+        .body_mut()
         .with_config()
         .limit(32 << 20)
         .read_to_vec()
-        .map_err(|e| format!("{url}: {e}"))
+        .map_err(|e| format!("{url}: {e}"))?;
+    Ok(releases::Page { body, next })
 }
 
 async fn check_and_download(app: &AppHandle, url: &str) -> Result<(), String> {
@@ -307,6 +321,7 @@ pub mod windows {
 
 #[cfg(test)]
 mod tests {
+    use dereth_launch::releases;
     use tauri_plugin_updater::RemoteRelease;
 
     /// `latest.json` as the release writes it: one entry per platform, each the download and its
@@ -376,20 +391,30 @@ mod tests {
         assert_eq!(url.as_deref(), Some("https://example.test/latest.json"));
     }
 
+    /// A page of the list holding `json`, naming `next` as the page after it.
+    fn page(json: &[u8], next: Option<&str>) -> Result<releases::Page, String> {
+        Ok(releases::Page {
+            body: json.to_vec(),
+            next: next.map(str::to_owned),
+        })
+    }
+
     #[test]
     fn the_newest_dereth_releases_latest_json_is_read_from_the_source_repositorys_list() {
-        let mut asked = None;
+        let mut asked = Vec::new();
         let url = super::manifest_url(None, |api| {
-            asked = Some(api.to_owned());
-            Ok(br#"[
+            asked.push(api.to_owned());
+            page(
+                br#"[
                 {"tag_name":"empyrean-v0.3.0","draft":false,"prerelease":false,"assets":[
                     {"name":"release.json","browser_download_url":"https://example.test/e/release.json"}]},
                 {"tag_name":"dereth-v0.3.0","draft":true,"prerelease":false,"assets":[
                     {"name":"latest.json","browser_download_url":"https://example.test/draft/latest.json"}]},
                 {"tag_name":"dereth-v0.2.0","draft":false,"prerelease":false,"assets":[
                     {"name":"latest.json","browser_download_url":"https://example.test/d020/latest.json"}]}
-            ]"#
-            .to_vec())
+            ]"#,
+                Some("https://api.github.com/repositories/1/releases?per_page=100&page=2"),
+            )
         });
         assert_eq!(
             url.as_deref(),
@@ -397,8 +422,70 @@ mod tests {
         );
         assert_eq!(
             asked,
-            dereth_launch::releases::releases_api_url(dereth_launch::releases::SOURCE_URL)
+            [releases::releases_api_url(releases::SOURCE_URL).unwrap()],
+            "one page: it holds a Dereth release"
         );
+    }
+
+    #[test]
+    fn the_list_is_read_on_to_the_page_holding_a_dereth_release() {
+        let second = "https://api.github.com/repositories/1/releases?per_page=100&page=2";
+        let mut asked = Vec::new();
+        let url = super::manifest_url(None, |api| {
+            asked.push(api.to_owned());
+            if api == second {
+                page(
+                    br#"[{"tag_name":"dereth-v0.4.6","assets":[
+                        {"name":"latest.json","browser_download_url":"https://example.test/d046/latest.json"}]}]"#,
+                    None,
+                )
+            } else {
+                page(
+                    br#"[{"tag_name":"empyrean-v0.3.4"},{"tag_name":"lyceum-v0.1.0"}]"#,
+                    Some(second),
+                )
+            }
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/d046/latest.json")
+        );
+        assert_eq!(asked.len(), 2);
+    }
+
+    #[test]
+    fn a_page_is_fetched_with_the_next_pages_address_from_its_link_header() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/repos/someone/fork/releases?per_page=100",
+            listener.local_addr().unwrap()
+        );
+        let second = "https://api.github.com/repositories/1/releases?per_page=100&page=2";
+        let served = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf).unwrap() {
+                    0 => break,
+                    n => head.extend_from_slice(&buf[..n]),
+                }
+            }
+            let body = br#"[{"tag_name":"empyrean-v0.3.4"}]"#;
+            let link = format!("<{second}>; rel=\"next\", <{second}>; rel=\"last\"");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nLink: {link}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(body).unwrap();
+        });
+        let page = super::list_page(&url).unwrap();
+        served.join().unwrap();
+        assert_eq!(page.body, br#"[{"tag_name":"empyrean-v0.3.4"}]"#);
+        assert_eq!(page.next.as_deref(), Some(second));
     }
 
     #[test]
@@ -408,16 +495,14 @@ mod tests {
             None
         );
         assert_eq!(
-            super::manifest_url(None, |_| Ok(
-                br#"{"message":"API rate limit exceeded"}"#.to_vec()
+            super::manifest_url(None, |_| page(
+                br#"{"message":"API rate limit exceeded"}"#,
+                None
             )),
             None
         );
         assert_eq!(
-            super::manifest_url(
-                None,
-                |_| Ok(br#"[{"tag_name":"empyrean-v1.0.0"}]"#.to_vec())
-            ),
+            super::manifest_url(None, |_| page(br#"[{"tag_name":"empyrean-v1.0.0"}]"#, None)),
             None
         );
     }

@@ -13,6 +13,7 @@
 //! Started with [`DOWNLOADS_SWITCH`], it looks for none and downloads as a release does.
 
 use dereth_launch::components::{self, Offer, Product};
+use dereth_launch::releases::{self, Need};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -40,7 +41,7 @@ pub fn uses_checkout(development: bool, args: &[String]) -> bool {
 pub const WORLDS_FOLDER: &str = "Lyceum";
 
 /// How long a list of releases is reused before GitHub is asked again.
-const LIST_KEPT: Duration = Duration::from_secs(10 * 60);
+const LIST_KEPT: Duration = dereth_launch::releases::LIST_KEPT;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Installed {
@@ -696,26 +697,48 @@ pub(crate) fn download(
     Ok(bytes)
 }
 
-/// The repository's releases, as GitHub's releases API lists them: asked at most once in
-/// [`LIST_KEPT`] unless `fresh`, so opening a page, a download and every server's update check
-/// share one request.
-pub(crate) fn release_list(fresh: bool) -> Result<Arc<Vec<u8>>, String> {
-    static LIST: Mutex<Option<(Instant, Arc<Vec<u8>>)>> = Mutex::new(None);
+/// The repository's releases, as GitHub's releases API lists them, read as far as `needs` take
+/// it: asked at most once in [`LIST_KEPT`] unless `fresh`, so opening a page, a download and every
+/// server's update check share their requests ([`dereth_launch::releases::kept_list`]).
+pub(crate) fn release_list(fresh: bool, needs: &[Need]) -> Result<Arc<Vec<u8>>, String> {
+    static LIST: Mutex<Option<releases::Kept>> = Mutex::new(None);
     let mut kept = LIST
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((at, list)) = kept.as_ref() {
-        if !fresh && at.elapsed() < LIST_KEPT {
-            return Ok(list.clone());
-        }
-    }
-    let api = dereth_launch::releases::releases_api_url(dereth_launch::releases::SOURCE_URL)
+    let api = releases::releases_api_url(releases::SOURCE_URL)
         .ok_or("This launcher names no GitHub repository to download from.")?;
-    let list = Arc::new(download(&api, 16 * 1024 * 1024, &mut |_, _| {})?);
-    // An error document (a rate limit) is said now, and not kept.
-    components::releases(&list, Product::Empyrean)?;
-    *kept = Some((Instant::now(), list.clone()));
-    Ok(list)
+    releases::kept_list(
+        &mut kept,
+        Instant::now(),
+        fresh,
+        &api,
+        needs,
+        &mut list_page,
+    )
+}
+
+/// One page of the releases API's list at `url`, and the next page's address.
+fn list_page(url: &str) -> Result<releases::Page, String> {
+    if !url.starts_with("https://") {
+        return Err("Downloads need HTTPS.".into());
+    }
+    let mut response = agent()
+        .get(url)
+        .header("User-Agent", "Dereth-launcher")
+        .call()
+        .map_err(|e| plain(&e))?;
+    let next = response
+        .headers()
+        .get("link")
+        .and_then(|l| l.to_str().ok())
+        .and_then(releases::next_page);
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(16 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|e| plain(&e))?;
+    Ok(releases::Page { body, next })
 }
 
 pub(crate) fn target() -> &'static str {
@@ -765,7 +788,7 @@ pub fn check_components(shared: State<'_, Shared>, force: bool) {
         }
     }
     std::thread::spawn(move || {
-        let list = release_list(force);
+        let list = release_list(force, &Product::ALL.map(Product::newest_release));
         let mut store = lock(&shared);
         for e in &mut store.entries {
             e.view.checking = false;
@@ -799,7 +822,7 @@ pub fn check_components(shared: State<'_, Shared>, force: bool) {
 
 /// Download, check and unpack the newest release of `product`, and use it from now on.
 fn get(shared: &Shared, root: &Path, product: Product) -> Result<Installed, String> {
-    let list = release_list(false)?;
+    let list = release_list(false, &[product.newest_release()])?;
     let release = components::newest(&list, product)?.ok_or_else(|| {
         format!(
             "{} has no published release on GitHub yet.",
