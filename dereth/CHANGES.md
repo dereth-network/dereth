@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.7 (2026-10-26)
+
 - New Dereth icon.
 - Fixed the client freezing after buying a stack from a shop.
 - Experimental plugin support, off by default.
