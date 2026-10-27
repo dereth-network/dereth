@@ -10,6 +10,9 @@
 //! so the valid range is **1..=11**, an unregistered queue **silently discards**, and neither case
 //! is an error. The client's net init registers exactly five, in the order 2, 10, 9, 4, 5.
 //!
+//! Which queues are registered, and the order the frame drains them in, is a setting
+//! ([`ReceiveQueues`]); [`ReceiveQueues::retail`], the default, is the client's own.
+//!
 //! See `docs/networking/04-netblobs-and-queues.md` §§4-5.
 
 use std::collections::VecDeque;
@@ -121,40 +124,90 @@ impl Queue {
 /// client, so the flow queue's priority heap is effectively FIFO.
 pub const SEND_PRIORITY: u32 = 5;
 
+/// Which queues receive, and the order the frame drains them in. A setting of
+/// [`Net`](crate::Net), through [`NetConfig`](crate::NetConfig); [`Self::retail`] by default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiveQueues {
+    /// The queues registered to receive, in registration order. A blob for any other queue is
+    /// dropped.
+    pub registered: Vec<Queue>,
+    /// The order [`NetQueues::pop_next`] takes from them. A registered queue left out is filed
+    /// and never drained.
+    pub drain_order: Vec<Queue>,
+}
+
+impl ReceiveQueues {
+    /// The client's own: it registers **2, 10, 9, 4, 5**, in that order, and drains them in
+    /// [`NetQueues::DRAIN_ORDER`], which leaves queue 2 undrained.
+    #[must_use]
+    pub fn retail() -> Self {
+        Self {
+            registered: vec![
+                Queue::Control,
+                Queue::WorldObjects,
+                Queue::Ui,
+                Queue::Login,
+                Queue::Database,
+            ],
+            drain_order: NetQueues::DRAIN_ORDER.to_vec(),
+        }
+    }
+}
+
+impl Default for ReceiveQueues {
+    fn default() -> Self {
+        Self::retail()
+    }
+}
+
 /// The packet controller's twelve queue slots.
 ///
 /// A slot is `None` until a subsystem registers it, and a blob for an unregistered slot is dropped
 /// without complaint. That is not a defensive measure — queues 1, 6, 7 and 11 are never registered
 /// in the retail client at all.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NetQueues {
     slots: [Option<VecDeque<CompletedBlob>>; 12],
+    /// The order [`Self::pop_next`] takes from the queues.
+    drain_order: Vec<Queue>,
     /// Blobs dropped because the queue id was out of range or the slot was unregistered. The client
     /// formats the sender's IP for a log line here; counting is enough for a test.
     pub dropped: usize,
 }
 
+impl Default for NetQueues {
+    fn default() -> Self {
+        Self {
+            slots: Default::default(),
+            drain_order: Self::DRAIN_ORDER.to_vec(),
+            dropped: 0,
+        }
+    }
+}
+
 impl NetQueues {
+    /// No queue registered, drained in [`Self::DRAIN_ORDER`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The five the retail client registers, in its own order:
-    /// **2, 10, 9, 4, 5**.
+    /// The queues `receive` registers, in its order, drained in its drain order.
     #[must_use]
-    pub fn with_retail_registrations() -> Self {
+    pub fn with_registrations(receive: &ReceiveQueues) -> Self {
         let mut q = Self::new();
-        for id in [
-            Queue::Control,
-            Queue::WorldObjects,
-            Queue::Ui,
-            Queue::Login,
-            Queue::Database,
-        ] {
+        for &id in &receive.registered {
             q.add_receive_queue(id);
         }
+        q.drain_order.clone_from(&receive.drain_order);
         q
+    }
+
+    /// The five the retail client registers, in its own order:
+    /// **2, 10, 9, 4, 5** ([`ReceiveQueues::retail`]).
+    #[must_use]
+    pub fn with_retail_registrations() -> Self {
+        Self::with_registrations(&ReceiveQueues::retail())
     }
 
     /// Add a receive queue.
@@ -223,14 +276,15 @@ impl NetQueues {
         Queue::Ui,
     ];
 
-    /// Pop the next blob in frame-drain order.
+    /// Pop the next blob in frame-drain order: [`Self::DRAIN_ORDER`] unless the queues were
+    /// registered with another ([`Self::with_registrations`]).
     pub fn pop_next(&mut self) -> Option<CompletedBlob> {
-        for queue in Self::DRAIN_ORDER {
-            if let Some(blob) = self.pop(queue) {
-                return Some(blob);
-            }
-        }
-        None
+        let Self {
+            slots, drain_order, ..
+        } = self;
+        drain_order
+            .iter()
+            .find_map(|queue| slots[queue.id() as usize].as_mut()?.pop_front())
     }
 }
 
@@ -387,5 +441,46 @@ mod tests {
     #[test]
     fn the_only_send_priority_is_five() {
         assert_eq!(SEND_PRIORITY, 5);
+    }
+
+    /// Behaviour: none (the receive queues are a setting; an API contract).
+    /// The queues a setting names are registered and drain in the order it gives; a queue it
+    /// leaves out drops its blobs even when the client's own set receives on it.
+    #[test]
+    fn the_registered_queues_and_their_drain_order_are_a_setting() {
+        let mut q = NetQueues::with_registrations(&ReceiveQueues {
+            registered: vec![Queue::Ui, Queue::Observer, Queue::Weenie],
+            drain_order: vec![Queue::Observer, Queue::Ui],
+        });
+        assert!(!q.add_received_blob(blob(4, 0xF7DE)), "not registered here");
+        assert!(q.add_received_blob(blob(9, 0xF7B0)));
+        assert!(q.add_received_blob(blob(11, 0xF745)));
+        assert!(q.add_received_blob(blob(3, 0xF7B1)), "registered...");
+        let order: Vec<u16> = std::iter::from_fn(|| q.pop_next())
+            .map(|b| b.queue_id)
+            .collect();
+        assert_eq!(order, vec![11, 9]);
+        assert_eq!(q.len(Queue::Weenie), 1, "...and never drained");
+        assert_eq!(q.dropped, 1);
+    }
+
+    /// Behaviour: none (the default receive queues are the client's own; an API contract).
+    #[test]
+    fn the_default_receive_queues_are_the_clients_own() {
+        let retail = ReceiveQueues::default();
+        assert_eq!(retail, ReceiveQueues::retail());
+        assert_eq!(
+            retail.registered.iter().map(|q| q.id()).collect::<Vec<_>>(),
+            vec![2, 10, 9, 4, 5]
+        );
+        assert_eq!(retail.drain_order, NetQueues::DRAIN_ORDER);
+        let q = NetQueues::with_retail_registrations();
+        for queue in Queue::ALL {
+            assert_eq!(
+                q.is_registered(queue),
+                retail.registered.contains(&queue),
+                "{queue:?}"
+            );
+        }
     }
 }

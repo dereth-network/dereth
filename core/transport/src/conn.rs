@@ -201,7 +201,8 @@ impl NetErrorCode {
 }
 
 /// The client version string the end-of-retail client sends. **ACE compares it exactly.** A world
-/// whose server wants another is sent that instead ([`build_login_request_as`]).
+/// whose server wants another is sent that instead ([`build_login_request_as`], which takes the
+/// version as the bytes the request carries).
 pub const CLIENT_VERSION: &str = "1802";
 
 /// `NetAuthType`.
@@ -229,9 +230,11 @@ pub struct ConnectionAuthenticator {
     pub auth_flags: u32,
     /// Real time at connection establishment; ACE reads it as `Timestamp`.
     pub connection_sequence_number: u32,
-    /// Account name, **lower-cased** before serialization.
-    pub account: String,
-    pub account_to_logon_as: Option<String>,
+    /// The account name, as the bytes the request carries. [`Self::account_password`] lower-cases
+    /// it, as the client does.
+    pub account: Vec<u8>,
+    /// The account to log on as, as the bytes the request carries.
+    pub account_to_logon_as: Option<Vec<u8>>,
     /// Always empty in the retail client.
     pub crypto_data: Vec<u8>,
     /// The password or GLS ticket as an archive string: the compressed length and the bytes, with
@@ -247,7 +250,7 @@ impl ConnectionAuthenticator {
             auth_type: NetAuthType::AccountPassword,
             auth_flags: 0,
             connection_sequence_number: 0,
-            account: account.to_ascii_lowercase(),
+            account: account.to_ascii_lowercase().into_bytes(),
             account_to_logon_as: None,
             crypto_data: Vec::new(),
             extra_data: crate::wire::optional::astring_pack(password.as_bytes()),
@@ -262,10 +265,10 @@ impl ConnectionAuthenticator {
         out.extend_from_slice(&(self.auth_type as u32).to_le_bytes());
         out.extend_from_slice(&self.auth_flags.to_le_bytes());
         out.extend_from_slice(&self.connection_sequence_number.to_le_bytes());
-        out.extend_from_slice(&pstring_pack(self.account.as_bytes()));
+        out.extend_from_slice(&pstring_pack(&self.account));
         if self.auth_flags & 2 != 0 {
-            let as_who = self.account_to_logon_as.as_deref().unwrap_or("");
-            out.extend_from_slice(&pstring_pack(as_who.as_bytes()));
+            let as_who = self.account_to_logon_as.as_deref().unwrap_or_default();
+            out.extend_from_slice(&pstring_pack(as_who));
         }
         out.extend_from_slice(
             &u32::try_from(self.crypto_data.len())
@@ -287,8 +290,8 @@ impl ConnectionAuthenticator {
     ///
     /// The receiving half of the shared transport: the client never reads an authenticator, a
     /// server reads one per `LoginRequest`. The account-to-log-on-as string is read only when
-    /// bit 2 of the auth flags is set, as the pack writes it. Strings are single-byte: each byte becomes the
-    /// `char` of the same value.
+    /// bit 2 of the auth flags is set, as the pack writes it. Strings are read as the bytes the
+    /// request carries.
     #[must_use]
     pub fn unpack(buf: &[u8]) -> Option<Self> {
         let mut at = 0usize;
@@ -333,14 +336,15 @@ impl NetAuthType {
 /// length, the authenticator, as the logon header builds it.
 #[must_use]
 pub fn build_login_request(auth: &ConnectionAuthenticator) -> Vec<u8> {
-    build_login_request_as(CLIENT_VERSION, auth)
+    build_login_request_as(CLIENT_VERSION.as_bytes(), auth)
 }
 
-/// [`build_login_request`] with another client version string.
+/// [`build_login_request`] with another client version string, given as the bytes the request
+/// carries.
 #[must_use]
-pub fn build_login_request_as(client_version: &str, auth: &ConnectionAuthenticator) -> Vec<u8> {
+pub fn build_login_request_as(client_version: &[u8], auth: &ConnectionAuthenticator) -> Vec<u8> {
     let packed = auth.pack();
-    let mut out = crate::wire::optional::pstring_pack(client_version.as_bytes());
+    let mut out = crate::wire::optional::pstring_pack(client_version);
     out.extend_from_slice(&u32::try_from(packed.len()).unwrap_or(0).to_le_bytes());
     out.extend_from_slice(&packed);
     out
@@ -349,8 +353,8 @@ pub fn build_login_request_as(client_version: &str, auth: &ConnectionAuthenticat
 /// A decoded `LoginRequest` optional-header body, the inverse of [`build_login_request`].
 #[derive(Debug, Clone)]
 pub struct LoginRequest {
-    /// `ClientVersion`; [`CLIENT_VERSION`] from this client.
-    pub client_version: String,
+    /// `ClientVersion`, as the bytes the request carries; [`CLIENT_VERSION`] from this client.
+    pub client_version: Vec<u8>,
     pub auth: ConnectionAuthenticator,
 }
 
@@ -373,11 +377,11 @@ impl LoginRequest {
 
 use crate::wire::le::take_u32 as read_u32;
 
-/// A packed `PString` as single-byte characters.
-fn read_pstring(buf: &[u8], at: &mut usize) -> Option<String> {
+/// A packed `PString`'s bytes.
+fn read_pstring(buf: &[u8], at: &mut usize) -> Option<Vec<u8>> {
     let (bytes, used) = crate::wire::optional::pstring_unpack(buf.get(*at..)?)?;
     *at += used;
-    Some(bytes.iter().map(|&b| char::from(b)).collect())
+    Some(bytes.to_vec())
 }
 
 /// A `u32` count, then that many bytes.
@@ -979,9 +983,9 @@ mod tests {
         auth.crypto_data = vec![9, 8, 7];
         let body = build_login_request(&auth);
         let back = LoginRequest::parse(&body).expect("decodes");
-        assert_eq!(back.client_version, CLIENT_VERSION);
+        assert_eq!(back.client_version, CLIENT_VERSION.as_bytes());
         assert_eq!(back.auth.pack(), auth.pack());
-        assert_eq!(back.auth.account, "ac01");
+        assert_eq!(back.auth.account, b"ac01");
         assert_eq!(back.auth.account_to_logon_as, None);
         assert_eq!(back.auth.auth_type, NetAuthType::AccountPassword);
         assert_eq!(back.auth.connection_sequence_number, 0x1234_5678);
@@ -991,9 +995,12 @@ mod tests {
         // Flag 2 carries the extra string; without the flag the same bytes are crypto data's
         // length word, which is why the field is conditional.
         auth.auth_flags = 2;
-        auth.account_to_logon_as = Some("other".to_owned());
+        auth.account_to_logon_as = Some(b"other".to_vec());
         let back = LoginRequest::parse(&build_login_request(&auth)).expect("decodes");
-        assert_eq!(back.auth.account_to_logon_as.as_deref(), Some("other"));
+        assert_eq!(
+            back.auth.account_to_logon_as.as_deref(),
+            Some(&b"other"[..])
+        );
         assert_eq!(back.auth.pack(), auth.pack());
 
         for cut in 0..body.len() {
@@ -1044,7 +1051,7 @@ mod tests {
         assert_eq!(CLIENT_VERSION, "1802");
 
         // The account is lower-cased by the command-line handler.
-        assert_eq!(auth.account, "ac01");
+        assert_eq!(auth.account, b"ac01");
 
         // cbAuthData is the packed authenticator's length, and the section reads back at exactly
         // the length the wire parser computes.
@@ -1065,11 +1072,35 @@ mod tests {
         let mut auth = ConnectionAuthenticator::account_password("ac01", "pass");
         let without = auth.pack().len();
         auth.auth_flags = 2;
-        auth.account_to_logon_as = Some(String::new());
+        auth.account_to_logon_as = Some(Vec::new());
         assert_eq!(
             auth.pack().len(),
             without + 4,
             "an empty PString is 4 bytes"
+        );
+    }
+
+    /// Behaviour: none (the login request's strings are carried as given bytes; a codec contract).
+    /// The version and the account go out exactly as the caller gives them, bytes outside ASCII
+    /// and outside UTF-8 included, and parse back to the same bytes.
+    #[test]
+    fn the_version_and_the_account_are_carried_byte_for_byte() {
+        let version = [0x31, 0x9F, 0xF0, 0x02, 0x7F];
+        let mut auth = ConnectionAuthenticator::account_password("unused", "pass");
+        auth.account = vec![0xC3, 0x28, 0x00, 0xFF];
+        auth.crypto_data = vec![0xA5; 12];
+        let body = build_login_request_as(&version, &auth);
+        // PString: u16 length 5, the five bytes, one pad byte.
+        assert_eq!(&body[..8], &[5, 0, 0x31, 0x9F, 0xF0, 0x02, 0x7F, 0]);
+        let back = LoginRequest::parse(&body).expect("decodes");
+        assert_eq!(back.client_version, version);
+        assert_eq!(back.auth.account, [0xC3, 0x28, 0x00, 0xFF]);
+        assert_eq!(back.auth.crypto_data, [0xA5; 12]);
+        assert_eq!(back.auth.pack(), auth.pack());
+        assert_eq!(
+            build_login_request_as(CLIENT_VERSION.as_bytes(), &auth),
+            build_login_request(&auth),
+            "the default version is the same bytes"
         );
     }
 

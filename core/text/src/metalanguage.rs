@@ -60,7 +60,9 @@
 //! Auto-derived variable flags, the `no [` arm of the variable rule:
 //! `wcstol(text, &end, 10)` with `*end == 0` and a singular `n` appends `'1'`; an **empty**
 //! text appends `'b'`. The singular test has no language metadata in this build and
-//! falls back to `n == 1`.
+//! falls back to `n == 1`. That rule is [`auto_flags`], the one [`render`] uses;
+//! [`render_with`] takes another, for text written against a different one. Only this arm
+//! changes: a value that carries its own `[flags]` keeps them.
 //!
 //! # Outside-info blocks — `{{name}}`, not `$name`
 //!
@@ -163,10 +165,13 @@ fn is_number_singular(n: i64) -> bool {
     n == 1
 }
 
-/// The variable rule's no-`[` arm: `wcstol` must consume the **whole** text, and then the
-/// singular test.
+/// The flags a substituted value gets when it carries no `[flags]` of its own: `1` when the
+/// whole text is a singular number, `b` when it is empty, nothing otherwise.
+///
+/// This is the variable rule's no-`[` arm: `wcstol` must consume the **whole** text, and then the
+/// singular test. [`render`] uses it; [`render_with`] takes another rule in its place.
 #[must_use]
-fn auto_flags(text: &str) -> String {
+pub fn auto_flags(text: &str) -> String {
     let mut f = String::new();
     if let Ok(n) = text.parse::<i64>() {
         if is_number_singular(n) {
@@ -240,9 +245,10 @@ fn number_label(s: &[char], at: usize) -> Option<(i32, usize)> {
 }
 
 /// Split `value[flags]` the way the variable rule does: text before the first unescaped `[`, **right**
-/// trimmed, and the flags up to the first unescaped `]`.
+/// trimmed, and the flags up to the first unescaped `]`. A value with no `[` gets `auto_flags` of
+/// its text.
 #[must_use]
-fn split_var(content: &[char]) -> (String, String) {
+fn split_var(content: &[char], auto_flags: &dyn Fn(&str) -> String) -> (String, String) {
     match find_unescaped(content, 0, '[') {
         Some(b) => {
             let text: String = content[..b].iter().collect();
@@ -277,7 +283,7 @@ fn split_alt(content: &[char]) -> (String, String) {
 
 /// The grammar's parse over the assembled input.
 #[must_use]
-fn parse(input: &str) -> Vec<Node> {
+fn parse(input: &str, auto_flags: &dyn Fn(&str) -> String) -> Vec<Node> {
     let s: Vec<char> = input.chars().collect();
     let mut out: Vec<Node> = Vec::new();
     let mut text = String::new();
@@ -315,7 +321,7 @@ fn parse(input: &str) -> Vec<Node> {
             if !text.is_empty() {
                 out.push(Node::Text(std::mem::take(&mut text)));
             }
-            let (t, flags) = split_var(&s[i + 1..end]);
+            let (t, flags) = split_var(&s[i + 1..end], auto_flags);
             out.push(Node::Var {
                 id: pending_id,
                 text: t,
@@ -421,6 +427,18 @@ fn collapse_spaces(s: &str) -> String {
 /// the string info's outer query does.
 #[must_use]
 pub fn render(fragments: &[String], values: &[String]) -> String {
+    render_with(fragments, values, &auto_flags)
+}
+
+/// [`render`] with another rule for the flags a value gets when it carries no `[flags]` of its
+/// own. `auto_flags` is given each such value's text and returns its flags; [`auto_flags`] is the
+/// rule [`render`] uses.
+#[must_use]
+pub fn render_with(
+    fragments: &[String],
+    values: &[String],
+    auto_flags: &dyn Fn(&str) -> String,
+) -> String {
     // The tokenizer's input builder.
     let mut input = String::new();
     for (i, f) in fragments.iter().enumerate() {
@@ -431,7 +449,7 @@ pub fn render(fragments: &[String], values: &[String]) -> String {
             input.push(SENTINEL);
         }
     }
-    let nodes = parse(&input);
+    let nodes = parse(&input, auto_flags);
     // The node render's **pass 1** harvests every outside variable into a list, which is the
     // list the end of the render searches for `"keepspaces"`.
     let keep_spaces = nodes
@@ -580,7 +598,7 @@ mod tests {
             (" ".to_owned(), "!b".to_owned())
         );
         assert_eq!(
-            split_var(&"5  [1]".chars().collect::<Vec<_>>()),
+            split_var(&"5  [1]".chars().collect::<Vec<_>>(), &auto_flags),
             ("5".to_owned(), "1".to_owned())
         );
     }
@@ -681,5 +699,43 @@ mod tests {
     fn an_escaped_brace_is_not_markup() {
         let f = vec!["\\{ not a block \\}".to_owned()];
         assert_eq!(render(&f, &[]), "\\{ not a block \\}");
+    }
+
+    /// Behaviour: none (the renderer's automatic-flag rule is a parameter; an API contract).
+    /// Another rule decides which alternative a value without `[flags]` chooses; a value that
+    /// carries its own flags keeps them, and `render` is `render_with` given `auto_flags`.
+    #[test]
+    fn another_automatic_flag_rule_decides_the_choice_for_a_bare_value() {
+        let zero_is_z = |text: &str| {
+            if text == "0" {
+                "z".to_owned()
+            } else {
+                String::new()
+            }
+        };
+        let f: Vec<String> = ["", " {none[z]|some}"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let v = |s: &str| vec![s.to_owned()];
+        assert_eq!(render_with(&f, &v("0"), &zero_is_z), "0 none");
+        assert_eq!(render_with(&f, &v("3"), &zero_is_z), "3 some");
+        assert_eq!(
+            render(&f, &v("0")),
+            "0 some",
+            "the default rule gives a zero no flags"
+        );
+        assert_eq!(
+            render_with(&f, &v("0[q]"), &zero_is_z),
+            "0 some",
+            "a value's own flags are not replaced"
+        );
+        for value in ["", "1", "2", "-1", "x"] {
+            assert_eq!(
+                render_with(&f, &v(value), &auto_flags),
+                render(&f, &v(value)),
+                "{value:?}"
+            );
+        }
     }
 }

@@ -188,6 +188,88 @@ fn send_advances_the_stamp_and_the_sequence_counter() {
     assert_eq!(ids, vec![(1, 1), (2, 2), (3, 3)]);
 }
 
+/// The blob ids of every fragment a connection sends next, in order.
+fn sent_blob_ids(n: &mut Net, rec_id: u16) -> Vec<u64> {
+    let mut crypto = dereth_transport::CryptoSystem::new(0);
+    let out = n
+        .connections
+        .get_mut(&rec_id)
+        .expect("conn")
+        .flow
+        .transmit_new_packets(&mut crypto, LocalTime(0.0));
+    out.iter()
+        .flat_map(|dg| {
+            ParsedPacket::parse(dg)
+                .expect("parse")
+                .fragments
+                .iter()
+                .map(|f| f.header.blob_id())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Behaviour: none (an outgoing blob's ordering type and stamp can be the caller's; an API
+/// contract).
+/// A caller-stamped blob carries the ordering type and stamp its caller chose and the next
+/// sequence, from where the setting starts it; the client's own stamp counter is left alone.
+#[test]
+fn a_caller_stamped_blob_carries_its_ordering_type_and_stamp_and_the_next_sequence() {
+    let mut n = Net::new(NetConfig {
+        first_blob_sequence: 0,
+        ..NetConfig::default()
+    });
+    n.add_connection(0x0B, 0x0B, 1, 0xDEAD_BEEF, 0x1234_5678, None);
+    let body = 0xF7B1u32.to_le_bytes();
+
+    let chosen = |ordering_type, stamp| BlobStamp {
+        ordering_type,
+        stamp,
+    };
+    assert!(n.send_stamped(NetQueue::Weenie, chosen(0x0100_0000, 7), &body));
+    n.send(NetQueue::UiQueue, false, &body);
+    assert!(n.send_stamped(NetQueue::Logon, chosen(0x23FF_FFFF, 0), &body));
+    n.send(NetQueue::UiQueue, false, &body);
+
+    assert_eq!(
+        sent_blob_ids(&mut n, 0x0B),
+        vec![
+            0x0100_0007_0000_0000,
+            0x0300_0001_0000_0001,
+            0x2300_0000_0000_0002,
+            0x0300_0002_0000_0003,
+        ],
+        "the caller's type (its top byte only) and stamp; one sequence from 0 for both sends"
+    );
+}
+
+/// Behaviour: none (an outgoing blob's ordering type and stamp can be the caller's; an API
+/// contract).
+/// A caller-stamped blob that cannot be queued says so and takes no sequence.
+#[test]
+fn a_caller_stamped_blob_not_queued_says_so_and_takes_no_sequence() {
+    let stamp = BlobStamp {
+        ordering_type: 0x0300_0000,
+        stamp: 1,
+    };
+    let mut n = Net::new(NetConfig::default());
+    assert!(
+        !n.send_stamped(NetQueue::UiQueue, stamp, b"junk"),
+        "no connection"
+    );
+    n.add_connection(0x0B, 0x0B, 1, 0xDEAD_BEEF, 0x1234_5678, None);
+    assert!(
+        !n.send_stamped(NetQueue::Other(12), stamp, b"junk"),
+        "no such queue"
+    );
+    assert!(n.send_stamped(NetQueue::UiQueue, stamp, &0xF7B1u32.to_le_bytes()));
+    assert_eq!(
+        sent_blob_ids(&mut n, 0x0B),
+        vec![0x0300_0001_0000_0001],
+        "the first queued blob still has the first sequence"
+    );
+}
+
 /// A connected link keeps talking: a cumulative ACK every 2.0 s, with `TimeSync` and
 /// `EchoRequest` riding it every 6 intervals, and nothing at all before the first boundary.
 ///
@@ -419,6 +501,60 @@ fn a_fed_packet_becomes_a_polled_message() {
     );
 }
 
+/// Behaviour: none (the receive queues are a setting of `Net`; an API contract).
+/// A `Net` set to receive on a queue the client's own set leaves unregistered delivers a blob
+/// sent on it; with the default setting the same datagram is accepted and its blob dropped.
+#[test]
+fn a_net_receives_on_the_queues_its_setting_names() {
+    let datagram = {
+        let frag = dereth_transport::Fragment::new(
+            dereth_transport::FragmentHeader {
+                blob_id_low: 1,
+                blob_id_high: 0x8000_0000,
+                num_frags: 1,
+                blob_frag_size: 0,
+                blob_num: 0,
+                queue_id: 11,
+            },
+            vec![0x45, 0xF7, 0, 0, 7, 7],
+        );
+        let mut p = dereth_transport::OutPacket::new(dereth_transport::ProtoHeader {
+            seq_id: 2,
+            rec_id: 0x0B,
+            iteration: 1,
+            ..Default::default()
+        });
+        p.add_fragment(frag).expect("frag");
+        let mut server = dereth_transport::CryptoSystem::new(0xDEAD_BEEF);
+        p.serialize(Some(server.next())).expect("serialize")
+    };
+    let connected = |config: NetConfig| {
+        let mut n = Net::new(config);
+        n.add_connection(0x0B, 0x0B, 1, 0xDEAD_BEEF, 0x1234_5678, None);
+        n
+    };
+
+    let mut n = connected(NetConfig {
+        receive_queues: ReceiveQueues {
+            registered: vec![Queue::Observer],
+            drain_order: vec![Queue::Observer],
+        },
+        ..NetConfig::default()
+    });
+    n.feed(&datagram, None, LocalTime(1.0)).expect("accepted");
+    let got = n.poll().expect("the blob on the set queue");
+    assert_eq!(got.queue, NetQueue::Other(11));
+    assert_eq!((got.opcode, got.body), (0xF745, vec![7, 7]));
+
+    let mut n = connected(NetConfig::default());
+    n.feed(&datagram, None, LocalTime(1.0)).expect("accepted");
+    assert!(
+        n.poll().is_none(),
+        "the client's own set does not receive on it"
+    );
+    assert_eq!(n.queues.dropped, 1);
+}
+
 /// A duplicate encrypted packet is rejected and does **not** consume an ISAAC value, so the
 /// next real packet still decrypts. `docs/networking/02-reliability-and-flow.md` §2.2, at the
 /// `Net` level.
@@ -560,11 +696,13 @@ fn echo_response_updates_its_receiver_and_samples_only_the_current_world_once() 
     assert_eq!(n.link_status.round_trip_delays.total(), 0.75);
 }
 
-/// The default server port is 7304, not 9000, and the client version is "1802".
+/// The default server port is 7304, not 9000, the client version is "1802", and the first blob
+/// sent has sequence 1.
 #[test]
 fn the_defaults_are_the_retail_ones() {
     let cfg = NetConfig::default();
     assert_eq!(cfg.port, 7304);
     assert_eq!(cfg.client_version, "1802");
     assert_eq!(cfg.port_mode(), PortMode::Fixed(0));
+    assert_eq!(cfg.first_blob_sequence, FIRST_BLOB_COUNTER);
 }

@@ -54,8 +54,8 @@ fn ace_parse_agrees_with_the_retail_layout() {
     let ace = PacketInboundLoginRequest::new(&b).expect("ACE parse");
     let retail = LoginRequest::parse(&b).expect("retail decode");
     assert_eq!(ace.client_version, "1802");
-    assert_eq!(ace.client_version, retail.client_version);
-    assert_eq!(ace.account, retail.auth.account);
+    assert_eq!(ace.client_version.as_bytes(), retail.client_version);
+    assert_eq!(ace.account.as_bytes(), retail.auth.account);
     assert_eq!(ace.net_auth_type, NetAuthType::AccountPassword);
     assert_eq!(retail.auth.auth_type, WireAuthType::AccountPassword);
     assert_eq!(ace.timestamp, retail.auth.connection_sequence_number);
@@ -88,7 +88,7 @@ fn account_to_login_as_is_read_only_when_the_flag_says_it_is_there() {
             .auth
             .account_to_logon_as
             .as_deref(),
-        Some("admin")
+        Some(&b"admin"[..])
     );
     let got = PacketInboundLoginRequest::new(&b).expect("parse with the field");
     assert_eq!(
@@ -243,7 +243,7 @@ fn a_login_without_a_password_is_refused_and_the_tracker_gets_its_pong() {
         let mut net = server(NetConfig::default());
         let now = ClockSnapshot::at_seconds(5.0);
         let mut auth = retail_auth(account, "");
-        auth.account = account.to_string();
+        auth.account = account.as_bytes().to_vec();
         auth.auth_type = WireAuthType::Account;
         auth.extra_data.clear();
         let mut p = dereth_transport::wire::OutPacket::new(Default::default());

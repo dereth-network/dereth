@@ -39,7 +39,7 @@ pub fn request() -> Vec<u8> {
         auth_type: NetAuthType::Account,
         auth_flags: 0,
         connection_sequence_number: 0,
-        account: TRACKER_ACCOUNT.to_owned(),
+        account: TRACKER_ACCOUNT.as_bytes().to_vec(),
         account_to_logon_as: None,
         crypto_data: Vec::new(),
         extra_data: Vec::new(),
@@ -94,9 +94,9 @@ mod tests {
         assert!(parsed.checksum_ok(None));
         let body = &bytes[20..];
         let login = LoginRequest::parse(body).unwrap();
-        assert_eq!(login.client_version, "1802");
+        assert_eq!(login.client_version, b"1802");
         assert_eq!(login.auth.auth_type, NetAuthType::Account);
-        assert_eq!(login.auth.account, TRACKER_ACCOUNT);
+        assert_eq!(login.auth.account, TRACKER_ACCOUNT.as_bytes());
         assert!(login.auth.extra_data.is_empty(), "no password");
     }
 

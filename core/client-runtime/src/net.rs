@@ -662,8 +662,10 @@ impl ClientNetwork {
     /// with a hand-built header: everything zero but header flags `0x10000` and the data length.
     fn send_login_request(&mut self) {
         let mut p = OutPacket::new(ProtoHeader::default());
-        let body =
-            build_login_request_as(&self.session.transport.config.client_version, &self.auth);
+        let body = build_login_request_as(
+            self.session.transport.config.client_version.as_bytes(),
+            &self.auth,
+        );
         if p.add_optional_header(PacketFlags::LOGIN_REQUEST, body)
             .is_err()
         {
@@ -1068,11 +1070,11 @@ mod tests {
         let mut retail =
             ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0).expect("host");
         assert_eq!(retail.logon_version(), "1802");
-        assert_eq!(version_sent(&mut retail), "1802");
+        assert_eq!(version_sent(&mut retail), b"1802");
 
         let mut c = ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0).expect("host");
         c.set_logon_version("c118");
-        assert_eq!(version_sent(&mut c), "c118");
+        assert_eq!(version_sent(&mut c), b"c118");
     }
 
     /// A duplicate `ConnectRequest` at the same iteration is ignored entirely; a newer one is not.

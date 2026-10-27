@@ -15,7 +15,7 @@ pub mod resolver;
 pub mod string_table;
 pub mod tag;
 
-pub use metalanguage::render;
+pub use metalanguage::{render, render_with};
 pub use resolver::StringResolver;
 pub use string_table::{render_named, render_positional, render_token, DatStringResolver};
 pub use tag::{TagKind, TagSpan, TaggedText, TextTag};

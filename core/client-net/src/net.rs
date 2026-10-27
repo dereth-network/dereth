@@ -12,7 +12,7 @@ use dereth_primitives::LocalTime;
 use dereth_primitives::NetBlobId as SeamNetBlobId;
 use dereth_primitives::{IncomingMessage, NetQueue, Transport};
 
-use crate::queues::{NetQueues, Queue, SEND_PRIORITY};
+use crate::queues::{NetQueues, Queue, ReceiveQueues, SEND_PRIORITY};
 use crate::socket::{PortMode, DEFAULT_SERVER_PORT};
 use dereth_transport::blob::{NetBlob, NetBlobId};
 use dereth_transport::conn::ConnectionState;
@@ -30,7 +30,7 @@ pub type Datagram = (Vec<u8>, Option<SocketAddr>);
 /// interface stamps on each incoming message as its sender.
 pub use dereth_primitives::RecipientId;
 
-/// Configuration, from the command line and the `Net.*` preferences.
+/// Configuration, from the command line and the `Net.*` preferences, and the queues received on.
 #[derive(Debug, Clone)]
 pub struct NetConfig {
     /// `-h host[:port]`, with the client's `,` and `:` handling.
@@ -46,6 +46,12 @@ pub struct NetConfig {
     /// The logon version string: `"1802"` unless the world's server wants another. ACE compares
     /// it exactly.
     pub client_version: String,
+    /// The queues received on and the order they are drained in: the client's own
+    /// ([`ReceiveQueues::retail`]) unless set.
+    pub receive_queues: ReceiveQueues,
+    /// The sequence, the blob id's low dword, that the first blob sent carries; each later blob,
+    /// on any connection, carries the next. The client's own, 1, unless set.
+    pub first_blob_sequence: u32,
 }
 
 impl Default for NetConfig {
@@ -57,8 +63,21 @@ impl Default for NetConfig {
             bind_interface: None,
             compute_unique_port: false,
             client_version: dereth_transport::conn::CLIENT_VERSION.to_owned(),
+            receive_queues: ReceiveQueues::retail(),
+            first_blob_sequence: FIRST_BLOB_COUNTER,
         }
     }
+}
+
+/// An outgoing blob's ordering type and ordering stamp, as a caller of [`Net::send_stamped`]
+/// chooses them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlobStamp {
+    /// The ordering type: the blob id's top byte, in place in the high dword (`0xTT00_0000`, as
+    /// [`NetBlobId::ORDERING_TYPE_WORLD`]). Any bit below the top byte is ignored.
+    pub ordering_type: u32,
+    /// The ordering stamp, bits 32-47 of the blob id.
+    pub stamp: u16,
 }
 
 impl NetConfig {
@@ -113,13 +132,14 @@ pub struct Net {
     world_recipient: RecipientId,
     /// Current logon-server recipient id.
     logon_recipient: RecipientId,
-    /// A plain 16-bit counter incremented per blob.
+    /// A plain 16-bit counter incremented per blob [`Transport::send`] stamps; a blob
+    /// [`Net::send_stamped`] sends carries its caller's stamp and leaves it alone.
     ///
     /// Starts at [`FIRST_BLOB_COUNTER`], not at 0. See that constant.
     unordered_stamp: u16,
     /// Non-ephemeral blob id, initialized to `make_initial_sequence_id(0)` = 0 and
     /// then advanced once before the first blob that reaches the wire. See
-    /// [`FIRST_BLOB_COUNTER`].
+    /// [`FIRST_BLOB_COUNTER`]; [`NetConfig::first_blob_sequence`] sets it.
     cur_non_ephemeral_id: NetBlobId,
     /// Datagrams built and waiting for the socket, each with where it must go. Exposed so a
     /// replay can drain them.
@@ -250,15 +270,17 @@ const SPEED_HACK_WINDOW: f64 = 60.0;
 impl Net {
     #[must_use]
     pub fn new(config: NetConfig) -> Self {
+        let queues = NetQueues::with_registrations(&config.receive_queues);
+        let first_sequence = config.first_blob_sequence;
         Self {
             config,
             connections: BTreeMap::new(),
-            queues: NetQueues::with_retail_registrations(),
+            queues,
             world_recipient: RecipientId(0),
             logon_recipient: RecipientId(0),
             unordered_stamp: u16::try_from(FIRST_BLOB_COUNTER).unwrap_or(1),
             cur_non_ephemeral_id: NetBlobId(
-                NetBlobId::make_initial_sequence_id(0).0 | u64::from(FIRST_BLOB_COUNTER),
+                NetBlobId::make_initial_sequence_id(0).0 | u64::from(first_sequence),
             ),
             pending_out: Vec::new(),
             log_off_sent: false,
@@ -1638,21 +1660,23 @@ pub fn from_seam_queue(q: NetQueue) -> Option<Queue> {
     }
 }
 
-impl Transport for Net {
-    /// The UI blob send.
+impl Net {
+    /// Send `payload` on `queue` as [`Transport::send`] does, but with the ordering type and
+    /// ordering stamp the caller chose in place of the client's own rule. The sequence is the
+    /// shared one: the blob takes the next, as any other blob does.
     ///
-    /// Queues 4, 5 and 8 go to the login recipient and everything else to the world recipient;
-    /// every blob gets ordering type `0x23000000` or `0x03000000`, the per-blob
-    /// unordered stamp, and priority 5.
-    ///
-    /// `ordered` is the caller's request for the ordered wrapper. The retail UI protocol sender
-    /// an ordering type other than those two constants, so it is honoured only through the queue
-    /// mapping — but the parameter is kept, because a rebuild that later wants to prioritise
-    /// movement over chat needs it and it costs nothing on the wire.
-    fn send(&mut self, queue: NetQueue, ordered: bool, payload: &[u8]) {
-        let _ = ordered;
+    /// Returns whether the blob was queued. It is not when the queue is one the wire cannot name,
+    /// when there is no connection to send it on, or when that connection takes no more blobs; a
+    /// blob not queued takes no sequence.
+    pub fn send_stamped(&mut self, queue: NetQueue, stamp: BlobStamp, payload: &[u8]) -> bool {
+        self.send_blob(queue, Some(stamp), payload)
+    }
+
+    /// The blob send behind [`Transport::send`] (`stamp` `None`: the client's own rule) and
+    /// [`Self::send_stamped`].
+    fn send_blob(&mut self, queue: NetQueue, stamp: Option<BlobStamp>, payload: &[u8]) -> bool {
         let Some(q) = from_seam_queue(queue) else {
-            return; // an id outside 1..=11 is a drop, not an error
+            return false; // an id outside 1..=11 is a drop, not an error
         };
         let recipient = if q.is_login_bound() {
             self.logon_recipient
@@ -1660,24 +1684,50 @@ impl Transport for Net {
             self.world_recipient
         };
         let Some(conn) = self.connections.get_mut(&recipient.0) else {
-            return;
+            return false;
         };
         if !conn.state.accepts_blobs() {
             // The client flow queue's enqueue refuses at or past `DisconnectReceived`.
-            return;
+            return false;
         }
 
+        let (ordering_type, stamp) = match stamp {
+            Some(chosen) => (chosen.ordering_type, chosen.stamp),
+            None => {
+                let own = self.unordered_stamp;
+                self.unordered_stamp = own.wrapping_add(1);
+                (q.ordering_type(), own)
+            }
+        };
         let mut blob = NetBlob::for_send(payload.to_vec(), q.id());
         blob.id = NetBlobId::make(
-            u64::from(q.ordering_type()) << 32,
-            self.unordered_stamp,
+            u64::from(ordering_type) << 32,
+            stamp,
             self.cur_non_ephemeral_id,
         );
         blob.saved_net_blob_id = blob.id;
         blob.priority = SEND_PRIORITY;
-        self.unordered_stamp = self.unordered_stamp.wrapping_add(1);
         self.cur_non_ephemeral_id = self.cur_non_ephemeral_id.next_non_ephemeral_sequence_id();
         conn.flow.enqueue_blob(blob);
+        true
+    }
+}
+
+impl Transport for Net {
+    /// The UI blob send.
+    ///
+    /// Queues 4, 5 and 8 go to the login recipient and everything else to the world recipient;
+    /// every blob gets ordering type `0x23000000` or `0x03000000`, the per-blob
+    /// unordered stamp, and priority 5. [`Net::send_stamped`] sends with another ordering type
+    /// and stamp.
+    ///
+    /// `ordered` is the caller's request for the ordered wrapper. The retail UI protocol sender
+    /// never uses an ordering type other than those two constants, so it is honoured only through
+    /// the queue mapping — but the parameter is kept, because a rebuild that later wants to
+    /// prioritise movement over chat needs it and it costs nothing on the wire.
+    fn send(&mut self, queue: NetQueue, ordered: bool, payload: &[u8]) {
+        let _ = ordered;
+        self.send_blob(queue, None, payload);
     }
 
     /// One whole reassembled blob, in the frame's queue-drain order, or `None`.
