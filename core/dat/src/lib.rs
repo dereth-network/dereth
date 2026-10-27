@@ -23,6 +23,10 @@
 //! 3. **The three hash-table headers are different.** See [`archive::intrusive_hash_table_header`],
 //!    [`archive::intrusive_hash_list_header`] and [`packobj::packable_hash_table_header`].
 //!
+//! The container's layout (where the header and its fields are, the directory entry, the
+//! transaction slot) is a value, [`ContainerLayout`]: the two dat sets' layouts are built in, and a
+//! container in another layout opens by naming it.
+//!
 //! Writing is [`write`](mod@write). The container's half of the data-patch path is here too: [`inflate`], the
 //! zlib decompressor a compressed data message needs, and [`container::DatFile::reload`] /
 //! [`store::RetailDatStore::reload`], which re-walk a directory a writer has changed underneath an
@@ -45,6 +49,7 @@ pub mod error;
 pub mod folder;
 pub mod inflate;
 pub mod iteration;
+pub mod layout;
 pub mod locate;
 pub mod overlay;
 pub mod packobj;
@@ -66,6 +71,7 @@ pub use divine::{
 pub use error::DatError;
 pub use folder::{DatFolder, DatStorageMut, DiskFolder, MemoryFile, MemoryFolder};
 pub use inflate::{inflate_raw, inflate_zlib};
+pub use layout::{ContainerLayout, EntryLayout, HeaderLayout, TransactionSlot};
 pub use locate::{
     holds_classic_dats, holds_modern_dats, locate_modern_dats, protect_install, ClassicDat, DatDir,
     DatsNotFound, ModernDat,

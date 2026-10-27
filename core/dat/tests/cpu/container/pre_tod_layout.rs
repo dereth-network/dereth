@@ -6,7 +6,9 @@
 
 use dereth_dat::btree::CLASSIC_NODE_SIZE;
 use dereth_dat::container::{DatFile, CELL_DATFILE, PORTAL_DATFILE};
-use dereth_dat::{ClassicDat, ContainerEra, DatError, DatKind, ModernDat, RetailDatStore};
+use dereth_dat::{
+    ClassicDat, ContainerEra, ContainerLayout, DatError, DatKind, ModernDat, RetailDatStore,
+};
 use dereth_primitives::DataId;
 
 /// Builds a container block by block: the 0x400-byte prologue, then chains laid end to end.
@@ -136,8 +138,21 @@ fn two_level(block: usize, iteration: u32) -> (Vec<u8>, Vec<(u32, Vec<u8>)>) {
 #[test]
 fn a_pre_tod_container_walks_its_twelve_byte_directory_and_reads_every_record() {
     let (bytes, records) = two_level(0x100, 1593);
+    let named = DatFile::from_storage_as(
+        "cell.dat".into(),
+        Box::new(bytes.clone()),
+        &ContainerLayout::CLASSIC,
+    )
+    .expect("opens as named");
     let file = DatFile::from_storage("cell.dat".into(), Box::new(bytes)).expect("opens");
     assert_eq!(file.era(), ContainerEra::Classic);
+    assert_eq!(file.layout(), &ContainerLayout::CLASSIC);
+    assert_eq!(named.header(), file.header());
+    assert_eq!(named.header_iteration(), Some(1593));
+    assert!(
+        file.transaction_slot().expect("slot").is_empty(),
+        "no transaction slot in this layout"
+    );
     assert_eq!(file.header_iteration(), Some(1593));
     assert_eq!(file.header().block_size, 0x100);
     assert_eq!(

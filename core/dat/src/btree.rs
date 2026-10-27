@@ -6,6 +6,7 @@
 //! See `docs/formats/01-dat-container.md`.
 
 use crate::error::DatError;
+use crate::layout::{ContainerLayout, EntryLayout};
 
 /// `BTEntry`, 24 bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,33 +45,49 @@ impl BtEntry {
         u16::try_from(self.bits >> 16).unwrap_or(0)
     }
 
-    /// A directory entry of the container before Throne of Destiny (`portal.dat`, `cell.dat`): 12
-    /// bytes, id, first block and size, with no flags, date or iteration, which read as zero.
-    pub(crate) fn parse_classic(b: &[u8]) -> Self {
+    /// An entry of `layout.bytes` bytes, each field read where `layout` puts it; a field the
+    /// layout does not have reads as zero.
+    ///
+    /// # Panics
+    /// When `b` is shorter than the layout's entry, or the layout does not
+    /// [fit](ContainerLayout::fits).
+    #[must_use]
+    pub fn parse_as(b: &[u8], layout: &EntryLayout) -> Self {
         let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        let opt = |at: Option<usize>| at.map_or(0, w);
         Self {
-            bits: 0,
-            id: w(0),
-            offset: w(4),
-            size: w(8),
-            date: 0,
-            iteration: 0,
+            bits: opt(layout.bits),
+            id: w(layout.id),
+            offset: w(layout.offset),
+            size: w(layout.size),
+            date: opt(layout.date),
+            iteration: opt(layout.iteration),
         }
     }
 
-    pub(crate) fn parse(b: &[u8]) -> Self {
-        let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
-        Self {
-            bits: w(0),
-            id: w(4),
-            offset: w(8),
-            size: w(12),
-            date: w(16),
-            iteration: w(20),
-        }
+    /// Write the entry's fields where `layout` puts them into `out`, the entry's `layout.bytes`
+    /// bytes; a field the layout does not have is dropped, and the bytes no field covers are left
+    /// as they are.
+    ///
+    /// # Panics
+    /// When `out` is shorter than the layout's entry, or the layout does not
+    /// [fit](ContainerLayout::fits).
+    pub fn write_as(self, out: &mut [u8], layout: &EntryLayout) {
+        let mut put = |at: Option<usize>, v: u32| {
+            if let Some(at) = at {
+                out[at..at + 4].copy_from_slice(&v.to_le_bytes());
+            }
+        };
+        put(layout.bits, self.bits);
+        put(Some(layout.id), self.id);
+        put(Some(layout.offset), self.offset);
+        put(Some(layout.size), self.size);
+        put(layout.date, self.date);
+        put(layout.iteration, self.iteration);
     }
 
-    /// The inverse of [`BtEntry::parse`] -- the 24 bytes a writer puts back into a `BTNode`.
+    /// The 24 bytes of a `client_*.dat` entry ([`ContainerLayout::MODERN`]), the inverse of
+    /// [`BtEntry::parse_as`] in that layout -- what a writer puts back into a `BTNode`.
     #[must_use]
     pub fn to_bytes(self) -> [u8; 24] {
         let mut b = [0u8; 24];
@@ -119,22 +136,26 @@ impl BtNode {
     /// is an error, because a rebuild that silently swallowed it would lose entries.
     pub fn parse(buf: &[u8], offset: u32) -> Result<Self, DatError> {
         debug_assert_eq!(buf.len(), NODE_SIZE);
-        Self::parse_with(buf, offset, 24, BtEntry::parse)
+        Self::parse_as(buf, offset, &ContainerLayout::MODERN.entry)
     }
 
     /// Parse a pre-Throne-of-Destiny node from its [`CLASSIC_NODE_SIZE`] payload bytes. Child slots
     /// past the count are fill (`0xCDCDCDCD` in the shipped files) and are never followed.
     pub fn parse_classic(buf: &[u8], offset: u32) -> Result<Self, DatError> {
         debug_assert_eq!(buf.len(), CLASSIC_NODE_SIZE);
-        Self::parse_with(buf, offset, 12, BtEntry::parse_classic)
+        Self::parse_as(buf, offset, &ContainerLayout::CLASSIC.entry)
     }
 
-    fn parse_with(
-        buf: &[u8],
-        offset: u32,
-        entry_size: usize,
-        entry: fn(&[u8]) -> BtEntry,
-    ) -> Result<Self, DatError> {
+    /// Parse a node whose entries are laid out as `entry` says, from its
+    /// [`ContainerLayout::node_bytes`] payload bytes.
+    ///
+    /// # Errors
+    /// [`DatError::BadNodeEntryCount`] for a count above 61.
+    ///
+    /// # Panics
+    /// When `buf` is shorter than the node.
+    pub fn parse_as(buf: &[u8], offset: u32, entry: &EntryLayout) -> Result<Self, DatError> {
+        let entry_size = entry.bytes;
         let mut children = [0u32; 62];
         for (i, c) in children.iter_mut().enumerate() {
             let o = i * 4;
@@ -145,7 +166,12 @@ impl BtNode {
             return Err(DatError::BadNodeEntryCount { offset, count });
         }
         let entries = (0..count as usize)
-            .map(|i| entry(&buf[252 + i * entry_size..252 + (i + 1) * entry_size]))
+            .map(|i| {
+                BtEntry::parse_as(
+                    &buf[252 + i * entry_size..252 + (i + 1) * entry_size],
+                    entry,
+                )
+            })
             .collect();
         Ok(Self { children, entries })
     }
@@ -171,7 +197,7 @@ mod tests {
         b.extend_from_slice(&12u32.to_le_bytes());
         b.extend_from_slice(&1_434_144_313u32.to_le_bytes());
         b.extend_from_slice(&1u32.to_le_bytes());
-        let e = BtEntry::parse(&b);
+        let e = BtEntry::parse_as(&b, &ContainerLayout::MODERN.entry);
         assert_eq!(e.id, 0xFFFF_0001);
         assert_eq!(e.offset, 0x3738_6400);
         assert_eq!(e.size, 12);

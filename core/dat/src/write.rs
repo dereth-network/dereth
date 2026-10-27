@@ -40,6 +40,11 @@
 //!   clears the compressed flag, fills `date` with the wall clock when it is 0, and
 //!   refuses a version of 0 or an `iteration` older than the stored one.
 //!
+//! The rules hold in every [`ContainerLayout`]: [`DatWriter::open`] and [`DatWriter::create`]
+//! write the `client_*.dat` layout, and [`DatWriter::open_as`] and [`DatWriter::create_as`] any
+//! other, keeping the header's fields and the entries where that layout puts them. A layout whose
+//! transaction slot holds no journal has its slot left as it is.
+//!
 //! # What this module deliberately does not do
 //!
 //! * **No transaction journal records.** Native serialises a transaction record into the
@@ -57,10 +62,11 @@ use std::path::{Path, PathBuf};
 
 use dereth_primitives::DataId;
 
-use crate::btree::{BtEntry, NODE_SIZE};
-use crate::container::{DiskFileInfo, FIRST_BLOCK, HEADER_OFFSET, TRANSACTION_OFFSET};
+use crate::btree::BtEntry;
+use crate::container::{DiskFileInfo, FIRST_BLOCK};
 use crate::error::DatError;
 use crate::folder::DatStorageMut;
+use crate::layout::{ContainerLayout, EntryLayout};
 
 /// A node's entry count may not exceed this; the node search rejects 0x3E and above.
 pub const MAX_ENTRIES: usize = 61;
@@ -85,7 +91,6 @@ const MIN_DESCEND: usize = MIN_ENTRIES + 1;
 /// `u32::MAX` entries.
 const MAX_DEPTH: usize = 64;
 
-const ENTRY_SIZE: usize = 24;
 const COUNT_OFFSET: usize = FAN_OUT * 4;
 const ENTRIES_OFFSET: usize = COUNT_OFFSET + 4;
 /// Bit 31 of a block link: "this block is on the free list".
@@ -179,7 +184,8 @@ pub enum SaveOutcome {
 // One B-tree node, as bytes.
 // -------------------------------------------------------------------------------------------
 
-/// A `BTNode` kept as its 0x6B4 on-disk bytes rather than as parsed fields.
+/// A `BTNode` kept as its on-disk bytes (0x6B4 in the `client_*.dat` files) rather than as parsed
+/// fields, with the layout of its entries.
 ///
 /// Native writes the whole `BTNode` struct back, including the
 /// entries and child links past the entry count, which are whatever the previous occupant of that
@@ -188,20 +194,25 @@ pub enum SaveOutcome {
 /// the tests meaningful.
 #[derive(Debug, Clone)]
 struct RawNode {
-    bytes: [u8; NODE_SIZE],
+    bytes: Vec<u8>,
+    entry: EntryLayout,
 }
 
 impl RawNode {
-    fn empty() -> Self {
+    fn empty(layout: &ContainerLayout) -> Self {
         Self {
-            bytes: [0u8; NODE_SIZE],
+            bytes: vec![0u8; layout.node_bytes()],
+            entry: layout.entry,
         }
     }
 
-    fn parse(buf: &[u8]) -> Self {
-        let mut bytes = [0u8; NODE_SIZE];
+    fn parse(buf: &[u8], layout: &ContainerLayout) -> Self {
+        let mut bytes = vec![0u8; layout.node_bytes()];
         bytes.copy_from_slice(buf);
-        Self { bytes }
+        Self {
+            bytes,
+            entry: layout.entry,
+        }
     }
 
     fn dword(&self, off: usize) -> u32 {
@@ -244,20 +255,23 @@ impl RawNode {
     }
 
     fn entry(&self, i: usize) -> BtEntry {
-        let o = ENTRIES_OFFSET + i * ENTRY_SIZE;
-        BtEntry::parse(&self.bytes[o..o + ENTRY_SIZE])
+        let size = self.entry.bytes;
+        let o = ENTRIES_OFFSET + i * size;
+        BtEntry::parse_as(&self.bytes[o..o + size], &self.entry)
     }
 
     fn set_entry(&mut self, i: usize, e: BtEntry) {
-        let o = ENTRIES_OFFSET + i * ENTRY_SIZE;
-        self.bytes[o..o + ENTRY_SIZE].copy_from_slice(&e.to_bytes());
+        let size = self.entry.bytes;
+        let o = ENTRIES_OFFSET + i * size;
+        e.write_as(&mut self.bytes[o..o + size], &self.entry);
     }
 
-    /// Entry `dst` = entry `src`, the 24-byte struct copy the native shift loops perform.
+    /// Entry `dst` = entry `src`, the whole-entry struct copy the native shift loops perform.
     fn move_entry(&mut self, dst: usize, src: usize) {
-        let s = ENTRIES_OFFSET + src * ENTRY_SIZE;
-        let d = ENTRIES_OFFSET + dst * ENTRY_SIZE;
-        self.bytes.copy_within(s..s + ENTRY_SIZE, d);
+        let size = self.entry.bytes;
+        let s = ENTRIES_OFFSET + src * size;
+        let d = ENTRIES_OFFSET + dst * size;
+        self.bytes.copy_within(s..s + size, d);
     }
 }
 
@@ -277,15 +291,18 @@ impl RawNode {
 pub struct DatWriter {
     path: PathBuf,
     file: Box<dyn DatStorageMut>,
-    /// The header's 0x50 bytes exactly as they are on disk, so that the fields native never touches
+    /// How the container is laid out.
+    layout: ContainerLayout,
+    /// The header's bytes exactly as they are on disk, so that the fields native never touches
     /// -- the 0xCD padding after the LRU-in-use flag, the version GUID -- survive a rewrite.
-    raw_header: [u8; 0x50],
+    raw_header: Vec<u8>,
     header: DiskFileInfo,
     fault: Option<Fault>,
 }
 
 impl DatWriter {
-    /// Open an existing container for writing.
+    /// Open an existing container for writing: a `client_*.dat` file
+    /// ([`ContainerLayout::MODERN`]).
     ///
     /// # Errors
     ///
@@ -293,11 +310,21 @@ impl DatWriter {
     /// [`DatError::PendingTransaction`] when the journal slot at 0x100 holds an unfinished
     /// operation this writer cannot replay, plus the usual header and I/O errors.
     pub fn open(path: &Path) -> Result<Self, DatError> {
+        Self::open_as(path, &ContainerLayout::MODERN)
+    }
+
+    /// Open an existing container in `layout` for writing.
+    ///
+    /// # Errors
+    ///
+    /// As [`DatWriter::open`], and [`DatError::BadLayout`] for a layout that does not
+    /// [fit](ContainerLayout::fits).
+    pub fn open_as(path: &Path, layout: &ContainerLayout) -> Result<Self, DatError> {
         // A reader that walked this file may be in the process-wide table, and
         // what follows may change the file without changing its length or its mtime tick. The
         // open drops the entry rather than trust a timestamp.
         let file = crate::folder::open_disk_mut(path)?;
-        Self::open_in(path.to_path_buf(), Box::new(file))
+        Self::open_in_as(path.to_path_buf(), Box::new(file), layout)
     }
 
     /// Open an existing container kept in `storage` for writing; `path` names it in errors.
@@ -307,17 +334,34 @@ impl DatWriter {
     /// [`DatError::PendingTransaction`] as [`DatWriter::open`], plus the usual header and storage
     /// errors.
     pub fn open_in(path: PathBuf, storage: Box<dyn DatStorageMut>) -> Result<Self, DatError> {
+        Self::open_in_as(path, storage, &ContainerLayout::MODERN)
+    }
+
+    /// [`DatWriter::open_in`] for a container in `layout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`DatWriter::open_as`], with the storage's errors for I/O errors.
+    pub fn open_in_as(
+        path: PathBuf,
+        storage: Box<dyn DatStorageMut>,
+        layout: &ContainerLayout,
+    ) -> Result<Self, DatError> {
+        if !layout.fits() {
+            return Err(DatError::BadLayout);
+        }
         let mut me = Self {
             path,
             file: storage,
-            raw_header: [0u8; 0x50],
+            layout: *layout,
+            raw_header: vec![0u8; layout.header.bytes],
             header: blank_header(),
             fault: None,
         };
-        let mut hdr = [0u8; 0x50];
-        me.read_at(HEADER_OFFSET, &mut hdr)?;
+        let mut hdr = vec![0u8; layout.header.bytes];
+        me.read_at(layout.header.at, &mut hdr)?;
+        me.header = DiskFileInfo::parse_as(&hdr, &layout.header)?.0;
         me.raw_header = hdr;
-        me.header = DiskFileInfo::parse(&hdr)?;
         me.require_quiescent()?;
         Ok(me)
     }
@@ -368,15 +412,66 @@ impl DatWriter {
         data_subset: u32,
         file_size: u32,
     ) -> Result<Self, DatError> {
-        check_create(block_size, file_size)?;
+        let info = retail_shaped_header(block_size, data_set, data_subset, file_size);
+        Self::create_in_as(path, storage, &ContainerLayout::MODERN, &info)
+    }
+
+    /// Build a new container in `layout`: create the file, then create an empty tree in it.
+    ///
+    /// `info` gives the header: its block size and file size (as [`DatWriter::create`] takes them),
+    /// and every other field the layout has, written as given. The free list and the directory's
+    /// root are the writer's to fill in.
+    ///
+    /// # Errors
+    ///
+    /// As [`DatWriter::create`], and [`DatError::BadLayout`] for a layout that does not
+    /// [fit](ContainerLayout::fits).
+    pub fn create_as(
+        path: &Path,
+        layout: &ContainerLayout,
+        info: &DiskFileInfo,
+    ) -> Result<Self, DatError> {
+        crate::folder::refuse_protected(path)?;
+        check_create(info.block_size, info.file_size)?;
+        // As in `open`: this truncates, and a path can be reused.
+        let file = crate::folder::create_disk(path)?;
+        Self::create_in_as(path.to_path_buf(), Box::new(file), layout, info)
+    }
+
+    /// [`DatWriter::create_as`] in `storage`, which is empty.
+    ///
+    /// # Errors
+    ///
+    /// As [`DatWriter::create_as`], with the storage's errors for I/O errors.
+    pub fn create_in_as(
+        path: PathBuf,
+        storage: Box<dyn DatStorageMut>,
+        layout: &ContainerLayout,
+        info: &DiskFileInfo,
+    ) -> Result<Self, DatError> {
+        if !layout.fits() {
+            return Err(DatError::BadLayout);
+        }
+        check_create(info.block_size, info.file_size)?;
+        let mut raw_header = vec![0u8; layout.header.bytes];
+        DiskFileInfo {
+            magic: 0x5442,
+            free_head: 0,
+            free_tail: 0,
+            free_count: 0,
+            btree_root: 0,
+            ..*info
+        }
+        .write_as(&mut raw_header, &layout.header);
         let mut me = Self {
             path,
             file: storage,
-            raw_header: retail_shaped_header(block_size, data_set, data_subset, file_size),
-            header: blank_header(),
+            layout: *layout,
+            header: DiskFileInfo::parse_as(&raw_header, &layout.header)?.0,
+            raw_header,
             fault: None,
         };
-        me.header = DiskFileInfo::parse(&me.raw_header)?;
+        let (block_size, file_size) = (info.block_size, info.file_size);
 
         // The 0x400-byte prologue: banner area, journal slot, header, tail padding.
         me.write_at(0, &[0u8; FIRST_BLOCK as usize])?;
@@ -391,7 +486,7 @@ impl DatWriter {
         // Tree creation: the root node takes the first free block.
         let root = me.header.free_head;
         me.header.btree_root = root;
-        let empty = RawNode::empty();
+        let empty = RawNode::empty(&me.layout);
         me.store_data(&empty.bytes, root)?;
         me.save_file_info()?;
         Ok(me)
@@ -465,30 +560,54 @@ impl DatWriter {
         Ok(())
     }
 
-    /// Write the 0x50-byte file info back, synchronously, at 0x140.
+    /// Write the file info back, synchronously, where the layout puts it (the 0x50 bytes at 0x140
+    /// in the `client_*.dat` files): the file size, the free list and the root, the five fields a
+    /// write changes.
     fn save_file_info(&mut self) -> Result<(), DatError> {
-        let mut raw = self.raw_header;
-        raw[0x08..0x0C].copy_from_slice(&self.header.file_size.to_le_bytes());
-        raw[0x14..0x18].copy_from_slice(&self.header.free_head.to_le_bytes());
-        raw[0x18..0x1C].copy_from_slice(&self.header.free_tail.to_le_bytes());
-        raw[0x1C..0x20].copy_from_slice(&self.header.free_count.to_le_bytes());
-        raw[0x20..0x24].copy_from_slice(&self.header.btree_root.to_le_bytes());
+        let h = self.layout.header;
+        let mut raw = std::mem::take(&mut self.raw_header);
+        for (at, v) in [
+            (h.file_size, self.header.file_size),
+            (h.free_head, self.header.free_head),
+            (h.free_tail, self.header.free_tail),
+            (h.free_count, self.header.free_count),
+            (h.btree_root, self.header.btree_root),
+        ] {
+            raw[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        let written = self.write_at(h.at, &raw);
         self.raw_header = raw;
-        self.write_at(HEADER_OFFSET, &raw)
+        written
+    }
+
+    /// Where the journal is, when the layout keeps one.
+    fn journal_at(&self) -> Option<u64> {
+        self.layout
+            .transaction
+            .filter(|slot| slot.journal)
+            .map(|slot| slot.at)
     }
 
     /// Clear the transaction journal -- a `NO_TRANS` record, five bytes, leaving
-    /// the tail of whatever longer record was there before.
+    /// the tail of whatever longer record was there before. A layout with no journal is left as
+    /// it is.
     fn clear_transaction(&mut self) -> Result<(), DatError> {
+        let Some(at) = self.journal_at() else {
+            return Ok(());
+        };
         let mut rec = [0u8; 5];
         rec[1..5].copy_from_slice(&TRANSACT_MAGIC.to_le_bytes());
-        self.write_at(TRANSACTION_OFFSET, &rec)
+        self.write_at(at, &rec)
     }
 
-    /// The journal read, used as a precondition rather than as a replay trigger.
+    /// The journal read, used as a precondition rather than as a replay trigger. A layout with no
+    /// journal has nothing to wait for.
     fn require_quiescent(&mut self) -> Result<(), DatError> {
+        let Some(at) = self.journal_at() else {
+            return Ok(());
+        };
         let mut rec = [0u8; 5];
-        self.read_at(TRANSACTION_OFFSET, &mut rec)?;
+        self.read_at(at, &mut rec)?;
         let magic = u32::from_le_bytes([rec[1], rec[2], rec[3], rec[4]]);
         if magic != TRANSACT_MAGIC {
             return Err(DatError::BadTransactionMagic(magic));
@@ -660,23 +779,25 @@ impl DatWriter {
 
     fn read_node(&mut self, offset: u32) -> Result<RawNode, DatError> {
         self.check_block(offset)?;
-        let raw = self.load_data(DataId(0), offset, NODE_SIZE)?;
-        Ok(RawNode::parse(&raw))
+        let raw = self.load_data(DataId(0), offset, self.layout.node_bytes())?;
+        Ok(RawNode::parse(&raw, &self.layout))
     }
 
     /// Write a node back through the block allocator's update path.
     ///
-    /// A node is always exactly 0x6B4 bytes and its chain was allocated for exactly that, so the
+    /// A node is always exactly its layout's size (0x6B4 bytes in the `client_*.dat` files) and its
+    /// chain was allocated for exactly that, so the
     /// only branch of the allocator's update a node write can reach is "rewrite the existing chain
     /// in place". The grow and shrink branches have no other caller in the client, so rather than
     /// carry two untestable paths this refuses a chain of the wrong length.
     fn write_node(&mut self, offset: u32, node: &RawNode) -> Result<(), DatError> {
         let per = self.header.payload_per_block();
-        let want = NODE_SIZE.div_ceil(per);
+        let node_size = node.bytes.len();
+        let want = node_size.div_ceil(per);
         let mut dest = offset;
         let mut src = 0usize;
         let mut used = 0usize;
-        while src < NODE_SIZE {
+        while src < node_size {
             used += 1;
             if used > want {
                 return Err(DatError::NodeChainLength {
@@ -685,8 +806,8 @@ impl DatWriter {
                     want,
                 });
             }
-            let chunk = (NODE_SIZE - src).min(per);
-            let link = if src + chunk >= NODE_SIZE {
+            let chunk = (node_size - src).min(per);
+            let link = if src + chunk >= node_size {
                 0
             } else {
                 self.link_at(dest)?
@@ -697,7 +818,7 @@ impl DatWriter {
                     offset: dest,
                 });
             }
-            if link == 0 && src + chunk < NODE_SIZE {
+            if link == 0 && src + chunk < node_size {
                 return Err(DatError::NodeChainLength {
                     offset,
                     blocks: used,
@@ -730,7 +851,7 @@ impl DatWriter {
     fn allocate_empty_node(&mut self) -> Result<u32, DatError> {
         let offset = self.header.free_head;
         self.check_block(offset)?;
-        let empty = RawNode::empty();
+        let empty = RawNode::empty(&self.layout);
         self.store_data(&empty.bytes, offset)?;
         Ok(offset)
     }
@@ -786,7 +907,7 @@ impl DatWriter {
 
         // The right half: entries 31..=60 and, for an internal node, child links 31..=61.
         let right_offset = self.allocate_empty_node()?;
-        let mut right = RawNode::empty();
+        let mut right = RawNode::empty(&self.layout);
         for k in 0..SPLIT_HALF {
             right.set_entry(k, full.entry(SPLIT_HALF + 1 + k));
         }
@@ -831,7 +952,7 @@ impl DatWriter {
         if root_n == MAX_ENTRIES {
             let old_root = self.header.btree_root;
             let new_root = self.allocate_empty_node()?;
-            let mut node = RawNode::empty();
+            let mut node = RawNode::empty(&self.layout);
             node.set_child(0, old_root);
             node.set_num_entries(0);
             self.header.btree_root = new_root;
@@ -1078,7 +1199,8 @@ impl DatWriter {
         while let Some(offset) = stack.pop() {
             let node = self.read_node(offset)?;
             let n = node.num_entries(offset)?;
-            in_nodes += self.mark_chain(offset, NODE_SIZE, per, &mut seen, &mut dupes, bs)?;
+            let node_size = self.layout.node_bytes();
+            in_nodes += self.mark_chain(offset, node_size, per, &mut seen, &mut dupes, bs)?;
             for i in 0..n {
                 let e = node.entry(i);
                 in_records +=
@@ -1755,28 +1877,27 @@ fn blank_header() -> DiskFileInfo {
     }
 }
 
-/// The 0x50 header bytes a freshly created file starts with: the retail version stamp, the caller's
-/// geometry, and a free list `create` fills in immediately afterwards.
+/// The header a freshly created `client_*.dat` file starts with: the retail version stamp, the
+/// caller's geometry, and a free list `create` fills in immediately afterwards.
 fn retail_shaped_header(
     block_size: u32,
     data_set: u32,
     data_subset: u32,
     file_size: u32,
-) -> [u8; 0x50] {
+) -> DiskFileInfo {
     /// The major version id as it appears on disk in all four retail dats.
     const VERSION_MAJOR: [u8; 16] = [
         0xD2, 0xD7, 0xA7, 0x34, 0x2F, 0x72, 0x46, 0x4C, 0x8A, 0xB4, 0xEF, 0x51, 0x4F, 0x85, 0x6F,
         0xFD,
     ];
-    let mut h = [0u8; 0x50];
-    let mut put = |off: usize, v: u32| h[off..off + 4].copy_from_slice(&v.to_le_bytes());
-    put(0x00, 0x5442);
-    put(0x04, block_size);
-    put(0x08, file_size);
-    put(0x0C, data_set);
-    put(0x10, data_subset);
-    put(0x34, 110);
-    h[0x3C..0x4C].copy_from_slice(&VERSION_MAJOR);
-    h[0x4C..0x50].copy_from_slice(&0x1A01u32.to_le_bytes());
-    h
+    DiskFileInfo {
+        block_size,
+        file_size,
+        data_set,
+        data_subset,
+        eng_pack_vnum: 110,
+        version_major: VERSION_MAJOR,
+        version_minor: 0x1A01,
+        ..blank_header()
+    }
 }

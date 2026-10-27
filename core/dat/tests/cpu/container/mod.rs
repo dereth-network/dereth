@@ -1,5 +1,6 @@
 mod client_layer;
 mod concurrent_positional_reads;
+mod custom_layout;
 mod overlay_base_identity;
 mod overlay_layers;
 mod overlay_revisions;

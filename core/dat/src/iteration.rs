@@ -15,7 +15,8 @@ use crate::error::DatError;
 /// `first .. first + k`.
 ///
 /// Single values are written with bit 31 masked off, so the reader restores it when bit 30 is set,
-/// as the client's reader does.
+/// as the client's reader does. The set holds signed integers: each value here is its
+/// two's-complement bits, and [`decode_signed`] gives them as `i32`.
 ///
 /// A list may come from a server's overlay, so it is not trusted: a count above [`MAX_VALUES`], or
 /// a run that would go past the count, is [`DatError::Overrun`] before anything is expanded.
@@ -52,6 +53,16 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<u32>, DatError> {
     }
     c.expect_end()?;
     Ok(out)
+}
+
+/// [`decode`], each value as the signed integer the set holds: a negative single value or a run
+/// of negative values reads back negative.
+///
+/// # Errors
+/// As [`decode`].
+pub fn decode_signed(bytes: &[u8]) -> Result<Vec<i32>, DatError> {
+    #[allow(clippy::cast_possible_wrap)]
+    Ok(decode(bytes)?.into_iter().map(|v| v as i32).collect())
 }
 
 /// The most values a set may decode to: far past any real file's (the end of retail's portal
@@ -209,6 +220,25 @@ mod tests {
         assert_eq!(decode(&encode(&[4, 5, 6])).unwrap(), vec![4, 5, 6]);
         let mixed = vec![1, 2, 3, 4, 9, 11, 12, 13, 99];
         assert_eq!(decode(&encode(&mixed)).unwrap(), mixed);
+    }
+
+    /// Negative values survive both item forms: a single value keeps its sign through the masked
+    /// bit 31, and a run counts up from a negative first value.
+    #[test]
+    fn negative_values_read_back_negative() {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&6i32.to_le_bytes());
+        raw.extend_from_slice(&(-3i32).to_le_bytes()); // a run of three
+        raw.extend_from_slice(&(-12i32).to_le_bytes()); // from -12
+        raw.extend_from_slice(&((-7i32 as u32) & 0x7FFF_FFFF).to_le_bytes()); // -7, bit 31 masked
+        raw.extend_from_slice(&1i32.to_le_bytes());
+        raw.extend_from_slice(&2i32.to_le_bytes());
+        assert_eq!(decode_signed(&raw).unwrap(), vec![-12, -11, -10, -7, 1, 2]);
+        let back: Vec<u32> = decode(&raw).unwrap();
+        assert_eq!(
+            decode_signed(&encode(&back)).unwrap(),
+            vec![-12, -11, -10, -7, 1, 2]
+        );
     }
 
     #[test]

@@ -52,6 +52,10 @@ pub enum DatError {
         found: crate::container::ContainerEra,
         expected: crate::container::ContainerEra,
     },
+    /// A container layout whose fields do not fit where it puts them
+    /// ([`crate::ContainerLayout::fits`]).
+    #[error("the container layout's fields do not fit its header, its entry or the prologue")]
+    BadLayout,
 
     // ----------------------------------------------------------------------------------------
     // The writer. Everything below is a refusal rather than a corruption: native

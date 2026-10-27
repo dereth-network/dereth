@@ -17,8 +17,9 @@ use std::sync::{Arc, OnceLock};
 
 use dereth_primitives::DataId;
 
-use crate::btree::{BtEntry, BtNode, CLASSIC_NODE_SIZE, NODE_SIZE};
+use crate::btree::{BtEntry, BtNode};
 use crate::error::DatError;
+use crate::layout::{ContainerLayout, HeaderLayout};
 
 /// Where a container's bytes are kept: a positional read that fills `buf` from `offset` or fails.
 ///
@@ -96,8 +97,9 @@ fn read_exact_at(file: &File, mut offset: u64, mut buf: &mut [u8]) -> std::io::R
     Ok(())
 }
 
-/// The container header, `0x50` bytes at file offset `0x140`.
-/// See `docs/formats/01-dat-container.md`.
+/// The container header: `0x50` bytes at file offset `0x140` in the `client_*.dat` files, and
+/// where a [`ContainerLayout`] puts each field in any other layout, a field the layout lacks
+/// reading as zero. See `docs/formats/01-dat-container.md`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DiskFileInfo {
     /// The magic; must be `0x5442`.
@@ -145,62 +147,29 @@ pub const LOCAL_DATFILE: u32 = 3;
 /// The high-res dat's data subset, `"HiFi"`.
 pub const HIRES_SUBSET: u32 = 0x6946_6948;
 
-pub(crate) const HEADER_OFFSET: u64 = 0x140;
-/// Where the header of a file from before Throne of Destiny starts: 44 bytes at `0x12C`.
-pub(crate) const CLASSIC_HEADER_OFFSET: u64 = 0x12C;
-
 /// Which of the two container layouts a file uses. It is the primitives' era, shared with every
 /// reader of records, since the layout of a few record types changed at the same time. Blocks,
 /// chains and the order-62 directory are the same in both.
 pub use dereth_primitives::ContainerEra;
 
-/// Read the pre-Throne-of-Destiny header: magic, block size, file size, iteration, the free chain's
-/// head, tail and count, and the directory root, then three words that are zero in every shipped
-/// file. The file names no data set; its block size tells them apart (`0x400` portal, `0x100`
-/// cell), so the header's `data_set` is inferred from it and every field the layout lacks is zero.
-fn parse_classic_header(b: &[u8; 0x2C]) -> Result<(DiskFileInfo, u32), DatError> {
-    let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
-    let magic = w(0x00);
-    if magic != 0x5442 {
-        return Err(DatError::BadMagic(magic));
-    }
-    let block_size = w(0x04);
-    if block_size < 8 || block_size % 4 != 0 {
-        return Err(DatError::BadBlockSize(block_size));
-    }
-    let data_set = if block_size == 0x100 {
-        CELL_DATFILE
-    } else {
-        PORTAL_DATFILE
-    };
-    let header = DiskFileInfo {
-        magic,
-        block_size,
-        file_size: w(0x08),
-        data_set,
-        data_subset: 0,
-        free_head: w(0x10),
-        free_tail: w(0x14),
-        free_count: w(0x18),
-        btree_root: w(0x1C),
-        young_lru: 0,
-        old_lru: 0,
-        use_lru: false,
-        master_map_id: 0,
-        eng_pack_vnum: 0,
-        game_pack_vnum: 0,
-        version_major: [0; 16],
-        version_minor: 0,
-    };
-    Ok((header, w(0x0C)))
-}
 pub(crate) const FIRST_BLOCK: u32 = 0x400;
-/// The 64-byte transaction journal slot.
-pub(crate) const TRANSACTION_OFFSET: u64 = 0x100;
 
 impl DiskFileInfo {
-    pub(crate) fn parse(b: &[u8; 0x50]) -> Result<Self, DatError> {
+    /// Read the header's `layout.bytes` bytes as `layout` places its fields, and the whole file's
+    /// iteration when the layout keeps it in the header.
+    ///
+    /// A layout with no data-set field names its files by block size: `0x100` is the cell file and
+    /// anything else the portal file.
+    ///
+    /// # Panics
+    /// When `b` is shorter than the layout's header, or the layout does not
+    /// [fit](ContainerLayout::fits).
+    pub(crate) fn parse_as(
+        b: &[u8],
+        layout: &HeaderLayout,
+    ) -> Result<(Self, Option<u32>), DatError> {
         let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        let opt = |at: Option<usize>| at.map_or(0, w);
         let magic = w(0x00);
         if magic != 0x5442 {
             return Err(DatError::BadMagic(magic));
@@ -210,28 +179,74 @@ impl DiskFileInfo {
             return Err(DatError::BadBlockSize(block_size));
         }
         let mut version_major = [0u8; 16];
-        version_major.copy_from_slice(&b[0x3C..0x4C]);
-        Ok(Self {
+        if let Some(at) = layout.version_major {
+            version_major.copy_from_slice(&b[at..at + 16]);
+        }
+        let data_set = match layout.data_set {
+            Some(at) => w(at),
+            None if block_size == 0x100 => CELL_DATFILE,
+            None => PORTAL_DATFILE,
+        };
+        let header = Self {
             magic,
             block_size,
-            file_size: w(0x08),
-            data_set: w(0x0C),
-            data_subset: w(0x10),
-            free_head: w(0x14),
-            free_tail: w(0x18),
-            free_count: w(0x1C),
-            btree_root: w(0x20),
-            young_lru: w(0x24),
-            old_lru: w(0x28),
-            use_lru: b[0x2C] != 0,
-            master_map_id: w(0x30),
+            file_size: w(layout.file_size),
+            data_set,
+            data_subset: opt(layout.data_subset),
+            free_head: w(layout.free_head),
+            free_tail: w(layout.free_tail),
+            free_count: w(layout.free_count),
+            btree_root: w(layout.btree_root),
+            young_lru: opt(layout.young_lru),
+            old_lru: opt(layout.old_lru),
+            use_lru: layout.use_lru.is_some_and(|at| b[at] != 0),
+            master_map_id: opt(layout.master_map_id),
             #[allow(clippy::cast_possible_wrap)]
-            eng_pack_vnum: w(0x34) as i32,
+            eng_pack_vnum: opt(layout.eng_pack_vnum) as i32,
             #[allow(clippy::cast_possible_wrap)]
-            game_pack_vnum: w(0x38) as i32,
+            game_pack_vnum: opt(layout.game_pack_vnum) as i32,
             version_major,
-            version_minor: w(0x4C),
-        })
+            version_minor: opt(layout.version_minor),
+        };
+        Ok((header, layout.iteration.map(w)))
+    }
+
+    /// Write every field `layout` has into `out`, the header's `layout.bytes` bytes, leaving the
+    /// bytes no field covers as they are. The inverse of [`DiskFileInfo::parse_as`], but for the
+    /// header's iteration, which is not a field of this struct.
+    ///
+    /// # Panics
+    /// When `out` is shorter than the layout's header, or the layout does not
+    /// [fit](ContainerLayout::fits).
+    pub(crate) fn write_as(&self, out: &mut [u8], layout: &HeaderLayout) {
+        let mut put = |at: Option<usize>, v: u32| {
+            if let Some(at) = at {
+                out[at..at + 4].copy_from_slice(&v.to_le_bytes());
+            }
+        };
+        put(Some(0x00), self.magic);
+        put(Some(0x04), self.block_size);
+        put(Some(layout.file_size), self.file_size);
+        put(layout.data_set, self.data_set);
+        put(layout.data_subset, self.data_subset);
+        put(Some(layout.free_head), self.free_head);
+        put(Some(layout.free_tail), self.free_tail);
+        put(Some(layout.free_count), self.free_count);
+        put(Some(layout.btree_root), self.btree_root);
+        put(layout.young_lru, self.young_lru);
+        put(layout.old_lru, self.old_lru);
+        put(layout.master_map_id, self.master_map_id);
+        #[allow(clippy::cast_sign_loss)]
+        put(layout.eng_pack_vnum, self.eng_pack_vnum as u32);
+        #[allow(clippy::cast_sign_loss)]
+        put(layout.game_pack_vnum, self.game_pack_vnum as u32);
+        put(layout.version_minor, self.version_minor);
+        if let Some(at) = layout.use_lru {
+            out[at] = u8::from(self.use_lru);
+        }
+        if let Some(at) = layout.version_major {
+            out[at..at + 16].copy_from_slice(&self.version_major);
+        }
     }
 
     /// `(data_set << 32) | data_subset`.
@@ -285,7 +300,7 @@ impl StructureReport {
 /// iterations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileIterations {
-    /// Which container layout the file uses.
+    /// Which dat set's records the file holds: its layout's [`ContainerLayout::era`].
     pub era: ContainerEra,
     /// The data set: [`PORTAL_DATFILE`], [`CELL_DATFILE`] or [`LOCAL_DATFILE`].
     pub data_set: u32,
@@ -320,7 +335,7 @@ pub struct DatFile {
     /// the same thing, which `verify_structure` checks.
     dir: Arc<BTreeMap<u32, BtEntry>>,
     node_offsets: Arc<Vec<u32>>,
-    era: ContainerEra,
+    layout: ContainerLayout,
     header_iteration: Option<u32>,
     /// The world's overlay over this file, when it has one.
     layer: Option<Arc<crate::overlay::Layer>>,
@@ -342,8 +357,22 @@ pub(crate) struct FileIdentity {
 impl DatFile {
     /// Open and walk the directory. The walk costs one read per node (2 blocks in the 0x400-block
     /// files, 7 in the cell dat) and is what makes every later lookup a `BTreeMap` hit.
+    ///
+    /// The file's layout is one of the two built in, told by where the magic is: at `0x140` the
+    /// file is from Throne of Destiny on ([`ContainerLayout::MODERN`]); at `0x12C` it is older
+    /// ([`ContainerLayout::CLASSIC`]). A container in any other layout opens with
+    /// [`DatFile::open_as`].
     pub fn open(path: &Path) -> Result<Self, DatError> {
         Self::from_storage(path.to_path_buf(), Box::new(File::open(path)?))
+    }
+
+    /// Open a container in `layout`, and walk its directory.
+    ///
+    /// # Errors
+    /// [`DatError::BadLayout`] for a layout that does not [fit](ContainerLayout::fits), and the
+    /// header and directory errors [`DatFile::open`] reports.
+    pub fn open_as(path: &Path, layout: &ContainerLayout) -> Result<Self, DatError> {
+        Self::from_storage_as(path.to_path_buf(), Box::new(File::open(path)?), layout)
     }
 
     /// Open a container whose bytes are kept in `storage` rather than a file, and walk its
@@ -352,14 +381,33 @@ impl DatFile {
     /// # Errors
     /// The header and directory errors [`DatFile::open`] reports, and the storage's read errors.
     pub fn from_storage(path: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
-        let mut me = Self::header_only(path, storage)?;
+        let mut me = Self::header_only(path, storage, None)?;
+        me.load_directory()?;
+        Ok(me)
+    }
+
+    /// [`DatFile::from_storage`] for a container in `layout`.
+    ///
+    /// # Errors
+    /// As [`DatFile::open_as`], with the storage's read errors.
+    pub fn from_storage_as(
+        path: PathBuf,
+        storage: Box<dyn DatStorage>,
+        layout: &ContainerLayout,
+    ) -> Result<Self, DatError> {
+        let mut me = Self::header_only(path, storage, Some(layout))?;
         me.load_directory()?;
         Ok(me)
     }
 
     /// The container with its header read and its directory not walked: what
-    /// [`DatFile::read_iterations`] needs, and the first half of [`DatFile::from_storage`].
-    fn header_only(path: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
+    /// [`DatFile::read_iterations`] needs, and the first half of [`DatFile::from_storage`]. With
+    /// no `layout`, the layout is told by where the magic is ([`DatFile::open`]).
+    fn header_only(
+        path: PathBuf,
+        storage: Box<dyn DatStorage>,
+        layout: Option<&ContainerLayout>,
+    ) -> Result<Self, DatError> {
         let mut me = Self {
             path,
             storage: Arc::from(storage),
@@ -384,32 +432,41 @@ impl DatFile {
             },
             dir: Arc::new(BTreeMap::new()),
             node_offsets: Arc::new(Vec::new()),
-            era: ContainerEra::Modern,
+            layout: ContainerLayout::MODERN,
             header_iteration: None,
             layer: None,
             client: None,
             identity: Arc::default(),
         };
-        let mut hdr = [0u8; 0x50];
-        me.read_exact_at(HEADER_OFFSET, &mut hdr)?;
-        match DiskFileInfo::parse(&hdr) {
-            Ok(header) => me.header = header,
+        if let Some(layout) = layout {
+            me.read_header(layout)?;
+            return Ok(me);
+        }
+        match me.read_header(&ContainerLayout::MODERN) {
+            Ok(()) => {}
             // The layout is told by where the magic is: at 0x140 the file is from Throne of
             // Destiny on; at 0x12C it is older. Anything else is refused with the 0x140 reading.
-            Err(DatError::BadMagic(magic)) => {
-                let mut old = [0u8; 0x2C];
-                me.read_exact_at(CLASSIC_HEADER_OFFSET, &mut old)?;
-                if u32::from_le_bytes([old[0], old[1], old[2], old[3]]) != 0x5442 {
-                    return Err(DatError::BadMagic(magic));
-                }
-                let (header, iteration) = parse_classic_header(&old)?;
-                me.header = header;
-                me.era = ContainerEra::Classic;
-                me.header_iteration = Some(iteration);
-            }
+            Err(DatError::BadMagic(magic)) => match me.read_header(&ContainerLayout::CLASSIC) {
+                Err(DatError::BadMagic(_)) => return Err(DatError::BadMagic(magic)),
+                other => other?,
+            },
             Err(e) => return Err(e),
         }
         Ok(me)
+    }
+
+    /// Read the header as `layout` places it, and take `layout` as the file's.
+    fn read_header(&mut self, layout: &ContainerLayout) -> Result<(), DatError> {
+        if !layout.fits() {
+            return Err(DatError::BadLayout);
+        }
+        let mut hdr = vec![0u8; layout.header.bytes];
+        self.read_exact_at(layout.header.at, &mut hdr)?;
+        let (header, iteration) = DiskFileInfo::parse_as(&hdr, &layout.header)?;
+        self.header = header;
+        self.header_iteration = iteration;
+        self.layout = *layout;
+        Ok(())
     }
 
     /// What a file is and how many iterations it holds, read in a few small reads however large
@@ -430,6 +487,23 @@ impl DatFile {
         Self::iterations_of(Self::header_only(
             path.to_path_buf(),
             Box::new(File::open(path)?),
+            None,
+        )?)
+    }
+
+    /// [`DatFile::read_iterations`] for a container in `layout`.
+    ///
+    /// # Errors
+    /// As [`DatFile::read_iterations`], and [`DatError::BadLayout`] for a layout that does not
+    /// [fit](ContainerLayout::fits).
+    pub fn read_iterations_as(
+        path: &Path,
+        layout: &ContainerLayout,
+    ) -> Result<FileIterations, DatError> {
+        Self::iterations_of(Self::header_only(
+            path.to_path_buf(),
+            Box::new(File::open(path)?),
+            Some(layout),
         )?)
     }
 
@@ -441,7 +515,7 @@ impl DatFile {
         path: PathBuf,
         storage: Box<dyn DatStorage>,
     ) -> Result<FileIterations, DatError> {
-        Self::iterations_of(Self::header_only(path, storage)?)
+        Self::iterations_of(Self::header_only(path, storage, None)?)
     }
 
     fn iterations_of(me: Self) -> Result<FileIterations, DatError> {
@@ -450,7 +524,7 @@ impl DatFile {
         /// Retail's deepest directory is 3 levels; deeper than this is a loop, not a tree.
         const MAX_DEPTH: usize = 16;
         let found = |count, highest| FileIterations {
-            era: me.era,
+            era: me.layout.era,
             data_set: me.header.data_set,
             data_subset: me.header.data_subset,
             count,
@@ -487,10 +561,16 @@ impl DatFile {
         Err(DatError::DirectoryLoop(offset))
     }
 
-    /// Which container layout the file uses.
+    /// Which dat set's records the file holds: its layout's [`ContainerLayout::era`].
     #[must_use]
     pub fn era(&self) -> ContainerEra {
-        self.era
+        self.layout.era
+    }
+
+    /// The file's container layout.
+    #[must_use]
+    pub fn layout(&self) -> &ContainerLayout {
+        &self.layout
     }
 
     /// The whole file's iteration, which a file from before Throne of Destiny keeps in its header
@@ -577,7 +657,7 @@ impl DatFile {
             header: self.header,
             dir: Arc::clone(&self.dir),
             node_offsets: Arc::clone(&self.node_offsets),
-            era: self.era,
+            layout: self.layout,
             header_iteration: self.header_iteration,
             layer: None,
             client: None,
@@ -614,10 +694,7 @@ impl DatFile {
 
     /// The directory node's size in this layout.
     fn node_size(&self) -> usize {
-        match self.era {
-            ContainerEra::Classic => CLASSIC_NODE_SIZE,
-            ContainerEra::Modern => NODE_SIZE,
-        }
+        self.layout.node_bytes()
     }
 
     #[must_use]
@@ -647,7 +724,13 @@ impl DatFile {
     /// longer a container, in which case the old contents are **kept** and the error reported, so
     /// a failed reload degrades to a stale reader rather than to no reader at all.
     pub fn reload(&mut self) -> Result<(), DatError> {
-        let fresh = Self::open(&self.path)?;
+        // A file in a built-in layout is told again by where its magic is, as `open` tells it.
+        let built_in = [ContainerLayout::MODERN, ContainerLayout::CLASSIC].contains(&self.layout);
+        let fresh = if built_in {
+            Self::open(&self.path)?
+        } else {
+            Self::open_as(&self.path, &self.layout)?
+        };
         *self = fresh;
         Ok(())
     }
@@ -657,11 +740,15 @@ impl DatFile {
         &self.header
     }
 
-    /// The 64-byte transaction journal at `0x100`. The journal only binds a writer, but a reader
-    /// that wants to check the file is quiescent looks at the leading type byte and magic.
-    pub fn transaction_slot(&self) -> Result<[u8; 0x40], DatError> {
-        let mut b = [0u8; 0x40];
-        self.read_exact_at(0x100, &mut b)?;
+    /// The transaction slot's bytes: the 64-byte journal at `0x100` in the `client_*.dat` files,
+    /// empty in a layout with no slot. The journal only binds a writer, but a reader that wants to
+    /// check the file is quiescent looks at the leading type byte and magic.
+    pub fn transaction_slot(&self) -> Result<Vec<u8>, DatError> {
+        let Some(slot) = self.layout.transaction else {
+            return Ok(Vec::new());
+        };
+        let mut b = vec![0u8; slot.bytes];
+        self.read_exact_at(slot.at, &mut b)?;
         Ok(b)
     }
 
@@ -840,10 +927,7 @@ impl DatFile {
             return Err(DatError::BlockOutOfRange(offset));
         }
         let raw = self.read_chain(DataId(0), offset, self.node_size())?;
-        match self.era {
-            ContainerEra::Classic => BtNode::parse_classic(&raw, offset),
-            ContainerEra::Modern => BtNode::parse(&raw, offset),
-        }
+        BtNode::parse_as(&raw, offset, &self.layout.entry)
     }
 
     /// The actual descend-and-binary-search, kept so that the search
