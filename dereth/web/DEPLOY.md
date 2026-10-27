@@ -343,9 +343,9 @@ Dereth's source and the sources the player added, each to its own host.
 cargo xtask deploy plugins [--project <name>] [--force] [--dry-run]
 ```
 
-- **What it deploys:** the source as `cargo xtask package plugins` builds it from
-  `dereth/plugins/` (`plugins.json`, and each plugin's zip at `<id>/<id>-<version>-<hash>.zip`),
-  and a `_headers` file: every file readable from any page (`Access-Control-Allow-Origin: *`), the
+- **What it deploys:** the source as `cargo xtask package plugins` builds it (`plugins.json`, and
+  each plugin's zip at `<id>/<id>-<version>-<hash>.zip`) from the folders of `dereth/plugins/` that
+  `dereth/plugins/published.toml` names, saying which it holds back, and a `_headers` file: every file readable from any page (`Access-Control-Allow-Origin: *`), the
   list kept five minutes, and each zip kept a year as immutable. A zip's name carries its version
   and the start of its SHA-256, so changed bytes are always a new name.
 - **From what:** a checkout of a commit `main` has. It refuses uncommitted changes to tracked
@@ -358,8 +358,8 @@ cargo xtask deploy plugins [--project <name>] [--force] [--dry-run]
 Setting it up, once (the owner's): make a Cloudflare Pages project for it (for example
 `dereth-plugins`, with no Git connection: deploys come from this command), add the custom domain
 `plugins.dereth.network` to it, and check that `https://plugins.dereth.network/plugins.json`
-answers once the first deploy is done. Deploy again whenever a plugin in `dereth/plugins/` changes
-its version. Plugins are experimental: nothing is deployed until the owner decides.
+answers once the first deploy is done. Deploy again whenever a published plugin changes its version, or
+`published.toml` names another. Plugins are experimental: nothing is deployed until the owner decides.
 
 ## The player's data files
 

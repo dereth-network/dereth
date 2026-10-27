@@ -11,7 +11,8 @@
 //! hash is the start of the zip's SHA-256, so a zip whose bytes change under the same version (a
 //! deploy from a branch, a change that kept its version) has a name of its own: its host keeps
 //! each zip a year as immutable, and a browser keeps what it fetched under the old name. Every folder
-//! of [`TREE`] holding a `plugin.toml` is listed, each with the files git tracks in it (a file left
+//! of [`TREE`] holding a `plugin.toml` that [`PUBLISHED`] names is listed, the others held back,
+//! each with the files git tracks in it (a file left
 //! in a sample's folder that git does not track, a route made for a test, say, is never packed),
 //! packed as the author's tool packs, so the same tree gives the same bytes. Each entry is dated by
 //! the last commit that changed its folder, and carries its version's section of the folder's
@@ -44,19 +45,24 @@ pub const LIST: &str = dereth_plugin_package::catalog::FILE_NAME;
 /// How many hexadecimal digits of the zip's SHA-256 its name carries.
 const HASH_LEN: usize = 12;
 
-/// The source's files, each at its path on the source's host (`plugins.json`, and
-/// `<id>/<id>-<version>-<hash>.zip` for each plugin), from a listing of tracked files (`/`-separated,
-/// below the workspace) and `read`, which gives a tracked file's bytes. `dated` gives the day each
-/// plugin folder last changed, `YYYY-MM-DD`.
-///
-/// # Errors
-/// A folder whose files do not make a package, or that holds a file no release may carry (a game
-/// data file, or one named like it).
-pub fn from_listing(
-    tracked: &[String],
-    read: &dyn Fn(&str) -> Result<Vec<u8>, String>,
-    dated: &dyn Fn(&str) -> Result<String, String>,
-) -> Result<Vec<(String, Vec<u8>)>, String> {
+/// The file in [`TREE`] naming the sample folders the source publishes, `publish = ["xp-meter"]`.
+/// A sample it does not name is held back, so a new one never ships until it is named here.
+pub const PUBLISHED: &str = "published.toml";
+
+/// The folders a [`PUBLISHED`] file names.
+fn publish_list(text: &str) -> Result<Vec<String>, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct File {
+        publish: Vec<String>,
+    }
+    toml::from_str::<File>(text)
+        .map(|f| f.publish)
+        .map_err(|e| format!("{TREE}/{PUBLISHED}: {e}"))
+}
+
+/// The tracked files of each folder of [`TREE`], by folder, each below its folder.
+fn folders(tracked: &[String]) -> BTreeMap<&str, Vec<&str>> {
     let mut folders: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for path in tracked {
         if let Some((folder, rest)) = path
@@ -67,14 +73,57 @@ pub fn from_listing(
             folders.entry(folder).or_default().push(rest);
         }
     }
+    folders
+}
+
+/// The sample folders (each holding a `plugin.toml`) that `publish` does not name.
+#[must_use]
+pub fn held_back(tracked: &[String], publish: &[String]) -> Vec<String> {
+    folders(tracked)
+        .into_iter()
+        .filter(|(folder, files)| {
+            files.contains(&dereth_plugin_package::MANIFEST_FILE)
+                && !publish.iter().any(|p| p == folder)
+        })
+        .map(|(folder, _)| folder.to_owned())
+        .collect()
+}
+
+/// The source's files, each at its path on the source's host (`plugins.json`, and
+/// `<id>/<id>-<version>-<hash>.zip` for each plugin), from a listing of tracked files (`/`-separated,
+/// below the workspace) and `read`, which gives a tracked file's bytes, the sample folders `publish`
+/// names and no others. `dated` gives the day each plugin folder last changed, `YYYY-MM-DD`.
+///
+/// # Errors
+/// A folder whose files do not make a package, or that holds a file no release may carry (a game
+/// data file, or one named like it), or a name in `publish` that is no sample's folder.
+pub fn from_listing(
+    tracked: &[String],
+    publish: &[String],
+    read: &dyn Fn(&str) -> Result<Vec<u8>, String>,
+    dated: &dyn Fn(&str) -> Result<String, String>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let folders = folders(tracked);
     let mut problems = Vec::new();
+    for name in publish {
+        if !folders
+            .get(name.as_str())
+            .is_some_and(|f| f.contains(&dereth_plugin_package::MANIFEST_FILE))
+        {
+            problems.push(format!(
+                "{TREE}/{PUBLISHED}: `{name}` is not a plugin folder of {TREE}"
+            ));
+        }
+    }
     let mut list = Catalog {
         name: NAME.to_owned(),
         plugins: Vec::new(),
     };
     let mut out = Vec::new();
     for (folder, files) in folders {
-        if !files.contains(&dereth_plugin_package::MANIFEST_FILE) {
+        if !files.contains(&dereth_plugin_package::MANIFEST_FILE)
+            || !publish.iter().any(|p| p == folder)
+        {
             continue;
         }
         let mut package = Package {
@@ -145,21 +194,35 @@ fn section(text: &str, version: &str) -> Option<String> {
     Some(body.join("\n").trim().to_owned())
 }
 
-/// The source, from the tree as git tracks it: each file's path on the source's host and its
-/// bytes.
-///
-/// # Errors
-/// As [`from_listing`], or git could not list the files.
-pub fn source(ws: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+/// A source's files: each one's path on the source's host, and its bytes.
+pub type Files = Vec<(String, Vec<u8>)>;
+
+/// The files git tracks in [`TREE`], `/`-separated, below the workspace.
+fn tracked(ws: &Path) -> Result<Vec<String>, String> {
     let listing = super::git(ws, &["ls-files", "--", TREE])?;
-    let tracked: Vec<String> = listing
+    Ok(listing
         .lines()
         .map(|l| l.trim().replace('\\', "/"))
         .filter(|l| !l.is_empty())
-        .collect();
-    from_listing(&tracked, &|p| super::read(&ws.join(p)), &|folder| {
-        super::git(ws, &["log", "-1", "--format=%cs", "--", folder])
-    })
+        .collect())
+}
+
+/// The source, from the tree as git tracks it: each file's path on the source's host and its
+/// bytes, with the sample folders [`PUBLISHED`] holds back.
+///
+/// # Errors
+/// As [`from_listing`], or git could not list the files, or the [`PUBLISHED`] file does not read.
+pub fn source(ws: &Path) -> Result<(Files, Vec<String>), String> {
+    let tracked = tracked(ws)?;
+    let text = super::read(&ws.join(TREE).join(PUBLISHED))?;
+    let publish = publish_list(&String::from_utf8_lossy(&text))?;
+    let files = from_listing(
+        &tracked,
+        &publish,
+        &|p| super::read(&ws.join(p)),
+        &|folder| super::git(ws, &["log", "-1", "--format=%cs", "--", folder]),
+    )?;
+    Ok((files, held_back(&tracked, &publish)))
 }
 
 pub const USAGE: &str = "usage: cargo xtask package plugins [--out <dir>]";
@@ -188,7 +251,7 @@ pub fn package(args: &[String]) -> i32 {
 
 /// Write the source into `out`, replacing what a run before left there.
 fn write_source(ws: &Path, out: &Path) -> Result<String, String> {
-    let files = source(ws)?;
+    let (files, held) = source(ws)?;
     if out.exists() {
         std::fs::remove_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
@@ -200,10 +263,24 @@ fn write_source(ws: &Path, out: &Path) -> Result<String, String> {
         super::write(&to, bytes)?;
     }
     Ok(format!(
-        "Dereth's plugin source: {} plugins in {}; `cargo xtask deploy plugins` publishes it at {URL}.",
+        "Dereth's plugin source: {} plugins in {}; `cargo xtask deploy plugins` publishes it at {URL}.{}",
         files.len() - 1,
-        out.display()
+        out.display(),
+        said_held_back(&held)
     ))
+}
+
+/// A line naming the samples held back, or nothing when none is.
+#[must_use]
+pub fn said_held_back(held: &[String]) -> String {
+    if held.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nHeld back (not in {TREE}/{PUBLISHED}): {}",
+            held.join(", ")
+        )
+    }
 }
 
 #[cfg(test)]
@@ -213,12 +290,20 @@ mod tests {
     use crate::util::workspace_root;
     use dereth_plugin_package::catalog;
 
-    /// The source from the tree: every sample folder listed once, each zip the release its entry
-    /// lists, named relative to the list, at the address the launcher starts with.
+    /// The source from the tree, every sample published: each listed once, each zip the release
+    /// its entry lists, named relative to the list, at the address the launcher starts with.
     #[test]
     fn dereths_source_lists_every_sample_with_its_zip_beside_the_list() {
         let ws = workspace_root();
-        let files = source(&ws).expect("the source");
+        let tracked = tracked(&ws).expect("the listing");
+        let every = held_back(&tracked, &[]);
+        let files = from_listing(
+            &tracked,
+            &every,
+            &|p| crate::package::read(&ws.join(p)),
+            &|_| Ok("2026-10-27".to_owned()),
+        )
+        .expect("the source");
         let (_, list) = files.iter().find(|(p, _)| p == LIST).expect("plugins.json");
         let read = Catalog::parse(list).expect("reads");
         assert!(read.skipped.is_empty(), "{:?}", read.skipped);
@@ -258,6 +343,62 @@ mod tests {
         );
     }
 
+    /// The tree's own list of what is published reads, names only samples, and every sample it
+    /// leaves out is said to be held back.
+    #[test]
+    fn the_trees_published_list_names_samples_and_holds_back_the_rest() {
+        let ws = workspace_root();
+        let (files, held) = source(&ws).expect("the source");
+        let list = Catalog::parse(&files.iter().find(|(p, _)| p == LIST).expect("the list").1)
+            .expect("reads")
+            .catalog;
+        let samples = held_back(&tracked(&ws).expect("the listing"), &[]);
+        assert_eq!(list.plugins.len() + held.len(), samples.len());
+        assert_eq!(files.len(), list.plugins.len() + 1);
+    }
+
+    /// Only the folders the published list names are packed; one it names that is no sample
+    /// refuses the source; an empty list publishes a list of no plugins; a list file with a
+    /// misspelt key does not read.
+    #[test]
+    fn only_the_samples_the_published_list_names_are_packed() {
+        let (tracked, bytes) = files(&[
+            (
+                "dereth/plugins/a/plugin.toml",
+                &manifest("network.dereth.a", "1.0.0"),
+            ),
+            ("dereth/plugins/a/main.lua", "print(1)"),
+            (
+                "dereth/plugins/b/plugin.toml",
+                &manifest("network.dereth.b", "1.0.0"),
+            ),
+            ("dereth/plugins/b/main.lua", "print(1)"),
+        ]);
+        let read = |p: &str| bytes.get(p).cloned().ok_or_else(|| p.to_owned());
+        let dated = |_: &str| Ok("2026-10-27".to_owned());
+        let names = |publish: &[&str]| -> Vec<String> {
+            let publish: Vec<String> = publish.iter().map(|s| (*s).to_owned()).collect();
+            from_listing(&tracked, &publish, &read, &dated)
+                .expect("the source")
+                .into_iter()
+                .map(|(p, _)| p)
+                .collect()
+        };
+        let only_b = names(&["b"]);
+        assert_eq!(only_b.len(), 2);
+        assert!(only_b[0].starts_with("network.dereth.b/"), "{only_b:?}");
+        assert_eq!(names(&[]), ["plugins.json"]);
+        assert_eq!(held_back(&tracked, &["b".to_owned()]), ["a"]);
+        let missing = from_listing(&tracked, &["c".to_owned()], &read, &dated);
+        assert!(missing.is_err_and(|e| e.contains("`c`")));
+        assert_eq!(publish_list("publish = []\n"), Ok(vec![]));
+        assert_eq!(
+            publish_list("publish = [\"a\", \"b\"]\n"),
+            Ok(vec!["a".to_owned(), "b".to_owned()])
+        );
+        assert!(publish_list("published = [\"a\"]\n").is_err());
+    }
+
     #[test]
     fn the_sources_address_is_its_list_on_its_own_host() {
         assert_eq!(URL, dereth_launch::plugins::FIRST_PARTY);
@@ -271,6 +412,11 @@ mod tests {
             .map(|(p, b)| ((*p).to_owned(), b.as_bytes().to_vec()))
             .collect();
         (tracked, bytes)
+    }
+
+    /// Every sample folder of a listing, as a published list naming them all.
+    fn every(tracked: &[String]) -> Vec<String> {
+        held_back(tracked, &[])
     }
 
     fn manifest(id: &str, version: &str) -> String {
@@ -292,8 +438,11 @@ mod tests {
         ]);
         let read = |p: &str| bytes.get(p).cloned().ok_or_else(|| p.to_owned());
         let dated = |_: &str| Ok("2026-10-26".to_owned());
-        let once = from_listing(&tracked, &read, &dated).expect("the source");
-        assert_eq!(once, from_listing(&tracked, &read, &dated).expect("again"));
+        let once = from_listing(&tracked, &every(&tracked), &read, &dated).expect("the source");
+        assert_eq!(
+            once,
+            from_listing(&tracked, &every(&tracked), &read, &dated).expect("again")
+        );
         let names: Vec<&str> = once.iter().map(|(p, _)| p.as_str()).collect();
         let hash = &catalog::sha256_hex(&once[0].1)[..HASH_LEN];
         assert_eq!(
@@ -310,7 +459,8 @@ mod tests {
         let mut changed = bytes.clone();
         changed.insert("dereth/plugins/a/main.lua".into(), b"print(2)".to_vec());
         let read_changed = |p: &str| changed.get(p).cloned().ok_or_else(|| p.to_owned());
-        let other = from_listing(&tracked, &read_changed, &dated).expect("the source");
+        let other =
+            from_listing(&tracked, &every(&tracked), &read_changed, &dated).expect("the source");
         assert_ne!(other[0].0, once[0].0);
         assert!(other[0]
             .0
@@ -321,7 +471,7 @@ mod tests {
         let mut odd_bytes = bytes.clone();
         odd_bytes.insert("dereth/plugins/a/cell.dat".into(), vec![0; 4]);
         let read_odd = |p: &str| odd_bytes.get(p).cloned().ok_or_else(|| p.to_owned());
-        let refused = from_listing(&odd, &read_odd, &dated).expect_err("refused");
+        let refused = from_listing(&odd, &every(&odd), &read_odd, &dated).expect_err("refused");
         assert!(refused.contains("cell.dat"), "{refused}");
 
         let b = manifest("network.dereth.a", "2.0.0");
@@ -332,11 +482,12 @@ mod tests {
             ("dereth/plugins/b/main.lua", "print(1)"),
         ]);
         let read_twice = |p: &str| twice_bytes.get(p).cloned().ok_or_else(|| p.to_owned());
-        let refused = from_listing(&twice, &read_twice, &dated).expect_err("refused");
+        let refused =
+            from_listing(&twice, &every(&twice), &read_twice, &dated).expect_err("refused");
         assert!(refused.contains("another sample has the id"), "{refused}");
 
         let (broken, broken_bytes) = files(&[("dereth/plugins/c/plugin.toml", "id = 1")]);
         let read_broken = |p: &str| broken_bytes.get(p).cloned().ok_or_else(|| p.to_owned());
-        assert!(from_listing(&broken, &read_broken, &dated).is_err());
+        assert!(from_listing(&broken, &every(&broken), &read_broken, &dated).is_err());
     }
 }

@@ -1,0 +1,4 @@
+# The plugins Dereth's own source publishes (https://plugins.dereth.network/plugins.json), by
+# folder name. A folder not named here is held back: `cargo xtask package plugins` and
+# `cargo xtask deploy plugins` leave it out and say so.
+publish = [ "xp-meter" ]

@@ -163,7 +163,14 @@ pub fn deploy(args: &[String]) -> i32 {
     let ws = crate::util::workspace_root();
     let work = std::env::temp_dir().join(format!("dereth-plugins-deploy-{}", std::process::id()));
     let git = |args: &[&str]| package::git(&ws, args);
-    let source = || package::plugins::source(&ws);
+    let source = || {
+        let (files, held) = package::plugins::source(&ws)?;
+        let said = package::plugins::said_held_back(&held);
+        if !said.is_empty() {
+            println!("deploy: {}", said.trim());
+        }
+        Ok(files)
+    };
     match run(&o, &git, &source, &mut Real, &work) {
         Ok(()) => 0,
         Err(e) => {
