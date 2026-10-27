@@ -295,7 +295,13 @@ impl Session {
             row.seq = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             row.flags = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         }
-        let p = match ParsedPacket::parse(bytes) {
+        // A client's datagram carries the connection id its server assigned, which may be 256 or
+        // more; only a server's datagram is held to the client's own limit.
+        let parsed = match dir {
+            Dir::C2s => ParsedPacket::parse_from_client(bytes),
+            Dir::S2c => ParsedPacket::parse(bytes),
+        };
+        let p = match parsed {
             Ok(p) => p,
             Err(e) => {
                 self.summary.parse_errors += 1;
@@ -530,8 +536,20 @@ pub mod build {
     /// with `key`.
     #[must_use]
     pub fn fragments(seq: u32, key: u32, frags: &[(u64, u16, u16, &[u8])]) -> Vec<u8> {
+        fragments_to(0, seq, key, frags)
+    }
+
+    /// [`fragments`] with the header's recipient id set to `rec_id`.
+    #[must_use]
+    pub fn fragments_to(
+        rec_id: u16,
+        seq: u32,
+        key: u32,
+        frags: &[(u64, u16, u16, &[u8])],
+    ) -> Vec<u8> {
         let mut p = OutPacket::new(ProtoHeader {
             seq_id: seq,
+            rec_id,
             ..ProtoHeader::default()
         });
         for (id, num, count, bytes) in frags {
@@ -869,5 +887,30 @@ mod tests {
         let sum = s.finish(&mut sink);
         assert_eq!(sum.parse_errors, 1);
         assert!(sink.packets[0].parse_error.is_some());
+    }
+
+    /// A server may assign a client a connection id of 256 or more, and the client's datagrams
+    /// carry it as their recipient id: those are read and their messages put back together. The
+    /// limit stays on the server's datagrams, which the client itself refuses above 255.
+    #[test]
+    fn a_client_datagram_with_a_recipient_id_above_255_is_read() {
+        let blob = [0xE1u8, 0xF7, 0, 0, 1, 2, 3, 4];
+        let dg = fragments_to(0x123, 10, 5, &[(1, 0, 1, &blob)]);
+
+        let mut s = Session::new();
+        let mut sink = VecSink::default();
+        s.datagram(Dir::C2s, 0.0, &dg, &mut sink);
+        let sum = s.finish(&mut sink);
+        assert_eq!(sum.parse_errors, 0, "{:?}", sink.packets[0].parse_error);
+        assert_eq!(sink.packets[0].frags, 1);
+        assert_eq!(sum.messages[Dir::C2s.index()], 1);
+        assert_eq!(sink.messages[0].raw, blob);
+
+        let mut s = Session::new();
+        let mut sink = VecSink::default();
+        s.datagram(Dir::S2c, 0.0, &dg, &mut sink);
+        let sum = s.finish(&mut sink);
+        assert_eq!(sum.parse_errors, 1, "the server's datagram keeps the limit");
+        assert!(sink.messages.is_empty());
     }
 }
