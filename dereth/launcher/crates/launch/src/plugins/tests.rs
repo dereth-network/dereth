@@ -5,7 +5,7 @@ use super::{
     AutoUpdate, Availability, Keep, PluginError, Refresh, Shelf, FIRST_PARTY, INSTALLED_FILE,
     SOURCES_FILE,
 };
-use crate::testing::{plugin_list as list, plugin_zip as zip};
+use crate::testing::{plugin_list as list, plugin_zip as zip, write_plugin_folder};
 use dereth_plugin_api::ApiVersion;
 
 /// A folder of its own for each test, removed when it ends.
@@ -788,4 +788,494 @@ Updated Meter to 1.1.0."
     }
     assert_eq!(asked, [FIRST_PARTY, OTHER]);
     assert_eq!(walk.said(&shelf), "1 plugin update is waiting.");
+}
+
+// ----- folders on this computer -------------------------------------------------------------------
+
+/// Every file under `dir`, by its path, and its bytes.
+fn files_under(dir: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in std::fs::read_dir(&d).expect("a folder") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let bytes = std::fs::read(&path).expect("a file");
+                out.insert(path, bytes);
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn the_folders_on_this_computer_are_kept_beside_the_sources_and_an_older_file_has_none() {
+    let dir = Scratch::new("local-kept");
+    let mine = dir.0.join("mine");
+    write_plugin_folder(&mine.join("hello"), "org.example.hello", "Hello", "0.1.0");
+    // An older launcher's file: sources and a setting, no folders.
+    let path = dir.0.join(SOURCES_FILE);
+    std::fs::write(
+        &path,
+        format!(r#"{{"sources": [{{"url": "{OTHER}"}}], "auto_update": "all"}}"#),
+    )
+    .expect("an older file");
+    let mut shelf = Shelf::open(&dir.0);
+    assert!(shelf.local.is_empty());
+    assert!(shelf.view().local.is_empty());
+    assert_eq!(shelf.add_local(&mine), Ok(1));
+    // Read again: the sources, the setting and the folder.
+    let mut again = Shelf::open(&dir.0);
+    let urls: Vec<&str> = again.sources.iter().map(|s| s.url.as_str()).collect();
+    assert_eq!(urls, [FIRST_PARTY, OTHER]);
+    assert_eq!(again.auto_update, AutoUpdate::All);
+    assert_eq!(again.local, std::slice::from_ref(&mine));
+    // A source added later keeps the folder.
+    again
+        .add_source("https://plugins.example.net/list.json")
+        .expect("added");
+    assert_eq!(Shelf::read(&dir.0).local, [mine]);
+}
+
+#[test]
+fn a_repository_on_the_list_offers_each_plugin_in_it_as_it_is_on_disk() {
+    let dir = Scratch::new("local-repo");
+    let repo = dir.0.join("repo");
+    write_plugin_folder(&repo.join("hello"), "org.example.hello", "Hello", "0.1.0");
+    let meter = repo.join("meter");
+    write_plugin_folder(&meter, "org.example.meter", "Meter", "0.2.0");
+    let deeper = repo.join("tools").join("deeper");
+    write_plugin_folder(&deeper, "org.example.deeper", "Deeper", "0.1.0");
+    let built = repo.join("target");
+    write_plugin_folder(&built, "org.example.built", "Built", "0.1.0");
+    let single = dir.0.join("single");
+    write_plugin_folder(&single, "org.example.single", "Single", "1.0.0");
+    let empty = dir.0.join("empty");
+    std::fs::create_dir_all(&empty).expect("folder");
+
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    assert_eq!(
+        shelf.add_local(&repo),
+        Ok(2),
+        "the folders directly in it: not build output, nothing further down"
+    );
+    assert_eq!(shelf.add_local(&single), Ok(1), "one plugin's own folder");
+    assert_eq!(
+        shelf.add_local(&empty),
+        Err(PluginError::NoPluginIn(empty.display().to_string()))
+    );
+    assert_eq!(
+        shelf.add_local(&repo),
+        Err(PluginError::FolderListed(repo.display().to_string()))
+    );
+    assert_eq!(
+        shelf.offered_packages(),
+        [repo.join("hello"), meter, single.clone()],
+        "the folders themselves: no zip"
+    );
+    let view = shelf.view();
+    let named: Vec<(&str, &str, &str)> = view
+        .local
+        .iter()
+        .map(|l| (l.name.as_str(), l.version.as_str(), l.description.as_str()))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("Hello", "0.1.0", "Says hi"),
+            ("Meter", "0.2.0", "Says hi"),
+            ("Single", "1.0.0", "Says hi")
+        ]
+    );
+    assert!(view
+        .local
+        .iter()
+        .all(|l| l.problem.is_none() && !l.id_taken && !l.needs_newer_dereth));
+    assert_eq!(view.local[1].listed, repo.display().to_string());
+    assert!(shelf.plugins.is_empty(), "nothing is installed");
+    // An edit on disk is what is offered next: nothing is copied.
+    write_plugin_folder(&single, "org.example.single", "Single", "1.1.0");
+    assert_eq!(shelf.view().local[2].version, "1.1.0");
+    // A refresh reads the sources alone: these are never updated.
+    let mut walk = Refresh::new(&shelf);
+    let mut asked = Vec::new();
+    while let Some(d) = walk.next(&mut shelf, None, 2) {
+        asked.push(d.url);
+    }
+    assert_eq!(asked, [FIRST_PARTY]);
+}
+
+/// A folder is added only when it is a plugin's own folder or a plugin repository, as the author's
+/// tool has a repository: a folder whose plugins are all further down than the folders directly
+/// in it is refused and not listed. A folder on the list whose plugins move further down says it no
+/// longer holds a plugin, and offers nothing.
+#[test]
+fn a_folder_whose_plugins_are_all_further_down_is_refused() {
+    let dir = Scratch::new("local-deep");
+    let code = dir.0.join("code");
+    let plugins = code.join("plugins");
+    let hello = plugins.join("hello");
+    write_plugin_folder(&hello, "org.example.hello", "Hello", "0.1.0");
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    let refused = shelf.add_local(&code);
+    assert_eq!(
+        refused,
+        Err(PluginError::NoPluginIn(code.display().to_string()))
+    );
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        format!(
+            "{} has no plugin.toml, and neither do the folders in it",
+            code.display()
+        )
+    );
+    assert!(shelf.local.is_empty(), "not listed");
+    assert!(Shelf::read(dir.0.join("shelf")).local.is_empty());
+    assert_eq!(shelf.add_local(&plugins), Ok(1), "a plugin repository");
+    assert_eq!(shelf.add_local(&hello), Ok(1), "a plugin's own folder");
+
+    // Moved a folder further down, the plugin is not the repository's any more.
+    let more = plugins.join("more");
+    std::fs::create_dir_all(&more).expect("a folder");
+    std::fs::rename(&hello, more.join("hello")).expect("moved");
+    let view = shelf.view();
+    assert_eq!(
+        view.local[0].problem.as_deref(),
+        Some("This folder no longer holds a plugin.")
+    );
+    assert_eq!(
+        view.local[1].problem.as_deref(),
+        Some("This folder is not there any more.")
+    );
+    assert!(shelf.offered_packages().is_empty());
+}
+
+/// A plugin on this computer with an installed plugin's id is offered in its place, Dereth's own
+/// ids too: the rule that they come only from Dereth's source is about downloads. The installed
+/// one stays, and keeps updating from its source.
+#[test]
+fn a_plugin_on_this_computer_is_loaded_in_place_of_the_installed_one_which_still_updates() {
+    let dir = Scratch::new("local-in-place");
+    let id = "network.dereth.xpmeter";
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    let v1 = zip(id, "1.0.0", "0.7", "");
+    let other = zip("org.example.other", "1.0.0", "0.7", "");
+    shelf
+        .record_read(FIRST_PARTY, Ok(list(&[&v1, &other])), 1)
+        .expect("recorded");
+    shelf.install(FIRST_PARTY, id, &v1).expect("installed");
+    shelf
+        .install(FIRST_PARTY, "org.example.other", &other)
+        .expect("installed");
+    let mine = dir.0.join("xpmeter");
+    write_plugin_folder(&mine, id, "XP Meter", "1.1.0-dev");
+    shelf.add_local(&mine).expect("added");
+
+    let installed_zip = shelf.plugin_dir(id).join("current.zip");
+    let offered = shelf.offered_packages();
+    assert_eq!(offered[0], mine, "the one on this computer first");
+    assert!(!offered.contains(&installed_zip), "{offered:?}");
+    assert_eq!(offered.len(), 2, "and the other installed plugin");
+    let view = shelf.view();
+    let in_place = |v: &super::PluginsView, id: &str| {
+        v.installed
+            .iter()
+            .find(|p| p.id == id)
+            .is_some_and(|p| p.local_in_its_place)
+    };
+    assert!(in_place(&view, id));
+    assert!(!in_place(&view, "org.example.other"));
+    assert!(view.local[0].in_place_of_installed);
+
+    // The installed one updates as before, and is still not the one offered.
+    let v2 = zip(id, "1.2.0", "0.7", "");
+    shelf
+        .record_read(FIRST_PARTY, Ok(list(&[&v2, &other])), 2)
+        .expect("recorded");
+    assert_eq!(shelf.automatic_updates(), [id]);
+    shelf.update(id, &v2).expect("updated");
+    assert_eq!(
+        shelf.get(id).map(|p| p.release.version.as_str()),
+        Some("1.2.0")
+    );
+    assert!(!shelf.offered_packages().contains(&installed_zip));
+
+    // Off the list, the installed one is offered again.
+    shelf.remove_local(&mine).expect("removed");
+    assert!(shelf.offered_packages().contains(&installed_zip));
+    assert!(!in_place(&shelf.view(), id));
+}
+
+#[test]
+fn of_two_plugins_on_this_computer_with_one_id_the_first_on_the_list_is_loaded() {
+    let dir = Scratch::new("local-twice");
+    let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+    write_plugin_folder(&a, "org.example.hello", "Hello", "0.1.0");
+    write_plugin_folder(&b, "org.example.hello", "Hello", "0.2.0");
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    shelf.add_local(&a).expect("added");
+    shelf.add_local(&b).expect("added");
+    // A plugin under two folders on the list is listed once.
+    shelf.add_local(&dir.0).expect("added");
+    assert_eq!(shelf.offered_packages(), [a]);
+    let taken: Vec<bool> = shelf.view().local.iter().map(|l| l.id_taken).collect();
+    assert_eq!(taken, [false, true, false]);
+    assert_eq!(
+        shelf.view().local[2].problem.as_deref(),
+        Some("Its plugins are listed under another folder on the list.")
+    );
+}
+
+#[test]
+fn taking_a_folder_off_the_list_deletes_nothing_and_a_folder_with_no_plugin_says_so() {
+    let dir = Scratch::new("local-remove");
+    let mine = dir.0.join("mine");
+    write_plugin_folder(&mine, "org.example.hello", "Hello", "0.1.0");
+    std::fs::write(mine.join("notes.txt"), "mine").expect("a file");
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    shelf.add_local(&mine).expect("added");
+    let manifest = std::fs::read(mine.join("plugin.toml")).expect("its manifest");
+
+    // The plugin goes from the folder: its row says so, and nothing is offered.
+    std::fs::remove_file(mine.join("plugin.toml")).expect("removed");
+    let view = shelf.view();
+    assert_eq!(view.local.len(), 1);
+    assert_eq!(view.local[0].name, "mine");
+    assert_eq!(
+        view.local[0].problem.as_deref(),
+        Some("This folder no longer holds a plugin.")
+    );
+    assert!(shelf.offered_packages().is_empty());
+    let gone = dir.0.join("gone");
+    write_plugin_folder(&gone, "org.example.gone", "Gone", "0.1.0");
+    shelf.add_local(&gone).expect("added");
+    std::fs::remove_dir_all(&gone).expect("removed");
+    assert_eq!(
+        shelf.view().local[1].problem.as_deref(),
+        Some("This folder is not there any more.")
+    );
+    // A manifest that does not read says why, and is still offered: the client says so too.
+    let broken = dir.0.join("broken");
+    write_plugin_folder(&broken, "org.example.broken", "Broken", "0.1.0");
+    shelf.add_local(&broken).expect("added");
+    std::fs::write(broken.join("plugin.toml"), "id = 1\n").expect("broken");
+    let view = shelf.view();
+    assert!(
+        view.local[2]
+            .problem
+            .as_deref()
+            .is_some_and(|p| p.starts_with("Its plugin.toml does not read")),
+        "{:?}",
+        view.local[2]
+    );
+    assert_eq!(shelf.offered_packages(), std::slice::from_ref(&broken));
+
+    std::fs::write(mine.join("plugin.toml"), &manifest).expect("put back");
+    let before = files_under(&mine);
+    let broken_before = files_under(&broken);
+    for f in [&mine, &broken] {
+        shelf.remove_local(f).expect("taken off");
+    }
+    assert_eq!(
+        shelf.remove_local(&mine),
+        Err(PluginError::FolderNotListed(mine.display().to_string()))
+    );
+    assert_eq!(files_under(&mine), before, "nothing in it is touched");
+    assert_eq!(files_under(&broken), broken_before);
+    assert_eq!(Shelf::read(dir.0.join("shelf")).local, [gone]);
+}
+
+/// At start a source that cannot be read says so on its row alone: what is said keeps what is new
+/// and the updates applied and waiting. Refresh still says everything.
+#[test]
+fn at_start_a_source_that_cannot_be_read_is_left_out_of_what_is_said() {
+    let mut shelf = Shelf::load(Memory::default());
+    shelf.add_source(OTHER).expect("added");
+    let mine = zip("network.dereth.xpmeter", "1.0.0", "0.7", "");
+    shelf
+        .record_read(FIRST_PARTY, Ok(list(&[&mine])), 1)
+        .expect("recorded");
+    shelf
+        .install(FIRST_PARTY, "network.dereth.xpmeter", &mine)
+        .expect("installed");
+    let walk = |shelf: &mut Shelf<Memory>, served: &dyn Fn(&str) -> Result<Vec<u8>, String>| {
+        let mut walk = Refresh::new(shelf);
+        let mut fetched = None;
+        while let Some(d) = walk.next(shelf, fetched.take(), 2) {
+            fetched = Some(served(&d.url));
+        }
+        walk
+    };
+    let offline = |url: &str| Err(format!("{url} could not be reached"));
+    let w = walk(&mut shelf, &offline);
+    assert_eq!(w.clone().said_at_start(&shelf), "");
+    let said = w.said(&shelf);
+    assert!(
+        said.contains("Dereth: ") && said.contains("example.github.io: "),
+        "{said}"
+    );
+    assert!(
+        shelf.view().sources.iter().all(|s| s.error.is_some()),
+        "each source's row says so"
+    );
+
+    // Dereth's source moves on while the other stays out of reach: the update is told.
+    let mine2 = zip("network.dereth.xpmeter", "1.1.0", "0.7", "");
+    let half = |url: &str| match url {
+        FIRST_PARTY => Ok(list(&[&mine2])),
+        "https://plugins.dereth.network/network.dereth.xpmeter.zip" => Ok(mine2.clone()),
+        _ => Err(format!("{url} could not be reached")),
+    };
+    let w = walk(&mut shelf, &half);
+    assert_eq!(w.said_at_start(&shelf), "Updated Meter to 1.1.0.");
+}
+
+/// A folder Make Your Own wrote in is kept as one the launcher keeps the author's tool in, beside
+/// the folders on this computer and read back with them; a folder added any other way is not,
+/// an older file keeps it in none, and taking a folder off the list stops it.
+#[test]
+fn make_your_owns_folders_keep_the_tool_and_others_and_an_older_files_do_not() {
+    let dir = Scratch::new("tool-kept");
+    let (mine, given) = (dir.0.join("mine"), dir.0.join("given"));
+    write_plugin_folder(&mine.join("hello"), "org.example.hello", "Hello", "0.1.0");
+    write_plugin_folder(&given.join("meter"), "org.example.meter", "Meter", "0.1.0");
+    // An older launcher's file: a folder, and nothing said of the tool.
+    std::fs::create_dir_all(&dir.0).expect("a folder");
+    let mine_json = serde_json::to_string(&mine).expect("a path");
+    std::fs::write(
+        dir.0.join(SOURCES_FILE),
+        format!(r#"{{"sources": [], "local": [{mine_json}]}}"#),
+    )
+    .expect("an older file");
+    let mut shelf = Shelf::open(&dir.0);
+    assert_eq!(shelf.local, std::slice::from_ref(&mine));
+    assert!(
+        shelf.tool_folders.is_empty(),
+        "an older file keeps it in none"
+    );
+
+    // Make Your Own's folder, on the list already: kept, and listed once.
+    assert_eq!(shelf.add_own(&mine), Ok(1));
+    assert_eq!(shelf.local, std::slice::from_ref(&mine));
+    assert_eq!(shelf.tool_folders, std::slice::from_ref(&mine));
+    shelf.add_own(&mine).expect("again");
+    assert_eq!(shelf.tool_folders, std::slice::from_ref(&mine), "once");
+    // A folder added with Add Plugin Folder is not.
+    shelf.add_local(&given).expect("added");
+    let again = Shelf::read(&dir.0);
+    assert_eq!(again.local, [mine.clone(), given.clone()]);
+    assert_eq!(again.tool_folders, std::slice::from_ref(&mine));
+    // The file still names each folder on the list as a path, as an older launcher reads it.
+    let text = std::fs::read_to_string(dir.0.join(SOURCES_FILE)).expect("the file");
+    let file: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    assert!(file["local"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .all(serde_json::Value::is_string));
+    // A folder holding no plugin is refused, and not listed.
+    let empty = dir.0.join("empty");
+    std::fs::create_dir_all(&empty).expect("a folder");
+    assert!(shelf.add_own(&empty).is_err());
+    assert_eq!(shelf.local.len(), 2);
+
+    // Off the list, it is no longer kept, there or in the file.
+    shelf.tool_failed.push(mine.clone());
+    shelf.remove_local(&mine).expect("removed");
+    assert!(shelf.tool_folders.is_empty() && shelf.tool_failed.is_empty());
+    assert!(Shelf::read(&dir.0).tool_folders.is_empty());
+    let text = std::fs::read_to_string(dir.0.join(SOURCES_FILE)).expect("the file");
+    assert!(!text.contains("tool_folders"), "{text}");
+}
+
+/// The tool's copy is written at the repository's root, executable, when it is not the tool,
+/// and left as it is when it is; the `.gitignore` gets the lines that keep it out of git once,
+/// and only those it lacks, in its own line endings.
+#[test]
+fn the_tools_copy_is_written_when_it_is_not_the_tool_and_ignored_by_git_once() {
+    let dir = Scratch::new("tool-copy");
+    let repo = dir.0.join("repo");
+    std::fs::create_dir_all(&repo).expect("a folder");
+    let copy = repo.join(super::TOOL_FILE);
+    let gitignore = repo.join(".gitignore");
+
+    // None there: written, and a .gitignore made with both lines.
+    assert!(super::keep_tool(&repo, super::TOOL_FILE, b"tool 1").expect("kept"));
+    assert_eq!(std::fs::read(&copy).expect("the copy"), b"tool 1");
+    assert_eq!(
+        std::fs::read_to_string(&gitignore).expect("made"),
+        "/dereth-plugin\n/dereth-plugin.exe\n"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&copy)
+            .expect("the copy")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "executable");
+    }
+    // The tool again: nothing written.
+    std::fs::write(&gitignore, "/dist/\n").expect("the author's own");
+    assert!(!super::keep_tool(&repo, super::TOOL_FILE, b"tool 1").expect("kept"));
+    assert_eq!(
+        std::fs::read_to_string(&gitignore).expect("left"),
+        "/dist/\n"
+    );
+    // Another release's tool: the copy replaced, and only the lines it lacks added, once.
+    std::fs::write(&gitignore, "/dist/\r\ndereth-plugin\r\n# mine").expect("the author's own");
+    assert!(super::keep_tool(&repo, super::TOOL_FILE, b"tool 2").expect("kept"));
+    assert_eq!(std::fs::read(&copy).expect("the copy"), b"tool 2");
+    let lines = "/dist/\r\ndereth-plugin\r\n# mine\r\n/dereth-plugin.exe\r\n";
+    assert_eq!(
+        std::fs::read_to_string(&gitignore).expect("added to"),
+        lines
+    );
+    assert!(super::keep_tool(&repo, super::TOOL_FILE, b"tool 3").expect("kept"));
+    assert_eq!(std::fs::read_to_string(&gitignore).expect("once"), lines);
+    let names: Vec<_> = std::fs::read_dir(&repo)
+        .expect("read")
+        .map(|e| e.expect("an entry").file_name())
+        .collect();
+    assert_eq!(names.len(), 2, "nothing else left there: {names:?}");
+
+    // A copy that cannot be written is an error, with nothing left half written.
+    let blocked = dir.0.join("blocked");
+    std::fs::create_dir_all(blocked.join(super::TOOL_FILE)).expect("a folder in its place");
+    assert!(super::keep_tool(&blocked, super::TOOL_FILE, b"tool 3").is_err());
+    let names: Vec<_> = std::fs::read_dir(&blocked)
+        .expect("read")
+        .map(|e| e.expect("an entry").file_name())
+        .collect();
+    assert_eq!(names, [super::TOOL_FILE]);
+}
+
+/// A folder whose copy could not be brought up to date says so on its first row, once.
+#[test]
+fn a_folder_whose_copy_could_not_be_written_says_so_on_its_first_row() {
+    let dir = Scratch::new("tool-row");
+    let repo = dir.0.join("repo");
+    write_plugin_folder(&repo.join("a"), "org.example.a", "A", "0.1.0");
+    write_plugin_folder(&repo.join("b"), "org.example.b", "B", "0.1.0");
+    let mut shelf = Shelf::open(dir.0.join("shelf"));
+    shelf.add_own(&repo).expect("added");
+    let said = |shelf: &Shelf| -> Vec<Option<String>> {
+        shelf
+            .view()
+            .local
+            .into_iter()
+            .map(|l| l.tool_problem)
+            .collect()
+    };
+    assert_eq!(said(&shelf), [None, None]);
+    shelf.tool_failed.push(repo.clone());
+    assert_eq!(
+        said(&shelf),
+        [
+            Some("Could not update dereth-plugin in this folder.".to_owned()),
+            None
+        ]
+    );
 }

@@ -3,7 +3,7 @@ name = "{{name}}"
 version = "0.1.0"
 api = "{{api}}"
 entry = "main.lua"
-description = "Says hello, in a small window and with /{{command}} in chat."
+description = "Says hi"
 {{homepage}}
 [capabilities]
 optional = ["ui.window"]

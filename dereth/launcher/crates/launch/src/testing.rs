@@ -297,3 +297,15 @@ pub fn plugin_list(zips: &[&[u8]]) -> Vec<u8> {
     }
     c.to_json().into_bytes()
 }
+
+/// Write a plugin's folder at `dir`, as an author keeps it on disk: its `plugin.toml`, for this
+/// client's API version, and its script.
+pub fn write_plugin_folder(dir: &Path, id: &str, name: &str, version: &str) {
+    std::fs::create_dir_all(dir).expect("create the plugin's folder");
+    let manifest = format!(
+        "id = \"{id}\"\nname = \"{name}\"\nversion = \"{version}\"\napi = \"{}\"\nentry = \"main.lua\"\ndescription = \"Says hi\"\n",
+        dereth_plugin_api::ApiVersion::CURRENT
+    );
+    std::fs::write(dir.join("plugin.toml"), manifest).expect("write its manifest");
+    std::fs::write(dir.join("main.lua"), "print(\"hi\")\n").expect("write its script");
+}

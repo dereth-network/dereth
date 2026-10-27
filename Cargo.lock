@@ -1280,6 +1280,7 @@ dependencies = [
  "dereth-network-protocol",
  "dereth-plugin-api",
  "dereth-plugin-package",
+ "dereth-plugin-template",
  "dereth-primitives",
  "dereth-rules",
  "dereth-transport",
@@ -1374,6 +1375,7 @@ dependencies = [
  "dereth-plugin-api",
  "dereth-plugin-lua",
  "dereth-plugin-package",
+ "dereth-plugin-template",
  "dereth-plugin-wasm",
  "sha2",
  "toml",
@@ -1425,6 +1427,14 @@ dependencies = [
  "sha2",
  "toml",
  "zip",
+]
+
+[[package]]
+name = "dereth-plugin-template"
+version = "0.0.0"
+dependencies = [
+ "dereth-plugin-api",
+ "toml",
 ]
 
 [[package]]

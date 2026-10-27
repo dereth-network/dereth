@@ -1102,9 +1102,10 @@ impl RetailHost {
     }
 }
 
-/// The plugins the launcher installed, as it offers them to the Dereth client: each installed
-/// plugin's current release, from the launcher's data folder (`data`, or the one the environment
-/// names), read without changing anything there. None when there is no launcher's folder or list.
+/// The plugins the launcher offers the Dereth client: the plugins in the folders on this computer
+/// it lists, and each installed plugin's current release, from the launcher's data folder (`data`,
+/// or the one the environment names), read without changing anything there. None when there is no
+/// launcher's folder or list.
 #[must_use]
 pub fn launcher_packages(data: Option<&std::path::Path>) -> Vec<PathBuf> {
     use dereth_launch::folders::{self, Folders, System};

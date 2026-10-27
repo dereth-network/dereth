@@ -24,12 +24,27 @@
 //! a keep of its own. The fetching is the caller's: this module takes bytes, and reading every
 //! source then applying the updates that apply on their own is a walk the caller drives as it
 //! fetches ([`Refresh`]).
+//!
+//! Beside the sources, the sources' file keeps a list of **folders on this computer**
+//! ([`Shelf::local`]): each one plugin's folder or a plugin repository, whose plugins are the
+//! folders directly in it, as the author's tool finds a repository's
+//! ([`dereth_plugin_template::packages_in`]); nothing deeper is looked at. Their plugins are offered
+//! to the client as they are on disk, with no zip, no check against a source and no updates
+//! ([`Shelf::local_plugins`]). One with the id of an installed plugin is offered in its place;
+//! the installed one keeps updating. Taking a folder off the list deletes nothing.
+//!
+//! A folder the launcher's Make Your Own wrote in is the author's own, and the launcher keeps a
+//! copy of the author's tool it ships with at its root ([`Shelf::tool_folders`], [`keep_tool`]),
+//! with the lines that keep the copy out of git in its `.gitignore`. The copy is written again
+//! whenever it is not the tool the launcher ships, which after an update it is not. A folder added
+//! any other way gets no copy, and taking a folder off the list stops the copying and leaves the
+//! copy where it is.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use dereth_plugin_api::manifest::PluginVersion;
-use dereth_plugin_api::ApiVersion;
+use dereth_plugin_api::{ApiVersion, Manifest};
 use dereth_plugin_package::catalog::{self, Catalog, Entry, Mismatch};
 use serde::{Deserialize, Serialize};
 
@@ -306,6 +321,13 @@ pub enum PluginError {
         why: Mismatch,
     },
     NotInstalled(String),
+    /// A folder on this computer that is neither a plugin's folder nor a plugin repository: it has
+    /// no `plugin.toml`, and no folder directly in it has one.
+    NoPluginIn(String),
+    /// A folder already on the list of folders on this computer.
+    FolderListed(String),
+    /// A folder not on that list.
+    FolderNotListed(String),
     /// Reading or writing the plugins folder failed.
     Io(String),
 }
@@ -338,6 +360,12 @@ impl std::fmt::Display for PluginError {
             ),
             Self::Mismatch { name, why } => write!(f, "{name} was not installed: {why}"),
             Self::NotInstalled(id) => write!(f, "no plugin {id} is installed"),
+            Self::NoPluginIn(d) => write!(
+                f,
+                "{d} has no plugin.toml, and neither do the folders in it"
+            ),
+            Self::FolderListed(d) => write!(f, "{d} is already on the list"),
+            Self::FolderNotListed(d) => write!(f, "{d} is not on the list"),
             Self::Io(e) => f.write_str(e),
         }
     }
@@ -346,13 +374,20 @@ impl std::fmt::Display for PluginError {
 impl std::error::Error for PluginError {}
 
 /// The sources' file. An earlier launcher's `others_allowed` in it is ignored, and goes at the
-/// next write.
+/// next write; a file from before the folders on this computer reads as having none, and one from
+/// before the author's tool was kept in them as keeping it in none. The folders it is kept in are
+/// a list of their own rather than a mark on each folder's entry, so a launcher from before still
+/// reads the file whole.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct SourcesFile {
     #[serde(default)]
     sources: Vec<Source>,
     #[serde(default)]
     auto_update: AutoUpdate,
+    #[serde(default)]
+    local: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_folders: Vec<PathBuf>,
 }
 
 /// Where a shelf keeps what it holds: its two records, [`SOURCES_FILE`] and [`INSTALLED_FILE`],
@@ -440,6 +475,15 @@ pub struct Shelf<K = Folder> {
     pub sources: Vec<Source>,
     pub auto_update: AutoUpdate,
     pub plugins: Vec<Installed>,
+    /// The folders on this computer whose plugins are offered as they are on disk, in the order
+    /// added.
+    pub local: Vec<PathBuf>,
+    /// The folders of [`Shelf::local`] that Make Your Own wrote in, where the launcher keeps a copy
+    /// of the author's tool ([`keep_tool`]), in the order added.
+    pub tool_folders: Vec<PathBuf>,
+    /// The folders of [`Shelf::tool_folders`] whose copy could not be put there when last tried.
+    /// Not kept.
+    pub tool_failed: Vec<PathBuf>,
 }
 
 fn io(what: &str, path: &Path, e: &std::io::Error) -> PluginError {
@@ -519,15 +563,152 @@ impl Shelf {
         self.keep.plugin_dir(id)
     }
 
-    /// The zips the client is offered, each off there until the player ticks it.
+    /// What the client is offered, each off there until the player ticks it: the folders of the
+    /// plugins on this computer, then the installed plugins' zips, less those whose id a plugin on
+    /// this computer has.
     #[must_use]
     pub fn offered_packages(&self) -> Vec<PathBuf> {
-        self.plugins
+        let local = self.local_plugins();
+        let mut out: Vec<PathBuf> = local
             .iter()
-            .map(|p| self.plugin_dir(&p.id).join(CURRENT_ZIP))
-            .filter(|f| f.is_file())
-            .collect()
+            .filter(|p| p.loaded)
+            .map(|p| p.folder.clone())
+            .collect();
+        out.extend(
+            self.plugins
+                .iter()
+                .filter(|p| {
+                    !local
+                        .iter()
+                        .any(|l| l.loaded && l.id() == Some(p.id.as_str()))
+                })
+                .map(|p| self.plugin_dir(&p.id).join(CURRENT_ZIP))
+                .filter(|f| f.is_file()),
+        );
+        out
     }
+}
+
+/// A plugin in a folder on this computer, as the client is offered it.
+#[derive(Debug, Clone)]
+pub struct LocalPlugin {
+    /// The folder on the list it was found in.
+    pub listed: PathBuf,
+    /// Its own folder, the one holding its `plugin.toml`.
+    pub folder: PathBuf,
+    /// Its manifest, or why it does not read.
+    pub manifest: Result<Manifest, String>,
+    /// Whether the client is offered it: not when a plugin found before it has its id.
+    pub loaded: bool,
+}
+
+impl LocalPlugin {
+    /// Its id, when its manifest reads.
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.manifest.as_ref().ok().map(|m| m.id.as_str())
+    }
+}
+
+/// The manifest in the plugin folder `folder`, read as the client reads it.
+fn manifest_in(folder: &Path) -> Result<Manifest, String> {
+    let path = folder.join(dereth_plugin_package::MANIFEST_FILE);
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let table: toml::Table = toml::from_str(&text).map_err(|e| e.to_string())?;
+    let doc = dereth_plugin_package::toml_to_value(&toml::Value::Table(table));
+    Manifest::from_value(&doc).map_err(|e| e.to_string())
+}
+
+/// The plugin folders in `folder`, as the author's tool finds a repository's: the folder itself
+/// when it is a plugin's, else the folders directly in it that are. None when it is not there or
+/// cannot be read.
+fn plugins_in(folder: &Path) -> Vec<PathBuf> {
+    dereth_plugin_template::packages_in(folder).unwrap_or_default()
+}
+
+/// The author's tool's file name, as Dereth ships it beside the launcher on this system and as
+/// the launcher keeps its copy in a plugin repository.
+pub const TOOL_FILE: &str = if cfg!(windows) {
+    "dereth-plugin.exe"
+} else {
+    "dereth-plugin"
+};
+
+/// What a Local row says when the tool's copy in its folder could not be brought up to date.
+const TOOL_FAILED: &str = "Could not update dereth-plugin in this folder.";
+
+/// Keep a copy of the author's tool at the root of the plugin repository `folder`: `bytes` as the
+/// file `name`, executable, written in place of a copy that is not those bytes (an older
+/// release's, or none), and the lines of [`dereth_plugin_template::TOOL_IGNORED`] its
+/// `.gitignore` lacks added to it. A copy that is the tool already is left as it is, and so is
+/// the `.gitignore`. Answers whether the copy was written.
+///
+/// # Errors
+/// The copy or the `.gitignore` could not be written.
+pub fn keep_tool(folder: &Path, name: &str, bytes: &[u8]) -> std::io::Result<bool> {
+    let copy = folder.join(name);
+    let same = std::fs::metadata(&copy).is_ok_and(|m| m.is_file() && m.len() == bytes.len() as u64)
+        && std::fs::read(&copy).is_ok_and(|b| b == bytes);
+    if same {
+        return Ok(false);
+    }
+    // Written beside it and moved over it, so a copy is never left half written.
+    let mut part = copy.clone().into_os_string();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    std::fs::write(&part, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(e) = std::fs::rename(&part, &copy) {
+        let _ = std::fs::remove_file(&part);
+        return Err(e);
+    }
+    ignore_tool(folder)?;
+    Ok(true)
+}
+
+/// Add to the `.gitignore` in `folder` (made when there is none) the lines of
+/// [`dereth_plugin_template::TOOL_IGNORED`] it lacks, and only those, in the file's own line
+/// endings. A line it has with or without the leading `/` counts.
+fn ignore_tool(folder: &Path) -> std::io::Result<()> {
+    let path = folder.join(".gitignore");
+    let mut text = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e),
+    };
+    let had: Vec<&[u8]> = text
+        .split(|b| *b == b'\n')
+        .map(<[u8]>::trim_ascii)
+        .collect();
+    let missing: Vec<&str> = dereth_plugin_template::TOOL_IGNORED
+        .iter()
+        .copied()
+        .filter(|want| {
+            let bare = want.trim_start_matches('/');
+            !had.iter()
+                .any(|h| *h == want.as_bytes() || *h == bare.as_bytes())
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let eol: &[u8] = if text.windows(2).any(|w| w == b"\r\n") {
+        b"\r\n"
+    } else {
+        b"\n"
+    };
+    if !text.is_empty() && !text.ends_with(b"\n") {
+        text.extend_from_slice(eol);
+    }
+    for line in missing {
+        text.extend_from_slice(line.as_bytes());
+        text.extend_from_slice(eol);
+    }
+    std::fs::write(&path, text)
 }
 
 impl<K: Keep> Shelf<K> {
@@ -554,12 +735,17 @@ impl<K: Keep> Shelf<K> {
                 None => sources.push(s),
             }
         }
+        let mut tool_folders = file.tool_folders;
+        tool_folders.retain(|f| file.local.contains(f));
         Self {
             keep,
             host: ApiVersion::CURRENT,
             sources,
             auto_update: file.auto_update,
             plugins,
+            local: file.local,
+            tool_folders,
+            tool_failed: Vec::new(),
         }
     }
 
@@ -567,6 +753,8 @@ impl<K: Keep> Shelf<K> {
         let file = SourcesFile {
             sources: self.sources.clone(),
             auto_update: self.auto_update,
+            local: self.local.clone(),
+            tool_folders: self.tool_folders.clone(),
         };
         self.keep.write(SOURCES_FILE, &record(&file)?)
     }
@@ -682,17 +870,105 @@ impl<K: Keep> Shelf<K> {
     /// [`Shelf::record_read`] answered).
     #[must_use]
     pub fn said_of_read(&self, url: &str, new: &[String]) -> Vec<String> {
+        let (failed, news) = self.read_lines(url, new);
+        failed.into_iter().chain(news).collect()
+    }
+
+    /// [`Shelf::said_of_read`]'s lines apart: why the list could not be read, and what is new.
+    fn read_lines(&self, url: &str, new: &[String]) -> (Option<String>, Option<String>) {
         let Some(s) = self.source(url) else {
-            return Vec::new();
+            return (None, None);
         };
-        let mut lines = Vec::new();
-        if let Some(e) = &s.error {
-            lines.push(format!("{}: {e}", s.label()));
+        let failed = s.error.as_ref().map(|e| format!("{}: {e}", s.label()));
+        let news =
+            (!new.is_empty()).then(|| format!("New from {}: {}.", s.label(), new.join(", ")));
+        (failed, news)
+    }
+
+    // ----- folders on this computer -----------------------------------------------------------------
+
+    /// Add `folder`, one plugin's folder or a plugin repository, to the folders on this computer.
+    /// Answers how many plugins it holds.
+    ///
+    /// # Errors
+    /// It is neither a plugin's folder nor a plugin repository (a folder whose plugins are all
+    /// further down is not one), it is on the list already, or the folder could not be written.
+    pub fn add_local(&mut self, folder: &Path) -> Result<usize, PluginError> {
+        let shown = || folder.display().to_string();
+        if self.local.iter().any(|f| f == folder) {
+            return Err(PluginError::FolderListed(shown()));
         }
-        if !new.is_empty() {
-            lines.push(format!("New from {}: {}.", s.label(), new.join(", ")));
+        let found = plugins_in(folder).len();
+        if found == 0 {
+            return Err(PluginError::NoPluginIn(shown()));
         }
-        lines
+        self.local.push(folder.to_owned());
+        self.save_sources()?;
+        Ok(found)
+    }
+
+    /// Add `folder`, which Make Your Own wrote in, to the folders on this computer if it is not on
+    /// the list, and to the folders the launcher keeps the author's tool in
+    /// ([`Shelf::tool_folders`]). Answers how many plugins it holds.
+    ///
+    /// # Errors
+    /// As [`Shelf::add_local`], less its being on the list already.
+    pub fn add_own(&mut self, folder: &Path) -> Result<usize, PluginError> {
+        let found = plugins_in(folder).len();
+        if found == 0 {
+            return Err(PluginError::NoPluginIn(folder.display().to_string()));
+        }
+        if !self.local.iter().any(|f| f == folder) {
+            self.local.push(folder.to_owned());
+        }
+        if !self.tool_folders.iter().any(|f| f == folder) {
+            self.tool_folders.push(folder.to_owned());
+        }
+        self.save_sources()?;
+        Ok(found)
+    }
+
+    /// Take `folder` off the folders on this computer, and so off those the launcher keeps the
+    /// author's tool in. Nothing in it is touched, the tool's copy included.
+    ///
+    /// # Errors
+    /// It is not on the list, or the folder could not be written.
+    pub fn remove_local(&mut self, folder: &Path) -> Result<(), PluginError> {
+        let before = self.local.len();
+        self.local.retain(|f| f != folder);
+        if self.local.len() == before {
+            return Err(PluginError::FolderNotListed(folder.display().to_string()));
+        }
+        self.tool_folders.retain(|f| f != folder);
+        self.tool_failed.retain(|f| f != folder);
+        self.save_sources()
+    }
+
+    /// The plugins in the folders on this computer, read from disk now, folder by folder in the
+    /// list's order. Of two with one id, the first is loaded; a plugin found under two folders on
+    /// the list is listed once.
+    #[must_use]
+    pub fn local_plugins(&self) -> Vec<LocalPlugin> {
+        let mut out: Vec<LocalPlugin> = Vec::new();
+        for listed in &self.local {
+            for folder in plugins_in(listed) {
+                if out.iter().any(|p| p.folder == folder) {
+                    continue;
+                }
+                let manifest = manifest_in(&folder);
+                let taken = manifest.as_ref().is_ok_and(|m| {
+                    out.iter()
+                        .any(|p| p.loaded && p.id() == Some(m.id.as_str()))
+                });
+                out.push(LocalPlugin {
+                    listed: listed.clone(),
+                    folder,
+                    manifest,
+                    loaded: !taken,
+                });
+            }
+        }
+        out
     }
 
     // ----- installing ------------------------------------------------------------------------------
@@ -929,15 +1205,36 @@ impl<K: Keep> Shelf<K> {
                 }
             }
         }
+        let found = self.local_plugins();
+        let in_place = |id: &str| found.iter().any(|l| l.loaded && l.id() == Some(id));
         let installed = self
             .plugins
             .iter()
-            .map(|p| InstalledView::of(p, self.source(&p.source), &pending))
+            .map(|p| InstalledView {
+                local_in_its_place: in_place(&p.id),
+                ..InstalledView::of(p, self.source(&p.source), &pending)
+            })
             .collect();
+        let mut local = Vec::new();
+        for listed in &self.local {
+            let first = local.len();
+            let mut held = found.iter().filter(|l| &l.listed == listed).peekable();
+            if held.peek().is_none() {
+                local.push(LocalView::empty(listed));
+            }
+            for l in held {
+                let installed = l.id().is_some_and(|id| self.get(id).is_some());
+                local.push(LocalView::of(l, installed, self.host));
+            }
+            if self.tool_failed.contains(listed) {
+                local[first].tool_problem = Some(TOOL_FAILED.to_owned());
+            }
+        }
         PluginsView {
             sources,
             available,
             installed,
+            local,
             auto_update: self.auto_update,
             first_party: FIRST_PARTY,
         }
@@ -1010,7 +1307,8 @@ fn availability(entry: &Entry, first_party: bool, host: ApiVersion) -> Availabil
 /// step takes what the last download brought and answers the next one to make, and the walk ends
 /// with what is new, in words ([`Refresh::said`]): the plugins a source lists now that it did not,
 /// the updates applied and waiting, and the sources that could not be read. A source that cannot
-/// be read holds nothing else up.
+/// be read holds nothing else up. At start the failures are left out ([`Refresh::said_at_start`]):
+/// a source that could not be read says so on its own row.
 #[derive(Debug, Clone, Default)]
 pub struct Refresh {
     /// The sources still to read.
@@ -1019,7 +1317,17 @@ pub struct Refresh {
     updates: Option<VecDeque<String>>,
     /// What the download being made is for.
     fetching: Option<Fetching>,
-    lines: Vec<String>,
+    /// What the walk came to, a line each, with whether it is a failure.
+    lines: Vec<(Line, String)>,
+}
+
+/// What a line of a walk's words is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Line {
+    /// Something new: a plugin listed, an update applied.
+    News,
+    /// Something that could not be done: a source not read, an update not applied.
+    Failed,
 }
 
 #[derive(Debug, Clone)]
@@ -1052,10 +1360,12 @@ impl Refresh {
         match self.fetching.take() {
             Some(Fetching::List(url)) => {
                 let new = shelf.record_read(&url, fetched, now).unwrap_or_else(|e| {
-                    self.lines.push(e.to_string());
+                    self.lines.push((Line::Failed, e.to_string()));
                     Vec::new()
                 });
-                self.lines.extend(shelf.said_of_read(&url, &new));
+                let (failed, news) = shelf.read_lines(&url, &new);
+                self.lines.extend(failed.map(|l| (Line::Failed, l)));
+                self.lines.extend(news.map(|l| (Line::News, l)));
             }
             Some(Fetching::Zip(id)) => {
                 let said = fetched.and_then(|zip| {
@@ -1064,7 +1374,10 @@ impl Refresh {
                         .map(|done| done.said())
                         .map_err(|e| e.to_string())
                 });
-                self.lines.push(said.unwrap_or_else(|e| e));
+                self.lines.push(match said {
+                    Ok(l) => (Line::News, l),
+                    Err(e) => (Line::Failed, e),
+                });
             }
             None => {}
         }
@@ -1084,7 +1397,7 @@ impl Refresh {
                     self.fetching = Some(Fetching::Zip(id));
                     return Some(download);
                 }
-                Err(e) => self.lines.push(e.to_string()),
+                Err(e) => self.lines.push((Line::Failed, e.to_string())),
             }
         }
         None
@@ -1093,9 +1406,26 @@ impl Refresh {
     /// What the walk came to, a line each, and how many updates wait for the player: empty when
     /// nothing is new.
     #[must_use]
-    pub fn said<K: Keep>(mut self, shelf: &Shelf<K>) -> String {
-        self.lines.extend(shelf.said_waiting());
-        self.lines.join("\n")
+    pub fn said<K: Keep>(self, shelf: &Shelf<K>) -> String {
+        self.told(shelf, true)
+    }
+
+    /// [`Refresh::said`] less what could not be done, for the notice at start: a launcher started
+    /// with no connection would otherwise say each time that no source could be read.
+    #[must_use]
+    pub fn said_at_start<K: Keep>(self, shelf: &Shelf<K>) -> String {
+        self.told(shelf, false)
+    }
+
+    fn told<K: Keep>(self, shelf: &Shelf<K>, failures: bool) -> String {
+        let mut lines: Vec<String> = self
+            .lines
+            .into_iter()
+            .filter(|(kind, _)| failures || *kind == Line::News)
+            .map(|(_, l)| l)
+            .collect();
+        lines.extend(shelf.said_waiting());
+        lines.join("\n")
     }
 }
 
@@ -1187,6 +1517,8 @@ pub struct InstalledView {
     pub source_removed: bool,
     /// A newer release in its source.
     pub update: Option<Pending>,
+    /// A plugin of its id in a folder on this computer is loaded in its place. It still updates.
+    pub local_in_its_place: bool,
 }
 
 impl InstalledView {
@@ -1214,8 +1546,111 @@ impl InstalledView {
             source_name: source.map_or_else(|| host_of(&p.source).to_owned(), Source::label),
             source_removed: source.is_none(),
             update: pending.iter().find(|u| u.id == p.id).cloned(),
+            local_in_its_place: false,
         }
     }
+}
+
+/// A plugin in a folder on this computer, or a folder on that list holding none, as the page
+/// shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalView {
+    /// The folder on the list: what Remove takes off it.
+    pub listed: String,
+    /// The plugin's own folder; the folder on the list when it holds none.
+    pub folder: String,
+    /// What its manifest says; the folder's name, and nothing else, when that does not read.
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub api: String,
+    pub description: String,
+    pub authors: Vec<String>,
+    pub homepage: String,
+    pub permissions: Vec<String>,
+    pub domains: Vec<String>,
+    /// Why there is no plugin here to load, in words for the page.
+    pub problem: Option<String>,
+    /// It needs a newer API version than this client has.
+    pub needs_newer_dereth: bool,
+    /// It is loaded in place of the installed plugin of its id.
+    pub in_place_of_installed: bool,
+    /// Another plugin of its id, found before it, is loaded instead.
+    pub id_taken: bool,
+    /// On the first row of a folder the launcher keeps the author's tool in: the copy there could
+    /// not be brought up to date, in words for the page.
+    pub tool_problem: Option<String>,
+}
+
+impl LocalView {
+    /// The folder on the list `listed`, which holds no plugin of its own.
+    fn empty(listed: &Path) -> Self {
+        let problem = if !listed.is_dir() {
+            "This folder is not there any more."
+        } else if plugins_in(listed).is_empty() {
+            "This folder no longer holds a plugin."
+        } else {
+            "Its plugins are listed under another folder on the list."
+        };
+        Self {
+            problem: Some(problem.to_owned()),
+            ..Self::at(listed, listed)
+        }
+    }
+
+    /// The folder `folder`, found in the folder on the list `listed`, with nothing read of it.
+    fn at(listed: &Path, folder: &Path) -> Self {
+        Self {
+            listed: listed.display().to_string(),
+            folder: folder.display().to_string(),
+            id: String::new(),
+            name: folder_label(folder),
+            version: String::new(),
+            api: String::new(),
+            description: String::new(),
+            authors: Vec::new(),
+            homepage: String::new(),
+            permissions: Vec::new(),
+            domains: Vec::new(),
+            problem: None,
+            needs_newer_dereth: false,
+            in_place_of_installed: false,
+            id_taken: false,
+            tool_problem: None,
+        }
+    }
+
+    /// The plugin `l`, for a client of API version `host`; `installed`: a plugin of its id is
+    /// installed.
+    fn of(l: &LocalPlugin, installed: bool, host: ApiVersion) -> Self {
+        let mut v = Self::at(&l.listed, &l.folder);
+        match &l.manifest {
+            Ok(m) => {
+                v.id = m.id.to_string();
+                v.name.clone_from(&m.name);
+                v.version = m.version.to_string();
+                v.api = m.api.to_string();
+                v.description.clone_from(&m.description);
+                v.authors.clone_from(&m.authors);
+                v.homepage.clone_from(&m.homepage);
+                v.permissions = catalog::permission_names(m);
+                v.domains = catalog::domain_names(m);
+                v.needs_newer_dereth = !host.runs(m.api);
+                v.in_place_of_installed = l.loaded && installed;
+                v.id_taken = !l.loaded;
+            }
+            Err(e) => v.problem = Some(format!("Its plugin.toml does not read: {e}")),
+        }
+        v
+    }
+}
+
+/// A folder's own name, else the whole of it.
+fn folder_label(folder: &Path) -> String {
+    folder.file_name().map_or_else(
+        || folder.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
 }
 
 /// The Plugins page.
@@ -1225,6 +1660,8 @@ pub struct PluginsView {
     /// Every source's plugins that are not installed, source by source.
     pub available: Vec<AvailableView>,
     pub installed: Vec<InstalledView>,
+    /// The plugins in the folders on this computer, folder by folder.
+    pub local: Vec<LocalView>,
     pub auto_update: AutoUpdate,
     pub first_party: &'static str,
 }

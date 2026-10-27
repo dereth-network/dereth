@@ -681,9 +681,19 @@ h2.fold-head:hover { color: #fff; }
 .plugin-detail p { margin: 0; }
 .plugin-detail .desc, .plugin-detail .said { white-space: pre-wrap; overflow-wrap: anywhere; }
 .plugin-detail .strip { gap: 2px 18px; }
-.plugin-detail .said { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: baseline; }
-.plugin-detail .strip b, .plugin-detail .said b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 8px; }
+/* A label and its value as the facts above have them: the value right after the label, at the same
+   gap, wrapping under itself. */
+.plugin-detail .said { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 7px; align-items: baseline; }
+.plugin-detail .strip b, .plugin-detail .said b, .plugin-location b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 8px; }
 .plugin-detail .said.warn b { color: var(--high); }
+/* An open Local row's location: its label and the folder, as the lines above have them, and the
+   folder's buttons at the line's end. */
+.plugin-location { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.plugin-location > b { flex: none; }
+.plugin-location .path { min-width: 0; overflow-wrap: anywhere; }
+.plugin-location .btns { flex: none; flex-wrap: nowrap; margin-left: auto; padding-left: 8px; }
+/* A section's empty line, at its rows' indent. */
+.plugins-page .list > p.empty { margin: 6px 15px; }
 .plugin-update { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
 .plugin-setting .sub { white-space: normal; }
 /* Search and a new source's address: a compact line from the rows' names to their buttons. */
@@ -692,6 +702,10 @@ h2.fold-head:hover { color: #fff; }
 .plugin-line.add { margin-top: 14px; }
 .plugin-confirm { display: flex; align-items: center; gap: 8px; margin: 4px 15px 0; font-size: 15px; }
 .plugin-confirm > span { margin-right: 4px; }
+/* Where the last plugin made went, with a button that shows it. */
+.plugin-made { display: flex; align-items: center; gap: 8px; margin: 4px 15px 0; font-size: 15px; min-width: 0; }
+.plugin-made > span { margin-right: 4px; min-width: 0; overflow-wrap: anywhere; }
+.plugin-made > .btn { flex: none; }
 /* A source on one compact line: its name, how many plugins it lists and its address. */
 .row.source-row { min-height: 40px; padding-top: 4px; padding-bottom: 4px; }
 .row.source-row .line { display: flex; align-items: baseline; gap: 12px; white-space: nowrap; min-width: 0; }

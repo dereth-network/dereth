@@ -27,10 +27,12 @@ xtask sweep --help` lists the rest.
 
 Makes a new plugin repository from its template (`new`), checks a plugin as the hosts check it
 and compiles its scripts (`check`), packs it into a zip with its SHA-256 beside it (`pack`),
-releases it (`release`, `notes`), lists a release in a plugin source's `plugins.json` (`add`), and
-builds a Rust plugin as a component (`build`). It carries Dereth's version: its rules are those of
+releases it (`release`, `notes`), lists a release in a plugin source's `plugins.json` (`add`),
+drops from that list the plugins a repository no longer holds (`prune`), and builds a Rust plugin
+as a component (`build`). It carries Dereth's version: its rules are those of
 the client released with it, and each Dereth release carries it prebuilt for every platform
-(`cargo xtask package dereth`). The template is `plugin/template/`; the guide is
+(`cargo xtask package dereth`). The template is `plugin-template/template/`, in a library
+(`dereth-plugin-template`) the launcher writes it with too; the guide is
 `docs/plugins/guide/publishing.md`, and the formats are in `docs/plugins/packages.md` and
 `docs/plugins/sources.md`.
 

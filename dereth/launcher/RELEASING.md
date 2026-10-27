@@ -62,10 +62,10 @@ The programs answer `--version`: `dereth <version>` (or `dereth-client <version>
 
 | system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
-| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
-| each of the four, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release; plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · macOS Intel, · Linux x86-64 (glibc 2.35+) |
+| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
+| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client and `dereth-plugin` in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
+| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client and `dereth-plugin` inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
+| each of the four, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release on its own (each release file above carries it too); plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · macOS Intel, · Linux x86-64 (glibc 2.35+) |
 
 Every launcher download holds the client, so the client is not published on its own. A release
 carries no plugins: players install Dereth's from its plugin source. Beside them:

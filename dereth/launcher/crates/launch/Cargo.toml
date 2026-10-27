@@ -34,6 +34,8 @@ dereth-plugin-package.workspace = true
 # The API version of the client the launcher starts, which a plugin's release must not exceed, and
 # plugins' versions in SemVer's order.
 dereth-plugin-api.workspace = true
+# Plugins in folders on this computer, found in a folder as the author's tool finds a repository's.
+dereth-plugin-template.workspace = true
 # The server-tracker login that asks a server whether it is up is an ordinary first packet; the
 # transport crate builds and parses it.
 dereth-transport.workspace = true

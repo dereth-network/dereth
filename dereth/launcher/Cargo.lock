@@ -911,6 +911,7 @@ dependencies = [
  "dereth-input",
  "dereth-plugin-api",
  "dereth-plugin-package",
+ "dereth-plugin-template",
  "dereth-primitives",
  "dereth-transport",
  "ed25519-dalek",
@@ -926,6 +927,7 @@ version = "0.4.7"
 dependencies = [
  "ctrlc",
  "dereth-launch",
+ "dereth-plugin-template",
  "flate2",
  "gilrs",
  "glib",
@@ -964,6 +966,14 @@ dependencies = [
  "sha2",
  "toml 1.1.6+spec-1.1.0",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "dereth-plugin-template"
+version = "0.0.0"
+dependencies = [
+ "dereth-plugin-api",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

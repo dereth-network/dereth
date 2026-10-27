@@ -18,8 +18,10 @@ const NOTICE_MS = 7000;
 
 const ui = {
   // The Plugins page: the source being added and whether adding it waits to be confirmed, the
-  // search, the slow call under way, the one open row, and the closed sections.
-  plugin: { add: "", confirm: false, search: "", busy: null, open: null, folded: { installed: false, available: false, sources: false } },
+  // search, the slow call under way, the one open row, the closed sections (all but Installed at
+  // first), and the new plugin being made: its name, its GitHub repository and what the last one
+  // made was.
+  plugin: { add: "", confirm: false, search: "", busy: null, open: null, folded: { installed: false, available: true, sources: true, build: true }, make: { name: "", github: "", made: null } },
   screen: "home",          // home | worlds | world | library | accounts | plugins | first-run | interface
   snap: null,
   homeSel: 0,
@@ -317,7 +319,7 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins: ui.snap.plugins ? plugins : home, "first-run": firstRun, interface: interfacePage };
+  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
@@ -1260,19 +1262,19 @@ async function copyText(text) {
 function rail() {
   const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen;
   const item = (id, label) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}">${label}</button>`;
-  // Playing first; then hosting a world (Empyrean) and building one (Lyceum); then the Library and
-  // the plugins, each part apart.
+  // Playing first, with the plugins the client plays with; then hosting a world (Empyrean) and
+  // building one (Lyceum); then the Library, each part apart.
   const divider = '<div class="rail-divider" role="separator"></div>';
   return [
     item("home", "PLAY"),
     item("worlds", "WORLDS"),
     item("accounts", "ACCOUNTS"),
+    item("plugins", "PLUGINS"),
     divider,
     item("server", "EMPYREAN"),
     item("make", "LYCEUM"),
     divider,
     item("library", "LIBRARY"),
-    ...(ui.snap?.plugins ? [item("plugins", "PLUGINS")] : []),
   ].join("");
 }
 
@@ -1847,11 +1849,16 @@ function accounts() {
 
 // Plugins for the Dereth client, from plugin sources: each source is a list (`plugins.json`) of
 // plugins at their latest release. Dereth's own source is there from the start; others are added
-// by their list's address, once the player confirms it. The page has three sections, each folding
-// as the Worlds list's do: the plugins installed, the ones the sources offer that are not, and the
-// sources. A plugin's row opens in place, one at a time, to everything known about it. An
+// by their list's address, once the player confirms it. The page has four sections, each folding
+// as the Worlds list's do: the plugins installed, the ones the sources offer that are not, the
+// sources, and Make Your Own, which makes a new plugin. A plugin's row opens in place, one at a
+// time, to everything known about it. An
 // installed plugin updates only from its own source. Plugins are experimental: an installed plugin
-// is off in the client until the player turns it on there.
+// is off in the client until the player turns it on there. Installed also lists the plugins in
+// folders on this computer, marked Local: the client loads them as they are on disk, never updated,
+// in place of an installed plugin of the same id. A folder is a plugin's own or a plugin repository
+// (the folders directly in it hold plugins), added in one step; taking it off the list deletes
+// nothing.
 
 // Which plugins update on their own, in the order the page offers them.
 const PLUGIN_UPDATES = [["none", "None"], ["all", "All"], ["first_party", "Only Dereth"]];
@@ -1871,13 +1878,13 @@ function pluginSection(key, label, count, body) {
 }
 
 // A plugin's row: its name, version and source, and the first line of what it does, with `extra`
-// under it and its `buttons`; open, `detail` under the row in place of that first line.
+// under it and its `buttons`, if any; open, `detail` under the row in place of that first line.
 function pluginRow(key, p, buttons, extra, detail) {
   const open = ui.plugin.open === key;
   const row = `<div class="row plugin-row" data-plugin-row="${esc(key)}"><div class="grow">
       <div class="name">${esc(p.name)} ${esc(p.version)} <span class="muted small">${esc(p.source_name)}</span></div>
       ${p.description && !open ? `<div class="sub">${esc(p.description.split("\n")[0])}</div>` : ""}${extra}</div>
-      <div class="btns">${buttons}</div></div>`;
+      ${buttons ? `<div class="btns">${buttons}</div>` : ""}</div>`;
   return open ? `<div class="plugin open">${row}<div class="plugin-detail" data-stop>${detail}</div></div>` : row;
 }
 
@@ -1903,6 +1910,7 @@ function updateLine(u) {
 
 function installedRow(x, busy) {
   const u = x.update;
+  const local = x.local_in_its_place ? `<div class="sub">The local one is loaded in its place.</div>` : "";
   const buttons = `${u && !u.needs_newer_dereth ? `<button class="btn" data-plugin-update="${esc(x.id)}" ${busy ? "disabled" : ""}>Update</button>` : ""}
     <button class="btn" data-plugin-remove="${esc(x.id)}">Remove</button>`;
   let detail = pluginDetail(x);
@@ -1914,7 +1922,24 @@ function installedRow(x, busy) {
       ${asks.length ? `<div class="said warn"><b>ALSO ASKS FOR</b>${esc(asks.join(", "))}</div>` : ""}
       ${u.notes ? `<div class="said"><b>WHAT CHANGED</b>${esc(u.notes)}</div>` : ""}</div>`;
   }
-  return pluginRow(`i:${x.id}`, x, buttons, u ? updateLine(u) : "", detail);
+  return pluginRow(`i:${x.id}`, x, buttons, (u ? updateLine(u) : "") + local, detail);
+}
+
+// A plugin in a folder on this computer, marked Local, or a folder on the list that holds none,
+// saying so. Its row has no buttons. Open, its location's line ends with Open, which shows the
+// folder, and Remove, which takes it off the list and deletes nothing.
+function localPluginRow(x) {
+  const p = { ...x, source_name: "Local" };
+  const line = x.problem ? `<div class="sub warn">${esc(x.problem)}</div>`
+    : x.id_taken ? `<div class="sub warn">Not loaded: a plugin above has the same id.</div>`
+    : x.needs_newer_dereth ? `<div class="sub warn">Needs a newer Dereth.</div>`
+    : x.in_place_of_installed ? `<div class="sub">Loaded in place of the installed one.</div>` : "";
+  // A folder Make Your Own wrote in, whose copy of dereth-plugin could not be brought up to date.
+  const tool = x.tool_problem ? `<div class="sub warn">${esc(x.tool_problem)}</div>` : "";
+  const location = `<div class="plugin-location"><b>LOCATION</b><span class="path">${esc(x.folder)}</span>
+      <span class="btns"><button class="btn" data-plugin-open="${esc(x.folder)}">Open</button><button class="btn" data-plugin-folder-remove="${esc(x.listed)}">Remove</button></span></div>`;
+  const detail = (x.problem ? "" : pluginDetail(p)) + location;
+  return pluginRow(`l:${x.folder}`, p, "", line + tool, detail);
 }
 
 function availableRow(a, busy) {
@@ -1928,8 +1953,10 @@ function plugins() {
   const p = ui.plugin;
   const v = ui.snap.plugins;
   const busy = !!p.busy;
-  const installed = v.installed.map((x) => installedRow(x, busy)).join("")
-    || `<p class="muted">No plugins installed. Install one from the list below.</p>`;
+  const installed = v.installed.map((x) => installedRow(x, busy)).join("") + v.local.map(localPluginRow).join("")
+    || `<p class="muted empty">No plugins installed. Install one from the list below.</p>`;
+  // A folder on this computer, chosen with the system's picker and added at once.
+  const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button></div>`;
   const updateOpts = PLUGIN_UPDATES.map(([val, l]) => `<option value="${val}" ${v.auto_update === val ? "selected" : ""}>${l}</option>`).join("");
   const setting = `<div class="row static plugin-setting"><div class="grow"><div class="name">Automatically update plugins</div>
       <div class="sub">Plugin updates that ask for additional permissions will never automatically install.</div></div>
@@ -1939,7 +1966,7 @@ function plugins() {
   const shown = v.available.filter((a) => !q || [a.name, a.id, a.description, a.source_name].some((t) => t.toLowerCase().includes(q)));
   const listed = v.sources.some((s) => s.plugins > 0);
   const available = shown.map((a) => availableRow(a, busy)).join("")
-    || `<p class="muted">${q ? "No plugin matches." : listed ? "Every plugin the sources list is installed." : "No plugins listed yet. Refresh to read the sources."}</p>`;
+    || `<p class="muted empty">${q ? "No plugin matches." : listed ? "Every plugin the sources list is installed." : "No plugins listed yet. Refresh to read the sources."}</p>`;
   const search = `<div class="plugin-line"><input id="plugin-search" class="field mini-field" type="text" placeholder="Search" spellcheck="false" autocomplete="off" value="${esc(p.search)}"></div>`;
 
   // A source on one line: its name, how many plugins it lists and its address; Dereth's own stays.
@@ -1955,12 +1982,23 @@ function plugins() {
     ${p.confirm ? `<div class="plugin-confirm"><span>Dereth does not review plugins from other sources.</span>
       <button class="btn mini-btn" data-act="plugin-source-confirm" ${busy ? "disabled" : ""}>Add</button><button class="btn mini-btn" data-act="plugin-source-cancel">Cancel</button></div>` : ""}`;
 
+  // A new plugin: its name and, for the links and workflows, its GitHub repository. Create asks
+  // for an empty folder, where it writes the repository the author's tool writes, or a plugin
+  // repository, which gets the new plugin's folder; the line under it says what the last one made.
+  const m = p.make;
+  const build = `<div class="plugin-line"><input id="plugin-make-name" class="field mini-field" type="text" placeholder="Name" spellcheck="false" autocomplete="off" aria-label="The plugin's name" value="${esc(m.name)}">
+      <input id="plugin-make-github" class="field mini-field" type="text" placeholder="GitHub username/repo (optional)" spellcheck="false" autocomplete="off" aria-label="Its GitHub repository" value="${esc(m.github)}">
+      <button class="btn" data-act="plugin-create" ${busy || !m.name.trim() ? "disabled" : ""}>Create</button></div>
+    ${m.made ? `<div class="plugin-made"><span title="${esc(m.made.folder)}">${esc(m.made.said)}</span>
+      <button class="btn mini-btn" data-act="plugin-open-made">Open folder</button></div>` : ""}`;
+
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><h1>PLUGINS</h1><span class="tag">EXPERIMENTAL</span><button class="btn" data-act="plugins-refresh" ${busy ? "disabled" : ""}>Refresh</button></header>
         <div class="scroll plugins-page">
-          ${pluginSection("installed", "INSTALLED", v.installed.length, `<div class="list">${installed}</div>${setting}`)}
+          ${pluginSection("installed", "INSTALLED", v.installed.length + v.local.length, `<div class="list">${installed}</div>${addFolder}${setting}`)}
           ${pluginSection("available", "AVAILABLE", shown.length, `${search}<div class="list">${available}</div>`)}
           ${pluginSection("sources", "SOURCES", v.sources.length, `<div class="list">${sources}</div>${add}`)}
+          ${pluginSection("build", "MAKE YOUR OWN", "", build)}
         </div>
       </section>
     </div>`;
@@ -1983,6 +2021,38 @@ async function pluginFetch(cmd, args) {
   await pull();
   render();
   return ok;
+}
+
+// Make a new plugin from the name and the repository typed in: the launcher checks them, asks for
+// an empty folder or a plugin repository and writes the template there. Cancelling the folder
+// changes nothing.
+async function createPlugin() {
+  const m = ui.plugin.make;
+  const name = m.name.trim();
+  if (!name || ui.plugin.busy) return;
+  ui.plugin.busy = "create_plugin";
+  render();
+  try {
+    const made = await api("create_plugin", { name, github: m.github.trim() || null });
+    if (made) Object.assign(m, { name: "", github: "", made });
+  } catch (e) {
+    toast(String(e), true);
+  }
+  ui.plugin.busy = null;
+  render();
+}
+
+// Add Plugin Folder: choose a folder on this computer with the system's picker, and it is added at
+// once, the line saying what it added or why it could not; cancelling the picker changes nothing.
+async function addPluginFolder() {
+  if (ui.plugin.busy) return;
+  let folder = null;
+  try {
+    folder = await api("pick_plugin_folder");
+  } catch (e) {
+    toast(String(e), true);
+  }
+  if (folder) await pluginFetch("add_plugin_folder", { folder });
 }
 
 // Add the source typed in. One other than Dereth's is added once the player confirms it, on the
@@ -2161,7 +2231,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-row],[data-plugin-fold]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2262,6 +2332,8 @@ document.addEventListener("click", async (ev) => {
   if (d.pluginUpdate) { await pluginFetch("update_plugin", { id: d.pluginUpdate }); return; }
   if (d.pluginRemove) { await act("remove_plugin", { id: d.pluginRemove }); return; }
   if (d.pluginSourceRemove) { await act("remove_plugin_source", { url: d.pluginSourceRemove }); return; }
+  if (d.pluginOpen) { await act("open_plugin_folder", { folder: d.pluginOpen }); return; }
+  if (d.pluginFolderRemove) { await act("remove_plugin_folder", { folder: d.pluginFolderRemove }); return; }
   // A plugin's row opens and shuts in place, one at a time; a section's heading folds it.
   if (d.pluginRow) { ui.plugin.open = ui.plugin.open === d.pluginRow ? null : d.pluginRow; render(); return; }
   if (d.pluginFold) { ui.plugin.folded[d.pluginFold] = !ui.plugin.folded[d.pluginFold]; render(); return; }
@@ -2346,6 +2418,9 @@ document.addEventListener("click", async (ev) => {
     case "plugin-source-add": await addPluginSource(false); break;
     case "plugin-source-confirm": await addPluginSource(true); break;
     case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;
+    case "plugin-folder-add": await addPluginFolder(); break;
+    case "plugin-create": await createPlugin(); break;
+    case "plugin-open-made": await act("open_plugin_folder", { folder: ui.plugin.make.made.folder }); break;
     case "restart-update": await act("restart_to_update"); break;
     case "shortcut": { const where = await act("create_desktop_shortcut"); if (where) toast("Desktop shortcut created."); break; }
     case "server-open": ui.addServer = { name: "", host: "", port: "9000", emulator: "unknown", ruleset: "", error: null }; render(); focusSoon("srv-host"); break;
@@ -2448,6 +2523,13 @@ document.addEventListener("input", (ev) => {
     return;
   }
   if (t.id === "plugin-search") { ui.plugin.search = t.value; render(); return; }
+  if (t.id === "plugin-make-name" || t.id === "plugin-make-github") {
+    const m = ui.plugin.make;
+    const was = !m.name.trim();
+    m[t.id === "plugin-make-name" ? "name" : "github"] = t.value;
+    if (was !== !m.name.trim()) render();
+    return;
+  }
   if (!ui.world) return;
   const f = ui.world.form;
   if (t.id === "acct-name") { f.account = t.value; f.remembered = false; syncWorld(); }
@@ -2531,6 +2613,7 @@ document.addEventListener("keydown", async (ev) => {
   }
   if (ev.key === "Enter" && ui.addServer && ev.target.id?.startsWith("srv-")) { await addServer(); return; }
   if (ev.key === "Enter" && ev.target.id === "plugin-source") { await addPluginSource(false); return; }
+  if (ev.key === "Enter" && (ev.target.id === "plugin-make-name" || ev.target.id === "plugin-make-github")) { await createPlugin(); return; }
   if (ev.key === "Enter" && ev.target.dataset?.cmd) { await submitCommand(ev.target.dataset.cmd); return; }
   if (ev.key === "Enter" && ev.target.dataset?.keyField !== undefined) { await saveKey(); return; }
   if (ev.key === "Enter" && ui.screen === "world" && (ev.target.id === "password" || ev.target.id === "acct-name")) {
@@ -2552,10 +2635,8 @@ document.addEventListener("keydown", async (ev) => {
 // Every control a click acts on, in the page's order: a row is one, and so is a button on it.
 const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open], [data-plugin-row], [data-plugin-fold]";
 
-// The sections the shoulder buttons step through, as the rail lists them (Plugins only while
-// plugins are on).
-const PAD_SECTIONS = ["home", "worlds", "accounts", "server", "make", "library", "plugins"];
-const padSections = () => PAD_SECTIONS.filter((s) => s !== "plugins" || ui.snap.plugins);
+// The sections the shoulder buttons step through, as the rail lists them.
+const PAD_SECTIONS = ["home", "worlds", "accounts", "plugins", "server", "make", "library"];
 
 // The controls a pad may reach: drawn, and not disabled. The screen's own come first, so a move
 // with nothing focused starts on the screen rather than on the rail.
@@ -2663,7 +2744,7 @@ function padBack() {
 // The next or previous section, as its rail button opens it, with the focus on its first control.
 // The first start's screens keep to themselves.
 function padSection(by) {
-  const sections = padSections();
+  const sections = PAD_SECTIONS;
   const at = sections.indexOf({ world: "worlds", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen);
   if (at < 0) return;
   const go = sections[(at + by + sections.length) % sections.length];

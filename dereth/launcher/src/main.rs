@@ -151,7 +151,7 @@ async fn refresh_plugins(b: State<'_, Shared>) -> Cmd<String> {
         Backend::refresh_plugins(&shared, &backend::fetch_plugin_file)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// Add a plugin source by its list's address, and read it.
@@ -200,6 +200,64 @@ fn remove_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
 #[tauri::command]
 fn set_plugin_updates(b: State<'_, Shared>, setting: String) -> Cmd<()> {
     lock(&b).set_plugin_updates(&setting)
+}
+
+/// Build a new plugin: the name and the repository are checked, then the player chooses an empty
+/// folder, where the template is written, or a plugin repository, which gets the new plugin's
+/// folder. `None` when the player cancels.
+#[tauri::command]
+async fn create_plugin(
+    app: tauri::AppHandle,
+    b: State<'_, Shared>,
+    name: String,
+    github: Option<String>,
+) -> Cmd<Option<backend::MadePlugin>> {
+    backend::check_new_plugin(&name, github.as_deref())?;
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose an empty folder, or a plugin repository to add the plugin to")
+        .blocking_pick_folder();
+    let Some(dir) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    lock(&b)
+        .make_plugin(&dir, &name, github.as_deref())
+        .map(Some)
+}
+
+/// Choose a folder on this computer for the Plugins page's Add Plugin Folder, which adds it at
+/// once: one plugin's folder or a plugin repository. `None` when the player cancels.
+#[tauri::command]
+async fn pick_plugin_folder(app: tauri::AppHandle) -> Cmd<Option<PathBuf>> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose a plugin's folder, or a repository of plugins")
+        .blocking_pick_folder();
+    Ok(picked.and_then(|p| p.into_path().ok()))
+}
+
+/// Add a folder on this computer, whose plugins the client is offered as they are on disk.
+#[tauri::command]
+fn add_plugin_folder(b: State<'_, Shared>, folder: PathBuf) -> Cmd<String> {
+    lock(&b).add_plugin_folder(&folder)
+}
+
+/// Take a folder off the folders on this computer; nothing in it is deleted.
+#[tauri::command]
+fn remove_plugin_folder(b: State<'_, Shared>, folder: PathBuf) -> Cmd<()> {
+    lock(&b).remove_plugin_folder(&folder)
+}
+
+/// Show a plugin's folder, or a plugin repository the Plugins page made, in the system's file
+/// manager.
+#[tauri::command]
+fn open_plugin_folder(folder: PathBuf) -> Cmd<()> {
+    if !folder.is_dir() {
+        return Err(format!("{} is not there any more.", folder.display()));
+    }
+    components::open_folder(&folder)
 }
 
 /// Fetch the world list again, whatever its copy's age.
@@ -419,6 +477,18 @@ fn find_client(here: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// The plugin author's tool this launcher ships with: the one beside it, where a release puts it
+/// (`dereth-plugin.exe` beside `dereth.exe`; in `Dereth.app`, in `Contents/MacOS`; in the AppImage,
+/// in its `usr/bin`, read from the running image). A launcher built from the repository has none
+/// beside it, and takes the one beside the Dereth client it found, when that build made one.
+fn find_tool(here: &Path, client: Option<&Path>) -> Option<PathBuf> {
+    [Some(here), client.and_then(Path::parent)]
+        .into_iter()
+        .flatten()
+        .map(|dir| dir.join(dereth_launch::plugins::TOOL_FILE))
+        .find(|p| p.is_file())
+}
+
 /// The launcher's folders. Falls back to a folder beside the launcher only when the environment
 /// names no home folder at all.
 fn find_folders(here: &Path) -> Folders {
@@ -595,9 +665,7 @@ fn main() {
     let running = std::sync::Mutex::new(Some(join::Running::mark(&folders.data)));
     let is_release = client_beside(&here).is_some();
     let client = find_client(&here);
-    // `--plugins`: the experimental plugins, with their page and the plugins offered to the Dereth
-    // client. Off without it.
-    let plugins_on = args.iter().any(|a| a == "--plugins");
+    let tool = find_tool(&here, client.as_deref());
     // The preferences file the Dereth client reads when it is started from its own folder, which
     // names the interface it starts in.
     let client_preferences = dereth_launch::interface::preferences_file(
@@ -652,17 +720,19 @@ fn main() {
                     name,
                     client_preferences.clone(),
                 )
-                .with_plugins(plugins_on),
+                .with_tool(tool.clone()),
             ));
             Backend::load_list(&shared);
-            // With plugins on, every source's list is read at start, and the updates the setting
-            // allows are applied.
-            if plugins_on {
-                let checking = shared.clone();
-                std::thread::spawn(move || {
-                    Backend::refresh_plugins_at_start(&checking, &backend::fetch_plugin_file);
-                });
-            }
+            // Every plugin source's list is read at start, and the updates the setting allows are
+            // applied.
+            let checking = shared.clone();
+            std::thread::spawn(move || {
+                Backend::refresh_plugins_at_start(&checking, &backend::fetch_plugin_file);
+            });
+            // The author's tool's copy in each folder Make Your Own wrote in is this launcher's
+            // tool again: after an update, the new release's.
+            let keeping = shared.clone();
+            std::thread::spawn(move || Backend::keep_tools_current(&keeping));
             let ticker = shared.clone();
             std::thread::spawn(move || loop {
                 Backend::tick(&ticker);
@@ -812,6 +882,11 @@ fn main() {
             update_plugin,
             remove_plugin,
             set_plugin_updates,
+            create_plugin,
+            pick_plugin_folder,
+            add_plugin_folder,
+            remove_plugin_folder,
+            open_plugin_folder,
         ])
         .build(tauri::generate_context!())
         .expect("the launcher window could not start");
@@ -958,16 +1033,16 @@ mod tests {
         assert!(console.contains(r#"class="log" data-log="#), "{console}");
     }
 
-    /// The Plugins section is there only while plugins are on (the snapshot has them): the rail
-    /// lists it, the shoulder buttons step to it, and its screen draws; otherwise Play draws.
+    /// The Plugins section is always there, with no switch to start the launcher with: the rail
+    /// lists it, the shoulder buttons step to it, and its screen draws.
     #[test]
-    fn the_plugins_section_is_there_only_while_plugins_are_on() {
-        assert!(page_function("rail")
-            .contains(r#"...(ui.snap?.plugins ? [item("plugins", "PLUGINS")] : [])"#));
-        assert!(include_str!("../ui/app.js")
-            .contains(r#"PAD_SECTIONS.filter((s) => s !== "plugins" || ui.snap.plugins)"#));
-        assert!(page_function("padSection").contains("const sections = padSections();"));
-        assert!(page_function("render").contains("plugins: ui.snap.plugins ? plugins : home"));
+    fn the_plugins_section_is_always_there() {
+        let app = include_str!("../ui/app.js");
+        assert!(page_function("rail").contains(r#"    item("plugins", "PLUGINS"),"#));
+        assert!(!app.contains("ui.snap?.plugins") && !app.contains("ui.snap.plugins ?"));
+        assert!(page_function("padSection").contains("const sections = PAD_SECTIONS;"));
+        assert!(page_function("render").contains(" plugins, \"first-run\": firstRun"));
+        assert!(!include_str!("main.rs").contains(&["\"--", "plugins\""].concat()));
     }
 
     /// The Plugins page installs only from sources: a listed plugin is installed by its source and
@@ -1030,12 +1105,13 @@ mod tests {
         assert!(include_str!("../ui/demo.js").contains(r#"auto_update: "first_party","#));
     }
 
-    /// The Plugins page's three sections fold by their headings, all open at first, and a
-    /// plugin's row opens in place, one at a time, as the Worlds list's do.
+    /// The Plugins page's four sections fold by their headings, Installed open at first and the
+    /// rest folded, and a plugin's row opens in place, one at a time, as the Worlds list's do.
     #[test]
     fn the_plugins_pages_sections_fold_and_one_plugin_row_opens_at_a_time() {
         let app = include_str!("../ui/app.js");
-        assert!(app.contains("folded: { installed: false, available: false, sources: false }"));
+        assert!(app
+            .contains("folded: { installed: false, available: true, sources: true, build: true }"));
         assert!(app.contains(
             "if (d.pluginRow) { ui.plugin.open = ui.plugin.open === d.pluginRow ? null : d.pluginRow;"
         ));
@@ -1045,9 +1121,88 @@ mod tests {
         assert!(page_function("pluginSection").contains(r#"(open ? body : "")"#));
         assert!(page_function("pluginRow").contains("const open = ui.plugin.open === key;"));
         let page = page_function("plugins");
-        for key in ["installed", "available", "sources"] {
+        for key in ["installed", "available", "sources", "build"] {
             assert!(page.contains(&format!("pluginSection(\"{key}\"")), "{key}");
         }
+    }
+
+    /// The rail: Play, Worlds, Accounts and, while plugins are on, Plugins; then Empyrean and
+    /// Lyceum; then the Library, each group apart. The shoulder buttons step through the sections
+    /// in the same order.
+    #[test]
+    fn the_rail_has_plugins_under_accounts_and_above_empyrean() {
+        let rail = page_function("rail");
+        let listed = &rail[rail.find("return [").expect("the rail's list")..];
+        let items: Vec<&str> = listed
+            .match_indices("item(\"")
+            .map(|(at, opener)| {
+                let id = &listed[at + opener.len()..];
+                &id[..id.find('"').unwrap_or(0)]
+            })
+            .collect();
+        let order = [
+            "home", "worlds", "accounts", "plugins", "server", "make", "library",
+        ];
+        assert_eq!(items, order);
+        let at = |s: &str| listed.find(s).unwrap_or_else(|| panic!("{s}"));
+        let divider = at("divider,");
+        assert!(
+            at(r#"item("plugins", "PLUGINS")"#) < divider
+                && divider < at(r#"item("server", "EMPYREAN")"#),
+            "{listed}"
+        );
+        let pad = order.map(|s| format!("\"{s}\"")).join(", ");
+        assert!(
+            include_str!("../ui/app.js").contains(&format!("const PAD_SECTIONS = [{pad}];")),
+            "the shoulder buttons step in the rail's order"
+        );
+    }
+
+    /// The Plugins page ends with Make Your Own: a name and an optional GitHub repository, and
+    /// Create, which the launcher answers by checking them, asking for an empty folder or a plugin
+    /// repository and writing the template there; the line under it says what was made, in the
+    /// author's tool's words, and Open folder shows it.
+    #[test]
+    fn the_plugins_page_ends_with_make_your_own() {
+        let page = page_function("plugins");
+        let sources = page.find(r#"${pluginSection("sources""#).expect("Sources");
+        let build = page
+            .find(r#"${pluginSection("build", "MAKE YOUR OWN", "", build)}"#)
+            .expect("Make Your Own");
+        assert!(!include_str!("../ui/app.js").contains("BUILD PLUGINS"));
+        assert!(sources < build, "{page}");
+        for control in [
+            r#"id="plugin-make-name""#,
+            r#"id="plugin-make-github""#,
+            r#"data-act="plugin-create" ${busy || !m.name.trim() ? "disabled" : ""}>Create</button>"#,
+            r#"<span title="${esc(m.made.folder)}">${esc(m.made.said)}</span>"#,
+            r#"data-act="plugin-open-made">Open folder</button>"#,
+        ] {
+            assert!(page.contains(control), "{control}");
+        }
+        let make = page_function("createPlugin");
+        assert!(
+            make.contains(r#"api("create_plugin", { name, github: m.github.trim() || null })"#),
+            "{make}"
+        );
+        assert!(include_str!("../ui/app.js").contains(
+            r#"case "plugin-open-made": await act("open_plugin_folder", { folder: ui.plugin.make.made.folder });"#
+        ));
+    }
+
+    /// An open plugin row's labelled lines (what it uses, what it also asks for, what changed) put
+    /// the value right after its label, at the facts' gap, wrapping under itself, rather than in a
+    /// column of its own far to the right.
+    #[test]
+    fn an_open_plugin_rows_lines_put_each_value_right_after_its_label() {
+        let style = include_str!("../ui/style.css");
+        assert!(style.contains(
+            ".plugin-detail .said { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 7px;"
+        ));
+        assert!(
+            style.contains(".strip span { display: inline-flex; align-items: center; gap: 7px; }")
+        );
+        assert!(page_function("pluginDetail").contains(r#"<div class="said"><b>USES</b>${esc("#));
     }
 
     /// The Plugins page reads every source again with one button, Refresh, which says what is new
@@ -1069,6 +1224,90 @@ mod tests {
             page_function("pluginFetch").contains(r#"cmd === "refresh_plugins" ? "Nothing new.""#)
         );
         assert!(!page.contains("Check for updates"));
+    }
+
+    /// Installed lists the plugins in folders on this computer, marked Local, and both rows of an
+    /// id loaded from this computer say so. A Local row has no buttons of its own: open, its
+    /// LOCATION line ends with Open and Remove, at the line's right. Add Plugin Folder, one button
+    /// at the start of its line under the list, opens the system's picker and adds the folder
+    /// chosen at once, with no question first and no box repeating the folder. With nothing
+    /// installed, or nothing available, the line that says so sits at the rows' indent. A folder
+    /// whose copy of the author's tool could not be brought up to date says so on its row.
+    #[test]
+    fn the_plugins_page_lists_folders_on_this_computer_and_adds_one_in_one_step() {
+        let local = page_function("localPluginRow");
+        for said in [
+            r#"source_name: "Local""#,
+            r#"<b>LOCATION</b><span class="path">${esc(x.folder)}</span>"#,
+            r#"<span class="btns"><button class="btn" data-plugin-open="${esc(x.folder)}">Open</button><button class="btn" data-plugin-folder-remove="${esc(x.listed)}">Remove</button></span></div>"#,
+            r#"const detail = (x.problem ? "" : pluginDetail(p)) + location;"#,
+            r#"return pluginRow(`l:${x.folder}`, p, "", line + tool, detail);"#,
+            r#"const tool = x.tool_problem ? `<div class="sub warn">${esc(x.tool_problem)}</div>` : "";"#,
+            "x.in_place_of_installed ? `<div class=\"sub\">Loaded in place of the installed one.</div>`",
+        ] {
+            assert!(local.contains(said), "{said}");
+        }
+        assert!(
+            !local.contains("FOLDER") && !local.contains("Open folder"),
+            "{local}"
+        );
+        assert!(page_function("pluginRow")
+            .contains(r#"${buttons ? `<div class="btns">${buttons}</div>` : ""}</div>`;"#));
+        let style = include_str!("../ui/style.css");
+        assert!(style.contains(
+            ".plugin-location .btns { flex: none; flex-wrap: nowrap; margin-left: auto;"
+        ));
+        assert!(style.contains(".plugins-page .list > p.empty { margin: 6px 15px; }"));
+        assert!(page_function("installedRow").contains("The local one is loaded in its place."));
+
+        let page = page_function("plugins");
+        assert!(page.contains("v.local.map(localPluginRow)"), "{page}");
+        assert!(page.contains(
+            r#"`<p class="muted empty">No plugins installed. Install one from the list below.</p>`"#
+        ));
+        // Available's lines for an empty list sit at the same indent.
+        assert!(page.contains(
+            r#"`<p class="muted empty">${q ? "No plugin matches." : listed ? "Every plugin the sources list is installed." : "No plugins listed yet. Refresh to read the sources."}</p>`"#
+        ));
+        assert!(
+            page.contains(
+                r#"const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button></div>`;"#
+            ),
+            "{page}"
+        );
+        let installed = page
+            .find(r#"${pluginSection("installed""#)
+            .expect("Installed");
+        assert!(
+            page[installed..].starts_with(
+                r#"${pluginSection("installed", "INSTALLED", v.installed.length + v.local.length, `<div class="list">${installed}</div>${addFolder}${setting}`)}"#
+            ),
+            "the button sits under Installed's list"
+        );
+        let app = include_str!("../ui/app.js");
+        for gone in [
+            "plugin-folder-confirm",
+            "plugin-folder-cancel",
+            "plugin-folder-pick",
+            r#"id="plugin-folder""#,
+            "Plugins in this folder run with",
+            "ui.plugin.folder",
+            "pickPluginFolder",
+        ] {
+            assert!(!app.contains(gone), "{gone}");
+        }
+        let add = page_function("addPluginFolder");
+        let picked = add
+            .find(r#"folder = await api("pick_plugin_folder");"#)
+            .expect("the picker");
+        let added = add
+            .find(r#"if (folder) await pluginFetch("add_plugin_folder", { folder });"#)
+            .expect("added at once");
+        assert!(picked < added, "{add}");
+        assert!(app.contains(r#"case "plugin-folder-add": await addPluginFolder(); break;"#));
+        assert!(app.contains(
+            r#"if (d.pluginFolderRemove) { await act("remove_plugin_folder", { folder: d.pluginFolderRemove }); return; }"#
+        ));
     }
 
     /// The emblems are on Empyrean's and Lyceum's headings, and on no button.

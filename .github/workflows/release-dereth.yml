@@ -178,12 +178,14 @@ jobs:
               (cd smoke && 7z x "../dist/dereth-plugin-$VERSION-windows-x86_64.zip" > /dev/null)
               launcher="smoke/dereth-$VERSION/dereth.exe"
               client="smoke/dereth-$VERSION/dereth-client.exe"
+              bundled="smoke/dereth-$VERSION/dereth-plugin.exe"
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe" ;;
             *linux*)
               appimage="$PWD/dist/Dereth-$VERSION-linux-x86_64.AppImage"
               (cd smoke && "$appimage" --appimage-extract > /dev/null)
               launcher="smoke/squashfs-root/usr/bin/dereth"
               client="smoke/squashfs-root/usr/bin/dereth-client"
+              bundled="smoke/squashfs-root/usr/bin/dereth-plugin"
               tar -xzf "dist/dereth-plugin-$VERSION-linux-x86_64.tar.gz" -C smoke
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
             *apple*)
@@ -192,6 +194,7 @@ jobs:
               codesign --verify --deep --strict smoke/Dereth.app
               launcher="smoke/Dereth.app/Contents/MacOS/dereth"
               client="smoke/Dereth.app/Contents/MacOS/dereth-client"
+              bundled="smoke/Dereth.app/Contents/MacOS/dereth-plugin"
               tar -xzf "dist/dereth-plugin-$VERSION-macos-$arch.tar.gz" -C smoke
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
           esac
@@ -204,6 +207,9 @@ jobs:
           run "$tool" --version | tee version-tool.txt
           grep -qx "dereth-plugin $VERSION" version-tool.txt
           grep -qx "target: $TARGET" version-tool.txt
+          # The same tool comes with Dereth, beside the client.
+          run "$bundled" --version | tee version-bundled-tool.txt
+          cmp version-tool.txt version-bundled-tool.txt
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
@@ -298,7 +304,7 @@ jobs:
 
           The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-          For plugin authors: \`dereth-plugin-$VERSION-<platform>\` is the plugin author's tool of this release (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
+          For plugin authors: the plugin author's tool, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
 
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 

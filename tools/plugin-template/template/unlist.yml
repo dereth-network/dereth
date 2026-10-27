@@ -1,0 +1,89 @@
+# A push to the default branch: a plugin whose folder is gone from the repository is dropped from
+# plugins.json on the gh-pages branch, with its zip there. Its GitHub releases stay.
+name: Unlist
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+env:
+  # The Dereth release whose author's tool this repository uses: its rules are that release's.
+  DERETH: '{{dereth}}'
+
+jobs:
+  # Whether plugins.json lists a plugin the repository no longer holds, found on a copy of the
+  # gh-pages branch that is never pushed. It runs outside the releases' concurrency group, so an
+  # ordinary push neither waits for a release nor takes the place of one waiting to run.
+  look:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    outputs:
+      dropped: ${{ steps.prune.outputs.dropped }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The tool of the Dereth release named above, downloaded from that release and checked
+      # against its SHA256SUMS.
+      - name: Install the author's tool
+        run: |
+          cd "$RUNNER_TEMP"
+          file="dereth-plugin-$DERETH-linux-x86_64.tar.gz"
+          release="{{dereth_repo}}/releases/download/dereth-v$DERETH"
+          curl -fsSLO "$release/$file"
+          curl -fsSLO "$release/SHA256SUMS"
+          grep "  $file\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$file"
+          echo "$RUNNER_TEMP/dereth-plugin-$DERETH" >> "$GITHUB_PATH"
+      # Nothing to do before the first release has made the gh-pages branch.
+      - name: Find what the repository no longer holds
+        id: prune
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then
+            git fetch --quiet origin gh-pages:gh-pages
+            git worktree add site gh-pages
+            dereth-plugin prune site/plugins.json .
+            if [ -n "$(git -C site status --porcelain)" ]; then
+              echo "dropped=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  # Dropped and pushed, one at a time with the releases, which change the same plugins.json.
+  unlist:
+    needs: look
+    if: needs.look.outputs.dropped == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      # The default branch as it is now, which a later push may have moved on.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Install the author's tool
+        run: |
+          cd "$RUNNER_TEMP"
+          file="dereth-plugin-$DERETH-linux-x86_64.tar.gz"
+          release="{{dereth_repo}}/releases/download/dereth-v$DERETH"
+          curl -fsSLO "$release/$file"
+          curl -fsSLO "$release/SHA256SUMS"
+          grep "  $file\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$file"
+          echo "$RUNNER_TEMP/dereth-plugin-$DERETH" >> "$GITHUB_PATH"
+      - name: Drop them from plugins.json on the gh-pages branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin gh-pages:gh-pages
+          git worktree add site gh-pages
+          said="$(dereth-plugin prune site/plugins.json .)"
+          git -C site add --all
+          if git -C site diff --cached --quiet; then
+            exit 0
+          fi
+          git -C site commit --quiet -m "$said"
+          git -C site push --quiet origin gh-pages

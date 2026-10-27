@@ -19,6 +19,8 @@ to date. It can also host a world with Empyrean and build one with Lyceum.
 | macOS | `Dereth.app` | inside it, in `Contents/MacOS` |
 | Linux | an AppImage | inside it, beside the launcher |
 
+The plugin author's tool, `dereth-plugin`, comes with each one beside the client.
+
 ## Clients and data files
 
 - **The Dereth client** ships beside the launcher. A launcher built from the repository uses the
@@ -90,7 +92,7 @@ On Windows the launcher can be driven with a pad while its window is in front:
 | d-pad or left stick | moves the focus that way |
 | A (Cross) | presses the focused control; Enter in a text box; the next choice on a list |
 | B (Circle) | steps back: closes a row or form, leaves a world's page, or goes back to Play |
-| shoulder buttons | the rail's pages in turn: Play, Worlds, Accounts, Empyrean, Lyceum, Library, and Plugins with `--plugins` |
+| shoulder buttons | the rail's pages in turn: Play, Worlds, Accounts, Plugins with `--plugins`, Empyrean, Lyceum and Library |
 | right stick | scrolls the list under the focus |
 | left and right on a list | its previous and next choice |
 
@@ -148,15 +150,16 @@ and its icon under `$XDG_DATA_HOME`), so its window gets its name and icon.
 
 ## Plugins
 
-Plugins are experimental, and off unless the launcher is started with `--plugins`: without it there
-is no **Plugins** screen, and the client is offered none. The **Plugins** screen installs plugins
-for the Dereth client from plugin sources, each a `plugins.json` at an `https://` address listing
-plugins at their latest release ([`docs/plugins/sources.md`](../../docs/plugins/sources.md)).
+Plugins are experimental. The **Plugins** screen installs plugins for the Dereth client from plugin
+sources, each a `plugins.json` at an `https://` address listing plugins at their latest release ([`docs/plugins/sources.md`](../../docs/plugins/sources.md)).
 Dereth's own source is there from the start, with nothing installed; the player adds others by
-their address, once they confirm it, and removes them. The screen has three sections that fold:
-the plugins installed; the ones the sources offer that are not installed, each with its source,
-what it does and what it uses; and the sources. A plugin's row opens to everything known about it,
-and each plugin is installed by itself. A zip is kept only when it is the file its source lists and
+their address, once they confirm it, and removes them. The screen has four sections that fold,
+only the first open at first: the plugins installed; the ones the sources offer that are not
+installed, each with its source, what it does and what it uses; the sources; and **Make Your Own**,
+which makes a new plugin repository in an empty folder the author chooses, or adds a new plugin to
+a plugin repository, as `dereth-plugin new` does
+([`docs/plugins/guide/publishing.md`](../../docs/plugins/guide/publishing.md)). A plugin's row
+opens to everything known about it, and each plugin is installed by itself. A zip is kept only when it is the file its source lists and
 its manifest says what its entry says; an id under `network.dereth.` installs only from Dereth's
 source.
 
@@ -164,10 +167,23 @@ The launcher reads every source at every start, and again on **Refresh**, which 
 only from its own source, to a newer release: by hand, or on its own as **Automatically update
 plugins** says (none, all, or only Dereth's, the setting at first). A release that asks for a
 permission or a web domain the installed one did not always waits for the player.
-Each installed plugin's zip goes to the client with `--offer-plugins`, and installing one never
-turns it on: the client lists it off until the player turns plugins on and ticks it there. The
+Installed also lists the plugins in **folders on this computer** (**Add Plugin Folder**, which
+adds the folder chosen at once), marked **Local**; an open Local row's **Location** line has **Open**
+and **Remove**, which deletes nothing. A folder is one plugin's own or a plugin repository, whose
+plugins are the folders directly in it as `dereth-plugin` has them; any other is refused. Make Your
+Own adds the folder it wrote in. They go to the client as they are on disk, never updated; one with an
+installed plugin's id is loaded in its place, and the installed one keeps updating.
+A folder Make Your Own wrote in also gets a copy of the `dereth-plugin` beside the launcher at its
+root, with the `.gitignore` lines that keep it out of git; at every start the launcher makes each
+such copy its own tool again, so an update reaches it. Its row says so when the copy could not be
+written. A folder added any other way gets none, and one taken off the list keeps its copy.
+
+Each such folder, then each installed plugin's zip, goes to the client with `--offer-plugins`, and
+installing one never turns it on: the client lists it off until the player turns plugins on and
+ticks it there. A source that cannot be read at start says so on its row, not in the notice. The
 logic is `dereth-launch`'s `plugins` module; the files are under the launcher's data folder, in
-`plugins` (`sources.json`, `installed.json`, a folder per plugin).
+`plugins` (`sources.json`, which also keeps the folders on this computer and those it keeps the
+tool in, `installed.json`, a folder per plugin).
 
 ## Updates
 
@@ -194,8 +210,8 @@ nearly every Windows 10 has. If it's missing, the launcher says so and links the
 
 ## Hosting a world: Empyrean
 
-The rail has **Play**, **Worlds** and **Accounts**; then **Empyrean** and **Lyceum**; then the
-**Library** and, started with `--plugins`, **Plugins**. Most players never open the middle two, so neither program comes
+The rail has **Play**, **Worlds**, **Accounts** and, started with `--plugins`, **Plugins**; then
+**Empyrean** and **Lyceum**; then the **Library**. Most players never open the middle two, so neither program comes
 with the launcher.
 
 **Getting them.** Each page shows the newest version and offers **Download**, then **Update to

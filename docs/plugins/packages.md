@@ -27,9 +27,9 @@ can be checked against its source by packing the source again.
 
 ## Installing from a source: the launcher
 
-The launcher, started with `--plugins`, installs plugins for the Dereth client from plugin
-sources: lists of plugins at their latest release, each one `plugins.json` at an `https://` address
-([sources.md](sources.md)). Without `--plugins` it has no Plugins page and offers the client none.
+The launcher installs plugins for the Dereth client from plugin sources, on its Plugins page:
+lists of plugins at their latest release, each one `plugins.json` at an `https://` address
+([sources.md](sources.md)).
 
 - **The sources.** Dereth's own source is there from the start, and nothing is installed. The
   player adds others by their list's address, once they confirm it.
@@ -57,7 +57,7 @@ keeps what it installs in the browser
 through it):
 
 ```text
-dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <owner>/<repo>]
+dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <username>/<repo>]
                                           a new plugin repository, from the template
 dereth-plugin check <folder>              every check a host makes at load, and every script compiled
 dereth-plugin pack <folder> <out.zip>     the folder as a zip, and <out.zip>.sha256 beside it
@@ -69,4 +69,6 @@ dereth-plugin notes <folder> <version>    that version's change-log section
 dereth-plugin find <repository> <tag>     the plugin a release tag names
 dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <name>]
                                           list the zip's release in a source
+dereth-plugin prune <plugins.json> <repository>
+                                          drop from a source the plugins the repository no longer holds
 ```

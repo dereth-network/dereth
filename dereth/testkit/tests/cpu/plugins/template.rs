@@ -1,6 +1,6 @@
-//! The plugin template the author's tool writes (`dereth-plugin new`, from
-//! `tools/plugin/template`): its plugin, filled in as the tool fills it, loads in this client's
-//! host in a scripted world, says hello in its window, and answers its command.
+//! The plugin template the author's tool and the launcher write (`dereth-plugin new`, from
+//! `tools/plugin-template/template`): its plugin, filled in as they fill it, loads in this
+//! client's host in a scripted world, says hello in its window, and answers its command.
 //!
 //! Behaviour: none (the author's template, checked so that a new plugin starts from one that runs)
 
@@ -13,7 +13,7 @@ const ID: &str = "example.hello";
 /// The template's plugin folder, its placeholders filled as `dereth-plugin new` fills them for a
 /// plugin named Hello.
 fn template_plugin() -> Package {
-    let dir = dereth_testkit::conformance::workspace_root().join("tools/plugin/template");
+    let dir = dereth_testkit::conformance::workspace_root().join("tools/plugin-template/template");
     let filled = |file: &str| {
         std::fs::read_to_string(dir.join(file))
             .unwrap_or_else(|e| panic!("{file}: {e}"))

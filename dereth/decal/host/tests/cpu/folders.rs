@@ -2,7 +2,8 @@
 //!
 //! Besides its plugins folders, the host finds the plugins the launcher installed, as the launcher
 //! offers them to the Dereth client: each plugin installed from a plugin source, in the launcher's
-//! data folder. Like every found plugin, each is off until the player ticks it.
+//! data folder, and each plugin in the folders on this computer the launcher lists. Like every
+//! found plugin, each is off until the player ticks it.
 
 use dereth_launch::folders::Folders;
 use dereth_launch::plugins::Shelf;
@@ -65,5 +66,60 @@ fn without_the_launcher_setting_its_plugins_do_not_load() {
     );
     r.frame();
     assert_eq!(r.status("test.window"), "absent");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Every file under `dir`, by its path, and its bytes.
+fn files_under(dir: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in std::fs::read_dir(&d).expect("a folder") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let bytes = std::fs::read(&path).expect("a file");
+                out.insert(path, bytes);
+            }
+        }
+    }
+    out
+}
+
+/// The plugins in the folders on this computer the launcher lists are found as it offers them to
+/// the Dereth client, from the folders themselves, and the host writes nothing in the launcher's
+/// folder or in theirs.
+#[test]
+fn the_plugins_in_the_launchers_folders_on_this_computer_are_found_and_nothing_is_written() {
+    let data = launcher_with_one_of_two_plugins("launcher-local");
+    let mine = data.join("mine");
+    let probe = mine.join("probe");
+    std::fs::create_dir_all(&probe).expect("a folder");
+    for f in std::fs::read_dir(plugin_dir("probe")).expect("the test plugin") {
+        let f = f.expect("a file").path();
+        std::fs::copy(&f, probe.join(f.file_name().expect("a name"))).expect("copied");
+    }
+    Shelf::open(Folders::single(&data).plugins())
+        .add_local(&mine)
+        .expect("listed");
+    let before = files_under(&data);
+    let mut r = Replay::frames_only(
+        &settings(&[])
+            .with("launcher", true)
+            .with("launcher_data", data.to_string_lossy().into_owned()),
+    );
+    r.frame();
+    assert_eq!(
+        r.status("test.probe"),
+        "absent",
+        "found, and off until ticked"
+    );
+    assert!(r.type_line("/plugin on test.probe"));
+    r.frame();
+    r.frame();
+    assert_ne!(r.status("test.probe"), "absent", "ticked, from its folder");
+    drop(r);
+    assert_eq!(files_under(&data), before, "nothing written");
     let _ = std::fs::remove_dir_all(&data);
 }

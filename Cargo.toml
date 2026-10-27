@@ -79,6 +79,7 @@ members = [
     "tools/pcap",
     "tools/web-relay",
     "tools/plugin",
+    "tools/plugin-template",
     "tools/web-dev",
     "tools/corpus",
     "tools/art",
@@ -161,6 +162,7 @@ dereth-plugin-api = { path = "core/plugin-api" }
 dereth-plugin-host = { path = "core/plugin-host" }
 dereth-plugin-lua = { path = "core/plugin-lua" }
 dereth-plugin-package = { path = "core/plugin-package" }
+dereth-plugin-template = { path = "tools/plugin-template" }
 dereth-plugin-ui = { path = "dereth/client/crates/plugin-ui" }
 dereth-plugin-wasm = { path = "core/plugin-wasm", default-features = false }
 dereth-presentation = { path = "core/presentation" }

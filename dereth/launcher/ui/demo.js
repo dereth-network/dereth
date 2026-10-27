@@ -122,6 +122,8 @@
   const FIRST_PARTY = "https://plugins.dereth.network/plugins.json";
   const OTHER_SOURCE = "https://someone.github.io/plugins/plugins.json";
   const fresh = new URLSearchParams(location.search).get("plugins") === "new";
+  // The plugin repository Make Your Own made, and the plugins' folders in it.
+  let madeRepo = null;
   const listed = (id, name, version, description, extra = {}) => ({ id, name, version, api: "0.7", description, permissions: [], domains: [], authors: [], homepage: "", notes: "", released: "2026-10-26", size: 18234, ...extra });
   const pluginSources = [
     {
@@ -155,10 +157,31 @@
       kept(OTHER_SOURCE, "io.github.someone.prices", "1.0.3", { released: "2026-10-11", notes: "", size: 11980 }),
     ],
   };
+  // The folders on this computer: a repository with one plugin, a copy of Dereth's XP Meter being
+  // worked on, which is loaded in place of the installed one, and a folder whose plugin was moved
+  // away.
+  const localPlugin = (folder, id, name, version, description, extra = {}) => ({ folder, id, name, version, api: "0.7", description, authors: [], homepage: "", permissions: [], domains: [], problem: null, needs_newer_dereth: false, in_place_of_installed: false, id_taken: false, ...extra });
+  const pluginFolders = [
+    { listed: "C:\\Users\\you\\Documents\\my-plugins", plugins: [localPlugin("C:\\Users\\you\\Documents\\my-plugins\\hello-world", "io.github.you.hello-world", "Hello World", "0.1.0", "Says hi", { authors: ["you"] })] },
+    { listed: "C:\\Users\\you\\code\\xp-meter", plugins: [localPlugin("C:\\Users\\you\\code\\xp-meter", "network.dereth.xpmeter", "XP Meter", "0.2.0-dev", "Experience earned this session and per hour, in a small window and on /xp.", { authors: ["Dereth"] })] },
+    { listed: "C:\\Users\\you\\Downloads\\old-plugin", plugins: [] },
+  ];
+  // The folders the demo's picker offers, in turn, and the plugins the backend would find in each:
+  // a plugin's own folder, and a folder whose plugins are all further down, which is refused.
+  const pickable = [
+    { folder: "C:\\Users\\you\\Documents\\loot-rules", plugins: [localPlugin("C:\\Users\\you\\Documents\\loot-rules", "io.github.you.loot-rules", "Loot Rules", "0.1.0", "Says hi")] },
+    { folder: "C:\\Users\\you\\code", plugins: [] },
+  ];
+  let picks = 0;
   if (fresh) {
     pluginSources.splice(1);
     pluginsState.installed = [];
+    pluginFolders.splice(0);
   }
+  // As the backend: each folder's plugins, or the folder saying it holds none.
+  const localView = () => pluginFolders.flatMap((f) => f.plugins.length
+    ? f.plugins.map((p) => ({ ...p, listed: f.listed, in_place_of_installed: pluginsState.installed.some((x) => x.id === p.id) }))
+    : [{ ...localPlugin(f.listed, "", f.listed.split("\\").pop(), "", ""), listed: f.listed, problem: "This folder no longer holds a plugin." }]);
   const newer = (a, b) => {
     const [x, y] = [a, b].map((v) => v.split("-")[0].split(".").map(Number));
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
@@ -185,7 +208,8 @@
       const state = e.id.startsWith("network.dereth.") && s.url !== FIRST_PARTY ? "first_party_only" : runsHere(e.api) ? "install" : "needs_newer_dereth";
       return { ...e, source: s.url, source_name: s.name, state };
     })),
-    installed: pluginsState.installed.map((p) => ({ ...p, source_name: sourceOf(p.source)?.name ?? new URL(p.source).host, source_removed: !sourceOf(p.source), update: pending(p) })),
+    installed: pluginsState.installed.map((p) => ({ ...p, source_name: sourceOf(p.source)?.name ?? new URL(p.source).host, source_removed: !sourceOf(p.source), update: pending(p), local_in_its_place: pluginFolders.some((f) => f.plugins.some((x) => x.id === p.id)) })),
+    local: localView(),
     auto_update: pluginsState.auto_update,
     first_party: FIRST_PARTY,
   });
@@ -442,6 +466,42 @@
     update_plugin: ({ id }) => { const p = pluginsState.installed.find((x) => x.id === id); const e = installFrom(p.source, id); return `Updated ${e.name} to ${e.version}.`; },
     remove_plugin: ({ id }) => { pluginsState.installed = pluginsState.installed.filter((p) => p.id !== id); },
     set_plugin_updates: ({ setting }) => { pluginsState.auto_update = setting; },
+    // The system's folder picker, standing in: each time the next of the folders it offers.
+    pick_plugin_folder: () => pickable[picks++ % pickable.length].folder,
+    // As the backend: a plugin's own folder or a plugin repository is added, anything else refused.
+    add_plugin_folder: ({ folder }) => {
+      if (pluginFolders.some((f) => f.listed === folder)) throw "That folder is on the list already.";
+      const found = pickable.find((f) => f.folder === folder)?.plugins ?? [];
+      if (!found.length) throw "That folder has no plugin.toml, and neither do the folders in it.";
+      pluginFolders.push({ listed: folder, plugins: structuredClone(found) });
+      return `Added ${found.length} plugin${found.length === 1 ? "" : "s"} from ${folder}.`;
+    },
+    remove_plugin_folder: ({ folder }) => { pluginFolders.splice(pluginFolders.findIndex((f) => f.listed === folder), 1); },
+    // As the backend, with the folder chosen standing in for the dialog: the name needs a letter
+    // first, a repository is owner/repo. The first plugin made goes in a new repository named
+    // after it; each one after is added to that repository, as if the player chose it again.
+    create_plugin: ({ name, github }) => {
+      const folder = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (/["\\]/.test(name)) throw "A plugin's name can't have quotes or backslashes.";
+      if (!/^[a-z]/.test(folder)) throw "Start the name with a letter.";
+      if (github && !/^[^/]+\/[^/]+$/.test(github)) throw "Give the GitHub repository as username/repo.";
+      // As the backend, the repository goes on the folders on this computer.
+      const made = (repo) => {
+        let listed = pluginFolders.find((f) => f.listed === repo.folder);
+        if (!listed) pluginFolders.push(listed = { listed: repo.folder, plugins: [] });
+        listed.plugins.push(localPlugin(`${repo.folder}\\${folder}`, `example.${folder}`, name, "0.1.0", "Says hi"));
+      };
+      if (!madeRepo) {
+        madeRepo = { folder: `C:\\Users\\you\\Documents\\${folder}`, plugins: [folder] };
+        made(madeRepo);
+        return { folder: madeRepo.folder, plugin: folder, said: `Added ${folder}/ to plugin repository at ${madeRepo.folder}.` };
+      }
+      if (madeRepo.plugins.includes(folder)) throw `The repository has a ${folder} folder already. Give the plugin another name.`;
+      madeRepo.plugins.push(folder);
+      made(madeRepo);
+      return { folder: madeRepo.folder, plugin: folder, said: `Added ${folder}/ to plugin repository at ${madeRepo.folder}.` };
+    },
+    open_plugin_folder: () => {},
     world_view: ({ slug }) => {
       const w = allWorlds().find((x) => x.slug === slug);
       if (!w) throw "That world is no longer listed.";

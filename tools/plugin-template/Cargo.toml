@@ -1,0 +1,19 @@
+[package]
+name = "dereth-plugin-template"
+description = "A new plugin repository from the template, or a new plugin added to one: its files, filled in for a plugin's name, id and GitHub repository and for the Dereth release whose author's tool its workflows install."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The author's tool (`dereth-plugin new`) and the launcher's Plugins page both write the template
+# through this crate, so it stays this small: the launcher builds it.
+[dependencies]
+# The plugin API version the template's manifest asks for, and the rules a plugin's id keeps.
+dereth-plugin-api.workspace = true
+# The ids of the plugins a repository holds already, read from their `plugin.toml`.
+toml.workspace = true
+
+[lints]
+workspace = true

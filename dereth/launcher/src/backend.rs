@@ -24,7 +24,9 @@ use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
 use dereth_launch::listing::WorldList;
-use dereth_launch::plugins::{AutoUpdate, PluginsView, Refresh, Shelf};
+use dereth_launch::plugins::{
+    keep_tool, AutoUpdate, PluginError, PluginsView, Refresh, Shelf, TOOL_FILE,
+};
 use dereth_launch::serverlist::{ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
@@ -274,10 +276,79 @@ pub struct Snapshot {
     /// The interface the Dereth client starts in. `None` when the client keeps no preferences
     /// here (the system names no home), when there is nothing to ask.
     pub interface: Option<InterfaceView>,
-    /// The Plugins page: the sources, what they list and what is installed for the Dereth client;
-    /// none while plugins are off (the launcher was started without `--plugins`), and the page has
-    /// no Plugins section.
-    pub plugins: Option<PluginsView>,
+    /// The Plugins page: the sources, what they list and what is installed for the Dereth client.
+    pub plugins: PluginsView,
+}
+
+/// A plugin the Plugins page made: the repository's folder, the plugin's own folder in it, and
+/// what was made, in the words the author's tool says it in.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MadePlugin {
+    pub folder: PathBuf,
+    pub plugin: String,
+    pub said: String,
+}
+
+/// What the template is filled in from for a plugin the Plugins page makes: its name, the GitHub
+/// repository when one is given, and this launcher's Dereth release, as the author's tool of the
+/// same release fills it from its own.
+fn new_plugin<'a>(name: &'a str, github: Option<&'a str>) -> dereth_plugin_template::Options<'a> {
+    dereth_plugin_template::Options {
+        id: None,
+        name: Some(name),
+        github: github.map(str::trim).filter(|g| !g.is_empty()),
+        dereth: env!("CARGO_PKG_VERSION"),
+    }
+}
+
+/// Make a plugin called `name` in the folder `dir`, as the author's tool's `dereth-plugin new`
+/// does, for this launcher's Dereth release, with links and workflows for the GitHub repository
+/// `github` (`<username>/<repo>`) when there is one: a new plugin repository in a missing or empty
+/// folder, or the plugin's own folder added to a folder that is a plugin repository already.
+///
+/// # Errors
+/// Why not, in words for the page.
+pub fn create_plugin(dir: &Path, name: &str, github: Option<&str>) -> Result<MadePlugin, String> {
+    let made =
+        dereth_plugin_template::new(dir, &new_plugin(name, github)).map_err(new_plugin_error)?;
+    Ok(MadePlugin {
+        folder: dir.to_owned(),
+        said: made.said(dir),
+        plugin: made.plugin,
+    })
+}
+
+/// Whether [`create_plugin`] can make a plugin of `name` and `github`, before the player is asked
+/// for a folder.
+///
+/// # Errors
+/// Why not, in words for the page.
+pub fn check_new_plugin(name: &str, github: Option<&str>) -> Result<(), String> {
+    dereth_plugin_template::values(Path::new(""), &new_plugin(name, github))
+        .map(drop)
+        .map_err(new_plugin_error)
+}
+
+/// Why a plugin could not be made, in the page's words.
+fn new_plugin_error(e: dereth_plugin_template::Error) -> String {
+    use dereth_plugin_template::Error;
+    match e {
+        Error::Name(n) if n.is_empty() => "Give the plugin a name.".to_owned(),
+        Error::Name(_) => "A plugin's name can't have quotes or backslashes.".to_owned(),
+        Error::NoLetter(_) => "Start the name with a letter.".to_owned(),
+        Error::Github(_) | Error::NotAnId { .. } | Error::Reserved(_) => {
+            "Give the GitHub repository as username/repo.".to_owned()
+        }
+        Error::NotEmpty(_) => "Choose an empty folder or a plugin repository.".to_owned(),
+        Error::InAPlugin(_) => "That is a plugin's own folder. Choose its repository.".to_owned(),
+        Error::FolderTaken(dir) => format!(
+            "The repository has a {} folder already. Give the plugin another name.",
+            dir.file_name().unwrap_or_default().to_string_lossy()
+        ),
+        Error::IdTaken { id, .. } => format!("A plugin in the repository is {id} already."),
+        Error::NoId(path) => format!("{} does not say its plugin's id.", path.display()),
+        Error::Io(path, e) => format!("Could not write {}: {e}", path.display()),
+    }
 }
 
 /// The interface the Dereth client starts in, and the question the launcher asks for it.
@@ -400,9 +471,9 @@ pub struct Backend {
     /// interface it starts in ([`interface::preferences_file`]).
     client_preferences: Option<PathBuf>,
     plugins: Shelf,
-    /// Whether the launcher was started with `--plugins`: only then does the page have its Plugins
-    /// section, and the Dereth client is offered the plugins it installed.
-    plugins_on: bool,
+    /// The plugin author's tool this launcher ships with, which it keeps a copy of in the folders
+    /// Make Your Own wrote in; `None` when there is none to copy.
+    tool: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for Backend {
@@ -483,14 +554,15 @@ impl Backend {
             vault,
             vault_name,
             client_preferences,
-            plugins_on: false,
+            tool: None,
         }
     }
 
-    /// The same launcher with plugins on (it was started with `--plugins`) or off.
+    /// The plugin author's tool the launcher ships with, at `tool`, which it keeps a copy of in
+    /// the folders Make Your Own writes in.
     #[must_use]
-    pub fn with_plugins(mut self, on: bool) -> Self {
-        self.plugins_on = on;
+    pub fn with_tool(mut self, tool: Option<PathBuf>) -> Self {
+        self.tool = tool;
         self
     }
 
@@ -567,7 +639,7 @@ impl Backend {
             platform: std::env::consts::OS,
             library_dir: self.library_dir().display().to_string(),
             interface: self.interface_view(),
-            plugins: self.plugins_on.then(|| self.plugins.view()),
+            plugins: self.plugins.view(),
         }
     }
 
@@ -1420,11 +1492,12 @@ impl Backend {
     /// their own (a thread's work: it fetches). Answers what is new, a line each: the plugins a
     /// source lists now that it did not, the updates applied and waiting, and the sources that
     /// could not be read. Empty when nothing is.
-    ///
-    /// # Errors
-    /// Plugins are off.
-    pub fn refresh_plugins(shared: &Shared, fetch: &Fetch<'_>) -> Result<String, String> {
-        lock(shared).plugins_allowed()?;
+    pub fn refresh_plugins(shared: &Shared, fetch: &Fetch<'_>) -> String {
+        Self::walk_plugins(shared, fetch).said(&lock(shared).plugins)
+    }
+
+    /// Every source read, and the updates the setting allows applied: the walk, done.
+    fn walk_plugins(shared: &Shared, fetch: &Fetch<'_>) -> Refresh {
         let mut walk = Refresh::new(&lock(shared).plugins);
         let mut fetched = None;
         loop {
@@ -1433,14 +1506,14 @@ impl Backend {
             let Some(download) = next else { break };
             fetched = Some(fetch(&download.url, download.limit));
         }
-        Ok(walk.said(&lock(shared).plugins))
+        walk
     }
 
-    /// At start, with plugins on: [`Backend::refresh_plugins`], and what is new in the notice.
+    /// At start: [`Backend::refresh_plugins`], and what is new in the notice. A source that could
+    /// not be read says so on its own row, not in the notice: started with no connection, the
+    /// launcher would otherwise say so each time.
     pub fn refresh_plugins_at_start(shared: &Shared, fetch: &Fetch<'_>) {
-        let Ok(said) = Self::refresh_plugins(shared, fetch) else {
-            return;
-        };
+        let said = Self::walk_plugins(shared, fetch).said_at_start(&lock(shared).plugins);
         if !said.is_empty() {
             lock(shared).say(format!("Plugins: {}", said.replace('\n', " ")), false);
         }
@@ -1450,13 +1523,12 @@ impl Backend {
     /// (a thread's work).
     ///
     /// # Errors
-    /// Plugins are off, or the address was refused, in words for the page.
+    /// The address was refused, in words for the page.
     pub fn add_plugin_source(
         shared: &Shared,
         fetch: &Fetch<'_>,
         url: &str,
     ) -> Result<String, String> {
-        lock(shared).plugins_allowed()?;
         let url = lock(shared)
             .plugins
             .add_source(url)
@@ -1479,23 +1551,21 @@ impl Backend {
     /// Remove the source at `url`; what was installed from it stays, with no updates.
     ///
     /// # Errors
-    /// Plugins are off, Dereth's own source, or not a source.
+    /// Dereth's own source, or not a source.
     pub fn remove_plugin_source(&mut self, url: &str) -> Result<(), String> {
-        self.plugins_allowed()?;
         self.plugins.remove_source(url).map_err(|e| e.to_string())
     }
 
     /// Install plugin `id` from `source` (a thread's work: it downloads the zip).
     ///
     /// # Errors
-    /// Plugins are off, the download, or a check the release failed, in words for the page.
+    /// The download, or a check the release failed, in words for the page.
     pub fn install_plugin(
         shared: &Shared,
         fetch: &Fetch<'_>,
         source: &str,
         id: &str,
     ) -> Result<String, String> {
-        lock(shared).plugins_allowed()?;
         let plan = lock(shared)
             .plugins
             .plan_install(source, id)
@@ -1511,9 +1581,8 @@ impl Backend {
     /// Update plugin `id` from its own source (a thread's work: it downloads the zip).
     ///
     /// # Errors
-    /// Plugins are off, nothing newer, the download, or a check the release failed.
+    /// Nothing newer, the download, or a check the release failed.
     pub fn update_plugin(shared: &Shared, fetch: &Fetch<'_>, id: &str) -> Result<String, String> {
-        lock(shared).plugins_allowed()?;
         let plan = lock(shared)
             .plugins
             .plan_update(id)
@@ -1526,44 +1595,113 @@ impl Backend {
         Ok(done.said())
     }
 
-    /// The installed plugins the Dereth client is offered: none while plugins are off.
-    fn offered_plugins(&self) -> Vec<PathBuf> {
-        if self.plugins_on {
-            self.plugins.offered_packages()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Plugins are off unless the launcher was started with `--plugins`.
-    fn plugins_allowed(&self) -> Result<(), String> {
-        if self.plugins_on {
-            Ok(())
-        } else {
-            Err("Plugins are off; start the launcher with --plugins.".to_owned())
-        }
-    }
-
     /// Remove `id`.
     ///
     /// # Errors
     /// What stood in the way, in words for the page.
     pub fn remove_plugin(&mut self, id: &str) -> Result<(), String> {
-        self.plugins_allowed()?;
         self.plugins.remove(id).map_err(|e| e.to_string())
     }
 
     /// Which plugins update without the player: `none`, `all` or `first_party`.
     ///
     /// # Errors
-    /// Plugins are off, or not one of those.
+    /// Not one of those.
     pub fn set_plugin_updates(&mut self, setting: &str) -> Result<(), String> {
-        self.plugins_allowed()?;
         let setting = AutoUpdate::parse(setting)
             .ok_or_else(|| format!("{setting} is not an update setting"))?;
         self.plugins
             .set_auto_update(setting)
             .map_err(|e| e.to_string())
+    }
+
+    /// Add `folder`, one plugin's folder or a plugin repository (the folders directly in it hold
+    /// plugins), to the folders on this computer whose plugins the client is offered as they are
+    /// on disk. The page adds the folder the player chose at once.
+    ///
+    /// # Errors
+    /// It is neither, or is on the list already, in words for the page.
+    pub fn add_plugin_folder(&mut self, folder: &Path) -> Result<String, String> {
+        let found = self.plugins.add_local(folder).map_err(|e| match e {
+            PluginError::NoPluginIn(_) => {
+                "That folder has no plugin.toml, and neither do the folders in it.".to_owned()
+            }
+            PluginError::FolderListed(_) => "That folder is on the list already.".to_owned(),
+            e => e.to_string(),
+        })?;
+        Ok(match found {
+            1 => format!("Added 1 plugin from {}.", folder.display()),
+            n => format!("Added {n} plugins from {}.", folder.display()),
+        })
+    }
+
+    /// Take `folder` off the folders on this computer. Nothing in it is deleted.
+    ///
+    /// # Errors
+    /// It is not on the list.
+    pub fn remove_plugin_folder(&mut self, folder: &Path) -> Result<(), String> {
+        self.plugins.remove_local(folder).map_err(|e| e.to_string())
+    }
+
+    /// Make Your Own: [`create_plugin`], and the folder it wrote in put on the folders on this
+    /// computer, so the new plugin is offered to the client at once, as one the launcher keeps
+    /// the author's tool in: a copy of the tool it ships with goes at the folder's root, and stays
+    /// that tool ([`Backend::keep_tools_current`]).
+    ///
+    /// # Errors
+    /// As [`create_plugin`].
+    pub fn make_plugin(
+        &mut self,
+        dir: &Path,
+        name: &str,
+        github: Option<&str>,
+    ) -> Result<MadePlugin, String> {
+        let made = create_plugin(dir, name, github)?;
+        self.plugins.add_own(dir).map_err(|e| e.to_string())?;
+        if let Some(bytes) = self.tool.as_deref().and_then(|t| std::fs::read(t).ok()) {
+            let kept = keep_tool(dir, TOOL_FILE, &bytes).is_ok();
+            self.plugins.tool_failed.retain(|f| f != dir);
+            if !kept {
+                self.plugins.tool_failed.push(dir.to_owned());
+            }
+        }
+        Ok(made)
+    }
+
+    /// At start: the author's tool's copy in each folder Make Your Own wrote in made the tool this
+    /// launcher ships with again, which after an update is the new release's (a thread's work: it
+    /// reads and writes those folders). A copy that is that tool already is left alone, a folder
+    /// that is gone is passed over, and one whose copy could not be written says so on its row.
+    pub fn keep_tools_current(shared: &Shared) {
+        let (tool, folders) = {
+            let b = lock(shared);
+            (b.tool.clone(), b.plugins.tool_folders.clone())
+        };
+        let Some(bytes) = tool.and_then(|t| std::fs::read(t).ok()) else {
+            return;
+        };
+        // The lock is let go while the folders are written.
+        let done: Vec<(PathBuf, bool)> = folders
+            .into_iter()
+            .filter(|f| f.is_dir())
+            .map(|f| {
+                let kept = keep_tool(&f, TOOL_FILE, &bytes).is_ok();
+                (f, kept)
+            })
+            .collect();
+        let mut b = lock(shared);
+        for (folder, kept) in done {
+            b.plugins.tool_failed.retain(|f| *f != folder);
+            if !kept && b.plugins.tool_folders.contains(&folder) {
+                b.plugins.tool_failed.push(folder);
+            }
+        }
+    }
+
+    /// What the Dereth client is offered when the launcher starts it: the plugins in the folders
+    /// on this computer and the installed plugins.
+    fn offered_plugins(&self) -> Vec<PathBuf> {
+        self.plugins.offered_packages()
     }
 
     /// Every password this launcher stored. The secret store cannot be listed by prefix, so it goes
@@ -1708,19 +1846,17 @@ mod tests {
 
     const ZIP_AT: &str = "https://plugins.dereth.network/";
 
-    /// Plugins are off unless the launcher was started with `--plugins`: until then the page has no
-    /// Plugins section, the client is offered none of the plugins installed, and nothing is
-    /// fetched, installed or changed.
+    /// Plugins are on with no switch: a new launcher's page has its Plugins section, which shows
+    /// what is installed, and the client is offered every plugin installed, with nothing more to
+    /// turn on.
     #[test]
-    fn plugins_are_off_unless_the_launcher_was_started_with_plugins() {
+    fn the_plugins_section_is_there_and_the_client_is_offered_the_installed_plugins() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
-        let (mut b, dir) = backend("plugins-switch");
+        let (mut b, dir) = backend("plugins-on");
         let id = "network.dereth.counter";
         let zip = plugin_zip(id, "1.0.0", "0.1", "");
-        let served = Served::new(&[
-            (launcher_plugins::FIRST_PARTY, plugin_list(&[&zip])),
-            (&format!("{ZIP_AT}{id}.zip"), zip.clone()),
-        ]);
+        assert!(b.snapshot().plugins.installed.is_empty());
+        assert!(b.offered_plugins().is_empty(), "nothing installed yet");
         b.plugins
             .record_read(launcher_plugins::FIRST_PARTY, Ok(plugin_list(&[&zip])), 1)
             .unwrap();
@@ -1728,27 +1864,198 @@ mod tests {
             .install(launcher_plugins::FIRST_PARTY, id, &zip)
             .unwrap();
 
-        assert!(b.snapshot().plugins.is_none(), "no Plugins section");
-        assert!(b.offered_plugins().is_empty(), "the client is offered none");
-        assert!(b.remove_plugin(id).is_err());
-        assert_eq!(b.plugins.plugins.len(), 1, "nothing is changed");
-        let shared: Shared = Arc::new(Mutex::new(b));
-        let fetch = |u: &str, l: usize| served.fetch(u, l);
-        let refused = Backend::refresh_plugins(&shared, &fetch);
-        assert!(refused.is_err_and(|e| e.contains("--plugins")));
+        let view = b.snapshot().plugins;
+        assert_eq!(view.installed.len(), 1);
+        assert_eq!(b.offered_plugins(), b.plugins.offered_packages());
+        assert_eq!(b.offered_plugins().len(), 1);
+        b.remove_plugin(id).expect("removed");
+        assert!(b.offered_plugins().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Every file under `dir`, by its `/`-separated path there, and its bytes.
+    fn files_under(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![PathBuf::new()];
+        while let Some(rel) = stack.pop() {
+            for entry in std::fs::read_dir(dir.join(&rel)).unwrap() {
+                let entry = entry.unwrap();
+                let path = rel.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    stack.push(path);
+                } else {
+                    let key = path
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    out.insert(key, std::fs::read(dir.join(&path)).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// The Plugins page's Make Your Own writes what `dereth-plugin new <folder> --name <name> --github
+    /// <username>/<repo>` of the same Dereth release writes, byte for byte, and says what it says:
+    /// the tool's release and this launcher's are one version, and the workflows install that
+    /// release's tool. It writes a whole repository only into an empty folder.
+    #[test]
+    fn creating_a_plugin_writes_what_the_authors_tool_writes_and_only_into_an_empty_folder() {
+        let (_b, dir) = backend("plugin-create");
+        let version = env!("CARGO_PKG_VERSION");
+
+        let made = dir.join("made");
+        let said = format!(
+            "Added xp-tracker/ to plugin repository at {}.",
+            made.display()
+        );
+        assert_eq!(
+            create_plugin(&made, "XP Tracker", Some(" Someone/xp-tracker ")),
+            Ok(MadePlugin {
+                folder: made.clone(),
+                plugin: "xp-tracker".into(),
+                said,
+            })
+        );
+        // The author's tool carries Dereth's version, as the launcher does, and fills the
+        // template with it; its `new` with these words is this.
+        let tool = include_str!("../../../tools/plugin/Cargo.toml");
         assert!(
-            served.asked.lock().unwrap().is_empty(),
-            "nothing is fetched"
+            tool.contains(&format!("\nversion = \"{version}\"\n")),
+            "the tool is of this launcher's release"
+        );
+        let by_tool = dir.join("by-tool");
+        dereth_plugin_template::new(
+            &by_tool,
+            &dereth_plugin_template::Options {
+                id: None,
+                name: Some("XP Tracker"),
+                github: Some("Someone/xp-tracker"),
+                dereth: version,
+            },
+        )
+        .unwrap();
+        let written = files_under(&made);
+        assert_eq!(written, files_under(&by_tool));
+        assert!(
+            written.contains_key("xp-tracker/plugin.toml"),
+            "{written:?}"
+        );
+        for workflow in ["check.yml", "release.yml"] {
+            let text = String::from_utf8_lossy(&written[&format!(".github/workflows/{workflow}")])
+                .into_owned();
+            assert!(text.contains(&format!("DERETH: '{version}'")), "{text}");
+        }
+        let manifest = String::from_utf8_lossy(&written["xp-tracker/plugin.toml"]).into_owned();
+        assert!(
+            manifest.contains("id = \"io.github.someone.xp-tracker\""),
+            "{manifest}"
         );
 
-        let b = Arc::try_unwrap(shared)
-            .unwrap()
-            .into_inner()
-            .unwrap()
-            .with_plugins(true);
-        let view = b.snapshot().plugins.expect("the Plugins section");
-        assert_eq!(view.installed.len(), 1);
-        assert_eq!(b.offered_plugins().len(), 1);
+        // Without a repository it is the template's placeholders for one.
+        let bare = dir.join("bare");
+        create_plugin(&bare, "XP Tracker", Some("")).unwrap();
+        let manifest = std::fs::read_to_string(bare.join("xp-tracker/plugin.toml")).unwrap();
+        assert!(
+            manifest.contains("id = \"example.xp-tracker\""),
+            "{manifest}"
+        );
+
+        // A folder that holds anything is left as it is.
+        let held = dir.join("held");
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("notes.txt"), "mine").unwrap();
+        assert_eq!(
+            create_plugin(&held, "XP Tracker", None),
+            Err("Choose an empty folder or a plugin repository.".to_owned())
+        );
+        assert_eq!(files_under(&held).len(), 1);
+
+        // The name and the repository are checked before the player is asked for a folder.
+        assert!(check_new_plugin("XP Tracker", Some("Someone/xp")).is_ok());
+        assert_eq!(
+            check_new_plugin(" ", None),
+            Err("Give the plugin a name.".to_owned())
+        );
+        assert_eq!(
+            check_new_plugin("123", None),
+            Err("Start the name with a letter.".to_owned())
+        );
+        assert_eq!(
+            check_new_plugin("XP", Some("someone")),
+            Err("Give the GitHub repository as username/repo.".to_owned())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Make Your Own in a folder that is a plugin repository already adds only the new plugin's folder,
+    /// as the author's tool's `new` does there, byte for byte, and says what it says. A folder
+    /// name or an id the repository has is refused in the page's words, and nothing is written.
+    #[test]
+    fn building_into_a_plugin_repository_adds_only_the_plugins_folder_as_the_tool_does() {
+        let (_b, dir) = backend("plugin-add");
+        let version = env!("CARGO_PKG_VERSION");
+        let options = |name| dereth_plugin_template::Options {
+            id: None,
+            name: Some(name),
+            github: Some("Someone/plugins"),
+            dereth: version,
+        };
+        let (here, by_tool) = (dir.join("here"), dir.join("by-tool"));
+        create_plugin(&here, "XP Tracker", Some("Someone/plugins")).unwrap();
+        dereth_plugin_template::new(&by_tool, &options("XP Tracker")).unwrap();
+        let before = files_under(&here);
+
+        let added = create_plugin(&here, "Loot Helper", Some("Someone/plugins")).unwrap();
+        let tool = dereth_plugin_template::new(&by_tool, &options("Loot Helper")).unwrap();
+        assert_eq!(files_under(&here), files_under(&by_tool));
+        let mut new_files: Vec<String> = files_under(&here)
+            .into_keys()
+            .filter(|k| !before.contains_key(k))
+            .collect();
+        new_files.sort();
+        assert_eq!(
+            new_files,
+            [
+                "loot-helper/CHANGES.md",
+                "loot-helper/main.lua",
+                "loot-helper/plugin.toml"
+            ]
+        );
+        assert!(files_under(&here)
+            .iter()
+            .filter(|(k, _)| before.contains_key(*k))
+            .all(|(k, v)| &before[k] == v));
+        assert_eq!(added.plugin, "loot-helper");
+        assert_eq!(added.said, tool.said(&here));
+        assert_eq!(
+            added.said,
+            format!(
+                "Added loot-helper/ to plugin repository at {}.",
+                here.display()
+            )
+        );
+
+        let now = files_under(&here);
+        assert_eq!(
+            create_plugin(&here, "Loot Helper", None),
+            Err(
+                "The repository has a loot-helper folder already. Give the plugin another name."
+                    .to_owned()
+            )
+        );
+        std::fs::rename(here.join("loot-helper"), here.join("loot")).unwrap();
+        assert_eq!(
+            create_plugin(&here, "Loot Helper", Some("Someone/plugins")),
+            Err("A plugin in the repository is io.github.someone.loot-helper already.".to_owned())
+        );
+        std::fs::rename(here.join("loot"), here.join("loot-helper")).unwrap();
+        assert_eq!(
+            create_plugin(&here.join("xp-tracker"), "Nested", None),
+            Err("That is a plugin's own folder. Choose its repository.".to_owned())
+        );
+        assert_eq!(files_under(&here), now, "nothing is written when refused");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1759,7 +2066,7 @@ mod tests {
     fn plugins_install_from_sources_and_update_as_the_setting_says() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
         let (b, dir) = backend("plugins-sources");
-        let shared: Shared = Arc::new(Mutex::new(b.with_plugins(true)));
+        let shared: Shared = Arc::new(Mutex::new(b));
         let own = "network.dereth.counter";
         let theirs = "org.example.meter";
         let other = "https://example.github.io/plugins/plugins.json";
@@ -1775,11 +2082,8 @@ mod tests {
         let fetch = |u: &str, l: usize| served.fetch(u, l);
 
         // Read, and offered: nothing is installed until the player asks.
-        assert_eq!(Backend::refresh_plugins(&shared, &fetch), Ok(String::new()));
-        let view = lock(&shared)
-            .snapshot()
-            .plugins
-            .expect("the Plugins section");
+        assert_eq!(Backend::refresh_plugins(&shared, &fetch), "");
+        let view = lock(&shared).snapshot().plugins;
         assert_eq!(view.available.len(), 1);
         assert!(view.installed.is_empty());
         let said = Backend::install_plugin(&shared, &fetch, launcher_plugins::FIRST_PARTY, own);
@@ -1811,12 +2115,9 @@ mod tests {
             (&format!("{other_at}{theirs}.zip"), theirs2.clone()),
         ]);
         let fetch = |u: &str, l: usize| served.fetch(u, l);
-        let said = Backend::refresh_plugins(&shared, &fetch).expect("checked");
+        let said = Backend::refresh_plugins(&shared, &fetch);
         assert_eq!(said, "Updated Meter to 1.1.0.\n1 plugin update is waiting.");
-        let view = lock(&shared)
-            .snapshot()
-            .plugins
-            .expect("the Plugins section");
+        let view = lock(&shared).snapshot().plugins;
         let waiting = view
             .installed
             .iter()
@@ -1843,13 +2144,13 @@ mod tests {
             (other, plugin_list(&[&theirs2, &fresh])),
         ]);
         let fetch = |u: &str, l: usize| served.fetch(u, l);
-        let said = Backend::refresh_plugins(&shared, &fetch).expect("refreshed");
+        let said = Backend::refresh_plugins(&shared, &fetch);
         assert_eq!(said, "New from example.github.io: Meter.");
-        assert_eq!(Backend::refresh_plugins(&shared, &fetch), Ok(String::new()));
+        assert_eq!(Backend::refresh_plugins(&shared, &fetch), "");
         // A source that cannot be read says so, and its plugins stay.
         let gone = Served::new(&[]);
         let fetch = |u: &str, l: usize| gone.fetch(u, l);
-        let said = Backend::refresh_plugins(&shared, &fetch).expect("checked");
+        let said = Backend::refresh_plugins(&shared, &fetch);
         assert!(said.contains("example.github.io: https://example.github.io/plugins/plugins.json was not found (404)"), "{said}");
         assert_eq!(lock(&shared).offered_plugins().len(), 2);
         let _ = std::fs::remove_dir_all(dir);
@@ -1861,7 +2162,7 @@ mod tests {
     fn at_start_the_updates_that_wait_are_told_whatever_the_setting() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
         let (b, dir) = backend("plugins-at-start");
-        let shared: Shared = Arc::new(Mutex::new(b.with_plugins(true)));
+        let shared: Shared = Arc::new(Mutex::new(b));
         let own = "network.dereth.counter";
         let v1 = plugin_zip(own, "1.0.0", "0.1", "");
         let v2 = plugin_zip(own, "1.1.0", "0.1", "");
@@ -1892,6 +2193,262 @@ mod tests {
             Some("Plugins: 1 plugin update is waiting.")
         );
         drop(b);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Started with no connection, the launcher says nothing of its sources in the notice: each
+    /// source's row says it could not be read. Refresh still says so.
+    #[test]
+    fn at_start_a_source_that_cannot_be_read_says_so_on_its_row_and_not_in_the_notice() {
+        let (b, dir) = backend("plugins-offline");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let offline = Served::new(&[]);
+        let fetch = |u: &str, l: usize| offline.fetch(u, l);
+        Backend::refresh_plugins_at_start(&shared, &fetch);
+        let snap = lock(&shared).snapshot();
+        assert!(snap.message.is_none(), "{:?}", snap.message.map(|m| m.text));
+        assert!(snap.plugins.sources[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("was not found")));
+        let said = Backend::refresh_plugins(&shared, &fetch);
+        assert!(said.starts_with("Dereth: "), "{said}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A folder on this computer is added and taken off by the page; its plugins are offered to
+    /// the client as their folders, before the installed plugins, and taking it off deletes
+    /// nothing.
+    #[test]
+    fn a_folder_on_this_computer_is_offered_to_the_client_and_taken_off_deleting_nothing() {
+        use dereth_launch::testing::{plugin_list, plugin_zip, write_plugin_folder};
+        let (mut b, dir) = backend("plugins-local");
+        let id = "network.dereth.counter";
+        let zip = plugin_zip(id, "1.0.0", "0.1", "");
+        b.plugins
+            .record_read(launcher_plugins::FIRST_PARTY, Ok(plugin_list(&[&zip])), 1)
+            .unwrap();
+        b.plugins
+            .install(launcher_plugins::FIRST_PARTY, id, &zip)
+            .unwrap();
+        let repo = dir.join("repo");
+        write_plugin_folder(&repo.join("counter"), id, "Counter", "1.1.0");
+        write_plugin_folder(&repo.join("hello"), "org.example.hello", "Hello", "0.1.0");
+        assert_eq!(
+            b.add_plugin_folder(&repo).as_deref(),
+            Ok(format!("Added 2 plugins from {}.", repo.display()).as_str())
+        );
+        assert_eq!(
+            b.offered_plugins(),
+            [repo.join("counter"), repo.join("hello")],
+            "the installed one of the same id is not offered"
+        );
+        let view = b.snapshot().plugins;
+        assert_eq!(view.local.len(), 2);
+        assert!(view.installed[0].local_in_its_place);
+        let before = files_under(&repo);
+        b.remove_plugin_folder(&repo).expect("taken off");
+        assert_eq!(files_under(&repo), before);
+        assert_eq!(b.offered_plugins(), b.plugins.offered_packages());
+        assert_eq!(b.offered_plugins().len(), 1, "the installed one again");
+        assert!(b.remove_plugin_folder(&repo).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Adding a folder is one step, with no question first, and says what it added in one short
+    /// line: a plugin's own folder, or a repository whose folders directly in it hold plugins. A
+    /// folder whose plugins are all further down, or one on the list already, is refused in one
+    /// short line of the page's, and is not listed.
+    #[test]
+    fn a_plugin_folder_is_added_in_one_step_and_one_holding_plugins_only_further_down_is_refused() {
+        use dereth_launch::testing::write_plugin_folder;
+        let (mut b, dir) = backend("plugins-local-add");
+        let single = dir.join("hello");
+        write_plugin_folder(&single, "org.example.hello", "Hello", "0.1.0");
+        assert_eq!(
+            b.add_plugin_folder(&single),
+            Ok(format!("Added 1 plugin from {}.", single.display()))
+        );
+        let code = dir.join("code");
+        write_plugin_folder(
+            &code.join("plugins").join("meter"),
+            "org.example.meter",
+            "Meter",
+            "0.1.0",
+        );
+        assert_eq!(
+            b.add_plugin_folder(&code),
+            Err("That folder has no plugin.toml, and neither do the folders in it.".to_owned())
+        );
+        assert_eq!(
+            b.add_plugin_folder(&single),
+            Err("That folder is on the list already.".to_owned())
+        );
+        assert_eq!(b.plugins.local, std::slice::from_ref(&single));
+        assert_eq!(
+            b.add_plugin_folder(&code.join("plugins")),
+            Ok(format!(
+                "Added 1 plugin from {}.",
+                code.join("plugins").display()
+            ))
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Make Your Own puts the folder it wrote in on the folders on this computer, once, so the
+    /// new plugin is offered to the client at once.
+    #[test]
+    fn make_your_own_puts_its_folder_on_the_list_so_the_new_plugin_is_offered() {
+        let (mut b, dir) = backend("plugins-build-local");
+        let repo = dir.join("repo");
+        let made = b
+            .make_plugin(&repo, "XP Tracker", Some("Someone/plugins"))
+            .unwrap();
+        assert_eq!(
+            made.said,
+            format!(
+                "Added xp-tracker/ to plugin repository at {}.",
+                repo.display()
+            )
+        );
+        assert_eq!(b.plugins.local, std::slice::from_ref(&repo));
+        assert_eq!(b.offered_plugins(), [repo.join("xp-tracker")]);
+        b.make_plugin(&repo, "Loot Helper", Some("Someone/plugins"))
+            .unwrap();
+        assert_eq!(b.plugins.local, std::slice::from_ref(&repo), "listed once");
+        assert_eq!(
+            b.offered_plugins(),
+            [repo.join("loot-helper"), repo.join("xp-tracker")]
+        );
+        let names: Vec<String> = b
+            .snapshot()
+            .plugins
+            .local
+            .into_iter()
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(names, ["Loot Helper", "XP Tracker"]);
+        // A folder refused is not listed.
+        let held = dir.join("held");
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(held.join("notes.txt"), "mine").unwrap();
+        assert!(b.make_plugin(&held, "XP Tracker", None).is_err());
+        assert_eq!(b.plugins.local, [repo]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Make Your Own puts a copy of the author's tool the launcher ships with at the root of the
+    /// folder it wrote in, kept out of git there, and keeps it that tool: at start, a copy that is
+    /// not the tool (after an update, the older release's) is written again. A folder Add Plugin
+    /// Folder added gets none. A folder taken off the list keeps its copy, which is no longer
+    /// written; a folder that is gone is passed over, and one whose copy cannot be written says so
+    /// on its row until it can.
+    #[test]
+    fn make_your_own_keeps_the_launchers_tool_in_its_folder_and_add_plugin_folder_does_not() {
+        let (b, dir) = backend("plugins-tool");
+        let tool = dir.join("release").join(TOOL_FILE);
+        std::fs::create_dir_all(tool.parent().unwrap()).unwrap();
+        std::fs::write(&tool, "the tool, 1.0").unwrap();
+        let shared: Shared = Arc::new(Mutex::new(b.with_tool(Some(tool.clone()))));
+        let copy_in = |folder: &Path| std::fs::read_to_string(folder.join(TOOL_FILE)).ok();
+        let ignored = |folder: &Path| std::fs::read_to_string(folder.join(".gitignore")).unwrap();
+        let template_ignore = dereth_plugin_template::FILES
+            .iter()
+            .find(|(p, _)| *p == ".gitignore")
+            .unwrap()
+            .1;
+
+        // Made new: the copy at its root, which the template's .gitignore keeps out already.
+        let repo = dir.join("repo");
+        lock(&shared)
+            .make_plugin(&repo, "XP Tracker", Some("Someone/plugins"))
+            .unwrap();
+        assert_eq!(copy_in(&repo).as_deref(), Some("the tool, 1.0"));
+        assert_eq!(ignored(&repo), template_ignore, "its lines once");
+
+        // An older repository, whose .gitignore lacks the lines: added with Add Plugin Folder, no
+        // copy, then or at start; Make Your Own adding a plugin to it puts one, and the lines.
+        let older = dir.join("older");
+        dereth_plugin_template::new(
+            &older,
+            &dereth_plugin_template::Options {
+                id: None,
+                name: Some("Meter"),
+                github: None,
+                dereth: "0.1.0",
+            },
+        )
+        .unwrap();
+        std::fs::write(older.join(".gitignore"), "/dist/\n/site/\n").unwrap();
+        lock(&shared).add_plugin_folder(&older).unwrap();
+        assert_eq!(copy_in(&older), None);
+        Backend::keep_tools_current(&shared);
+        assert_eq!(copy_in(&older), None, "not a folder it keeps the tool in");
+        lock(&shared)
+            .make_plugin(&older, "Loot Helper", None)
+            .unwrap();
+        assert_eq!(copy_in(&older).as_deref(), Some("the tool, 1.0"));
+        let older_ignore = "/dist/\n/site/\n/dereth-plugin\n/dereth-plugin.exe\n";
+        assert_eq!(ignored(&older), older_ignore);
+
+        // An update brings the next release's tool: at start each copy is that one, and the
+        // .gitignore files are as they were.
+        std::fs::write(&tool, "the tool, 1.1").unwrap();
+        Backend::keep_tools_current(&shared);
+        for folder in [&repo, &older] {
+            assert_eq!(
+                copy_in(folder).as_deref(),
+                Some("the tool, 1.1"),
+                "{folder:?}"
+            );
+        }
+        assert_eq!(ignored(&older), older_ignore);
+        assert_eq!(ignored(&repo), template_ignore);
+
+        // Taken off the list, a folder keeps its copy as it is. A folder gone is passed over, and
+        // one whose copy cannot be written says so on its row.
+        lock(&shared).remove_plugin_folder(&older).unwrap();
+        let gone = dir.join("gone");
+        let blocked = dir.join("blocked");
+        for folder in [&gone, &blocked] {
+            lock(&shared).make_plugin(folder, "Radar", None).unwrap();
+        }
+        std::fs::remove_dir_all(&gone).unwrap();
+        std::fs::remove_file(blocked.join(TOOL_FILE)).unwrap();
+        std::fs::create_dir(blocked.join(TOOL_FILE)).unwrap();
+        std::fs::write(&tool, "the tool, 1.2").unwrap();
+        Backend::keep_tools_current(&shared);
+        assert_eq!(copy_in(&older).as_deref(), Some("the tool, 1.1"));
+        assert_eq!(copy_in(&repo).as_deref(), Some("the tool, 1.2"));
+        assert!(!gone.exists(), "nothing made where a folder went");
+        let problem = |folder: &Path| {
+            lock(&shared)
+                .snapshot()
+                .plugins
+                .local
+                .into_iter()
+                .filter(|r| r.listed == folder.display().to_string())
+                .find_map(|r| r.tool_problem)
+        };
+        assert_eq!(
+            problem(&blocked).as_deref(),
+            Some("Could not update dereth-plugin in this folder.")
+        );
+        assert_eq!((problem(&repo), problem(&gone)), (None, None));
+        std::fs::remove_dir(blocked.join(TOOL_FILE)).unwrap();
+        Backend::keep_tools_current(&shared);
+        assert_eq!(copy_in(&blocked).as_deref(), Some("the tool, 1.2"));
+        assert_eq!(problem(&blocked), None);
+
+        // With no tool to copy, a folder Make Your Own wrote in is still one it keeps the tool in:
+        // the first start that has one puts the copy there.
+        lock(&shared).tool = None;
+        let later = dir.join("later");
+        lock(&shared).make_plugin(&later, "Bank", None).unwrap();
+        assert_eq!(copy_in(&later), None);
+        lock(&shared).tool = Some(tool);
+        Backend::keep_tools_current(&shared);
+        assert_eq!(copy_in(&later).as_deref(), Some("the tool, 1.2"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

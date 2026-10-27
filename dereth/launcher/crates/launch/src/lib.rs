@@ -7,7 +7,9 @@
 //! and the interface it names, the client's input crate (`dereth-input`), for a pad's state as
 //! the client reads it, the plugin packages crate (`dereth-plugin-package`), for the plugins it
 //! installs and the lists of the sources it installs them from, and the plugin interface
-//! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions, and the
+//! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
+//! plugins. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:

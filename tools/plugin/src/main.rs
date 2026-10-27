@@ -1,21 +1,25 @@
 //! The plugin author's tool: makes a new plugin repository, checks a plugin as the hosts check it,
-//! packs it into a zip, releases it and lists it in a plugin source's `plugins.json`.
+//! packs it into a zip, releases it and lists it in a plugin source's `plugins.json`, and drops
+//! from that list the plugins a repository no longer holds.
 //!
 //! **Depends on** `dereth-plugin-package` for the package (the hosts' own reading), a compiled
 //! plugin's source hash and the source's list, `dereth-plugin-api` for the API version and the
 //! versions and ids, `dereth-plugin-lua` to compile a plugin's scripts as the hosts compile them,
 //! `dereth-plugin-wasm` to check a compiled plugin's module as the hosts check it, `wit-component`
-//! to make a module a component, `toml` to read a crate's name and `sha2` for the zip's own hash.
+//! to make a module a component, `dereth-plugin-template` for the template `new` writes, `toml` to
+//! read a crate's name and `sha2` for the zip's own hash.
 //! **Used by** no crate: authors run it, and the template's workflows run it.
 //!
-//! **Must never** write anywhere but the paths it is given, and the git repository a release is
-//! made in.
+//! **Must never** write anywhere but the paths it is given, the zips beside a list it prunes, and
+//! the git repository a release is made in.
 //!
 //! ```text
-//! dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <owner>/<repo>]
-//!                                           a new plugin repository, from the template
+//! dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <username>/<repo>]
+//!                                           a new plugin repository, from the template; in a
+//!                                           plugin repository, a new plugin's folder added to it
 //! dereth-plugin check <folder>              every check a host makes at load, and every script
-//!                                           compiled; a folder of plugins checks each
+//!                                           compiled; a plugin repository checks each of the
+//!                                           plugins directly in it
 //! dereth-plugin pack <folder> <out.zip>     the folder as a zip, and <out.zip>.sha256 beside it
 //! dereth-plugin hash <zip>                  a package zip's id, version and SHA-256
 //! dereth-plugin build <crate> <package>     a Rust plugin built as a component: <package>/plugin.wasm
@@ -26,6 +30,9 @@
 //! dereth-plugin find <repository> <tag>     the plugin a release tag names: folder, id, version, name
 //! dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <source name>]
 //!                                           list the zip's release in a source's plugins.json
+//! dereth-plugin prune <plugins.json> <repository>
+//!                                           drop from a source's plugins.json every plugin the
+//!                                           repository no longer holds, and its zip beside it
 //! dereth-plugin --version                   the tool's version (Dereth's), and the commit and
 //!                                           target a release build was made from
 //! ```
@@ -41,7 +48,6 @@
 mod check;
 mod list;
 mod release;
-mod template;
 #[cfg(test)]
 mod tests;
 
@@ -50,12 +56,13 @@ use std::process::ExitCode;
 
 use dereth_plugin_package::source;
 use dereth_plugin_package::{is_package_root, Package, MANIFEST_FILE};
+use dereth_plugin_template as template;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
 dereth-plugin -- make, check, pack, release and list plugins
 
-  dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <owner>/<repo>]
+  dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <username>/<repo>]
   dereth-plugin check <folder>
   dereth-plugin pack <folder> <out.zip>
   dereth-plugin hash <zip>
@@ -64,6 +71,7 @@ dereth-plugin -- make, check, pack, release and list plugins
   dereth-plugin notes <folder> <version>
   dereth-plugin find <repository> <tag>
   dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <source name>]
+  dereth-plugin prune <plugins.json> <repository>
   dereth-plugin --version";
 
 fn main() -> ExitCode {
@@ -150,12 +158,13 @@ fn run(args: &[String]) -> Result<String, String> {
     match line.words.as_slice() {
         ["new", folder] => {
             line.only(&["id", "name", "github"])?;
-            template::new(
+            new(
                 Path::new(folder),
                 &template::Options {
                     id: line.value("id"),
                     name: line.value("name"),
                     github: line.value("github"),
+                    dereth: DERETH_VERSION,
                 },
             )
         }
@@ -202,8 +211,22 @@ fn run(args: &[String]) -> Result<String, String> {
                 &today(),
             )
         }
+        ["prune", list_file, repo] => {
+            line.only(&[])?;
+            list::prune(Path::new(list_file), Path::new(repo))
+        }
         _ => Err(USAGE.to_owned()),
     }
+}
+
+/// The Dereth release this tool comes with: the template's workflows install its tool.
+const DERETH_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// `new`: write the template into `folder`, which must be missing or empty, or add a new
+/// plugin's folder to the plugin repository it is. Says what it made as the launcher does.
+fn new(folder: &Path, o: &template::Options) -> Result<String, String> {
+    let made = template::new(folder, o).map_err(|e| e.to_string())?;
+    Ok(made.said(folder))
 }
 
 /// Today's date, `YYYY-MM-DD`, in UTC.

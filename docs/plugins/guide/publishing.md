@@ -13,15 +13,21 @@ after it.
 
 ## The tool
 
+`dereth-plugin` comes with Dereth: `dereth-plugin.exe` beside `dereth.exe` on Windows,
+`Dereth.app/Contents/MacOS/dereth-plugin` on macOS, and inside the AppImage on Linux
+(`--appimage-extract usr/bin/dereth-plugin` takes it out). Each Dereth release also has it as a file
+of its own, `dereth-plugin-<version>-<platform>`, which the template's workflows download.
+
 | command | what it does |
 |---|---|
-| `dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <owner>/<repo>]` | a new plugin repository, from the template |
+| `dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <username>/<repo>]` | a new plugin repository, from the template; in a plugin repository, a new plugin's folder added to it |
 | `dereth-plugin check <folder>` | every check a client makes when it loads the plugin, and every script compiled; a folder of plugins checks each one |
 | `dereth-plugin pack <folder> <out.zip>` | the plugin as a zip, and `<out.zip>.sha256` beside it; the same folder always gives the same bytes |
 | `dereth-plugin release <folder> <version> [--push]` | sets the version, moves the change log's notes under it, commits and tags; pushes with `--push` |
 | `dereth-plugin notes <folder> <version>` | that version's notes from the change log |
 | `dereth-plugin find <repository> <tag>` | the plugin a release tag names: its folder, id, version and name |
 | `dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <name>]` | lists the zip's release in a source, in place of the plugin's entry; `<url>` is where players download it, an `https://` address or a path beside the list |
+| `dereth-plugin prune <plugins.json> <repository>` | drops from a source every plugin the repository no longer holds, with its zip when the list names it by a path beside itself |
 | `dereth-plugin hash <zip>` | a zip's id, version and SHA-256 |
 | `dereth-plugin build <crate> <folder>` | a Rust plugin built as a component ([getting-started-wasm.md](getting-started-wasm.md)) |
 
@@ -50,11 +56,21 @@ xp-tracker/
   .gitattributes, .gitignore
   .github/workflows/check.yml    every push and pull request: each plugin checked
   .github/workflows/release.yml  a release tag: packed, released, listed in plugins.json
+  .github/workflows/unlist.yml   a push to the default branch: a plugin whose folder is gone unlisted
   xp-tracker/                    the plugin: exactly what goes in its zip
     plugin.toml                  id io.github.you.xp-tracker, version 0.1.0, homepage the repository
     main.lua                     a window that says hello, and /xptracker
     CHANGES.md                   ## Unreleased
 ```
+
+The launcher makes the same repository: on its **Plugins** page, **Make Your Own** takes the name
+and the GitHub repository and writes it into an empty folder you choose, for the launcher's own
+Dereth release. It also puts a copy of the tool it comes with at the repository's root,
+`dereth-plugin.exe` on Windows and `dereth-plugin` elsewhere, which the `.gitignore` keeps out of
+git. Each time the launcher starts it makes that copy its own tool again, so after a Dereth update
+the copy is the new release's. Only the folders Make Your Own wrote in get one: a folder added with
+**Add Plugin Folder** does not, and taking a folder off the launcher's list stops the updates and
+leaves the copy where it is. `dereth-plugin new` from the command line makes no copy of itself.
 
 The plugin's id is `io.github.<you>.<name>` unless `--id` names another: an id is a reverse domain
 name, and an author without a domain of their own uses their GitHub address's. Ids under
@@ -124,10 +140,35 @@ until they update Dereth.
 
 ## Many plugins in one repository
 
-A repository may hold any number of plugins, each a folder of its own with its own `plugin.toml`
-and `CHANGES.md`. Then each release is tagged `<id>-v<version>` (`dereth-plugin release` makes the
-right tag), the workflow finds the plugin by its id, and every plugin is listed in the same
-`plugins.json`: one source for all of them.
+A repository may hold any number of plugins, each a folder of its own, directly in the
+repository, with its own `plugin.toml` and `CHANGES.md`. Then each release is tagged
+`<id>-v<version>` (`dereth-plugin release` makes the right tag), the workflow finds the plugin by
+its id, and every plugin is listed in the same `plugins.json`: one source for all of them. A plugin
+further down than the repository's own folders is not one of its plugins: `check`, `find` and
+`release` leave it out or refuse it, and the launcher does not add it.
+
+To add one, run `new` on the repository itself, or choose it in the launcher's **Make Your Own**
+(which also puts its copy of the tool there, and the `.gitignore` lines for it the repository
+lacks):
+
+```text
+dereth-plugin new xp-tracker --name "Loot Helper" --github you/xp-tracker
+```
+
+In a plugin repository, `new` writes only the new plugin's folder (`loot-helper/`, with its
+`plugin.toml`, `main.lua` and `CHANGES.md`) beside the others, and touches nothing else: the README
+and the workflows serve every plugin. It refuses a folder name or an id the repository has already,
+and a plugin's own folder. Any other folder that is not empty is refused too, one whose plugins are
+all further down among them.
+
+To remove one, delete its folder and push to the default branch. The **Unlist** workflow then drops
+it from `plugins.json` on the `gh-pages` branch, with its zip there (`dereth-plugin prune
+site/plugins.json .`), and its GitHub releases stay. Launchers that installed it keep it, with no
+more updates. The workflow first looks on a copy of `gh-pages` whether anything is to be dropped;
+only then does it drop and push, waiting its turn with the releases (one concurrency group), so an
+ordinary push never holds up a release. Before the first release there is no `gh-pages` branch,
+and nothing to do. `prune` drops nothing when the repository holds no plugin at all, or when a
+plugin's `plugin.toml` does not read.
 
 ## A source of other repositories' releases
 

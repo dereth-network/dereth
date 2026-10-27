@@ -302,7 +302,7 @@ Dereth {VERSION}: the launcher, with the Dereth client inside it, for Windows (1
 
 The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-For plugin authors: `dereth-plugin-{VERSION}-<platform>` is the plugin author's tool of this release (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
+For plugin authors: the plugin author's tool, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
 
 **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 

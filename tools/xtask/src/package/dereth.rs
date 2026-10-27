@@ -12,14 +12,16 @@
 //!
 //! | system | the release file |
 //! |---|---|
-//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe` and the notices, under `dereth-<v>/` |
-//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
-//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it |
+//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe` and the notices, under `dereth-<v>/` |
+//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client and the tool in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
+//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client and the tool inside it |
 //!
-//! and beside it, for plugin authors, the plugin author's tool for the same platform
-//! ([`tool_file_name`]): `dereth-plugin-<v>-<platform>.zip` on Windows, `.tar.gz` on macOS and
-//! Linux, `dereth-plugin` and its notices under `dereth-plugin-<v>/`. A plugin repository's
-//! workflows download it from the release its pin names and check it against `SHA256SUMS`.
+//! The plugin author's tool, `dereth-plugin`, comes inside each one beside the client
+//! ([`tool_in_release`]), so a player who installed Dereth has it. Beside the release file it is
+//! also a file of its own for the same platform ([`tool_file_name`]):
+//! `dereth-plugin-<v>-<platform>.zip` on Windows, `.tar.gz` on macOS and Linux, `dereth-plugin` and
+//! its notices under `dereth-plugin-<v>/`. A plugin repository's workflows download that one from
+//! the release its pin names and check it against `SHA256SUMS`.
 //!
 //! With an update-signing key in the environment ([`sign`]) the launcher's file is signed, and
 //! the signature goes into its platform's piece of `latest.json`, `latest-<platform>.json`: the
@@ -180,6 +182,16 @@ pub fn tool_root(version: &str) -> String {
     format!("{TOOL}-{version}")
 }
 
+/// Where the tool is in the release file for `target`, beside the client: below the archive's
+/// folder on Windows and macOS, among the AppImage's programs on Linux.
+pub fn tool_in_release(target: Target) -> String {
+    match target.os {
+        Os::Windows => format!("{TOOL}{}", target.exe_suffix()),
+        Os::Mac => format!("Contents/MacOS/{TOOL}"),
+        Os::Linux => TOOL.to_owned(),
+    }
+}
+
 /// The files the tool's archive holds below its folder: the program and the notices.
 pub fn tool_contents(target: Target) -> Vec<String> {
     let mut out = vec![format!("{TOOL}{}", target.exe_suffix())];
@@ -222,6 +234,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
         Os::Windows => {
             required.push(format!("dereth{exe}"));
             required.push(format!("dereth-client{exe}"));
+            required.push(tool_in_release(target));
             required.extend(notices_in(""));
         }
         Os::Mac => {
@@ -231,6 +244,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/MacOS/dereth-client",
                 "Contents/Frameworks/libMoltenVK.dylib",
             ]));
+            required.push(tool_in_release(target));
             required.extend(notices_in("Contents/Resources/"));
             // The bundler names the icon after the product, or `icon`, by version.
             optional.extend(own(&[
@@ -247,7 +261,8 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     (required, optional)
 }
 
-/// The programs in the release file's archive, which the header checks read.
+/// The windowed programs in the release file's archive, which the header checks read; the tool, a
+/// console program, is checked as one ([`tool_in_release`]).
 pub fn programs(target: Target) -> Vec<String> {
     let exe = target.exe_suffix();
     let dir = if target.os == Os::Mac {
@@ -696,27 +711,28 @@ impl Job<'_> {
     fn run(&self) -> Result<(), String> {
         fresh_dir(self.stage)?;
         let client = self.build_client()?;
+        let tool = self.build_tool()?;
         let notices = self.notices()?;
-        let launcher = self.build_launcher(&client, &notices)?;
+        let launcher = self.build_launcher(&client, &tool, &notices)?;
         match self.target.os {
             Os::Windows => {
                 let mut members = vec![
                     ("dereth.exe".to_owned(), launcher),
                     ("dereth-client.exe".to_owned(), client),
+                    (tool_in_release(self.target), tool.clone()),
                 ];
                 members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
                 self.write_archive(&members)
             }
-            Os::Linux => self.write_appimage(&launcher, &client),
+            Os::Linux => self.write_appimage(&launcher, &client, &tool),
             Os::Mac => self.write_bundle(&launcher),
         }?;
-        self.package_tool()
+        self.package_tool(&tool)
     }
 
-    /// The plugin author's tool, `dereth-plugin`, as a release file of its own beside the
-    /// launcher's: built with cargo in the workspace as the client is, its header checked as a
-    /// console program's, and archived with its notices ([`tool_archive`]).
-    fn package_tool(&self) -> Result<(), String> {
+    /// The plugin author's tool, built with cargo in the workspace as the client is, and staged as
+    /// the client is: it goes into the release file beside the client, and into a file of its own.
+    fn build_tool(&self) -> Result<PathBuf, String> {
         let t = self.target;
         let env = build_env(self.ws, self.facts, t);
         run_in(
@@ -735,15 +751,35 @@ impl Job<'_> {
             &[],
         )?;
         let exe = format!("{TOOL}{}", t.exe_suffix());
-        let program = read(&target_dir().join(t.triple).join("release").join(&exe))?;
-        let described = headers::check_console_app(&program, t, targets::DERETH_GLIBC_FLOOR)
-            .map_err(|problems| {
-                format!(
-                    "the header check refused {exe} for {}:\n  {}",
-                    t.triple,
-                    problems.join("\n  ")
-                )
-            })?;
+        let built = target_dir().join(t.triple).join("release").join(&exe);
+        let staged = self
+            .stage
+            .join("bin")
+            .join(format!("{TOOL}-{}{}", t.triple, t.exe_suffix()));
+        copy(&built, &staged)?;
+        Ok(staged)
+    }
+
+    /// The tool's header, checked as a console program's: its line for the manifest.
+    fn check_tool(&self, bytes: &[u8]) -> Result<String, String> {
+        let t = self.target;
+        headers::check_console_app(bytes, t, targets::DERETH_GLIBC_FLOOR).map_err(|problems| {
+            format!(
+                "the header check refused {TOOL} for {}:\n  {}",
+                t.triple,
+                problems.join("\n  ")
+            )
+        })
+    }
+
+    /// The plugin author's tool, `dereth-plugin` (built at `tool`), as a release file of its own
+    /// beside the launcher's: its header checked as a console program's, and archived with its
+    /// notices ([`tool_archive`]).
+    fn package_tool(&self, tool: &Path) -> Result<(), String> {
+        let t = self.target;
+        let exe = format!("{TOOL}{}", t.exe_suffix());
+        let program = read(tool)?;
+        let described = self.check_tool(&program)?;
         println!("  {exe}: {described}");
         let about = self.stage.join("tool-about");
         mkdir(&about)?;
@@ -828,6 +864,7 @@ impl Job<'_> {
         let launcher_manifest = format!("{LAUNCHER_DIR}/Cargo.toml");
         let mut all_crates = crates_of(self.ws, &launcher_manifest, "dereth-launcher", t)?;
         all_crates.extend(crates_of(self.ws, "Cargo.toml", "dereth-client", t)?);
+        all_crates.extend(crates_of(self.ws, "Cargo.toml", TOOL, t)?);
         all_crates.sort();
         all_crates.dedup();
         let mit = String::from_utf8_lossy(&read(&self.ws.join("LICENSE"))?).into_owned();
@@ -850,6 +887,7 @@ impl Job<'_> {
         let exe = t.exe_suffix();
         let launcher_page = page(&launcher_manifest, "dereth")?;
         let client_page = page("dereth/client/Cargo.toml", "dereth-client")?;
+        let tool_page = page(TOOL_MANIFEST, TOOL)?;
 
         let dir = self.stage.join("notices");
         mkdir(&dir)?;
@@ -867,9 +905,11 @@ impl Job<'_> {
         write(&dir.join("LICENSE"), mit.as_bytes())?;
         let client_name = format!("dereth-client{exe}");
         let launcher_name = format!("dereth{exe}");
+        let tool_name = format!("{TOOL}{exe}");
         let pages = [
             (launcher_name.as_str(), launcher_page),
             (client_name.as_str(), client_page),
+            (tool_name.as_str(), tool_page),
         ];
         write(
             &dir.join("THIRD-PARTY-LICENSES.html"),
@@ -879,8 +919,14 @@ impl Job<'_> {
     }
 
     /// The launcher, built with the Tauri CLI: `dereth.exe` on Windows, `Dereth.app` on macOS
-    /// (with the client and MoltenVK inside), the AppImage on Linux (with the client inside).
-    fn build_launcher(&self, client: &Path, notices: &Path) -> Result<PathBuf, String> {
+    /// (with the client, the tool and MoltenVK inside), the AppImage on Linux (with the client and
+    /// the tool inside).
+    fn build_launcher(
+        &self,
+        client: &Path,
+        tool: &Path,
+        notices: &Path,
+    ) -> Result<PathBuf, String> {
         let t = self.target;
         let tauri_dir = self.ws.join(LAUNCHER_DIR);
         let cargo_target = target_dir().join("launcher");
@@ -890,8 +936,9 @@ impl Job<'_> {
             std::fs::remove_dir_all(&bundle_dir)
                 .map_err(|e| format!("{}: {e}", bundle_dir.display()))?;
         }
-        // What the release adds to the app's configuration: the client beside the launcher (the
-        // bundler takes it as `<name>-<target>` and drops the suffix), the notices, and on macOS
+        // What the release adds to the app's configuration: the client and the tool beside the
+        // launcher (the bundler takes each as `<name>-<target>` and drops the suffix), the notices,
+        // and on macOS
         // MoltenVK, signed with the bundle ([`mac_signing`]). The launcher carries its whole
         // configuration inside it, so these are named relative to the app's folder, never by
         // where this machine keeps them ([`bundle_config`]).
@@ -899,7 +946,8 @@ impl Job<'_> {
             .parent()
             .unwrap_or(Path::new("."))
             .join("dereth-client");
-        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices)?;
+        let tool_base = tool.parent().unwrap_or(Path::new(".")).join(TOOL);
+        let mut bundle = bundle_config(t, &tauri_dir, &[&client_base, &tool_base], notices)?;
         if t.os == Os::Mac {
             let (dylib, _) = self.moltenvk.ok_or("a macOS launcher needs MoltenVK")?;
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
@@ -1023,6 +1071,10 @@ impl Job<'_> {
             println!("  {name}: {d}");
             described.push((name, d));
         }
+        let tool = tool_in_release(t);
+        let d = self.check_tool(&read(&dir.join(&tool))?)?;
+        println!("  {tool}: {d}");
+        described.push((tool, d));
         if t.os == Os::Mac {
             let name = "Contents/Frameworks/libMoltenVK.dylib";
             if !is_macho_library(&read(&dir.join(name))?) {
@@ -1036,7 +1088,9 @@ impl Job<'_> {
                 members.push(Member {
                     name: e.path.clone(),
                     bytes: read(&path)?,
-                    executable: executable(&path) || programs(t).contains(&e.path),
+                    executable: executable(&path)
+                        || programs(t).contains(&e.path)
+                        || e.path == tool_in_release(t),
                 });
             }
         }
@@ -1075,7 +1129,7 @@ impl Job<'_> {
     }
 
     /// The AppImage, as the bundler wrote it, with the programs that went into it checked.
-    fn write_appimage(&self, appimage: &Path, client: &Path) -> Result<(), String> {
+    fn write_appimage(&self, appimage: &Path, client: &Path, tool: &Path) -> Result<(), String> {
         let t = self.target;
         let launcher = target_dir()
             .join("launcher")
@@ -1089,7 +1143,11 @@ impl Job<'_> {
             println!("  {name}: {d}");
             lines.push((name.to_owned(), bytes, d));
         }
-        // The AppImage compresses what it holds, so the two programs are looked at as built.
+        let bytes = read(tool)?;
+        let d = self.check_tool(&bytes)?;
+        println!("  {}: {d}", tool_in_release(t));
+        lines.push((tool_in_release(t), bytes, d));
+        // The AppImage compresses what it holds, so its programs are looked at as built.
         let named: Vec<(&str, &[u8])> = lines
             .iter()
             .map(|(n, b, _)| (n.as_str(), b.as_slice()))
@@ -1517,8 +1575,9 @@ pub(crate) fn write_index(
     Ok(())
 }
 
-/// The bundle section of the launcher's release configuration for `target`: the client, as the
-/// base name the bundler adds `-<target>` to, and the notices.
+/// The bundle section of the launcher's release configuration for `target`: the programs beside
+/// the launcher (the client and the tool), each as the base name the bundler adds `-<target>` to,
+/// and the notices.
 ///
 /// The launcher is built with its whole configuration compiled in, so a folder named here is
 /// carried by the program. Each is named relative to the app's folder `app_dir`, as the bundler
@@ -1528,7 +1587,7 @@ pub(crate) fn write_index(
 pub fn bundle_config(
     target: Target,
     app_dir: &Path,
-    client_base: &Path,
+    beside: &[&Path],
     notices: &Path,
 ) -> Result<serde_json::Value, String> {
     if target.os == Os::Windows {
@@ -1541,8 +1600,12 @@ pub fn bundle_config(
             serde_json::Value::from(*n),
         );
     }
+    let programs = beside
+        .iter()
+        .map(|p| relative_to(app_dir, p))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::json!({
-        "externalBin": [relative_to(app_dir, client_base)?],
+        "externalBin": programs,
         "resources": resources,
         "createUpdaterArtifacts": false,
     }))

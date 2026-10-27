@@ -228,7 +228,7 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 }
 
 /// The Windows zip is what the launcher's own update installs: one top-level folder holding
-/// `dereth.exe` and the client beside it.
+/// `dereth.exe` and the client and the plugin author's tool beside it.
 #[test]
 fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     let w = target(WINDOWS);
@@ -241,6 +241,7 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
             "NOTICE.txt",
             "THIRD-PARTY-LICENSES.html",
             "dereth-client.exe",
+            "dereth-plugin.exe",
             "dereth.exe"
         ]
     );
@@ -248,22 +249,27 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
 }
 
 /// The launcher's release configuration, which the launcher carries compiled in, names the
-/// client and the notices relative to the app's folder on the bundled platforms, and names no
-/// file at all on Windows, where nothing is bundled.
+/// client, the plugin author's tool and the notices relative to the app's folder on the bundled
+/// platforms, and names no file at all on Windows, where nothing is bundled.
 #[test]
 fn the_launchers_release_configuration_names_no_machine_folder() {
     let ws = workspace_root();
     let app = ws.join("dereth").join("launcher");
     let stage = ws.join("target").join("package").join("stage").join("x");
     let client = stage.join("bin").join("dereth-client");
+    let tool = stage.join("bin").join("dereth-plugin");
+    let beside: [&std::path::Path; 2] = [&client, &tool];
     let notices = stage.join("notices");
-    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices).unwrap();
+    let win = dereth::bundle_config(target(WINDOWS), &app, &beside, &notices).unwrap();
     assert_eq!(win, serde_json::json!({ "createUpdaterArtifacts": false }));
     for t in [target(MAC_ARM), target(LINUX)] {
-        let c = dereth::bundle_config(t, &app, &client, &notices).unwrap();
+        let c = dereth::bundle_config(t, &app, &beside, &notices).unwrap();
         assert_eq!(
             c["externalBin"],
-            serde_json::json!(["../../target/package/stage/x/bin/dereth-client"])
+            serde_json::json!([
+                "../../target/package/stage/x/bin/dereth-client",
+                "../../target/package/stage/x/bin/dereth-plugin"
+            ])
         );
         assert_eq!(
             c["resources"]["../../target/package/stage/x/notices/NOTICE.txt"],
@@ -275,6 +281,51 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
             "{text}"
         );
     }
+}
+
+/// The plugin author's tool comes with Dereth: the Windows folder holds `dereth-plugin.exe` beside
+/// the client, the macOS bundle holds it in `Contents/MacOS` beside the client, and the AppImage
+/// carries it beside the client; a release file without it is refused.
+#[test]
+fn a_release_carries_the_plugin_authors_tool_beside_the_client() {
+    assert_eq!(
+        dereth::tool_in_release(target(WINDOWS)),
+        "dereth-plugin.exe"
+    );
+    assert_eq!(
+        dereth::tool_in_release(target(MAC_ARM)),
+        "Contents/MacOS/dereth-plugin"
+    );
+    assert_eq!(dereth::tool_in_release(target(LINUX)), "dereth-plugin");
+    for t in [WINDOWS, MAC_ARM, MAC_X64] {
+        let (required, _) = dereth::contents(target(t));
+        let tool = dereth::tool_in_release(target(t));
+        assert!(required.contains(&tool), "{t}: {required:?}");
+    }
+    let w = target(WINDOWS);
+    let (required, optional) = dereth::contents(w);
+    let members: Vec<Member> = required
+        .iter()
+        .filter(|n| **n != dereth::tool_in_release(w))
+        .map(|n| Member {
+            name: n.clone(),
+            bytes: b"x".to_vec(),
+            executable: false,
+        })
+        .collect();
+    let _ = optional;
+    let dir = std::env::temp_dir().join(format!("xtask-no-tool-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let path = dir.join(dereth::release_file_name(w, V));
+    let root = dereth::archive_root(w, V).expect("an archive");
+    std::fs::write(
+        &path,
+        archive::zip_bytes(&root, &members, 1_700_000_000).expect("zip"),
+    )
+    .expect("written");
+    let refused = dereth::check_archive(&path, w, V).expect_err("no tool");
+    assert!(refused.contains("dereth-plugin.exe"), "{refused}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A release carries no plugins: neither the Windows folder nor the macOS bundle holds a

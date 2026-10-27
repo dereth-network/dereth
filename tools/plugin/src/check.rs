@@ -6,14 +6,18 @@ use std::path::Path;
 use dereth_plugin_api::{ApiVersion, Limits};
 use dereth_plugin_package::{is_package_root, Package};
 
-/// Check the package in `folder`, or each package in it when it is a folder of them.
+/// Check the package in `folder`, or each package in it when it is a plugin repository (the
+/// folders directly in it that hold a plugin).
 pub fn check(folder: &Path) -> Result<String, String> {
     if is_package_root(|f| folder.join(f).is_file()) {
         return check_one(folder);
     }
     let packages = crate::release::packages_in(folder)?;
     if packages.is_empty() {
-        return Err(format!("{} holds no plugin", folder.display()));
+        return Err(format!(
+            "{} has no plugin.toml, and neither do the folders in it",
+            folder.display()
+        ));
     }
     let (mut said, mut failed) = (Vec::new(), false);
     for p in packages {

@@ -20,36 +20,19 @@ pub const CHANGES_FILE: &str = "CHANGES.md";
 /// The heading of the change log's section that is not released yet.
 pub const UNRELEASED: &str = "## Unreleased";
 
-/// Folders a repository's plugins are not looked for in.
-const NOT_SEARCHED: &[&str] = &["target", "dist", "site", "node_modules"];
-
-/// The plugin folders of a repository: each folder holding a `plugin.toml`, up to three levels
-/// down, hidden folders and build output left out. Sorted.
+/// The plugin folders of a repository, as `new` finds them before adding one and the launcher
+/// finds a folder's ([`dereth_plugin_template::packages_in`]): the repository's own folder when it
+/// is a plugin's, else the folders directly in it that hold one. Sorted.
 pub fn packages_in(root: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut out = Vec::new();
-    let mut stack = vec![(root.to_path_buf(), 0usize)];
-    while let Some((dir, depth)) = stack.pop() {
-        if dir.join(MANIFEST_FILE).is_file() {
-            out.push(dir);
-            continue;
-        }
-        if depth == 3 {
-            continue;
-        }
-        let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') || NOT_SEARCHED.contains(&name.as_str()) {
-                continue;
-            }
-            if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-                stack.push((entry.path(), depth + 1));
-            }
-        }
-    }
-    out.sort();
-    Ok(out)
+    dereth_plugin_template::packages_in(root).map_err(|e| e.to_string())
+}
+
+/// Whether `a` and `b` are one folder, however each is written.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    matches!(
+        (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+        (Ok(x), Ok(y)) if x == y
+    )
 }
 
 /// The manifest of the package in `folder`.
@@ -201,6 +184,10 @@ pub fn tag_for(plugins: usize, id: &str, version: &str) -> String {
 
 /// `release`: see the module documentation. `date` is the release's day, `YYYY-MM-DD`.
 pub fn release(folder: &Path, version: &str, date: &str, push: bool) -> Result<String, String> {
+    // Git runs in the plugin's folder, so every path given to it is whole: a folder named
+    // relative to where the tool was started would otherwise be looked for inside itself.
+    let folder = std::path::absolute(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let folder = folder.as_path();
     let wanted = PluginVersion::parse(version)
         .ok_or_else(|| format!("{version} is not a SemVer version"))?;
     if !folder.join(MANIFEST_FILE).is_file() {
@@ -215,10 +202,19 @@ pub fn release(folder: &Path, version: &str, date: &str, push: bool) -> Result<S
     }
     crate::check::check(folder)?;
     let root = PathBuf::from(git(folder, &["rev-parse", "--show-toplevel"])?);
+    let plugins = packages_in(&root)?;
+    if !plugins.iter().any(|p| same_folder(p, folder)) {
+        return Err(format!(
+            "{} is not a plugin of the repository at {} (a plugin's folder is the repository's \
+             own, or a folder directly in it)",
+            folder.display(),
+            root.display()
+        ));
+    }
     if !git(folder, &["status", "--porcelain"])?.is_empty() {
         return Err("the repository has uncommitted changes: commit them first".into());
     }
-    let tag = tag_for(packages_in(&root)?.len(), m.id.as_str(), version);
+    let tag = tag_for(plugins.len(), m.id.as_str(), version);
     if !git(folder, &["tag", "--list", &tag])?.is_empty() {
         return Err(format!("the tag {tag} already exists"));
     }
@@ -226,9 +222,10 @@ pub fn release(folder: &Path, version: &str, date: &str, push: bool) -> Result<S
     let changes_path = folder.join(CHANGES_FILE);
     let manifest_text = std::fs::read_to_string(&manifest_path)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
-    let changes = match std::fs::read_to_string(&changes_path) {
-        Ok(text) => Some(roll_changes(&text, version, date)?),
-        Err(_) => None,
+    let changes_text = std::fs::read_to_string(&changes_path).ok();
+    let changes = match &changes_text {
+        Some(text) => Some(roll_changes(text, version, date)?),
+        None => None,
     };
     std::fs::write(&manifest_path, set_version(&manifest_text, version)?)
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
@@ -241,8 +238,20 @@ pub fn release(folder: &Path, version: &str, date: &str, push: bool) -> Result<S
     let title = format!("{} {version}", m.name);
     let mut add = vec!["add", "--"];
     add.extend(paths.iter().map(String::as_str));
-    git(folder, &add)?;
-    git(folder, &["commit", "--quiet", "-m", &title])?;
+    let committed =
+        git(folder, &add).and_then(|_| git(folder, &["commit", "--quiet", "-m", &title]));
+    if let Err(e) = committed {
+        // A release that could not be committed leaves the files as they were, so it can be
+        // run again as soon as what stopped it is fixed.
+        let mut reset = vec!["reset", "--quiet", "--"];
+        reset.extend(paths.iter().map(String::as_str));
+        let _ = git(folder, &reset);
+        let _ = std::fs::write(&manifest_path, &manifest_text);
+        if let Some(text) = &changes_text {
+            let _ = std::fs::write(&changes_path, text);
+        }
+        return Err(e);
+    }
     git(folder, &["tag", "-a", &tag, "-m", &title])?;
     let pushes = [
         vec!["push", "origin", "HEAD"],
