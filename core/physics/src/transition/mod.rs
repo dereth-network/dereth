@@ -19,10 +19,12 @@ pub mod cylinder;
 pub mod insert;
 pub mod objectinfo;
 pub mod place;
+pub mod rules;
 pub mod spherepath;
 pub mod walk;
 
 pub use objectinfo::{ObjectInfo, ObjectInfoState};
+pub use rules::TransitionRules;
 pub use spherepath::{InsertType, SpherePath};
 
 use dereth_primitives::{CellId, ObjectId, Vec3};
@@ -266,11 +268,20 @@ pub struct Transition {
     /// observationally the same, and it is what lets the transition hold no mutable borrow of the
     /// arena.
     pub kill_velocity: bool,
+    /// How the world this transition runs in tunes it. Kept by [`Self::init`]: set them with
+    /// [`Self::set_rules`].
+    pub rules: TransitionRules,
 }
 
 impl Transition {
+    /// Set the world's rules, and the landblock length the sphere path measures offsets with.
+    pub fn set_rules(&mut self, rules: TransitionRules) {
+        self.rules = rules;
+        self.sphere_path.block_length = rules.block_length;
+    }
+
     /// Reset `object_info`, every
-    /// Collision-result validity flag and the cell-array counters.
+    /// Collision-result validity flag and the cell-array counters. The rules stay.
     pub fn init(&mut self) {
         self.object_info = ObjectInfo::default();
         self.sphere_path.init();

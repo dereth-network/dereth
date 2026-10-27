@@ -27,7 +27,6 @@ use crate::geom::plane::Plane;
 use crate::geom::sphere::{CylSphere, Sphere};
 use crate::geom::CylSphereExt;
 use crate::globals::{EPSILON, LANDING_Z, WALK_INTERP_FLOOR_STEP};
-use crate::landdefs;
 use crate::math::V3;
 use crate::transition::collide::{slide_sphere, steps_up};
 use crate::transition::objectinfo::ObjectInfoState;
@@ -237,8 +236,9 @@ pub fn cyl_collide_with_point(
 
     // ---- UNVERIFIED past here: the `PERFECT_CLIP` path. ----
     let curr = t.sphere_path.global_curr_center[0];
-    let block =
-        landdefs::get_block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
+    let block = t
+        .rules
+        .block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
     // The mover's displacement over this sub-step, in the cylinder's block space.
     let movement = block.add(sphere.center.sub(curr));
     // Where the mover started, relative to the cylinder's low point.
@@ -491,7 +491,7 @@ pub fn cyl_intersects_sphere_scaled(
     // Transform `scale * low_pt` from `pos` into `check_pos`'s block: rotate, translate, then add
     // the block offset.
     let m = crate::math::l2g(pos.frame.rotation);
-    let off = landdefs::get_block_offset(t.sphere_path.check_pos.cell, pos.cell);
+    let off = t.rules.block_offset(t.sphere_path.check_pos.cell, pos.cell);
     let low_pt = crate::math::localtoglobalvec(m, cyl.low_pt.mul(scale))
         .add(pos.frame.origin)
         .add(off);

@@ -159,7 +159,7 @@ pub fn slide_sphere_from_centers(
 /// `normal` is no walkable ground, steps up onto it by a walking body's step up: whether it did.
 /// Where it cannot, it is left as it was, to slide along the rise.
 pub(super) fn steps_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3) -> bool {
-    if !t.object_info.steps || crate::is_valid_walkable(normal) {
+    if !t.object_info.steps || t.rules.is_valid_walkable(normal) {
         return false;
     }
     if super::walk::step_up(ctx, t, normal) {
@@ -463,10 +463,7 @@ fn glide_on_ground(
     // Where the step began, in the ground's landblock's space: the current center is in its
     // own, which may be the next landblock's.
     let curr = t.sphere_path.global_curr_center[0];
-    let began = curr.sub(landdefs::get_block_offset(
-        t.sphere_path.curr_pos.cell,
-        cell_id,
-    ));
+    let began = curr.sub(t.rules.block_offset(t.sphere_path.curr_pos.cell, cell_id));
     if plane.dot_point(began) < 0.0 {
         return TransitionState::Ok;
     }
@@ -541,7 +538,7 @@ pub fn validate_walkable(
         if d > EPSILON {
             return TransitionState::Ok;
         }
-        let walkable = crate::is_valid_walkable(plane.normal);
+        let walkable = t.rules.is_valid_walkable(plane.normal);
         if t.sphere_path.step_down || !t.object_info.has(ObjectInfoState::ON_WALKABLE) || walkable {
             t.collision_info.set_contact_plane(*plane, is_water);
             t.collision_info.contact_plane_cell_id = cell_id;
@@ -558,7 +555,7 @@ pub fn validate_walkable(
         return TransitionState::Collided;
     }
     let lift = d / plane.normal.z;
-    let walkable = crate::is_valid_walkable(plane.normal);
+    let walkable = t.rules.is_valid_walkable(plane.normal);
     let mut result = TransitionState::Ok;
     if t.sphere_path.step_down || !t.object_info.has(ObjectInfoState::ON_WALKABLE) || walkable {
         t.collision_info.set_contact_plane(*plane, is_water);
@@ -682,7 +679,7 @@ pub fn land_find_env_collisions(t: &mut Transition, cell: &Cell) -> TransitionSt
     let Cell::Land { id, block } = cell else {
         return TransitionState::Ok;
     };
-    let off = landdefs::get_block_offset(t.sphere_path.check_pos.cell, *id);
+    let off = t.rules.block_offset(t.sphere_path.check_pos.cell, *id);
     let low = t.sphere_path.global_low_point.sub(off);
     let Some(poly) = block.find_terrain_poly(id.index(), low) else {
         return TransitionState::Ok;
@@ -1396,7 +1393,9 @@ pub fn find_obj_collisions_geom(
             ObjGeometry::Spheres(s) => s,
             ObjGeometry::Setup(g, _) => g.path_spheres(),
         };
-        let off = landdefs::get_block_offset(t.sphere_path.check_pos.cell, other_pos.cell);
+        let off = t
+            .rules
+            .block_offset(t.sphere_path.check_pos.cell, other_pos.cell);
         let m = crate::math::l2g(other_pos.frame.rotation);
         for s in spheres {
             let center = crate::math::localtoglobalvec(m, s.center.mul(other_scale))
@@ -1670,6 +1669,7 @@ pub fn cell_find_collisions(
     let env = match cell {
         Cell::Land { .. } => land_find_env_collisions(t, cell),
         Cell::Env { .. } => env_find_env_collisions(ctx, t, cell),
+        Cell::Host { cell, .. } => cell.find_env_collisions(ctx, t),
     };
     if env != TransitionState::Ok {
         return env;

@@ -1051,6 +1051,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "physics.host-cells.a-world-with-its-own-cells-walks-a-body-across-them",
+        says: "A world whose landscape has another shape can hand the transition cells of its own: \
+               its land source resolves their ids, lists the cells a body's spheres touch and \
+               answers each cell's ground and walls, and a body walking across a block's edge on \
+               such a world stands in the next block, measured from its corner by the world's \
+               block length.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-HOST-CELLS"),
+        station: "dereth-physics::cpu::transition::rules::a_world_with_its_own_cells_walks_a_body_across_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.motion.setting-spin-does-not-wake-a-sleeping-body",
         says: "Giving a resting body a spin does not wake it: over a whole simulated second it \
                neither turns nor moves, even with a velocity loaded, until something else wakes \
@@ -1087,6 +1099,65 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O940-TRANSITION"),
         station: "dereth-physics::cpu::transition::failed_transition::a_failed_transition_keeps_the_bodys_origin_and_takes_only_the_rotation",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-chooses-whether-each-cell-is-retried",
+        says: "The transition asks a cell for its collisions again after each adjustment, up to its \
+               attempt budget, before it looks at the other cells; a world may instead ask each \
+               cell once an attempt.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-RETRY"),
+        station: "dereth-physics::cpu::transition::rules::a_world_chooses_whether_each_cell_is_retried",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-chooses-whether-restored-ground-stops-the-body",
+        says: "A body that comes to rest against something while the ground it last stood on is \
+               still under it gets that ground back and stops dead; a world may keep its \
+               velocity instead.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-RESTORE"),
+        station: "dereth-physics::cpu::transition::rules::a_world_chooses_whether_restored_ground_stops_the_body",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-sets-the-placement-scatter-floor",
+        says: "Placing a body where it does not fit tries points around it from a smallest radius \
+               the world sets, 0.48 m here.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-PLACEMENT"),
+        station: "dereth-physics::cpu::transition::rules::a_world_sets_the_placement_scatter_floor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-sets-the-sub-step-length",
+        says: "A move is split into equal sub-steps no longer than a fraction of the body's sphere \
+               radius that the world sets: the whole radius here, so two meters for a 0.5 m sphere \
+               is four sub-steps, and five at nine tenths of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-STEP"),
+        station: "dereth-physics::cpu::transition::rules::a_world_sets_the_sub_step_length",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-sets-the-walkable-limit",
+        says: "Where ground stops being walkable is the world's setting: a surface 46 degrees from \
+               level is walkable under this client's limit and not under a 45.5 degree one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-WALKABLE"),
+        station: "dereth-physics::cpu::transition::rules::a_world_sets_the_walkable_limit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.the-default-rules-are-this-clients",
+        says: "The transition's default settings are this client's own: its walkable limit, sub-steps \
+               of a whole sphere radius, 192 m landblocks, a 0.48 m placement floor, cells retried \
+               within an attempt, restored ground stopping the body, so a transition that is never \
+               given settings behaves as it always has.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-DEFAULT"),
+        station: "dereth-physics::lib::transition::rules::tests::the_default_rules_are_this_clients_constants",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -28,7 +28,8 @@ use crate::source::{EnvCellGeometry, LandSource, SetupGeometry};
 
 /// A resolved cell. The client has a class hierarchy; the two leaves that matter to physics are a
 /// land cell (two terrain triangles, possibly owning a building) and an env cell (a BSP and a
-/// portal list), so this is an enum rather than a trait object.
+/// portal list), so this is an enum rather than a trait object. A world whose cells have another
+/// shape supplies its own ([`HostCell`]).
 #[derive(Debug, Clone)]
 pub enum Cell {
     Land {
@@ -39,13 +40,37 @@ pub enum Cell {
         id: CellId,
         geom: Arc<EnvCellGeometry>,
     },
+    /// A cell of a world whose land source builds its cells itself
+    /// ([`LandSource::host_cell`]).
+    Host { id: CellId, cell: Arc<dyn HostCell> },
+}
+
+/// A cell this crate does not build, answered for by the world that does.
+///
+/// A world whose landscape and interiors have another shape (another grid, cells found another
+/// way) hands its cells to the transition through its [`LandSource`]: it resolves ids to them
+/// ([`LandSource::host_cell`]), builds the cell list a sphere touches
+/// ([`LandSource::host_cell_list`]), and answers each cell's own collisions with the moving
+/// spheres here, through the transition's own arms (the walkability test, the BSP walk). Objects
+/// in the cell collide through the shadow lists, as in any cell.
+pub trait HostCell: Send + Sync + std::fmt::Debug {
+    /// The cell's frame.
+    fn pos(&self, id: CellId) -> Position;
+    /// Whether `local`, a point in the cell's landblock frame, lies in the cell.
+    fn point_in_cell(&self, local: Vec3) -> bool;
+    /// The cell's ground and walls against the transition's spheres.
+    fn find_env_collisions(
+        &self,
+        ctx: &crate::transition::TransitionCtx<'_>,
+        t: &mut crate::transition::Transition,
+    ) -> crate::transition::TransitionState;
 }
 
 impl Cell {
     #[must_use]
     pub fn id(&self) -> CellId {
         match self {
-            Self::Land { id, .. } | Self::Env { id, .. } => *id,
+            Self::Land { id, .. } | Self::Env { id, .. } | Self::Host { id, .. } => *id,
         }
     }
 
@@ -61,6 +86,7 @@ impl Cell {
         match self {
             Self::Land { id, .. } => Self::land_pos(*id),
             Self::Env { id, geom } => Position::new(*id, geom.frame),
+            Self::Host { id, cell } => cell.pos(*id),
         }
     }
 
@@ -124,6 +150,7 @@ impl Cell {
                     .as_ref()
                     .is_none_or(|b| b.point_inside_cell_bsp(p))
             }
+            Self::Host { cell, .. } => cell.point_in_cell(local),
         }
     }
 
@@ -132,7 +159,7 @@ impl Cell {
     #[must_use]
     pub fn sphere_intersects_cell(&self, local_sphere: &Sphere) -> Bounding {
         match self {
-            Self::Land { .. } => {
+            Self::Land { .. } | Self::Host { .. } => {
                 if self.point_in_cell(local_sphere.center) {
                     Bounding::PartiallyInside
                 } else {
@@ -155,7 +182,7 @@ impl Cell {
     #[must_use]
     pub fn box_intersects_cell(&self, local_box: &crate::geom::BBox) -> bool {
         match self {
-            Self::Land { .. } => {
+            Self::Land { .. } | Self::Host { .. } => {
                 self.point_in_cell(local_box.min) || self.point_in_cell(local_box.max)
             }
             Self::Env { geom, .. } => geom
@@ -171,7 +198,7 @@ impl Cell {
     pub fn block_water_type(&self) -> WaterType {
         match self {
             Self::Land { block, .. } => block.water_type,
-            Self::Env { .. } => WaterType::NotWater,
+            Self::Env { .. } | Self::Host { .. } => WaterType::NotWater,
         }
     }
 
@@ -180,7 +207,7 @@ impl Cell {
     pub fn water_type(&self) -> WaterType {
         match self {
             Self::Land { id, block } => block.cell_water_type(id.index()).unwrap_or_default(),
-            Self::Env { .. } => WaterType::NotWater,
+            Self::Env { .. } | Self::Host { .. } => WaterType::NotWater,
         }
     }
 
@@ -189,7 +216,7 @@ impl Cell {
     pub fn water_depth(&self, local: Vec3) -> f32 {
         match self {
             Self::Land { id, block } => block.get_water_depth(*id, local),
-            Self::Env { .. } => crate::globals::WATER_DEPTH_NONE,
+            Self::Env { .. } | Self::Host { .. } => crate::globals::WATER_DEPTH_NONE,
         }
     }
 
@@ -197,7 +224,7 @@ impl Cell {
     #[must_use]
     pub fn stab_list(&self) -> &[CellId] {
         match self {
-            Self::Land { .. } => &[],
+            Self::Land { .. } | Self::Host { .. } => &[],
             Self::Env { geom, .. } => &geom.stab_list,
         }
     }
@@ -222,7 +249,7 @@ impl Cell {
                     Vec3::new(-1.0, 0.0, 0.0)
                 })
             }
-            Self::Env { .. } => None,
+            Self::Env { .. } | Self::Host { .. } => None,
         }
     }
 }
@@ -380,6 +407,10 @@ impl<'a> CellResolver<'a> {
     pub fn get_visible(&self, id: CellId) -> Option<Cell> {
         if id.0 == 0 {
             return None;
+        }
+        // A world that builds its own cells answers for every id it knows.
+        if let Some(cell) = self.land.host_cell(id) {
+            return Some(Cell::Host { id, cell });
         }
         if landdefs::is_outdoors(id) {
             if id.index() == 0 || id.index() > 0x40 {
@@ -864,6 +895,7 @@ impl<'a> CellResolver<'a> {
                             self.add_all_outside_cells_bbox(arr, pos, parts);
                         }
                     }
+                    Cell::Host { .. } => {}
                 }
             }
             i += 1;
@@ -917,6 +949,13 @@ impl<'a> CellResolver<'a> {
         want_container: bool,
         hits_interior_cell: &mut bool,
     ) -> Option<Cell> {
+        // A world that builds its own cells finds them itself.
+        if let Some(found) =
+            self.land
+                .host_cell_list(pos, spheres, arr, want_container, hits_interior_cell)
+        {
+            return found;
+        }
         arr.cells.clear();
         arr.added_outside = false;
         let id = pos.cell;
@@ -968,6 +1007,7 @@ impl<'a> CellResolver<'a> {
                             self.add_all_outside_cells(arr, pos, spheres);
                         }
                     }
+                    Cell::Host { .. } => {}
                 }
             }
             i += 1;

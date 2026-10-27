@@ -99,6 +99,11 @@ pub struct SpherePath {
     pub neg_step_up: bool,
     pub neg_poly_hit: bool,
     pub neg_collision_normal: Vec3,
+
+    // ---- the world -------------------------------------------------------------------------
+    /// The side of a landblock, in meters, which offsets between cells are measured with. Set by
+    /// [`super::Transition::set_rules`]; kept by [`Self::init`].
+    pub block_length: f32,
 }
 
 impl Default for SpherePath {
@@ -149,14 +154,24 @@ impl Default for SpherePath {
             neg_step_up: false,
             neg_poly_hit: false,
             neg_collision_normal: Vec3::ZERO,
+            block_length: crate::globals::BLOCK_LENGTH,
         }
     }
 }
 
 impl SpherePath {
-    /// Initialise the sphere path.
+    /// Initialise the sphere path. The landblock length stays.
     pub fn init(&mut self) {
+        let block_length = self.block_length;
         *self = Self::default();
+        self.block_length = block_length;
+    }
+
+    /// The offset from `from`'s landblock frame to `to`'s.
+    #[inline]
+    #[must_use]
+    pub fn block_offset(&self, from: CellId, to: CellId) -> Vec3 {
+        super::rules::block_offset(from, to, self.block_length)
     }
 
     /// Store at most two spheres, scaling **centre and
@@ -230,16 +245,16 @@ impl SpherePath {
         let m = math::l2g(pos.frame.rotation);
         for i in 0..self.num_sphere {
             let global = self.global_sphere[i].center;
-            let off = landdefs::get_block_offset(pos.cell, self.check_pos.cell);
+            let off = self.block_offset(pos.cell, self.check_pos.cell);
             let local = math::globaltolocalvec(m, global.add(off).sub(pos.frame.origin));
             self.localspace_sphere[i] =
                 Sphere::new(local.mul(inv), self.global_sphere[i].radius * inv);
             let cc = self.global_curr_center[i];
-            let off2 = landdefs::get_block_offset(pos.cell, self.curr_pos.cell);
+            let off2 = self.block_offset(pos.cell, self.curr_pos.cell);
             self.localspace_curr_center[i] =
                 math::globaltolocalvec(m, cc.add(off2).sub(pos.frame.origin)).mul(inv);
         }
-        let off = landdefs::get_block_offset(pos.cell, self.check_pos.cell);
+        let off = self.block_offset(pos.cell, self.check_pos.cell);
         self.localspace_low_point =
             math::globaltolocalvec(m, self.global_low_point.add(off).sub(pos.frame.origin))
                 .mul(inv);
@@ -268,7 +283,7 @@ impl SpherePath {
     /// assigned.
     pub fn adjust_check_pos(&mut self, new_cell: CellId) {
         if landdefs::is_outdoors(new_cell) {
-            let off = landdefs::get_block_offset(new_cell, self.check_pos.cell);
+            let off = self.block_offset(new_cell, self.check_pos.cell);
             self.cache_global_sphere(Some(off));
             self.check_pos.frame.origin = self.check_pos.frame.origin.add(off);
         }
@@ -311,7 +326,7 @@ impl SpherePath {
     /// The block offset between the current and check positions.
     #[must_use]
     pub fn curr_to_check_block_offset(&self) -> Vec3 {
-        landdefs::get_block_offset(self.curr_pos.cell, self.check_pos.cell)
+        self.block_offset(self.curr_pos.cell, self.check_pos.cell)
     }
 
     /// A landing happened: save the check position, arm

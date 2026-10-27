@@ -31,7 +31,7 @@ pub fn calc_num_steps(t: &Transition) -> (Vec3, Vec3, u32) {
     let Some(begin) = t.sphere_path.begin_pos.as_ref() else {
         return (Vec3::ZERO, Vec3::ZERO, 1);
     };
-    let total = math::get_offset(begin, &t.sphere_path.end_pos);
+    let total = t.rules.get_offset(begin, &t.sphere_path.end_pos);
     let r = t.sphere_path.local_sphere[0].radius;
     let dist = total.mag2().sqrt();
 
@@ -45,7 +45,7 @@ pub fn calc_num_steps(t: &Transition) -> (Vec3, Vec3, u32) {
         return (total, total.mul(1.0 / n), steps);
     }
 
-    let n = dist / (r * 1.0);
+    let n = dist / (r * t.rules.step_fraction);
     if n >= 1.0 {
         let k = n.ceil();
         #[allow(clippy::cast_sign_loss)]
@@ -99,7 +99,7 @@ pub fn adjust_offset(t: &mut Transition, offset: Vec3) -> Vec3 {
         // Keep the sphere from sinking into a non-water contact plane.
         if !t.collision_info.contact_plane_is_water && t.collision_info.contact_plane_cell_id.0 != 0
         {
-            let off = landdefs::get_block_offset(
+            let off = t.rules.block_offset(
                 t.sphere_path.check_pos.cell,
                 t.collision_info.contact_plane_cell_id,
             );
@@ -228,7 +228,12 @@ pub fn transitional_insert(
         let Some(cell) = resolver.get_visible(check_cell_id) else {
             return TransitionState::Ok;
         };
-        let mut r = insert_into_cell(ctx, t, &cell, attempts);
+        // A world that does not retry each cell asks it once; the attempts here retry it.
+        let mut r = if t.rules.retry_each_cell {
+            insert_into_cell(ctx, t, &cell, attempts)
+        } else {
+            collide::cell_find_collisions(ctx, t, &cell)
+        };
         match r {
             TransitionState::Ok => {
                 r = check_other_cells(ctx, t, Some(&cell));
@@ -267,7 +272,12 @@ pub fn transitional_insert(
             {
                 let backup = t.sphere_path.insert_type;
                 t.sphere_path.insert_type = InsertType::Placement;
-                result = transitional_insert(ctx, t, attempts);
+                let budget = if t.rules.recheck_landing_with_budget {
+                    attempts
+                } else {
+                    ATTEMPTS_REVALIDATE
+                };
+                result = transitional_insert(ctx, t, budget);
                 t.sphere_path.insert_type = backup;
                 if result == TransitionState::Ok {
                     failed = false;
@@ -332,7 +342,7 @@ pub fn transitional_insert(
         let mut amt = DEFAULT_STEP_HEIGHT;
         let mut allow = LANDING_Z;
         if t.object_info.has(ObjectInfoState::ON_WALKABLE) {
-            allow = crate::get_walkable_z();
+            allow = t.rules.walkable_z;
             amt = t.object_info.step_down_height;
         }
         t.sphere_path.walkable_allowance = allow;
@@ -410,7 +420,9 @@ pub fn validate_transition(
             TransitionState::Collided | TransitionState::Adjusted | TransitionState::Slid
         ) {
             if t.collision_info.last_known_contact_plane_valid {
-                t.kill_velocity = true;
+                if t.rules.stop_on_restored_contact {
+                    t.kill_velocity = true;
+                }
                 let lk = t.collision_info.last_known_contact_plane;
                 let d = lk.dot_point(t.sphere_path.global_curr_center[0]);
                 if d.abs() < t.sphere_path.global_sphere[0].radius + EPSILON {
@@ -503,7 +515,9 @@ pub fn validate_transition(
 
     if t.collision_info.contact_plane_valid {
         t.object_info.set(ObjectInfoState::CONTACT, true);
-        let walkable = crate::is_valid_walkable(t.collision_info.contact_plane.normal);
+        let walkable = t
+            .rules
+            .is_valid_walkable(t.collision_info.contact_plane.normal);
         t.object_info.set(ObjectInfoState::ON_WALKABLE, walkable);
     } else {
         t.object_info.set(ObjectInfoState::CONTACT, false);

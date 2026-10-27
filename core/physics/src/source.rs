@@ -413,6 +413,33 @@ pub trait LandSource: Send + Sync {
     fn building(&self, _cell: CellId) -> Option<Arc<BuildingGeometry>> {
         None
     }
+
+    /// A cell this source builds itself, for a world whose cells are not this crate's land and
+    /// interior cells ([`crate::cell::HostCell`]); `None` for an id it leaves to the other
+    /// lookups. Asked first by every cell lookup.
+    ///
+    /// The default is `None` for every id: a world of this crate's own cells, which every existing
+    /// implementation is, and which stays byte-identical.
+    fn host_cell(&self, _id: CellId) -> Option<Arc<dyn crate::cell::HostCell>> {
+        None
+    }
+
+    /// The cells `spheres` at `pos` touch, for a world that builds its own cells: `Some` holding
+    /// the cell that contains the first sphere's center (when `want_container`, else `None`), with
+    /// the array filled and `hits_interior_cell` set as the search found; `None` to leave the
+    /// search to this crate's landscape and portals.
+    ///
+    /// The default is `None`, as for [`Self::host_cell`].
+    fn host_cell_list(
+        &self,
+        _pos: &Position,
+        _spheres: &[crate::geom::Sphere],
+        _arr: &mut crate::cell::CellArray,
+        _want_container: bool,
+        _hits_interior_cell: &mut bool,
+    ) -> Option<Option<crate::cell::Cell>> {
+        None
+    }
 }
 
 /// A `LandSource` backed by an explicit map. Used by every test in the crate, and a perfectly

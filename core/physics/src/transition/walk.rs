@@ -8,7 +8,6 @@ use dereth_primitives::Vec3;
 
 use crate::geom::plane::Plane;
 use crate::globals::{ATTEMPTS_REVALIDATE, ATTEMPTS_STEP_DOWN, DEFAULT_STEP_HEIGHT, LANDING_Z};
-use crate::landdefs;
 use crate::math::V3;
 use crate::transition::collide;
 use crate::transition::insert::transitional_insert;
@@ -28,7 +27,7 @@ pub fn step_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3) -> boo
     // A mover that steps while it moves along the ground stands on nothing, but steps as a body
     // on walkable ground does.
     if t.object_info.has(ObjectInfoState::ON_WALKABLE) || t.object_info.steps {
-        allow = crate::get_walkable_z();
+        allow = t.rules.walkable_z;
         amt = t.object_info.step_up_height;
     }
     t.sphere_path.walkable_allowance = allow;
@@ -128,7 +127,9 @@ pub fn cliff_slide(t: &mut Transition, plane: &Plane) -> TransitionState {
     } else {
         return TransitionState::Ok;
     }
-    let off = landdefs::get_block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
+    let off = t
+        .rules
+        .block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
     let d = off
         .add(
             t.sphere_path.global_sphere[0]
@@ -161,7 +162,9 @@ pub fn precipice_slide(t: &mut Transition) -> TransitionState {
     t.sphere_path.step_up = false;
     let wp = t.sphere_path.walkable_pos;
     let mut edge_world = crate::math::localtoglobalvec(crate::math::l2g(wp.frame.rotation), edge);
-    let off = landdefs::get_block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
+    let off = t
+        .rules
+        .block_offset(t.sphere_path.curr_pos.cell, t.sphere_path.check_pos.cell);
     let movement = off.add(
         t.sphere_path.global_sphere[0]
             .center
@@ -218,7 +221,13 @@ pub fn edge_slide(
 
     if !t.collision_info.contact_plane_valid {
         // No contact at all: re-probe downward from the current centre, once.
-        let offset = t.sphere_path.global_curr_center[0].sub(t.sphere_path.global_sphere[0].center);
+        let offset = if t.rules.edge_slide_offset_across_blocks {
+            // From the checked position back to the current one, across landblocks.
+            t.rules
+                .get_offset(&t.sphere_path.check_pos, &t.sphere_path.curr_pos)
+        } else {
+            t.sphere_path.global_curr_center[0].sub(t.sphere_path.global_sphere[0].center)
+        };
         t.sphere_path.add_offset_to_check_pos(offset);
         step_down(ctx, t, amt, allowance);
         t.collision_info.contact_plane_valid = false;

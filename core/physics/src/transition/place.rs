@@ -94,14 +94,20 @@ pub struct ScatterSample {
 /// world. Exposed so the sequence itself can be asserted in order.
 #[must_use]
 pub fn scatter_sequence(radius: f32) -> Vec<ScatterSample> {
+    scatter_sequence_from(radius, 0.48)
+}
+
+/// The scatter sequence for a world whose smallest scatter radius is `floor`.
+#[must_use]
+pub fn scatter_sequence_from(radius: f32, floor: f32) -> Vec<ScatterSample> {
     let mut r = radius;
     let mut max_dist = 4.0_f32;
     let mut small = false;
     if r < 0.125 {
         small = true;
         max_dist = 2.0;
-    } else if r < 0.48 {
-        r = 0.48;
+    } else if r < floor {
+        r = floor;
     }
 
     // Note: always 4.0, even when max_dist is 2.0.
@@ -162,7 +168,8 @@ pub fn find_placement_pos(ctx: &TransitionCtx<'_>, t: &mut Transition) -> bool {
         return false;
     }
 
-    for sample in scatter_sequence(t.sphere_path.local_sphere[0].radius) {
+    let floor = t.rules.placement_radius_floor;
+    for sample in scatter_sequence_from(t.sphere_path.local_sphere[0].radius, floor) {
         t.sphere_path.check_pos = t.sphere_path.curr_pos;
         t.sphere_path.check_cell = t.sphere_path.curr_cell;
         t.sphere_path.cache_global_sphere(None);

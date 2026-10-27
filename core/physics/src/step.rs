@@ -2108,7 +2108,7 @@ impl PhysicsWorld {
         // land cell the building stands in.
         let seen_outside = match &start {
             Cell::Env { geom, .. } => geom.seen_outside,
-            Cell::Land { .. } => false,
+            Cell::Land { .. } | Cell::Host { .. } => false,
         };
         if !seen_outside {
             return None;
