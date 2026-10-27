@@ -106,6 +106,24 @@ impl ScriptEngine for LuauEngine {
     }
 }
 
+/// Compile `source`, a plugin's script named `chunk_name`, as a VM compiles it at load, without
+/// running anything: `Err` holds the compiler's message (its line included) for a script that does
+/// not compile. The author's tool checks a package's scripts with it.
+///
+/// # Errors
+/// The script does not compile.
+pub fn compile_check(chunk_name: &str, source: &[u8]) -> Result<(), String> {
+    #[cfg(target_arch = "wasm32")]
+    wasm_rt::init();
+    let lua = Lua::new();
+    lua.load(source)
+        .set_name(format!("={chunk_name}"))
+        .set_mode(ChunkMode::Text)
+        .into_function()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// The interrupts an entry must have reached before its deadline can stop it: far less work than
 /// any budget holds, more than a short entry does.
 pub const MIN_WORK: u32 = 256;

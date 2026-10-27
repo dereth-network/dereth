@@ -4,6 +4,7 @@
 //! applies the rules. Unknown keys are refused, so a misspelled permission or capability cannot be
 //! silently dropped; a repeated key is already an error of the TOML reader.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -55,7 +56,10 @@ impl fmt::Display for PluginId {
 }
 
 /// A SemVer 2 version: `MAJOR.MINOR.PATCH`, with an optional `-pre` and `+build` kept as text.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Versions order by SemVer's precedence ([`PluginVersion::precedence`]), with the build text as
+/// the last tie-break so that only equal versions compare equal.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginVersion {
     pub major: u64,
     pub minor: u64,
@@ -84,6 +88,82 @@ impl PluginVersion {
             rest: rest.to_owned(),
         };
         (parts.next().is_none() && (rest.is_empty() || rest.len() > 1)).then_some(v)
+    }
+
+    /// The pre-release text after the `-`, without the build; empty for a release.
+    #[must_use]
+    pub fn pre(&self) -> &str {
+        let pre = self.rest.split('+').next().unwrap_or_default();
+        pre.strip_prefix('-').unwrap_or_default()
+    }
+
+    /// The build text after the `+`; empty when there is none.
+    #[must_use]
+    pub fn build(&self) -> &str {
+        self.rest.split_once('+').map_or("", |(_, b)| b)
+    }
+
+    /// SemVer 2's precedence: the numbers in order, then a pre-release below the release it leads
+    /// to, pre-releases compared identifier by identifier (numbers numerically and below words,
+    /// words by their ASCII text, and a shorter list below a longer one it begins). The build
+    /// text plays no part: `1.0.0+a` and `1.0.0+b` have the same precedence.
+    #[must_use]
+    pub fn precedence(&self, other: &Self) -> Ordering {
+        let numbers =
+            (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch));
+        if numbers != Ordering::Equal {
+            return numbers;
+        }
+        match (self.pre(), other.pre()) {
+            ("", "") => Ordering::Equal,
+            ("", _) => Ordering::Greater,
+            (_, "") => Ordering::Less,
+            (a, b) => {
+                let (mut a, mut b) = (a.split('.'), b.split('.'));
+                loop {
+                    let (x, y) = match (a.next(), b.next()) {
+                        (None, None) => return Ordering::Equal,
+                        (None, Some(_)) => return Ordering::Less,
+                        (Some(_), None) => return Ordering::Greater,
+                        (Some(x), Some(y)) => (x, y),
+                    };
+                    let order = match (pre_number(x), pre_number(y)) {
+                        // Numerically: more digits is larger, then digit by digit.
+                        (Some(m), Some(n)) => m.len().cmp(&n.len()).then_with(|| m.cmp(n)),
+                        (Some(_), None) => Ordering::Less,
+                        (None, Some(_)) => Ordering::Greater,
+                        (None, None) => x.cmp(y),
+                    };
+                    if order != Ordering::Equal {
+                        return order;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether this version takes precedence over `other`: a later release.
+    #[must_use]
+    pub fn is_newer_than(&self, other: &Self) -> bool {
+        self.precedence(other) == Ordering::Greater
+    }
+}
+
+/// A pre-release identifier that is a number, without its leading zeros; `None` for a word.
+fn pre_number(s: &str) -> Option<&str> {
+    (!s.is_empty() && s.bytes().all(|c| c.is_ascii_digit())).then(|| s.trim_start_matches('0'))
+}
+
+impl PartialOrd for PluginVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PluginVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.precedence(other)
+            .then_with(|| self.build().cmp(other.build()))
     }
 }
 
@@ -720,6 +800,44 @@ mod tests {
             assert!(!is_package_path(bad), "{bad:?}");
         }
         assert!(is_package_path("lib/util.lua"));
+    }
+
+    #[test]
+    fn versions_order_by_semver_precedence() {
+        let v = |s: &str| PluginVersion::parse(s).expect(s);
+        // SemVer 2's own example order, and numbers compared as numbers.
+        let ordered = [
+            "1.0.0-alpha",
+            "1.0.0-alpha.1",
+            "1.0.0-alpha.beta",
+            "1.0.0-beta",
+            "1.0.0-beta.2",
+            "1.0.0-beta.11",
+            "1.0.0-rc.1",
+            "1.0.0",
+            "1.0.1",
+            "1.2.0",
+            "1.10.0",
+            "2.0.0",
+        ];
+        for pair in ordered.windows(2) {
+            let (lower, higher) = (v(pair[0]), v(pair[1]));
+            assert!(higher.is_newer_than(&lower), "{higher} > {lower}");
+            assert!(!lower.is_newer_than(&higher), "{lower} < {higher}");
+            assert!(lower < higher, "{lower} < {higher}");
+        }
+        // The build plays no part in precedence, but only equal versions are equal.
+        assert!(!v("1.0.0+b").is_newer_than(&v("1.0.0+a")));
+        assert_eq!(
+            v("1.0.0+a").precedence(&v("1.0.0+b")),
+            std::cmp::Ordering::Equal
+        );
+        assert_ne!(v("1.0.0+a").cmp(&v("1.0.0+b")), std::cmp::Ordering::Equal);
+        assert_eq!(
+            (v("1.2.3-rc.1+x").pre(), v("1.2.3-rc.1+x").build()),
+            ("rc.1", "x")
+        );
+        assert_eq!((v("1.2.3+x-y").pre(), v("1.2.3+x-y").build()), ("", "x-y"));
     }
 
     #[test]

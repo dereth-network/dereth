@@ -19,14 +19,15 @@ unchanged. Until 1.0 a minor version may still change things; after it, minor ve
 that plugin. Its windows and HUDs open only when the player asks ([ui.md](ui.md#opening-a-window)).
 
 To write a plugin, start with [the guide](guide/README.md): getting started in Lua and in
-WebAssembly, a plugin's lifecycle and sandbox, installing and updating, and each bundled sample
-walked through. To look something up, [the reference](reference/README.md) lists every operation,
+WebAssembly, a plugin's lifecycle and sandbox, installing and updating, publishing, and each
+sample walked through. To look something up, [the reference](reference/README.md) lists every operation,
 permission, capability, UI node, limit and conformance case, generated from the code.
 
 | document | what it covers |
 |---|---|
 | [manifest.md](manifest.md) | `plugin.toml`: a package's identity, entry file, permissions and capabilities |
-| [packages.md](packages.md) | folders and zips, installing a release, the `dereth-plugin` tool |
+| [packages.md](packages.md) | folders and zips, installing one from a source, the `dereth-plugin` tool |
+| [sources.md](sources.md) | plugin sources: `plugins.json`, a list of plugins at their latest release, and how a release is checked |
 | [permissions.md](permissions.md) | what a plugin may do, a file the player picks, gestures and automation |
 | [events.md](events.md) | what a plugin hears, and in what order |
 | [api.md](api.md) | the Lua functions: reading the game, chat, commands, tasks, the stores, actions, loot profiles |
@@ -44,7 +45,7 @@ permission, capability, UI node, limit and conformance case, generated from the 
 | [ubscript.md](ubscript.md) | scripts written for UtilityBelt's scripting, run as they are: its script API, HUDs and ImGui, and what it answers |
 | [conformance.md](conformance.md) | the conformance suite: test plugins, profiles and the host driver |
 | [wasm.md](wasm.md) | compiled plugins: WebAssembly components against [`wit/dereth-plugin.wit`](wit/dereth-plugin.wit), generated with [`dereth.d.luau`](dereth.d.luau) from the API's schema |
-| [guide/](guide/README.md) | the guide: getting started in Lua and WebAssembly, lifecycle and sandbox, install and update, running the samples, each sample walked through |
+| [guide/](guide/README.md) | the guide: getting started in Lua and WebAssembly, lifecycle and sandbox, install and update, publishing, running the samples, each sample walked through |
 | [reference/](reference/README.md) | the reference, generated from the code: operations, permissions, capabilities, UI nodes, limits, conformance cases |
 
 ## A plugin in one page
@@ -203,8 +204,11 @@ says. `--no-plugins` starts it with none, `--plugin-dev` reloads a plugin whenev
 changes, and `--plugin-policy` names the world's [policy](policy.md) (the launcher passes it).
 Stores are kept in the `plugin-store` folder beside it. The headless client loads the folders
 named with `--plugins` and keeps stores where `--plugin-store` says, or in memory. The browser
-client finds the plugin folders the player added on its start page (*Add a plugin folder…*),
-which it keeps in the browser's private storage with the stores.
+client finds the plugin folders and zips the player added on its start page (*Add a plugin
+folder…*), and the plugins installed there from plugin sources, which it keeps in the browser's
+private storage with the stores. Players install plugins from plugin sources
+([sources.md](sources.md)) through the launcher, which keeps them for the desktop client, and on
+the browser client's start page.
 
 Scripts written for UtilityBelt's scripting run as they are, a script's folder dropped in the
 plugins folder: [ubscript.md](ubscript.md).

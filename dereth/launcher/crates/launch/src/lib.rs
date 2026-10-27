@@ -5,8 +5,9 @@
 //! table, the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
 //! layout, the client's contract (`dereth-client-contract`), for the client's preferences file
 //! and the interface it names, the client's input crate (`dereth-input`), for a pad's state as
-//! the client reads it, and the plugin packages crate (`dereth-plugin-package`), for the plugins it
-//! installs. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! the client reads it, the plugin packages crate (`dereth-plugin-package`), for the plugins it
+//! installs and the lists of the sources it installs them from, and the plugin interface
+//! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
@@ -50,6 +51,7 @@
 //! | [`probe`] | whether any server is up, asked with the server-tracker login |
 //! | [`local`] | the worlds already running on this computer, recognized from their processes, and where each keeps its configuration, data and logs, and an Empyrean world's admin channel |
 //! | [`outside`] | asking the Dereth Network's hub to try a hosted world from outside, and its answer |
+//! | [`plugins`] | the plugins it installs for the Dereth client: the sources it reads them from, what each lists, installing and updating them |
 //! | [`join`] | a join link (`dereth://join?...`, or the site's page for it): a world to add, and the scheme's registration |
 //!
 //! The launcher's window is one front end over this. The web client's front page is another: it

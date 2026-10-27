@@ -210,7 +210,125 @@ $('plugin-zip').addEventListener('change', async () => {
   if (files.length) worker.postMessage({ cmd: 'addPlugins', files });
   $('plugin-zip').value = '';
 });
-$('remove-plugins').addEventListener('click', () => worker.postMessage({ cmd: 'removePlugins' }));
+$('remove-plugins').addEventListener('click', async () => {
+  try {
+    await call('removePlugins');
+  } catch (e) {
+    $('plugin-note').textContent = String(e?.message ?? e);
+  }
+  showSources();
+});
+
+// Plugin sources, as the desktop launcher has them (its own logic, in the worker): Dereth's own and
+// the ones the player adds by address, each with the plugins installed from it and then the ones
+// it offers that are not installed, each saying what it does and uses, with Install, Update and
+// Remove. A plugin installed here is kept in this browser and found by the client when it starts,
+// off until the player turns it on there. Every source is read as the page opens and again with
+// Refresh; updates apply as the setting says, and one that asks for more permissions waits for
+// the player.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const uses = (list) => (list.length ? ` Uses ${list.join(', ')}.` : '');
+const DESKTOP = '<span class="muted" title="It downloads from a GitHub release, which web pages can&#39;t fetch.">Desktop launcher only</span>';
+let shelf = null;
+
+// A plugin a source offers that is not installed.
+function availableRow(a) {
+  const action = a.state === 'install'
+    ? (a.desktop_only ? DESKTOP : `<button type="button" class="btn" data-plugin-install="${esc(a.id)}" data-source="${esc(a.source)}">Install</button>`)
+    : a.state === 'needs_newer_dereth' ? '<span class="muted">Needs a newer Dereth</span>' : '<span class="muted">Only from Dereth</span>';
+  return `<span class="what" style="padding-left:14px">Plugin <b>${esc(a.name)}</b> <span class="muted">${esc(`${a.description}${uses([...a.permissions, ...a.domains])}`)}</span></span><span class="muted">${esc(a.version)}</span>${action}`;
+}
+
+// An installed plugin, with its update when one waits; `from` says where it came from, when its
+// row is not under its source.
+function installedRow(p, from = '') {
+  const u = p.update;
+  let what = esc(`${from}${p.description}${uses([...p.permissions, ...p.domains])}`);
+  let update = '';
+  if (u?.needs_newer_dereth) {
+    what += ` <span class="bad">${esc(u.to)} needs a newer Dereth.</span>`;
+  } else if (u) {
+    const asks = [...u.new_permissions, ...u.new_domains];
+    if (asks.length) what += ` <span class="bad">${esc(u.to)} also asks for ${esc(asks.join(', '))}.</span>`;
+    update = p.desktop_only ? DESKTOP : `<button type="button" class="btn" data-plugin-update="${esc(p.id)}">Update to ${esc(u.to)}</button>`;
+  }
+  const remove = `<button type="button" class="btn" data-plugin-remove="${esc(p.id)}">Remove</button>`;
+  return `<span class="what" style="padding-left:14px">Plugin <b>${esc(p.name)}</b> <span class="muted">${what}</span></span><span class="muted">${esc(p.version)}</span>${update ? `<span class="btns" style="margin:0">${update}${remove}</span>` : remove}`;
+}
+
+async function showSources() {
+  try {
+    shelf = await call('plugins');
+  } catch (e) {
+    $('source-note').textContent = String(e?.message ?? e);
+    return;
+  }
+  $('plugin-updates').value = shelf.auto_update;
+  const rows = [];
+  for (const s of shelf.sources) {
+    const read = s.problem ? `<span class="bad">${esc(s.problem)}</span>` : `${s.plugins} plugin${s.plugins === 1 ? '' : 's'}`;
+    const end = s.first_party ? '<span class="muted">Dereth&#39;s own</span>' : `<button type="button" class="btn" data-source-remove="${esc(s.url)}">Remove</button>`;
+    rows.push(`<span class="what">Source <b>${esc(s.name)}</b> <span class="muted">${esc(s.url)} · ${read}</span></span><span></span>${end}`);
+    for (const p of shelf.installed.filter((x) => x.source === s.url)) rows.push(installedRow(p));
+    for (const a of shelf.available.filter((x) => x.source === s.url)) rows.push(availableRow(a));
+  }
+  // Installed plugins whose source was removed.
+  const gone = shelf.installed.filter((x) => x.source_removed);
+  if (gone.length) rows.push('<span class="what muted">Installed, and listed by no source here</span><span></span><span></span>');
+  for (const p of gone) rows.push(installedRow(p, `From ${p.source_name}, a source you removed: no updates. `));
+  $('source-plugins').innerHTML = rows.join('');
+}
+
+// One of the plugin calls, with the plugins' buttons off while it runs, and what it came to said.
+async function pluginCall(work) {
+  const controls = [...document.querySelectorAll('#source-plugins button, #add-source, #refresh-sources, #source-confirm, #plugin-updates')];
+  for (const c of controls) c.disabled = true;
+  try {
+    $('source-note').textContent = (await work()) || '';
+  } catch (e) {
+    $('source-note').textContent = String(e?.message ?? e);
+  }
+  for (const c of controls) c.disabled = false;
+  await showSources();
+}
+
+$('source-plugins').addEventListener('click', (ev) => {
+  const d = ev.target.closest('button')?.dataset;
+  if (!d) return;
+  if (d.pluginInstall) pluginCall(() => call('installPlugin', d.source, d.pluginInstall));
+  if (d.pluginUpdate) pluginCall(() => call('updatePlugin', d.pluginUpdate));
+  if (d.pluginRemove) pluginCall(() => call('removePlugin', d.pluginRemove));
+  if (d.sourceRemove) pluginCall(() => call('pluginRemoveSource', d.sourceRemove));
+});
+
+// Add the source typed in. One other than Dereth's is added once the player confirms it, on the
+// line under the address.
+function addSource(confirmed) {
+  const url = $('source-url').value.trim();
+  if (!url) return;
+  if (!confirmed && url !== shelf?.first_party) {
+    $('source-warn').classList.remove('hidden');
+    return;
+  }
+  $('source-warn').classList.add('hidden');
+  pluginCall(async () => {
+    const said = await call('pluginAddSource', url);
+    $('source-url').value = '';
+    return said;
+  });
+}
+$('add-source').addEventListener('click', () => addSource(false));
+$('source-url').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') addSource(false);
+});
+$('source-url').addEventListener('input', () => $('source-warn').classList.add('hidden'));
+$('source-confirm').addEventListener('click', () => addSource(true));
+$('source-cancel').addEventListener('click', () => $('source-warn').classList.add('hidden'));
+$('refresh-sources').addEventListener('click', () => pluginCall(async () => (await call('pluginRefresh')).said || 'Nothing new.'));
+$('plugin-updates').addEventListener('change', () => pluginCall(() => call('pluginUpdates', $('plugin-updates').value)));
+
+// As the page opens: what is kept, then every source read again, and what is new said.
+showSources().then(() => pluginCall(async () => (await call('pluginRefresh')).said));
 
 // Start the client on what the front page chose: the data files, the server, the account, what
 // the launcher says about the world, and the folder its overlay is kept in.

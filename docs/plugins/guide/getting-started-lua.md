@@ -10,7 +10,9 @@ says which subset stays portable to plain Lua 5.1.
 
 ## 1. The package
 
-A plugin is a folder with `plugin.toml` at its root. Make a folder `kills` holding two files:
+A plugin is a folder with `plugin.toml` at its root. (`dereth-plugin new` makes a repository with
+one in it, ready to publish: [publishing.md](publishing.md). This guide builds one by hand.) Make a
+folder `kills` holding two files:
 
 ```toml
 # kills/plugin.toml
@@ -204,7 +206,9 @@ there for `chat`. The script verbs are listed by `dereth-headless --help`.
 
 ## Next
 
-- Package the plugin: [install-and-update.md](install-and-update.md).
+- Check it as the clients will, with `dereth-plugin check kills`, and publish it in a plugin
+  source of your own, which players add in the launcher: [publishing.md](publishing.md).
+- How players install and update plugins: [install-and-update.md](install-and-update.md).
 - What stops a plugin, and what it cannot reach: [lifecycle-and-sandbox.md](lifecycle-and-sandbox.md).
 - Working plugins, walked through: [samples/](samples/README.md). The [XP Meter](samples/xp-meter.md)
   is the smallest; the [Looter](samples/looter.md) shows actions and promises in full.

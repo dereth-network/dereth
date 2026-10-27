@@ -1,7 +1,7 @@
 # Writing and running Dereth plugins: the guide
 
 **Provenance: design.** The plugin interface is this client's own addition, not the original's.
-This guide explains it and walks through the plugins that ship with Dereth; the
+This guide explains it and walks through Dereth's own plugins; the
 [specification](../README.md) is the rule, and where the two differ the specification wins.
 
 A **plugin** is a package (a folder, or a zip of one) holding a manifest, `plugin.toml`, and
@@ -18,7 +18,8 @@ leave, act: loot, cast, move the character, log in.
 | write a first plugin in Lua | [getting-started-lua.md](getting-started-lua.md) |
 | write one in Rust, compiled to WebAssembly | [getting-started-wasm.md](getting-started-wasm.md) |
 | know when a plugin runs, what stops it and what it cannot reach | [lifecycle-and-sandbox.md](lifecycle-and-sandbox.md) |
-| install plugins, keep them updated, package your own | [install-and-update.md](install-and-update.md) |
+| install plugins from sources and keep them updated | [install-and-update.md](install-and-update.md) |
+| publish your own, in a source of your own | [publishing.md](publishing.md) |
 | run the game with the bundled samples and see what each does | [running-the-samples.md](running-the-samples.md) |
 | read a working plugin line by line | [samples/](samples/README.md) |
 | look up an operation, permission, capability, UI node or limit | [the reference](../reference/README.md) |
@@ -29,6 +30,7 @@ leave, act: loot, cast, move the character, log in.
 |---|---|---|
 | manifest | `plugin.toml`: id, version, API version, entry file, permissions with reasons, capabilities | [manifest.md](../manifest.md) |
 | package | the folder or zip, and a release's hash | [packages.md](../packages.md) |
+| plugin source | `plugins.json`: plugins at their latest release, where each zip is and its hash | [sources.md](../sources.md) |
 | permissions | what a plugin says it uses; every plugin may, a world's policy bounds automation | [permissions.md](../permissions.md), [policy.md](../policy.md) |
 | capabilities | what a host can do; a plugin requires some and checks others at run time | [README](../README.md#host-capabilities) |
 | events | what a plugin hears, and in what order within a frame | [events.md](../events.md) |

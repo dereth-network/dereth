@@ -16,6 +16,11 @@
 //! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
 //! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it |
 //!
+//! and beside it, for plugin authors, the plugin author's tool for the same platform
+//! ([`tool_file_name`]): `dereth-plugin-<v>-<platform>.zip` on Windows, `.tar.gz` on macOS and
+//! Linux, `dereth-plugin` and its notices under `dereth-plugin-<v>/`. A plugin repository's
+//! workflows download it from the release its pin names and check it against `SHA256SUMS`.
+//!
 //! With an update-signing key in the environment ([`sign`]) the launcher's file is signed, and
 //! the signature goes into its platform's piece of `latest.json`, `latest-<platform>.json`: the
 //! updater reads the signature there, so no separate signature file is written. Each target's
@@ -25,10 +30,8 @@
 //! files already in `<dir>` (every runner's, in the release workflow) and writes the index over
 //! them.
 //!
-//! **The plugins that come with Dereth** ([`super::plugins`]) go in beside the client:
-//! `plugins/<folder>/` in the Windows archive's folder, `Contents/Resources/plugins/` in the macOS
-//! bundle, and the AppImage's own folder of the app's files; the client lists them in its plugin
-//! panel, each off until the player turns it on.
+//! **Plugins:** a release carries none. A player installs Dereth's plugins from its plugin source
+//! ([`super::plugins`]), as anyone's, through the launcher.
 //!
 //! **The dat guard.** Only named files are copied, and the deny scan runs over what was staged and
 //! again over each written archive: a file that is not on the package's list, a game data file or
@@ -49,7 +52,6 @@ use super::archive::{self, Member};
 use super::guard::{self, Entry, Kind};
 use super::headers;
 use super::notice;
-use super::plugins;
 use super::sign::{self, Signer};
 use super::targets::{self, Os, Target};
 use super::version::{self, Product};
@@ -157,6 +159,35 @@ pub const SOURCE_URL_ENV: &str = "DERETH_BUILD_SOURCE_URL";
 /// The macOS bundle's name.
 pub const LAUNCHER_APP: &str = "Dereth.app";
 
+/// The plugin author's tool, released beside the launcher for each platform.
+pub const TOOL: &str = "dereth-plugin";
+
+/// The tool's crate, by its manifest.
+const TOOL_MANIFEST: &str = "tools/plugin/Cargo.toml";
+
+/// The plugin author's tool's release file for `target`: a zip on Windows, a tarball elsewhere.
+pub fn tool_file_name(target: Target, version: &str) -> String {
+    let ext = if target.os == Os::Windows {
+        "zip"
+    } else {
+        "tar.gz"
+    };
+    format!("{TOOL}-{version}-{}.{ext}", target.platform_name())
+}
+
+/// The one top-level folder of the tool's archive.
+pub fn tool_root(version: &str) -> String {
+    format!("{TOOL}-{version}")
+}
+
+/// The files the tool's archive holds below its folder: the program and the notices.
+pub fn tool_contents(target: Target) -> Vec<String> {
+    let mut out = vec![format!("{TOOL}{}", target.exe_suffix())];
+    out.extend(NOTICES.iter().map(|n| (*n).to_owned()));
+    out.sort();
+    out
+}
+
 /// The release file for `target`: the launcher, with the client inside it.
 pub fn release_file_name(target: Target, version: &str) -> String {
     let p = target.platform_name();
@@ -216,21 +247,6 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     (required, optional)
 }
 
-/// [`contents`] with the carried plugins' published paths (`plugins/...`) where `target`'s archive
-/// holds them: at the top of the Windows folder, among the macOS bundle's resources. The AppImage
-/// is no archive.
-pub fn package_contents(target: Target, plugins: &[String]) -> (Vec<String>, Vec<String>) {
-    let (mut required, optional) = contents(target);
-    let prefix = match target.os {
-        Os::Windows => "",
-        Os::Mac => "Contents/Resources/",
-        Os::Linux => return (required, optional),
-    };
-    required.extend(plugins.iter().map(|p| format!("{prefix}{p}")));
-    required.sort();
-    (required, optional)
-}
-
 /// The programs in the release file's archive, which the header checks read.
 pub fn programs(target: Target) -> Vec<String> {
     let exe = target.exe_suffix();
@@ -255,6 +271,8 @@ pub fn piece_name(target: Target) -> String {
 pub enum Asset {
     /// The release file: the launcher, with the client inside it.
     Launcher(Target),
+    /// The plugin author's tool for a platform.
+    Tool(Target),
     /// One file's lines of `MANIFEST.txt`.
     ManifestPart,
     /// One platform's entry of `latest.json`.
@@ -284,10 +302,17 @@ pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
         if name == format!("{file}.manifest") {
             return Ok(Asset::ManifestPart);
         }
+        let tool = tool_file_name(t, version);
+        if name == tool {
+            return Ok(Asset::Tool(t));
+        }
+        if name == format!("{tool}.manifest") {
+            return Ok(Asset::ManifestPart);
+        }
     }
     Err(format!(
-        "`{name}` is not a file of the Dereth {version} release (a launcher file, its .manifest, a \
-         latest-<platform>.json piece or the index)"
+        "`{name}` is not a file of the Dereth {version} release (a launcher file, the plugin \
+         author's tool, either's .manifest, a latest-<platform>.json piece or the index)"
     ))
 }
 
@@ -672,8 +697,7 @@ impl Job<'_> {
         fresh_dir(self.stage)?;
         let client = self.build_client()?;
         let notices = self.notices()?;
-        let carried = self.stage_plugins()?;
-        let launcher = self.build_launcher(&client, &notices, &carried)?;
+        let launcher = self.build_launcher(&client, &notices)?;
         match self.target.os {
             Os::Windows => {
                 let mut members = vec![
@@ -681,24 +705,88 @@ impl Job<'_> {
                     ("dereth-client.exe".to_owned(), client),
                 ];
                 members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
-                members.extend(carried);
                 self.write_archive(&members)
             }
             Os::Linux => self.write_appimage(&launcher, &client),
             Os::Mac => self.write_bundle(&launcher),
-        }
+        }?;
+        self.package_tool()
     }
 
-    /// The carried plugins, copied into the staging folder from the tree as git tracks them:
-    /// published path and copy.
-    fn stage_plugins(&self) -> Result<Vec<(String, PathBuf)>, String> {
-        let mut out = Vec::new();
-        for (name, from) in plugins::files(self.ws)? {
-            let to = self.stage.join(&name);
-            copy(&from, &to)?;
-            out.push((name, to));
-        }
-        Ok(out)
+    /// The plugin author's tool, `dereth-plugin`, as a release file of its own beside the
+    /// launcher's: built with cargo in the workspace as the client is, its header checked as a
+    /// console program's, and archived with its notices ([`tool_archive`]).
+    fn package_tool(&self) -> Result<(), String> {
+        let t = self.target;
+        let env = build_env(self.ws, self.facts, t);
+        run_in(
+            self.ws,
+            "cargo",
+            &[
+                "build",
+                "--locked",
+                "--release",
+                "-p",
+                TOOL,
+                "--target",
+                t.triple,
+            ],
+            &env,
+            &[],
+        )?;
+        let exe = format!("{TOOL}{}", t.exe_suffix());
+        let program = read(&target_dir().join(t.triple).join("release").join(&exe))?;
+        let described = headers::check_console_app(&program, t, targets::DERETH_GLIBC_FLOOR)
+            .map_err(|problems| {
+                format!(
+                    "the header check refused {exe} for {}:\n  {}",
+                    t.triple,
+                    problems.join("\n  ")
+                )
+            })?;
+        println!("  {exe}: {described}");
+        let about = self.stage.join("tool-about");
+        mkdir(&about)?;
+        let licenses = licence_page(self.ws, TOOL_MANIFEST, t, &about, TOOL)?;
+        let crates = crates_of(self.ws, "Cargo.toml", TOOL, t)?;
+        let mit = String::from_utf8_lossy(&read(&self.ws.join("LICENSE"))?).into_owned();
+        let notice = notice::tool_notice(&notice::ToolFacts {
+            version: self.version,
+            target: t.triple,
+            commit: &self.facts.commit,
+            source_url: &self.facts.source_url,
+            crates: &crates,
+            mit_license: &mit,
+        });
+        let members = tool_members(t, program, &mit, &notice, &licenses);
+        let named: Vec<(&str, &[u8])> = members
+            .iter()
+            .map(|m| (m.name.as_str(), m.bytes.as_slice()))
+            .collect();
+        self.refuse_machine_folders(&self.stage.join(TOOL), &named)?;
+        let bytes = tool_archive(t, self.version, &members, self.facts.epoch)?;
+        let file = tool_file_name(t, self.version);
+        let path = self.out_dir.join(&file);
+        write(&path, &bytes)?;
+        check_tool_archive(&path, t, self.version)?;
+        println!(
+            "  {}: {} bytes, sha256 {}",
+            path.display(),
+            bytes.len(),
+            sha256_hex(&bytes)
+        );
+        let lines: Vec<(String, Vec<u8>, String)> = members
+            .into_iter()
+            .map(|m| {
+                let d = if m.name == exe {
+                    described.clone()
+                } else {
+                    String::new()
+                };
+                (m.name, m.bytes, d)
+            })
+            .collect();
+        self.write_manifest(&file, &lines)
     }
 
     /// The client, built with cargo in the workspace.
@@ -792,12 +880,7 @@ impl Job<'_> {
 
     /// The launcher, built with the Tauri CLI: `dereth.exe` on Windows, `Dereth.app` on macOS
     /// (with the client and MoltenVK inside), the AppImage on Linux (with the client inside).
-    fn build_launcher(
-        &self,
-        client: &Path,
-        notices: &Path,
-        carried: &[(String, PathBuf)],
-    ) -> Result<PathBuf, String> {
+    fn build_launcher(&self, client: &Path, notices: &Path) -> Result<PathBuf, String> {
         let t = self.target;
         let tauri_dir = self.ws.join(LAUNCHER_DIR);
         let cargo_target = target_dir().join("launcher");
@@ -816,7 +899,7 @@ impl Job<'_> {
             .parent()
             .unwrap_or(Path::new("."))
             .join("dereth-client");
-        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices, carried)?;
+        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices)?;
         if t.os == Os::Mac {
             let (dylib, _) = self.moltenvk.ok_or("a macOS launcher needs MoltenVK")?;
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
@@ -924,7 +1007,7 @@ impl Job<'_> {
     /// it, and write its manifest lines.
     fn finish_tree(&self, dir: &Path, root: &str) -> Result<(), String> {
         let t = self.target;
-        let (required, optional) = package_contents(t, &plugins::paths(self.ws)?);
+        let (required, optional) = contents(t);
         let staged = guard::staged_entries(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let findings = guard::scan_tree(&staged, &required, &optional, FILE_CAP, TOTAL_CAP);
         if !findings.is_empty() {
@@ -970,7 +1053,7 @@ impl Job<'_> {
         let file = release_file_name(t, self.version);
         let path = self.out_dir.join(&file);
         write(&path, &bytes)?;
-        check_archive(self.ws, &path, t, self.version)?;
+        check_archive(&path, t, self.version)?;
         println!(
             "  {}: {} bytes, sha256 {}",
             path.display(),
@@ -1159,13 +1242,74 @@ pub fn check_appimage(name: &str, bytes: &[u8]) -> Vec<String> {
     findings
 }
 
-/// The deny scan of a written release file.
-pub(crate) fn check_archive(
-    ws: &Path,
-    path: &Path,
+/// The members of the tool's archive for `target`: the program, then the license, the notice and
+/// the third-party licenses' page.
+pub fn tool_members(
+    target: Target,
+    program: Vec<u8>,
+    mit: &str,
+    notice: &str,
+    licenses: &str,
+) -> Vec<Member> {
+    let text = |name: &str, body: &str| Member {
+        name: name.to_owned(),
+        bytes: body.as_bytes().to_vec(),
+        executable: false,
+    };
+    vec![
+        Member {
+            name: format!("{TOOL}{}", target.exe_suffix()),
+            bytes: program,
+            executable: true,
+        },
+        text("LICENSE", mit),
+        text("NOTICE.txt", notice),
+        text("THIRD-PARTY-LICENSES.html", licenses),
+    ]
+}
+
+/// The tool's archive: `members` under [`tool_root`], a zip on Windows and a tarball elsewhere,
+/// each file dated `epoch`.
+///
+/// # Errors
+/// The archive could not be written.
+pub fn tool_archive(
     target: Target,
     version: &str,
-) -> Result<(), String> {
+    members: &[Member],
+    epoch: i64,
+) -> Result<Vec<u8>, String> {
+    let root = tool_root(version);
+    if target.os == Os::Windows {
+        archive::zip_bytes(&root, members, epoch)
+    } else {
+        archive::tar_gz_bytes(&root, members, epoch)
+    }
+}
+
+/// What the deny scan finds in the tool's archive, as read back: exactly [`tool_contents`], none
+/// of them named like the game's data or carrying its header, under the caps.
+pub fn tool_findings(entries: &[Entry], target: Target) -> Vec<String> {
+    guard::scan_tree(entries, &tool_contents(target), &[], FILE_CAP, TOTAL_CAP)
+}
+
+/// The deny scan of a written tool archive.
+pub(crate) fn check_tool_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
+    let entries = archive::archive_entries(path, &tool_root(version))?;
+    let findings = tool_findings(&entries, target);
+    if findings.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the deny scan refused {}:\n  {}",
+            path.display(),
+            findings.join("\n  ")
+        ))
+    }
+}
+
+/// The deny scan of a written release file.
+pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1174,7 +1318,7 @@ pub(crate) fn check_archive(
         None => check_appimage(&name, &read(path)?),
         Some(root) => {
             let entries: Vec<Entry> = archive::archive_entries(path, &root)?;
-            let (required, optional) = package_contents(target, &plugins::paths(ws)?);
+            let (required, optional) = contents(target);
             guard::scan_tree(&entries, &required, &optional, FILE_CAP, TOTAL_CAP)
         }
     };
@@ -1205,12 +1349,14 @@ pub(crate) fn write_index(
         .collect();
     names.sort();
     let mut launchers = Vec::new();
+    let mut tools = Vec::new();
     let mut parts = Vec::new();
     let mut pieces = Vec::new();
     let mut refused = Vec::new();
     for name in &names {
         match classify(name, version) {
             Ok(Asset::Launcher(t)) => launchers.push((name.clone(), t)),
+            Ok(Asset::Tool(t)) => tools.push((name.clone(), t)),
             Ok(Asset::ManifestPart) => parts.push(name.clone()),
             Ok(Asset::Piece(t)) => pieces.push((name.clone(), t)),
             Ok(Asset::Index) => {}
@@ -1231,7 +1377,19 @@ pub(crate) fn write_index(
         ));
     }
     for (name, t) in &launchers {
-        check_archive(ws, &dir.join(name), *t, version)?;
+        check_archive(&dir.join(name), *t, version)?;
+        if !tools.iter().any(|(_, tt)| tt == t) {
+            return Err(format!(
+                "{name} has no plugin author's tool beside it ({})",
+                tool_file_name(*t, version)
+            ));
+        }
+    }
+    for (name, t) in &tools {
+        check_tool_archive(&dir.join(name), *t, version)?;
+        if !launchers.iter().any(|(_, lt)| lt == t) {
+            return Err(format!("{name} has no launcher file beside it"));
+        }
     }
 
     // latest.json: every launcher file signed, each signature good, one piece per platform.
@@ -1310,6 +1468,17 @@ pub(crate) fn write_index(
             "signed": !unsigned.contains(name),
         }));
     }
+    for (name, t) in &tools {
+        let bytes = read(&dir.join(name))?;
+        assets.push(serde_json::json!({
+            "program": TOOL,
+            "target": t.triple,
+            "platform": t.updater_platform(),
+            "file": name,
+            "size": bytes.len(),
+            "sha256": sha256_hex(&bytes),
+        }));
+    }
     let release = serde_json::json!({
         "schema": 1,
         "product": "dereth",
@@ -1326,7 +1495,11 @@ pub(crate) fn write_index(
     json.push('\n');
     write(&dir.join("release.json"), json.as_bytes())?;
 
-    let mut summed: Vec<String> = launchers.iter().map(|(n, _)| n.clone()).collect();
+    let mut summed: Vec<String> = launchers
+        .iter()
+        .chain(&tools)
+        .map(|(n, _)| n.clone())
+        .collect();
     summed.extend(["MANIFEST.txt".to_owned(), "release.json".to_owned()]);
     if signed {
         summed.push("latest.json".to_owned());
@@ -1345,8 +1518,7 @@ pub(crate) fn write_index(
 }
 
 /// The bundle section of the launcher's release configuration for `target`: the client, as the
-/// base name the bundler adds `-<target>` to, the notices, and the carried plugins (`carried`:
-/// published path and staged copy), each a resource at its published path.
+/// base name the bundler adds `-<target>` to, and the notices.
 ///
 /// The launcher is built with its whole configuration compiled in, so a folder named here is
 /// carried by the program. Each is named relative to the app's folder `app_dir`, as the bundler
@@ -1358,7 +1530,6 @@ pub fn bundle_config(
     app_dir: &Path,
     client_base: &Path,
     notices: &Path,
-    carried: &[(String, PathBuf)],
 ) -> Result<serde_json::Value, String> {
     if target.os == Os::Windows {
         return Ok(serde_json::json!({ "createUpdaterArtifacts": false }));
@@ -1368,12 +1539,6 @@ pub fn bundle_config(
         resources.insert(
             relative_to(app_dir, &notices.join(n))?,
             serde_json::Value::from(*n),
-        );
-    }
-    for (name, staged) in carried {
-        resources.insert(
-            relative_to(app_dir, staged)?,
-            serde_json::Value::from(name.as_str()),
         );
     }
     Ok(serde_json::json!({

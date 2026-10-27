@@ -143,35 +143,63 @@ fn restart_to_update(app: tauri::AppHandle) -> Cmd<()> {
     update::install_and_restart(&app)
 }
 
+/// Refresh: read every plugin source's list again and apply the updates the setting allows.
 #[tauri::command]
-async fn install_plugin(b: State<'_, Shared>, url: String, sha256: Option<String>) -> Cmd<String> {
+async fn refresh_plugins(b: State<'_, Shared>) -> Cmd<String> {
     let shared = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || Backend::install_plugin(&shared, &url, sha256))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::refresh_plugins(&shared, &backend::fetch_plugin_file)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Add a plugin source by its list's address, and read it.
 #[tauri::command]
-async fn update_plugins(b: State<'_, Shared>) -> Cmd<String> {
+async fn add_plugin_source(b: State<'_, Shared>, url: String) -> Cmd<String> {
     let shared = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || Backend::update_plugins(&shared))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::add_plugin_source(&shared, &backend::fetch_plugin_file, &url)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn accept_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
-    lock(&b).accept_plugin(&id)
+fn remove_plugin_source(b: State<'_, Shared>, url: String) -> Cmd<()> {
+    lock(&b).remove_plugin_source(&url)
 }
 
+/// Install a plugin from the source that lists it.
 #[tauri::command]
-fn discard_plugin_release(b: State<'_, Shared>, id: String) -> Cmd<()> {
-    lock(&b).discard_plugin_release(&id)
+async fn install_plugin(b: State<'_, Shared>, source: String, id: String) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::install_plugin(&shared, &backend::fetch_plugin_file, &source, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Update an installed plugin from its own source.
+#[tauri::command]
+async fn update_plugin(b: State<'_, Shared>, id: String) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::update_plugin(&shared, &backend::fetch_plugin_file, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 fn remove_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
     lock(&b).remove_plugin(&id)
+}
+
+#[tauri::command]
+fn set_plugin_updates(b: State<'_, Shared>, setting: String) -> Cmd<()> {
+    lock(&b).set_plugin_updates(&setting)
 }
 
 /// Fetch the world list again, whatever its copy's age.
@@ -627,6 +655,14 @@ fn main() {
                 .with_plugins(plugins_on),
             ));
             Backend::load_list(&shared);
+            // With plugins on, every source's list is read at start, and the updates the setting
+            // allows are applied.
+            if plugins_on {
+                let checking = shared.clone();
+                std::thread::spawn(move || {
+                    Backend::refresh_plugins_at_start(&checking, &backend::fetch_plugin_file);
+                });
+            }
             let ticker = shared.clone();
             std::thread::spawn(move || loop {
                 Backend::tick(&ticker);
@@ -769,11 +805,13 @@ fn main() {
             share::check_sharing,
             share::check_from_outside,
             join::take_join,
+            refresh_plugins,
+            add_plugin_source,
+            remove_plugin_source,
             install_plugin,
-            update_plugins,
-            accept_plugin,
-            discard_plugin_release,
+            update_plugin,
             remove_plugin,
+            set_plugin_updates,
         ])
         .build(tauri::generate_context!())
         .expect("the launcher window could not start");
@@ -836,7 +874,7 @@ mod tests {
         let handler = &main[main.find("generate_handler![").expect("the handler list")..];
         let handler = &handler[..handler.find(']').unwrap()];
         let mut called = std::collections::BTreeSet::new();
-        for opener in ["api(\"", "act(\""] {
+        for opener in ["api(\"", "act(\"", "pluginFetch(\""] {
             for (at, _) in page.match_indices(opener) {
                 let rest = &page[at + opener.len()..];
                 called.insert(&rest[..rest.find('"').unwrap()]);
@@ -930,6 +968,107 @@ mod tests {
             .contains(r#"PAD_SECTIONS.filter((s) => s !== "plugins" || ui.snap.plugins)"#));
         assert!(page_function("padSection").contains("const sections = padSections();"));
         assert!(page_function("render").contains("plugins: ui.snap.plugins ? plugins : home"));
+    }
+
+    /// The Plugins page installs only from sources: a listed plugin is installed by its source and
+    /// its id, with no box for a zip's address or its hash; a source other than Dereth's is added
+    /// only once the player confirms it, on a line under its address rather than a panel above.
+    #[test]
+    fn the_plugins_page_installs_from_sources_and_confirms_another_source() {
+        let row = page_function("availableRow");
+        assert!(
+            row.contains(r#"data-plugin-install="${esc(a.source)}" data-plugin-id="${esc(a.id)}""#),
+            "{row}"
+        );
+        let page = page_function("plugins");
+        assert!(
+            !page.contains("SHA-256") && !page.contains("plugin.zip"),
+            "{page}"
+        );
+        assert!(
+            page.contains("Dereth does not review plugins from other sources.")
+                && page.contains(r#"data-act="plugin-source-confirm""#)
+                && !page.contains("panel pending"),
+            "{page}"
+        );
+        let add = page_function("addPluginSource");
+        assert!(
+            add.contains("!confirmed && url !== ui.snap.plugins.first_party"),
+            "{add}"
+        );
+        let asked = add
+            .find("ui.plugin.confirm = true")
+            .expect("the confirmation");
+        let added = add
+            .find(r#"pluginFetch("add_plugin_source", { url })"#)
+            .expect("the call");
+        assert!(asked < added, "{add}");
+    }
+
+    /// The Plugins page's update setting is the shared one, by the names the shared code reads,
+    /// with its caption; no plugin has a choice of its own, and the page's top is left free.
+    #[test]
+    fn the_plugins_page_offers_the_shared_update_setting_and_no_choice_per_plugin() {
+        use dereth_launch::plugins::AutoUpdate;
+        let app = include_str!("../ui/app.js");
+        let choices = r#"const PLUGIN_UPDATES = [["none", "None"], ["all", "All"], ["first_party", "Only Dereth"]];"#;
+        assert!(app.contains(choices));
+        for (name, setting) in [
+            ("none", AutoUpdate::None),
+            ("all", AutoUpdate::All),
+            ("first_party", AutoUpdate::FirstParty),
+        ] {
+            assert_eq!(AutoUpdate::parse(name), Some(setting));
+        }
+        let page = page_function("plugins");
+        assert!(page.contains(r#"<div class="name">Automatically update plugins</div>"#));
+        assert!(page.contains(
+            "Plugin updates that ask for additional permissions will never automatically install."
+        ));
+        assert!(!app.contains("set_plugin_auto_update") && !app.contains("data-plugin-auto"));
+        assert!(!page.contains("Plugins run in the Dereth client only"));
+        assert!(include_str!("../ui/demo.js").contains(r#"auto_update: "first_party","#));
+    }
+
+    /// The Plugins page's three sections fold by their headings, all open at first, and a
+    /// plugin's row opens in place, one at a time, as the Worlds list's do.
+    #[test]
+    fn the_plugins_pages_sections_fold_and_one_plugin_row_opens_at_a_time() {
+        let app = include_str!("../ui/app.js");
+        assert!(app.contains("folded: { installed: false, available: false, sources: false }"));
+        assert!(app.contains(
+            "if (d.pluginRow) { ui.plugin.open = ui.plugin.open === d.pluginRow ? null : d.pluginRow;"
+        ));
+        assert!(app.contains(
+            "if (d.pluginFold) { ui.plugin.folded[d.pluginFold] = !ui.plugin.folded[d.pluginFold];"
+        ));
+        assert!(page_function("pluginSection").contains(r#"(open ? body : "")"#));
+        assert!(page_function("pluginRow").contains("const open = ui.plugin.open === key;"));
+        let page = page_function("plugins");
+        for key in ["installed", "available", "sources"] {
+            assert!(page.contains(&format!("pluginSection(\"{key}\"")), "{key}");
+        }
+    }
+
+    /// The Plugins page reads every source again with one button, Refresh, which says what is new
+    /// (or that nothing is); there is no other check for updates.
+    #[test]
+    fn the_plugins_page_refreshes_every_source_with_one_button() {
+        let page = page_function("plugins");
+        assert!(
+            page.contains(
+                r#"data-act="plugins-refresh" ${busy ? "disabled" : ""}>Refresh</button>"#
+            ),
+            "{page}"
+        );
+        let app = include_str!("../ui/app.js");
+        assert!(app.contains(
+            r#"case "plugins-refresh": await pluginFetch("refresh_plugins", {}); break;"#
+        ));
+        assert!(
+            page_function("pluginFetch").contains(r#"cmd === "refresh_plugins" ? "Nothing new.""#)
+        );
+        assert!(!page.contains("Check for updates"));
     }
 
     /// The emblems are on Empyrean's and Lyceum's headings, and on no button.

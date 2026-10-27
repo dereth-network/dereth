@@ -446,10 +446,18 @@ pub fn read_upload_dir(
         let path = dir.join(name);
         match kind {
             Kind::Dereth => {
-                let launcher::Asset::Launcher(t) = launcher::classify(name, version)? else {
-                    continue;
+                let t = match launcher::classify(name, version)? {
+                    launcher::Asset::Launcher(t) => t,
+                    launcher::Asset::Tool(t) => {
+                        launcher::check_tool_archive(&path, t, version)?;
+                        if !staging.contains(&format!("{name}.manifest")) {
+                            problems.push(format!("{name}: its {name}.manifest is not beside it"));
+                        }
+                        continue;
+                    }
+                    _ => continue,
                 };
-                launcher::check_archive(ws, &path, t, version)?;
+                launcher::check_archive(&path, t, version)?;
                 if !staging.contains(&format!("{name}.manifest")) {
                     problems.push(format!("{name}: its {name}.manifest is not beside it"));
                 }
@@ -497,7 +505,7 @@ pub fn read_upload_dir(
             }
             Kind::Web => {
                 if *name == web::archive_name(version) {
-                    web::check_bundle(ws, &path, version)?;
+                    web::check_bundle(&path, version)?;
                 }
             }
         }
@@ -1168,7 +1176,7 @@ fn gather(
         Kind::Web => {
             let repo = url.trim_start_matches("https://github.com/");
             let zip = web::archive_name(version);
-            web::check_bundle(ws, &dir.join(&zip), version)?;
+            web::check_bundle(&dir.join(&zip), version)?;
             check_web_manifest(dir, version, repo)?;
             let mut sums = Vec::new();
             for name in [zip.as_str(), web::MANIFEST] {

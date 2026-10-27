@@ -29,7 +29,8 @@
 //! WebSocket with a two-byte port in front ([`frame`]), and [`play`] runs the client shell's whole
 //! application on the browser's host ([`host`]), one frame per animation frame, with the plugins
 //! the player added to the page ([`plugins`]). The front page's launcher ([`front`]) is the
-//! desktop launcher's own logic. Everything else here is platform-neutral and tested on the host.
+//! desktop launcher's own logic, its plugin sources ([`plugin_sources`]) included. Everything else
+//! here is platform-neutral and tested on the host.
 
 pub mod dats;
 pub mod frame;
@@ -37,6 +38,7 @@ pub mod front;
 pub mod host;
 pub mod keycodes;
 pub mod play;
+pub mod plugin_sources;
 pub mod plugins;
 pub mod server_url;
 pub mod settings;

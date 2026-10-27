@@ -1,12 +1,15 @@
 # Installing and updating plugins
 
 **Provenance: design.** A walk-through of how each Dereth host finds plugins; the rules for
-packages and a release's hash are in [packages.md](../packages.md).
+packages are in [packages.md](../packages.md), and plugin sources' lists in
+[sources.md](../sources.md).
 
 A plugin arrives as a **package**: a folder with `plugin.toml` at its root, or a zip of one. Every
 host loads packages the same way once it has them ([lifecycle](lifecycle-and-sandbox.md#loading));
-what differs is where each looks. There is no plugin index: a player brings a package, or the URL
-of a release's zip.
+what differs is where each looks. Players get plugins from **plugin sources**: lists of plugins at
+their latest release, each one `plugins.json` at an `https://` address. The launcher and the
+browser client start with Dereth's own source and nothing installed; a player adds others by their
+address.
 
 **Plugins are experimental, and none loads until you turn it on.** In the desktop and browser
 clients, tick **Plugins (experimental)** on the Client Options page first: until then no plugin
@@ -18,40 +21,70 @@ off (**Turn off**, or `/plugin off <id>`). Its windows start closed: open them f
 
 | host | where it finds plugins | updates |
 |---|---|---|
-| the launcher, for the desktop client | installed from a release zip's URL, checked and staged | **Check for updates** fetches the same URL again |
+| the launcher, for the desktop client | installed one by one from plugin sources: Dereth's own, and the ones you add | from each plugin's own source: when you press **Update**, or on their own as the update setting says |
 | the desktop client | its settings folder's `plugins` folder, the launcher's installs, and the plugins beside the program; each `--plugins` folder loads whatever the setting says | replace the folder or zip; `/plugin reload <id>`, or `--plugin-dev` |
-| the browser client | the folders and zips the player added on the start page, and the plugins beside the page | add it again |
+| the browser client | the folders and zips the player added on the start page, and the plugins installed there from plugin sources: Dereth's own, and the ones you add | as the launcher does, on the start page; a folder or zip you added: add it again |
 | the headless client | each `--plugins` folder or zip, and `plugin load` in a script, loaded as named | the next run reads the files afresh |
 
-## The plugins that come with the client
+## Dereth's plugins
 
-Releases carry no plugins while plugins are experimental. The [sample plugins](samples/README.md)
-are in the repository, in `dereth/plugins/`: the trackers, the hunting macro and the navigator in
-the manner of the add-ons players used, and the smaller samples. A client built from the
-repository finds them there, each off until you turn it on. A plugin of the same id in your own
-`plugins` folder is yours, and is listed instead.
+The [sample plugins](samples/README.md) are in the repository, in `dereth/plugins/`: the trackers,
+the hunting macro and the navigator in the manner of the add-ons players used, and the smaller
+samples. They reach players through **Dereth's own source**, which lists each of them and which
+the launcher and the browser client start with: install the ones you want, as from any source. No release carries them
+installed. While plugins are experimental the source is not published yet.
 
-## The launcher: from a release URL
+A client built from the repository finds the samples in `dereth/plugins/` itself, each off until
+you turn it on. A plugin of the same id in your own `plugins` folder is yours, and is listed
+instead.
 
-The launcher's **Plugins** screen installs a plugin for the Dereth client from the URL of its
-release's zip.
+## The launcher: plugin sources
 
-1. Paste the zip's URL (`https://…/plugin.zip`) and press **Install**. The zip's SHA-256 is read
-   from beside it, `<url>.sha256` (a `sha256sum` line, or the hash alone), or pasted in the second
-   box. A zip whose hash differs, or that has no hash either way, is not kept.
-2. The launcher checks it: it must be a package whose manifest reads.
-3. The release is **staged**: kept beside what is installed, not loaded. The screen lists it with
-   the permissions its manifest names, which say what it uses. **Accept** installs it; **Discard**
-   drops it. Installing never turns a plugin on: the client lists it off until you turn it on
-   there.
-4. **Check for updates** fetches every plugin's URL again. A release whose zip is the one installed
-   or already staged changes nothing. Any other must be the same plugin id as the installed
-   release.
+The launcher has a **Plugins** page when it is started with `--plugins`. It installs plugins for
+the Dereth client from plugin sources, and keeps them updated.
 
-**Remove** deletes a plugin. The launcher offers the Dereth client each installed plugin's zip
-with `--offer-plugins`; the retail client gets none. On disk the plugins are under the
-launcher's data folder (on Windows `%LOCALAPPDATA%\Dereth\launcher`), in `plugins`:
-`plugins.json`, and a folder per plugin with `current.zip` and `staged.zip`.
+The page has three sections, **Installed**, **Available** and **Sources**; a section's heading
+folds it away and brings it back. A plugin's row shows its name, version and source and the first
+line of what it does; click it and it opens to everything known about it: the whole description,
+its id, authors and homepage, what it uses (its permissions and the web domains it reaches), when it
+was released, what changed in it and its size. One row is open at a time.
+
+**Sources.** Each source is a line: its name, how many plugins it lists and its address, or why it
+could not be read. Dereth's own source is always there. To add another, paste the address of its
+`plugins.json` under **Sources** and press **Add source**; a line under it says that Dereth does not
+review plugins from other sources, and **Add** adds it. **Remove** takes a source away; the plugins
+installed from it stay, with no more updates. The launcher reads every source each time it starts,
+and again when you press **Refresh**, which says what is new: plugins a source lists now, updates
+applied and waiting, and sources that could not be read.
+
+**Available.** The plugins the sources list that you have not installed, each saying which source
+lists it. **Search** narrows the list. Press **Install** on the one you want. The launcher downloads
+its zip and keeps it only when it is the file the source lists and its manifest says what the
+source says ([the checks](../sources.md#checking-a-release)). A release that needs a newer plugin
+API than your client says **Needs a newer Dereth** and cannot be installed. An id under
+`network.dereth.` installs only from Dereth's own source. Installing never turns a plugin on: the
+client lists it off until you turn it on there.
+
+**Installed.** Each installed plugin updates only from the source it came from, only to a newer
+release. When an update waits, its row says so, with what the release asks for that the installed
+one did not; **Update** installs it. **Remove** deletes the plugin.
+
+**Automatically update plugins** decides which plugins update on their own when the launcher finds
+new releases:
+
+| setting | what happens |
+|---|---|
+| None | nothing updates on its own; the launcher says that updates are waiting, and you update each one |
+| All | every plugin updates on its own |
+| Only Dereth | the plugins from Dereth's own source update on their own; the others wait (the setting at first) |
+
+Whatever the setting, a release that asks for a permission or a web domain the installed one did
+not waits for you, and one that needs a newer Dereth is never installed.
+
+The launcher offers the Dereth client each installed plugin's zip with `--offer-plugins`; the
+retail client gets none. On disk the plugins are under the launcher's data folder (on Windows
+`%LOCALAPPDATA%\Dereth\launcher`), in `plugins`: `sources.json` (the sources, the last list each
+gave and the settings), `installed.json`, and a folder per plugin with its `current.zip`.
 
 ## The desktop client: its plugins folder
 
@@ -85,9 +118,34 @@ too, under `dereth.plugins`.
 
 The start page's **Add a plugin folder…** copies a plugin's folder (the one holding
 `plugin.toml`) into the browser's private storage for the site, and **Add a plugin zip…** keeps a
-zip there as it is; **Remove all plugins** deletes them. Added plugins are listed in the client,
-each off until you turn it on. Their stores live in the same private storage.
-Nothing about plugins leaves the player's browser.
+zip there as it is; **Remove all plugins** deletes them, and the plugins installed from sources.
+Kept plugins are listed in the client, each off until you turn it on. Their stores live in the same
+private storage.
+
+**Plugin sources.** Under *Plugin sources* the start page does what the launcher's Plugins page
+does, with the launcher's own code. Dereth's own source is always there. To add another, paste the
+address of its `plugins.json` and press **Add source**, then **Add** on the line that says Dereth
+does not review plugins from other sources. **Remove** takes a source away; the plugins installed
+from it stay, with no more updates. Each source is listed with the plugins installed from it and
+then the ones it offers that are not installed, each saying what it does and what it uses, with
+**Install**, **Update** or **Remove**. A zip is kept only when it passes the launcher's checks
+([sources.md](../sources.md#checking-a-release)), an id under `network.dereth.` installs only from
+Dereth's own source, and an installed plugin updates only from its own source, to a newer release.
+The page reads every source each time it opens, and again when you press **Refresh**; its
+**Automatically update plugins** setting is the launcher's, and an update that asks for more
+permissions waits for you.
+The sources and what was installed from them are kept in the browser's private storage.
+
+**What a page can read.** A web page can read a list or a zip only from a host that lets any page
+read it (`Access-Control-Allow-Origin`): Cloudflare Pages with a `_headers` file, GitHub Pages,
+GitLab Pages and `raw.githubusercontent.com` do. A page cannot tell a host that does not from one
+that is offline, so such a source says "Couldn't read this source here. Its host may not let web
+pages read it.", and the other sources work as usual. A plugin whose zip is a GitHub release
+download says **Desktop launcher only**: GitHub does not let web pages download release files, and
+the launcher can.
+
+Nothing about plugins leaves the player's browser but the requests for the lists and zips of
+Dereth's source and the sources you added, each to its own host.
 
 ## The headless client
 
@@ -102,14 +160,7 @@ repeatable. `plugin load <folder or zip>` in a script loads one more.
 
 ## Publishing a plugin
 
-The author's tool, `dereth-plugin` (`cargo run -p dereth-plugin -- …` from the repository's root),
-packs and hashes:
-
-```text
-dereth-plugin pack my-plugin my-plugin.zip the folder as a zip; prints the zip's SHA-256
-dereth-plugin hash my-plugin.zip           the zip's id, version and SHA-256
-```
-
-To publish a release for the launcher, put the zip at a stable URL and its SHA-256 beside it as
-`<url>.sha256`; a "latest" URL that always names the newest release makes **Check for updates**
-find each new one.
+A plugin is published by listing its release in a plugin source. The author's tool,
+`dereth-plugin`, makes a plugin repository whose GitHub workflows check every push and, on a
+release tag, pack the plugin and list it in the repository's own source:
+[publishing.md](publishing.md).

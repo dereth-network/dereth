@@ -666,3 +666,34 @@ p.reach { margin: 2px 0 8px 160px; }
  * the world after it, in one column. */
 .aligned .share-row > .btn:first-child { min-width: 208px; }
 .aligned .share-row > .lab { width: 208px; }
+
+/* The Plugins page: three sections whose headings fold them, as the Worlds list's do, and plugin
+ * rows that open in place, one at a time, to everything known about the plugin. */
+.plugins-page > h2:first-child { margin-top: 6px; }
+h2.fold-head { display: flex; align-items: center; cursor: pointer; }
+h2.fold-head .fold { display: inline-block; width: 16px; color: var(--gold); }
+h2.fold-head .muted { margin-left: 10px; font: 14px var(--body); letter-spacing: 0; }
+h2.fold-head:hover { color: #fff; }
+.plugin.open { background: rgba(181, 138, 60, 0.12); border-radius: var(--radius-small); }
+.plugin.open > .plugin-row { border-bottom-color: transparent; }
+.plugin.open > .plugin-row:hover { background: none; }
+.plugin-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 15px 12px; border-bottom: 1px solid var(--line); font-size: 16px; }
+.plugin-detail p { margin: 0; }
+.plugin-detail .desc, .plugin-detail .said { white-space: pre-wrap; overflow-wrap: anywhere; }
+.plugin-detail .strip { gap: 2px 18px; }
+.plugin-detail .said { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: baseline; }
+.plugin-detail .strip b, .plugin-detail .said b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 8px; }
+.plugin-detail .said.warn b { color: var(--high); }
+.plugin-update { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.plugin-setting .sub { white-space: normal; }
+/* Search and a new source's address: a compact line from the rows' names to their buttons. */
+.plugin-line { display: flex; align-items: center; gap: 8px; margin: 0 15px 6px; }
+.plugin-line .field { flex: 1; min-width: 0; }
+.plugin-line.add { margin-top: 14px; }
+.plugin-confirm { display: flex; align-items: center; gap: 8px; margin: 4px 15px 0; font-size: 15px; }
+.plugin-confirm > span { margin-right: 4px; }
+/* A source on one compact line: its name, how many plugins it lists and its address. */
+.row.source-row { min-height: 40px; padding-top: 4px; padding-bottom: 4px; }
+.row.source-row .line { display: flex; align-items: baseline; gap: 12px; white-space: nowrap; min-width: 0; }
+.row.source-row .line .name { font-size: 18px; flex: none; }
+.row.source-row .line .addr { overflow: hidden; text-overflow: ellipsis; min-width: 0; }

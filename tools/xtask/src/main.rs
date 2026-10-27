@@ -1,8 +1,9 @@
 //! The workspace task runner: the gate tiers, the clippy policy, the seams and the checks clippy
 //! cannot express.
 //!
-//! **Depends on** `dereth-dat` alone among the workspace's crates, for the tests' lookup of the
-//! retail dats (`dereth_dat::testing`); otherwise it runs `cargo` and reads the workspace's files.
+//! **Depends on** two of the workspace's crates: `dereth-dat`, for the tests' lookup of the retail
+//! dats (`dereth_dat::testing`), and `dereth-plugin-package`, to pack and list Dereth's own plugin
+//! source (`package plugins`); otherwise it runs `cargo` and reads the workspace's files.
 //! **Used by**
 //! nothing: it is the `cargo xtask` binary (the alias is in `.cargo/config.toml`).
 //!
@@ -124,6 +125,10 @@ Release and packaging:
                             the web client's release files: builds the module, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
                             web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
+  package plugins [--out <dir>]
+                            Dereth's plugin source: each sample of dereth/plugins packed into a zip
+                            and listed in plugins.json, as the web release publishes it beside
+                            the page (docs/plugins/sources.md)
   publish dereth|empyrean|web|lyceum <version> --upload <dir> | --finish | --publish
           [--repo <owner/name>] [--yes]
                             the GitHub release without the release workflows: each machine
@@ -137,6 +142,11 @@ Release and packaging:
                             checks it against its web.json, unpacks it and runs `wrangler pages
                             deploy` on it; the project is --project or DERETH_PAGES_PROJECT, the
                             login wrangler's own (dereth/web/DEPLOY.md)
+  deploy plugins [--project <name>] [--force] [--dry-run]
+                            put Dereth's plugin source on its Cloudflare Pages project, the host
+                            of https://plugins.dereth.network/plugins.json: built from a commit
+                            main has (a branch's with --force), with its _headers; the project is
+                            --project or DERETH_PLUGINS_PAGES_PROJECT (docs/plugins/sources.md)
   release empyrean|dereth|lyceum <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version>,

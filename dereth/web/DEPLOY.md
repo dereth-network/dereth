@@ -63,7 +63,7 @@ A release carries three files:
 
 | File | What |
 |---|---|
-| `dereth-web-<version>.zip` | the files to serve, under one folder `dereth-web-<version>/`: exactly the files listed in [Build](#build) and `_headers`, and the plugins that come with the client under `plugins/` ([Plugins](#plugins)) |
+| `dereth-web-<version>.zip` | the files to serve, under one folder `dereth-web-<version>/`: exactly the files listed in [Build](#build) and `_headers` |
 | `web.json` | the release's manifest (below) |
 | `SHA256SUMS` | the SHA-256 of both, for `sha256sum -c` |
 
@@ -215,7 +215,8 @@ broken web build is seen before a release.
   - the workers (`worker-src 'self'`);
   - the page's inline styles (`style-src 'self' 'unsafe-inline'`);
   - the cursor images, which the page makes as `data:` URLs (`img-src 'self' data:`);
-  - the connections: the server's `wss://` URL and its status address, and
+  - the connections: the server's `wss://` URL and its status address, the plugin sources
+    (Dereth's, `https://plugins.dereth.network`, and any other `https:` host a player adds), and
     `ws://127.0.0.1:*` for players who use `dereth-web-relay`.
 
 `www/_headers` sets these on Cloudflare Pages (other hosts ignore it; set the same headers in
@@ -226,7 +227,7 @@ their own configuration):
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cache-Control: no-cache
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: ws://127.0.0.1:* ws://localhost:*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: https://plugins.dereth.network ws://127.0.0.1:* ws://localhost:*
 ```
 
 ## Browsers
@@ -307,15 +308,58 @@ The front page's *Add a plugin folder…* (under *Kept in this browser*) copies 
 one holding its `plugin.toml`) into the browser's private storage for this site, and *Add a plugin
 zip…* keeps a plugin's zip there as it is; *Remove all plugins* deletes them. A compiled plugin (a
 WebAssembly component, `docs/plugins/wasm.md`) runs in the browser's own WebAssembly, in the page's
-worker. Added plugins load when the client starts, and each asks the player for the permissions it
-wants on first load. Their stores are kept in the same private storage, with the client's settings.
-Nothing about plugins leaves the player's browser.
+worker. Kept plugins load when the client starts, each listed off until the player turns it on.
+Their stores are kept in the same private storage, with the client's settings.
 
-The release also carries the plugins that come with the client, under `plugins/` beside the page,
-listed by `plugins/index.json` (`cargo xtask package web` writes both from the samples a release
-carries). The page reads them when the client starts; the client lists them in its plugin panel,
-each off until the player turns it on. A page served without them (`cargo xtask web` for a local
-build) has none.
+**Plugin sources.** The page installs plugins from plugin sources (`docs/plugins/sources.md`) as
+the desktop launcher does, with the launcher's own code: from Dereth's own source, which is not
+part of the web release but has a host of its own, `https://plugins.dereth.network/`
+([Deploying Dereth's plugins](#deploying-dereths-plugins)), and from the sources the player adds by
+address, once the player confirms it. *Kept in this browser* lists each source with its plugins,
+each with what it does and uses, and **Install**, **Update** or **Remove**. Every source is read
+as the page opens and again on **Refresh**, and updates apply as the page's **Automatically update
+plugins** setting says. Installing fetches the plugin's zip from its source's host and keeps it only when it
+is the release the list names (its size, its SHA-256, and a manifest that says what its entry
+says). The sources, the last list each gave and the setting are kept in the origin's private
+storage beside the client's settings file (`plugin-sources.json`); each installed zip is kept with
+the added plugins as `plugins/<id>.zip`, with the record of what was installed
+(`plugins/installed.json`), so *Remove all plugins* removes them too.
+
+The page's policy admits any `https:` host (`connect-src`), but a host must also let any page read
+its files (`Access-Control-Allow-Origin: *`): Dereth's does, as do GitHub Pages, GitLab Pages,
+`raw.githubusercontent.com` and Cloudflare Pages with a `_headers` file. A page cannot tell a host
+that does not from one that is offline; the page says it could not read that source, and the rest
+work. GitHub's release downloads never let a page read them, so a plugin whose zip is one is left
+to the desktop launcher.
+
+Nothing about plugins leaves the player's browser but the requests for the lists and zips of
+Dereth's source and the sources the player added, each to its own host.
+
+### Deploying Dereth's plugins
+
+`cargo xtask deploy plugins` puts Dereth's plugin source on a Cloudflare Pages project of its own:
+
+```text
+cargo xtask deploy plugins [--project <name>] [--force] [--dry-run]
+```
+
+- **What it deploys:** the source as `cargo xtask package plugins` builds it from
+  `dereth/plugins/` (`plugins.json`, and each plugin's zip at `<id>/<id>-<version>-<hash>.zip`),
+  and a `_headers` file: every file readable from any page (`Access-Control-Allow-Origin: *`), the
+  list kept five minutes, and each zip kept a year as immutable. A zip's name carries its version
+  and the start of its SHA-256, so changed bytes are always a new name.
+- **From what:** a checkout of a commit `main` has. It refuses uncommitted changes to tracked
+  files, and a `HEAD` that is not an ancestor of `origin/main` (fetch first if it was pushed from
+  elsewhere). **`--force`** deploys a branch's commit instead, to try plugins before they reach
+  `main`; the next deploy from `main` replaces it.
+- **Where:** `--project <name>`, or `DERETH_PLUGINS_PAGES_PROJECT`. wrangler deploys it as
+  `deploy web` does, with its own login. `--dry-run` builds and stages it and prints the command.
+
+Setting it up, once (the owner's): make a Cloudflare Pages project for it (for example
+`dereth-plugins`, with no Git connection: deploys come from this command), add the custom domain
+`plugins.dereth.network` to it, and check that `https://plugins.dereth.network/plugins.json`
+answers once the first deploy is done. Deploy again whenever a plugin in `dereth/plugins/` changes
+its version. Plugins are experimental: nothing is deployed until the owner decides.
 
 ## The player's data files
 

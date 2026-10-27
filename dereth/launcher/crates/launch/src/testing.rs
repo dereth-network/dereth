@@ -266,3 +266,34 @@ pub mod world_list {
         ]
     }
 }
+
+/// A plugin's zip: `uses` is its manifest's tail (its permissions and web domains).
+#[must_use]
+pub fn plugin_zip(id: &str, version: &str, api: &str, uses: &str) -> Vec<u8> {
+    let manifest = format!(
+        "id = \"{id}\"\nname = \"Meter\"\nversion = \"{version}\"\napi = \"{api}\"\n{uses}"
+    );
+    dereth_plugin_package::Package {
+        origin: String::new(),
+        files: [
+            ("plugin.toml".to_owned(), manifest.into_bytes()),
+            ("main.lua".to_owned(), b"print(1)".to_vec()),
+        ]
+        .into(),
+    }
+    .to_zip()
+}
+
+/// A source's `plugins.json` listing `zips`, each at `<id>.zip` beside the list.
+#[must_use]
+pub fn plugin_list(zips: &[&[u8]]) -> Vec<u8> {
+    use dereth_plugin_package::catalog::{Catalog, Entry};
+    let mut c = Catalog::default();
+    for z in zips {
+        let probe = Entry::for_zip(z, "x.zip", "", "").expect("a plugin's zip");
+        let e = Entry::for_zip(z, &format!("{}.zip", probe.id), "Notes.", "2026-10-26")
+            .expect("a plugin's zip");
+        c.put(e);
+    }
+    c.to_json().into_bytes()
+}

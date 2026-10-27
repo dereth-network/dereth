@@ -17,7 +17,9 @@ const GUIDE = "https://www.accpp.net/manual-installation";
 const NOTICE_MS = 7000;
 
 const ui = {
-  plugin: { url: "", sha: "", busy: false }, // the plugins screen's install form
+  // The Plugins page: the source being added and whether adding it waits to be confirmed, the
+  // search, the slow call under way, the one open row, and the closed sections.
+  plugin: { add: "", confirm: false, search: "", busy: null, open: null, folded: { installed: false, available: false, sources: false } },
   screen: "home",          // home | worlds | world | library | accounts | plugins | first-run | interface
   snap: null,
   homeSel: 0,
@@ -1843,51 +1845,158 @@ function accounts() {
 
 // ----- plugins -------------------------------------------------------------------------------------
 
-// Plugins for the Dereth client, installed from the URL of a release's zip. Plugins are
-// experimental: a new release waits until the player accepts it, and an installed plugin is off in
-// the client until the player turns it on there.
+// Plugins for the Dereth client, from plugin sources: each source is a list (`plugins.json`) of
+// plugins at their latest release. Dereth's own source is there from the start; others are added
+// by their list's address, once the player confirms it. The page has three sections, each folding
+// as the Worlds list's do: the plugins installed, the ones the sources offer that are not, and the
+// sources. A plugin's row opens in place, one at a time, to everything known about it. An
+// installed plugin updates only from its own source. Plugins are experimental: an installed plugin
+// is off in the client until the player turns it on there.
+
+// Which plugins update on their own, in the order the page offers them.
+const PLUGIN_UPDATES = [["none", "None"], ["all", "All"], ["first_party", "Only Dereth"]];
+
+// A plugin's zip's size in words.
+const kb = (n) => (n >= 1048576 ? mb(n) : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+// What a release says it uses, its permissions and the web domains it reaches; empty when none.
+const pluginUses = (permissions, domains) => [...permissions, ...domains].join(", ");
+
+// A section of the page: its heading, which folds and unfolds it with how many it holds, and what
+// it holds while it is open.
+function pluginSection(key, label, count, body) {
+  const open = !ui.plugin.folded[key];
+  return `<h2 class="fold-head" data-plugin-fold="${key}"><span class="fold">${open ? "▾" : "▸"}</span>${label}<span class="muted small">${count}</span></h2>`
+    + (open ? body : "");
+}
+
+// A plugin's row: its name, version and source, and the first line of what it does, with `extra`
+// under it and its `buttons`; open, `detail` under the row in place of that first line.
+function pluginRow(key, p, buttons, extra, detail) {
+  const open = ui.plugin.open === key;
+  const row = `<div class="row plugin-row" data-plugin-row="${esc(key)}"><div class="grow">
+      <div class="name">${esc(p.name)} ${esc(p.version)} <span class="muted small">${esc(p.source_name)}</span></div>
+      ${p.description && !open ? `<div class="sub">${esc(p.description.split("\n")[0])}</div>` : ""}${extra}</div>
+      <div class="btns">${buttons}</div></div>`;
+  return open ? `<div class="plugin open">${row}<div class="plugin-detail" data-stop>${detail}</div></div>` : row;
+}
+
+// Everything known of a release, for an open row: what it does in full, its facts, what it uses
+// and what changed in it, and its homepage.
+function pluginDetail(p) {
+  const facts = [["ID", p.id], ["VERSION", p.version], ["SOURCE", p.source_name], ["AUTHORS", p.authors.join(", ")],
+    ["RELEASED", p.released ? longDate(p.released) : ""], ["SIZE", p.size != null ? kb(p.size) : ""]].filter(([, x]) => x);
+  return `<p class="desc ${p.description ? "" : "muted"}">${esc(p.description || "No description.")}</p>
+    <div class="strip">${facts.map(([k, x]) => `<span><b>${k}</b>${esc(x)}</span>`).join("")}</div>
+    <div class="said"><b>USES</b>${esc(pluginUses(p.permissions, p.domains) || "no permissions")}</div>
+    ${p.notes ? `<div class="said"><b>WHAT CHANGED</b>${esc(p.notes)}</div>` : ""}
+    ${p.homepage ? `<div class="btns"><button class="btn" data-url="${esc(p.homepage)}">Homepage</button></div>` : ""}`;
+}
+
+// An installed plugin's update, on its row: the version, and what it asks for that the installed
+// one did not.
+function updateLine(u) {
+  if (u.needs_newer_dereth) return `<div class="sub warn">${esc(u.to)} needs a newer Dereth.</div>`;
+  const asks = [...u.new_permissions, ...u.new_domains];
+  return `<div class="sub">Update ${esc(u.to)} is ready.${asks.length ? ` <span class="warn">It also asks for ${esc(asks.join(", "))}.</span>` : ""}</div>`;
+}
+
+function installedRow(x, busy) {
+  const u = x.update;
+  const buttons = `${u && !u.needs_newer_dereth ? `<button class="btn" data-plugin-update="${esc(x.id)}" ${busy ? "disabled" : ""}>Update</button>` : ""}
+    <button class="btn" data-plugin-remove="${esc(x.id)}">Remove</button>`;
+  let detail = pluginDetail(x);
+  if (x.source_removed) detail += `<p class="small warn">You removed its source, so it gets no updates.</p>`;
+  if (u) {
+    const facts = [["UPDATE", u.to], ["RELEASED", u.released ? longDate(u.released) : ""], ["SIZE", u.size != null ? kb(u.size) : ""]].filter(([, v]) => v);
+    const asks = [...u.new_permissions, ...u.new_domains];
+    detail += `<div class="plugin-update"><div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
+      ${asks.length ? `<div class="said warn"><b>ALSO ASKS FOR</b>${esc(asks.join(", "))}</div>` : ""}
+      ${u.notes ? `<div class="said"><b>WHAT CHANGED</b>${esc(u.notes)}</div>` : ""}</div>`;
+  }
+  return pluginRow(`i:${x.id}`, x, buttons, u ? updateLine(u) : "", detail);
+}
+
+function availableRow(a, busy) {
+  const button = a.state === "install" ? `<button class="btn" data-plugin-install="${esc(a.source)}" data-plugin-id="${esc(a.id)}" ${busy ? "disabled" : ""}>Install</button>`
+    : a.state === "needs_newer_dereth" ? `<span class="muted small">Needs a newer Dereth</span>`
+    : `<span class="muted small">Only from Dereth</span>`;
+  return pluginRow(`a:${a.source} ${a.id}`, a, button, "", pluginDetail(a));
+}
+
 function plugins() {
   const p = ui.plugin;
-  const rows = (ui.snap.plugins ?? []).map((x) => {
-    const c = x.current;
-    const head = c ? `${esc(c.name)} ${esc(c.version)}` : esc(x.staged?.name ?? x.id);
-    let staged = "";
-    if (x.staged) {
-      const uses = x.staged.permissions.length ? ` — uses: ${esc(x.staged.permissions.join(", "))}` : "";
-      staged = `<div class="sub">${c ? "New release" : "Ready"}: ${esc(x.staged.version)}${uses}
-        <button class="btn" data-plugin-accept="${esc(x.id)}">Accept</button>
-        <button class="btn" data-plugin-discard="${esc(x.id)}">Discard</button></div>`;
-    }
-    return `<div class="row static"><div class="grow"><div class="name">${head} <span class="muted small">${esc(x.id)}</span></div>
-        <div class="sub">${esc(x.url)}</div>${staged}</div>
-        <div class="btns"><button class="btn" data-plugin-remove="${esc(x.id)}">Remove</button></div></div>`;
-  }).join("") || `<p class="muted">No plugins installed.</p>`;
+  const v = ui.snap.plugins;
+  const busy = !!p.busy;
+  const installed = v.installed.map((x) => installedRow(x, busy)).join("")
+    || `<p class="muted">No plugins installed. Install one from the list below.</p>`;
+  const updateOpts = PLUGIN_UPDATES.map(([val, l]) => `<option value="${val}" ${v.auto_update === val ? "selected" : ""}>${l}</option>`).join("");
+  const setting = `<div class="row static plugin-setting"><div class="grow"><div class="name">Automatically update plugins</div>
+      <div class="sub">Plugin updates that ask for additional permissions will never automatically install.</div></div>
+      <div class="btns"><select id="plugin-updates" class="field mini" aria-label="Automatically update plugins">${updateOpts}</select></div></div>`;
+
+  const q = p.search.trim().toLowerCase();
+  const shown = v.available.filter((a) => !q || [a.name, a.id, a.description, a.source_name].some((t) => t.toLowerCase().includes(q)));
+  const listed = v.sources.some((s) => s.plugins > 0);
+  const available = shown.map((a) => availableRow(a, busy)).join("")
+    || `<p class="muted">${q ? "No plugin matches." : listed ? "Every plugin the sources list is installed." : "No plugins listed yet. Refresh to read the sources."}</p>`;
+  const search = `<div class="plugin-line"><input id="plugin-search" class="field mini-field" type="text" placeholder="Search" spellcheck="false" autocomplete="off" value="${esc(p.search)}"></div>`;
+
+  // A source on one line: its name, how many plugins it lists and its address; Dereth's own stays.
+  const sources = v.sources.map((s) => {
+    const skipped = s.skipped.length ? ` · <span class="warn" title="${esc(s.skipped.join("\n"))}">${s.skipped.length} could not be read</span>` : "";
+    return `<div class="row static source-row"><div class="grow">
+        <div class="line"><span class="name">${esc(s.name)}</span><span class="muted small">${s.plugins} plugin${s.plugins === 1 ? "" : "s"}${skipped}</span><span class="muted small addr" title="${esc(s.url)}">${esc(s.url)}</span></div>
+        ${s.error ? `<div class="sub warn" title="${esc(s.error)}">Could not be read: ${esc(s.error)}</div>` : ""}</div>
+        ${s.first_party ? "" : `<div class="btns"><button class="btn" data-plugin-source-remove="${esc(s.url)}">Remove</button></div>`}</div>`;
+  }).join("");
+  const add = `<div class="plugin-line add"><input id="plugin-source" class="field mini-field" type="text" placeholder="https://…/plugins.json" spellcheck="false" autocomplete="off" aria-label="A source's address" value="${esc(p.add)}">
+      <button class="btn" data-act="plugin-source-add" ${busy || !p.add.trim() ? "disabled" : ""}>Add source</button></div>
+    ${p.confirm ? `<div class="plugin-confirm"><span>Dereth does not review plugins from other sources.</span>
+      <button class="btn mini-btn" data-act="plugin-source-confirm" ${busy ? "disabled" : ""}>Add</button><button class="btn mini-btn" data-act="plugin-source-cancel">Cancel</button></div>` : ""}`;
+
   return `<div class="column wide" style="height:100%">
-      <section class="panel grow"><header><h1>PLUGINS</h1><span class="tag">EXPERIMENTAL</span><button class="btn" data-act="plugins-update" ${p.busy ? "disabled" : ""}>Check for updates</button></header>
-        <div class="form">
-          <label class="lab" for="plugin-url">ZIP</label><input id="plugin-url" class="field" type="text" placeholder="https://…/plugin.zip" spellcheck="false" autocomplete="off" value="${esc(p.url)}">
-          <label class="lab" for="plugin-sha">SHA-256</label><input id="plugin-sha" class="field" type="text" placeholder="Optional when published beside the zip" spellcheck="false" autocomplete="off" value="${esc(p.sha)}">
+      <section class="panel grow"><header><h1>PLUGINS</h1><span class="tag">EXPERIMENTAL</span><button class="btn" data-act="plugins-refresh" ${busy ? "disabled" : ""}>Refresh</button></header>
+        <div class="scroll plugins-page">
+          ${pluginSection("installed", "INSTALLED", v.installed.length, `<div class="list">${installed}</div>${setting}`)}
+          ${pluginSection("available", "AVAILABLE", shown.length, `${search}<div class="list">${available}</div>`)}
+          ${pluginSection("sources", "SOURCES", v.sources.length, `<div class="list">${sources}</div>${add}`)}
         </div>
-        <div class="btns end" style="margin-top:12px"><button class="btn" data-act="plugin-install" ${p.busy || !p.url.trim() ? "disabled" : ""}>Install</button></div>
-        <p class="muted small">Plugins run in the Dereth client only, each off until you turn it on there.</p>
-        <div class="scroll"><div class="list">${rows}</div></div>
       </section>
     </div>`;
 }
 
-// Install or update with the form busy, and say how it went.
+// One of the Plugins page's slow calls (it fetches), with the page busy, and how it went said.
+// Answers whether it went through.
 async function pluginFetch(cmd, args) {
-  ui.plugin.busy = true;
+  ui.plugin.busy = cmd;
   render();
+  let ok = false;
   try {
     const said = await api(cmd, args);
-    if (cmd === "install_plugin") ui.plugin = { url: "", sha: "", busy: false };
-    toast(said);
+    toast(String(said || (cmd === "refresh_plugins" ? "Nothing new." : "Done.")).replace(/\n/g, " "));
+    ok = true;
   } catch (e) {
     toast(String(e), true);
   }
-  ui.plugin.busy = false;
+  ui.plugin.busy = null;
   await pull();
+  render();
+  return ok;
+}
+
+// Add the source typed in. One other than Dereth's is added once the player confirms it, on the
+// line under the address.
+async function addPluginSource(confirmed) {
+  const url = ui.plugin.add.trim();
+  if (!url) return;
+  if (!confirmed && url !== ui.snap.plugins.first_party) {
+    ui.plugin.confirm = true;
+    render();
+    return;
+  }
+  ui.plugin.confirm = false;
+  if (await pluginFetch("add_plugin_source", { url })) ui.plugin.add = "";
   render();
 }
 
@@ -2052,7 +2161,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-accept],[data-plugin-discard],[data-plugin-remove]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-row],[data-plugin-fold]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2149,12 +2258,13 @@ document.addEventListener("click", async (ev) => {
   if (d.defaultSet) { await act("set_default_set", { id: d.defaultSet }); return; }
   if (d.resetSet) { await act("reset_set", { id: d.resetSet }); return; }
   if (d.deleteSet) { await act("delete_set", { id: d.deleteSet }); return; }
-  if (d.pluginAccept) {
-    await act("accept_plugin", { id: d.pluginAccept });
-    return;
-  }
-  if (d.pluginDiscard) { await act("discard_plugin_release", { id: d.pluginDiscard }); return; }
+  if (d.pluginInstall) { await pluginFetch("install_plugin", { source: d.pluginInstall, id: d.pluginId }); return; }
+  if (d.pluginUpdate) { await pluginFetch("update_plugin", { id: d.pluginUpdate }); return; }
   if (d.pluginRemove) { await act("remove_plugin", { id: d.pluginRemove }); return; }
+  if (d.pluginSourceRemove) { await act("remove_plugin_source", { url: d.pluginSourceRemove }); return; }
+  // A plugin's row opens and shuts in place, one at a time; a section's heading folds it.
+  if (d.pluginRow) { ui.plugin.open = ui.plugin.open === d.pluginRow ? null : d.pluginRow; render(); return; }
+  if (d.pluginFold) { ui.plugin.folded[d.pluginFold] = !ui.plugin.folded[d.pluginFold]; render(); return; }
   if (d.forgetAccount) { const a = ui.snap.state.accounts[Number(d.forgetAccount)]; await act("forget_account", { slug: a.world_slug, username: a.username }); return; }
   if (d.iface) { ui.iface.pick = d.iface; render(); return; }
 
@@ -2232,8 +2342,10 @@ document.addEventListener("click", async (ev) => {
     case "verify-retail": await act("verify_retail"); break;
     case "forget-retail": await act("forget_retail"); break;
     case "forget-all-accounts": await act("forget_all_accounts"); break;
-    case "plugin-install": await pluginFetch("install_plugin", { url: ui.plugin.url.trim(), sha256: ui.plugin.sha.trim() || null }); break;
-    case "plugins-update": await pluginFetch("update_plugins", {}); break;
+    case "plugins-refresh": await pluginFetch("refresh_plugins", {}); break;
+    case "plugin-source-add": await addPluginSource(false); break;
+    case "plugin-source-confirm": await addPluginSource(true); break;
+    case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;
     case "restart-update": await act("restart_to_update"); break;
     case "shortcut": { const where = await act("create_desktop_shortcut"); if (where) toast("Desktop shortcut created."); break; }
     case "server-open": ui.addServer = { name: "", host: "", port: "9000", emulator: "unknown", ruleset: "", error: null }; render(); focusSoon("srv-host"); break;
@@ -2327,12 +2439,15 @@ document.addEventListener("input", (ev) => {
   const t = ev.target;
   if (t.id === "search") { ui.search = t.value; render(); return; }
   if (ui.addServer && t.id.startsWith("srv-")) { ui.addServer[t.id.slice(4)] = t.value; return; }
-  if (t.id === "plugin-url" || t.id === "plugin-sha") {
-    const was = !ui.plugin.url.trim();
-    ui.plugin[t.id.slice(7)] = t.value;
-    if (was !== !ui.plugin.url.trim()) render();
+  if (t.id === "plugin-source") {
+    const was = !ui.plugin.add.trim();
+    const confirming = ui.plugin.confirm;
+    ui.plugin.add = t.value;
+    ui.plugin.confirm = false;
+    if (confirming || was !== !ui.plugin.add.trim()) render();
     return;
   }
+  if (t.id === "plugin-search") { ui.plugin.search = t.value; render(); return; }
   if (!ui.world) return;
   const f = ui.world.form;
   if (t.id === "acct-name") { f.account = t.value; f.remembered = false; syncWorld(); }
@@ -2356,6 +2471,7 @@ document.addEventListener("change", async (ev) => {
   }
   if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
+  if (t.id === "plugin-updates") { await act("set_plugin_updates", { setting: t.value }); return; }
   if (t.tagName === "SELECT" && t.dataset.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; return; }
   if (t.dataset.publishPick) { ui.publishPick[t.dataset.publishPick] = t.value; render(); return; }
   if (t.dataset.lyExportPick) { ui.lyExport[t.dataset.lyExportPick] = t.value; return; }
@@ -2414,6 +2530,7 @@ document.addEventListener("keydown", async (ev) => {
     if (ui.screen === "interface" && ui.iface.fromLibrary) { ui.iface = { ...ui.iface, pick: null, fromLibrary: false }; ui.screen = "library"; render(); }
   }
   if (ev.key === "Enter" && ui.addServer && ev.target.id?.startsWith("srv-")) { await addServer(); return; }
+  if (ev.key === "Enter" && ev.target.id === "plugin-source") { await addPluginSource(false); return; }
   if (ev.key === "Enter" && ev.target.dataset?.cmd) { await submitCommand(ev.target.dataset.cmd); return; }
   if (ev.key === "Enter" && ev.target.dataset?.keyField !== undefined) { await saveKey(); return; }
   if (ev.key === "Enter" && ui.screen === "world" && (ev.target.id === "password" || ev.target.id === "acct-name")) {
@@ -2433,7 +2550,7 @@ document.addEventListener("keydown", async (ev) => {
 // every control, rows included; the pointer moving puts the page back as it was.
 
 // Every control a click acts on, in the page's order: a row is one, and so is a button on it.
-const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open]";
+const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open], [data-plugin-row], [data-plugin-fold]";
 
 // The sections the shoulder buttons step through, as the rail lists them (Plugins only while
 // plugins are on).
@@ -2530,6 +2647,14 @@ function padBack() {
     ui.expanded = null;
     render();
     padFocus(document.querySelector(`[data-world="${CSS.escape(row)}"]`));
+    return;
+  }
+  if (ui.screen === "plugins" && ui.plugin.confirm) { ui.plugin.confirm = false; render(); return; }
+  if (ui.screen === "plugins" && ui.plugin.open) {
+    const row = ui.plugin.open;
+    ui.plugin.open = null;
+    render();
+    padFocus(document.querySelector(`[data-plugin-row="${CSS.escape(row)}"]`));
     return;
   }
   if (PAD_SECTIONS.includes(ui.screen) && ui.screen !== "home") { ui.screen = "home"; render(); }

@@ -24,7 +24,7 @@ use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
 use dereth_launch::listing::WorldList;
-use dereth_launch::plugins::{self as launcher_plugins, Fetched, Installed, Shelf};
+use dereth_launch::plugins::{AutoUpdate, PluginsView, Refresh, Shelf};
 use dereth_launch::serverlist::{ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
@@ -145,24 +145,51 @@ fn http_get_bounded(url: &str, limit: u64, timeout: Duration) -> Result<Vec<u8>,
         .map_err(|e| format!("{url}: {e}"))
 }
 
-/// Fetch a plugin release: the zip at `url`, and its SHA-256 from the player (`sha256`) or else
-/// from beside the zip. `None` for a sum that is not published.
-fn fetch_release(url: &str, sha256: Option<String>) -> Result<(Vec<u8>, Option<String>), String> {
-    let zip = http_get_bounded(
-        url,
-        launcher_plugins::MAX_DOWNLOAD as u64,
-        Duration::from_secs(120),
-    )?;
-    let sum = sha256.filter(|s| !s.trim().is_empty()).or_else(|| {
-        http_get_bounded(
-            &launcher_plugins::sum_url(url),
-            4096,
-            Duration::from_secs(8),
-        )
-        .ok()
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
-    });
-    Ok((zip, sum))
+/// How the plugins' downloads are made: one HTTPS GET of at most `limit` bytes, the bytes or why
+/// not in words for the page. The launcher's is [`fetch_plugin_file`]; a test's serves its own.
+pub type Fetch<'a> = dyn Fn(&str, usize) -> Result<Vec<u8>, String> + Sync + 'a;
+
+/// One HTTPS GET for the plugins: a source's list or a plugin's zip, at most `limit` bytes. Plain
+/// HTTP is refused.
+pub fn fetch_plugin_file(url: &str, limit: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+    if !url.to_ascii_lowercase().starts_with("https://") {
+        return Err(format!("{url} is not an https:// address"));
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .https_only(true)
+        .timeout_connect(Some(Duration::from_secs(20)))
+        .timeout_global(Some(Duration::from_secs(300)))
+        .build()
+        .into();
+    let mut resp = agent
+        .get(url)
+        .header("User-Agent", "Dereth-launcher")
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(404) => format!("{url} was not found (404)"),
+            ureq::Error::StatusCode(code) => format!("{url} answered with an error ({code})"),
+            ureq::Error::Io(_)
+            | ureq::Error::Timeout(_)
+            | ureq::Error::HostNotFound
+            | ureq::Error::ConnectionFailed
+            | ureq::Error::Tls(_) => {
+                format!("{url} could not be reached; check your internet connection")
+            }
+            other => format!("{url}: {other}"),
+        })?;
+    let mut bytes = Vec::new();
+    resp.body_mut()
+        .with_config()
+        .limit(limit as u64 + 1)
+        .reader()
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| format!("{url}: the download stopped part way"))?;
+    if bytes.len() > limit {
+        return Err(format!("{url} is larger than its source says"));
+    }
+    Ok(bytes)
 }
 
 /// Open an `http`/`https` URL in the browser. Operator- and list-supplied links are not
@@ -247,9 +274,10 @@ pub struct Snapshot {
     /// The interface the Dereth client starts in. `None` when the client keeps no preferences
     /// here (the system names no home), when there is nothing to ask.
     pub interface: Option<InterfaceView>,
-    /// The plugins the launcher installed for the Dereth client; none while plugins are off (the
-    /// launcher was started without `--plugins`), and the page has no Plugins section.
-    pub plugins: Option<Vec<PluginRow>>,
+    /// The Plugins page: the sources, what they list and what is installed for the Dereth client;
+    /// none while plugins are off (the launcher was started without `--plugins`), and the page has
+    /// no Plugins section.
+    pub plugins: Option<PluginsView>,
 }
 
 /// The interface the Dereth client starts in, and the question the launcher asks for it.
@@ -262,13 +290,6 @@ pub struct InterfaceView {
     pub offers: Vec<Offer>,
     /// The client's preferences file, where the answer is written.
     pub file: String,
-}
-
-/// One installed plugin, as the page shows it.
-#[derive(Debug, Clone, Serialize)]
-pub struct PluginRow {
-    #[serde(flatten)]
-    pub installed: Installed,
 }
 
 /// A world page's options.
@@ -546,15 +567,7 @@ impl Backend {
             platform: std::env::consts::OS,
             library_dir: self.library_dir().display().to_string(),
             interface: self.interface_view(),
-            plugins: self.plugins_on.then(|| {
-                self.plugins
-                    .plugins
-                    .iter()
-                    .map(|p| PluginRow {
-                        installed: p.clone(),
-                    })
-                    .collect()
-            }),
+            plugins: self.plugins_on.then(|| self.plugins.view()),
         }
     }
 
@@ -1401,52 +1414,116 @@ impl Backend {
         self.save();
     }
 
-    /// Install a plugin from the URL of its release's zip (a thread's work: it fetches). The
-    /// release is staged; the page offers to enable it.
+    // ----- plugins -------------------------------------------------------------------------------
+
+    /// Refresh: read every source's list again, then apply the updates the setting lets apply on
+    /// their own (a thread's work: it fetches). Answers what is new, a line each: the plugins a
+    /// source lists now that it did not, the updates applied and waiting, and the sources that
+    /// could not be read. Empty when nothing is.
     ///
     /// # Errors
-    /// The fetch, or a check the release failed, in words for the page.
-    pub fn install_plugin(
-        shared: &Shared,
-        url: &str,
-        sha256: Option<String>,
-    ) -> Result<String, String> {
+    /// Plugins are off.
+    pub fn refresh_plugins(shared: &Shared, fetch: &Fetch<'_>) -> Result<String, String> {
         lock(shared).plugins_allowed()?;
-        let url = url.trim();
-        let (zip, sum) = fetch_release(url, sha256)?;
-        let mut b = lock(shared);
-        let r = b.plugins.stage(url, &zip, sum.as_deref(), None);
-        b.plugin_outcome(r)
+        let mut walk = Refresh::new(&lock(shared).plugins);
+        let mut fetched = None;
+        loop {
+            // The lock is let go while each download is made.
+            let next = walk.next(&mut lock(shared).plugins, fetched.take(), now());
+            let Some(download) = next else { break };
+            fetched = Some(fetch(&download.url, download.limit));
+        }
+        Ok(walk.said(&lock(shared).plugins))
     }
 
-    /// Fetch each installed plugin's URL again and stage what is new (a thread's work).
-    pub fn update_plugins(shared: &Shared) -> String {
-        if let Err(e) = lock(shared).plugins_allowed() {
-            return e;
+    /// At start, with plugins on: [`Backend::refresh_plugins`], and what is new in the notice.
+    pub fn refresh_plugins_at_start(shared: &Shared, fetch: &Fetch<'_>) {
+        let Ok(said) = Self::refresh_plugins(shared, fetch) else {
+            return;
+        };
+        if !said.is_empty() {
+            lock(shared).say(format!("Plugins: {}", said.replace('\n', " ")), false);
         }
-        let list: Vec<(String, String)> = lock(shared)
+    }
+
+    /// Add the source at `url`, which the page has the player confirm first, and read its list
+    /// (a thread's work).
+    ///
+    /// # Errors
+    /// Plugins are off, or the address was refused, in words for the page.
+    pub fn add_plugin_source(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        url: &str,
+    ) -> Result<String, String> {
+        lock(shared).plugins_allowed()?;
+        let url = lock(shared)
             .plugins
+            .add_source(url)
+            .map_err(|e| e.to_string())?;
+        let fetched = fetch(&url, dereth_launch::plugins::MAX_LIST);
+        let mut b = lock(shared);
+        b.plugins
+            .record_read(&url, fetched, now())
+            .map_err(|e| e.to_string())?;
+        let s = b.plugins.source(&url).ok_or("the source went away")?;
+        Ok(match &s.error {
+            Some(e) => format!("Added {url}, but its list could not be read: {e}"),
+            None => match s.catalog.plugins.len() {
+                1 => format!("Added {}: 1 plugin.", s.label()),
+                n => format!("Added {}: {n} plugins.", s.label()),
+            },
+        })
+    }
+
+    /// Remove the source at `url`; what was installed from it stays, with no updates.
+    ///
+    /// # Errors
+    /// Plugins are off, Dereth's own source, or not a source.
+    pub fn remove_plugin_source(&mut self, url: &str) -> Result<(), String> {
+        self.plugins_allowed()?;
+        self.plugins.remove_source(url).map_err(|e| e.to_string())
+    }
+
+    /// Install plugin `id` from `source` (a thread's work: it downloads the zip).
+    ///
+    /// # Errors
+    /// Plugins are off, the download, or a check the release failed, in words for the page.
+    pub fn install_plugin(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        source: &str,
+        id: &str,
+    ) -> Result<String, String> {
+        lock(shared).plugins_allowed()?;
+        let plan = lock(shared)
             .plugins
-            .iter()
-            .map(|p| (p.id.clone(), p.url.clone()))
-            .collect();
-        let mut lines = Vec::new();
-        for (id, url) in list {
-            let line = match fetch_release(&url, None) {
-                Ok((zip, sum)) => {
-                    let mut b = lock(shared);
-                    let r = b.plugins.stage(&url, &zip, sum.as_deref(), Some(&id));
-                    b.plugin_outcome(r).unwrap_or_else(|e| format!("{id}: {e}"))
-                }
-                Err(e) => format!("{id}: {e}"),
-            };
-            lines.push(line);
-        }
-        if lines.is_empty() {
-            "No plugins are installed.".to_owned()
-        } else {
-            lines.join("\n")
-        }
+            .plan_install(source, id)
+            .map_err(|e| e.to_string())?;
+        let zip = fetch(&plan.url, plan.limit)?;
+        let done = lock(shared)
+            .plugins
+            .install(source, id, &zip)
+            .map_err(|e| e.to_string())?;
+        Ok(done.said())
+    }
+
+    /// Update plugin `id` from its own source (a thread's work: it downloads the zip).
+    ///
+    /// # Errors
+    /// Plugins are off, nothing newer, the download, or a check the release failed.
+    pub fn update_plugin(shared: &Shared, fetch: &Fetch<'_>, id: &str) -> Result<String, String> {
+        lock(shared).plugins_allowed()?;
+        let plan = lock(shared)
+            .plugins
+            .plan_update(id)
+            .map_err(|e| e.to_string())?;
+        let zip = fetch(&plan.url, plan.limit)?;
+        let done = lock(shared)
+            .plugins
+            .update(id, &zip)
+            .map_err(|e| e.to_string())?;
+        Ok(done.said())
     }
 
     /// The installed plugins the Dereth client is offered: none while plugins are off.
@@ -1467,37 +1544,6 @@ impl Backend {
         }
     }
 
-    fn plugin_outcome(
-        &mut self,
-        r: Result<Fetched, launcher_plugins::PluginError>,
-    ) -> Result<String, String> {
-        match r {
-            Ok(Fetched::Staged { id, version }) => Ok(format!(
-                "{id} {version} is ready; accept it, then turn it on in the client."
-            )),
-            Ok(Fetched::UpToDate { id }) => Ok(format!("{id} is up to date.")),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-
-    /// Accept the staged release of `id`: the client is offered it, off until it is ticked there.
-    ///
-    /// # Errors
-    /// What stood in the way, in words for the page.
-    pub fn accept_plugin(&mut self, id: &str) -> Result<(), String> {
-        self.plugins_allowed()?;
-        self.plugins.accept_staged(id).map_err(|e| e.to_string())
-    }
-
-    /// Drop the staged release of `id`.
-    ///
-    /// # Errors
-    /// What stood in the way, in words for the page.
-    pub fn discard_plugin_release(&mut self, id: &str) -> Result<(), String> {
-        self.plugins_allowed()?;
-        self.plugins.discard_staged(id).map_err(|e| e.to_string())
-    }
-
     /// Remove `id`.
     ///
     /// # Errors
@@ -1505,6 +1551,19 @@ impl Backend {
     pub fn remove_plugin(&mut self, id: &str) -> Result<(), String> {
         self.plugins_allowed()?;
         self.plugins.remove(id).map_err(|e| e.to_string())
+    }
+
+    /// Which plugins update without the player: `none`, `all` or `first_party`.
+    ///
+    /// # Errors
+    /// Plugins are off, or not one of those.
+    pub fn set_plugin_updates(&mut self, setting: &str) -> Result<(), String> {
+        self.plugins_allowed()?;
+        let setting = AutoUpdate::parse(setting)
+            .ok_or_else(|| format!("{setting} is not an update setting"))?;
+        self.plugins
+            .set_auto_update(setting)
+            .map_err(|e| e.to_string())
     }
 
     /// Every password this launcher stored. The secret store cannot be listed by prefix, so it goes
@@ -1531,6 +1590,7 @@ impl Backend {
 mod tests {
     //! Behaviour: none (the desktop launcher's backend: worlds, their status, the list, PLAY).
     use super::*;
+    use dereth_launch::plugins as launcher_plugins;
     use dereth_launch::serverlist;
     use dereth_launch::testing::write_dat_set;
     use dereth_launch::vault::MemoryVault;
@@ -1615,50 +1675,223 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The plugins' downloads, served from memory: each address's bytes, and every address asked.
+    struct Served {
+        files: HashMap<String, Vec<u8>>,
+        asked: Mutex<Vec<String>>,
+    }
+
+    impl Served {
+        fn new(files: &[(&str, Vec<u8>)]) -> Self {
+            Self {
+                files: files
+                    .iter()
+                    .map(|(u, b)| ((*u).to_owned(), b.clone()))
+                    .collect(),
+                asked: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn fetch(&self, url: &str, limit: usize) -> Result<Vec<u8>, String> {
+            self.asked.lock().unwrap().push(url.to_owned());
+            let bytes = self
+                .files
+                .get(url)
+                .cloned()
+                .ok_or_else(|| format!("{url} was not found (404)"))?;
+            if bytes.len() > limit {
+                return Err(format!("{url} is larger than its source says"));
+            }
+            Ok(bytes)
+        }
+    }
+
+    const ZIP_AT: &str = "https://plugins.dereth.network/";
+
     /// Plugins are off unless the launcher was started with `--plugins`: until then the page has no
     /// Plugins section, the client is offered none of the plugins installed, and nothing is
-    /// installed or changed.
+    /// fetched, installed or changed.
     #[test]
     fn plugins_are_off_unless_the_launcher_was_started_with_plugins() {
+        use dereth_launch::testing::{plugin_list, plugin_zip};
         let (mut b, dir) = backend("plugins-switch");
-        let id = "example.counter";
-        let shelf = Shelf::open(b.folders.plugins());
-        let zip = shelf.plugin_dir(id).join("current.zip");
-        std::fs::create_dir_all(zip.parent().unwrap()).unwrap();
-        std::fs::write(&zip, b"a package").unwrap();
-        let installed = Installed {
-            id: id.into(),
-            url: "https://example.invalid/counter.zip".into(),
-            current: Some(launcher_plugins::Release {
-                name: "Counter".into(),
-                version: "1.0.0".into(),
-                sha256: "0".repeat(64),
-                permissions: Vec::new(),
-            }),
-            staged: None,
-        };
-        std::fs::write(
-            b.folders.plugins().join(launcher_plugins::LIST_FILE),
-            serde_json::to_vec(&[installed]).unwrap(),
-        )
-        .unwrap();
-        b.plugins = Shelf::open(b.folders.plugins());
+        let id = "network.dereth.counter";
+        let zip = plugin_zip(id, "1.0.0", "0.1", "");
+        let served = Served::new(&[
+            (launcher_plugins::FIRST_PARTY, plugin_list(&[&zip])),
+            (&format!("{ZIP_AT}{id}.zip"), zip.clone()),
+        ]);
+        b.plugins
+            .record_read(launcher_plugins::FIRST_PARTY, Ok(plugin_list(&[&zip])), 1)
+            .unwrap();
+        b.plugins
+            .install(launcher_plugins::FIRST_PARTY, id, &zip)
+            .unwrap();
 
         assert!(b.snapshot().plugins.is_none(), "no Plugins section");
         assert!(b.offered_plugins().is_empty(), "the client is offered none");
         assert!(b.remove_plugin(id).is_err());
         assert_eq!(b.plugins.plugins.len(), 1, "nothing is changed");
         let shared: Shared = Arc::new(Mutex::new(b));
-        let refused = Backend::install_plugin(&shared, "https://example.invalid/other.zip", None);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let refused = Backend::refresh_plugins(&shared, &fetch);
         assert!(refused.is_err_and(|e| e.contains("--plugins")));
+        assert!(
+            served.asked.lock().unwrap().is_empty(),
+            "nothing is fetched"
+        );
 
         let b = Arc::try_unwrap(shared)
             .unwrap()
             .into_inner()
             .unwrap()
             .with_plugins(true);
-        assert_eq!(b.snapshot().plugins.map(|p| p.len()), Some(1));
-        assert_eq!(b.offered_plugins(), [zip]);
+        let view = b.snapshot().plugins.expect("the Plugins section");
+        assert_eq!(view.installed.len(), 1);
+        assert_eq!(b.offered_plugins().len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The Plugins page's flow over a fake network: Dereth's own source is read, a plugin is
+    /// installed from it, another source is added and read at once, and a check for
+    /// updates applies Dereth's own plugin's update on its own while one that asks for more waits.
+    #[test]
+    fn plugins_install_from_sources_and_update_as_the_setting_says() {
+        use dereth_launch::testing::{plugin_list, plugin_zip};
+        let (b, dir) = backend("plugins-sources");
+        let shared: Shared = Arc::new(Mutex::new(b.with_plugins(true)));
+        let own = "network.dereth.counter";
+        let theirs = "org.example.meter";
+        let other = "https://example.github.io/plugins/plugins.json";
+        let other_at = "https://example.github.io/plugins/";
+        let own1 = plugin_zip(own, "1.0.0", "0.1", "");
+        let theirs1 = plugin_zip(theirs, "1.0.0", "0.1", "");
+        let served = Served::new(&[
+            (launcher_plugins::FIRST_PARTY, plugin_list(&[&own1])),
+            (&format!("{ZIP_AT}{own}.zip"), own1.clone()),
+            (other, plugin_list(&[&theirs1])),
+            (&format!("{other_at}{theirs}.zip"), theirs1.clone()),
+        ]);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+
+        // Read, and offered: nothing is installed until the player asks.
+        assert_eq!(Backend::refresh_plugins(&shared, &fetch), Ok(String::new()));
+        let view = lock(&shared)
+            .snapshot()
+            .plugins
+            .expect("the Plugins section");
+        assert_eq!(view.available.len(), 1);
+        assert!(view.installed.is_empty());
+        let said = Backend::install_plugin(&shared, &fetch, launcher_plugins::FIRST_PARTY, own);
+        assert_eq!(
+            said.as_deref(),
+            Ok("Installed Meter 1.0.0. Turn it on in the client.")
+        );
+        assert_eq!(lock(&shared).offered_plugins().len(), 1);
+
+        // Another source: added, and read at once.
+        let added = Backend::add_plugin_source(&shared, &fetch, other);
+        assert_eq!(added.as_deref(), Ok("Added example.github.io: 1 plugin."));
+        Backend::install_plugin(&shared, &fetch, other, theirs).expect("installed");
+
+        // Both sources move on. Dereth's own updates on its own; the other's asks for a
+        // permission, so it waits whatever the setting.
+        lock(&shared).set_plugin_updates("all").expect("set");
+        let own2 = plugin_zip(own, "1.1.0", "0.1", "");
+        let theirs2 = plugin_zip(
+            theirs,
+            "1.1.0",
+            "0.1",
+            "[permissions]\n\"auto.loot\" = \"Loots.\"\n",
+        );
+        let served = Served::new(&[
+            (launcher_plugins::FIRST_PARTY, plugin_list(&[&own2])),
+            (&format!("{ZIP_AT}{own}.zip"), own2.clone()),
+            (other, plugin_list(&[&theirs2])),
+            (&format!("{other_at}{theirs}.zip"), theirs2.clone()),
+        ]);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let said = Backend::refresh_plugins(&shared, &fetch).expect("checked");
+        assert_eq!(said, "Updated Meter to 1.1.0.\n1 plugin update is waiting.");
+        let view = lock(&shared)
+            .snapshot()
+            .plugins
+            .expect("the Plugins section");
+        let waiting = view
+            .installed
+            .iter()
+            .find(|p| p.id == theirs)
+            .and_then(|p| p.update.clone())
+            .expect("waiting");
+        assert_eq!(waiting.new_permissions, ["auto.loot"]);
+        assert!(
+            !served
+                .asked
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|u| u.ends_with(&format!("{theirs}.zip"))),
+            "a release that waits is not downloaded"
+        );
+        // The player applies it.
+        let said = Backend::update_plugin(&shared, &fetch, theirs);
+        assert_eq!(said.as_deref(), Ok("Updated Meter to 1.1.0."));
+        // A plugin a source lists now that it did not is named as new; nothing new is nothing.
+        let fresh = plugin_zip("org.example.fresh", "1.0.0", "0.1", "");
+        let served = Served::new(&[
+            (launcher_plugins::FIRST_PARTY, plugin_list(&[&own2])),
+            (other, plugin_list(&[&theirs2, &fresh])),
+        ]);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let said = Backend::refresh_plugins(&shared, &fetch).expect("refreshed");
+        assert_eq!(said, "New from example.github.io: Meter.");
+        assert_eq!(Backend::refresh_plugins(&shared, &fetch), Ok(String::new()));
+        // A source that cannot be read says so, and its plugins stay.
+        let gone = Served::new(&[]);
+        let fetch = |u: &str, l: usize| gone.fetch(u, l);
+        let said = Backend::refresh_plugins(&shared, &fetch).expect("checked");
+        assert!(said.contains("example.github.io: https://example.github.io/plugins/plugins.json was not found (404)"), "{said}");
+        assert_eq!(lock(&shared).offered_plugins().len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// At start every source is read and what is new is said in the notice, whatever the update
+    /// setting: with None, an update installs nothing and the notice says it waits.
+    #[test]
+    fn at_start_the_updates_that_wait_are_told_whatever_the_setting() {
+        use dereth_launch::testing::{plugin_list, plugin_zip};
+        let (b, dir) = backend("plugins-at-start");
+        let shared: Shared = Arc::new(Mutex::new(b.with_plugins(true)));
+        let own = "network.dereth.counter";
+        let v1 = plugin_zip(own, "1.0.0", "0.1", "");
+        let v2 = plugin_zip(own, "1.1.0", "0.1", "");
+        {
+            let mut b = lock(&shared);
+            b.plugins
+                .record_read(launcher_plugins::FIRST_PARTY, Ok(plugin_list(&[&v1])), 1)
+                .unwrap();
+            b.plugins
+                .install(launcher_plugins::FIRST_PARTY, own, &v1)
+                .unwrap();
+            b.set_plugin_updates("none").expect("set");
+        }
+        let served = Served::new(&[
+            (launcher_plugins::FIRST_PARTY, plugin_list(&[&v2])),
+            (&format!("{ZIP_AT}{own}.zip"), v2.clone()),
+        ]);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        Backend::refresh_plugins_at_start(&shared, &fetch);
+        let b = lock(&shared);
+        assert_eq!(
+            b.plugins.get(own).map(|p| p.release.version.as_str()),
+            Some("1.0.0"),
+            "nothing installs on its own"
+        );
+        assert_eq!(
+            b.snapshot().message.map(|m| m.text).as_deref(),
+            Some("Plugins: 1 plugin update is waiting.")
+        );
+        drop(b);
         let _ = std::fs::remove_dir_all(dir);
     }
 

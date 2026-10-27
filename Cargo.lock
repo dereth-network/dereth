@@ -1266,6 +1266,7 @@ dependencies = [
  "dereth-dat",
  "dereth-input",
  "dereth-network-protocol",
+ "dereth-plugin-api",
  "dereth-plugin-package",
  "dereth-primitives",
  "dereth-rules",
@@ -1356,9 +1357,12 @@ dependencies = [
 
 [[package]]
 name = "dereth-plugin"
-version = "0.0.0"
+version = "0.4.7"
 dependencies = [
+ "dereth-plugin-api",
+ "dereth-plugin-lua",
  "dereth-plugin-package",
+ "dereth-plugin-wasm",
  "sha2",
  "toml",
  "wit-component",
@@ -6427,6 +6431,7 @@ dependencies = [
  "base64 0.23.1",
  "dereth-dat",
  "dereth-launch",
+ "dereth-plugin-package",
  "flate2",
  "minisign",
  "minisign-verify",

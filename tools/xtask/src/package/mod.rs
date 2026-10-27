@@ -36,7 +36,7 @@ mod guard;
 mod headers;
 pub mod lyceum;
 mod notice;
-pub(crate) mod plugins;
+pub mod plugins;
 pub(crate) mod sign;
 pub(crate) mod targets;
 pub mod version;
@@ -362,10 +362,11 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         Some("empyrean") => {}
         _ => {
             return Err(format!(
-                "{USAGE}\n{}\n{}\n{}",
+                "{USAGE}\n{}\n{}\n{}\n{}",
                 dereth::USAGE,
                 lyceum::USAGE,
-                web::USAGE
+                web::USAGE,
+                plugins::USAGE
             ))
         }
     }
@@ -402,6 +403,9 @@ pub fn package(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("lyceum") {
         return lyceum::package(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("plugins") {
+        return plugins::package(&args[1..]);
     }
     let options = match parse_options(args) {
         Ok(o) => o,

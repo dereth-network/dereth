@@ -25,6 +25,8 @@ const ready = init().then(async (exports) => {
   // The client's own files first: the overlay blocklist the front page shows is one of them.
   await openSettings();
   dereth.installSettings();
+  // The plugin sources and what was installed from them, as this browser kept them.
+  await openShelf();
 });
 
 // The Horizon interface's art, which the module does not carry: its files are served beside the
@@ -157,30 +159,133 @@ async function readPlugins() {
   }
   return bundleOf(files);
 }
-// The plugins that come with the client: in a release, served beside the page under `plugins/`,
-// listed by `plugins/index.json`. Read once into a bundle of the same form; none when the page is
-// served without them. The client lists them, each off until the player turns it on.
-let bundledPlugins = null;
-async function readBundledPlugins() {
-  if (bundledPlugins) return bundledPlugins;
-  try {
-    const index = await fetch('plugins/index.json');
-    if (!index.ok) return (bundledPlugins = new Uint8Array(0));
-    const files = [];
-    for (const path of (await index.json()).files || []) {
-      const r = await fetch(`plugins/${path}`);
-      if (!r.ok) throw new Error(`plugins/${path}: HTTP ${r.status}`);
-      files.push({ path, bytes: new Uint8Array(await r.arrayBuffer()) });
-    }
-    bundledPlugins = bundleOf(files);
-  } catch (e) {
-    log(`the plugins that come with the client did not load: ${e?.message ?? e}`);
-    bundledPlugins = new Uint8Array(0);
-  }
-  return bundledPlugins;
+// Plugin sources, as the desktop launcher has them: the module keeps the launcher's own shelf (the
+// sources, the last list each gave, what was installed from them and the update setting) and says
+// what to keep; this worker fetches the lists and the zips, and keeps the files in the origin's
+// private storage: the sources beside the settings file, and each installed plugin's zip, with the
+// record of them, among the plugins the client finds (`plugins/`). The only requests are for the
+// lists and zips of Dereth's source and the sources the player added, to their own hosts.
+async function writeFile(dir, name, bytes) {
+  const handle = await dir.getFileHandle(name, { create: true });
+  const access = await handle.createSyncAccessHandle();
+  access.truncate(0);
+  access.write(bytes, { at: 0 });
+  access.flush();
+  access.close();
 }
-let bundledBundle = new Uint8Array(0);
-globalThis.derethBundledPluginsLoad = () => bundledBundle;
+// The folder a path in the origin's private storage is in, and its name there.
+async function placeOf(path, create) {
+  const names = path.split('/').filter((n) => n && n !== '.' && n !== '..');
+  let dir = await navigator.storage.getDirectory();
+  for (const n of names.slice(0, -1)) dir = await dir.getDirectoryHandle(n, { create });
+  return { dir, name: names[names.length - 1] };
+}
+async function readKept(path) {
+  try {
+    const { dir, name } = await placeOf(path, false);
+    const file = await (await dir.getFileHandle(name)).getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return undefined;
+  }
+}
+async function openShelf() {
+  const [sources, installed] = dereth.frontPluginRecords();
+  dereth.frontPluginsOpen(await readKept(sources), await readKept(installed));
+}
+// Make the writes the module asks for, in order. When one fails the rest are not made, and the
+// shelf is read again from what is kept.
+async function keepShelf() {
+  try {
+    for (const [path, bytes] of dereth.frontPluginWrites()) {
+      const { dir, name } = await placeOf(path, true);
+      if (bytes) await writeFile(dir, name, bytes);
+      else await dir.removeEntry(name).catch(() => {});
+    }
+  } catch (e) {
+    await openShelf();
+    throw e;
+  }
+}
+// One download for the plugins, of at most `limit` bytes: `{ body }`, `{ error }` with what its
+// host answered, or `{}` when the page could not reach it at all: offline, or a host that does not
+// let web pages read it, which a page cannot tell apart.
+async function fetchCapped(url, limit) {
+  let res;
+  try {
+    res = await fetch(url, { cache: 'no-cache' });
+  } catch {
+    return {};
+  }
+  if (!res.ok) return { error: `HTTP ${res.status}` };
+  const tooLarge = { error: `${url} is larger than its source says` };
+  if (Number(res.headers.get('content-length')) > limit) return tooLarge;
+  try {
+    const reader = res.body.getReader();
+    const parts = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) {
+        reader.cancel().catch(() => {});
+        return tooLarge;
+      }
+      parts.push(value);
+    }
+    const body = new Uint8Array(size);
+    let at = 0;
+    for (const p of parts) {
+      body.set(p, at);
+      at += p.length;
+    }
+    return { body };
+  } catch {
+    return {};
+  }
+}
+// One plugin call at a time: each reads and writes the same files.
+let pluginTurn = Promise.resolve();
+function inTurn(work) {
+  const run = pluginTurn.then(work);
+  pluginTurn = run.catch(() => {});
+  return run;
+}
+// Read every source, and apply the updates that apply on their own: the launcher's walk, each
+// download made here.
+async function refreshPlugins() {
+  let next = dereth.frontPluginRefreshStart();
+  while (next) {
+    const { url, limit } = JSON.parse(next);
+    const got = await fetchCapped(url, limit);
+    next = dereth.frontPluginRefreshNext(got.body, got.error);
+    await keepShelf();
+  }
+  const done = JSON.parse(dereth.frontPluginRefreshDone());
+  if (done.said) log(`plugins: ${done.said.replace(/\n/g, ' ')}`);
+  return done;
+}
+async function addSource(url) {
+  const list = JSON.parse(dereth.frontPluginAddSource(url));
+  const got = await fetchCapped(list.url, list.limit);
+  const said = dereth.frontPluginSourceRead(list.url, got.body, got.error);
+  await keepShelf();
+  return said;
+}
+// Install plugin `id` from `source`, or with no source update it from its own.
+async function takePlugin(source, id) {
+  const { url, limit } = JSON.parse(dereth.frontPluginPlan(source, id));
+  const got = await fetchCapped(url, limit);
+  const said = dereth.frontPluginTake(source, id, got.body, got.error);
+  await keepShelf();
+  log(said);
+  return said;
+}
+async function changeShelf(change) {
+  change();
+  await keepShelf();
+}
 // Keep the files of one added plugin folder, or added zips: `files` is [{ path, bytes }], each
 // path starting with the folder's name, or a zip's file name alone.
 async function addPlugins(files) {
@@ -201,6 +306,8 @@ async function addPlugins(files) {
 async function removePlugins() {
   const root = await navigator.storage.getDirectory();
   await root.removeEntry('plugins', { recursive: true }).catch(() => {});
+  // The record of what was installed from sources went with them; the sources stay.
+  await openShelf();
   log('removed every added plugin');
 }
 globalThis.derethPluginsLoad = () => pluginBundle;
@@ -248,7 +355,6 @@ async function start(msg) {
   if (!settings) await openSettings();
   log(overlay ? `the world's overlay is kept in ${overlay}` : 'no overlay is kept for this world');
   pluginBundle = await readPlugins();
-  bundledBundle = await readBundledPlugins();
   await fetchPluginPolicy(msg.pluginPolicy);
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
@@ -465,6 +571,15 @@ const calls = {
     storeKey = null;
     return removeSet(dereth, path);
   },
+  plugins: () => JSON.parse(dereth.frontPlugins()),
+  pluginRefresh: () => inTurn(refreshPlugins),
+  pluginAddSource: (url) => inTurn(() => addSource(url)),
+  pluginRemoveSource: (url) => inTurn(() => changeShelf(() => dereth.frontPluginRemoveSource(url))),
+  installPlugin: (source, id) => inTurn(() => takePlugin(source, id)),
+  updatePlugin: (id) => inTurn(() => takePlugin(undefined, id)),
+  removePlugin: (id) => inTurn(() => changeShelf(() => dereth.frontPluginRemove(id))),
+  pluginUpdates: (setting) => inTurn(() => changeShelf(() => dereth.frontPluginUpdates(setting))),
+  removePlugins: () => inTurn(removePlugins),
   overlayFolder: (address) => dereth.overlayFolder(address),
   // The world's overlay as the folder holds it: held open for the world being looked at.
   overlay: async (path) => {
@@ -504,7 +619,6 @@ onmessage = async (ev) => {
     if (msg.cmd === 'page') setPage(msg.page);
     if (msg.cmd === 'audio') audioState.started = true;
     if (msg.cmd === 'addPlugins') await addPlugins(msg.files);
-    if (msg.cmd === 'removePlugins') await removePlugins();
   } catch (e) {
     log(`error: ${e?.message ?? e}`);
   }

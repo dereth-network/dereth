@@ -25,9 +25,14 @@ xtask sweep --help` lists the rest.
 
 ## `dereth-plugin` — the plugin author's tool
 
-Packs a plugin folder into a zip, prints a package's content hash (and a zip's SHA-256), makes an
-author key, signs a package (`plugin.sig`) and checks a signature, exactly as the hosts read and
-check them. The formats are in `docs/plugins/packages.md`.
+Makes a new plugin repository from its template (`new`), checks a plugin as the hosts check it
+and compiles its scripts (`check`), packs it into a zip with its SHA-256 beside it (`pack`),
+releases it (`release`, `notes`), lists a release in a plugin source's `plugins.json` (`add`), and
+builds a Rust plugin as a component (`build`). It carries Dereth's version: its rules are those of
+the client released with it, and each Dereth release carries it prebuilt for every platform
+(`cargo xtask package dereth`). The template is `plugin/template/`; the guide is
+`docs/plugins/guide/publishing.md`, and the formats are in `docs/plugins/packages.md` and
+`docs/plugins/sources.md`.
 
 ## `dereth-corpus` — recording sessions and the message corpus
 

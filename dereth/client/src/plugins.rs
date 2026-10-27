@@ -8,8 +8,10 @@
 //! plugin panel (`/plugin`), which shows what its manifest says it uses; once loaded it may do
 //! what every permission covers. A `--plugins` folder's plugins load whatever the setting says:
 //! the command line names them. With `--plugin-dev` a plugin is reloaded whenever one of its files
-//! changes. The plugins that come with the client are in a `plugins` folder beside the program
-//! ([`bundled_dir_for`](crate::plugins::bundled_dir_for)), which releases leave out for now.
+//! changes. Plugins beside the program are found too
+//! ([`bundled_dir_for`](crate::plugins::bundled_dir_for)): releases carry none (players install
+//! Dereth's from its plugin source, through the launcher), so it is a client built from the
+//! repository that finds the samples there.
 //!
 //! The desktop offers every drawn capability (windows, HUDs, markers, the arrow, radar and map
 //! marks), movement, the character list, a bus between the player's clients on this machine

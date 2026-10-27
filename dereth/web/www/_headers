@@ -2,4 +2,4 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cache-Control: no-cache
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: ws://127.0.0.1:* ws://localhost:*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: https://plugins.dereth.network ws://127.0.0.1:* ws://localhost:*

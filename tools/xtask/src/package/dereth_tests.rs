@@ -257,19 +257,10 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
     let stage = ws.join("target").join("package").join("stage").join("x");
     let client = stage.join("bin").join("dereth-client");
     let notices = stage.join("notices");
-    let carried = vec![(
-        "plugins/tank/plugin.toml".to_owned(),
-        stage.join("plugins").join("tank").join("plugin.toml"),
-    )];
-    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices, &carried).unwrap();
+    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices).unwrap();
     assert_eq!(win, serde_json::json!({ "createUpdaterArtifacts": false }));
     for t in [target(MAC_ARM), target(LINUX)] {
-        let c = dereth::bundle_config(t, &app, &client, &notices, &carried).unwrap();
-        assert_eq!(
-            c["resources"]["../../target/package/stage/x/plugins/tank/plugin.toml"],
-            "plugins/tank/plugin.toml",
-            "a carried plugin is a resource at its published path"
-        );
+        let c = dereth::bundle_config(t, &app, &client, &notices).unwrap();
         assert_eq!(
             c["externalBin"],
             serde_json::json!(["../../target/package/stage/x/bin/dereth-client"])
@@ -286,20 +277,13 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
     }
 }
 
-/// While plugins are experimental a release carries none of the sample plugins: neither the
-/// Windows folder nor the macOS bundle holds a `plugins` folder.
+/// A release carries no plugins: neither the Windows folder nor the macOS bundle holds a
+/// `plugins` folder, and a plugin file in the Windows archive refuses it. Dereth's plugins come
+/// from its plugin source.
 #[test]
-fn a_release_carries_no_plugins_while_they_are_experimental() {
-    let ws = workspace_root();
-    let paths = super::plugins::paths(&ws).expect("the carried plugins");
-    if super::plugins::SHIPPED {
-        let carried = super::plugins::carried(&ws).expect("carried");
-        assert_eq!(paths.len(), carried.len());
-        return;
-    }
-    assert!(paths.is_empty(), "{paths:?}");
-    for t in [WINDOWS, MAC_ARM] {
-        let (required, optional) = dereth::package_contents(target(t), &paths);
+fn a_release_carries_no_plugins() {
+    for t in [WINDOWS, MAC_ARM, LINUX] {
+        let (required, optional) = dereth::contents(target(t));
         assert!(
             required
                 .iter()
@@ -308,85 +292,9 @@ fn a_release_carries_no_plugins_while_they_are_experimental() {
             "{t}: {required:?}"
         );
     }
-}
-
-/// The plugins a release that carries them would carry are the listed sample folders as git
-/// tracks them, published under `plugins/`: the Windows folder holds them at its top and the macOS
-/// bundle among its resources, both scanned for them; a folder with no manifest, or a file of a
-/// kind no plugin is made of, is refused, and a sample not on the list is not carried.
-#[test]
-fn the_carried_plugins_go_beside_the_client_and_nothing_else_of_the_samples() {
-    let ws = workspace_root();
-    let paths: Vec<String> = super::plugins::carried(&ws)
-        .expect("the carried plugins")
-        .into_iter()
-        .map(|(p, _)| p)
-        .collect();
-    for need in [
-        "plugins/tank/plugin.toml",
-        "plugins/tank/THIRD-PARTY.md",
-        "plugins/trackers/main.lua",
-        "plugins/trackers/plugin.toml",
-        "plugins/navigator/locations.txt",
-    ] {
-        assert!(paths.contains(&need.to_owned()), "{need}");
-    }
-    assert!(
-        paths.iter().all(|p| super::plugins::BUNDLED
-            .iter()
-            .any(|f| p.starts_with(&format!("plugins/{f}/")))),
-        "only the listed samples"
-    );
-    let (win, _) = dereth::package_contents(target(WINDOWS), &paths);
-    assert!(win.contains(&"plugins/tank/plugin.toml".to_owned()));
-    assert!(win.contains(&"dereth-client.exe".to_owned()));
-    let (mac, _) = dereth::package_contents(target(MAC_ARM), &paths);
-    assert!(mac.contains(&"Contents/Resources/plugins/tank/plugin.toml".to_owned()));
-    let (linux, _) = dereth::package_contents(target(LINUX), &paths);
-    assert!(linux.is_empty(), "the AppImage is no archive");
-
-    let tracked =
-        |files: &[&str]| -> Vec<String> { files.iter().map(|f| (*f).to_owned()).collect() };
-    let mut listing = tracked(&[
-        "dereth/plugins/unlisted/plugin.toml",
-        "dereth/plugins/unlisted/main.lua",
-    ]);
-    for folder in super::plugins::BUNDLED {
-        listing.push(format!("dereth/plugins/{folder}/plugin.toml"));
-        listing.push(format!("dereth/plugins/{folder}/main.lua"));
-    }
-    let carried = super::plugins::from_listing(&ws, &listing).expect("carried");
-    assert_eq!(carried.len(), super::plugins::BUNDLED.len() * 2);
-    assert!(carried.iter().all(|(p, _)| !p.contains("unlisted")));
-    let mut odd = listing.clone();
-    odd.push("dereth/plugins/tank/cell.dat".into());
-    odd.push("dereth/plugins/tank/tool.exe".into());
-    let refused = super::plugins::from_listing(&ws, &odd).expect_err("refused");
-    assert!(
-        refused.contains("cell.dat") && refused.contains("tool.exe"),
-        "{refused}"
-    );
-    let mut bare = listing;
-    bare.retain(|p| p != "dereth/plugins/trackers/plugin.toml");
-    let refused = super::plugins::from_listing(&ws, &bare).expect_err("refused");
-    assert!(
-        refused.contains("trackers") && refused.contains("plugin.toml"),
-        "{refused}"
-    );
-}
-
-/// The Windows zip with the carried plugins reads back and passes the scan; one of them missing,
-/// or a plugin file the tree does not carry, refuses it.
-#[test]
-fn a_windows_zip_with_the_carried_plugins_passes_and_a_missing_or_stray_one_refuses_it() {
     let w = target(WINDOWS);
-    let paths: Vec<String> = super::plugins::carried(&workspace_root())
-        .expect("the carried plugins")
-        .into_iter()
-        .map(|(p, _)| p)
-        .collect();
-    let (required, optional) = dereth::package_contents(w, &paths);
-    let members: Vec<Member> = required
+    let (required, optional) = dereth::contents(w);
+    let mut members: Vec<Member> = required
         .iter()
         .map(|n| Member {
             name: n.clone(),
@@ -394,34 +302,27 @@ fn a_windows_zip_with_the_carried_plugins_passes_and_a_missing_or_stray_one_refu
             executable: n.ends_with(".exe"),
         })
         .collect();
-    let root = dereth::archive_root(w, V).expect("a zip");
-    let scan = |members: &[Member]| {
-        let bytes = archive::zip_bytes(&root, members, 1_700_000_000).expect("zip");
-        let entries =
-            archive::relative_to_root(archive::zip_entries(&bytes).expect("reads"), &root);
-        guard::scan_tree(
-            &entries,
-            &required,
-            &optional,
-            dereth::FILE_CAP,
-            dereth::TOTAL_CAP,
-        )
-    };
-    assert_eq!(scan(&members), Vec::<String>::new());
-    let mut short = members.clone();
-    short.retain(|m| m.name != "plugins/trackers/main.lua");
-    assert!(scan(&short)
-        .iter()
-        .any(|f| f.contains("plugins/trackers/main.lua") && f.contains("missing")));
-    let mut stray = members;
-    stray.push(Member {
-        name: "plugins/tank/routes/mine.nav".into(),
-        bytes: b"uTank2 NAV 1.2".to_vec(),
+    members.push(Member {
+        name: "plugins/tank/plugin.toml".into(),
+        bytes: b"id = \"network.dereth.tank\"".to_vec(),
         executable: false,
     });
-    assert!(scan(&stray)
-        .iter()
-        .any(|f| f.contains("mine.nav") && f.contains("not on the allowlist")));
+    let root = dereth::archive_root(w, V).expect("a zip");
+    let bytes = archive::zip_bytes(&root, &members, 1_700_000_000).expect("zip");
+    let entries = archive::relative_to_root(archive::zip_entries(&bytes).expect("reads"), &root);
+    let findings = guard::scan_tree(
+        &entries,
+        &required,
+        &optional,
+        dereth::FILE_CAP,
+        dereth::TOTAL_CAP,
+    );
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.contains("plugins/tank/plugin.toml") && f.contains("not on the allowlist")),
+        "{findings:?}"
+    );
 }
 
 /// A path is named relative to a folder by climbing to what they share; a folder on another
@@ -677,8 +578,8 @@ fn dereth_builds_natively_and_names_what_is_missing() {
 
 // ---------------------------------------------------------------- version and tag
 
-/// The client, the launcher, the web client and the headless client carry one version, which the
-/// tag must name exactly.
+/// The client, the launcher, the web client, the headless client and the plugin author's tool
+/// carry one version, which the tag must name exactly.
 #[test]
 fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
     let ws = workspace_root();
@@ -692,7 +593,7 @@ fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
         .expect_err("another product's tag");
     assert!(e.contains("Dereth"), "{e}");
     assert!(version::check_product_tag(Product::Dereth, "dereth-v9.9.9", &v).is_err());
-    assert_eq!(version::dereth_manifests(&ws).len(), 4);
+    assert_eq!(version::dereth_manifests(&ws).len(), 5);
 }
 
 /// Every file the Dereth package reads from the tree is there.
@@ -759,12 +660,8 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     let windows = super::notice::dereth_notice(&facts(None));
     assert!(!windows.contains("MOLTENVK"));
     assert!(windows.contains("CINZEL"));
-    // The carried plugins: off until turned on, and where the Tank's other authors' licences are.
-    assert!(
-        windows.contains("THE PLUGINS")
-            && windows.contains("plugins/tank/THIRD-PARTY.md")
-            && windows.contains("off until you turn it on")
-    );
+    // A release carries no plugins, so its notice speaks of none.
+    assert!(!windows.contains("THE PLUGINS"));
 }
 
 /// A Developer ID signs the macOS bundle under the hardened runtime; an ad-hoc signature leaves it
@@ -822,4 +719,150 @@ fn a_release_build_is_told_the_repository_it_updates_from() {
             "{triple}: {env:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------- the plugin author's tool
+
+/// The plugin author's tool is a release file of its own for each platform Dereth ships, named for
+/// the version and the platform, and the folder's classification reads it and its manifest back.
+#[test]
+fn the_plugin_authors_tool_is_a_release_file_for_each_platform() {
+    let names: Vec<String> = targets::DERETH_TRIPLES
+        .iter()
+        .map(|t| dereth::tool_file_name(target(t), V))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "dereth-plugin-0.2.0-windows-x86_64.zip",
+            "dereth-plugin-0.2.0-linux-x86_64.tar.gz",
+            "dereth-plugin-0.2.0-macos-aarch64.tar.gz",
+            "dereth-plugin-0.2.0-macos-x86_64.tar.gz",
+        ]
+    );
+    for triple in targets::DERETH_TRIPLES {
+        let t = target(triple);
+        let name = dereth::tool_file_name(t, V);
+        assert_eq!(dereth::classify(&name, V), Ok(Asset::Tool(t)));
+        assert_eq!(
+            dereth::classify(&format!("{name}.manifest"), V),
+            Ok(Asset::ManifestPart)
+        );
+        assert_eq!(guard::name_finding(&name), None, "{name}");
+    }
+    assert!(dereth::classify("dereth-plugin-0.1.0-windows-x86_64.zip", V).is_err());
+    assert!(dereth::classify("dereth-plugin-0.2.0-windows-x86_64.tar.gz", V).is_err());
+}
+
+/// The tool's archive holds the program and its notices under one folder, the program executable
+/// where the system has the bit; the deny scan refuses one missing a notice or holding anything
+/// more.
+#[test]
+fn the_tools_archive_holds_the_program_and_its_notices_and_nothing_else() {
+    let dir = std::env::temp_dir().join(format!("xtask-tool-archive-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    for triple in [WINDOWS, LINUX, MAC_ARM] {
+        let t = target(triple);
+        let members =
+            dereth::tool_members(t, b"program".to_vec(), "MIT", "the notice", "<html></html>");
+        assert_eq!(
+            members
+                .iter()
+                .map(|m| m.name.clone())
+                .collect::<Vec<_>>()
+                .len(),
+            dereth::tool_contents(t).len()
+        );
+        assert!(members[0].executable && members[0].name.starts_with("dereth-plugin"));
+        let write = |members: &[Member], name: &str| {
+            let path = dir.join(name);
+            let bytes = dereth::tool_archive(t, V, members, 1_700_000_000).expect("archived");
+            std::fs::write(&path, bytes).expect("written");
+            path
+        };
+        let path = write(&members, &dereth::tool_file_name(t, V));
+        dereth::check_tool_archive(&path, t, V).expect("passes the scan");
+        let entries = archive::archive_entries(&path, &dereth::tool_root(V)).expect("reads");
+        assert!(dereth::tool_findings(&entries, t).is_empty());
+
+        let short: Vec<Member> = members
+            .iter()
+            .filter(|m| m.name != "NOTICE.txt")
+            .cloned()
+            .collect();
+        let path = write(&short, &dereth::tool_file_name(t, V));
+        let refused = dereth::check_tool_archive(&path, t, V).expect_err("a notice missing");
+        assert!(refused.contains("NOTICE.txt"), "{refused}");
+        let mut stray = members.clone();
+        stray.push(Member {
+            name: "client_portal.dat".into(),
+            bytes: b"x".to_vec(),
+            executable: false,
+        });
+        let path = write(&stray, &dereth::tool_file_name(t, V));
+        assert!(dereth::check_tool_archive(&path, t, V).is_err());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The index over a release folder sums each platform's tool beside its launcher file and names
+/// it in `release.json`; a launcher file without its tool beside it refuses the folder.
+#[test]
+fn the_index_sums_the_tool_beside_each_launcher_file_and_refuses_a_launcher_without_one() {
+    let dir = std::env::temp_dir().join(format!("xtask-tool-index-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let w = target(WINDOWS);
+    let (required, _) = dereth::contents(w);
+    let launcher: Vec<Member> = required
+        .iter()
+        .map(|n| Member {
+            name: n.clone(),
+            bytes: n.as_bytes().to_vec(),
+            executable: n.ends_with(".exe"),
+        })
+        .collect();
+    let root = dereth::archive_root(w, V).expect("a zip");
+    std::fs::write(
+        dir.join(dereth::release_file_name(w, V)),
+        archive::zip_bytes(&root, &launcher, 1_700_000_000).expect("zip"),
+    )
+    .expect("written");
+    let facts = super::BuildFacts {
+        commit: "a".repeat(40),
+        branch: "dereth-v0.2.0".to_owned(),
+        number: "1".to_owned(),
+        epoch: 1_700_000_000,
+        source_url: "https://github.com/dereth-network/dereth".to_owned(),
+    };
+    let refused = dereth::write_index(&workspace_root(), &dir, V, &facts).expect_err("no tool");
+    assert!(
+        refused.contains("dereth-plugin-0.2.0-windows-x86_64.zip"),
+        "{refused}"
+    );
+    let tool = dereth::tool_members(w, b"program".to_vec(), "MIT", "notice", "<html></html>");
+    std::fs::write(
+        dir.join(dereth::tool_file_name(w, V)),
+        dereth::tool_archive(w, V, &tool, 1_700_000_000).expect("zip"),
+    )
+    .expect("written");
+    dereth::write_index(&workspace_root(), &dir, V, &facts).expect("indexed");
+    let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).expect("sums");
+    assert!(
+        sums.contains("  dereth-plugin-0.2.0-windows-x86_64.zip\n"),
+        "{sums}"
+    );
+    let release: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("release.json")).expect("facts"))
+            .expect("json");
+    assert!(
+        release["assets"]
+            .as_array()
+            .expect("assets")
+            .iter()
+            .any(|a| a["program"] == "dereth-plugin" && a["target"] == WINDOWS),
+        "{release}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

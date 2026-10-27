@@ -1,9 +1,10 @@
 //! Plugins in the browser: packages the player added to the page, kept in the browser's private
 //! file system, and each plugin's store kept there too.
 //!
-//! Plugins are experimental. The added packages and the plugins that come with the client are
-//! found plugins: each loads only while the player's *Plugins (experimental)* setting is on and
-//! they have ticked it in the plugin panel (`/plugin`).
+//! Plugins are experimental. The added packages, and the plugins installed from Dereth's plugin
+//! source (kept as zips beside them, [`crate::plugin_sources`]), are found
+//! plugins: each loads only while the player's *Plugins (experimental)* setting is on and they
+//! have ticked it in the plugin panel (`/plugin`).
 //!
 //! The page keeps added plugins in its private file system, one folder per package or a
 //! package's zip file as it came; the worker
@@ -97,20 +98,17 @@ impl PluginStorage for FileStorage {
     }
 }
 
-/// What the page hands the host beyond the packages: its bus between tabs, its fetch, the world's
-/// policy document if the page was given one, and the plugins that come with the client (served
-/// beside the page), found after the ones the player added.
+/// What the page hands the host beyond the packages: its bus between tabs, its fetch, and the
+/// world's policy document if the page was given one.
 #[derive(Debug, Default)]
 pub struct Extras {
     pub peers: Option<Box<dyn dereth_client_sdk::plugins::PluginPeers>>,
     pub net: Option<Box<dyn dereth_client_sdk::plugins::PluginNet>>,
     pub policy: Option<String>,
-    pub bundled: Vec<Package>,
 }
 
-/// The browser's plugin host over `packages`, the ones the player added to the page: they and the
-/// plugins that come with the client are found, each off until the player ticks it, and the host
-/// follows the player's *Plugins (experimental)* setting. It offers what the desktop offers: the
+/// The browser's plugin host over `packages`, the ones kept in the page: they are found, each off
+/// until the player ticks it, and the host follows the player's *Plugins (experimental)* setting. It offers what the desktop offers: the
 /// page draws the same interface.
 #[must_use]
 pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
@@ -140,8 +138,7 @@ pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
     }
     let mut config = HostConfig::new("dereth-web", caps);
     config.switch = Some(dereth_client_contract::options::plugins::turned_on);
-    let mut found = packages;
-    found.extend(extras.bundled);
+    let found = packages;
     let mut host = PluginHost::new(
         config,
         Box::new(dereth_client_sdk::plugin_lua::LuauEngine),

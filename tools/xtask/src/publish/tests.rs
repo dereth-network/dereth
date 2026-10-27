@@ -907,7 +907,8 @@ fn the_description_is_the_notes_then_the_workflows_downloads_text() {
 /// workflow gives belongs to one of them.
 #[test]
 fn every_release_file_has_the_workflows_label() {
-    let pattern = regex::Regex::new(r#"(?m)^\s*"?([^"\s)]+)"?\) label="([^"]+)" ;;"#).expect("re");
+    let pattern = regex::Regex::new(r#"^\s*"?([^"\s)]+)"?\) label="([^"]+)" ;;"#).expect("re");
+    let outer = regex::Regex::new(r#"^\s*"([^"]+)"\*\)$"#).expect("re");
     for (kind, file) in [
         (Kind::Dereth, "release-dereth.yml"),
         (Kind::Empyrean, "release-empyrean.yml"),
@@ -916,18 +917,28 @@ fn every_release_file_has_the_workflows_label() {
     ] {
         let v = "0.2.0";
         let text = workflow(file);
-        let labels: Vec<(String, String)> = pattern
-            .captures_iter(&text)
-            .map(|c| (c[1].replace("$VERSION", v), c[2].to_owned()))
-            .collect();
+        // Each label with the whole name it is for: a label inside a `"<prefix>"*)` case is for
+        // the prefix and its own pattern together.
+        let mut labels: Vec<(String, String)> = Vec::new();
+        let mut prefix = String::new();
+        for line in text.lines() {
+            if let Some(c) = outer.captures(line) {
+                prefix = c[1].to_owned();
+            } else if let Some(c) = pattern.captures(line) {
+                let whole = format!("{prefix}{}", &c[1]).replace("$VERSION", v);
+                labels.push((whole, c[2].to_owned()));
+            } else if line.trim_start().starts_with("esac ;;") {
+                prefix.clear();
+            }
+        }
         let e = files::expected(kind, v);
         let names: Vec<String> = e.release.into_iter().chain(e.index).collect();
         assert_eq!(labels.len(), names.len(), "{file}: {labels:?}");
         for name in &names {
             let (_, label) = labels
                 .iter()
-                .find(|(p, _)| name == p || name.ends_with(&format!("-{p}")))
-                .unwrap_or_else(|| panic!("{file} labels no {name}"));
+                .find(|(p, _)| name == p)
+                .unwrap_or_else(|| panic!("{file} labels no {name}: {labels:?}"));
             assert_eq!(
                 files::label(kind, v, name).as_deref(),
                 Some(label.as_str()),

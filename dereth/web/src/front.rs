@@ -14,6 +14,9 @@
 //! ([`dereth_launch::hubstatus`]); the page fetches each page of it it is given. A browser cannot
 //! ask a server over UDP whether it is up, so a world with no status document, of which the hub
 //! has no word, is shown with its state unknown.
+//!
+//! **Plugins.** The page installs plugins from plugin sources as the launcher does, with the
+//! launcher's own shelf of sources: [`crate::plugin_sources`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

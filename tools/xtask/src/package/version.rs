@@ -1,5 +1,6 @@
 //! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries;
-//! Dereth's, the one the client, the launcher, the web client and the headless client share; and
+//! Dereth's, the one the client, the launcher, the web client, the headless client and the plugin
+//! author's tool share; and
 //! Lyceum's, the one its editor, its command and the Foundry share; the release tags that name
 //! them, and the edit that moves them.
 
@@ -102,13 +103,15 @@ fn manifests_version(ws: &Path, manifests: &[PathBuf], what: &str) -> Result<Str
 pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 
 /// The crates that carry Dereth's version: the client and the launcher, released together, the
-/// web client, the same client in a browser, released under its own tag from the same version, and
-/// the headless client, which names itself by it.
+/// web client, the same client in a browser, released under its own tag from the same version, the
+/// headless client, which names itself by it, and the plugin author's tool, whose rules are those
+/// of the client released with it.
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
     "dereth/launcher/Cargo.toml",
     "dereth/web/Cargo.toml",
     "dereth/headless/Cargo.toml",
+    "tools/plugin/Cargo.toml",
 ];
 
 /// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
@@ -128,7 +131,7 @@ pub fn dereth_version(ws: &Path) -> Result<String, String> {
     manifests_version(
         ws,
         &dereth_manifests(ws),
-        "Dereth crate (the client, the launcher, the web client and the headless client)",
+        "Dereth crate (the client, the launcher, the web client, the headless client and the          plugin author's tool)",
     )
 }
 
@@ -269,7 +272,7 @@ impl Product {
         match self {
             Self::Empyrean => "the empyrean-* crates carry",
             Self::Dereth => {
-                "the client, the launcher, the web client and the headless client carry"
+                "the client, the launcher, the web client, the headless client and the plugin                  author's tool carry"
             }
             Self::Lyceum => "the editor, the lyceum command and the Foundry carry",
         }

@@ -1,4 +1,5 @@
 //! `cargo xtask deploy web`: a published web client release put on a Cloudflare Pages project.
+//! `cargo xtask deploy plugins`, Dereth's plugin source on a project of its own, is [`plugins`].
 //!
 //! ```text
 //! cargo xtask deploy web <version>|latest [--project <name>] [--branch <name>] [--zip <file>] [--dry-run]
@@ -28,6 +29,7 @@
 //! **`--dry-run`** does the first three steps and prints the command it would run. It runs no
 //! program, and keeps the unpacked folder for a look.
 
+pub mod plugins;
 #[cfg(test)]
 mod tests;
 
@@ -200,8 +202,11 @@ impl Programs for Real {
     }
 }
 
-/// `cargo xtask deploy web ...`.
+/// `cargo xtask deploy web ...`, or `deploy plugins ...` ([`plugins`]).
 pub fn deploy(args: &[String]) -> i32 {
+    if args.first().map(String::as_str) == Some("plugins") {
+        return plugins::deploy(&args[1..]);
+    }
     let o = match parse(args, &|k| std::env::var(k).ok()) {
         Ok(o) => o,
         Err(e) => {

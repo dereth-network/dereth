@@ -909,6 +909,7 @@ dependencies = [
  "dereth-client-contract",
  "dereth-dat",
  "dereth-input",
+ "dereth-plugin-api",
  "dereth-plugin-package",
  "dereth-primitives",
  "dereth-transport",

@@ -150,15 +150,24 @@ and its icon under `$XDG_DATA_HOME`), so its window gets its name and icon.
 
 Plugins are experimental, and off unless the launcher is started with `--plugins`: without it there
 is no **Plugins** screen, and the client is offered none. The **Plugins** screen installs plugins
-for the Dereth client from the URL of a release's zip, with its SHA-256 published beside it (`<url>.sha256`) or pasted by the
-player. A new release, and each update found by **Check for updates** (the same URL fetched
-again), waits beside the installed one until the player accepts it; one that asks for more
-permissions than the last says which, and accepting it is saying yes to them. There is no plugin
-index. Each installed plugin's zip goes to the client with `--offer-plugins`, and installing one
-never turns it on: the client lists it off until the player turns plugins on and ticks it there.
-The rules are the plugin spec's
-([`docs/plugins/packages.md`](../../docs/plugins/packages.md)); the logic is `dereth-launch`'s
-`plugins` module; the files are under the launcher's data folder, in `plugins`.
+for the Dereth client from plugin sources, each a `plugins.json` at an `https://` address listing
+plugins at their latest release ([`docs/plugins/sources.md`](../../docs/plugins/sources.md)).
+Dereth's own source is there from the start, with nothing installed; the player adds others by
+their address, once they confirm it, and removes them. The screen has three sections that fold:
+the plugins installed; the ones the sources offer that are not installed, each with its source,
+what it does and what it uses; and the sources. A plugin's row opens to everything known about it,
+and each plugin is installed by itself. A zip is kept only when it is the file its source lists and
+its manifest says what its entry says; an id under `network.dereth.` installs only from Dereth's
+source.
+
+The launcher reads every source at every start, and again on **Refresh**, which says what is new. An installed plugin updates
+only from its own source, to a newer release: by hand, or on its own as **Automatically update
+plugins** says (none, all, or only Dereth's, the setting at first). A release that asks for a
+permission or a web domain the installed one did not always waits for the player.
+Each installed plugin's zip goes to the client with `--offer-plugins`, and installing one never
+turns it on: the client lists it off until the player turns plugins on and ticks it there. The
+logic is `dereth-launch`'s `plugins` module; the files are under the launcher's data folder, in
+`plugins` (`sources.json`, `installed.json`, a folder per plugin).
 
 ## Updates
 

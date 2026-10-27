@@ -115,6 +115,91 @@
   let message = null;
   let job = null;
 
+  // The Plugins page: Dereth's own source and one other, with what each lists. One plugin is
+  // installed from Dereth's and two from the other, each with an update: Hunter's asks for more,
+  // so it always waits, and Prices' waits because only Dereth's plugins update on their own.
+  // `?plugins=new` starts as a new launcher does: Dereth's source alone, nothing installed.
+  const FIRST_PARTY = "https://plugins.dereth.network/plugins.json";
+  const OTHER_SOURCE = "https://someone.github.io/plugins/plugins.json";
+  const fresh = new URLSearchParams(location.search).get("plugins") === "new";
+  const listed = (id, name, version, description, extra = {}) => ({ id, name, version, api: "0.7", description, permissions: [], domains: [], authors: [], homepage: "", notes: "", released: "2026-10-26", size: 18234, ...extra });
+  const pluginSources = [
+    {
+      url: FIRST_PARTY, name: "Dereth", error: null, skipped: [],
+      entries: [
+        listed("network.dereth.xpmeter", "XP Meter", "0.1.0", "Experience earned this session and per hour, in a small window and on /xp.\nLuminance is counted too, once you earn it.", { authors: ["Dereth"], homepage: "https://dereth.network/plugins/xp-meter", notes: "The first release.", released: "2026-10-20", size: 9120 }),
+        listed("network.dereth.trackers", "Trackers", "0.3.0", "The trackers of Mag-Tools: combat by creature and element, experience and luminance per hour, the mana left in what you wear.", { authors: ["Dereth"], notes: "Mana tracking counts the items on your back.\nThe combat tracker keeps the last fight when you log out." }),
+        listed("network.dereth.looter", "Looter", "0.2.0", "Loots the open corpse or chest by your loot profile when you click Loot, or on its own where you allow it.", { permissions: ["act.interactive", "auto.loot", "plugins.call"], authors: ["Dereth"], homepage: "https://dereth.network/plugins/looter", notes: "Loot profiles can name an item's material.\nSalvage is kept apart from the rest.", released: "2026-10-22", size: 27310 }),
+        listed("network.dereth.navigator", "Navigator", "0.5.0", "Points the way, in the manner of GoArrow.", { permissions: ["act.interactive", "auto.nav"], api: "0.9", authors: ["Dereth"] }),
+      ],
+    },
+    {
+      url: OTHER_SOURCE, name: "Someone's plugins", error: null, skipped: ["an entry with no id"],
+      entries: [
+        listed("io.github.someone.hunter", "Hunter", "2.1.0", "Hunts, loots and buffs by your profiles.\nStops when your pack is full or someone talks to you.", { permissions: ["act.interactive", "auto.combat", "auto.loot", "auto.nav"], authors: ["Someone", "A friend"], homepage: "https://someone.github.io/hunter", notes: "Loots what it kills, by your loot profile.\nA new profile setting: how long to wait at a corpse.", released: "2026-10-24", size: 41870 }),
+        listed("io.github.someone.prices", "Prices", "1.0.4", "What an item sells for, from a price list on the web.", { permissions: ["net.http"], domains: ["prices.example.org"], authors: ["Someone"], notes: "Prices for the new salvage.", released: "2026-10-25", size: 12044 }),
+        listed("io.github.someone.buffs", "Buffs", "1.3.0", "Keeps your buffs up: casts the ones that run out, and tells you which have under a minute left.", { permissions: ["act.interactive", "auto.buff", "chat.print"], authors: ["Someone"] }),
+      ],
+    },
+  ];
+  // What an installed plugin's record keeps of the release installed.
+  const kept = (source, id, version, extra = {}) => {
+    const e = pluginSources.find((s) => s.url === source).entries.find((x) => x.id === id);
+    return { id, source, name: e.name, version, api: e.api, description: e.description, authors: e.authors, homepage: e.homepage, permissions: e.permissions, domains: e.domains, released: e.released, notes: e.notes, size: e.size, ...extra };
+  };
+  const pluginsState = {
+    auto_update: "first_party",
+    installed: [
+      kept(FIRST_PARTY, "network.dereth.xpmeter", "0.1.0"),
+      kept(OTHER_SOURCE, "io.github.someone.hunter", "2.0.0", { permissions: ["act.interactive", "auto.combat", "auto.nav"], released: "2026-10-02", notes: "Buffs before each fight.", size: 39950 }),
+      kept(OTHER_SOURCE, "io.github.someone.prices", "1.0.3", { released: "2026-10-11", notes: "", size: 11980 }),
+    ],
+  };
+  if (fresh) {
+    pluginSources.splice(1);
+    pluginsState.installed = [];
+  }
+  const newer = (a, b) => {
+    const [x, y] = [a, b].map((v) => v.split("-")[0].split(".").map(Number));
+    for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+    return false;
+  };
+  const runsHere = (api) => api === "0.7" || Number(api.split(".")[1]) <= 7;
+  const sourceOf = (url) => pluginSources.find((s) => s.url === url);
+  // As the backend: an update applies on its own when the setting lets it and it asks for nothing
+  // more.
+  const pending = (p) => {
+    const e = sourceOf(p.source)?.entries.find((x) => x.id === p.id);
+    if (!e || !newer(e.version, p.version)) return null;
+    const new_permissions = e.permissions.filter((x) => !p.permissions.includes(x));
+    const new_domains = e.domains.filter((x) => !p.domains.includes(x));
+    const needs_newer_dereth = !runsHere(e.api);
+    const allowed = pluginsState.auto_update === "all" || (pluginsState.auto_update === "first_party" && p.source === FIRST_PARTY);
+    const automatic = allowed && !needs_newer_dereth && !new_permissions.length && !new_domains.length;
+    return { id: p.id, name: e.name, from: p.version, to: e.version, notes: e.notes, released: e.released, size: e.size, needs_newer_dereth, new_permissions, new_domains, automatic };
+  };
+  const pluginsView = () => ({
+    sources: pluginSources.map((s) => ({ url: s.url, name: s.name, first_party: s.url === FIRST_PARTY, error: s.error, plugins: s.entries.length, skipped: s.skipped })),
+    // As the backend: an installed plugin is not offered again, by any source.
+    available: pluginSources.flatMap((s) => s.entries.filter((e) => !pluginsState.installed.some((p) => p.id === e.id)).map((e) => {
+      const state = e.id.startsWith("network.dereth.") && s.url !== FIRST_PARTY ? "first_party_only" : runsHere(e.api) ? "install" : "needs_newer_dereth";
+      return { ...e, source: s.url, source_name: s.name, state };
+    })),
+    installed: pluginsState.installed.map((p) => ({ ...p, source_name: sourceOf(p.source)?.name ?? new URL(p.source).host, source_removed: !sourceOf(p.source), update: pending(p) })),
+    auto_update: pluginsState.auto_update,
+    first_party: FIRST_PARTY,
+  });
+  const installFrom = (source, id) => {
+    const e = sourceOf(source)?.entries.find((x) => x.id === id);
+    if (!e) throw `${source} does not list ${id}`;
+    if (!runsHere(e.api)) throw `${e.name} needs a newer Dereth (plugin API ${e.api})`;
+    const now = kept(source, id, e.version);
+    const p = pluginsState.installed.find((x) => x.id === id);
+    if (p) Object.assign(p, now);
+    else pluginsState.installed.push(now);
+    return e;
+  };
+
   const accepts = (w, i) =>
     w.accepted_clients.length
       ? w.accepted_clients.some((c) => c === i.client_id || (c === "dereth" && i.client_id.startsWith("dereth-")))
@@ -328,14 +413,35 @@
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
-      plugins: [],
+      plugins: pluginsView(),
     }),
     refresh: () => {},
-    install_plugin: () => { throw "The demo installs no plugins."; },
-    update_plugins: () => "No plugins are installed.",
-    accept_plugin: () => { throw "The demo has no plugins."; },
-    discard_plugin_release: () => { throw "The demo has no plugins."; },
-    remove_plugin: () => { throw "The demo has no plugins."; },
+    // As the backend: the updates the setting lets apply are applied, and the rest are told.
+    refresh_plugins: () => {
+      const lines = [];
+      for (const p of pluginsState.installed) {
+        const u = pending(p);
+        if (u?.automatic) lines.push(`Updated ${installFrom(p.source, p.id).name} to ${u.to}.`);
+      }
+      const waiting = pluginsState.installed.filter(pending).length;
+      if (waiting) lines.push(`${waiting} plugin update${waiting === 1 ? " is" : "s are"} waiting.`);
+      return lines.join("\n");
+    },
+    add_plugin_source: ({ url }) => {
+      url = url.trim();
+      if (!/^https:\/\/[^/\s]+/i.test(url)) throw `${url} is not an https:// address`;
+      if (sourceOf(url)) throw `${url} is already a source`;
+      pluginSources.push({ url, name: new URL(url).host, error: null, skipped: [], entries: [listed("org.example.hello", "Hello", "0.1.0", "Says hello in a small window and on /hello.")] });
+      return `Added ${new URL(url).host}: 1 plugin.`;
+    },
+    remove_plugin_source: ({ url }) => {
+      if (url === FIRST_PARTY) throw "Dereth's own source cannot be removed";
+      pluginSources.splice(pluginSources.findIndex((s) => s.url === url), 1);
+    },
+    install_plugin: ({ source, id }) => { const e = installFrom(source, id); return `Installed ${e.name} ${e.version}. Turn it on in the client.`; },
+    update_plugin: ({ id }) => { const p = pluginsState.installed.find((x) => x.id === id); const e = installFrom(p.source, id); return `Updated ${e.name} to ${e.version}.`; },
+    remove_plugin: ({ id }) => { pluginsState.installed = pluginsState.installed.filter((p) => p.id !== id); },
+    set_plugin_updates: ({ setting }) => { pluginsState.auto_update = setting; },
     world_view: ({ slug }) => {
       const w = allWorlds().find((x) => x.slug === slug);
       if (!w) throw "That world is no longer listed.";

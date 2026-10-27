@@ -1,0 +1,38 @@
+# Every push and pull request: each plugin in the repository checked as the Dereth clients check
+# it, by the author's tool of the Dereth release named below.
+name: Check
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The Dereth release whose author's tool this repository uses: its rules are that release's.
+  DERETH: '{{dereth}}'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The tool of the Dereth release named above, downloaded from that release and checked
+      # against its SHA256SUMS.
+      - name: Install the author's tool
+        run: |
+          cd "$RUNNER_TEMP"
+          file="dereth-plugin-$DERETH-linux-x86_64.tar.gz"
+          release="{{dereth_repo}}/releases/download/dereth-v$DERETH"
+          curl -fsSLO "$release/$file"
+          curl -fsSLO "$release/SHA256SUMS"
+          grep "  $file\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$file"
+          echo "$RUNNER_TEMP/dereth-plugin-$DERETH" >> "$GITHUB_PATH"
+      - name: Check
+        run: dereth-plugin check .

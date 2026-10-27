@@ -88,7 +88,7 @@ pub enum Role {
 pub fn role(kind: Kind, version: &str, name: &str) -> Result<Role, String> {
     match kind {
         Kind::Dereth => Ok(match launcher::classify(name, version)? {
-            launcher::Asset::Launcher(_) => Role::Release,
+            launcher::Asset::Launcher(_) | launcher::Asset::Tool(_) => Role::Release,
             launcher::Asset::ManifestPart | launcher::Asset::Piece(_) => Role::Staging,
             launcher::Asset::Index => Role::Index,
         }),
@@ -145,6 +145,9 @@ pub fn expected(kind: Kind, version: &str) -> Expected {
                 e.staging.push(format!("{file}.manifest"));
                 e.staging.push(launcher::piece_name(t));
                 e.release.push(file);
+                let tool = launcher::tool_file_name(t, version);
+                e.staging.push(format!("{tool}.manifest"));
+                e.release.push(tool);
             }
             e.index.extend(
                 ["SHA256SUMS", "MANIFEST.txt", "release.json", "latest.json"].map(String::from),
@@ -212,16 +215,28 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
         return Some(STAGING_LABEL.to_owned());
     }
     let label = match kind {
-        Kind::Dereth => match name.strip_prefix(&format!("dereth-{version}-")) {
-            Some("windows-x86_64.zip") => "Dereth · Windows x64 (zip, no installer)",
-            Some(_) => return None,
-            None => match name.strip_prefix(&format!("Dereth-{version}-"))? {
-                "macos-aarch64.app.tar.gz" => "Dereth · macOS Apple silicon",
-                "macos-x86_64.app.tar.gz" => "Dereth · macOS Intel",
-                "linux-x86_64.AppImage" => "Dereth · Linux x86-64 AppImage (glibc 2.35+)",
-                _ => return None,
-            },
-        },
+        Kind::Dereth => {
+            if let Some(platform) = name.strip_prefix(&format!("{}-{version}-", launcher::TOOL)) {
+                match platform {
+                    "windows-x86_64.zip" => "Plugin author's tool · Windows x64",
+                    "macos-aarch64.tar.gz" => "Plugin author's tool · macOS Apple silicon",
+                    "macos-x86_64.tar.gz" => "Plugin author's tool · macOS Intel",
+                    "linux-x86_64.tar.gz" => "Plugin author's tool · Linux x86-64 (glibc 2.35+)",
+                    _ => return None,
+                }
+            } else {
+                match name.strip_prefix(&format!("dereth-{version}-")) {
+                    Some("windows-x86_64.zip") => "Dereth · Windows x64 (zip, no installer)",
+                    Some(_) => return None,
+                    None => match name.strip_prefix(&format!("Dereth-{version}-"))? {
+                        "macos-aarch64.app.tar.gz" => "Dereth · macOS Apple silicon",
+                        "macos-x86_64.app.tar.gz" => "Dereth · macOS Intel",
+                        "linux-x86_64.AppImage" => "Dereth · Linux x86-64 AppImage (glibc 2.35+)",
+                        _ => return None,
+                    },
+                }
+            }
+        }
         Kind::Empyrean => match name.strip_prefix(&format!("empyrean-{version}-"))? {
             "x86_64-pc-windows-msvc.zip" => "Empyrean server · Windows x64",
             "x86_64-unknown-linux-gnu.tar.gz" => "Empyrean server · Linux x86-64 (glibc 2.28+)",
@@ -286,6 +301,8 @@ Dereth {VERSION}: the launcher, with the Dereth client inside it, for Windows (1
 | Linux | `Dereth-{VERSION}-linux-x86_64.AppImage` | mark it executable and run it |
 
 The launcher keeps itself and the client up to date from this repository's newest Dereth release.
+
+For plugin authors: `dereth-plugin-{VERSION}-<platform>` is the plugin author's tool of this release (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
 
 **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 

@@ -1,6 +1,6 @@
 # The sample plugins
 
-**Provenance: design.** A guide to the plugins that ship with Dereth, in `dereth/plugins/` of the
+**Provenance: design.** A guide to Dereth's own plugins, in `dereth/plugins/` of the
 repository. [running-the-samples.md](../running-the-samples.md) loads them all at once.
 
 Each page says what the plugin does, its window (which holds everything its commands change; the
@@ -28,4 +28,7 @@ feature by feature.
 Every sample is MIT-licensed, as its manifest says, and may be copied as the start of a plugin of
 your own; change its `id` first, since two plugins with one id cannot both load.
 
-Releases carry no samples while plugins are experimental; a client built from the repository finds them, each off until the player turns it on ([install-and-update](../install-and-update.md#the-plugins-that-come-with-the-client)).
+Players install the samples from Dereth's own plugin source, which the launcher starts with; no
+release carries them installed, and while plugins are experimental the source is not published. A
+client built from the repository finds them, each off until the player turns it on
+([install-and-update](../install-and-update.md#dereths-plugins)).

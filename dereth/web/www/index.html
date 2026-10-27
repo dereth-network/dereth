@@ -156,6 +156,25 @@
         <button type="button" id="remove-plugins" class="btn">Remove all plugins</button>
       </div>
       <p id="plugin-note" class="note bad"></p>
+      <label for="source-url">Plugin sources</label>
+      <div id="source-plugins" class="kept"></div>
+      <div class="filters" style="margin-top:8px">
+        <input id="source-url" type="text" spellcheck="false" autocomplete="off" placeholder="https://…/plugins.json">
+        <button type="button" id="add-source" class="btn">Add source</button>
+        <button type="button" id="refresh-sources" class="btn" title="Read every source again">Refresh</button>
+      </div>
+      <div id="source-warn" class="filters hidden" style="margin-top:6px">
+        <span class="sub">Dereth does not review plugins from other sources.</span>
+        <button type="button" id="source-confirm" class="btn">Add</button><button type="button" id="source-cancel" class="btn">Cancel</button>
+      </div>
+      <label for="plugin-updates">Automatically update plugins</label>
+      <select id="plugin-updates">
+        <option value="none">None</option>
+        <option value="all">All</option>
+        <option value="first_party" selected>Only Dereth</option>
+      </select>
+      <p class="note">Plugin updates that ask for additional permissions will never automatically install.</p>
+      <p id="source-note" class="note"></p>
       <input id="plugin-folder" type="file" webkitdirectory class="hidden">
       <input id="plugin-zip" type="file" accept=".zip,application/zip" multiple class="hidden">
     </section>

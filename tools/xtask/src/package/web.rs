@@ -26,9 +26,8 @@
 //! and the launcher's, which `cargo xtask release dereth` moves for all three), and its release tag
 //! is `dereth-web-v<version>` ([`TAG_PREFIX`]); `--tag` refuses a tag that names another version.
 //!
-//! **The plugins that come with Dereth** ([`super::plugins`]) are carried beside the page under
-//! `plugins/`, listed by `plugins/index.json`, which the page reads at start: the client lists them,
-//! each off until the player turns it on.
+//! **Plugins:** the bundle carries none. The page installs Dereth's from Dereth's plugin source,
+//! which is published on a host of its own ([`super::plugins`]).
 //!
 //! **The data guard.** Only the allowlist is staged, a file in `www/` that is on no list fails the
 //! package (so a new page file cannot be left out unseen, and nothing else can slip in), and the
@@ -205,76 +204,13 @@ pub fn entries(members: &[Member]) -> Vec<Entry> {
     out
 }
 
-/// The index of the carried plugins beside the page.
-pub const PLUGIN_INDEX: &str = "plugins/index.json";
-
-/// The carried plugins as members of the bundle: each file at its published path, and the index
-/// the page reads them by (`{ "files": [...] }`, each path below `plugins/`). None, index and all,
-/// while releases carry no plugins ([`super::plugins::SHIPPED`]).
-///
-/// # Errors
-/// As [`super::plugins::files`].
-pub fn plugin_members(ws: &Path) -> Result<Vec<Member>, String> {
-    members_of(super::plugins::files(ws)?)
-}
-
-/// `files` (published path and file) as members of the bundle, with their index; none when there
-/// are none.
-fn members_of(files: Vec<(String, std::path::PathBuf)>) -> Result<Vec<Member>, String> {
-    if files.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut members = Vec::new();
-    let mut listed = Vec::new();
-    for (name, from) in files {
-        listed.push(
-            name.strip_prefix(&format!("{}/", super::plugins::PUBLISHED))
-                .unwrap_or(&name)
-                .to_owned(),
-        );
-        members.push(Member {
-            name,
-            bytes: read(&from)?,
-            executable: false,
-        });
-    }
-    let mut index = serde_json::to_string_pretty(&serde_json::json!({ "files": listed }))
-        .map_err(|e| e.to_string())?;
-    index.push('\n');
-    members.push(Member {
-        name: PLUGIN_INDEX.to_owned(),
-        bytes: index.into_bytes(),
-        executable: false,
-    });
-    Ok(members)
-}
-
-/// The published names the carried plugins add to the bundle: their files and the index; none
-/// while releases carry no plugins.
-///
-/// # Errors
-/// As [`super::plugins::paths`].
-pub fn plugin_names(ws: &Path) -> Result<Vec<String>, String> {
-    Ok(names_of(super::plugins::paths(ws)?))
-}
-
-/// `paths`, the carried plugins' published paths, with their index; none when there are none.
-fn names_of(mut paths: Vec<String>) -> Vec<String> {
-    if !paths.is_empty() {
-        paths.push(PLUGIN_INDEX.to_owned());
-    }
-    paths
-}
-
-/// Every finding of the deny scan over `entries`, which carry the page's files, the notices and
-/// `plugins` (the carried plugins' published names, [`plugin_names`]).
+/// Every finding of the deny scan over `entries`, which carry the page's files and the notices.
 #[must_use]
-pub fn scan(entries: &[Entry], plugins: &[String]) -> Vec<String> {
+pub fn scan(entries: &[Entry]) -> Vec<String> {
     let required: Vec<String> = FILES
         .iter()
         .chain(NOTICES)
         .map(|f| (*f).to_owned())
-        .chain(plugins.iter().cloned())
         .collect();
     guard::scan_tree(entries, &required, &[], FILE_CAP, TOTAL_CAP)
 }
@@ -517,9 +453,9 @@ pub fn package(args: &[String]) -> i32 {
 }
 
 /// The deny scan of a written bundle: every file in it, as [`scan`] reads them.
-pub(crate) fn check_bundle(ws: &Path, path: &Path, version: &str) -> Result<(), String> {
+pub(crate) fn check_bundle(path: &Path, version: &str) -> Result<(), String> {
     let written = archive::archive_entries(path, &archive_root(version))?;
-    let findings = scan(&written, &plugin_names(ws)?);
+    let findings = scan(&written);
     if findings.is_empty() {
         Ok(())
     } else {
@@ -624,8 +560,7 @@ fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
     let www = ws.join(WWW);
     let mut members = stage(&listing(&www)?).map_err(|f| f.join("\n"))?;
     members.extend(notices(ws, &version, &facts)?);
-    members.extend(plugin_members(ws)?);
-    let mut findings = scan(&entries(&members), &plugin_names(ws)?);
+    let mut findings = scan(&entries(&members));
     let folders = guard::local_folders(ws);
     for m in &members {
         for folder in guard::local_paths_in(&m.bytes, &folders) {
@@ -654,7 +589,7 @@ fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
     let zip = archive::zip_bytes(&archive_root(&version), &members, facts.epoch)?;
     write(&out.join(&name), &zip)?;
     // The archive as written, scanned again.
-    check_bundle(ws, &out.join(&name), &version)?;
+    check_bundle(&out.join(&name), &version)?;
     let mut json =
         serde_json::to_string_pretty(&manifest(&version, &facts, (&name, &zip), &members))
             .map_err(|e| e.to_string())?;
@@ -719,12 +654,12 @@ mod tests {
             members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
             FILES
         );
-        let missing = scan(&entries(&members), &[]);
+        let missing = scan(&entries(&members));
         assert!(
             missing.iter().any(|f| f.contains("NOTICE.txt")),
             "{missing:?}"
         );
-        assert!(scan(&entries(&bundle(&listing)), &[]).is_empty());
+        assert!(scan(&entries(&bundle(&listing))).is_empty());
 
         let mut stray = www();
         stray.push(("notes.txt".into(), b"x".to_vec()));
@@ -746,7 +681,7 @@ mod tests {
         let mut dat = vec![0u8; 0x400];
         dat[0x140..0x144].copy_from_slice(&0x5442u32.to_le_bytes());
         members[1].bytes = dat;
-        let found = scan(&entries(&members), &[]);
+        let found = scan(&entries(&members));
         assert!(
             found.iter().any(|f| f.contains("data-file header")),
             "{found:?}"
@@ -758,12 +693,10 @@ mod tests {
             size: 1,
             head: vec![0],
         });
-        assert!(scan(&named, &[])
-            .iter()
-            .any(|f| f.contains("client_portal.dat")));
+        assert!(scan(&named).iter().any(|f| f.contains("client_portal.dat")));
         let mut big = stage(&www()).expect("stages");
         big[0].bytes = vec![0; usize::try_from(FILE_CAP).unwrap() + 1];
-        assert!(scan(&entries(&big), &[]).iter().any(|f| f.contains("cap")));
+        assert!(scan(&entries(&big)).iter().any(|f| f.contains("cap")));
     }
 
     /// The manifest names the version, the archive and every file with its size and hash, and
@@ -846,7 +779,7 @@ mod tests {
                 .expect("the module");
             wasm.bytes = b"\0asm".to_vec();
             wasm.bytes.resize(size, 0);
-            scan(&entries(&members), &[])
+            scan(&entries(&members))
         };
         assert_eq!(FILE_CAP, 25 * 1024 * 1024);
         assert!(module(25 << 20).is_empty(), "{:?}", module(25 << 20));
@@ -1030,84 +963,35 @@ mod tests {
 
     #[test]
     fn the_archive_holds_the_files_under_one_folder_and_scans_clean() {
-        let ws = workspace_root();
-        let mut members = bundle(&www());
-        members.extend(plugin_members(&ws).expect("the carried plugins"));
-        let names = plugin_names(&ws).expect("their names");
+        let members = bundle(&www());
         let zip = archive::zip_bytes(&archive_root("0.2.0"), &members, 1_759_000_000).unwrap();
         let read =
             archive::relative_to_root(archive::zip_entries(&zip).unwrap(), &archive_root("0.2.0"));
-        assert!(scan(&read, &names).is_empty(), "{:?}", scan(&read, &names));
+        assert!(scan(&read).is_empty(), "{:?}", scan(&read));
         assert!(read.iter().any(|e| e.path == "pkg/dereth_web_bg.wasm"));
     }
 
-    /// While plugins are experimental the bundle carries none of them, and no index of them: the
-    /// page finds no plugins beside it.
+    /// The bundle carries no plugins: a plugin source's list or zip in it is refused, since Dereth's
+    /// source is published on a host of its own.
     #[test]
-    fn the_bundle_carries_no_plugins_while_they_are_experimental() {
-        let ws = workspace_root();
-        let members = plugin_members(&ws).expect("the carried plugins");
-        let names = plugin_names(&ws).expect("their names");
-        if super::super::plugins::SHIPPED {
-            assert!(members.iter().any(|m| m.name == PLUGIN_INDEX));
-        } else {
+    fn the_bundle_carries_no_plugins() {
+        for stray in [
+            "plugins/plugins.json",
+            "plugins/network.dereth.tank/network.dereth.tank-0.3.0.zip",
+        ] {
+            let mut members = bundle(&www());
+            members.push(Member {
+                name: stray.into(),
+                bytes: b"{}".to_vec(),
+                executable: false,
+            });
             assert!(
-                members.is_empty(),
-                "{:?}",
-                members.iter().map(|m| &m.name).collect::<Vec<_>>()
-            );
-            assert!(names.is_empty(), "{names:?}");
-        }
-    }
-
-    /// The plugins a bundle that carries them would carry go beside the page under `plugins/`,
-    /// with the index the page reads them by; a carried file missing from the bundle, or one the
-    /// tree does not carry, refuses it.
-    #[test]
-    fn the_carried_plugins_are_beside_the_page_with_their_index_and_nothing_else_of_theirs() {
-        let ws = workspace_root();
-        let carried = super::super::plugins::carried(&ws).expect("the carried plugins");
-        let paths: Vec<String> = carried.iter().map(|(p, _)| p.clone()).collect();
-        let plugins = members_of(carried).expect("the carried plugins");
-        let index = plugins
-            .iter()
-            .find(|m| m.name == PLUGIN_INDEX)
-            .expect("the index");
-        let listed: serde_json::Value = serde_json::from_slice(&index.bytes).expect("json");
-        let files: Vec<&str> = listed["files"]
-            .as_array()
-            .expect("files")
-            .iter()
-            .filter_map(serde_json::Value::as_str)
-            .collect();
-        assert!(files.contains(&"tank/plugin.toml") && files.contains(&"trackers/main.lua"));
-        assert!(files.iter().all(|f| super::super::plugins::BUNDLED
-            .iter()
-            .any(|b| f.starts_with(&format!("{b}/")))));
-        for f in &files {
-            assert!(
-                plugins.iter().any(|m| m.name == format!("plugins/{f}")),
-                "{f} is listed and carried"
+                scan(&entries(&members))
+                    .iter()
+                    .any(|f| f.contains(stray) && f.contains("not on the allowlist")),
+                "{stray}"
             );
         }
-        let names = names_of(paths);
-        let mut members = bundle(&www());
-        members.extend(plugins.clone());
-        assert!(scan(&entries(&members), &names).is_empty());
-        let mut short = members.clone();
-        short.retain(|m| m.name != "plugins/tank/plugin.toml");
-        assert!(scan(&entries(&short), &names)
-            .iter()
-            .any(|f| f.contains("plugins/tank/plugin.toml") && f.contains("missing")));
-        let mut stray = members;
-        stray.push(Member {
-            name: "plugins/tank/routes/extra.nav".into(),
-            bytes: b"uTank2 NAV 1.2".to_vec(),
-            executable: false,
-        });
-        assert!(scan(&entries(&stray), &names)
-            .iter()
-            .any(|f| f.contains("extra.nav") && f.contains("not on the allowlist")));
     }
 
     #[test]

@@ -1,7 +1,9 @@
 [package]
 name = "dereth-plugin"
-description = "The plugin author's tool: packs a plugin folder into a zip, prints a zip's SHA-256, and builds a Rust plugin as a component."
-version.workspace = true
+description = "The plugin author's tool: makes a new plugin repository, checks a plugin as the hosts check it, packs it into a zip, releases it and lists it in a plugin source's plugins.json."
+# Dereth's version: the tool's rules are those of the client released with it, and the template it
+# writes installs the tool of that release. `cargo xtask release dereth` moves it.
+version = "0.4.7"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,13 +14,19 @@ name = "dereth-plugin"
 path = "src/main.rs"
 
 [dependencies]
-# The package: reading a folder's or a zip's files exactly as the hosts read them, and a compiled
-# plugin's source hash.
+# The package: reading a folder's or a zip's files exactly as the hosts read them, a compiled
+# plugin's source hash, and a plugin source's list.
 dereth-plugin-package.workspace = true
+# The API version this release's clients run, plugins' ids and versions, and the hosts' limits.
+dereth-plugin-api.workspace = true
+# A plugin's scripts compiled as the hosts compile them.
+dereth-plugin-lua.workspace = true
+# A compiled plugin's module checked as the hosts check it; the hosts' runtime is not needed.
+dereth-plugin-wasm = { workspace = true, default-features = false }
 # A Rust plugin's core module made a component, and its crate's name read from its manifest.
 wit-component = "0.245"
 toml.workspace = true
-# The zip file's own SHA-256, for an index or a release page.
+# The zip file's own SHA-256, for a release and a source's list.
 sha2.workspace = true
 
 [lints]

@@ -55,18 +55,20 @@ version is `MAJOR.MINOR.PATCH`, optionally with a pre-release suffix such as `-r
 fails otherwise, and when the tagged commit is not on `main`. A pre-release is published as a
 GitHub pre-release, and launchers do not update to it.
 
-Both programs answer `--version`: `dereth <version>` (or `dereth-client <version>`), the commit
-and the target they were built from.
+The programs answer `--version`: `dereth <version>` (or `dereth-client <version>`, or
+`dereth-plugin <version>`), the commit and the target they were built from.
 
 ## What a release holds
 
 | system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html` and `plugins/` (the plugins that come with the client, off until turned on). No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources`, with the plugins that come with the client in `Contents/Resources/plugins` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
-| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client and the plugins that come with it inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
+| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
+| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
+| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
+| each of the four, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release; plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · macOS Intel, · Linux x86-64 (glibc 2.35+) |
 
-Every download holds the client, so the client is not published on its own. Beside them:
+Every launcher download holds the client, so the client is not published on its own. A release
+carries no plugins: players install Dereth's from its plugin source. Beside them:
 
 - `latest.json` (Updater manifest): what launchers read, one entry per platform
   (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`), each the download
@@ -221,7 +223,8 @@ tier-2 modules the release touches on a hardware GPU.
    both Apple silicon and Intel): installs the build dependencies, cargo-about and the Tauri CLI
    (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
    `cargo xtask package dereth --target <target>` with the signing secrets, and smoke-runs the
-   packaged programs' `--version` (the AppImage unpacked; the macOS bundle's signature verified;
+   packaged programs' `--version`, the plugin author's tool's too (the AppImage unpacked; the
+   macOS bundle's signature verified;
    Intel macOS under Rosetta when the runner has it). The launcher has no headless mode, so its
    window is not opened there. A tag's run fails if the launcher file is not signed.
 3. **gather the release:** downloads every runner's files, runs `cargo xtask package dereth --gather`
@@ -244,9 +247,9 @@ reaches GitHub with the mirror's next sync; push the mirror at once if it does n
 
 Then, on the draft release:
 
-1. Check the workflow run is green, and the draft has four release files (the launcher for each
-   of the four targets), `latest.json`, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
-   labelled.
+1. Check the workflow run is green, and the draft has eight release files (the launcher and the
+   plugin author's tool for each of the four targets), `latest.json`, `SHA256SUMS`, `MANIFEST.txt`
+   and `release.json`, each labelled.
 2. Download the launcher for each system you can, run it, and play with it against a world.
 3. Read the notes (Highlights, then All changes) and edit them if a line needs it; a highlight
    that was missing belongs in `CHANGES.md` too, under the release's section.

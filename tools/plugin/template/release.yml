@@ -1,0 +1,79 @@
+# A pushed release tag (`v<version>`, or `<id>-v<version>` in a repository of several plugins):
+# the plugin is packed, released on GitHub with its zip, and listed in this repository's
+# plugins.json, which the gh-pages branch publishes on GitHub Pages for launchers to read.
+name: Release
+
+on:
+  push:
+    tags: ['v*', '*-v*']
+
+permissions:
+  contents: write
+
+# One release at a time: each one adds to the same plugins.json.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # The Dereth release whose author's tool this repository uses: its rules are that release's.
+  DERETH: '{{dereth}}'
+  # The source's name, as launchers show it.
+  SOURCE_NAME: '{{source_name}}'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The tool of the Dereth release named above, downloaded from that release and checked
+      # against its SHA256SUMS.
+      - name: Install the author's tool
+        run: |
+          cd "$RUNNER_TEMP"
+          file="dereth-plugin-$DERETH-linux-x86_64.tar.gz"
+          release="{{dereth_repo}}/releases/download/dereth-v$DERETH"
+          curl -fsSLO "$release/$file"
+          curl -fsSLO "$release/SHA256SUMS"
+          grep "  $file\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$file"
+          echo "$RUNNER_TEMP/dereth-plugin-$DERETH" >> "$GITHUB_PATH"
+      - name: Pack the plugin the tag names
+        run: |
+          read -r folder id version name < <(dereth-plugin find . "$GITHUB_REF_NAME")
+          dereth-plugin check "$folder"
+          mkdir -p dist
+          zip="$id-$version.zip"
+          dereth-plugin pack "$folder" "dist/$zip"
+          dereth-plugin notes "$folder" "$version" > dist/notes.md
+          {
+            echo "PLUGIN_ID=$id"
+            echo "PLUGIN_VERSION=$version"
+            echo "PLUGIN_NAME=$name"
+            echo "PLUGIN_ZIP=$zip"
+          } >> "$GITHUB_ENV"
+      - name: Release it on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "dist/$PLUGIN_ZIP" "dist/$PLUGIN_ZIP.sha256" \
+            --verify-tag --title "$PLUGIN_NAME $PLUGIN_VERSION" --notes-file dist/notes.md
+      - name: List it in plugins.json on the gh-pages branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then
+            git fetch --quiet origin gh-pages:gh-pages
+            git worktree add site gh-pages
+          else
+            git worktree add --orphan -b gh-pages site
+          fi
+          rm -rf "site/$PLUGIN_ID"
+          mkdir -p "site/$PLUGIN_ID"
+          cp "dist/$PLUGIN_ZIP" "site/$PLUGIN_ID/"
+          touch site/.nojekyll
+          dereth-plugin add site/plugins.json "dist/$PLUGIN_ZIP" "$PLUGIN_ID/$PLUGIN_ZIP" \
+            --notes dist/notes.md --name "$SOURCE_NAME"
+          git -C site add --all
+          git -C site commit --quiet -m "$PLUGIN_ID $PLUGIN_VERSION"
+          git -C site push --quiet origin gh-pages

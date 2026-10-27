@@ -1,6 +1,6 @@
 # Running the game with the samples
 
-**Provenance: design.** How to load the plugins that ship with Dereth and what each shows; the
+**Provenance: design.** How to load Dereth's own plugins and what each shows; the
 transcript below is the headless client's own output over a recorded session.
 
 The eleven samples are in `dereth/plugins/` of the repository, one folder per plugin. Every host
@@ -18,9 +18,11 @@ cargo run -p dereth-client -- --plugins dereth/plugins
 ```
 
 with the switches you normally start it with: a `--plugins` folder loads whatever the setting
-says. **With the launcher**, copy the sample folders you want into the client's plugins folder
-(`%APPDATA%\Dereth\client\plugins` on Windows; the other systems are in
-[install-and-update.md](install-and-update.md#the-desktop-client-its-plugins-folder)), play a
+says. **With the launcher**, install the ones you want from Dereth's own source on its Plugins
+page ([install-and-update.md](install-and-update.md#the-launcher-plugin-sources)), or copy the
+sample folders into the client's plugins folder (`%APPDATA%\Dereth\client\plugins` on Windows;
+the other systems are in
+[install-and-update.md](install-and-update.md#the-desktop-client-its-plugins-folder)); play a
 Dereth world as usual, and turn on the ones you want.
 
 A sample turned on loads at once; nothing is asked. Its windows start closed: open each from the

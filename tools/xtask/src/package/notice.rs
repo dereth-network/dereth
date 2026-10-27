@@ -275,11 +275,65 @@ DERETH
         mit = indent(f.mit_licence.trim_end()),
     );
     out.push_str(&font_sections(f.fonts));
-    out.push_str(PLUGINS_SECTION);
     if let Some(licence) = f.moltenvk_licence {
         out.push_str(&moltenvk_section("client", licence));
     }
     out.push_str(&built_from_section(&own, &third));
+    out
+}
+
+/// Everything the plugin author's tool's `NOTICE.txt` states.
+#[derive(Debug, Clone)]
+pub struct ToolFacts<'a> {
+    pub version: &'a str,
+    pub target: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    pub crates: &'a [Crate],
+    /// The project's MIT license (the repository's top-level `LICENSE`).
+    pub mit_license: &'a str,
+}
+
+/// The plugin author's tool's `NOTICE.txt`.
+pub fn tool_notice(f: &ToolFacts) -> String {
+    let tag = super::version::Product::Dereth.tag_for(f.version);
+    let url = f.source_url.trim_end_matches('/');
+    let title = format!("dereth-plugin {} ({})", f.version, f.target);
+    let (own, third): (Vec<&Crate>, Vec<&Crate>) = f.crates.iter().partition(|c| is_own(c));
+    let line = |c: &&Crate| format!("  {} {} ({})", c.name, c.version, c.licence);
+    let mut out = format!(
+        "{title}
+{rule}
+
+This package is dereth-plugin, the plugin author's tool of Dereth {version}: it makes a plugin
+repository, checks a plugin as Dereth's clients check it, packs it, releases it and lists it in a
+plugin source. It is made by the Dereth project (https://dereth.network) and is free software
+under the MIT license, which is in LICENSE beside this file and below.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The source of exactly that commit:
+  {url}/tree/{commit}
+The release this package belongs to:
+  {url}/releases/tag/{tag}
+
+
+DERETH-PLUGIN
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        version = f.version,
+        commit = f.commit,
+        mit = indent(f.mit_license.trim_end()),
+    );
+    out.push_str(&built_from_section(
+        &own.iter().map(line).collect::<Vec<_>>(),
+        &third.iter().map(line).collect::<Vec<_>>(),
+    ));
     out
 }
 
@@ -424,16 +478,6 @@ LYCEUM
     out
 }
 
-/// What every notice says of the plugins that come with Dereth.
-pub const PLUGINS_SECTION: &str = "
-
-THE PLUGINS
-
-The plugins folder holds the sample plugins that come with Dereth, part of Dereth under its MIT
-licence. Each is off until you turn it on in the client's plugin panel (/plugin). Some of the
-Tank's routes and loot profiles are other people's, shared under the BSD 2-Clause and MIT
-licences: plugins/tank/THIRD-PARTY.md names each one and carries its licence.";
-
 /// Everything the web client's `NOTICE.txt` states.
 #[derive(Debug, Clone)]
 pub struct WebFacts<'a> {
@@ -499,7 +543,6 @@ THE {upper} TYPEFACE
             text = indent(text.trim_end()),
         ));
     }
-    out.push_str(PLUGINS_SECTION);
     out.push_str(&format!(
         "
 

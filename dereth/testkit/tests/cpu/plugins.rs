@@ -50,6 +50,9 @@ pub(crate) mod tank_windows;
 /// Scripts written for UtilityBelt's scripting, through the host's library of its script API.
 pub(crate) mod ubscript;
 
+/// The author's tool's plugin template: its plugin runs.
+pub(crate) mod template;
+
 dereth_testkit::scenarios! {
     scenario_a_click_loots_a_corpse_one_awaited_request_at_a_time => a_click_loots_a_corpse_one_awaited_request_at_a_time ["plugins.actions.a-click-loots-a-corpse-one-awaited-request-at-a-time"],
     scenario_a_trade_and_a_salvage_end_at_the_servers_word => a_trade_and_a_salvage_end_at_the_servers_word ["plugins.actions.a-trade-and-a-salvage-end-at-the-servers-word"],

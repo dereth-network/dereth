@@ -1,6 +1,6 @@
 [package]
 name = "dereth-plugin-package"
-description = "Plugin packages as files: read from a folder's bytes or a zip, and their manifest, with no game, no engine and no I/O in it; and a compiled plugin's source hash."
+description = "Plugin packages as files: read from a folder's bytes or a zip, and their manifest, with no game, no engine and no I/O in it; a compiled plugin's source hash; and the list a plugin source publishes."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

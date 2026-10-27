@@ -13,6 +13,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::dats::{self, BrowserFile};
 use crate::front::Front;
+use crate::plugin_sources::PageShelf;
 
 #[wasm_bindgen]
 extern "C" {
@@ -41,11 +42,6 @@ extern "C" {
     /// The plugins the player added to the page, as one bundle (`crate::plugins::packages`).
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethPluginsLoad)]
     fn plugins_load() -> Vec<u8>;
-
-    /// The plugins that come with the client, served beside the page, as one bundle of the same
-    /// form.
-    #[wasm_bindgen(js_namespace = globalThis, js_name = derethBundledPluginsLoad)]
-    fn bundled_plugins_load() -> Vec<u8>;
 
     /// Post a plugin message to this page's other clients (the browser's broadcast channel).
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethPeersSend)]
@@ -205,6 +201,8 @@ impl Drop for ConsoleLine {
 thread_local! {
     static STORE: RefCell<Option<Arc<RetailDatStore>>> = const { RefCell::new(None) };
     static FRONT: RefCell<Front> = RefCell::new(Front::default());
+    /// The front page's plugin sources and the plugins installed from them.
+    static SHELF: RefCell<PageShelf> = RefCell::new(PageShelf::default());
     /// The Horizon interface's files the worker has handed over so far.
     static HORIZON_FILES: RefCell<dereth_horizon::pieces::Pieces> =
         RefCell::new(dereth_horizon::pieces::Pieces::new());
@@ -551,8 +549,6 @@ impl WebPlay {
         .map_err(|e| JsError::new(&e))?;
         let plugins = crate::plugins::packages(&plugins_load());
         tracing::info!("{} plugin(s) added to this page", plugins.len());
-        let bundled = crate::plugins::packages(&bundled_plugins_load());
-        tracing::info!("{} plugin(s) come with the client", bundled.len());
         let policy = plugin_policy();
         play.install_plugins(
             plugins,
@@ -560,7 +556,6 @@ impl WebPlay {
                 peers: Some(Box::new(PagePeers)),
                 net: Some(Box::new(PageNet)),
                 policy: (!policy.is_empty()).then_some(policy),
-                bundled,
             },
         );
         let backend = play.app().renderer().adapter_name();
@@ -797,6 +792,163 @@ pub fn front_list_done(now: f64) -> Result<String, JsError> {
     FRONT
         .with(|f| f.borrow_mut().list_done(whole(now)))
         .map_err(js_err)
+}
+
+// ---- the front page's plugin sources -------------------------------------------------------
+
+/// A download for the page to make, as JSON: `{ url, limit }`.
+fn download_json(d: &dereth_launch::plugins::Download) -> String {
+    serde_json::json!({ "url": d.url, "limit": d.limit }).to_string()
+}
+
+/// Where the page keeps its plugin sources and the record of what it installed, in the origin's
+/// private storage, in that order: the worker reads them for [`front_plugins_open`].
+#[wasm_bindgen(js_name = frontPluginRecords)]
+#[must_use]
+pub fn front_plugin_records() -> Vec<String> {
+    vec![
+        crate::plugin_sources::SOURCES_PATH.to_owned(),
+        crate::plugin_sources::INSTALLED_PATH.to_owned(),
+    ]
+}
+
+/// Take the plugin sources and the installed record as the page kept them (`undefined` for one it
+/// does not have).
+#[wasm_bindgen(js_name = frontPluginsOpen)]
+pub fn front_plugins_open(sources: Option<Vec<u8>>, installed: Option<Vec<u8>>) {
+    SHELF.with(|s| *s.borrow_mut() = PageShelf::open(sources, installed));
+}
+
+/// What the page is to write now, in order: each `[path, bytes]`, with `null` bytes for a file to
+/// delete.
+#[wasm_bindgen(js_name = frontPluginWrites)]
+#[must_use]
+pub fn front_plugin_writes() -> js_sys::Array {
+    let out = js_sys::Array::new();
+    for (path, bytes) in SHELF.with(|s| s.borrow_mut().take_writes()) {
+        let pair = js_sys::Array::new();
+        pair.push(&JsValue::from_str(&path));
+        pair.push(&bytes.map_or(JsValue::NULL, |b| {
+            js_sys::Uint8Array::from(b.as_slice()).into()
+        }));
+        out.push(&pair);
+    }
+    out
+}
+
+/// The plugin sources and the plugins, as the page shows them, as JSON.
+#[wasm_bindgen(js_name = frontPlugins)]
+#[must_use]
+pub fn front_plugins() -> String {
+    SHELF.with(|s| s.borrow().view().to_string())
+}
+
+/// Add the plugin source at `url`; the page has the player confirm it first. Answers the download of its list, which the page makes next, as JSON (`{ url, limit }`).
+///
+/// # Errors
+/// The address was refused, in words for the page.
+#[wasm_bindgen(js_name = frontPluginAddSource)]
+pub fn front_plugin_add_source(url: &str) -> Result<String, JsError> {
+    SHELF
+        .with(|s| s.borrow_mut().add_source(url))
+        .map(|d| download_json(&d))
+        .map_err(js_err)
+}
+
+/// What fetching the list of the source just added brought: its `body`, the `error` its host
+/// answered with, or neither when the page could not reach it. Answers what to tell the player.
+#[wasm_bindgen(js_name = frontPluginSourceRead)]
+#[must_use]
+pub fn front_plugin_source_read(url: &str, body: Option<Vec<u8>>, error: Option<String>) -> String {
+    SHELF.with(|s| s.borrow_mut().source_read(url, body, error, now_secs()))
+}
+
+/// Remove the plugin source at `url`; what was installed from it stays, with no updates.
+///
+/// # Errors
+/// Dereth's own source, or not a source.
+#[wasm_bindgen(js_name = frontPluginRemoveSource)]
+pub fn front_plugin_remove_source(url: &str) -> Result<(), JsError> {
+    SHELF
+        .with(|s| s.borrow_mut().remove_source(url))
+        .map_err(js_err)
+}
+
+/// The download to make to install plugin `id` from `source`, or with no source to update it from
+/// its own, as JSON (`{ url, limit }`).
+///
+/// # Errors
+/// It cannot be installed or updated here, in words for the page.
+#[wasm_bindgen(js_name = frontPluginPlan)]
+pub fn front_plugin_plan(source: Option<String>, id: &str) -> Result<String, JsError> {
+    SHELF
+        .with(|s| s.borrow().plan(source.as_deref(), id))
+        .map(|d| download_json(&d))
+        .map_err(js_err)
+}
+
+/// What fetching the download [`front_plugin_plan`] named brought, as for a source's list: the
+/// plugin installed or updated with it. Answers what to tell the player.
+///
+/// # Errors
+/// Nothing came, or the release was refused, in words for the page.
+#[wasm_bindgen(js_name = frontPluginTake)]
+pub fn front_plugin_take(
+    source: Option<String>,
+    id: &str,
+    body: Option<Vec<u8>>,
+    error: Option<String>,
+) -> Result<String, JsError> {
+    SHELF
+        .with(|s| s.borrow_mut().take(source.as_deref(), id, body, error))
+        .map_err(js_err)
+}
+
+/// Remove the installed plugin `id`.
+///
+/// # Errors
+/// Not installed.
+#[wasm_bindgen(js_name = frontPluginRemove)]
+pub fn front_plugin_remove(id: &str) -> Result<(), JsError> {
+    SHELF.with(|s| s.borrow_mut().remove(id)).map_err(js_err)
+}
+
+/// When plugin updates apply without the player: `off`, `notify`, `first_party` or `all`.
+///
+/// # Errors
+/// Not one of those.
+#[wasm_bindgen(js_name = frontPluginUpdates)]
+pub fn front_plugin_updates(setting: &str) -> Result<(), JsError> {
+    SHELF
+        .with(|s| s.borrow_mut().set_updates(setting))
+        .map_err(js_err)
+}
+
+/// Start reading every plugin source and applying the updates that apply on their own: the first
+/// download to make, as JSON (`{ url, limit }`), or nothing.
+#[wasm_bindgen(js_name = frontPluginRefreshStart)]
+#[must_use]
+pub fn front_plugin_refresh_start() -> Option<String> {
+    SHELF.with(|s| s.borrow_mut().refresh_start().map(|d| download_json(&d)))
+}
+
+/// What the refresh's last download brought, as for a source's list: the next download, or
+/// nothing once the refresh is over.
+#[wasm_bindgen(js_name = frontPluginRefreshNext)]
+#[must_use]
+pub fn front_plugin_refresh_next(body: Option<Vec<u8>>, error: Option<String>) -> Option<String> {
+    SHELF.with(|s| {
+        s.borrow_mut()
+            .refresh_next(body, error, now_secs())
+            .map(|d| download_json(&d))
+    })
+}
+
+/// What the refresh came to, a line each (empty when nothing is new), as JSON: `{ said }`.
+#[wasm_bindgen(js_name = frontPluginRefreshDone)]
+#[must_use]
+pub fn front_plugin_refresh_done() -> String {
+    SHELF.with(|s| serde_json::json!({ "said": s.borrow_mut().refresh_done() }).to_string())
 }
 
 /// Take the day's copy of the world list, as the page kept it, for the list read from the sources

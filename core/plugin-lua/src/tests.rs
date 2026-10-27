@@ -575,3 +575,13 @@ fn a_value_that_shares_its_parts_is_counted_for_each_and_one_too_large_is_refuse
         host.console[3].len()
     );
 }
+
+#[test]
+fn a_script_is_compiled_without_running_and_a_syntax_error_names_its_line() {
+    assert_eq!(
+        super::compile_check("main", b"error('runs only when loaded')"),
+        Ok(())
+    );
+    let e = super::compile_check("lib/util", b"local x = 1\nif x then\n").unwrap_err();
+    assert!(e.contains("lib/util:3"), "{e}");
+}

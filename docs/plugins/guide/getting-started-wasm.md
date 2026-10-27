@@ -173,8 +173,10 @@ It compiles the crate for `wasm32-unknown-unknown` in release (into `target/plug
 the current folder, or under `CARGO_TARGET_DIR`), makes the module a component, writes the hash of
 the crate's sources into it (the custom section `dereth-source-sha256`) and saves it as
 `plugin.wasm`. The package holds no sources: only the manifest and the component (and any data
-files). From there it is a package like any other: load it with `--plugins`, and `pack` it as
-[install-and-update.md](install-and-update.md) describes.
+files). From there it is a package like any other: load it with `--plugins`, check it with
+`dereth-plugin check path/to/hello-package` (which checks the component as the host does, below),
+and publish it as [publishing.md](publishing.md) describes, building the component before the
+release is packed.
 
 ## 6. What the host checks
 

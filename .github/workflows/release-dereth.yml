@@ -1,7 +1,7 @@
 name: Release Dereth
 
-# Builds, checks and drafts a Dereth release: the launcher, with the client inside it, for
-# Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
+# Builds, checks and drafts a Dereth release: the launcher, with the client inside it, and the
+# plugin author's tool, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
 # target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. The
 # launcher updates itself from the latest.json of the repository's newest published
 # `dereth-v<version>` release (a pre-release excepted), which it finds by listing the releases.
@@ -175,19 +175,25 @@ jobs:
           case "$TARGET" in
             *windows*)
               (cd smoke && 7z x "../dist/dereth-$VERSION-windows-x86_64.zip" > /dev/null)
+              (cd smoke && 7z x "../dist/dereth-plugin-$VERSION-windows-x86_64.zip" > /dev/null)
               launcher="smoke/dereth-$VERSION/dereth.exe"
-              client="smoke/dereth-$VERSION/dereth-client.exe" ;;
+              client="smoke/dereth-$VERSION/dereth-client.exe"
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe" ;;
             *linux*)
               appimage="$PWD/dist/Dereth-$VERSION-linux-x86_64.AppImage"
               (cd smoke && "$appimage" --appimage-extract > /dev/null)
               launcher="smoke/squashfs-root/usr/bin/dereth"
-              client="smoke/squashfs-root/usr/bin/dereth-client" ;;
+              client="smoke/squashfs-root/usr/bin/dereth-client"
+              tar -xzf "dist/dereth-plugin-$VERSION-linux-x86_64.tar.gz" -C smoke
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
             *apple*)
               arch=${TARGET%%-*}
               tar -xzf "dist/Dereth-$VERSION-macos-$arch.app.tar.gz" -C smoke
               codesign --verify --deep --strict smoke/Dereth.app
               launcher="smoke/Dereth.app/Contents/MacOS/dereth"
-              client="smoke/Dereth.app/Contents/MacOS/dereth-client" ;;
+              client="smoke/Dereth.app/Contents/MacOS/dereth-client"
+              tar -xzf "dist/dereth-plugin-$VERSION-macos-$arch.tar.gz" -C smoke
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
           esac
           run "$launcher" --version | tee version-launcher.txt
           grep -qx "dereth $VERSION" version-launcher.txt
@@ -195,6 +201,9 @@ jobs:
           run "$client" --version | tee version-client.txt
           grep -qx "dereth-client $VERSION" version-client.txt
           grep -qx "target: $TARGET" version-client.txt
+          run "$tool" --version | tee version-tool.txt
+          grep -qx "dereth-plugin $VERSION" version-tool.txt
+          grep -qx "target: $TARGET" version-tool.txt
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
@@ -289,6 +298,8 @@ jobs:
 
           The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
+          For plugin authors: \`dereth-plugin-$VERSION-<platform>\` is the plugin author's tool of this release (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
+
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
           These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
@@ -306,6 +317,13 @@ jobs:
               MANIFEST.txt) label="Release manifest" ;;
               release.json) label="Release facts (JSON)" ;;
               latest.json) label="Updater manifest" ;;
+              "dereth-plugin-$VERSION-"*)
+                case "${f#"dereth-plugin-$VERSION-"}" in
+                  windows-x86_64.zip) label="Plugin author's tool · Windows x64" ;;
+                  macos-aarch64.tar.gz) label="Plugin author's tool · macOS Apple silicon" ;;
+                  macos-x86_64.tar.gz) label="Plugin author's tool · macOS Intel" ;;
+                  linux-x86_64.tar.gz) label="Plugin author's tool · Linux x86-64 (glibc 2.35+)" ;;
+                esac ;;
               "dereth-$VERSION-"*)
                 case "${f#"dereth-$VERSION-"}" in
                   windows-x86_64.zip) label="Dereth · Windows x64 (zip, no installer)" ;;
