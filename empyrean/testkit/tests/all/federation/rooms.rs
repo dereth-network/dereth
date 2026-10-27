@@ -7,7 +7,7 @@
 use dereth_network_protocol::standin::is_stand_in;
 use dereth_primitives::NetQueue;
 use dereth_protocol::comms::CommunicationHearDirectSpeech;
-use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
 
 use super::{seed, two_worlds, Net, TELL, TURBINE_CHAT};
 
@@ -48,8 +48,10 @@ fn post(net: &mut Net, slug: &str, who: &str, guid: u32, text: &str) {
             context: 7,
             room: 5,
             text: text.to_owned(),
-            sender: guid,
-            chat_type: 5,
+            extra: ExtraBlob::Speaker {
+                sender: guid,
+                chat_type: 5,
+            },
         },
     );
     net.advance(0.3);

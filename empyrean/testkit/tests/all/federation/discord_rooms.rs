@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use dereth_network_hub::bridge::Bridged;
 use dereth_network_protocol::{Address, Message, RoomsMessage};
 use dereth_primitives::NetQueue;
-use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
 use empyrean_entity::enums::CharacterOption;
 
 use super::{seed, Net, TURBINE_CHAT};
@@ -75,8 +75,10 @@ pub(super) fn post(net: &mut Net, slug: &str, who: &str, guid: u32, room: u32, t
             context: 7,
             room,
             text: text.to_owned(),
-            sender: guid,
-            chat_type: room,
+            extra: ExtraBlob::Speaker {
+                sender: guid,
+                chat_type: room,
+            },
         },
     );
     net.advance(0.3);

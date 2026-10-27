@@ -17,7 +17,7 @@ use dereth_protocol::comms::{
 };
 use dereth_protocol::events::split_ui_blob;
 use dereth_protocol::login::{LoginCharacterSet, LoginSendEnterWorld, LoginSendEnterWorldRequest};
-use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
 use dereth_protocol::Message;
 use empyrean_common::dotnet::DotNetDict;
 use empyrean_content::models::world::Weenie;
@@ -622,8 +622,10 @@ fn a_general_turbine_chat_message_reaches_the_subscribed_players_and_not_the_oth
         context: 5,
         room: 2,
         text: "LF a sparring partner".to_owned(),
-        sender: ALPHA,
-        chat_type: 2,
+        extra: ExtraBlob::Speaker {
+            sender: ALPHA,
+            chat_type: 2,
+        },
     };
     t.ts.send_message(t.a, NetQueue::Logon, &m);
     t.ts.advance(0.3);
@@ -660,8 +662,10 @@ fn a_general_turbine_chat_message_reaches_the_subscribed_players_and_not_the_oth
         context: 6,
         room: 3,
         text: "WTS a fine gem".to_owned(),
-        sender: ALPHA,
-        chat_type: 3,
+        extra: ExtraBlob::Speaker {
+            sender: ALPHA,
+            chat_type: 3,
+        },
     };
     t.ts.send_message(t.a, NetQueue::Logon, &m);
     t.ts.advance(0.3);

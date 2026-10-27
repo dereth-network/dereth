@@ -1614,6 +1614,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.turbine.a-room-line-is-read-whatever-note-its-sender-attaches",
+        says: "A line sent to a chat room carries a note about its speaker, which the room service \
+               passes on with the line without reading it. A line is read whatever that note's \
+               length -- the twelve bytes this client attaches, or a longer note another client of \
+               the same service attaches -- and is written back out exactly as it came.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-TURBINE-SPEAKER-NOTE"),
+        station: "dereth-protocol::cpu::messages::turbine_room_line::a_room_line_is_read_and_written_back_whatever_blob_its_sender_attached",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.turbine.a-room-line-reaches-the-log-with-its-rooms-own-name-and-colour",
         says: "A line spoken in a chat room reaches the log the player is reading under that room's \
                own bracketed name and in that room's own colour, with the speaker's name left as \

@@ -20,7 +20,7 @@ use dereth_protocol::comms::{
     CommunicationTransientString, CommunicationWeenieError, CommunicationWeenieErrorWithString,
 };
 use dereth_protocol::events::split_ui_blob;
-use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
 use dereth_protocol::{write_blob, Message};
 use empyrean_common::clock::ClockSnapshot;
 use empyrean_common::dotnet::datetime::DotNetDateTime;
@@ -1194,8 +1194,10 @@ fn general(context: u32, text: &str) -> Vec<u8> {
         context,
         room: 2,
         text: text.to_owned(),
-        sender: A,
-        chat_type: 2,
+        extra: ExtraBlob::Speaker {
+            sender: A,
+            chat_type: 2,
+        },
     })
     .expect("encode")
 }
@@ -1396,8 +1398,10 @@ fn turbine_chat_rejects_echoes_and_room_rules() {
         context: 6,
         room: 7,
         text: "hail".to_owned(),
-        sender: A,
-        chat_type: 6,
+        extra: ExtraBlob::Speaker {
+            sender: A,
+            chat_type: 6,
+        },
     })
     .unwrap();
     let sent = message(&mut w, SA, society);
@@ -1412,8 +1416,10 @@ fn turbine_chat_rejects_echoes_and_room_rules() {
         context: 6,
         room: 10,
         text: "hiss".to_owned(),
-        sender: A,
-        chat_type: 10,
+        extra: ExtraBlob::Speaker {
+            sender: A,
+            chat_type: 10,
+        },
     })
     .unwrap();
     assert!(message(&mut w, SA, olthoi).is_empty());
@@ -1423,8 +1429,10 @@ fn turbine_chat_rejects_echoes_and_room_rules() {
         context: 6,
         room: 0x0B00_0001,
         text: "hi".to_owned(),
-        sender: A,
-        chat_type: 1,
+        extra: ExtraBlob::Speaker {
+            sender: A,
+            chat_type: 1,
+        },
     })
     .unwrap();
     assert!(message(&mut w, SA, allegiance).is_empty());

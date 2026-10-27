@@ -130,8 +130,46 @@ pub struct SendToRoomById {
     pub context: u32,
     pub room: u32,
     pub text: String,
-    pub sender: u32,
-    pub chat_type: u32,
+    pub extra: ExtraBlob,
+}
+
+/// What the sending client attaches to a room line about its speaker. The chat service passes it
+/// on with the line without reading it, so its length is the sender's own choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtraBlob {
+    /// The 12 bytes this client attaches to every line: the speaker's object id, a zero word and
+    /// the chat type.
+    Speaker { sender: u32, chat_type: u32 },
+    /// Any other blob, kept byte for byte. Other clients of the same service attach a 16-byte
+    /// one, for example.
+    Other(Vec<u8>),
+}
+
+impl ExtraBlob {
+    /// The blob as it was sent: the 12-byte speaker form when it has that shape, otherwise the
+    /// bytes themselves.
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        match bytes.as_chunks::<4>() {
+            ([sender, [0, 0, 0, 0], chat_type], []) => Self::Speaker {
+                sender: u32::from_le_bytes(*sender),
+                chat_type: u32::from_le_bytes(*chat_type),
+            },
+            _ => Self::Other(bytes.to_vec()),
+        }
+    }
+
+    /// The bytes that go on the wire after the blob's length.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Speaker { sender, chat_type } => [*sender, 0, *chat_type]
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect(),
+            Self::Other(bytes) => bytes.clone(),
+        }
+    }
 }
 
 fn expect(r: &mut Reader<'_>, value: u32) -> Result<(), MessageError> {
@@ -166,10 +204,14 @@ impl SendToRoomById {
         for unit in utf16 {
             body.u16(unit);
         }
-        body.u32(12);
-        body.u32(self.sender);
-        body.u32(0); // the chat blob's constructor-zero field
-        body.u32(self.chat_type);
+        let extra = self.extra.to_bytes();
+        body.u32(
+            u32::try_from(extra.len()).map_err(|_| MessageError::Unencodable {
+                field: "Turbine extra",
+                reason: "byte count overflow",
+            })?,
+        );
+        body.bytes(&extra);
         let body = body.into_inner();
         let mut packet = Writer::new();
         for word in [3, 2, 1, 0, 0, 0, 0] {
@@ -227,17 +269,14 @@ impl Message for SendToRoomById {
             field: "Turbine text",
             reason: "invalid UTF16",
         })?;
-        expect(&mut body, 12)?;
-        let sender = body.u32()?;
-        expect(&mut body, 0)?;
-        let chat_type = body.u32()?;
+        let extra_size = body.u32()? as usize;
+        let extra = ExtraBlob::from_bytes(body.bytes(extra_size)?);
         body.expect_exhausted()?;
         Ok(Self {
             context,
             room,
             text,
-            sender,
-            chat_type,
+            extra,
         })
     }
 }

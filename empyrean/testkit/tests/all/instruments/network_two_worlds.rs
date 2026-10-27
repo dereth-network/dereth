@@ -26,7 +26,7 @@ mod run {
         CommunicationWeenieError,
     };
     use dereth_protocol::social::{SocialAddFriend, SocialFriendsUpdate};
-    use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+    use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
     use empyrean_testkit::soak::bot::{self, Bot, BotIo, Kind, State};
     use empyrean_testkit::soak::udp::default_server_bin;
     use empyrean_testkit::{ClientStatus, TestClient};
@@ -609,8 +609,10 @@ mod run {
                 context: 1,
                 room: 2,
                 text: "Ballroom dance at the Arwic hall, 8 pm!".into(),
-                sender: ann_guid,
-                chat_type: 2,
+                extra: ExtraBlob::Speaker {
+                    sender: ann_guid,
+                    chat_type: 2,
+                },
             };
             p.shown.push("> [General] Ballroom dance at the Arwic hall, 8 pm!   [Communication_TurbineChat 0xF7DE]".into());
             p.io.out.push((

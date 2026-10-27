@@ -30,7 +30,7 @@ use dereth_network_protocol::rooms::{OFF, OWN_ROOMS};
 use dereth_network_protocol::text::{sanitize_line, sanitize_name};
 use dereth_network_protocol::wire::GLOBAL_ROOM;
 use dereth_network_protocol::{Address, Message, Outcome, RoomsMessage};
-use dereth_protocol::turbine::SendToRoomById;
+use dereth_protocol::turbine::{ExtraBlob, SendToRoomById};
 use empyrean_entity::enums::{ChatNetworkBlobDispatchType, ChatNetworkBlobType};
 use empyrean_entity::ObjectGuid;
 use serde::{Deserialize, Serialize};
@@ -463,8 +463,10 @@ pub fn say_global(w: &mut World, player: ObjectGuid, text: &str) {
         context: 0,
         room: slot.channel(),
         text: text.to_owned(),
-        sender: player.full(),
-        chat_type: slot.chat_type().0.cast_unsigned(),
+        extra: ExtraBlob::Speaker {
+            sender: player.full(),
+            chat_type: slot.chat_type().0.cast_unsigned(),
+        },
     };
     let Ok(bytes) = dereth_protocol::write_blob(&request) else {
         return;

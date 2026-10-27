@@ -1679,7 +1679,10 @@ pub fn a_failed_room_line_is_named_back_once() {
     }
     let under_the_new_name = matches!(
         out.0.last(),
-        Some(Request::TurbineChat(m)) if m.sender == 0x5000_0099
+        Some(Request::TurbineChat(m)) if matches!(
+            m.extra,
+            dereth_protocol::turbine::ExtraBlob::Speaker { sender: 0x5000_0099, .. }
+        )
     ) && c2.view().world().chat.pending_turbine_contexts() == [2];
 
     c.assert_behaviour(

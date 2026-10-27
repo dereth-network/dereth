@@ -90,12 +90,12 @@ pub fn the_general_channel_carries_a_typed_line_to_its_room() {
 
     let sent = room_messages(&c);
     let one_message = sent.len() == 1
-        && (
-            sent[0].context,
-            sent[0].room,
-            sent[0].sender,
-            sent[0].chat_type,
-        ) == (1, tracker.general_room, ME.0, 1)
+        && (sent[0].context, sent[0].room) == (1, tracker.general_room)
+        && sent[0].extra
+            == (dereth_protocol::turbine::ExtraBlob::Speaker {
+                sender: ME.0,
+                chat_type: 1,
+            })
         && sent[0].text == "General oracle";
     // And it is a room line, not an ordinary say.
     let not_a_say = !c
@@ -145,7 +145,11 @@ pub fn the_general_channel_carries_a_typed_line_to_its_room() {
     hand.say(&mut c, "@general explicit line");
     let sent = room_messages(&c);
     let explicit = sent.len() == 1
-        && (sent[0].context, sent[0].room, sent[0].chat_type) == (2, tracker.general_room, 2)
+        && (sent[0].context, sent[0].room) == (2, tracker.general_room)
+        && matches!(
+            sent[0].extra,
+            dereth_protocol::turbine::ExtraBlob::Speaker { chat_type: 2, .. }
+        )
         && sent[0].text == "explicit line";
 
     c.assert_behaviour(
@@ -195,7 +199,12 @@ pub fn a_line_typed_before_the_shard_names_a_room_is_refused() {
     room_list(&mut c);
     hand.say(&mut c, "room received");
     let sent = room_messages(&c);
-    let now_sent = sent.len() == 1 && sent[0].context == 1 && sent[0].chat_type == 1;
+    let now_sent = sent.len() == 1
+        && sent[0].context == 1
+        && matches!(
+            sent[0].extra,
+            dereth_protocol::turbine::ExtraBlob::Speaker { chat_type: 1, .. }
+        );
 
     c.assert_behaviour(
         "chat.turbine.a-line-typed-before-the-shard-names-a-room-is-refused",

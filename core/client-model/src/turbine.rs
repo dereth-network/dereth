@@ -4,7 +4,7 @@ use crate::{
     chat::{is_message_safe, ChatState, TalkFocus},
     Request, RequestSink, World,
 };
-use dereth_protocol::turbine::{IncomingPayload, SendToRoomById};
+use dereth_protocol::turbine::{ExtraBlob, IncomingPayload, SendToRoomById};
 use std::collections::BTreeMap;
 
 /// The narrow display format the client's room-chat formatter uses.
@@ -298,8 +298,10 @@ impl World {
             context: self.chat.turbine_client.context,
             room,
             text,
-            sender: self.player.unwrap_or_default().0,
-            chat_type: kind,
+            extra: ExtraBlob::Speaker {
+                sender: self.player.unwrap_or_default().0,
+                chat_type: kind,
+            },
         };
         self.chat
             .turbine_client
