@@ -282,8 +282,27 @@ pub fn write_file_nodes(root: &FileNode) -> String {
 #[derive(Debug, PartialEq, Eq)]
 enum Token {
     Word(String, bool),
-    Open,
-    Close,
+    /// An opening bracket, carrying the closer that must end its list.
+    Open(char),
+    Close(char),
+}
+
+/// The three bracket pairs a node's children may be wrapped in. The writer uses `[` `]`; the
+/// reader takes any of them, and a list must end with the closer of the bracket that opened it.
+const BRACKETS: [(char, char); 3] = [('[', ']'), ('{', '}'), ('(', ')')];
+
+fn is_bracket(c: char) -> bool {
+    BRACKETS
+        .iter()
+        .any(|&(open, close)| c == open || c == close)
+}
+
+/// The closer of an opening bracket.
+fn closer_of(open: char) -> char {
+    BRACKETS
+        .iter()
+        .find(|(o, _)| *o == open)
+        .map_or(']', |(_, close)| *close)
 }
 
 fn tokenize(text: &str) -> Result<Vec<Token>, InputError> {
@@ -298,8 +317,8 @@ fn tokenize(text: &str) -> Result<Vec<Token>, InputError> {
                     }
                 }
             }
-            '[' => out.push(Token::Open),
-            ']' => out.push(Token::Close),
+            '[' | '{' | '(' => out.push(Token::Open(closer_of(c))),
+            ']' | '}' | ')' => out.push(Token::Close(c)),
             '"' => {
                 let mut s = String::new();
                 loop {
@@ -325,7 +344,7 @@ fn tokenize(text: &str) -> Result<Vec<Token>, InputError> {
                 let mut s = String::new();
                 s.push(c);
                 while let Some(&n) = it.peek() {
-                    if n.is_whitespace() || matches!(n, '[' | ']' | '#' | ',') {
+                    if n.is_whitespace() || is_bracket(n) || matches!(n, '#' | ',') {
                         break;
                     }
                     s.push(n);
@@ -356,14 +375,21 @@ fn classify(word: String, quoted: bool) -> NodeName {
 /// The file parser, reduced to the subset a
 /// `.keymap` file uses. Returns a synthetic root whose children are the file's top-level nodes.
 ///
+/// A node's children may be wrapped in `[` `]`, `{` `}` or `(` `)`, as the client's own file
+/// reader takes them, and each list must end with the closer of the bracket that opened it.
+///
 /// # Errors
-/// [`InputError::KeymapFile`] on unbalanced brackets or an unterminated string.
+/// [`InputError::KeymapFile`] on unbalanced or mismatched brackets or an unterminated string.
 pub fn read_file_nodes(text: &str) -> Result<FileNode, InputError> {
     let tokens = tokenize(text)?;
-    let mut stack: Vec<FileNode> = vec![FileNode {
-        name: NodeName::PString(String::new()),
-        children: Vec::new(),
-    }];
+    // Each open node with the closer its list must end with.
+    let mut stack: Vec<(FileNode, char)> = vec![(
+        FileNode {
+            name: NodeName::PString(String::new()),
+            children: Vec::new(),
+        },
+        '\0',
+    )];
     let mut i = 0usize;
     while i < tokens.len() {
         match &tokens[i] {
@@ -372,26 +398,37 @@ pub fn read_file_nodes(text: &str) -> Result<FileNode, InputError> {
                     name: classify(w.clone(), *q),
                     children: Vec::new(),
                 };
-                if matches!(tokens.get(i + 1), Some(Token::Open)) {
-                    stack.push(node);
+                if let Some(Token::Open(close)) = tokens.get(i + 1) {
+                    stack.push((node, *close));
                     i += 1;
                 } else {
-                    let Some(parent) = stack.last_mut() else {
+                    let Some((parent, _)) = stack.last_mut() else {
                         return Err(InputError::KeymapFile("node outside the root".into()));
                     };
                     parent.children.push(node);
                 }
             }
-            Token::Open => return Err(InputError::KeymapFile("unexpected '['".into())),
-            Token::Close => {
+            Token::Open(close) => {
+                let open = BRACKETS
+                    .iter()
+                    .find(|(_, c)| c == close)
+                    .map_or('[', |(o, _)| *o);
+                return Err(InputError::KeymapFile(format!("unexpected '{open}'")));
+            }
+            Token::Close(c) => {
                 if stack.len() < 2 {
-                    return Err(InputError::KeymapFile("unexpected ']'".into()));
+                    return Err(InputError::KeymapFile(format!("unexpected '{c}'")));
                 }
-                let Some(done) = stack.pop() else {
-                    return Err(InputError::KeymapFile("unexpected ']'".into()));
+                let Some((done, want)) = stack.pop() else {
+                    return Err(InputError::KeymapFile(format!("unexpected '{c}'")));
                 };
-                let Some(parent) = stack.last_mut() else {
-                    return Err(InputError::KeymapFile("unexpected ']'".into()));
+                if *c != want {
+                    return Err(InputError::KeymapFile(format!(
+                        "'{c}' closes a list opened for '{want}'"
+                    )));
+                }
+                let Some((parent, _)) = stack.last_mut() else {
+                    return Err(InputError::KeymapFile(format!("unexpected '{c}'")));
                 };
                 parent.children.push(done);
             }
@@ -399,8 +436,11 @@ pub fn read_file_nodes(text: &str) -> Result<FileNode, InputError> {
         i += 1;
     }
     match stack.pop() {
-        Some(root) if stack.is_empty() => Ok(root),
-        _ => Err(InputError::KeymapFile("unterminated '['".into())),
+        Some((root, _)) if stack.is_empty() => Ok(root),
+        Some((_, want)) => Err(InputError::KeymapFile(format!(
+            "a list is never closed with '{want}'"
+        ))),
+        None => Err(InputError::KeymapFile("unterminated list".into())),
     }
 }
 
@@ -734,6 +774,21 @@ mod tests {
         root.children.push(n);
         let text = write_file_nodes(&root);
         assert!(text.contains("Keyboard [ GUID_SysKeyboard ]"), "{text}");
+    }
+
+    /// Behaviour: none (the key-map file reader's bracket forms; a format contract).
+    /// A node's children read the same wrapped in `[]`, `{}` or `()`, a name ends at any bracket,
+    /// and a list closed by another bracket than its own is refused.
+    #[test]
+    fn children_may_be_wrapped_in_any_of_the_three_bracket_pairs() {
+        let square = read_file_nodes("Map [ a [ 1 2 ] b ]").unwrap();
+        for text in ["Map { a ( 1 2 ) b }", "Map(a{1 2}b)", "Map{a[1,2],b}"] {
+            assert_eq!(read_file_nodes(text).unwrap(), square, "{text}");
+        }
+        for bad in ["Map [ a }", "Map { a ( 1 ] }", "Map ( a"] {
+            assert!(read_file_nodes(bad).is_err(), "{bad}");
+        }
+        assert!(read_file_nodes("Map ]").is_err());
     }
 
     /// Oracle: `read_file_nodes` — a written tree reads back identically, which is the property the
