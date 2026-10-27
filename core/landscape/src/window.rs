@@ -12,6 +12,50 @@
 
 use crate::{block_orient, side_cell_count, Direction, BLOCK_LENGTH, MID_RADIUS_PRESETS};
 
+/// How a window gives each of its blocks a level of detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Detail {
+    /// Four rings around the viewer's block, the detail halving outward ([`block_orient`]), with
+    /// the blocks where it halves stitched toward the finer ring.
+    #[default]
+    Rings,
+    /// Every block at full detail, none stitched: each slot asks for a divisor of 1 and
+    /// [`Direction::InViewerBlock`].
+    Full,
+}
+
+/// The settings a window is built with: its block length and how it assigns detail.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowSpec {
+    /// A landblock side, in world units: the spacing of the block frames.
+    pub block_length: f32,
+    /// How blocks get their level of detail.
+    pub detail: Detail,
+}
+
+impl WindowSpec {
+    /// The default window: [`BLOCK_LENGTH`] blocks in four detail rings.
+    pub const DEFAULT: Self = Self {
+        block_length: BLOCK_LENGTH,
+        detail: Detail::Rings,
+    };
+
+    /// The divisor and stitch direction of the block `(dx, dy)` from the viewer's block.
+    #[must_use]
+    pub fn orient(&self, dx: i32, dy: i32) -> (u8, Direction) {
+        match self.detail {
+            Detail::Rings => block_orient(dx, dy),
+            Detail::Full => (1, Direction::InViewerBlock),
+        }
+    }
+}
+
+impl Default for WindowSpec {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 /// A small window index as `i32`. Window sides are at most 31 blocks, so this never saturates.
 fn i32_of(v: usize) -> i32 {
     i32::try_from(v).unwrap_or(i32::MAX)
@@ -60,6 +104,7 @@ pub enum SlotAction {
 #[derive(Debug)]
 pub struct LandblockWindow<M> {
     mid_radius: u32,
+    spec: WindowSpec,
     /// `mid_width²` slots, indexed `mid_width * xi + yi`. `None` is an unloaded slot.
     slots: Vec<Option<WindowSlot<M>>>,
     /// The block the viewer is standing in.
@@ -74,9 +119,16 @@ impl<M> LandblockWindow<M> {
     /// that the constructor is the only way to set it.
     #[must_use]
     pub fn new(mid_radius: u32) -> Self {
+        Self::with_spec(mid_radius, WindowSpec::DEFAULT)
+    }
+
+    /// A window of `mid_radius` with its own block length and detail policy.
+    #[must_use]
+    pub fn with_spec(mid_radius: u32, spec: WindowSpec) -> Self {
         let w = (2 * mid_radius + 1) as usize;
         Self {
             mid_radius,
+            spec,
             slots: (0..w * w).map(|_| None).collect(),
             viewer_block: None,
         }
@@ -86,6 +138,12 @@ impl<M> LandblockWindow<M> {
     #[must_use]
     pub fn for_quality(quality: usize) -> Self {
         Self::new(MID_RADIUS_PRESETS[quality.clamp(1, 5) - 1])
+    }
+
+    /// The window's block length and detail policy.
+    #[must_use]
+    pub const fn spec(&self) -> WindowSpec {
+        self.spec
     }
 
     #[must_use]
@@ -118,8 +176,9 @@ impl<M> LandblockWindow<M> {
     }
 
     /// Block frame origin:
-    /// `((xi - viewer_b_xoff)*192, (yi - viewer_b_yoff)*192, 0)`. The landscape is rendered in a
-    /// **viewer-block-relative** space, so vertex positions stay block-local (0..192).
+    /// `((xi - viewer_b_xoff)*L, (yi - viewer_b_yoff)*L, 0)` with `L` the block length (192 by
+    /// default). The landscape is rendered in a **viewer-block-relative** space, so vertex
+    /// positions stay block-local (0..L).
     #[must_use]
     pub fn block_frame_origin(&self, xi: u32, yi: u32) -> (f32, f32) {
         // LINT-OK: integer index arithmetic, not a float conversion; mid_radius is at most 15.
@@ -128,7 +187,10 @@ impl<M> LandblockWindow<M> {
         let (dx, dy) = (i32_of(xi as usize) - r, i32_of(yi as usize) - r);
         #[allow(clippy::cast_precision_loss)] // window offsets are at most 15
         {
-            (dx as f32 * BLOCK_LENGTH, dy as f32 * BLOCK_LENGTH)
+            (
+                dx as f32 * self.spec.block_length,
+                dy as f32 * self.spec.block_length,
+            )
         }
     }
 
@@ -169,7 +231,7 @@ impl<M> LandblockWindow<M> {
         for xi in 0..w {
             for yi in 0..w {
                 let (bx, by) = (viewer_block.0 + xi - r, viewer_block.1 + yi - r);
-                let (lod_div, dir) = block_orient(xi - r, yi - r);
+                let (lod_div, dir) = self.spec.orient(xi - r, yi - r);
                 // LINT-OK: index arithmetic bounded by mid_width <= 31.
                 let idx = (w * xi + yi) as usize;
                 let action = match &mut self.slots[idx] {
@@ -291,7 +353,8 @@ impl<M> LandblockWindow<M> {
         }
     }
 
-    /// `side_cell_count` of each slot, as [`block_orient`] assigns it. Handy for the ring test.
+    /// `side_cell_count` of each slot, as the window's detail policy assigns it. Handy for the
+    /// ring test.
     #[must_use]
     pub fn ring_map(&self) -> Vec<u8> {
         let w = self.mid_width() as i32;
@@ -299,7 +362,7 @@ impl<M> LandblockWindow<M> {
         let mut out = Vec::with_capacity((w * w) as usize);
         for xi in 0..w {
             for yi in 0..w {
-                out.push(side_cell_count(block_orient(xi - r, yi - r).0));
+                out.push(side_cell_count(self.spec.orient(xi - r, yi - r).0));
             }
         }
         out
@@ -530,5 +593,86 @@ mod tests {
         assert_eq!(win.block_frame_origin(5, 5), (0.0, 0.0));
         assert_eq!(win.block_frame_origin(6, 5), (192.0, 0.0));
         assert_eq!(win.block_frame_origin(5, 3), (0.0, -384.0));
+    }
+
+    /// A window built with its own block length spaces its block frames by that length, and one
+    /// that keeps every block at full detail asks for full detail, unstitched, in every slot,
+    /// while scrolling exactly as the ringed window does.
+    ///
+    /// Behaviour: world.streaming.a-full-detail-window-keeps-every-block-at-full-detail
+    #[test]
+    fn a_full_detail_window_of_another_block_length_scrolls_like_the_ringed_one() {
+        let spec = WindowSpec {
+            block_length: 160.0,
+            detail: Detail::Full,
+        };
+        let mut win = LandblockWindow::<()>::with_spec(4, spec);
+        assert_eq!(win.spec(), spec);
+        assert_eq!(win.block_frame_origin(4, 4), (0.0, 0.0));
+        assert_eq!(win.block_frame_origin(5, 4), (160.0, 0.0));
+        assert_eq!(win.block_frame_origin(4, 1), (0.0, -480.0));
+        assert!(
+            win.ring_map().iter().all(|&n| n == 8),
+            "every block at eight cells a side"
+        );
+
+        let first = win.update_block((10, 10));
+        assert!(first.iter().all(|a| matches!(
+            a,
+            SlotAction::Fetched {
+                lod_div: 1,
+                dir: Direction::InViewerBlock,
+                ..
+            }
+        )));
+        // A one-block step fetches one new column and changes nothing else: no ring to cross.
+        let step = win.update_block((11, 10));
+        let fetched = step
+            .iter()
+            .filter(|a| matches!(a, SlotAction::Fetched { .. }))
+            .count();
+        assert_eq!(
+            fetched, 9,
+            "a one-block step exposes one column of a 9-wide window"
+        );
+        assert_eq!(
+            step.iter()
+                .filter(|a| matches!(a, SlotAction::Unchanged))
+                .count(),
+            81 - 9,
+            "every block that stays is left as it was"
+        );
+
+        // The ringed window of the same radius scrolls the same blocks in and out.
+        let mut ringed = LandblockWindow::<()>::new(4);
+        ringed.update_block((10, 10));
+        let ringed_step = ringed.update_block((11, 10));
+        let fetched_at = |actions: &[SlotAction]| -> Vec<usize> {
+            actions
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| matches!(a, SlotAction::Fetched { .. }))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        assert_eq!(fetched_at(&step), fetched_at(&ringed_step));
+    }
+
+    /// The default spec is the ringed window of 192-unit blocks that [`LandblockWindow::new`]
+    /// builds, slot for slot.
+    ///
+    /// Behaviour: world.streaming.the-default-window-is-four-rings-of-full-length-blocks
+    #[test]
+    fn the_default_spec_is_the_ringed_window() {
+        assert_eq!(WindowSpec::default(), WindowSpec::DEFAULT);
+        assert_eq!(WindowSpec::DEFAULT.block_length, BLOCK_LENGTH);
+        let a = LandblockWindow::<()>::new(5);
+        let b = LandblockWindow::<()>::with_spec(5, WindowSpec::DEFAULT);
+        assert_eq!(a.ring_map(), b.ring_map());
+        for dx in -6..=6 {
+            for dy in -6..=6 {
+                assert_eq!(WindowSpec::DEFAULT.orient(dx, dy), block_orient(dx, dy));
+            }
+        }
     }
 }

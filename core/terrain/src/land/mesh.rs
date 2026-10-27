@@ -16,12 +16,14 @@ use dereth_assets::world::CellLandblock;
 use dereth_primitives::{LandblockId, Vec3};
 
 use crate::consts::{
-    BLOCK_LENGTH, LAND_HEIGHT_TABLE_LEN, NE_CORNER, NW_CORNER, SE_CORNER, SIDE_VERTEX_COUNT,
-    SW_CORNER,
+    LAND_HEIGHT_MAX, LAND_HEIGHT_TABLE_LEN, NE_CORNER, NW_CORNER, SE_CORNER, SW_CORNER,
 };
 use crate::land::water::{calc_water, WaterType};
 use crate::narrow::{i32_of, u16_of, u16_of_i32, u32_of, u8_of};
 use crate::Plane;
+
+/// The grid a landblock's terrain is laid on: the landscape's.
+pub use dereth_landscape::LandGrid;
 
 /// Which edges of a block are stitched toward the finer ring beside it: the landscape window's
 /// type, consumed here by mesh generation.
@@ -164,6 +166,38 @@ pub fn sw_to_ne_cut(global_cell_x: i32, global_cell_y: i32) -> bool {
     v >> 31 != 0
 }
 
+/// The terrain's rules: the grid it is built on, which way each square is split, and the highest
+/// height the height table accepts. [`TerrainSpec::DEFAULT`] is this workspace's world; another
+/// world built by the same algorithms is another value.
+#[derive(Debug, Clone, Copy)]
+pub struct TerrainSpec {
+    /// The grid: block, cell and vertex spacing.
+    pub grid: LandGrid,
+    /// Whether the square at **global** square coordinates `(x, y)` (block coordinate times the
+    /// squares per block side, plus the square within the block) is cut from its south-west to its
+    /// north-east corner. It must depend on the global coordinates alone, or neighboring blocks
+    /// disagree about a square they share.
+    pub split: fn(i32, i32) -> bool,
+    /// The highest entry the height table accepts: the sky height less the greatest object height.
+    pub height_max: f32,
+}
+
+impl TerrainSpec {
+    /// The default terrain: [`LandGrid::DEFAULT`], the [`sw_to_ne_cut`] hash and a height table
+    /// of at most [`LAND_HEIGHT_MAX`].
+    pub const DEFAULT: Self = Self {
+        grid: LandGrid::DEFAULT,
+        split: sw_to_ne_cut,
+        height_max: LAND_HEIGHT_MAX,
+    };
+}
+
+impl Default for TerrainSpec {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 /// Copies entries until the first one outside `[0, 800]`,
 /// then stops — leaving entries *k*..255 at whatever was there before rather than rejecting the
 /// whole table. The table is a lookup, **not** `2 * i`. ACE's comment
@@ -175,10 +209,21 @@ pub fn set_height_table(
     candidate: &[f32],
     previous: &[f32; LAND_HEIGHT_TABLE_LEN],
 ) -> [f32; LAND_HEIGHT_TABLE_LEN] {
+    set_height_table_within(candidate, previous, LAND_HEIGHT_MAX)
+}
+
+/// [`set_height_table`] with the upper bound given: entries are copied until the first one outside
+/// `[0, height_max]`, and the rest keep their previous values.
+#[must_use]
+pub fn set_height_table_within(
+    candidate: &[f32],
+    previous: &[f32; LAND_HEIGHT_TABLE_LEN],
+    height_max: f32,
+) -> [f32; LAND_HEIGHT_TABLE_LEN] {
     let mut out = *previous;
     for (k, slot) in out.iter_mut().enumerate() {
         let Some(&v) = candidate.get(k) else { break };
-        if !(0.0..=crate::consts::LAND_HEIGHT_MAX).contains(&v) {
+        if !(0.0..=height_max).contains(&v) {
             break;
         }
         *slot = v;
@@ -196,29 +241,138 @@ pub fn height_table(region: &Region) -> [f32; LAND_HEIGHT_TABLE_LEN] {
     )
 }
 
-/// Construct the landblock's vertices.
+/// Construct a landblock's vertices on `grid`, at a detail of `side_cell_count` land cells a side.
 ///
-/// Vertex `(i, j)` sits at `(i·L, j·L, land_height_table[height[i·step·9 + j·step]])` with
-/// `L = 192 / side_polygon_count` and `step = 8 / side_cell_count`.
-fn construct_vertices(
-    height: &[u8; crate::consts::VERTEX_COUNT],
+/// Vertex `(i, j)` sits at `(i·L, j·L, height_table[height[(i·V + j)·step]])` with
+/// `L = block_length / side_polygon_count`, `V` the grid's full-detail vertices per side and
+/// `step = cells_per_side / side_cell_count`; `side_polygon_count` is `side_cell_count` times the
+/// grid's vertices per cell. On the default grid that is `L = 192 / side_cell_count` and
+/// `height[i·step·9 + j·step]`.
+///
+/// # Panics
+/// When `height` holds fewer than the grid's vertex count, or `side_cell_count` is 0.
+#[must_use]
+pub fn land_vertices(
+    grid: &LandGrid,
+    height: &[u8],
     side_cell_count: usize,
     height_table: &[f32; LAND_HEIGHT_TABLE_LEN],
 ) -> Vec<Vec3> {
-    #[allow(clippy::cast_precision_loss)] // side_cell_count is 1, 2, 4 or 8
-    let scale = BLOCK_LENGTH / side_cell_count as f32;
-    let step = crate::consts::BLOCK_SIDE / side_cell_count;
-    let svc = side_cell_count + 1;
+    let side_polygon_count = side_cell_count * grid.vertices_per_cell;
+    #[allow(clippy::cast_precision_loss)] // a few dozen squares a side
+    let scale = grid.block_length() / side_polygon_count as f32;
+    let step = grid.cells_per_side / side_cell_count;
+    let full_side = grid.vertices_per_side();
+    let svc = side_polygon_count + 1;
     let mut vertices = Vec::with_capacity(svc * svc);
     for i in 0..svc {
         for j in 0..svc {
-            #[allow(clippy::cast_precision_loss)] // i, j <= 8
+            #[allow(clippy::cast_precision_loss)] // i, j are a few dozen at most
             let (x, y) = (i as f32 * scale, j as f32 * scale);
-            let z = height_table[height[i * step * SIDE_VERTEX_COUNT + j * step] as usize];
+            let z = height_table[height[(i * full_side + j) * step] as usize];
             vertices.push(Vec3::new(x, y, z));
         }
     }
     vertices
+}
+
+/// One terrain triangle of [`LandGeometry`]: three vertex indices and the plane they make.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LandTriangle {
+    pub v: [u32; 3],
+    pub plane: Plane,
+}
+
+/// A landblock's terrain geometry on any grid: what [`land_geometry`] builds before any texturing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandGeometry {
+    /// Squares along a side at this detail (the polygon count along a side).
+    pub squares_per_side: usize,
+    /// `squares_per_side + 1`.
+    pub vertices_per_side: usize,
+    /// `vertices_per_side²` vertices, x major, block-local, true heights.
+    pub vertices: Vec<Vec3>,
+    /// Per square, x major: whether its shared edge runs south-west to north-east.
+    pub sw_to_ne_cut: Vec<bool>,
+    /// Two triangles per square, x major: square `(x, y)` owns `[2n]` and `[2n + 1]` with
+    /// `n = x * squares_per_side + y`, wound as [`cell_triangles`] winds them.
+    pub triangles: Vec<LandTriangle>,
+    /// Per square, x major: whether the square is a hole (one of its corners is marked). All false
+    /// when no hole marks were given.
+    pub holes: Vec<bool>,
+}
+
+/// Build a landblock's terrain geometry: its vertices ([`land_vertices`]), each square's split
+/// (`spec.split` of its global square coordinates), its two triangles and their planes
+/// ([`make_plane`]), and which squares are holes.
+///
+/// `block_x` and `block_y` are the block's coordinates; a square's global coordinates are the
+/// block's times the grid's squares per side, plus the square within the block (at reduced detail,
+/// the reduced square's index, as the default world has always done). `hole_vertices`, when given,
+/// marks full-detail vertices (x major) that open a hole: a square with a marked corner is a hole.
+///
+/// # Panics
+/// As [`land_vertices`]; and when `hole_vertices` holds fewer than the grid's vertex count.
+#[must_use]
+pub fn land_geometry(
+    spec: &TerrainSpec,
+    height: &[u8],
+    height_table: &[f32; LAND_HEIGHT_TABLE_LEN],
+    block_x: i32,
+    block_y: i32,
+    side_cell_count: usize,
+    hole_vertices: Option<&[bool]>,
+) -> LandGeometry {
+    let grid = &spec.grid;
+    let vertices = land_vertices(grid, height, side_cell_count, height_table);
+    let squares = side_cell_count * grid.vertices_per_cell;
+    let svc = squares + 1;
+    let step = grid.cells_per_side / side_cell_count;
+    let full_side = grid.vertices_per_side();
+    // LINT-OK: a block coordinate times a few dozen squares stays far inside i32.
+    let per_block = i32_of(grid.squares_per_side());
+    let (gx_base, gy_base) = (block_x * per_block, block_y * per_block);
+    let mut sw_to_ne_cut = Vec::with_capacity(squares * squares);
+    let mut triangles = Vec::with_capacity(2 * squares * squares);
+    let mut holes = Vec::with_capacity(squares * squares);
+    for i in 0..squares {
+        for j in 0..squares {
+            // LINT-OK: index arithmetic bounded by the squares of one block.
+            let cut = (spec.split)(gx_base + i32_of(i), gy_base + i32_of(j));
+            sw_to_ne_cut.push(cut);
+            for tri in cell_triangles(svc, i, j, cut) {
+                let [a, b, c] = tri;
+                triangles.push(LandTriangle {
+                    v: tri,
+                    plane: make_plane(
+                        vertices[a as usize],
+                        vertices[b as usize],
+                        vertices[c as usize],
+                    ),
+                });
+            }
+            let hole = hole_vertices.is_some_and(|marks| {
+                let (x0, y0) = (i * step, j * step);
+                [
+                    (x0, y0),
+                    (x0 + step, y0),
+                    (x0, y0 + step),
+                    (x0 + step, y0 + step),
+                ]
+                .iter()
+                .any(|&(x, y)| marks[x * full_side + y])
+            });
+            holes.push(hole);
+        }
+    }
+    LandGeometry {
+        squares_per_side: squares,
+        vertices_per_side: svc,
+        vertices,
+        sw_to_ne_cut,
+        triangles,
+        holes,
+    }
 }
 
 /// for the three-vertex case.
@@ -359,50 +513,57 @@ pub fn generate_landblock_with_table(
         _ => 8,
     };
     let svc = side_cell_count + 1;
-    let vertices = construct_vertices(&lb.height, side_cell_count, table);
+    // The geometry is the shared core's on the default grid, where a land cell is one square, so
+    // its squares are the cells below in the same order.
+    let geometry = land_geometry(
+        &TerrainSpec::DEFAULT,
+        &lb.height,
+        table,
+        block_x,
+        block_y,
+        side_cell_count,
+        None,
+    );
+    debug_assert_eq!(geometry.vertices_per_side, svc);
 
     // The polygon construction interleaved with the UV construction and the cell rotation: the
     // client runs them as three passes over the same cells, and the
     // per-cell results are independent, so one pass produces identical output.
-    let (gx_base, gy_base) = (block_x * 8, block_y * 8);
-    let mut cuts = Vec::with_capacity(side_cell_count * side_cell_count);
     let mut polygons = Vec::with_capacity(2 * side_cell_count * side_cell_count);
     let mut cell_keys = Vec::with_capacity(side_cell_count * side_cell_count);
     for i in 0..side_cell_count {
         for j in 0..side_cell_count {
-            // LINT-OK: index arithmetic, both bounded by the 8x8 cell grid.
-            let (gx, gy) = (gx_base + i32_of(i), gy_base + i32_of(j));
-            let cut = sw_to_ne_cut(gx, gy);
-            cuts.push(cut);
+            let n = i * side_cell_count + j;
+            let cut = geometry.sw_to_ne_cut[n];
 
             let (key, rot, uniform) =
                 crate::land::merge::cell_rotation(lb, region, side_cell_count, i, j);
             cell_keys.push((key, rot));
 
-            let tris = cell_triangles(svc, i, j, cut);
             let uvs = cell_uv_indices(cut, rot);
             // UV construction sets `pos_surface` to the resolved land-surface index.
             // The array is per-region and installed for each block draw; first use allocates the
             // index. This crate carries the merge key instead and lets the compositor own
             // the index, so `surface` here is the cell's slot within the block's key list.
             // LINT-OK: index arithmetic, bounded by the 8x8 cell grid.
-            let surface = u16_of(i * side_cell_count + j);
-            for k in 0..2 {
-                let [a, b, c] = tris[k];
+            let surface = u16_of(n);
+            for (k, uv_indices) in uvs.into_iter().enumerate() {
+                let tri = geometry.triangles[2 * n + k];
                 polygons.push(LandPolygon {
-                    v: [a, b, c],
-                    plane: make_plane(
-                        vertices[a as usize],
-                        vertices[b as usize],
-                        vertices[c as usize],
-                    ),
+                    v: tri.v,
+                    plane: tri.plane,
                     surface,
-                    uv_indices: uvs[k],
+                    uv_indices,
                     stippling: if uniform { BOTH_STIPPLING } else { 0 },
                 });
             }
         }
     }
+    let LandGeometry {
+        vertices,
+        sw_to_ne_cut: cuts,
+        ..
+    } = geometry;
 
     let (cell_water, water_type) = calc_water(&lb.terrain, side_cell_count);
 
@@ -606,6 +767,227 @@ mod tests {
             "the bad entry and everything after it keeps the old value"
         );
         assert_eq!(out[255], 7.0);
+    }
+
+    /// A deterministic height byte for global vertex `(x, y)`: the tests' landscape, the same
+    /// whichever block reads it.
+    fn global_height(x: i32, y: i32) -> u8 {
+        let v = (x as u32)
+            .wrapping_mul(0x9E37_79B1)
+            .wrapping_add((y as u32).wrapping_mul(0x85EB_CA6B))
+            .rotate_left(13)
+            .wrapping_mul(0xC2B2_AE35);
+        (v >> 24) as u8
+    }
+
+    /// A height table that is not the identity, so a wrong index shows.
+    fn ramp_table() -> [f32; LAND_HEIGHT_TABLE_LEN] {
+        let mut t = [0.0f32; LAND_HEIGHT_TABLE_LEN];
+        for (i, v) in t.iter_mut().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                *v = (i * i) as f32 * 0.03 + i as f32 * 0.5;
+            }
+        }
+        t
+    }
+
+    /// The heights of block `(bx, by)` on `grid`, read from the global landscape.
+    fn block_heights(grid: &LandGrid, bx: i32, by: i32) -> Vec<u8> {
+        let n = grid.vertices_per_side();
+        let per = grid.squares_per_side() as i32;
+        let mut h = Vec::with_capacity(n * n);
+        for x in 0..n {
+            for y in 0..n {
+                h.push(global_height(bx * per + x as i32, by * per + y as i32));
+            }
+        }
+        h
+    }
+
+    /// The default spec builds what the default world always built: an independent
+    /// transcription of the nine-by-nine rules (`x = i * 192 / n`, the height at
+    /// `i*step*9 + j*step`, the split hash of the block's cell coordinates, the triangle table)
+    /// agrees with the shared core vertex for vertex and triangle for triangle, at every detail.
+    ///
+    /// Behaviour: world.terrain.the-default-terrain-spec-builds-the-default-landblock
+    #[test]
+    fn the_default_terrain_spec_builds_the_default_landblock() {
+        let table = ramp_table();
+        for (bx, by) in [(0, 0), (0x12, 0x5A), (0xA9, 0xB4), (0xFE, 0xFE)] {
+            let height = block_heights(&LandGrid::DEFAULT, bx, by);
+            for side in [8usize, 4, 2, 1] {
+                let g = land_geometry(&TerrainSpec::DEFAULT, &height, &table, bx, by, side, None);
+                let scale = 192.0 / side as f32;
+                let step = 8 / side;
+                let svc = side + 1;
+                assert_eq!(g.vertices_per_side, svc);
+                assert_eq!(g.squares_per_side, side);
+                for i in 0..svc {
+                    for j in 0..svc {
+                        let want = Vec3::new(
+                            i as f32 * scale,
+                            j as f32 * scale,
+                            table[height[i * step * 9 + j * step] as usize],
+                        );
+                        assert_eq!(
+                            g.vertices[i * svc + j],
+                            want,
+                            "({bx},{by}) {side} ({i},{j})"
+                        );
+                    }
+                }
+                for i in 0..side {
+                    for j in 0..side {
+                        let n = i * side + j;
+                        let cut = sw_to_ne_cut(bx * 8 + i as i32, by * 8 + j as i32);
+                        assert_eq!(g.sw_to_ne_cut[n], cut);
+                        let tris = cell_triangles(svc, i, j, cut);
+                        for (k, tri) in tris.into_iter().enumerate() {
+                            let [a, b, c] = tri;
+                            assert_eq!(g.triangles[2 * n + k].v, tri);
+                            assert_eq!(
+                                g.triangles[2 * n + k].plane,
+                                make_plane(
+                                    g.vertices[a as usize],
+                                    g.vertices[b as usize],
+                                    g.vertices[c as usize]
+                                )
+                            );
+                        }
+                    }
+                }
+                assert!(g.holes.iter().all(|&h| !h));
+            }
+        }
+    }
+
+    /// Two-step grid used by the tests below: 160-unit blocks of 20-unit cells, a vertex every 10.
+    const TWO_STEP: LandGrid = LandGrid {
+        cell_length: 20.0,
+        cells_per_side: 8,
+        vertices_per_cell: 2,
+    };
+
+    /// A split that depends only on its global square coordinates and is easy to predict.
+    fn checker_split(x: i32, y: i32) -> bool {
+        (x + 3 * y).rem_euclid(5) < 2
+    }
+
+    /// On a grid of another shape, a block and its east and north neighbors agree on every vertex
+    /// of the edge they share: the same position in the world and the same height, so the
+    /// terrain has no crack. Every square is split as the spec's function of its global square
+    /// coordinates says, and every plane faces up.
+    ///
+    /// Behaviour: world.terrain.neighbouring-blocks-share-their-edge-on-any-grid
+    #[test]
+    fn neighbouring_blocks_share_their_edge_on_a_two_step_grid() {
+        let spec = TerrainSpec {
+            grid: TWO_STEP,
+            split: checker_split,
+            height_max: 1800.0,
+        };
+        let table = ramp_table();
+        let n = TWO_STEP.vertices_per_side();
+        let len = TWO_STEP.block_length();
+        let build = |bx: i32, by: i32| {
+            let h = block_heights(&TWO_STEP, bx, by);
+            land_geometry(&spec, &h, &table, bx, by, 8, None)
+        };
+        let (a, east, north) = (build(40, 60), build(41, 60), build(40, 61));
+        assert_eq!(a.vertices.len(), 289);
+        assert_eq!(a.triangles.len(), 2 * 16 * 16);
+        for k in 0..n {
+            let (e_a, e_b) = (a.vertices[(n - 1) * n + k], east.vertices[k]);
+            assert_eq!(e_a.x, e_b.x + len, "east edge vertex {k}");
+            assert_eq!((e_a.y, e_a.z), (e_b.y, e_b.z), "east edge vertex {k}");
+            let (n_a, n_b) = (a.vertices[k * n + n - 1], north.vertices[k * n]);
+            assert_eq!(n_a.y, n_b.y + len, "north edge vertex {k}");
+            assert_eq!((n_a.x, n_a.z), (n_b.x, n_b.z), "north edge vertex {k}");
+        }
+        for i in 0..16 {
+            for j in 0..16 {
+                assert_eq!(
+                    a.sw_to_ne_cut[i * 16 + j],
+                    checker_split(40 * 16 + i as i32, 60 * 16 + j as i32)
+                );
+                assert_eq!(a.vertices[i * n + j].x, i as f32 * 10.0);
+            }
+        }
+        assert!(a.triangles.iter().all(|t| t.plane.normal.z > 0.0));
+    }
+
+    /// A vertex marked as a hole opens every square it is a corner of, and only those.
+    ///
+    /// Behaviour: world.terrain.a-marked-vertex-opens-a-hole-in-the-squares-it-touches
+    #[test]
+    fn a_marked_vertex_opens_a_hole_in_the_squares_it_touches() {
+        let spec = TerrainSpec {
+            grid: TWO_STEP,
+            split: checker_split,
+            height_max: 1800.0,
+        };
+        let h = block_heights(&TWO_STEP, 3, 4);
+        let mut marks = vec![false; TWO_STEP.vertex_count()];
+        marks[TWO_STEP.vertex_index(4, 6)] = true;
+        let g = land_geometry(&spec, &h, &ramp_table(), 3, 4, 8, Some(&marks));
+        let holes: Vec<(usize, usize)> = (0..16)
+            .flat_map(|i| (0..16).map(move |j| (i, j)))
+            .filter(|&(i, j)| g.holes[i * 16 + j])
+            .collect();
+        assert_eq!(holes, vec![(3, 5), (3, 6), (4, 5), (4, 6)]);
+        let none = land_geometry(&spec, &h, &ramp_table(), 3, 4, 8, None);
+        assert!(none.holes.iter().all(|&h| !h));
+        assert_eq!(none.triangles, g.triangles, "a hole changes no geometry");
+    }
+
+    /// At reduced detail a two-step grid keeps its two steps per cell and samples the full grid
+    /// every `cells_per_side / side_cell_count` vertices: half the cells, a vertex every 20 units.
+    ///
+    /// Behaviour: world.terrain.a-coarser-detail-samples-the-finer-grid
+    #[test]
+    fn a_coarser_detail_samples_the_finer_grid() {
+        let spec = TerrainSpec {
+            grid: TWO_STEP,
+            split: checker_split,
+            height_max: 1800.0,
+        };
+        let h = block_heights(&TWO_STEP, 9, 2);
+        let table = ramp_table();
+        let g = land_geometry(&spec, &h, &table, 9, 2, 4, None);
+        assert_eq!(g.squares_per_side, 8);
+        assert_eq!(g.vertices_per_side, 9);
+        for i in 0..9 {
+            for j in 0..9 {
+                let v = g.vertices[i * 9 + j];
+                assert_eq!((v.x, v.y), (i as f32 * 20.0, j as f32 * 20.0));
+                assert_eq!(v.z, table[h[TWO_STEP.vertex_index(2 * i, 2 * j)] as usize]);
+            }
+        }
+    }
+
+    /// The height table's upper bound is a setting: a table bounded at 1800 accepts 1500 and stops
+    /// at the first entry above 1800, keeping the previous values from there on, exactly as the
+    /// default bound of 800 does.
+    ///
+    /// Behaviour: world.terrain.the-height-table-bound-is-a-setting
+    #[test]
+    fn the_height_table_bound_is_a_setting() {
+        let previous = [7.0f32; LAND_HEIGHT_TABLE_LEN];
+        let mut candidate = vec![0.0f32; LAND_HEIGHT_TABLE_LEN];
+        candidate[3] = 1500.0;
+        candidate[4] = 1900.0;
+        let out = set_height_table_within(&candidate, &previous, 1800.0);
+        assert_eq!(out[3], 1500.0);
+        assert_eq!(out[4], 7.0);
+        assert_eq!(out[255], 7.0);
+        let default = set_height_table(&candidate, &previous);
+        assert_eq!(default[2], 0.0);
+        assert_eq!(default[3], 7.0, "the default bound is 800");
+        assert_eq!(
+            set_height_table(&candidate, &previous),
+            set_height_table_within(&candidate, &previous, TerrainSpec::DEFAULT.height_max)
+        );
     }
 
     /// Oracle: `make_plane`'s winding contract: with +x east and +y north this winding is

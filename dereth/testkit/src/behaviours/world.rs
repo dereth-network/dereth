@@ -10,7 +10,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -1858,6 +1858,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "world.streaming.a-full-detail-window-keeps-every-block-at-full-detail",
+        says: "A landblock window set to full detail, with blocks of any length, asks for every block at \
+               full detail and unstitched, spaces the blocks by its own length, and scrolls the \
+               same blocks in and out as the ringed window does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-WINDOW-FULL"),
+        station: "dereth-landscape::lib::window::tests::a_full_detail_window_of_another_block_length_scrolls_like_the_ringed_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.streaming.the-crossing-frame-draws-body-and-camera-in-the-new-block",
         says: "On the frame the player crosses into a new landblock, the body's parts and the \
                chase camera are already placed in the new block's space, exactly where the \
@@ -1866,6 +1876,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O387-STREAMING"),
         station: "dereth-client::dat::world::landblock_recentre::a_crossing_frame_places_the_body_and_the_camera_in_the_block_it_moved_to",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "world.streaming.the-default-window-is-four-rings-of-full-length-blocks",
+        says: "The landblock window's default settings are the world's own: blocks 192 units long, in \
+               four rings of detail around the viewer's block, exactly as before the window \
+               took settings.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LAND-WINDOW-DEFAULT"),
+        station: "dereth-landscape::lib::window::tests::the_default_spec_is_the_ringed_window",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "world.streaming.the-landblock-window-follows-the-viewer",
@@ -1927,6 +1947,82 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-TELEPORT-TELEPORT"),
         station: "dereth-client::gpu::world::portal_tunnel_view::the_tunnel_takes_the_world_off_the_screen_and_leaves_the_opaque_hud_alone",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "world.terrain.a-coarser-detail-samples-the-finer-grid",
+        says: "Terrain built at a coarser detail on a grid with two vertex steps per land cell keeps two \
+               steps per cell and takes every other height of the full grid.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-DETAIL"),
+        station: "dereth-terrain::lib::land::mesh::tests::a_coarser_detail_samples_the_finer_grid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.a-grid-of-another-shape-derives-its-own-block",
+        says: "A landscape grid of another shape derives its own block: 20-unit cells cut in two give \
+               160-unit blocks of 17 by 17 vertices ten units apart.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-GRID-SHAPE"),
+        station: "dereth-landscape::lib::grid::tests::a_grid_with_two_steps_per_cell_has_a_vertex_mid_cell",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.a-marked-vertex-opens-a-hole-in-the-squares-it-touches",
+        says: "A terrain vertex marked as a hole opens a hole in each of the four squares it is a corner \
+               of and in no other, without moving any of the ground around it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-HOLES"),
+        station: "dereth-terrain::lib::land::mesh::tests::a_marked_vertex_opens_a_hole_in_the_squares_it_touches",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.neighbouring-blocks-share-their-edge-on-any-grid",
+        says: "On a landscape grid of any shape, a landblock and its east and north neighbors put every \
+               vertex of their shared edge at the same place and height, so the ground has no \
+               crack, and each square is split the way its world position says.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-EDGES"),
+        station: "dereth-terrain::lib::land::mesh::tests::neighbouring_blocks_share_their_edge_on_a_two_step_grid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.the-default-grid-is-nine-vertices-to-a-block-side",
+        says: "The world's landscape grid is eight 24-unit land cells to a 192-unit landblock side, with a \
+               vertex at every cell corner: nine to a side, numbered column by column.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LAND-GRID-DEFAULT"),
+        station: "dereth-landscape::lib::grid::tests::the_default_grid_is_nine_vertices_to_a_192_unit_block",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.the-default-terrain-spec-builds-the-default-landblock",
+        says: "The shared terrain builder with the world's own settings builds every landblock as the \
+               world always has, at every level of detail: the same vertices, the same diagonal \
+               in every cell and the same triangles.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-DEFAULT"),
+        station: "dereth-terrain::lib::land::mesh::tests::the_default_terrain_spec_builds_the_default_landblock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.the-height-table-bound-is-a-setting",
+        says: "The highest height the terrain's height table accepts is a setting: a table bounded higher \
+               accepts taller entries and stops at the first one above its bound, as the world's \
+               own bound of 800 does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-TERRAIN-HEIGHT-BOUND"),
+        station: "dereth-terrain::lib::land::mesh::tests::the_height_table_bound_is_a_setting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.terrain.the-road-table-scales-with-its-square-and-road-width",
+        says: "Whether a point is on the road is the same sixteen-case test on a square of any size and a \
+               road of any width: a smaller square with a narrower road answers as the world's \
+               own does at the same point scaled up.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-LAND-ROAD-SCALE"),
+        station: "dereth-terrain::lib::road::tests::the_road_table_scales_with_its_square_and_road_width",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "world.viewpoint.the-cell-decision-reads-last-frames-sweep",

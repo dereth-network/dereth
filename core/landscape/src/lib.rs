@@ -8,16 +8,20 @@
 //! **Must never** draw, read a file or know about a device: it is index arithmetic over the
 //! window's own slots, and a slot's geometry is the caller's own type.
 //!
-//! The window is `mid_width² = (2·mid_radius+1)²` landblocks centred on the viewer's block. Each
-//! block is kept at one of four levels of detail chosen by its ring (its Chebyshev distance from
-//! the viewer's block), and the blocks on the rings where the detail halves are stitched toward the
-//! finer ring so the two meshes meet without a crack.
+//! The window is `mid_width² = (2·mid_radius+1)²` landblocks centred on the viewer's block. By
+//! default each block is kept at one of four levels of detail chosen by its ring (its Chebyshev
+//! distance from the viewer's block), and the blocks on the rings where the detail halves are
+//! stitched toward the finer ring so the two meshes meet without a crack. A window can instead
+//! keep every block at full detail ([`Detail::Full`]), and its block length is a setting
+//! ([`WindowSpec`]); the grid a block is cut into is [`LandGrid`].
 
 #![forbid(unsafe_code)]
 
+pub mod grid;
 pub mod window;
 
-pub use window::{LandblockWindow, SlotAction, WindowSlot};
+pub use grid::LandGrid;
+pub use window::{Detail, LandblockWindow, SlotAction, WindowSlot, WindowSpec};
 
 /// A landblock side, in world units.
 pub const BLOCK_LENGTH: f32 = 192.0;
