@@ -50,10 +50,6 @@ pub struct InputFrame {
     /// The game's actions this frame that belong to the interface (a shortcut key, a window's
     /// key, logging out), as the action map numbers them.
     pub actions: Vec<u32>,
-    /// The spell keys the game raised this frame.
-    pub magic: Vec<dereth_client_contract::view::MagicNotice>,
-    /// Whether the player is off the ground, which refuses a log-off.
-    pub airborne: bool,
     /// This frame's left press is the second of a double-click.
     pub double: bool,
     /// The last left press: when (milliseconds) and where, for telling a double-click.
@@ -166,7 +162,6 @@ impl InputFrame {
         self.text_focus = false;
         self.paste = None;
         self.actions.clear();
-        self.magic.clear();
         self.double = false;
         self.pad.fired.clear();
         self.pad.confirm = false;

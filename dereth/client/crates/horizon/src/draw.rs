@@ -65,8 +65,8 @@ impl Overlay {
         portal: bool,
         spaces: &[(PreviewSpace, Rect, usize)],
     ) {
-        self.0
-            .compose(&mut Sink(present), art, list, portal, spaces);
+        let under = portal.then_some(PreviewSpace::Portal);
+        self.0.compose(&mut Sink(present), art, list, under, spaces);
     }
 
     /// Let go of every picture uploaded, as a new set of art (the files read again) replaces

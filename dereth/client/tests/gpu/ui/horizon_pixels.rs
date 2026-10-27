@@ -112,6 +112,8 @@ fn window(
         },
         drag: &mut drag,
         drops: Vec::new(),
+        magic: Vec::new(),
+        airborne: false,
     };
     let mut state = WindowState {
         open: true,

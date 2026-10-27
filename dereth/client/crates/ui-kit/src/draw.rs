@@ -500,8 +500,8 @@ impl Overlay {
     }
 
     /// Turn `list` into this frame's batches, uploading every picture it names that is not
-    /// uploaded yet, and letting go of every picture the art let go. `portal` puts the portal
-    /// space under everything, over the whole screen; `spaces` are other preview spaces, each
+    /// uploaded yet, and letting go of every picture the art let go. `under` is a preview space
+    /// drawn under everything, over the whole screen; `spaces` are other preview spaces, each
     /// drawn into its rectangle over the first `n` quads of the list and under the rest (`0`
     /// puts it under the whole interface). Outside the frame bracket.
     pub fn compose<S: TextureSink + ?Sized>(
@@ -509,7 +509,7 @@ impl Overlay {
         sink: &mut S,
         art: &Art,
         list: &DrawList,
-        portal: bool,
+        under: Option<PreviewSpace>,
         spaces: &[(PreviewSpace, Rect, usize)],
     ) {
         for id in art.take_forgotten() {
@@ -526,9 +526,9 @@ impl Overlay {
         }
         let size = sink.size();
         self.items.clear();
-        if portal {
+        if let Some(space) = under {
             self.items.push(OverlayItem::Preview {
-                space: PreviewSpace::Portal,
+                space,
                 rect: Viewport {
                     x: 0,
                     y: 0,
@@ -965,12 +965,56 @@ mod tests {
         let (mut a, mut b) = (Sink::default(), Sink::default());
         let mut one = Overlay::new(0x1100_0000_0000_0000);
         let mut two = Overlay::new(0x2200_0000_0000_0000);
-        one.compose(&mut a, &art, &list, false, &[]);
-        two.compose(&mut b, &art, &list, false, &[]);
+        one.compose(&mut a, &art, &list, None, &[]);
+        two.compose(&mut b, &art, &list, None, &[]);
         assert_eq!(a.live.len(), 2, "the picture and the white texel");
         assert!(a.live.is_disjoint(&b.live));
         art.forget_image(id);
-        one.compose(&mut a, &art, &DrawList::default(), false, &[]);
+        one.compose(&mut a, &art, &DrawList::default(), None, &[]);
         assert_eq!(a.live.len(), 1, "only the white texel is left");
+    }
+
+    /// Behaviour: none (the kit's overlay takes the space drawn under it; an API contract).
+    /// The preview space the caller names is drawn first, over the whole screen, under every quad
+    /// and every other space; naming none draws none.
+    #[test]
+    fn the_space_named_to_go_under_everything_is_drawn_first_over_the_whole_screen() {
+        let art = Art::empty();
+        let mut list = DrawList::default();
+        list.fill(Rect::new(1.0, 1.0, 4.0, 4.0), WHITE);
+        let mut sink = Sink::default();
+        let mut overlay = Overlay::new(0x1100_0000_0000_0000);
+        let other = (PreviewSpace::Examine, Rect::new(2.0, 2.0, 10.0, 10.0), 0);
+        overlay.compose(&mut sink, &art, &list, Some(PreviewSpace::Tool), &[other]);
+        let spaces: Vec<(PreviewSpace, Viewport)> = overlay
+            .items()
+            .iter()
+            .filter_map(|i| match i {
+                OverlayItem::Preview { space, rect } => Some((*space, *rect)),
+                OverlayItem::Triangles { .. } => None,
+            })
+            .collect();
+        assert!(matches!(
+            overlay.items().first(),
+            Some(OverlayItem::Preview {
+                space: PreviewSpace::Tool,
+                ..
+            })
+        ));
+        assert_eq!(
+            spaces[0].1,
+            Viewport {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64
+            }
+        );
+        assert_eq!(spaces[1].0, PreviewSpace::Examine);
+        overlay.compose(&mut sink, &art, &list, None, &[]);
+        assert!(overlay
+            .items()
+            .iter()
+            .all(|i| matches!(i, OverlayItem::Triangles { .. })));
     }
 }

@@ -472,12 +472,12 @@ impl HorizonFrontEnd {
 
     /// The magic notices, for the spellbook.
     pub fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>) {
-        self.frame_input.magic.extend(notices);
+        self.ui.magic_notices.extend(notices);
     }
 
     /// Whether the player is in the air, for the log-out question.
     pub fn before_ui_input(&mut self, player_airborne: bool) {
-        self.frame_input.airborne = player_airborne;
+        self.ui.airborne = player_airborne;
     }
 
     /// The power bar's charge as the HUD draws it, while it is up.

@@ -163,6 +163,10 @@ pub struct HorizonUi {
     /// Where the plugin host's question's buttons were drawn last frame, first to last; none
     /// while it asks nothing.
     pub host_buttons: Vec<crate::draw::Rect>,
+    /// The spell keys the game raised since the last frame, which the next frame's widgets see.
+    pub magic_notices: Vec<dereth_client_contract::view::MagicNotice>,
+    /// Whether the player is off the ground, which refuses a log-off.
+    pub airborne: bool,
 }
 
 impl HorizonUi {
@@ -195,6 +199,8 @@ impl HorizonUi {
             said: 0,
             drag: None,
             host_buttons: Vec::new(),
+            magic_notices: Vec::new(),
+            airborne: false,
         }
     }
 
@@ -285,6 +291,8 @@ impl HorizonUi {
             },
             drag: &mut self.drag,
             drops: Vec::new(),
+            magic: std::mem::take(&mut self.magic_notices),
+            airborne: self.airborne,
         };
         // The plugin host's own windows (the plugin panel) and its dialog for a file take the
         // presses on them: nothing under them takes one first. While the dialog is up, Escape is

@@ -342,8 +342,7 @@ fn a_spell_tab_longer_than_the_bar_is_paged_and_the_slot_keys_cast_from_the_page
         "the second page"
     );
     // The first slot's key casts the page's first spell, the tab's thirteenth.
-    h.input
-        .magic
+    h.ui.magic_notices
         .push(dereth_client_contract::view::MagicNotice::CastQuickslotSpell { slot: 0 });
     let cast = h.frame(&state);
     assert_eq!(cast.requests, vec![UiRequest::CastSpell { spell_id: 112 }]);

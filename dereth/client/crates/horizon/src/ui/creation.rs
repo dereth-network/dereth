@@ -1691,6 +1691,8 @@ pub(crate) mod tests {
             },
             drag: &mut drag,
             drops: Vec::new(),
+            magic: Vec::new(),
+            airborne: false,
         };
         c.turn(&mut p, &mut ctx, Rect::new(100.0, 100.0, 200.0, 400.0));
         input.next_frame();

@@ -9,8 +9,7 @@ publish = false
 
 [dependencies]
 dereth-primitives.workspace = true
-# The overlay the draw lists are lowered to, and the game's spell notices an interface's input
-# carries.
+# The overlay the draw lists are lowered to.
 dereth-client-contract.workspace = true
 tracing.workspace = true
 # A skin's pieces: their manifest, their atlases and their font table.

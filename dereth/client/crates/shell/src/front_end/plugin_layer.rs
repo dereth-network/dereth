@@ -319,7 +319,7 @@ impl LayerHost {
         let overlay = self.overlay.get_or_insert_with(|| Overlay::new(KEY_BASE));
         let mut sink = Sink(cx.present_mut());
         let mut compose = |list: &DrawList| {
-            overlay.compose(&mut sink, &art, list, false, &[]);
+            overlay.compose(&mut sink, &art, list, None, &[]);
             overlay.items().to_vec()
         };
         self.slices = Slices {

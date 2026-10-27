@@ -324,7 +324,7 @@ impl Hud {
             }
         }
         let tabs = state.spell_tabs.len().max(1);
-        for notice in std::mem::take(&mut ctx.input.magic) {
+        for notice in std::mem::take(&mut ctx.magic) {
             use dereth_client_contract::view::MagicNotice as M;
             let tab_len = state.spell_tabs.get(self.spell_tab).map_or(0, Vec::len);
             match notice {
@@ -413,7 +413,7 @@ impl Hud {
 
     /// Log out, as the game asks it: refused in the air, and otherwise a question first.
     fn ask_log_out(&mut self, ctx: &Ctx<'_>) {
-        if ctx.input.airborne {
+        if ctx.airborne {
             push_notice(&mut self.notices, AIRBORNE_REFUSAL, ctx.time);
         } else {
             self.log_out_asked = true;

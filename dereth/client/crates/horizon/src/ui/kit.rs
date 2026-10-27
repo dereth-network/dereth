@@ -7,8 +7,8 @@ use crate::ui::paint::Painter;
 
 pub use dereth_ui_kit::widgets::*;
 
-/// The per-frame context every widget is drawn with: the kit's, and the drag and drop the
-/// interface keeps beside it.
+/// The per-frame context every widget is drawn with: the kit's, and the drag and drop and the
+/// game's notices the interface keeps beside it.
 #[derive(Debug)]
 pub struct Ctx<'a> {
     /// The kit's share: the time, the input, the colours and whether the pointer is over a
@@ -20,6 +20,10 @@ pub struct Ctx<'a> {
     /// `None` for a window that takes the drop and does nothing with it. The last one drawn
     /// under the pointer wins.
     pub drops: Vec<(Rect, Option<Drop>)>,
+    /// The spell keys the game raised since the last frame.
+    pub magic: Vec<dereth_client_contract::view::MagicNotice>,
+    /// Whether the player is off the ground, which refuses a log-off.
+    pub airborne: bool,
 }
 
 impl<'a> std::ops::Deref for Ctx<'a> {
