@@ -1171,6 +1171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-decal-host"
+version = "0.1.0"
+dependencies = [
+ "dereth-client-sdk",
+ "dereth-headless",
+ "dereth-launch",
+ "dereth-testkit",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "dereth-desktop"
 version = "0.0.0"
 dependencies = [

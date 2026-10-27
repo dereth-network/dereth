@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Decal plugin that runs Dereth's plugins in the retail client: .NET Framework 4.8, 32-bit,
+       as the game's process is. It compiles against the Decal assemblies in the folder
+       -p:DecalDirectory names (the player's Decal 3.0 folder holds Decal.Adapter.dll and the interop
+       assemblies). Its output folder is what install.ps1 installs: the plugin, the host library
+       (dereth_decal_host.dll, the dereth-decal-host crate built for i686-pc-windows-msvc, from the
+       workspace's release build unless -p:HostLibrary names another) and the plugins that come with
+       Dereth. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>Dereth.Decal</AssemblyName>
+    <RootNamespace>Dereth.Decal</RootNamespace>
+    <Version>0.1.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <PropertyGroup>
+    <DecalFolder Condition="'$(DecalDirectory)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(DecalDirectory)'))'))</DecalFolder>
+    <HostLibraryFile Condition="'$(HostLibrary)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(HostLibrary)'))'))</HostLibraryFile>
+    <HostLibraryFile Condition="'$(HostLibrary)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../../target/i686-pc-windows-msvc/release/dereth_decal_host.dll'))</HostLibraryFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="Decal.Adapter"><HintPath>$(DecalFolder)/Decal.Adapter.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Decal.Interop.Core" Condition="Exists('$(DecalFolder)/Decal.Interop.Core.dll')"><HintPath>$(DecalFolder)/Decal.Interop.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Decal.Interop.D3DService" Condition="Exists('$(DecalFolder)/Decal.Interop.D3DService.dll')"><HintPath>$(DecalFolder)/Decal.Interop.D3DService.dll</HintPath><Private>false</Private></Reference>
+    <Compile Include="Core/**/*.cs" />
+    <Compile Include="Decal/**/*.cs" />
+    <None Include="../../../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(HostLibraryFile)" Condition="Exists('$(HostLibraryFile)')" Link="dereth_decal_host.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../plugins/**/*" Link="plugins/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CheckDecalDirectory" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(DecalFolder)/Decal.Adapter.dll')" Text="Set -p:DecalDirectory to the folder that holds Decal.Adapter.dll (your Decal 3.0 folder)." />
+    <Error Condition="!Exists('$(HostLibraryFile)')" Text="There is no host library at $(HostLibraryFile): build it with cargo build --release -p dereth-decal-host --target i686-pc-windows-msvc, or name it with -p:HostLibrary." />
+  </Target>
+</Project>

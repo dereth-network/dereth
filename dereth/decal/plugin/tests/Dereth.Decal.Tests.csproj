@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The plugin's Decal-free sources, tested in a 32-bit .NET Framework process as the game runs
+       them, with no Decal and no game: fakes stand for Decal's calls, views and 3-D objects. The
+       host library is the dereth-decal-host crate built for i686-pc-windows-msvc, named by
+       -p:HostLibrary (the release build's, in the workspace's target folder, when not named); its
+       tests replay the workspace's recorded sessions through it. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>Dereth.Decal.Tests</AssemblyName>
+    <RootNamespace>Dereth.Decal.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Workspace>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../..'))</Workspace>
+    <HostLibraryFile Condition="'$(HostLibrary)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(HostLibrary)'))'))</HostLibraryFile>
+    <HostLibraryFile Condition="'$(HostLibrary)' == ''">$(Workspace)/target/i686-pc-windows-msvc/release/dereth_decal_host.dll</HostLibraryFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.6.1" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.6.1" />
+    <Reference Include="System.Drawing" />
+    <Compile Include="../Dereth.Decal/Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="$(HostLibraryFile)" Condition="Exists('$(HostLibraryFile)')" Link="dereth_decal_host.dll" CopyToOutputDirectory="PreserveNewest" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>Workspace</_Parameter1>
+      <_Parameter2>$(Workspace)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

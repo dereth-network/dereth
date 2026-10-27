@@ -478,11 +478,19 @@ impl Shelf {
     /// The shelf in `dir` (the launcher's `plugins` data folder), for a client of API version
     /// [`ApiVersion::CURRENT`]: Dereth's own source and nothing installed when the folder holds
     /// nothing yet. A file that does not read is treated as empty and replaced at the next change.
+    /// An earlier launcher's list is dropped.
     #[must_use]
     pub fn open(dir: impl Into<PathBuf>) -> Self {
-        let shelf = Self::load(Folder::new(dir));
+        let shelf = Self::read(dir);
         shelf.drop_old_list();
         shelf
+    }
+
+    /// The shelf in `dir` as [`Shelf::open`] finds it, changing nothing on disk: for a program
+    /// other than the launcher that finds the plugins the launcher installed.
+    #[must_use]
+    pub fn read(dir: impl Into<PathBuf>) -> Self {
+        Self::load(Folder::new(dir))
     }
 
     /// Drop an earlier launcher's list of plugins installed from a zip's address, and their

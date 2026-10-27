@@ -1,0 +1,47 @@
+[package]
+name = "dereth-decal-host"
+description = "Dereth's plugins inside the retail client, as a library with a C interface that a Decal plugin loads."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[lib]
+# The DLL the Decal plugin loads (built for i686-pc-windows-msvc, the retail client's own
+# architecture), and the library its tests drive.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The client crates, as the headless client takes them: the model, the session, the plugin host
+# and its two engines. The same features the headless client turns on, so building this crate
+# changes no other crate's build.
+dereth-client-sdk = { workspace = true, features = ["lua", "wasm-interpreter"] }
+# Plugin packages read from folders, stores and data folders kept in files, and the bus between
+# clients on one machine, as the headless client keeps them.
+dereth-headless.workspace = true
+# The plugins the launcher installed: its folders and its list, as the launcher itself finds them
+# and hands them to the Dereth client.
+dereth-launch.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# Dereth's own conformance driver, to run the same plugin over the same recording in both hosts.
+dereth-testkit.workspace = true
+toml.workspace = true
+# A plugin source's list, for installing plugins through the launcher's own install.
+dereth-launch = { workspace = true, features = ["testing"] }
+
+[lints.rust]
+# The C interface takes pointers from its caller; every unsafe block is in `ffi.rs`.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

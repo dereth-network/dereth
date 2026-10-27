@@ -24,6 +24,7 @@ off (**Turn off**, or `/plugin off <id>`). Its windows start closed: open them f
 | the launcher, for the desktop client | installed one by one from plugin sources: Dereth's own, and the ones you add | from each plugin's own source: when you press **Update**, or on their own as the update setting says |
 | the desktop client | its settings folder's `plugins` folder, the launcher's installs, and the plugins beside the program; each `--plugins` folder loads whatever the setting says | replace the folder or zip; `/plugin reload <id>`, or `--plugin-dev` |
 | the browser client | the folders and zips the player added on the start page, and the plugins installed there from plugin sources: Dereth's own, and the ones you add | as the launcher does, on the start page; a folder or zip you added: add it again |
+| the retail client, through Decal | the desktop client's `plugins` folder, the launcher's installs, and the plugins beside Dereth Plugins, each off until turned on in its plugin panel | as the desktop client |
 | the headless client | each `--plugins` folder or zip, and `plugin load` in a script, loaded as named | the next run reads the files afresh |
 
 ## Dereth's plugins

@@ -61,6 +61,10 @@ members = [
     "dereth/client/crates/plugin-ui",
     "dereth/client/crates/ui-kit",
     "dereth/headless",
+    # Dereth's plugins inside the retail client: the plugin host as a 32-bit Windows library with a
+    # C interface, which a Decal plugin (dereth/decal/plugin, C#) loads. Shipped built for
+    # i686-pc-windows-msvc, tested on the host too; nothing else depends on it.
+    "dereth/decal/host",
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
     "dereth/web",

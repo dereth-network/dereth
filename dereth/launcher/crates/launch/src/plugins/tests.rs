@@ -600,6 +600,34 @@ fn an_earlier_launchers_list_of_zip_installs_is_dropped() {
 }
 
 #[test]
+fn another_program_reads_what_the_launcher_installed_and_changes_nothing_there() {
+    let dir = Scratch::new("read-only");
+    let mut shelf = with_other_source(&dir);
+    let meter = zip("org.example.meter", "1.0.0", "0.7", CHAT);
+    shelf
+        .record_read(OTHER, Ok(list(&[&meter])), 1)
+        .expect("recorded");
+    shelf
+        .install(OTHER, "org.example.meter", &meter)
+        .expect("installed");
+    let old = dir.0.join("dev.example.old");
+    std::fs::create_dir_all(&old).expect("folder");
+    std::fs::write(old.join("current.zip"), b"zip").expect("zip");
+    std::fs::write(
+        dir.0.join("plugins.json"),
+        br#"[{"id": "dev.example.old"}]"#,
+    )
+    .expect("old list");
+    let read = Shelf::read(&dir.0);
+    assert_eq!(read.offered_packages().len(), 1);
+    assert_eq!(read.offered_packages(), shelf.offered_packages());
+    assert!(
+        dir.0.join("plugins.json").is_file() && old.is_dir(),
+        "an earlier launcher's list is the launcher's to drop"
+    );
+}
+
+#[test]
 fn a_read_names_the_plugins_its_source_lists_that_the_last_read_did_not() {
     let dir = Scratch::new("new-in-source");
     let mut shelf = with_other_source(&dir);

@@ -1,0 +1,10 @@
+id = "test.probe"
+name = "Probe"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world", "pregame"]
+description = "Hears what a plugin hears of a session, and says it back as a digest of each kind of event."
+
+[permissions]
+"read.chat.private" = "Hears tells, to count them."

@@ -1,0 +1,10 @@
+id = "test.actor"
+name = "Actor"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "Does one thing each of its commands names, and says how each ended."
+
+[permissions]
+"chat.send" = "Says a line when asked."

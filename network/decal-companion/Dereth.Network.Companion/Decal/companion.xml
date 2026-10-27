@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<view icon="8723" title="Dereth Network" width="380" height="300">
+  <control progid="DecalControls.Notebook" name="tabs">
+    <page label="Status">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.StaticText" name="statusLine" left="5" top="5" width="365" height="16" text="" />
+        <control progid="DecalControls.PushButton" name="netOn" left="5" top="27" width="80" height="20" text="Join" />
+        <control progid="DecalControls.PushButton" name="netOff" left="90" top="27" width="80" height="20" text="Leave" />
+        <control progid="DecalControls.PushButton" name="statusRefresh" left="175" top="27" width="80" height="20" text="Refresh" />
+        <control progid="DecalControls.StaticText" name="pageLine" left="5" top="53" width="365" height="16" text="" />
+        <control progid="DecalControls.PushButton" name="link" left="5" top="75" width="110" height="20" text="Link to Discord" />
+        <control progid="DecalControls.PushButton" name="unlink" left="120" top="75" width="80" height="20" text="Unlink" />
+        <control progid="DecalControls.Edit" name="linkUrl" left="5" top="100" width="365" height="20" text="" />
+        <control progid="DecalControls.StaticText" name="linkNote" left="5" top="125" width="365" height="16" text="" />
+        <control progid="DecalControls.List" name="statusNote" left="5" top="147" width="365" height="40">
+          <column progid="DecalControls.TextColumn" name="noteText" fixedwidth="360" />
+        </control>
+        <control progid="DecalControls.List" name="policyNote" left="5" top="192" width="365" height="70">
+          <column progid="DecalControls.TextColumn" name="policyText" fixedwidth="360" />
+        </control>
+      </control>
+    </page>
+    <page label="Friends">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.List" name="friends" left="5" top="5" width="365" height="180">
+          <column progid="DecalControls.TextColumn" name="colFriendName" fixedwidth="150" />
+          <column progid="DecalControls.TextColumn" name="colFriendWorld" fixedwidth="115" />
+          <column progid="DecalControls.TextColumn" name="colFriendState" fixedwidth="90" />
+        </control>
+        <control progid="DecalControls.Edit" name="friendName" left="5" top="190" width="200" height="20" text="" />
+        <control progid="DecalControls.PushButton" name="friendAdd" left="210" top="190" width="70" height="20" text="Add" />
+        <control progid="DecalControls.PushButton" name="friendRemove" left="285" top="190" width="85" height="20" text="Remove" />
+        <control progid="DecalControls.PushButton" name="friendsRefresh" left="5" top="215" width="80" height="20" text="Refresh" />
+        <control progid="DecalControls.StaticText" name="friendsNote" left="90" top="218" width="280" height="16" text="" />
+      </control>
+    </page>
+    <page label="Channels">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.List" name="channels" left="5" top="5" width="180" height="90">
+          <column progid="DecalControls.TextColumn" name="channelCol" fixedwidth="175" />
+        </control>
+        <control progid="DecalControls.List" name="members" left="190" top="5" width="180" height="90">
+          <column progid="DecalControls.TextColumn" name="memberCol" fixedwidth="175" />
+        </control>
+        <control progid="DecalControls.Edit" name="channelName" left="5" top="100" width="120" height="20" text="" />
+        <control progid="DecalControls.PushButton" name="channelCreate" left="130" top="100" width="55" height="20" text="Make" />
+        <control progid="DecalControls.PushButton" name="channelJoin" left="190" top="100" width="55" height="20" text="Join" />
+        <control progid="DecalControls.PushButton" name="channelLeave" left="250" top="100" width="55" height="20" text="Leave" />
+        <control progid="DecalControls.PushButton" name="channelsRefresh" left="310" top="100" width="60" height="20" text="Refresh" />
+        <control progid="DecalControls.Edit" name="inviteName" left="5" top="125" width="180" height="20" text="" />
+        <control progid="DecalControls.PushButton" name="channelInvite" left="190" top="125" width="80" height="20" text="Invite" />
+        <control progid="DecalControls.List" name="invites" left="5" top="150" width="275" height="40">
+          <column progid="DecalControls.TextColumn" name="inviteChannel" fixedwidth="140" />
+          <column progid="DecalControls.TextColumn" name="inviteFrom" fixedwidth="130" />
+        </control>
+        <control progid="DecalControls.PushButton" name="inviteJoin" left="285" top="150" width="85" height="20" text="Accept" />
+        <control progid="DecalControls.List" name="channelLines" left="5" top="195" width="365" height="50">
+          <column progid="DecalControls.TextColumn" name="lineChannel" fixedwidth="90" />
+          <column progid="DecalControls.TextColumn" name="lineWho" fixedwidth="100" />
+          <column progid="DecalControls.TextColumn" name="lineText" fixedwidth="170" />
+        </control>
+        <control progid="DecalControls.StaticText" name="channelsNote" left="5" top="250" width="365" height="16" text="" />
+      </control>
+    </page>
+    <page label="Global">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.List" name="globalLines" left="5" top="5" width="365" height="200">
+          <column progid="DecalControls.TextColumn" name="globalWho" fixedwidth="120" />
+          <column progid="DecalControls.TextColumn" name="globalSaid" fixedwidth="240" />
+        </control>
+        <control progid="DecalControls.Edit" name="globalText" left="5" top="210" width="280" height="20" text="" />
+        <control progid="DecalControls.PushButton" name="globalSay" left="290" top="210" width="80" height="20" text="Say" />
+        <control progid="DecalControls.StaticText" name="globalNote" left="5" top="235" width="365" height="16" text="" />
+      </control>
+    </page>
+    <page label="Directory">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.Edit" name="searchText" left="5" top="5" width="280" height="20" text="" />
+        <control progid="DecalControls.PushButton" name="search" left="290" top="5" width="80" height="20" text="Search" />
+        <control progid="DecalControls.List" name="results" left="5" top="30" width="365" height="200">
+          <column progid="DecalControls.TextColumn" name="resultAddress" fixedwidth="185" />
+          <column progid="DecalControls.TextColumn" name="resultLevel" fixedwidth="45" />
+          <column progid="DecalControls.TextColumn" name="resultWorld" fixedwidth="130" />
+        </control>
+        <control progid="DecalControls.StaticText" name="searchNote" left="5" top="235" width="365" height="16" text="" />
+      </control>
+    </page>
+    <page label="Worlds">
+      <control progid="DecalControls.FixedLayout" clipped="">
+        <control progid="DecalControls.List" name="worlds" left="5" top="5" width="365" height="220">
+          <column progid="DecalControls.TextColumn" name="worldName" fixedwidth="170" />
+          <column progid="DecalControls.TextColumn" name="worldState" fixedwidth="80" />
+          <column progid="DecalControls.TextColumn" name="worldPlayers" fixedwidth="55" />
+          <column progid="DecalControls.TextColumn" name="worldNetwork" fixedwidth="55" />
+        </control>
+        <control progid="DecalControls.PushButton" name="worldsRefresh" left="5" top="230" width="80" height="20" text="Refresh" />
+        <control progid="DecalControls.StaticText" name="worldsNote" left="90" top="233" width="280" height="16" text="" />
+      </control>
+    </page>
+  </control>
+</view>

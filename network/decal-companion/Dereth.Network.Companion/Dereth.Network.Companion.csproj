@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Decal plugin: .NET Framework 4.8, 32-bit, as the game's process is. It compiles against
+       the Decal assemblies in the folder -p:DecalDirectory names (the player's Decal 3.0 folder holds
+       Decal.Adapter.dll; the interop assemblies are installed with Decal). -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>Dereth.Network.Companion</AssemblyName>
+    <RootNamespace>Dereth.Network.Companion</RootNamespace>
+    <Version>0.1.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <PropertyGroup>
+    <DecalFolder Condition="'$(DecalDirectory)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(DecalDirectory)'))'))</DecalFolder>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="Decal.Adapter"><HintPath>$(DecalFolder)/Decal.Adapter.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Decal.Interop.Core" Condition="Exists('$(DecalFolder)/Decal.Interop.Core.dll')"><HintPath>$(DecalFolder)/Decal.Interop.Core.dll</HintPath><Private>false</Private></Reference>
+    <Compile Include="Core/**/*.cs" />
+    <Compile Include="Decal/**/*.cs" />
+    <EmbeddedResource Include="Decal/companion.xml" LogicalName="Dereth.Network.Companion.companion.xml" />
+    <None Include="../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CheckDecalDirectory" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(DecalFolder)/Decal.Adapter.dll')" Text="Set -p:DecalDirectory to the folder that holds Decal.Adapter.dll (your Decal 3.0 folder)." />
+  </Target>
+</Project>

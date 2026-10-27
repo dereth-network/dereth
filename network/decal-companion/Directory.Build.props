@@ -1,0 +1,11 @@
+<Project>
+  <!-- Build output goes to the workspace's ignored target folder, never beside the sources. -->
+  <PropertyGroup>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../../target/decal-companion</ArtifactsPath>
+    <NuGetAudit>false</NuGetAudit>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

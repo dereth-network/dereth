@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Decal: a Dereth Network window for the retail client.
+
 ## 0.4.7 (2026-10-26)
 
 - New Dereth icon.

@@ -38,7 +38,7 @@ applied what settled it, after that frame's state events.
 | `refused by the client` | the client's own checks stopped it: nothing was sent (a use while busy, an item already moving, a spell the character cannot cast) |
 | `target_gone` | an attack's target stopped being the selection before the attack was answered: its swing was dropped, or cancelled if it had gone out, and never lands on what is selected now ([automation](automation.md)) |
 | `denied_by_world` | the world does not allow the action's automation domain without a gesture |
-| `unavailable` | the host has no way to carry it out, so nothing was sent. `unavailable (why)` is one the host cannot carry out just now |
+| `unavailable` | the host has no way to carry it out, so nothing was sent: the host inside the retail client, which reaches the game only through Decal, fails at once each action Decal has no call for ([the Decal host](../../dereth/decal/README.md#dereth-plugins)). `unavailable (why)` is one the host cannot carry out just now: the same host's attacks, jumps and held movement keys while the game's window is not in front or its chat line is open |
 
 **Which refusal is an action's.** A server refusal names no request: `Communication_WeenieError`
 (`0x028A`) and its form with a string (`0x028B`) carry only a reason, and

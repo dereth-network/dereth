@@ -1,0 +1,10 @@
+id = "test.window"
+name = "Window"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "A window with a button and a box to tick, which says what the player did with them."
+
+[capabilities]
+required = ["ui.window"]

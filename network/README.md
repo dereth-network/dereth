@@ -14,6 +14,7 @@ a crate outside it, and its crates name their own dependency versions.
 | [`hub/`](hub) | `dereth-network-hub`, the hub: the world registry, the operator API, linked characters, the character directory, the Discord broker and the router between worlds | AGPL-3.0-only |
 | [`conformance/`](conformance) | `dereth-network-conformance`: the test vectors and the hub and world checks | MIT |
 | [`ace-mod/`](ace-mod) | `Dereth.Network`, the mod that puts a stock ACE world on the network | AGPL-3.0-only |
+| [`decal-companion/`](decal-companion) | `Dereth.Network.Companion`, a Decal plugin for the retail client: a window over the `@dn` commands and the hub's list of worlds | MIT |
 
 Empyrean has the network built in (`empyrean/crates/world/src/federation/` and
 `empyrean/server/src/federation_link.rs`), set up by `[federation]` in `empyrean.toml`.
