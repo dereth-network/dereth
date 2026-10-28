@@ -1277,7 +1277,11 @@ impl HostCalls for Call<'_, '_> {
             }
             "task.error" => {
                 let msg = arg_str(args, 0, "the error")?;
-                self.slot.log(format!("error in a task: {msg}"));
+                let line = format!("error in a task: {msg}");
+                self.shared
+                    .printed
+                    .push(crate::error_line(&self.slot.manifest, &line, false));
+                self.slot.log(line);
                 let now = self.now();
                 self.slot.errors.push_back(now);
                 Ok(Value::Nil)
@@ -2160,6 +2164,20 @@ impl HostCalls for Call<'_, '_> {
     }
 
     fn console(&mut self, line: &str) {
+        self.slot.log(line);
+        // Told in the chat under the plugin's name, within its lines a frame; past them it is in
+        // the log alone.
+        if self.prints < PRINTS_PER_FRAME {
+            self.prints += 1;
+            self.shared
+                .printed
+                .push(crate::printed_line(&self.slot.manifest, line));
+        } else {
+            tracing::info!(target: "dereth::plugin", "{}: {line}", self.slot.manifest.id);
+        }
+    }
+
+    fn note(&mut self, line: &str) {
         self.slot.log(line);
     }
 

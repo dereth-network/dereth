@@ -83,10 +83,10 @@ pub fn entry_size(key: &str, value: &Value) -> usize {
     key.len() + value.json_len() + 4
 }
 
-/// The most console lines kept per plugin.
+/// The most lines of a plugin's record (what it printed, the errors it met) kept.
 pub const CONSOLE_LINES: usize = 200;
 
-/// The most bytes a plugin's console keeps: the oldest lines go first.
+/// The most bytes a plugin's record keeps: the oldest lines go first.
 pub const CONSOLE_BYTES: usize = 256 << 10;
 
 /// The host's state for one plugin, apart from its VM.
@@ -116,8 +116,9 @@ pub struct SlotState {
     /// many.
     pub backlog: VecDeque<dereth_plugin_api::Event>,
     pub backlog_dropped: bool,
+    /// Its record: what it printed and the errors it met, for a test or a tool to read.
     pub console: VecDeque<String>,
-    /// The bytes of the console's lines.
+    /// The bytes of the record's lines.
     pub console_bytes: usize,
     /// When the plugin was loaded, on the local clock.
     pub loaded_at: f64,
@@ -194,7 +195,15 @@ impl SlotState {
         }
     }
 
-    /// Add a line to the plugin's console: cut to
+    /// A line of the host's about the plugin (a picture it does not show, events let go): kept in
+    /// its record as [`Self::log`] keeps one, and written to the client's log as a warning.
+    pub fn warn(&mut self, line: impl Into<String>) {
+        let line = line.into();
+        tracing::warn!(target: "dereth::plugin", "{}: {line}", self.manifest.id);
+        self.log(line);
+    }
+
+    /// Add a line to the plugin's record: cut to
     /// [`dereth_plugin_api::engine::CONSOLE_LINE_BYTES`], and the oldest lines let go past
     /// [`CONSOLE_LINES`] lines or [`CONSOLE_BYTES`] bytes.
     pub fn log(&mut self, line: impl Into<String>) {

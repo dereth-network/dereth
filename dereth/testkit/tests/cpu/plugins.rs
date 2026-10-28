@@ -989,9 +989,9 @@ fn samples() -> std::path::PathBuf {
     dereth_testkit::conformance::workspace_root().join("dereth/plugins")
 }
 
-/// The sample plugins, found as a fresh install finds them: each listed off and none loaded; one
-/// ticked by command loads and answers its own command; the panel lists the rest off, each with
-/// its button to turn it on, which loads the one chosen.
+/// The sample plugins, found as a fresh install finds them: each listed disabled and none loaded;
+/// one enabled by command loads and answers its own command; the panel lists the rest disabled,
+/// and its Enable loads the one chosen.
 fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
     let found: Vec<Package> = ["xp-meter", "tank", "trackers", "navigator"]
         .iter()
@@ -1017,11 +1017,11 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
         assert!(
             printed
                 .iter()
-                .any(|l| l.contains(id) && l.contains(&format!("off (/plugin on {id})"))),
-            "{id} listed off: {printed:#?}"
+                .any(|l| l.contains(id) && l.contains(&format!("disabled (/plugin enable {id})"))),
+            "{id} listed disabled: {printed:#?}"
         );
     }
-    run.type_line("/plugin on network.dereth.xpmeter");
+    run.type_line("/plugin enable network.dereth.xpmeter");
     run.advance(0.5);
     run.type_line("/xp");
     run.advance(0.2);
@@ -1034,8 +1034,8 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
         "{:#?}",
         run.printed()
     );
-    // The panel: the loaded plugin first, then the three that are off; the trackers turned on by
-    // its button.
+    // The panel: the loaded plugin first, then the three that are disabled; the trackers enabled
+    // by its button.
     run.type_line("/plugin");
     run.advance(0.2);
     let panel = run
@@ -1044,7 +1044,8 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
         .map(|w| w.tree.dump())
         .unwrap_or_default();
     assert!(
-        panel.contains(r#""text":"\"Trackers\""},"0.3.0","off"]"#) && panel.contains("Turn on"),
+        panel.contains(r#""text":"\"Trackers\""},"0.3.0","disabled"]"#)
+            && panel.contains("\"Enable\""),
         "{panel}"
     );
     let row = 1
@@ -1071,7 +1072,7 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it() {
             "dereth.plugins",
             "panel",
             dereth_plugin_host::UiInput::Click {
-                node: "turn_on".into(),
+                node: "enable".into(),
             },
         )
         .expect("clicked");

@@ -1,13 +1,13 @@
-//! What a plugin wrote that the host's own dialog and panel show (its name, a file request's
-//! prompt, its console's lines): put on one line, rid of control and direction characters, and cut
-//! to a length, so a plugin's words can neither break their lines nor push the buttons off the
-//! screen.
+//! What a plugin wrote that the host's own dialog, panel and lines show (its name, a file
+//! request's prompt, the lines it prints): put on one line, rid of control and direction
+//! characters, and cut to a length, so a plugin's words can neither break their lines nor push the
+//! buttons off the screen.
 
 /// The most characters of a plugin's name shown.
 pub const NAME: usize = 48;
 /// The most characters of a file request's prompt shown.
 pub const PROMPT: usize = 200;
-/// The most characters of a line of a plugin's console shown.
+/// The most characters of a line a plugin printed, or of its error, shown.
 pub const LINE: usize = 200;
 
 /// The colour a plugin's words are shown in inside the plugin panel, apart from the host's own
@@ -50,6 +50,23 @@ pub fn bounded(text: &str, max: usize) -> String {
     out
 }
 
+/// A line a plugin printed as the chat shows it: each control, line-breaking or direction
+/// character a space, its own spacing otherwise kept (an indented line stays indented), its end
+/// trimmed, and at most `max` characters, the last an ellipsis where it was cut.
+#[must_use]
+pub fn one_line(text: &str, max: usize) -> String {
+    let spaced: String = text
+        .chars()
+        .map(|c| if plain(c) { c } else { ' ' })
+        .collect();
+    let mut out = spaced.trim_end().to_owned();
+    if out.chars().count() > max {
+        out = out.chars().take(max.saturating_sub(1)).collect();
+        out.push('\u{2026}');
+    }
+    out
+}
+
 /// A plugin's own words as the plugin panel shows them, apart from the host's: [`bounded`] to
 /// `max`, its double quotes made single, between double quotes.
 #[must_use]
@@ -82,5 +99,16 @@ mod tests {
         assert_eq!(cut.chars().count(), PROMPT);
         assert!(cut.ends_with('\u{2026}'));
         assert_eq!(bounded("short", NAME), "short");
+    }
+
+    /// A line a plugin printed keeps its own spacing on one line, without control or direction
+    /// characters, cut to its length.
+    #[test]
+    fn a_printed_line_keeps_its_spacing_on_one_line() {
+        assert_eq!(one_line("  Head:\tHelm\nnext  ", LINE), "  Head: Helm next");
+        assert_eq!(one_line("ab\u{202E}cd", LINE), "ab cd");
+        let cut = one_line(&"x".repeat(500), LINE);
+        assert_eq!(cut.chars().count(), LINE);
+        assert!(cut.ends_with('\u{2026}'));
     }
 }

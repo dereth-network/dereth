@@ -308,7 +308,8 @@ The front page's *Add a plugin folder…* (under *Kept in this browser*) copies 
 one holding its `plugin.toml`) into the browser's private storage for this site, and *Add a plugin
 zip…* keeps a plugin's zip there as it is; *Remove all plugins* deletes them. A compiled plugin (a
 WebAssembly component, `docs/plugins/wasm.md`) runs in the browser's own WebAssembly, in the page's
-worker. Kept plugins load when the client starts, each listed off until the player turns it on.
+worker. Kept plugins load when the client starts: each is on the first time the client finds it,
+and stays as the player leaves it in the plugin panel (`/plugin`) after that.
 Their stores are kept in the same private storage, with the client's settings.
 
 **Plugin sources.** The page installs plugins from plugin sources (`docs/plugins/sources.md`) as

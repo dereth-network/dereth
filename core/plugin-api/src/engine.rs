@@ -133,8 +133,14 @@ pub trait HostCalls {
     /// [`CallError`], which the engine raises in the plugin as a Lua error.
     fn call(&mut self, op: &str, args: &[Value]) -> Result<Value, CallError>;
 
-    /// A line for the plugin's console (`print`).
+    /// A line the plugin printed (`print`): kept in its record and told in the chat.
     fn console(&mut self, line: &str);
+
+    /// A line the engine writes about the plugin (where its time goes): kept in its record and
+    /// the log, and not told in the chat.
+    fn note(&mut self, line: &str) {
+        self.console(line);
+    }
 
     /// The source of a module in the plugin's own package, for `require`: `name` is the module name
     /// (`"lib.util"`), the answer the file's text.

@@ -4,4 +4,10 @@ after = 1
 say = "/nothing"
 [expect]
 status = "suspended"
-printed = ["[Plugins] conformance.budget was suspended (over its time budget 3 times within a minute). /plugin reload conformance.budget starts it again."]
+printed = [
+    "[Plugins] Conformance: budget loaded.",
+    "[Plugins] Conformance: budget: stopped: over its time budget: runtime error: the plugin ran past its time budget",
+    "[Plugins] Conformance: budget: stopped: over its time budget: runtime error: the plugin ran past its time budget",
+    "[Plugins] Conformance: budget: stopped: over its time budget: runtime error: the plugin ran past its time budget",
+    "[Plugins] conformance.budget was suspended (over its time budget 3 times within a minute). /plugin reload conformance.budget starts it again.",
+]

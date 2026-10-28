@@ -43,20 +43,25 @@
 //!
 //! # Which plugins load
 //!
-//! Plugins are experimental, and none loads until the player asks. The host has two sources: the
-//! packages the player named to load (the explicit source, [`PluginHost::new`]), which load at
-//! once; and the plugins it finds ([`PluginHost::with_found`]: a plugins folder, a launcher's
-//! installs, the ones that come with the client), each listed off until the player ticks it,
-//! which the host remembers. A host with a switch ([`HostConfig::switch`], the player's
-//! *Plugins (experimental)* setting) loads no found plugin and shows nothing of its own while it
-//! is off. A plugin's windows and HUDs open only when the player asks: from the plugin bar, or by
-//! the plugin while answering the player.
+//! The host has two kinds of source: the packages the player named to load (the explicit source,
+//! [`PluginHost::new`]), which load at once; and the plugins it finds, each listed in the plugin
+//! panel (`/plugin`) and loaded once the player enables it (ticks it), which the host remembers. A
+//! found plugin from a plugins folder or among the ones that come with the client
+//! ([`PluginHost::with_found`]) waits for its tick; one a launcher offers
+//! ([`PluginHost::with_offered`]: its installs and the player's own folders) is ticked the first
+//! time the host sees it. After that the player's tick decides, and a plugin they disable stays
+//! off. A plugin's windows and HUDs open only when the player asks: from the plugin bar, or by the
+//! plugin while answering the player; logging out closes them all.
+//!
+//! The chat says, one line each, when a plugin is loaded (at the start, or for any reason but the
+//! player's Enable or Reload), reloaded, unloaded (for any reason but Disable), enabled and
+//! disabled, by the name its manifest gives it.
 //!
 //! # Faults
 //!
-//! A failing handler is logged to the plugin's console with its traceback. Ten failures within a
-//! minute, or three entries stopped by the time budget within a minute, suspend the plugin; the
-//! player is told, and `/plugin reload <id>` starts it again.
+//! A failing handler's error is told in the chat, one line, and written with its traceback to the
+//! client's log. Ten failures within a minute, or three entries stopped by the time budget within
+//! a minute, suspend the plugin; the player is told, and `/plugin reload <id>` starts it again.
 //!
 //! # A frame's time
 //!
@@ -127,7 +132,8 @@ pub const HOST_VERB: &str = "plugin";
 /// ([`dereth_plugin_api::PluginId::is_reserved`]), so no plugin reaches what is kept under it.
 pub const HOST_ID: &str = "dereth.plugins";
 
-/// The host's store scope for the found plugins the player ticked: plugin id to `true`.
+/// The host's store scope for the player's tick on each found plugin: plugin id to `true` where
+/// it is ticked, `false` where it was unticked. A plugin with neither was never ticked or unticked.
 pub const TICKED_SCOPE: &str = "ticked";
 
 /// A plugin the host found, as it lists it.
@@ -140,12 +146,11 @@ pub struct FoundInfo {
     pub on: bool,
 }
 
-/// What the player is told when they turn a plugin on or off while plugins are off.
-pub const PLUGINS_OFF: &str =
-    "Plugins are off. Turn on Plugins (experimental) in the Client Options.";
-
 /// The plugin panel's window id.
 pub const PANEL: &str = "panel";
+
+/// What the panel and `/plugin list` say while there is no plugin.
+pub const NO_PLUGINS: &str = "No plugins yet.";
 
 /// The window id of the toasts, under the host's own id.
 pub const TOASTS: &str = "toasts";
@@ -186,10 +191,6 @@ pub struct HostConfig {
     /// Ask the source once a second which packages changed, and reload those plugins: the
     /// author's edit-and-see loop.
     pub watch: bool,
-    /// How the player adds plugins on this host (where its plugins folder is, and how to name
-    /// another), told in the plugin panel (a line to each line of it) and by `/plugin list` while
-    /// there are none.
-    pub adding_plugins: Option<String>,
     /// The actions this host has no way to carry out (a host inside another client, which reaches
     /// the game only through that client's own add-on calls): each fails at once as
     /// `unavailable`.
@@ -198,14 +199,9 @@ pub struct HostConfig {
     /// `unavailable (why)`. A host whose means come and go changes them as they do
     /// ([`PluginHost::set_unavailable`]).
     pub unavailable_now: Vec<(&'static str, String)>,
-    /// The host's own switches on the plugin panel, below the HUD lock: each an id and its label.
-    /// Each is off until the host or the player turns it on ([`PluginHost::switch`]).
+    /// The host's own switches on the plugin panel, below the plugin list: each an id and its
+    /// label. Each is off until the host or the player turns it on ([`PluginHost::switch`]).
     pub panel_switches: Vec<(&'static str, String)>,
-    /// What says whether plugins are on (the player's *Plugins (experimental)* setting), read as
-    /// the host is made and at every frame; none for a host whose plugins are always on. While
-    /// they are off no found plugin loads, and the host shows nothing of its own unless plugins
-    /// were named to load ([`PluginHost::plugins_on`]).
-    pub switch: Option<fn() -> bool>,
 }
 
 impl HostConfig {
@@ -220,11 +216,9 @@ impl HostConfig {
             policy: WorldPolicy::unpublished(),
             store_quota: calls::SCOPE_QUOTA,
             watch: false,
-            adding_plugins: None,
             unavailable: Vec::new(),
             unavailable_now: Vec::new(),
             panel_switches: Vec::new(),
-            switch: None,
         }
     }
 }
@@ -311,11 +305,102 @@ pub struct PluginInfo {
     pub contexts: Vec<String>,
 }
 
+/// Why a plugin starts or stops, for the line the chat is told of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Why {
+    /// The client's start, or any other reason: `loaded.`, `unloaded.`.
+    Other,
+    /// The player's Enable: `enabled.`.
+    Enable,
+    /// The player's Disable: `disabled.`.
+    Disable,
+    /// A reload (the player's, or an edited plugin's files): `reloaded.`.
+    Reload,
+}
+
 #[derive(Debug)]
 enum Pending {
-    Load(Package),
-    Unload(String),
-    Reload(String),
+    Load(Package, Why),
+    Unload(String, Why),
+    Reload(String, Why),
+}
+
+impl Pending {
+    /// The plugin it is for.
+    fn id(&self) -> Option<String> {
+        match self {
+            Self::Load(p, _) => p.manifest().ok().map(|m| m.id.to_string()),
+            Self::Unload(id, _) | Self::Reload(id, _) => Some(id.clone()),
+        }
+    }
+}
+
+/// One row of the plugin panel: a plugin as the list shows it, whether it runs, and the player's
+/// tick on it (none for a plugin named to load, which is not ticked).
+#[derive(Debug, Clone)]
+struct PanelRow {
+    info: PluginInfo,
+    running: bool,
+    ticked: Option<bool>,
+}
+
+/// A plugin's name as the host's lines tell it: its manifest's, on one line and cut to its length,
+/// or its id where it has none.
+fn told_name(m: &dereth_plugin_api::Manifest) -> String {
+    let name = shown::bounded(&m.name, shown::NAME);
+    if name.is_empty() {
+        m.id.to_string()
+    } else {
+        name
+    }
+}
+
+/// A line of the host's own in the chat window.
+pub(crate) fn host_line(text: &str) -> ChatMessage {
+    let text = dereth_plugin_api::engine::console_line(text);
+    ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
+        ty: observe::chat_type("system").unwrap_or(5),
+        body: format!("{PREFIX}{text}"),
+        prefix: None,
+        window: 0,
+    }
+}
+
+/// The chat's line for an error plugin `m` met (`text`, its traceback after its first line): the
+/// first line alone, under the plugin's name, and for an entry stopped by its time budget
+/// (`budget`) without where it was running. The whole text goes to the client's log.
+pub(crate) fn error_line(m: &dereth_plugin_api::Manifest, text: &str, budget: bool) -> ChatMessage {
+    tracing::warn!(target: "dereth::plugin", "{}: {text}", m.id);
+    let mut first = text.lines().next().unwrap_or_default();
+    if budget {
+        first = first.split(" (at ").next().unwrap_or_default();
+    }
+    host_line(&format!(
+        "{}: {}",
+        told_name(m),
+        shown::bounded(first, shown::LINE)
+    ))
+}
+
+/// The chat's line for a line plugin `m` printed: on one line, cut to its length, under the
+/// plugin's name.
+pub(crate) fn printed_line(m: &dereth_plugin_api::Manifest, line: &str) -> ChatMessage {
+    ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
+        ty: 0,
+        body: format!("[{}] {}", told_name(m), shown::one_line(line, shown::LINE)),
+        prefix: None,
+        window: 0,
+    }
+}
+
+/// One source of found plugins.
+#[derive(Debug)]
+struct FoundSource {
+    source: Box<dyn PluginSource>,
+    /// A launcher offers them: each is ticked the first time the host sees it.
+    offered: bool,
 }
 
 struct Slot {
@@ -351,15 +436,14 @@ pub struct PluginHost {
     source: Box<dyn PluginSource>,
     /// The ids the explicit source offered when it was last read: the plugins named to load.
     explicit: BTreeSet<String>,
-    /// The plugins the host finds: listed, and loaded only once the player ticks each
-    /// ([`Self::with_found`]).
-    found: Option<Box<dyn PluginSource>>,
+    /// The sources of the plugins the host finds, in the order they were given: listed, and
+    /// loaded only once ticked ([`Self::with_found`], [`Self::with_offered`]).
+    found: Vec<FoundSource>,
     /// What [`Self::found`] offered when it was last read: id, name, version.
     found_known: Vec<(String, String, String)>,
-    /// The found plugins the player ticked, as the host's store keeps them.
-    ticked: BTreeSet<String>,
-    /// Whether plugins are on ([`HostConfig::switch`]).
-    on: bool,
+    /// The player's tick on each found plugin, as the host's store keeps it: on, or off where
+    /// they unticked it; a plugin with none is off.
+    ticks: std::collections::BTreeMap<String, bool>,
     /// The windows each reloading plugin had open, for it to open again as it declares them.
     carried_open: std::collections::BTreeMap<String, BTreeSet<String>>,
     storage: Box<dyn PluginStorage>,
@@ -371,19 +455,20 @@ pub struct PluginHost {
     /// every plugin listening.
     ui_inbox: VecDeque<(Option<String>, Event)>,
     shared: Shared,
-    /// The host's own console: loads, refusals, suspensions.
+    /// The host's own lines (loads, refusals, suspensions), kept for a test or a tool to read; each
+    /// is in the client's log too.
     console: VecDeque<String>,
     last_flush: Option<f64>,
     now: f64,
     claimed_once: bool,
     /// When the source was last asked what changed.
     last_watch: f64,
-    /// The plugin panel: the loaded plugins, their state and the chosen one's console.
+    /// The plugin panel: the plugins, their state, and the buttons that act on the chosen one.
     panel: Option<Window>,
     /// The panel's chosen plugin, by id.
     panel_chosen: Option<String>,
-    /// The player has unlocked the plugins' HUDs: a press on one moves it, and its controls take
-    /// no input until they are locked again.
+    /// The player has unlocked the plugins' HUDs (`/plugin huds`): a press on one moves it, and its
+    /// controls take no input until they are locked again.
     huds_unlocked: bool,
     /// The host's panel switches that are on, by id.
     switches_on: BTreeSet<String>,
@@ -418,6 +503,8 @@ pub struct PluginHost {
     vm_clock: Box<dyn VmClock>,
     /// A plugin is being loaded: its entry is not held to its share of the frame.
     loading: bool,
+    /// A plugin's entry chunk is running: a failure there is told as its failure to load.
+    entry_chunk: bool,
     /// The toasts the chat has been told of, while the interface shown draws none.
     toasts_told: Vec<(String, String, f64)>,
 }
@@ -451,16 +538,14 @@ impl PluginHost {
         source: Box<dyn PluginSource>,
         storage: Box<dyn PluginStorage>,
     ) -> Self {
-        let on = config.switch.is_none_or(|f| f());
         Self {
             config,
             engines: vec![engine],
             source,
             explicit: BTreeSet::new(),
-            found: None,
+            found: Vec::new(),
             found_known: Vec::new(),
-            ticked: BTreeSet::new(),
-            on,
+            ticks: std::collections::BTreeMap::new(),
             carried_open: std::collections::BTreeMap::new(),
             storage,
             plugins: Vec::new(),
@@ -493,6 +578,7 @@ impl PluginHost {
             frame_spent: web_time::Duration::ZERO,
             vm_clock: Box::new(MachineClock::default()),
             loading: false,
+            entry_chunk: false,
         }
     }
 
@@ -600,20 +686,37 @@ impl PluginHost {
         &self.config
     }
 
-    /// The same host, offering the plugins it finds in `source` (a plugins folder, a launcher's
-    /// installs, the plugins that come with the client): each is listed (in the panel and by
-    /// `/plugin list`) while plugins are on, and stays off until the player ticks it (`/plugin on
-    /// <id>`, or the panel's button), which the host remembers. A plugin named to load is that
-    /// plugin instead of a found one of the same id, and of two found ones of an id, the first
-    /// offered is listed.
+    /// The same host, offering the plugins it finds in `source` (a plugins folder, the plugins
+    /// that come with the client): each is listed (in the panel and by `/plugin list`) and stays
+    /// off until the player enables it (`/plugin enable <id>`, or the panel's Enable), which the
+    /// host remembers. A plugin named to load is that plugin instead of a found one of the same
+    /// id, and of two found ones of an id, the first offered is listed: the sources are read in
+    /// the order they are given, this one's and [`Self::with_offered`]'s alike.
     #[must_use]
     pub fn with_found(mut self, source: Box<dyn PluginSource>) -> Self {
-        self.found = Some(source);
+        self.found.push(FoundSource {
+            source,
+            offered: false,
+        });
         self
     }
 
-    /// Queue every package the explicit source offers for loading at the next frame, and, while
-    /// plugins are on, the found ones the player ticked.
+    /// The same host, offering the plugins a launcher offers in `source` (the ones it installed,
+    /// and the ones in the player's own folders it lists): found plugins as
+    /// [`Self::with_found`]'s are, each ticked the first time the host sees it (by its id, so the
+    /// copy listed is ticked whichever source lists it first). After that the player's tick
+    /// decides: one they untick stays off at every start, though it is offered still.
+    #[must_use]
+    pub fn with_offered(mut self, source: Box<dyn PluginSource>) -> Self {
+        self.found.push(FoundSource {
+            source,
+            offered: true,
+        });
+        self
+    }
+
+    /// Queue every package the explicit source offers for loading at the next frame, and the
+    /// found ones that are ticked.
     pub fn load_all(&mut self) {
         let own = self.source.list();
         self.explicit = own
@@ -622,69 +725,30 @@ impl PluginHost {
             .map(|m| m.id.to_string())
             .collect();
         for p in own {
-            self.pending.push_back(Pending::Load(p));
+            self.pending.push_back(Pending::Load(p, Why::Other));
         }
-        self.ticked = self.read_ticked();
+        self.ticks = self.read_ticks();
         let found = self.read_found();
-        if self.on {
-            self.queue_ticked(found);
-        }
-    }
-
-    /// Whether plugins are on: always, for a host with no switch ([`HostConfig::switch`]).
-    #[must_use]
-    pub fn plugins_on(&self) -> bool {
-        self.on
-    }
-
-    /// Turn plugins on (the found plugins the player ticked load at the next frame) or off (every
-    /// found plugin unloads, and the host shows nothing of its own unless plugins were named to
-    /// load). A host with a switch sets this from it at every frame.
-    pub fn set_plugins_on(&mut self, on: bool) {
-        if on == self.on {
-            return;
-        }
-        self.on = on;
-        // The host's own command is claimed only while it shows.
-        self.shared.verbs_changed = true;
-        if on {
-            self.host_log("plugins are on".to_owned());
-            let found = self.read_found();
-            self.queue_ticked(found);
-            return;
-        }
-        self.host_log("plugins are off".to_owned());
-        let explicit = self.explicit.clone();
-        self.pending.retain(|op| match op {
-            Pending::Load(p) => p.manifest().is_ok_and(|m| explicit.contains(m.id.as_str())),
-            Pending::Unload(_) | Pending::Reload(_) => true,
-        });
-        let going: Vec<String> = self
-            .plugins
-            .iter()
-            .map(|s| s.state.manifest.id.to_string())
-            .filter(|id| !explicit.contains(id))
-            .collect();
-        for id in going {
-            self.request_unload(&id);
-        }
-        if !self.shows() {
-            self.panel = None;
-            self.panel_chosen = None;
-        }
-    }
-
-    /// Whether the host shows anything of its own (its panel, its command): while plugins are on,
-    /// or when plugins were named to load.
-    fn shows(&self) -> bool {
-        self.on || !self.explicit.is_empty()
+        self.queue_ticked(found);
     }
 
     /// Read the found plugins afresh: each one listed (the explicit source's own ids and a second
-    /// of an id left out), and one that replaces a plugin the player had ticked ticked in its
-    /// place. Answers the packages listed, in order.
+    /// of an id left out), in the order the sources were given. One the player has no tick on is
+    /// ticked where it replaces a plugin they had ticked, and where a launcher offers its id and it
+    /// replaces no plugin they had a tick on. Answers the packages listed, in order.
     fn read_found(&mut self) -> Vec<Package> {
-        let packages = self.found.as_mut().map(|b| b.list()).unwrap_or_default();
+        let mut packages = Vec::new();
+        let mut offered = BTreeSet::new();
+        for f in &mut self.found {
+            for p in f.source.list() {
+                if f.offered {
+                    if let Ok(m) = p.manifest() {
+                        offered.insert(m.id.to_string());
+                    }
+                }
+                packages.push(p);
+            }
+        }
         self.found_known.clear();
         let mut out = Vec::new();
         for p in packages {
@@ -695,95 +759,154 @@ impl PluginHost {
             }
             self.found_known
                 .push((id.clone(), m.name.clone(), m.version.to_string()));
-            let carried = !self.ticked.contains(&id)
-                && m.replaces
+            if !self.ticks.contains_key(&id) {
+                let earlier: Vec<bool> = m
+                    .replaces
                     .iter()
-                    .any(|old| self.ticked.contains(old.as_str()));
-            if carried {
-                self.ticked.insert(id.clone());
-                self.remember_tick(&id, true);
+                    .filter_map(|old| self.ticks.get(old.as_str()).copied())
+                    .collect();
+                if earlier.contains(&true) || (earlier.is_empty() && offered.contains(&id)) {
+                    self.ticks.insert(id.clone(), true);
+                    self.remember_tick(&id, true);
+                }
             }
             out.push(p);
         }
         out
     }
 
+    /// Whether the found plugin `id` is ticked.
+    fn ticked(&self, id: &str) -> bool {
+        self.ticks.get(id).copied().unwrap_or(false)
+    }
+
     /// Queue the ticked ones of `found` that are not loaded.
     fn queue_ticked(&mut self, found: Vec<Package>) {
         for p in found {
             let Ok(m) = p.manifest() else { continue };
-            if self.ticked.contains(m.id.as_str()) && self.index(m.id.as_str()).is_none() {
-                self.pending.push_back(Pending::Load(p));
+            if self.ticked(m.id.as_str()) && self.index(m.id.as_str()).is_none() {
+                self.pending.push_back(Pending::Load(p, Why::Other));
             }
         }
     }
 
-    /// The found plugins the player ticked, read from the host's store.
-    fn read_ticked(&mut self) -> BTreeSet<String> {
+    /// The player's tick on each found plugin, read from the host's store.
+    fn read_ticks(&mut self) -> std::collections::BTreeMap<String, bool> {
         self.storage
             .load(HOST_ID, TICKED_SCOPE)
             .and_then(|t| Value::from_json(&t).ok())
             .and_then(|v| v.as_map().cloned())
             .unwrap_or_default()
             .into_iter()
-            .filter(|(_, on)| on.as_bool() == Some(true))
-            .map(|(id, _)| id)
+            .filter_map(|(id, on)| on.as_bool().map(|on| (id, on)))
             .collect()
     }
 
-    /// The plugins the host found, in the order they are offered, each with whether the player
-    /// ticked it.
+    /// The plugins the host found, in the order they are offered, each with whether it is ticked.
     #[must_use]
     pub fn found(&self) -> Vec<FoundInfo> {
-        let on = &self.ticked;
         self.found_known
             .iter()
             .map(|(id, name, version)| FoundInfo {
                 id: id.clone(),
                 name: name.clone(),
                 version: version.clone(),
-                on: on.contains(id),
+                on: self.ticked(id),
             })
             .collect()
     }
 
-    /// Tick a found plugin (it is loaded at the next frame, asking for its permissions as any
-    /// plugin does) or untick it (unloaded); the host remembers which. Refused while plugins are
-    /// off. Answers what happened, for the player.
+    /// Enable plugin `id` (`on`: tick it, and load it at the next frame, or start it again where it
+    /// is loaded but stopped on a fault) or disable it (untick it, and unload it at the next
+    /// frame); the host remembers a found plugin's tick, an untick as much as a tick. A plugin
+    /// named to load is enabled again but never disabled: it is not ticked. The chat says what
+    /// happened as it happens.
     ///
     /// # Errors
-    /// Plugins are off, no such plugin was found, or its package could not be read.
-    pub fn set_ticked(&mut self, id: &str, on: bool) -> Result<String, String> {
-        if !self.on {
-            return Err(PLUGINS_OFF.to_owned());
-        }
-        if !self.found_known.iter().any(|(k, ..)| k == id) {
+    /// No such plugin was found or named to load, its package could not be read, or it was named
+    /// to load and so is not disabled: the answer is for the player.
+    pub fn set_ticked(&mut self, id: &str, on: bool) -> Result<(), String> {
+        let found = self.found_known.iter().any(|(k, ..)| k == id);
+        if !found && !self.explicit.contains(id) {
             return Err(format!("no plugin {id} was found"));
         }
-        self.remember_tick(id, on);
-        if on {
-            self.ticked.insert(id.to_owned());
-        } else {
-            self.ticked.remove(id);
+        if !on && !found {
+            return Err(format!(
+                "{} was named to load, and is not disabled",
+                self.name_of(id)
+            ));
         }
-        if on {
-            if self.index(id).is_some() {
-                return Ok(format!("{id} is on"));
+        if found {
+            self.remember_tick(id, on);
+            self.ticks.insert(id.to_owned(), on);
+        }
+        // What was asked for this plugin and not yet done gives way to this.
+        self.pending.retain(|p| p.id().as_deref() != Some(id));
+        let running = self.slot(id).map(|s| s.state.status == Status::Running);
+        match (on, running) {
+            (true, Some(true)) => {
+                let name = self.name_of(id);
+                self.tell(&format!("{name} is enabled already."));
             }
-            let package = dereth_plugin_api::PluginId::parse(id)
-                .and_then(|pid| self.found.as_mut().and_then(|b| b.fetch(&pid)))
-                .ok_or_else(|| format!("{id} could not be read"))?;
-            self.pending.push_back(Pending::Load(package));
-            Ok(format!("{id} is on: it loads now"))
-        } else {
-            if self.index(id).is_some() {
-                self.request_unload(id);
+            (true, Some(false)) => self
+                .pending
+                .push_back(Pending::Reload(id.to_owned(), Why::Enable)),
+            (true, None) => {
+                let package = dereth_plugin_api::PluginId::parse(id)
+                    .and_then(|pid| {
+                        if found {
+                            self.fetch_found(&pid)
+                        } else {
+                            self.source.fetch(&pid)
+                        }
+                    })
+                    .ok_or_else(|| format!("{id} could not be read"))?;
+                self.pending.push_back(Pending::Load(package, Why::Enable));
             }
-            Ok(format!("{id} is off"))
+            (false, Some(_)) => self
+                .pending
+                .push_back(Pending::Unload(id.to_owned(), Why::Disable)),
+            (false, None) => {
+                let name = self.name_of(id);
+                self.tell_life(&name, "disabled");
+            }
+        }
+        Ok(())
+    }
+
+    /// Reload every plugin that runs, at the next frame, each as the panel's Reload does.
+    pub fn reload_all(&mut self) {
+        let running: Vec<String> = self
+            .plugins
+            .iter()
+            .filter(|s| s.state.status == Status::Running)
+            .map(|s| s.state.manifest.id.to_string())
+            .collect();
+        for id in running {
+            self.pending.push_back(Pending::Reload(id, Why::Reload));
         }
     }
 
-    /// Keep whether the found plugin `id` is ticked, in the host's store.
+    /// Plugin `id`'s name as the host's lines tell it: its manifest's (a loaded plugin's, else the
+    /// one found), else its id.
+    fn name_of(&self, id: &str) -> String {
+        if let Some(s) = self.slot(id) {
+            return told_name(&s.state.manifest);
+        }
+        self.found_known
+            .iter()
+            .find(|(k, ..)| k == id)
+            .map(|(_, name, _)| shown::bounded(name, shown::NAME))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| id.to_owned())
+    }
+
+    /// Tell the chat that the plugin named `name` was `done`: `[Plugins] XP Meter loaded.`
+    fn tell_life(&mut self, name: &str, done: &str) {
+        self.tell(&format!("{name} {done}."));
+    }
+
+    /// Keep the player's tick on the found plugin `id`, in the host's store.
     fn remember_tick(&mut self, id: &str, on: bool) {
         let mut all = self
             .storage
@@ -791,37 +914,39 @@ impl PluginHost {
             .and_then(|t| Value::from_json(&t).ok())
             .and_then(|v| v.as_map().cloned())
             .unwrap_or_default();
-        if on {
-            all.insert(id.to_owned(), Value::Bool(true));
-        } else {
-            all.remove(id);
-        }
+        all.insert(id.to_owned(), Value::Bool(on));
         self.storage
             .save(HOST_ID, TICKED_SCOPE, &Value::Map(all).to_json());
     }
 
-    /// The current files of plugin `id`: the explicit source's, else the found source's.
+    /// The current files of found plugin `id`: the first source's that has it, as it is listed.
+    fn fetch_found(&mut self, id: &dereth_plugin_api::PluginId) -> Option<Package> {
+        self.found.iter_mut().find_map(|f| f.source.fetch(id))
+    }
+
+    /// The current files of plugin `id`: the explicit source's, else the found sources'.
     fn fetch_any(&mut self, id: &str) -> Option<Package> {
         let pid = dereth_plugin_api::PluginId::parse(id)?;
-        self.source
-            .fetch(&pid)
-            .or_else(|| self.found.as_mut().and_then(|f| f.fetch(&pid)))
+        self.source.fetch(&pid).or_else(|| self.fetch_found(&pid))
     }
 
     /// Queue one package for loading at the next frame.
     pub fn request_load(&mut self, package: Package) {
-        self.pending.push_back(Pending::Load(package));
+        self.pending.push_back(Pending::Load(package, Why::Other));
     }
 
-    /// Queue an unload at the next frame.
+    /// Queue an unload at the next frame (the plugin stays ticked: this is the client's own stop,
+    /// not the player's Disable).
     pub fn request_unload(&mut self, id: &str) {
-        self.pending.push_back(Pending::Unload(id.to_owned()));
+        self.pending
+            .push_back(Pending::Unload(id.to_owned(), Why::Other));
     }
 
     /// Queue a reload (unload, read the package again, load, and hand the old state to the new
     /// instance) at the next frame.
     pub fn request_reload(&mut self, id: &str) {
-        self.pending.push_back(Pending::Reload(id.to_owned()));
+        self.pending
+            .push_back(Pending::Reload(id.to_owned(), Why::Reload));
     }
 
     /// The loaded plugins, in load order.
@@ -853,14 +978,15 @@ impl PluginHost {
             .collect()
     }
 
-    /// A plugin's console lines, oldest first.
+    /// What plugin `id` printed and the errors it met, oldest first: its record, for a test or a
+    /// tool to read (the player reads each line in the chat as it comes).
     #[must_use]
     pub fn console(&self, id: &str) -> Option<Vec<String>> {
         self.slot(id)
             .map(|s| s.state.console.iter().cloned().collect())
     }
 
-    /// The host's own console lines, oldest first.
+    /// The host's own lines, oldest first.
     #[must_use]
     pub fn host_console(&self) -> Vec<String> {
         self.console.iter().cloned().collect()
@@ -895,7 +1021,8 @@ impl PluginHost {
     }
 
     /// Whether a window is the host's own, drawn above every plugin window: the plugin panel,
-    /// whose buttons load, unload and reload plugins.
+    /// whose buttons enable, disable and reload plugins, so that no plugin can cover or imitate
+    /// it.
     #[must_use]
     pub fn is_host_window(plugin: &str, window: &str) -> bool {
         plugin == HOST_ID && window == PANEL
@@ -921,12 +1048,9 @@ impl PluginHost {
         self.huds_unlocked
     }
 
-    /// Unlock or lock the plugins' HUDs, as the plugin panel's toggle and `/plugin huds` do.
+    /// Unlock or lock the plugins' HUDs, as `/plugin huds` does.
     pub fn set_huds_unlocked(&mut self, on: bool) {
-        if self.huds_unlocked != on {
-            self.huds_unlocked = on;
-            self.refresh_panel();
-        }
+        self.huds_unlocked = on;
     }
 
     /// Whether the host's panel switch `id` is on.
@@ -967,22 +1091,56 @@ impl PluginHost {
         });
     }
 
-    /// The panel's rows: the loaded plugins, in load order, then, while plugins are on, the found
-    /// plugins that are off.
-    fn panel_rows(&self) -> Vec<PluginInfo> {
-        let mut list = self.plugins();
-        let found = if self.on { self.found() } else { Vec::new() };
+    /// Close every plugin window and HUD that is open, and the plugin panel: the player logged out.
+    /// Each opens again only when the player asks, as at the start.
+    fn close_windows(&mut self) {
+        for s in &mut self.plugins {
+            for w in s.state.windows.values_mut() {
+                if w.open {
+                    w.open = false;
+                    w.by_player = false;
+                    w.revision += 1;
+                }
+            }
+        }
+        if let Some(p) = &mut self.panel {
+            if p.open {
+                p.open = false;
+                p.revision += 1;
+            }
+        }
+    }
+
+    /// The panel's rows: the loaded plugins, in load order, then the found plugins that are not
+    /// loaded: `disabled` where the player unticked them (or never ticked them), `not loaded`
+    /// where they are ticked but did not load.
+    fn panel_rows(&self) -> Vec<PanelRow> {
+        let found = self.found();
+        let tick = |id: &str| -> Option<bool> { found.iter().find(|b| b.id == id).map(|b| b.on) };
+        let mut list: Vec<PanelRow> = self
+            .plugins()
+            .into_iter()
+            .map(|info| PanelRow {
+                running: info.status == "running",
+                ticked: tick(&info.id),
+                info,
+            })
+            .collect();
         for b in found {
-            if !list.iter().any(|p| p.id == b.id) {
-                list.push(PluginInfo {
-                    id: b.id,
-                    name: b.name,
-                    version: b.version,
-                    status: "off".to_owned(),
-                    reason: None,
-                    permissions: Vec::new(),
-                    active: false,
-                    contexts: Vec::new(),
+            if !list.iter().any(|r| r.info.id == b.id) {
+                list.push(PanelRow {
+                    info: PluginInfo {
+                        id: b.id,
+                        name: b.name,
+                        version: b.version,
+                        status: if b.on { "not loaded" } else { "disabled" }.to_owned(),
+                        reason: None,
+                        permissions: Vec::new(),
+                        active: false,
+                        contexts: Vec::new(),
+                    },
+                    running: false,
+                    ticked: Some(b.on),
                 });
             }
         }
@@ -990,22 +1148,23 @@ impl PluginHost {
     }
 
     /// The panel's tree from the host's state: a list of the loaded plugins and the found ones
-    /// (their names taking the width their version and state leave), the chosen one's console
-    /// (taking the height left), the world's policy, and the buttons that act on the chosen one.
+    /// (their names taking the width their version and state leave), the chosen one's reason
+    /// (why it stopped), the host's own switches, and the buttons: Enable (lit for a plugin that
+    /// is not running), Disable (one that is ticked), Reload (one running) and Reload All (lit
+    /// while any runs).
     fn panel_tree(&self) -> dereth_plugin_api::UiNode {
         let list = self.panel_rows();
         let chosen = self
             .panel_chosen
             .as_deref()
-            .and_then(|id| list.iter().position(|p| p.id == id));
-        let found = if self.on { self.found() } else { Vec::new() };
-        let chosen_found = chosen.and_then(|i| found.iter().find(|b| b.id == list[i].id));
-        let chosen_loaded = chosen.filter(|i| list[*i].status != "off");
-        // What a plugin wrote (its name, its console's lines, the error it faulted on) is shown
-        // as its words, quoted and in their own colour, never as the client's.
+            .and_then(|id| list.iter().position(|r| r.info.id == id));
+        let row = chosen.map(|i| &list[i]);
+        // What a plugin wrote (its name, the error it faulted on) is shown as its words, quoted
+        // and in their own colour, never as the client's.
         let rows: Vec<Value> = list
             .iter()
-            .map(|p| {
+            .map(|r| {
+                let p = &r.info;
                 Value::List(vec![
                     shown::plugin_cell(&p.name, shown::NAME),
                     Value::from(p.version.as_str()),
@@ -1018,32 +1177,45 @@ impl PluginHost {
                 ])
             })
             .collect();
-        let lines = |lines: &[String], cell: &dyn Fn(&str) -> Value| -> Vec<Value> {
-            lines
-                .iter()
-                .rev()
-                .take(40)
-                .rev()
-                .map(|l| Value::List(vec![cell(l)]))
-                .collect()
-        };
-        let console: Vec<Value> = match chosen.and_then(|i| self.console(&list[i].id)) {
-            Some(theirs) => lines(&theirs, &|l| shown::plugin_cell(l, shown::LINE)),
-            None => lines(&self.host_console(), &|l| {
-                Value::from(shown::bounded(l, shown::LINE))
-            }),
-        };
-        let faulted = chosen.filter(|i| list[*i].status == "faulted");
+        let faulted = row.is_some_and(|r| r.info.status == "faulted");
         let node = |kind: &str| Value::map().with("kind", kind);
-        // With no plugin to list, the panel says how to add one, a line to each of its lines.
+        // With no plugin to list, the panel says so.
         let none: Vec<Value> = if list.is_empty() {
-            std::iter::once("No plugins yet.")
-                .chain(self.config.adding_plugins.iter().flat_map(|h| h.lines()))
-                .map(|line| node("label").with("text", line))
-                .collect()
+            vec![node("label").with("text", NO_PLUGINS)]
         } else {
             Vec::new()
         };
+        let button = |id: &str, text: &str, lit: bool| {
+            node("button")
+                .with("id", id)
+                .with("text", text)
+                .with("enabled", lit)
+        };
+        let reason = {
+            let why = row.and_then(|r| r.info.reason.clone()).unwrap_or_default();
+            let label = node("label").with("id", "reason");
+            // A fault's reason is the plugin's error, its own words.
+            if faulted {
+                label
+                    .with("text", shown::quoted(&why, shown::LINE))
+                    .with("color", shown::PLUGIN_COLOUR)
+            } else {
+                label.with("text", shown::bounded(&why, shown::LINE))
+            }
+        };
+        let buttons = node("row").with(
+            "children",
+            vec![
+                button("enable", "Enable", row.is_some_and(|r| !r.running)),
+                button(
+                    "disable",
+                    "Disable",
+                    row.is_some_and(|r| r.ticked == Some(true)),
+                ),
+                button("reload", "Reload", row.is_some_and(|r| r.running)),
+                button("reload_all", "Reload All", list.iter().any(|r| r.running)),
+            ],
+        );
         let v = node("window")
             .with("id", PANEL)
             .with("title", "Plugins")
@@ -1069,43 +1241,9 @@ impl PluginHost {
                                     Value::Int(i64::try_from(i).unwrap_or(0) + 1)
                                 }),
                             )
-                            .with("height", 6_i64),
-                        {
-                            let reason = chosen
-                                .and_then(|i| list[i].reason.clone())
-                                .unwrap_or_default();
-                            let label = node("label").with("id", "reason");
-                            // A fault's reason is the plugin's error, its own words.
-                            match faulted {
-                                Some(_) => label
-                                    .with("text", shown::quoted(&reason, shown::LINE))
-                                    .with("color", shown::PLUGIN_COLOUR),
-                                None => label.with("text", shown::bounded(&reason, shown::LINE)),
-                            }
-                        },
-                        node("list")
-                            .with("id", "console")
-                            .with("columns", vec![Value::from("Console")])
-                            .with("rows", console)
                             .with("height", 10_i64)
                             .with("grow", 1_i64),
-                        node("list")
-                            .with("id", "policy")
-                            .with("columns", vec![Value::from("World policy")])
-                            .with(
-                                "rows",
-                                self.config
-                                    .policy
-                                    .describe()
-                                    .into_iter()
-                                    .map(|l| Value::List(vec![Value::from(l)]))
-                                    .collect::<Vec<_>>(),
-                            )
-                            .with("height", 4_i64),
-                        node("toggle")
-                            .with("id", "unlock_huds")
-                            .with("text", "Unlock HUDs (drag one to move it)")
-                            .with("value", self.huds_unlocked),
+                        reason,
                     ])
                     .chain(self.config.panel_switches.iter().map(|(id, text)| {
                         node("toggle")
@@ -1113,40 +1251,11 @@ impl PluginHost {
                             .with("text", text.as_str())
                             .with("value", self.switch(id))
                     }))
-                    .chain([node("row").with(
-                        "children",
-                        vec![
-                            node("button")
-                                .with("id", "reload")
-                                .with("text", "Reload")
-                                .with("enabled", chosen_loaded.is_some()),
-                            node("button")
-                                .with("id", "unload")
-                                .with("text", "Unload")
-                                .with("enabled", chosen_loaded.is_some()),
-                            node("button")
-                                .with("id", "turn_on")
-                                .with("text", "Turn on")
-                                .with("enabled", chosen_found.is_some_and(|b| !b.on)),
-                            node("button")
-                                .with("id", "turn_off")
-                                .with("text", "Turn off")
-                                .with("enabled", chosen_found.is_some_and(|b| b.on)),
-                        ],
-                    )])
+                    .chain([buttons])
                     .collect::<Vec<_>>(),
             );
         dereth_plugin_api::UiNode::window_from_value(&v)
             .unwrap_or_else(|e| panic!("the plugin panel's own tree is valid: {e}"))
-    }
-
-    /// What the player is told when there is no plugin: that there is none, and how this host
-    /// adds one.
-    fn no_plugins(&self) -> String {
-        match &self.config.adding_plugins {
-            Some(how) => format!("No plugins yet. {}", how.replace('\n', " ")),
-            None => "No plugins yet.".to_owned(),
-        }
     }
 
     /// Rebuild the open panel when what it shows has changed.
@@ -1173,28 +1282,21 @@ impl PluginHost {
                     .first()
                     .and_then(|r| usize::try_from(*r).ok())
                     .and_then(|r| list.get(r.wrapping_sub(1)))
-                    .map(|p| p.id.clone());
+                    .map(|r| r.info.id.clone());
             }
-            UiInput::Click { node } if node == "reload" || node == "unload" => {
+            UiInput::Click { node } if node == "enable" || node == "disable" => {
                 if let Some(id) = self.panel_chosen.clone() {
-                    if node == "reload" {
-                        self.request_reload(&id);
-                    } else {
-                        self.request_unload(&id);
-                        self.panel_chosen = None;
+                    if let Err(why) = self.set_ticked(&id, node == "enable") {
+                        self.tell(&why);
                     }
                 }
             }
-            UiInput::Click { node } if node == "turn_on" || node == "turn_off" => {
+            UiInput::Click { node } if node == "reload" => {
                 if let Some(id) = self.panel_chosen.clone() {
-                    match self.set_ticked(&id, node == "turn_on") {
-                        Ok(t) | Err(t) => self.tell(&t),
-                    }
+                    self.request_reload(&id);
                 }
             }
-            UiInput::Change { node, value } if node == "unlock_huds" => {
-                self.huds_unlocked = value.as_bool().unwrap_or(false);
-            }
+            UiInput::Click { node } if node == "reload_all" => self.reload_all(),
             UiInput::Change { node, value }
                 if self.config.panel_switches.iter().any(|(id, _)| *id == node) =>
             {
@@ -1742,14 +1844,7 @@ impl PluginHost {
 
     /// A line in the chat window from the host itself.
     fn tell(&mut self, text: &str) {
-        let text = dereth_plugin_api::engine::console_line(text);
-        self.shared.printed.push(ChatMessage {
-            feedback: dereth_client_contract::feedback::Feedback::LOCAL,
-            ty: observe::chat_type("system").unwrap_or(5),
-            body: format!("{PREFIX}{text}"),
-            prefix: None,
-            window: 0,
-        });
+        self.shared.printed.push(host_line(text));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1758,9 +1853,6 @@ impl PluginHost {
 
     /// One frame (see the crate documentation).
     pub fn step(&mut self, frame: &mut HookFrame<'_>) {
-        if let Some(switch) = self.config.switch {
-            self.set_plugins_on(switch());
-        }
         self.now = frame.local_time;
         self.frame_spent = web_time::Duration::ZERO;
         for s in &mut self.plugins {
@@ -1773,26 +1865,43 @@ impl PluginHost {
         if self.config.watch && self.now - self.last_watch >= 1.0 {
             self.last_watch = self.now;
             let mut changed = self.source.changed();
-            if let Some(found) = self.found.as_mut() {
-                changed.extend(found.changed());
+            for f in &mut self.found {
+                changed.extend(f.source.changed());
             }
             for id in changed {
                 if self.index(id.as_str()).is_some() {
-                    self.pending.push_back(Pending::Reload(id.to_string()));
+                    self.pending
+                        .push_back(Pending::Reload(id.to_string(), Why::Reload));
                 }
             }
         }
         while let Some(op) = self.pending.pop_front() {
             match op {
-                Pending::Load(p) => self.load(p, Some(frame), None),
-                Pending::Unload(id) => {
+                Pending::Load(p, why) => {
+                    if let Some(name) = self.load(p, Some(frame), None) {
+                        let done = if why == Why::Enable {
+                            "enabled"
+                        } else {
+                            "loaded"
+                        };
+                        self.tell_life(&name, done);
+                    }
+                }
+                Pending::Unload(id, why) => {
                     if let Some(i) = self.index(&id) {
+                        let name = self.name_of(&id);
                         self.unload(i, Some(frame));
-                    } else {
+                        let done = if why == Why::Disable {
+                            "disabled"
+                        } else {
+                            "unloaded"
+                        };
+                        self.tell_life(&name, done);
+                    } else if why != Why::Disable {
                         self.tell(&format!("no plugin {id} is loaded"));
                     }
                 }
-                Pending::Reload(id) => self.reload(&id, Some(frame)),
+                Pending::Reload(id, why) => self.reload(&id, Some(frame), why),
             }
         }
         self.reconcile_contexts(frame);
@@ -1853,6 +1962,7 @@ impl PluginHost {
                 }
                 "session.logout" => {
                     self.flush();
+                    self.close_windows();
                     self.shared.character = None;
                     self.shared.layout.clear();
                     for s in &mut self.plugins {
@@ -2067,9 +2177,7 @@ impl PluginHost {
             self.shared.verbs_changed = false;
             self.claimed_once = true;
             let mut verbs: Vec<String> = self.shared.verbs.keys().cloned().collect();
-            if self.shows() {
-                verbs.push(HOST_VERB.to_owned());
-            }
+            verbs.push(HOST_VERB.to_owned());
             frame.claim_verbs(verbs);
         }
     }
@@ -2636,13 +2744,13 @@ impl PluginHost {
     }
 
     /// Keep `e` for plugin `i` for a later frame; past [`MAX_BACKLOG`] the oldest goes, and the
-    /// console says so once.
+    /// log says so once.
     fn hold(&mut self, i: usize, e: Event) {
         let st = &mut self.plugins[i].state;
         if st.backlog.len() >= MAX_BACKLOG {
             st.backlog.pop_front();
             if !std::mem::replace(&mut st.backlog_dropped, true) {
-                st.log(format!(
+                st.warn(format!(
                     "more than {MAX_BACKLOG} events waited for a later frame; the oldest were let go"
                 ));
             }
@@ -2687,6 +2795,7 @@ impl PluginHost {
                 frame_spent,
                 vm_clock,
                 loading,
+                entry_chunk,
                 ..
             } = self;
             let slot = &mut plugins[i];
@@ -2723,7 +2832,14 @@ impl PluginHost {
             let outcome = match result {
                 Ok(r) => Some(r),
                 Err(err) => {
-                    st.log(err.to_string());
+                    let text = err.to_string();
+                    // Told in the chat, one line, the traceback in the log; a failure of the entry
+                    // chunk is told as the plugin's failure to load.
+                    if !*entry_chunk {
+                        let budget = err.kind == ScriptErrorKind::Budget;
+                        shared.printed.push(error_line(&st.manifest, &text, budget));
+                    }
+                    st.log(text);
                     if err.kind == ScriptErrorKind::Budget {
                         st.overruns.push_back(*now);
                     } else {
@@ -2780,12 +2896,21 @@ impl PluginHost {
     // Load, unload, reload
     // ---------------------------------------------------------------------------------------------
 
-    fn refuse(&mut self, what: &str, why: &str) {
+    /// Refuse to load `what`, telling the player why. Answers nothing: nothing loaded.
+    fn refuse(&mut self, what: &str, why: &str) -> Option<String> {
         self.host_log(format!("refused {what}: {why}"));
         self.tell(&format!("{what} was not loaded: {why}"));
+        None
     }
 
-    fn load(&mut self, package: Package, frame: Option<&HookFrame<'_>>, state: Option<Value>) {
+    /// Load a package, if it passes the checks; answers the plugin's name as the chat tells it
+    /// when it loaded and runs.
+    fn load(
+        &mut self,
+        package: Package,
+        frame: Option<&HookFrame<'_>>,
+        state: Option<Value>,
+    ) -> Option<String> {
         let origin = package.origin.clone();
         let m = match package.manifest() {
             Ok(m) => m,
@@ -2824,16 +2949,16 @@ impl PluginHost {
         if self.index(m.id.as_str()).is_some() {
             return self.refuse(&what, "a plugin with that id is already loaded");
         }
-        self.load_checked(package, frame, state);
+        self.load_checked(package, frame, state)
     }
 
-    /// Load a package that passed the checks.
+    /// Load a package that passed the checks; answers as [`Self::load`].
     fn load_checked(
         &mut self,
         package: Package,
         frame: Option<&HookFrame<'_>>,
         state: Option<Value>,
-    ) {
+    ) -> Option<String> {
         let origin = package.origin.clone();
         let m = match package.manifest() {
             Ok(m) => m,
@@ -2868,7 +2993,7 @@ impl PluginHost {
             .collect();
         for (name, bytes) in pngs {
             if let Err(why) = state_slot.pictures.take(&name, &bytes) {
-                state_slot.log(format!("{why}: it is not shown"));
+                state_slot.warn(format!("{why}: it is not shown"));
             }
         }
         for key in self.shared.scope_keys() {
@@ -2881,7 +3006,9 @@ impl PluginHost {
         });
         let i = self.plugins.len() - 1;
         self.loading = true;
+        self.entry_chunk = true;
         let loaded = self.enter(i, frame, |vm, call| vm.load_bytes(call, &entry, &source));
+        self.entry_chunk = false;
         self.loading = false;
         let slot = &mut self.plugins[i];
         if loaded.is_none() && slot.state.status == Status::Running {
@@ -2896,8 +3023,13 @@ impl PluginHost {
                 self.shared.verbs_changed = true;
             }
             self.host_log(format!("{what} failed to load: {why}"));
-            self.tell(&format!("{what} failed to load: {why}"));
-            return;
+            // The error's first line; the whole of it, its traceback too, is in the log.
+            let first = why.lines().next().unwrap_or_default();
+            self.tell(&format!(
+                "{what} failed to load: {}",
+                shown::bounded(first, shown::LINE)
+            ));
+            return None;
         }
         self.host_log(format!("loaded {what}"));
         if let Some(state) = state {
@@ -2912,6 +3044,7 @@ impl PluginHost {
             let e = Event::new("plugin.loaded", Value::map());
             let _ = self.enter(i, frame, |vm, call| vm.deliver(call, &e));
         }
+        Some(told_name(&self.plugins[i].state.manifest))
     }
 
     /// The part of the session the last frame was in.
@@ -3058,11 +3191,22 @@ impl PluginHost {
         state.filter(|v| !v.is_nil())
     }
 
-    fn reload(&mut self, id: &str, frame: Option<&HookFrame<'_>>) {
+    /// Reload plugin `id` (`why`: the player's Reload, or their Enable of a plugin stopped on a
+    /// fault), telling the chat once it runs again.
+    fn reload(&mut self, id: &str, frame: Option<&HookFrame<'_>>, why: Why) {
+        let done = if why == Why::Enable {
+            "enabled"
+        } else {
+            "reloaded"
+        };
         let Some(i) = self.index(id) else {
             // Not loaded: a reload loads it, if the source has it.
             match dereth_plugin_api::PluginId::parse(id).and_then(|pid| self.source.fetch(&pid)) {
-                Some(p) => self.load(p, frame, None),
+                Some(p) => {
+                    if let Some(name) = self.load(p, frame, None) {
+                        self.tell_life(&name, done);
+                    }
+                }
                 None => self.tell(&format!("no plugin {id} is loaded or available")),
             }
             return;
@@ -3079,9 +3223,11 @@ impl PluginHost {
         let state = self.unload(i, frame);
         let package = self.fetch_any(id).unwrap_or(old_package);
         self.carried_open.insert(id.to_owned(), open);
-        self.load(package, frame, state);
+        let loaded = self.load(package, frame, state);
         self.carried_open.remove(id);
-        self.tell(&format!("reloaded {id}"));
+        if let Some(name) = loaded {
+            self.tell_life(&name, done);
+        }
     }
 
     fn open_session_scopes(&mut self) {
@@ -3106,40 +3252,34 @@ impl PluginHost {
             (None | Some("show"), _) => self.show_panel(),
             (Some("list"), _) => {
                 let list = self.plugins();
-                let found = if self.on { self.found() } else { Vec::new() };
+                let found = self.found();
                 let off: Vec<FoundInfo> = found
                     .into_iter()
                     .filter(|b| !list.iter().any(|p| p.id == b.id))
                     .collect();
                 if list.is_empty() && off.is_empty() {
-                    let none = self.no_plugins();
+                    let none = NO_PLUGINS.to_owned();
                     self.tell(&none);
                 }
                 for b in off {
-                    self.tell(&format!("{} {} off (/plugin on {})", b.id, b.version, b.id));
+                    let state = if b.on { "not loaded" } else { "disabled" };
+                    self.tell(&format!(
+                        "{} {} {state} (/plugin enable {})",
+                        b.id, b.version, b.id
+                    ));
                 }
                 for p in list {
                     let why = p.reason.map(|r| format!(": {r}")).unwrap_or_default();
                     self.tell(&format!("{} {} {}{why}", p.id, p.version, p.status));
                 }
             }
-            (Some("load"), Some(id)) => match dereth_plugin_api::PluginId::parse(id)
-                .and_then(|pid| self.source.fetch(&pid))
-            {
-                Some(p) => self.load(p, frame, None),
-                None => self.tell(&format!("no plugin {id} is available")),
-            },
-            (Some("unload"), Some(id)) => match self.index(id) {
-                Some(i) => {
-                    self.unload(i, frame);
-                    self.tell(&format!("unloaded {id}"));
+            (Some("reload"), Some(id)) => self.reload(id, frame, Why::Reload),
+            // `on` and `off` are the words these had before they were Enable and Disable.
+            (Some(word @ ("enable" | "disable" | "on" | "off")), Some(id)) => {
+                if let Err(why) = self.set_ticked(id, matches!(word, "enable" | "on")) {
+                    self.tell(&why);
                 }
-                None => self.tell(&format!("no plugin {id} is loaded")),
-            },
-            (Some("reload"), Some(id)) => self.reload(id, frame),
-            (Some(word @ ("on" | "off")), Some(id)) => match self.set_ticked(id, word == "on") {
-                Ok(t) | Err(t) => self.tell(&t),
-            },
+            }
             (Some("policy"), None) => {
                 for line in self.config.policy.describe() {
                     self.tell(&line);
@@ -3154,17 +3294,8 @@ impl PluginHost {
                     "the plugins' HUDs are locked"
                 });
             }
-            (Some("console"), Some(id)) => match self.console(id) {
-                Some(lines) => {
-                    let tail = lines.len().saturating_sub(20);
-                    for l in &lines[tail..] {
-                        self.tell(&format!("{id}: {l}"));
-                    }
-                }
-                None => self.tell(&format!("no plugin {id} is loaded")),
-            },
             _ => self.tell(
-                "usage: /plugin [show | list | on <id> | off <id> | load <id> | unload <id> | reload <id> | console <id> | policy | huds [unlock | lock]]",
+                "usage: /plugin [show | list | enable <id> | disable <id> | reload <id> | policy | huds [unlock | lock]]",
             ),
         }
     }

@@ -44,8 +44,8 @@ lists of plugins at their latest release, each one `plugins.json` at an `https:/
   always waits for the player.
 - **Where.** Under the launcher's data folder, `plugins/sources.json`, `plugins/installed.json`
   and one folder per plugin with its `current.zip`. The launcher offers the client each installed
-  plugin's `current.zip` (`--offer-plugins`), which lists it off until the player ticks it; the
-  retail client gets none.
+  plugin's `current.zip` (`--offer-plugins`), which lists it on the first time it finds it and
+  as the player leaves it after that; the retail client gets none.
 
 The web client's start page installs from sources the same way, with the launcher's own code, and
 keeps what it installs in the browser

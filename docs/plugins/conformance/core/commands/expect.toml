@@ -12,4 +12,11 @@ say = "/CONF"
 [expect]
 status = "running"
 console = ["claim t\tfalse\ttrue", "conf\talpha  beta\t2", "conf\t\t0"]
-printed = ["conf answered alpha  beta", "conf answered "]
+printed = [
+    "[Conformance: commands] claim t false true",
+    "[Plugins] Conformance: commands loaded.",
+    "[Conformance: commands] conf alpha  beta 2",
+    "conf answered alpha  beta",
+    "[Conformance: commands] conf  0",
+    "conf answered ",
+]

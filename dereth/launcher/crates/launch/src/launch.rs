@@ -84,8 +84,9 @@ pub struct LaunchRequest<'a> {
     /// Where the caller wrote the world's plugin policy document, when the entry carries it
     /// inline; a policy published at a URL is passed as the URL.
     pub plugin_policy_file: Option<PathBuf>,
-    /// The plugin packages the launcher installed, offered to the Dereth client, which lists each
-    /// off until the player ticks it ([`crate::plugins::Shelf::offered_packages`]).
+    /// The plugin packages the launcher installed, offered to the Dereth client, which loads each
+    /// the first time it sees it, until the player unticks it
+    /// ([`crate::plugins::Shelf::offered_packages`]).
     pub plugins: Vec<PathBuf>,
 }
 

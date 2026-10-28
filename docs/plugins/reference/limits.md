@@ -24,8 +24,8 @@ The numbers the host holds every plugin to, from the host's own constants. Each 
 
 | limit | value | what it bounds |
 |---|---|---|
-| printed lines | 50 a frame | local chat lines one plugin may print in one frame |
-| console | 200 lines | console lines kept per plugin |
+| printed lines | 50 a frame | local chat lines one plugin may print in one frame (`chat.print` and `print`) |
+| printed lines kept | 200 lines | the lines of what a plugin printed (and its errors) the host keeps |
 | timer period | 50 ms | the shortest period of a repeating timer |
 | store | 16 MiB | the most one store scope may hold, as JSON |
 | patterns | 256 | regular expressions one plugin keeps compiled; the oldest is dropped past it |

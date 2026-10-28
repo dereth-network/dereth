@@ -2330,10 +2330,9 @@ local function script_globals(r)
 		for i = 1, parts.n do
 			parts[i] = tostring(parts[i])
 		end
-		local line = table.concat(parts, " ", 1, parts.n)
-		D.print(line)
-		-- UtilityBelt shows what a script prints in the chat too, under the script's name.
-		pcall(D.chat.print, "[" .. r.name .. "] " .. line)
+		-- The host tells what a script prints in the chat under the script's name, as UtilityBelt
+		-- shows it.
+		D.print(table.concat(parts, " ", 1, parts.n))
 	end
 	g.Enum = static("Enum", {
 		GetName = function(e, v)

@@ -86,7 +86,8 @@ pub struct Settings {
     /// The folder the clients on this machine list themselves in, for the bus between them.
     pub peers: Option<PathBuf>,
     /// Find the plugins the launcher installed too, as it offers them to the Dereth client: in its
-    /// folders as the environment names them, or in `launcher_data`.
+    /// folders as the environment names them, or in `launcher_data`. Each is ticked the first
+    /// time the host sees it.
     pub launcher: bool,
     /// The launcher's data folder, in place of the one the environment names.
     pub launcher_data: Option<PathBuf>,
@@ -359,12 +360,6 @@ impl RetailHost {
         if let Some(ms) = settings.entry_budget_ms {
             config.limits.call_budget_ms = ms;
         }
-        config.adding_plugins = settings.found.first().map(|d| {
-            format!(
-                "Put a plugin's folder in {} and restart the game.",
-                d.display()
-            )
-        });
         let storage: Box<dyn PluginStorage> = match &settings.data {
             Some(d) => Box::new(dereth_headless::plugins::DirStorage {
                 root: d.join("stores"),
@@ -377,13 +372,14 @@ impl RetailHost {
         } else {
             Box::new(dereth_headless::plugins::DirSource { roots })
         };
-        // The plugins found: the player's folders, the launcher's installs, then the ones that
-        // come with the host, each off until the player ticks it.
-        let mut found = settings.found.clone();
-        if settings.launcher {
-            found.extend(launcher_packages(settings.launcher_data.as_deref()));
-        }
-        found.extend(settings.bundled.iter().cloned());
+        // The plugins found: the player's folders, the launcher's (its installs and the player's
+        // own folders it lists, each ticked the first time the host sees it), then the ones that
+        // come with the host. The first and the last are each off until the player ticks it.
+        let from_launcher = if settings.launcher {
+            launcher_packages(settings.launcher_data.as_deref())
+        } else {
+            Vec::new()
+        };
         let mut host = PluginHost::new(
             config,
             Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
@@ -393,10 +389,20 @@ impl RetailHost {
         .with_engine(Box::new(
             dereth_client_sdk::plugin_wasm::WasmEngine::interpreted(),
         ));
-        if !found.is_empty() {
-            host = host.with_found(Box::new(dereth_headless::plugins::DirSource {
-                roots: found,
-            }));
+        for (roots, offered) in [
+            (settings.found.clone(), false),
+            (from_launcher, true),
+            (settings.bundled.iter().cloned().collect(), false),
+        ] {
+            if roots.is_empty() {
+                continue;
+            }
+            let source = Box::new(dereth_headless::plugins::DirSource { roots });
+            host = if offered {
+                host.with_offered(source)
+            } else {
+                host.with_found(source)
+            };
         }
         if let Some(d) = &settings.data {
             host = host.with_files(Box::new(dereth_headless::plugins::DirFiles {

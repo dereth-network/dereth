@@ -2087,10 +2087,7 @@ mod tests {
         assert_eq!(view.available.len(), 1);
         assert!(view.installed.is_empty());
         let said = Backend::install_plugin(&shared, &fetch, launcher_plugins::FIRST_PARTY, own);
-        assert_eq!(
-            said.as_deref(),
-            Ok("Installed Meter 1.0.0. Turn it on in the client.")
-        );
+        assert_eq!(said.as_deref(), Ok("Installed Meter 1.0.0."));
         assert_eq!(lock(&shared).offered_plugins().len(), 1);
 
         // Another source: added, and read at once.

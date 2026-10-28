@@ -11,13 +11,12 @@ In the Dereth Network launcher, open **Plugins**, paste this address under **Sou
 {{source_url}}
 ```
 
-Then install **{{name}}** from the list, and turn it on in the client's plugin panel (`/plugin`).
+Then install **{{name}}** from the list.
 
 ## Work on it
 
 1. In the Dereth Network launcher, open **Plugins**. Under **Installed**, press **Add Plugin Folder** and choose this folder. (If you used the launcher to create this plugin then this part is automatically done for you.)
-2. Play, and turn **{{name}}** on in the client's plugin panel (`/plugin`).
-3. Edit, save, and reload with `/plugin reload {{id}}` to check your work.
+2. Edit, save, and reload with `/plugin reload {{id}}` to check your work.
 
 The plugin interface is [documented here]({{dereth_repo}}/tree/main/docs/plugins).
 

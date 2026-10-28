@@ -78,7 +78,7 @@ pub const WIT_VERSION: &str = "0.7.0";
 #[rustfmt::skip]
 pub const OPS: &[Op] = &[
     Op { name: "console.print", lua: None, params: &[p("text", Ty::Str)], result: None,
-         doc: "A line for the plugin's own console." },
+         doc: "A line the plugin prints: told in the chat under its name." },
     Op { name: "events.subscribe", lua: None, params: &[p("event", Ty::Str)], result: None,
          doc: "Hear an event by name from now on (delivered to `deliver`)." },
     Op { name: "events.unsubscribe", lua: None, params: &[p("event", Ty::Str)], result: None,
@@ -98,7 +98,7 @@ pub const OPS: &[Op] = &[
     Op { name: "task.cancel", lua: Some("task.cancel"), params: &[p("timer", Ty::Int)], result: None,
          doc: "Cancel a timer." },
     Op { name: "task.error", lua: None, params: &[p("message", Ty::Str)], result: None,
-         doc: "Report an error the plugin caught, to its console." },
+         doc: "Report an error the plugin caught: told in the chat, the whole of it in the log." },
     Op { name: "store.get", lua: None, params: &[p("scope", Ty::Str), p("key", Ty::Str)], result: Some(Ty::Value),
          doc: "A value kept in a store scope (`global`, `world` or `character`)." },
     Op { name: "store.set", lua: None, params: &[p("scope", Ty::Str), p("key", Ty::Str), p("data", Ty::Value)], result: None,

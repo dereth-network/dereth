@@ -354,6 +354,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.chat.what-a-plugin-prints-and-its-errors-are-told-in-the-chat",
+        says: "What a plugin prints is told in the chat under its name, each line on one line, \
+               as many a frame as it may print there, the rest kept in the client's log; an \
+               error it meets is told by its first line under its name, its traceback written \
+               to the client's log. Nothing a plugin printed is kept apart from the chat.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-PRINT-CHAT"),
+        station: "dereth-plugin-host::lib::tests::a_plugins_printed_lines_and_errors_are_told_in_the_chat",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.commands.a-claimed-command-reaches-its-plugin-and-the-clients-own-win",
         says: "A slash command a plugin adds reaches that plugin with the words the player typed \
                after it, in any letter case, and a command the client already has cannot be \
@@ -574,17 +586,34 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.load.a-found-plugin-is-listed-off-until-the-player-ticks-it",
-        says: "Every plugin the client finds (in its plugins folder, among the launcher's installs, \
-               among the ones that come with it) is listed, by `/plugin list` and in the plugin \
-               panel, and off: none is loaded until the player ticks it, by `/plugin on <id>` or \
-               the panel's Turn on button, and then it loads as any plugin does. The client \
-               remembers which are ticked, so it loads those at its next start and no other, and \
-               `/plugin off <id>` unloads one. A plugin of the same id among those named to load \
-               is that one.",
+        says: "Every plugin the client finds in its plugins folder or among the ones that come \
+               with it is listed, by `/plugin list` and in the plugin panel, and disabled: none \
+               is loaded until the player enables it, by `/plugin enable <id>` or the panel's \
+               Enable button, and then it loads as any plugin does. The client remembers which \
+               are enabled, so it loads those at its next start and no other, and \
+               `/plugin disable <id>` unloads one. A plugin of the same id among those named to \
+               load is that one. A client built from the repository finds none of the \
+               repository's plugins by itself.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-FOUND"),
         station: "dereth-testkit::cpu::plugins::scenario_a_found_plugin_is_listed_off_until_the_player_ticks_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.load.a-plugin-a-launcher-offers-starts-on-and-an-untick-is-kept",
+        says: "A plugin the launcher offers the client (one it installed, or one in a folder on \
+               this computer it lists) is ticked the first time the client finds it, and loads \
+               with no tick from the player; a plugin found any other way waits for its tick. \
+               After that the player's tick decides: one they turn off stays off at every start, \
+               though the launcher offers it still, and a plugin that replaces one they turned \
+               off is not turned on for them. The browser client's start page offers the plugins \
+               added and installed there in the same way, and Dereth Plugins in the retail \
+               client the launcher's.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-OFFERED"),
+        station: "dereth-plugin-host::lib::tests::a_plugin_a_launcher_offers_is_ticked_at_first_and_an_untick_is_kept",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -610,38 +639,53 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.load.no-plugin-loads-while-plugins-are-off",
-        says: "While the player's Plugins (experimental) setting is off, no plugin the client \
-               finds loads, ticked or not, and the client shows nothing of the plugins: no bar, no \
-               panel, no `/plugin`. Turned on, the ticked ones load; turned off again, they \
-               unload. A plugin the command line names to load (`--plugins`) loads whatever the \
-               setting says.",
+        id: "plugins.load.plugin-opens-the-panel-with-nothing-to-turn-on-first",
+        says: "`/plugin` is a command in every client that runs plugins, from the start and with \
+               nothing to turn on first: it opens the plugin panel, which lists the plugins found, \
+               even with none loaded or none at all. There is no setting that turns plugins off; \
+               a profile written while the client had its Plugins (experimental) setting reads as \
+               any other, and its line for the setting is left as it was, unread.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-OFF"),
-        station: "dereth-plugin-host::lib::tests::with_plugins_off_no_found_plugin_loads_and_the_host_shows_nothing",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-COMMAND"),
+        station: "dereth-plugin-host::lib::tests::the_plugin_command_opens_the_panel_with_nothing_to_turn_on_first",
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.load.plugins-are-off-until-the-player-turns-them-on",
-        says: "Plugins (experimental) is a setting of the Client Options page, off at first and \
-               in a profile saved before it existed, and kept in the profile once the player turns \
-               it on.",
+        id: "plugins.load.the-chat-says-when-a-plugin-loads-reloads-unloads-is-enabled-or-disabled",
+        says: "The chat says, one line each and by the name the plugin's manifest gives it (its \
+               id where it gives none), when a plugin is loaded (at the start, or for any reason \
+               but the player's Enable or Reload), reloaded, unloaded (for any reason but \
+               Disable), enabled and disabled: `[Plugins] XP Meter enabled.` Reload All says \
+               each plugin's reload.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-SWITCH"),
-        station: "dereth-client-contract::lib::options::plugins::tests::plugins_are_off_at_first_and_in_an_old_profile_and_a_saved_one_brings_them_back_on",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-LIFE-LINES"),
+        station: "dereth-plugin-host::lib::tests::the_chat_says_when_a_plugin_loads_reloads_unloads_is_enabled_or_disabled",
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "plugins.load.with-no-plugins-the-panel-says-how-to-add-one",
+        id: "plugins.load.the-plugin-panel-enables-disables-and-reloads",
+        says: "The plugin panel lists every plugin with its version and state, and why the one \
+               chosen stopped, under four buttons: Enable, lit for a plugin that is not running, \
+               which ticks it and loads it (or starts it again after a fault); Disable, lit for \
+               one that is ticked, which unticks it and unloads it; Reload, lit for one running; \
+               and Reload All, lit while any runs. A plugin disabled and enabled again runs. The \
+               panel shows no world policy, console or HUD toggle.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-PANEL-BUTTONS"),
+        station: "dereth-plugin-host::lib::tests::the_plugin_panel_lists_the_plugins_and_lights_each_button_for_the_one_chosen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.load.with-no-plugins-the-panel-says-there-are-none",
         says: "With no plugin loaded and none that comes with the client, the plugin panel and \
-               `/plugin list` say there is none and how to add one: on the desktop, where its \
-               plugins folder is and that `--plugins <folder>` names another.",
+               `/plugin list` say \"No plugins yet.\" and nothing more.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NONE"),
-        station: "dereth-plugin-host::lib::tests::with_no_plugins_the_panel_and_the_list_say_how_to_add_one",
+        station: "dereth-plugin-host::lib::tests::with_no_plugins_the_panel_and_the_list_say_there_are_none",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3015,6 +3059,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.ui.logging-out-closes-every-plugin-window",
+        says: "Logging out closes every plugin window and HUD that was open, and the plugin panel; \
+               logged in again, each stays closed until the player opens it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-LOGOUT-CLOSES"),
+        station: "dereth-plugin-host::lib::tests::logging_out_closes_every_plugin_window_hud_and_the_panel",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.ui.tabs-a-number-and-a-choice-take-the-players-changes",
         says: "A tabs node of group pages, a number and a choice are kept in the window's tree; the \
                player's change of each reaches the plugin as an event and stays on the node.",
@@ -3137,9 +3191,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.ui.while-the-huds-are-unlocked-a-huds-controls-take-no-input",
-        says: "While the player has the HUDs unlocked (the plugin panel's toggle, or `/plugin \
-               huds unlock`), a HUD's controls take no input and its plugin hears nothing of a \
-               press on one; locked again, they answer.",
+        says: "While the player has the HUDs unlocked (`/plugin huds unlock`; the plugin panel \
+               has no toggle for it), a HUD's controls take no input and its plugin hears nothing \
+               of a press on one; locked again, they answer.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-HUD-UNLOCK-INPUT"),

@@ -442,12 +442,12 @@ fn limits() -> String {
             (
                 "printed lines",
                 format!("{} a frame", calls::PRINTS_PER_FRAME),
-                "local chat lines one plugin may print in one frame",
+                "local chat lines one plugin may print in one frame (`chat.print` and `print`)",
             ),
             (
-                "console",
+                "printed lines kept",
                 format!("{} lines", dereth_plugin_host::slot::CONSOLE_LINES),
-                "console lines kept per plugin",
+                "the lines of what a plugin printed (and its errors) the host keeps",
             ),
             (
                 "timer period",

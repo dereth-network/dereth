@@ -5,9 +5,9 @@ using System.IO;
 namespace Dereth.Decal
 {
     /// <summary>
-    /// Where the plugin host finds things, as the host library's settings say it. Plugins are
-    /// experimental: every plugin found is listed in the plugin panel and off until the player
-    /// ticks it.
+    /// Where the plugin host finds things, as the host library's settings say it. Every plugin
+    /// found is listed in the plugin panel: the launcher's are on the first time the host finds
+    /// them, and the others are off until the player ticks each.
     /// <list type="bullet">
     /// <item>the plugins in the Dereth client's own plugins folder,
     /// <c>%APPDATA%\Dereth\client\plugins</c>, and the plugins the launcher installed, so a

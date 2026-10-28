@@ -51,8 +51,8 @@ seconds later, gets in.
 first line of the file `--password-file` names, else the `DERETH_PASSWORD` environment variable.
 
 **The log file** (`--log-file <file>`, appended to) holds, each line with its time: the daemon's
-connections and why each ended (`daemon`), every chat line (`chat`), every line a plugin writes
-to its console (`dereth::plugin`; the Buffbot's requests, casts, fizzles and failures among them),
+connections and why each ended (`daemon`), every chat line (`chat`), every line a plugin prints
+(`dereth::plugin`; the Buffbot's requests, casts, fizzles and failures among them),
 the plugin host's own lines (`dereth::plugins`), and any warning.
 
 ```text

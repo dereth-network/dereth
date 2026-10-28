@@ -11,20 +11,22 @@ their latest release, each one `plugins.json` at an `https://` address. The laun
 browser client start with Dereth's own source and nothing installed; a player adds others by their
 address.
 
-**Plugins are experimental, and none loads until you turn it on.** In the desktop and browser
-clients, tick **Plugins (experimental)** on the Client Options page first: until then no plugin
-loads and nothing of the plugins shows. Then every plugin the client finds is listed in the plugin
-panel (`/plugin`) after the plugins that are loaded, with the state `off`; choose one and press
-**Turn on**, or type `/plugin on <id>` (`/plugin list` names each id). A plugin turned on loads at
-once, as any plugin does, and the client remembers it: it loads at every start until you turn it
-off (**Turn off**, or `/plugin off <id>`). Its windows start closed: open them from the plugin bar.
+**Every plugin the client finds is listed in the plugin panel** (`/plugin`), after the plugins
+that are loaded. A plugin you installed or added on the launcher's Plugins page (or on the browser
+client's start page) is on the first time the client finds it, and loads at once. Any other, one
+you put in the client's `plugins` folder yourself or one that comes with the client, is listed with
+the state `disabled`: choose it and press **Enable**, or type `/plugin enable <id>` (`/plugin list`
+names each id). A plugin enabled loads at once, as any plugin does, and the client remembers it:
+it loads at every start until you disable it (**Disable**, or `/plugin disable <id>`). One you
+disable stays off, though the launcher still offers it. Its windows start closed: open them from
+the plugin bar.
 
 | host | where it finds plugins | updates |
 |---|---|---|
 | the launcher, for the desktop client | installed one by one from plugin sources: Dereth's own, and the ones you add; and the plugins in the folders on this computer you add, as they are on disk | from each plugin's own source: when you press **Update**, or on their own as the update setting says; a folder on this computer is never updated: edit it, and `/plugin reload <id>` |
-| the desktop client | its settings folder's `plugins` folder, what the launcher offers (its installs and the folders on this computer), and the plugins beside the program; each `--plugins` folder loads whatever the setting says | replace the folder or zip; `/plugin reload <id>`, or `--plugin-dev` |
+| the desktop client | its settings folder's `plugins` folder, what the launcher offers (its installs and the folders on this computer), and the plugins beside the program; each `--plugins` folder loads at once | replace the folder or zip; `/plugin reload <id>`, or `--plugin-dev` |
 | the browser client | the folders and zips the player added on the start page, and the plugins installed there from plugin sources: Dereth's own, and the ones you add | as the launcher does, on the start page; a folder or zip you added: add it again |
-| the retail client, through Decal | the desktop client's `plugins` folder, what the launcher offers (its installs and the folders on this computer), and the plugins beside Dereth Plugins, each off until turned on in its plugin panel | as the desktop client |
+| the retail client, through Decal | the desktop client's `plugins` folder, what the launcher offers (its installs and the folders on this computer), and the plugins beside Dereth Plugins; the launcher's are enabled the first time it finds them, and the others disabled until enabled in its plugin panel | as the desktop client |
 | the headless client | each `--plugins` folder or zip, and `plugin load` in a script, loaded as named | the next run reads the files afresh |
 
 ## Dereth's plugins
@@ -35,9 +37,9 @@ samples. They reach players through **Dereth's own source**, which lists each of
 the launcher and the browser client start with: install the ones you want, as from any source. No release carries them
 installed.
 
-A client built from the repository finds the samples in `dereth/plugins/` itself, each off until
-you turn it on. A plugin of the same id in your own `plugins` folder is yours, and is listed
-instead.
+A client built from the repository finds what any client finds, and not the samples by itself:
+name their folder with `--plugins dereth/plugins`, or add it as a folder on this computer on the
+launcher's Plugins page ([running-the-samples.md](running-the-samples.md)).
 
 ## The launcher: plugin sources
 
@@ -65,8 +67,8 @@ lists it. **Search** narrows the list. Press **Install** on the one you want. Th
 its zip and keeps it only when it is the file the source lists and its manifest says what the
 source says ([the checks](../sources.md#checking-a-release)). A release that needs a newer plugin
 API than your client says **Needs a newer Dereth** and cannot be installed. An id under
-`network.dereth.` installs only from Dereth's own source. Installing never turns a plugin on: the
-client lists it off until you turn it on there.
+`network.dereth.` installs only from Dereth's own source. An installed plugin is enabled the first
+time the client finds it; disable it in the client's plugin panel, and it stays off.
 
 **Installed.** Each installed plugin updates only from the source it came from, only to a newer
 release. When an update waits, its row says so, with what the release asks for that the installed
@@ -79,12 +81,13 @@ folders include at least one plugin's folder); it is added at once. Any other fo
 one whose plugins are all further down too. Every plugin in the folder is listed under Installed
 marked **Local**, found as `dereth-plugin` finds a repository's plugins (the folders directly in
 it, build output left out). The client is offered each one's folder as it is on disk: no zip, no
-check against a source, never updated. Turn it on in the client as any plugin, and after an edit
-type `/plugin reload <id>` there (or start the client with `--plugin-dev`). Open a Local row:
-its **Location** line has **Open**, which shows the folder, and **Remove**, which takes the folder
-off the list and deletes nothing. A folder that no longer holds a plugin says so on its row.
-**Make Your Own** adds the folder it wrote in, so a new plugin is there at once, and keeps a copy of
-`dereth-plugin` at its root ([publishing.md](publishing.md#a-new-plugin-repository)).
+check against a source, never updated. It is on the first time the client finds it, as an
+installed plugin is, and after an edit type `/plugin reload <id>` there (or start the client with
+`--plugin-dev`). Open a Local row: its **Location** line has **Open**, which shows the folder, and
+**Remove**, which takes the folder off the list and deletes nothing. A folder that no longer holds a
+plugin says so on its row. **Make Your Own** adds the folder it wrote in, so a new plugin is there at
+once, and keeps a copy of `dereth-plugin` at its root
+([publishing.md](publishing.md#a-new-plugin-repository)).
 
 A plugin on this computer with the id of an installed plugin is the one the client loads, Dereth's
 own ids too (the rule that those come only from Dereth's source is about downloads). Both rows say
@@ -112,8 +115,8 @@ this computer), `installed.json`, and a folder per plugin with its `current.zip`
 ## The desktop client: its plugins folder
 
 The client finds every package in the `plugins` folder of its settings folder (folders holding
-`plugin.toml`, and `.zip` files), creating the folder if it is missing, and lists each off until
-you turn it on:
+`plugin.toml`, and `.zip` files), creating the folder if it is missing, and lists each disabled
+until you enable it:
 
 | system | the plugins folder |
 |---|---|
@@ -121,28 +124,29 @@ you turn it on:
 | macOS | `~/Library/Application Support/Dereth/client/plugins` |
 | Linux | `$XDG_CONFIG_HOME/dereth/client/plugins` (`~/.config/dereth/client/plugins`) |
 
-To install a plugin by hand, put its folder or zip there and start the client, then turn it on.
+To install a plugin by hand, put its folder or zip there and start the client, then enable it.
 To update it, replace the files and `/plugin reload <id>`. With no plugin at all, the plugin panel
 (`/plugin`) and `/plugin list` say where this folder is.
 
 | switch | does |
 |---|---|
-| `--plugins <folder>` | loads the package in the folder (or zip), or every package in it, whatever **Plugins (experimental)** says; repeatable |
-| `--offer-plugins <folder>` | lists the package in the folder (or zip), or every package in it, beside the plugins folder's, each off until turned on; repeatable (the launcher passes its installs) |
+| `--plugins <folder>` | loads the package in the folder (or zip), or every package in it, at once; repeatable |
+| `--offer-plugins <folder>` | lists the package in the folder (or zip), or every package in it, beside the plugins folder's, each on the first time the client finds it; repeatable (the launcher passes its installs and the folders on this computer) |
 | `--no-plugins` | starts with no plugins at all, as the retail client runs |
 | `--plugin-dev` | reloads a plugin whenever one of its files changes (checked once a second) |
 | `--plugin-policy <file or https URL>` | the world's plugin policy document ([policy.md](../policy.md)); the launcher passes the world's own |
 
 Stores are kept beside the plugins folder in `plugin-store`, one folder per plugin id and one JSON
-file per store scope; which plugins are turned on, and where their windows stand, are kept there
-too, under `dereth.plugins`.
+file per store scope; which plugins are enabled and which you disabled, and where their windows
+stand, are kept there too, under `dereth.plugins`.
 
 ## The browser client
 
 The start page's **Add a plugin folder…** copies a plugin's folder (the one holding
 `plugin.toml`) into the browser's private storage for the site, and **Add a plugin zip…** keeps a
 zip there as it is; **Remove all plugins** deletes them, and the plugins installed from sources.
-Kept plugins are listed in the client, each off until you turn it on. Their stores live in the same
+Kept plugins are listed in the client, each on the first time the client finds it, and stay as
+you leave them in the plugin panel after that. Their stores live in the same
 private storage.
 
 **Plugin sources.** Under *Plugin sources* the start page does what the launcher's Plugins page

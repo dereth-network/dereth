@@ -1289,4 +1289,30 @@ mod tests {
         );
         clear();
     }
+
+    /// A profile written while the client had a *Plugins (experimental)* setting reads as any
+    /// other: no option is that line's any more, so nothing reads it, and a save leaves it in the
+    /// file as it was, as it leaves every line no option owns.
+    ///
+    /// Behaviour: plugins.load.plugin-opens-the-panel-with-nothing-to-turn-on-first
+    #[test]
+    fn a_profile_holding_the_old_plugins_setting_reads_with_that_line_unread_and_kept() {
+        init();
+        let text = "[Plugins]\r\nExperimental=False\r\n[Sound]\r\nSoundVolume=0.50\r\n";
+        let mut ini = UserPreferences::parse(text).expect("the ini parses");
+        assert_eq!(
+            load(&ini),
+            (1, 1),
+            "the volume is applied, and the plugins line is no option's"
+        );
+        assert!(!is_registered("Plugins.Experimental"));
+        assert_eq!(inq_value("Sound.SoundVolume"), Some(PrefValue::Float(0.5)));
+        save_into(&mut ini);
+        let saved = ini.to_text();
+        assert!(
+            saved.contains("[Plugins]\r\nExperimental=False\r\n"),
+            "{saved}"
+        );
+        clear();
+    }
 }

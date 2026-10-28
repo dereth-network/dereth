@@ -223,7 +223,8 @@ $('remove-plugins').addEventListener('click', async () => {
 // the ones the player adds by address, each with the plugins installed from it and then the ones
 // it offers that are not installed, each saying what it does and uses, with Install, Update and
 // Remove. A plugin installed here is kept in this browser and found by the client when it starts,
-// off until the player turns it on there. Every source is read as the page opens and again with
+// on the first time it is found, until the player turns it off there. Every source is read as the
+// page opens and again with
 // Refresh; updates apply as the setting says, and one that asks for more permissions waits for
 // the player.
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

@@ -87,7 +87,7 @@ say = "/xp reset"          # typed in the chat bar
 
 [expect]                   # every key optional; each compared exactly
 status = "running"         # running, faulted, suspended, or absent (not loaded)
-console = ["..."]          # the plugin's console lines, in order (what it printed)
+console = ["..."]          # what the plugin printed and the errors it met, in order
 printed = ["..."]          # the local chat lines the plugins and the host printed, in order
 hidden = ["..."]           # the incoming lines hidden, in order
 sent = ["..."]             # the messages the plugins' actions sent, in order (below)

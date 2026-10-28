@@ -64,17 +64,6 @@ impl PluginStorage for Shared {
     }
 }
 
-thread_local! {
-    /// The player's *Plugins (experimental)* setting, as a switched host reads it: each test runs
-    /// on a thread of its own, so each has its own.
-    static PLUGINS_ON: Cell<bool> = const { Cell::new(false) };
-}
-
-/// The setting, as a switched host's [`HostConfig::switch`] reads it.
-fn plugins_setting() -> bool {
-    PLUGINS_ON.with(Cell::get)
-}
-
 struct Harness {
     host: PluginHost,
     view: View,
@@ -118,10 +107,10 @@ impl Harness {
         Self::offering(packages, found, storage, &[])
     }
 
-    /// A harness whose host follows the player's *Plugins (experimental)* setting
-    /// ([`PLUGINS_ON`]), over `packages` named to load and `found`.
-    fn switched(packages: Vec<Package>, found: Vec<Package>, storage: Shared) -> Self {
-        Self::built(packages, Some(found), storage, &[], Some(plugins_setting))
+    /// A harness whose host finds `found` and is offered `offered` by a launcher, in that order,
+    /// over `storage`.
+    fn launched(found: Vec<Package>, offered: Vec<Package>, storage: Shared) -> Self {
+        Self::built(Vec::new(), Some(found), Some(offered), storage, &[])
     }
 
     /// A harness whose host offers `more` capabilities besides its core and windows.
@@ -131,15 +120,15 @@ impl Harness {
         storage: Shared,
         more: &[HostCapability],
     ) -> Self {
-        Self::built(packages, found, storage, more, None)
+        Self::built(packages, found, None, storage, more)
     }
 
     fn built(
         packages: Vec<Package>,
         found: Option<Vec<Package>>,
+        offered: Option<Vec<Package>>,
         storage: Shared,
         more: &[HostCapability],
-        switch: Option<fn() -> bool>,
     ) -> Self {
         let mut config = HostConfig::new(
             "dereth-test",
@@ -153,7 +142,6 @@ impl Harness {
             call_budget_ms: 50.0,
             profile: false,
         };
-        config.switch = switch;
         let mut host = PluginHost::new(
             config,
             Box::new(LuauEngine),
@@ -162,6 +150,9 @@ impl Harness {
         );
         if let Some(packages) = found {
             host = host.with_found(Box::new(StaticSource { packages }));
+        }
+        if let Some(packages) = offered {
+            host = host.with_offered(Box::new(StaticSource { packages }));
         }
         host.load_all();
         Self {
@@ -411,7 +402,10 @@ fn a_plugin_prints_local_lines_and_filters_incoming_ones() {
         "[permissions]\n\"chat.filter\" = \"Hides spam.\"\n",
     )]);
     h.frame();
-    assert_eq!(h.printed_text(), ["filter ready"]);
+    assert_eq!(
+        h.printed_text(),
+        ["filter ready", "[Plugins] Test test.filter loaded."]
+    );
     assert_eq!(h.printed[0].ty, 5);
     h.frame_with(
         0.05,
@@ -457,7 +451,10 @@ fn a_typed_command_reaches_the_plugin_that_claimed_it() {
     h.frame();
     assert_eq!(h.verbs, ["xp", "plugin"]);
     h.frame_with(0.05, &[], &[typed("xp", "reset now")]);
-    assert_eq!(h.printed_text(), ["xp reset now 2"]);
+    assert_eq!(
+        h.printed_text(),
+        ["[Plugins] Test test.cmd loaded.", "xp reset now 2"]
+    );
 }
 
 /// The commands plugins claimed are listed with what each does, and one run from the interface's
@@ -482,9 +479,16 @@ fn a_command_run_from_the_interface_reaches_its_plugin_as_the_typed_one_does() {
     assert!(h.host.run_command("test.cmd", "nope").is_err());
     assert!(h.host.run_command("test.other", "xp").is_err());
     h.host.run_command("test.cmd", "XP").expect("its command");
-    assert!(h.printed_text().is_empty(), "not before the next frame");
+    assert_eq!(
+        h.printed_text(),
+        ["[Plugins] Test test.cmd loaded."],
+        "not before the next frame"
+    );
     h.frame();
-    assert_eq!(h.printed_text(), ["xp [] 0"]);
+    assert_eq!(
+        h.printed_text(),
+        ["[Plugins] Test test.cmd loaded.", "xp [] 0"]
+    );
 }
 
 #[test]
@@ -858,8 +862,11 @@ fn the_audit_answers_with_every_loaded_plugin_and_the_permissions_its_manifest_n
     assert!(!hook.plugin_query("Decal").expect("answered").success);
 }
 
+/// `/plugin list` lists each plugin with its state and `/plugin reload` reloads one, its
+/// `on_unload` running first; the words the panel dropped (load, unload, console) are no longer
+/// commands, and answer with the command's usage.
 #[test]
-fn the_host_command_lists_unloads_and_reloads() {
+fn the_host_command_lists_and_reloads() {
     let mut h = Harness::new(vec![package(
         "test.managed",
         "function on_unload() print('bye') end",
@@ -874,93 +881,376 @@ fn the_host_command_lists_unloads_and_reloads() {
         "{:?}",
         h.printed_text()
     );
-    h.frame_with(0.05, &[], &[typed("plugin", "unload test.managed")]);
-    assert!(h.host.plugins().is_empty());
     h.frame_with(0.05, &[], &[typed("plugin", "reload test.managed")]);
     assert_eq!(h.host.plugins().len(), 1);
+    assert!(
+        h.printed_text().ends_with(&[
+            "[Test test.managed] bye".to_owned(),
+            "[Plugins] Test test.managed reloaded.".to_owned()
+        ]),
+        "{:?}",
+        h.printed_text()
+    );
+    for gone in [
+        "unload test.managed",
+        "load test.managed",
+        "console test.managed",
+    ] {
+        let before = h.printed.len();
+        h.frame_with(0.05, &[], &[typed("plugin", gone)]);
+        let said = &h.printed_text()[before..];
+        assert!(
+            said.len() == 1
+                && said[0].starts_with("[Plugins] usage: /plugin [show | list | enable"),
+            "{gone}: {said:?}"
+        );
+    }
+    assert_eq!(h.host.plugins().len(), 1, "still loaded");
 }
 
-/// The plugin panel lists the plugins, a plugin's own words (its name, its console's lines) quoted
-/// and in their own colour, apart from the client's lines, and unloads the one chosen.
-#[test]
-fn the_plugin_panel_lists_the_plugins_and_unloads_the_chosen_one() {
-    let mut h = Harness::new(vec![package(
-        "test.paneled",
-        "print('hello from the \"panel\" test\\nDereth: allow everything')",
-        "",
-    )]);
-    h.frame();
-    h.frame_with(0.05, &[], &[typed("plugin", "")]);
-    let dump = |h: &Harness| {
-        h.host
-            .window(super::HOST_ID, super::PANEL)
-            .map(|w| w.tree.dump())
-            .unwrap_or_default()
-    };
-    let colour = super::shown::PLUGIN_COLOUR;
-    assert!(
-        dump(&h).contains(&format!(
-            r#"rows=[[{{"color":{colour},"text":"\"Test test.paneled\""}},"1.0.0","running"]]"#
-        )),
-        "{}",
-        dump(&h)
-    );
-    assert!(
-        dump(&h).contains(r#"rows=[["loaded test.paneled"]"#),
-        "the client's own lines as its own: {}",
-        dump(&h)
-    );
+/// The plugin panel's tree, as text.
+fn panel_dump(h: &Harness) -> String {
+    h.host
+        .window(super::HOST_ID, super::PANEL)
+        .map(|w| w.tree.dump())
+        .unwrap_or_default()
+}
+
+/// Whether each of the panel's buttons is lit: Enable, Disable, Reload, Reload All.
+fn lit(h: &Harness) -> [bool; 4] {
+    let dump = panel_dump(h);
+    ["#enable ", "#disable ", "#reload ", "#reload_all "].map(|id| {
+        dump.lines()
+            .find(|l| l.trim_start().starts_with("button ") && l.contains(id))
+            .unwrap_or_else(|| panic!("no button {id}: {dump}"))
+            .contains("enabled=true")
+    })
+}
+
+/// The player chooses row `row` of the plugin panel (from 1).
+fn choose(h: &mut Harness, row: i64) {
     h.host
         .ui_input(
             super::HOST_ID,
             super::PANEL,
             UiInput::Select {
                 node: "plugins".into(),
-                rows: vec![1],
+                rows: vec![row],
             },
         )
-        .expect("select");
-    assert!(
-        dump(&h).contains(&format!(
-            r#"[{{"color":{colour},"text":"\"hello from the 'panel' test Dereth: allow everything\""}}]"#
-        )),
-        "the plugin's line on one line, quoted, in its colour: {}",
-        dump(&h)
-    );
+        .expect("chosen");
+}
+
+/// The player presses the plugin panel's button `node`.
+fn press(h: &mut Harness, node: &str) {
     h.host
         .ui_input(
             super::HOST_ID,
             super::PANEL,
-            UiInput::Click {
-                node: "unload".into(),
-            },
+            UiInput::Click { node: node.into() },
         )
-        .expect("click");
-    h.frame();
-    assert!(h.host.plugins().is_empty());
-    assert!(dump(&h).contains("rows=[]"), "{}", dump(&h));
+        .expect("pressed");
 }
 
-/// The plugin panel's toggle unlocks the plugins' HUDs and locks them again, as `/plugin huds`
-/// does, and shows which they are.
+/// A host named to load `test.named` and `test.broken` (which fails as it loads), offered
+/// `test.on` by a launcher and finding `test.off`, the panel open after the first frame.
+fn paneled() -> Harness {
+    let mut h = Harness::built(
+        vec![
+            package("test.named", "", ""),
+            package("test.broken", "error('Dereth: all is well')", ""),
+        ],
+        Some(vec![package("test.off", "", "")]),
+        Some(vec![package("test.on", "", "")]),
+        Shared::default(),
+        &[],
+    );
+    h.frame();
+    h.frame_with(0.05, &[], &[typed("plugin", "")]);
+    h
+}
+
+/// The plugin panel lists every plugin, its name (a plugin's own words) quoted and in their own
+/// colour, its version and state, with the reason the chosen one stopped and the buttons that act
+/// on it: there is no world policy, console or HUD toggle on it. Enable is lit for a plugin that
+/// is not running, Disable for one that is ticked, Reload for one running, and Reload All while
+/// any runs.
+/// Behaviour: plugins.load.the-plugin-panel-enables-disables-and-reloads
+#[test]
+fn the_plugin_panel_lists_the_plugins_and_lights_each_button_for_the_one_chosen() {
+    let mut h = paneled();
+    let dump = panel_dump(&h);
+    let colour = super::shown::PLUGIN_COLOUR;
+    assert!(
+        dump.contains(&format!(
+            r#"rows=[[{{"color":{colour},"text":"\"Test test.named\""}},"1.0.0","running"],[{{"color":{colour},"text":"\"Test test.broken\""}},"1.0.0","faulted"],[{{"color":{colour},"text":"\"Test test.on\""}},"1.0.0","running"],[{{"color":{colour},"text":"\"Test test.off\""}},"1.0.0","disabled"]]"#
+        )),
+        "{dump}"
+    );
+    for gone in [
+        "#console",
+        "#policy",
+        "#unlock_huds",
+        "World policy",
+        "Unlock HUDs",
+        "Turn on",
+        "Unload",
+    ] {
+        assert!(!dump.contains(gone), "{gone}: {dump}");
+    }
+    let buttons: Vec<&str> = dump
+        .lines()
+        .filter(|l| l.trim_start().starts_with("button "))
+        .collect();
+    assert_eq!(buttons.len(), 4, "{dump}");
+    for text in ["\"Enable\"", "\"Disable\"", "\"Reload\"", "\"Reload All\""] {
+        assert!(buttons.iter().any(|b| b.contains(text)), "{text}: {dump}");
+    }
+    assert_eq!(lit(&h), [false, false, false, true], "none chosen");
+    // Named to load and running: reloaded, never disabled.
+    choose(&mut h, 1);
+    assert_eq!(lit(&h), [false, false, true, true], "test.named");
+    // Named to load and stopped on a fault: enabled again.
+    choose(&mut h, 2);
+    assert_eq!(lit(&h), [true, false, false, true], "test.broken");
+    // Ticked and running.
+    choose(&mut h, 3);
+    assert_eq!(lit(&h), [false, true, true, true], "test.on");
+    // Not ticked.
+    choose(&mut h, 4);
+    assert_eq!(lit(&h), [true, false, false, true], "test.off");
+
+    // With nothing running, Reload All is not lit.
+    let mut idle = Harness::new_with(
+        Vec::new(),
+        Some(vec![package("test.off", "", "")]),
+        Shared::default(),
+    );
+    idle.frame();
+    idle.frame_with(0.05, &[], &[typed("plugin", "")]);
+    assert_eq!(lit(&idle), [false, false, false, false]);
+}
+
+/// A plugin the player disables from the panel unloads and is listed disabled, its Enable lit;
+/// enabled again, it loads at the next frame and runs. The panel has no Unload, which left a
+/// plugin stopped but ticked.
+/// Behaviour: plugins.load.the-plugin-panel-enables-disables-and-reloads
+#[test]
+fn a_plugin_disabled_from_the_panel_is_enabled_again_and_runs() {
+    let mut h = paneled();
+    let ids = |h: &Harness| -> Vec<String> { h.host.plugins().into_iter().map(|p| p.id).collect() };
+    assert_eq!(ids(&h), ["test.named", "test.broken", "test.on"]);
+    choose(&mut h, 3);
+    press(&mut h, "disable");
+    h.frame();
+    assert_eq!(ids(&h), ["test.named", "test.broken"]);
+    assert!(
+        panel_dump(&h).contains(r#""text":"\"Test test.on\""},"1.0.0","disabled"]"#),
+        "{}",
+        panel_dump(&h)
+    );
+    assert_eq!(
+        lit(&h),
+        [true, false, false, true],
+        "still chosen: Enable lit"
+    );
+    press(&mut h, "enable");
+    h.frame();
+    assert_eq!(ids(&h), ["test.named", "test.broken", "test.on"]);
+    assert_eq!(h.host.plugins()[2].status, "running");
+    assert_eq!(lit(&h), [false, true, true, true]);
+    assert!(h
+        .host
+        .ui_input(
+            super::HOST_ID,
+            super::PANEL,
+            UiInput::Click {
+                node: "unload".into()
+            },
+        )
+        .is_err());
+    // A plugin stopped on a fault is enabled again: it is read and loaded afresh.
+    choose(&mut h, 2);
+    press(&mut h, "enable");
+    h.frame();
+    assert_eq!(
+        h.printed_text().last().map(String::as_str),
+        Some("[Plugins] test.broken failed to load: error: runtime error: main.lua:1: Dereth: all is well"),
+        "{:?}",
+        h.printed_text()
+    );
+}
+
+/// The chat says, one line each and by the plugin's name (its id where its manifest gives none),
+/// when a plugin is loaded (at the start, or for any reason but the player's Enable or Reload),
+/// reloaded, unloaded (for any reason but Disable), enabled and disabled; Reload All says each
+/// plugin's reload.
+/// Behaviour: plugins.load.the-chat-says-when-a-plugin-loads-reloads-unloads-is-enabled-or-disabled
+#[test]
+fn the_chat_says_when_a_plugin_loads_reloads_unloads_is_enabled_or_disabled() {
+    let mut nameless = package("test.nameless", "", "");
+    let manifest = String::from_utf8(nameless.files["plugin.toml"].clone())
+        .expect("text")
+        .replace("name = \"Test test.nameless\"", "name = \"\"");
+    nameless
+        .files
+        .insert("plugin.toml".to_owned(), manifest.into_bytes());
+    let mut h = Harness::launched(
+        vec![package("test.b", "", "")],
+        vec![package("test.a", "", ""), nameless],
+        Shared::default(),
+    );
+    h.frame();
+    h.frame_with(0.05, &[], &[typed("plugin", "")]);
+    // The panel lists test.a, test.nameless, then test.b.
+    choose(&mut h, 1);
+    press(&mut h, "reload");
+    h.frame();
+    press(&mut h, "disable");
+    h.frame();
+    press(&mut h, "enable");
+    h.frame();
+    h.frame_with(0.05, &[], &[typed("plugin", "enable test.b")]);
+    h.frame();
+    press(&mut h, "reload_all");
+    h.frame();
+    h.host.request_unload("test.b");
+    h.frame();
+    h.frame_with(0.05, &[], &[typed("plugin", "disable test.b")]);
+    assert_eq!(
+        h.printed_text(),
+        [
+            "[Plugins] Test test.a loaded.",
+            "[Plugins] test.nameless loaded.",
+            "[Plugins] Test test.a reloaded.",
+            "[Plugins] Test test.a disabled.",
+            "[Plugins] Test test.a enabled.",
+            "[Plugins] Test test.b enabled.",
+            "[Plugins] test.nameless reloaded.",
+            "[Plugins] Test test.a reloaded.",
+            "[Plugins] Test test.b reloaded.",
+            "[Plugins] Test test.b unloaded.",
+            "[Plugins] Test test.b disabled.",
+        ]
+    );
+    // The words these had before they were Enable and Disable still work.
+    h.frame_with(0.05, &[], &[typed("plugin", "on test.b")]);
+    h.frame();
+    assert_eq!(
+        h.printed_text().last().map(String::as_str),
+        Some("[Plugins] Test test.b enabled.")
+    );
+}
+
+/// What a plugin prints is told in the chat under its name, each line on one line, as many a
+/// frame as it may print there (the rest only in its record and the log); an error it meets is
+/// told by its first line under its name, its traceback left to the log.
+/// Behaviour: plugins.chat.what-a-plugin-prints-and-its-errors-are-told-in-the-chat
+#[test]
+fn a_plugins_printed_lines_and_errors_are_told_in_the_chat() {
+    let mut h = Harness::new(vec![package(
+        "test.talky",
+        r#"
+        print("hello", "there\nfriend")
+        commands.add("boom", "fails", function() error("Dereth: all is well") end)
+        commands.add("many", "prints a lot", function() for i = 1, 60 do print("line " .. i) end end)
+        "#,
+        "",
+    )]);
+    h.frame();
+    assert_eq!(
+        h.printed_text(),
+        [
+            "[Test test.talky] hello there friend",
+            "[Plugins] Test test.talky loaded."
+        ]
+    );
+    assert_eq!(h.console("test.talky"), ["hello\tthere\nfriend"]);
+    h.frame_with(0.05, &[], &[typed("boom", "")]);
+    let said = h.printed_text().last().cloned().unwrap_or_default();
+    assert!(
+        said.starts_with("[Plugins] Test test.talky: error: ")
+            && said.ends_with("Dereth: all is well")
+            && !said.contains('\n'),
+        "{said:?}"
+    );
+    let kept = h.console("test.talky").last().cloned().unwrap_or_default();
+    assert!(
+        kept.contains("Dereth: all is well") && kept.lines().count() > 1,
+        "the record keeps the traceback: {kept:?}"
+    );
+    let before = h.printed.len();
+    h.frame_with(0.05, &[], &[typed("many", "")]);
+    let told = &h.printed_text()[before..];
+    assert_eq!(told.len(), super::calls::PRINTS_PER_FRAME, "{told:?}");
+    assert_eq!(told[0], "[Test test.talky] line 1");
+    assert_eq!(
+        h.console("test.talky").last().map(String::as_str),
+        Some("line 60"),
+        "every line in the record"
+    );
+}
+
+/// Logging out closes every plugin window and HUD that was open, and the plugin panel; logged in
+/// again, each stays closed until the player opens it.
+/// Behaviour: plugins.ui.logging-out-closes-every-plugin-window
+#[test]
+fn logging_out_closes_every_plugin_window_hud_and_the_panel() {
+    let mut h = Harness::offering(
+        vec![package(
+            "test.win",
+            r#"
+            local main = ui.window{ id = "main", title = "Main", ui.label{ text = "hi" } }
+            local hud = ui.hud{ id = "hud", ui.label{ text = "hud" } }
+            commands.add("open", "opens both", function() main:show() hud:show() end)
+            "#,
+            "",
+        )],
+        None,
+        Shared::default(),
+        &[HostCapability::UiHud],
+    );
+    h.login();
+    h.frame_with(0.05, &[], &[typed("open", "")]);
+    h.frame_with(0.05, &[], &[typed("plugin", "")]);
+    let open = |h: &Harness| -> Vec<(String, String, bool)> {
+        h.host
+            .windows()
+            .into_iter()
+            .map(|(p, w, win)| (p, w, win.open))
+            .collect()
+    };
+    let all = |b: bool| {
+        vec![
+            ("test.win".to_owned(), "hud".to_owned(), b),
+            ("test.win".to_owned(), "main".to_owned(), b),
+            (super::HOST_ID.to_owned(), super::PANEL.to_owned(), b),
+        ]
+    };
+    assert_eq!(open(&h), all(true));
+    h.view.player = None;
+    h.frame();
+    assert_eq!(open(&h), all(false), "closed at the logout");
+    h.login();
+    h.frame();
+    assert_eq!(open(&h), all(false), "and still closed at the next login");
+}
+
+/// `/plugin huds unlock` unlocks the plugins' HUDs and `/plugin huds lock` locks them again
+/// (`/plugin huds` alone turns them over); the plugin panel has no toggle for it.
 /// Behaviour: plugins.ui.while-the-huds-are-unlocked-a-huds-controls-take-no-input
 #[test]
-fn the_plugin_panels_toggle_unlocks_and_locks_the_huds() {
+fn the_huds_are_unlocked_by_command_and_the_panel_has_no_toggle_for_it() {
     let mut h = Harness::new(vec![package("test.paneled", "", "")]);
     h.frame();
     h.frame_with(0.05, &[], &[typed("plugin", "")]);
-    let toggle = |h: &Harness| {
-        h.host
-            .window(super::HOST_ID, super::PANEL)
-            .map(|w| w.tree.dump())
-            .unwrap_or_default()
-            .lines()
-            .find(|l| l.contains("#unlock_huds"))
-            .map(str::to_owned)
-            .unwrap_or_default()
-    };
-    assert!(toggle(&h).contains("value=false"), "{}", toggle(&h));
-    h.host
+    assert!(
+        !panel_dump(&h).contains("unlock_huds") && !panel_dump(&h).contains("HUD"),
+        "{}",
+        panel_dump(&h)
+    );
+    assert!(h
+        .host
         .ui_input(
             super::HOST_ID,
             super::PANEL,
@@ -969,16 +1259,18 @@ fn the_plugin_panels_toggle_unlocks_and_locks_the_huds() {
                 value: Value::Bool(true),
             },
         )
-        .expect("the toggle");
+        .is_err());
+    assert!(!h.host.huds_unlocked());
+    h.frame_with(0.05, &[], &[typed("plugin", "huds unlock")]);
     assert!(h.host.huds_unlocked());
-    assert!(toggle(&h).contains("value=true"), "{}", toggle(&h));
     h.frame_with(0.05, &[], &[typed("plugin", "huds lock")]);
     assert!(!h.host.huds_unlocked(), "locked by the command");
-    assert!(toggle(&h).contains("value=false"), "{}", toggle(&h));
+    h.frame_with(0.05, &[], &[typed("plugin", "huds")]);
+    assert!(h.host.huds_unlocked(), "turned over");
 }
 
-/// A switch of the host's own shows on the plugin panel below the HUD lock, off until turned on;
-/// the player's tick turns it on, and the host turning it off shows at once.
+/// A switch of the host's own shows on the plugin panel below the plugin list, off until turned
+/// on; the player's tick turns it on, and the host turning it off shows at once.
 /// Behaviour: none (a host's own setting on the panel)
 #[test]
 fn a_hosts_own_switch_on_the_panel_is_ticked_by_the_player_and_read_by_the_host() {
@@ -1068,13 +1360,11 @@ commands.add("go", "asks", function() act.select(7) end)
     );
 }
 
-/// With no plugin at all, the plugin panel and `/plugin list` say there is none and how this host
-/// adds one, the panel a line to each line of it.
-/// Behaviour: plugins.load.with-no-plugins-the-panel-says-how-to-add-one
+/// With no plugin at all, the plugin panel and `/plugin list` say there is none, and nothing more.
+/// Behaviour: plugins.load.with-no-plugins-the-panel-says-there-are-none
 #[test]
-fn with_no_plugins_the_panel_and_the_list_say_how_to_add_one() {
+fn with_no_plugins_the_panel_and_the_list_say_there_are_none() {
     let mut h = Harness::new(Vec::new());
-    h.host.config.adding_plugins = Some("Put a plugin's folder in\nC:/plugins".to_owned());
     h.frame();
     h.frame_with(0.05, &[], &[typed("plugin", "")]);
     let dump = h
@@ -1083,21 +1373,20 @@ fn with_no_plugins_the_panel_and_the_list_say_how_to_add_one() {
         .map(|w| w.tree.dump())
         .unwrap_or_default();
     let labels: Vec<&str> = dump.lines().filter(|l| l.contains("label")).collect();
+    let said: Vec<&str> = labels
+        .iter()
+        .copied()
+        .filter(|l| l.contains("text=\"") && !l.contains("text=\"\""))
+        .collect();
     assert!(
-        labels
-            .iter()
-            .any(|l| l.contains("text=\"No plugins yet.\""))
-            && labels
-                .iter()
-                .any(|l| l.contains("text=\"Put a plugin's folder in\""))
-            && labels.iter().any(|l| l.contains("text=\"C:/plugins\"")),
+        said.len() == 1 && said[0].contains("text=\"No plugins yet.\""),
         "{dump}"
     );
     h.frame_with(0.05, &[], &[typed("plugin", "list")]);
     assert!(
         h.printed_text()
             .iter()
-            .any(|l| l.ends_with("No plugins yet. Put a plugin's folder in C:/plugins")),
+            .any(|l| l.ends_with("No plugins yet.")),
         "{:?}",
         h.printed_text()
     );
@@ -1229,12 +1518,14 @@ fn a_watching_host_reloads_a_plugin_whose_files_changed() {
         ["loaded"],
         "a reloaded plugin starts a new console"
     );
-    assert!(
-        h.printed_text()
-            .iter()
-            .any(|l| l == "[Plugins] reloaded test.watched"),
-        "{:?}",
-        h.printed_text()
+    assert_eq!(
+        h.printed_text(),
+        [
+            "[Test test.watched] loaded",
+            "[Plugins] Test test.watched loaded.",
+            "[Test test.watched] loaded",
+            "[Plugins] Test test.watched reloaded."
+        ]
     );
 }
 
@@ -1780,11 +2071,17 @@ fn where_no_plugin_window_is_drawn_a_toast_is_told_in_the_chat_once() {
     for _ in 0..3 {
         h.frame();
     }
-    assert_eq!(h.printed_text(), ["[Plugins] Test test.toast: Buffed"]);
+    assert_eq!(
+        h.printed_text(),
+        [
+            "[Plugins] Test test.toast loaded.",
+            "[Plugins] Test test.toast: Buffed"
+        ]
+    );
     h.host.set_windows_shown(true);
     h.frame_with(0.05, &[], &[typed("pop", "")]);
     h.frame();
-    assert_eq!(h.printed_text().len(), 1, "the interface draws the toasts");
+    assert_eq!(h.printed_text().len(), 2, "the interface draws the toasts");
 }
 
 #[test]
@@ -1990,12 +2287,12 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it_and_the_host_remembers
     assert!(
         h.printed_text()
             .iter()
-            .any(|l| l.contains("test.extra 1.0.0 off (/plugin on test.extra)")),
+            .any(|l| l.contains("test.extra 1.0.0 disabled (/plugin enable test.extra)")),
         "{:?}",
         h.printed_text()
     );
     // Ticked, by command: loaded at the next frame.
-    h.frame_with(0.05, &[], &[typed("plugin", "on test.extra")]);
+    h.frame_with(0.05, &[], &[typed("plugin", "enable test.extra")]);
     h.frame();
     assert_eq!(ids(&h), ["test.mine", "test.extra"]);
     assert_eq!(h.console("test.extra"), ["extra up"]);
@@ -2007,8 +2304,8 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it_and_the_host_remembers
         .map(|w| w.tree.dump())
         .unwrap_or_default();
     assert!(
-        text.contains(r#""text":"\"Test test.other\""},"1.0.0","off"]"#)
-            && text.contains("Turn on"),
+        text.contains(r#""text":"\"Test test.other\""},"1.0.0","disabled"]"#)
+            && text.contains("\"Enable\""),
         "{text}"
     );
     // The panel lists the loaded plugins, then the ones that are off: test.other is the third.
@@ -2027,7 +2324,7 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it_and_the_host_remembers
             "dereth.plugins",
             "panel",
             UiInput::Click {
-                node: "turn_on".into(),
+                node: "enable".into(),
             },
         )
         .expect("clicked");
@@ -2038,86 +2335,154 @@ fn a_found_plugin_is_listed_off_until_the_player_ticks_it_and_the_host_remembers
     again.frame();
     assert_eq!(ids(&again), ["test.mine", "test.extra", "test.other"]);
     // Unticked: unloaded, and not loaded at the next start.
-    again.frame_with(0.05, &[], &[typed("plugin", "off test.extra")]);
+    again.frame_with(0.05, &[], &[typed("plugin", "disable test.extra")]);
     again.frame();
     assert_eq!(ids(&again), ["test.mine", "test.other"]);
     let mut third = Harness::new_with(own(), Some(found()), storage);
     third.frame();
     assert_eq!(ids(&third), ["test.mine", "test.other"]);
     // Only a found plugin is ticked this way.
-    third.frame_with(0.05, &[], &[typed("plugin", "on test.nothing")]);
+    third.frame_with(0.05, &[], &[typed("plugin", "enable test.nothing")]);
     assert!(third
         .printed_text()
         .iter()
         .any(|l| l.contains("no plugin test.nothing was found")));
 }
 
-/// With the player's *Plugins (experimental)* setting off, no found plugin loads, ticked or not,
-/// and the host shows nothing of its own: it claims no command, lists nothing and takes no tick.
-/// Turned on, the ticked ones load; turned off again, they unload. A plugin named to load loads
-/// whatever the setting, and the host's command answers then for what is loaded.
-/// Behaviour: plugins.load.no-plugin-loads-while-plugins-are-off
+/// The host's own command is the client's from the first frame, with nothing to turn on first and
+/// nothing loaded or named to load: `/plugin` opens the plugin panel, which lists the found
+/// plugins off, and none of them loads until the player ticks it; a tick by command loads it.
+/// With no plugin at all the command is still claimed, and the panel opens to say there is none.
+/// Behaviour: plugins.load.plugin-opens-the-panel-with-nothing-to-turn-on-first
 #[test]
-fn with_plugins_off_no_found_plugin_loads_and_the_host_shows_nothing() {
-    let storage = Shared::default();
-    // Ticked in an earlier run.
-    storage.0.borrow_mut().save(
-        super::HOST_ID,
-        super::TICKED_SCOPE,
-        r#"{"test.extra":true}"#,
-    );
-    let found = || {
-        vec![
-            package("test.extra", r#"print("extra up")"#, ""),
-            package("test.other", r#"print("other up")"#, ""),
-        ]
-    };
+fn the_plugin_command_opens_the_panel_with_nothing_to_turn_on_first() {
+    let found = vec![
+        package("test.extra", r#"print("extra up")"#, ""),
+        package("test.other", r#"print("other up")"#, ""),
+    ];
     let ids = |h: &Harness| -> Vec<String> { h.host.plugins().into_iter().map(|p| p.id).collect() };
-    PLUGINS_ON.with(|c| c.set(false));
-    let mut h = Harness::switched(Vec::new(), found(), storage.clone());
+    let mut h = Harness::new_with(Vec::new(), Some(found), Shared::default());
+    h.frame();
+    assert!(
+        h.verbs.iter().any(|v| v == super::HOST_VERB),
+        "the host claims its command: {:?}",
+        h.verbs
+    );
     for _ in 0..3 {
         h.frame();
     }
-    assert!(!h.host.plugins_on());
-    assert!(ids(&h).is_empty(), "nothing loads: {:?}", ids(&h));
+    assert!(ids(&h).is_empty(), "nothing loads untold: {:?}", ids(&h));
+    h.frame_with(0.05, &[], &[typed("plugin", "")]);
+    let panel = h
+        .host
+        .window(super::HOST_ID, super::PANEL)
+        .expect("the panel opens");
+    assert!(panel.open);
+    let text = panel.tree.dump();
     assert!(
-        !h.verbs.iter().any(|v| v == super::HOST_VERB),
-        "the host claims no command: {:?}",
-        h.verbs
+        text.contains(r#""text":"\"Test test.extra\""},"1.0.0","disabled"]"#)
+            && text.contains(r#""text":"\"Test test.other\""},"1.0.0","disabled"]"#),
+        "{text}"
     );
-    assert_eq!(
-        h.host.set_ticked("test.other", true),
-        Err(super::PLUGINS_OFF.to_owned())
-    );
+    h.frame_with(0.05, &[], &[typed("plugin", "enable test.other")]);
     h.frame();
-    assert!(ids(&h).is_empty());
-    // On: the ticked one loads, and only it.
-    PLUGINS_ON.with(|c| c.set(true));
-    h.frame();
-    assert_eq!(ids(&h), ["test.extra"]);
-    assert!(h.verbs.iter().any(|v| v == super::HOST_VERB));
-    // Off again: it unloads, and the host's command goes.
-    PLUGINS_ON.with(|c| c.set(false));
-    h.frame();
-    assert!(ids(&h).is_empty());
-    assert!(!h.verbs.iter().any(|v| v == super::HOST_VERB));
+    assert_eq!(ids(&h), ["test.other"]);
 
-    // Named to load: it loads with the setting off, and the found ones do not.
-    let mut named = Harness::switched(
-        vec![package("test.named", r#"print("named up")"#, "")],
-        found(),
-        storage,
-    );
-    named.frame();
-    named.frame_with(0.05, &[], &[typed("plugin", "list")]);
-    assert_eq!(ids(&named), ["test.named"]);
-    assert!(named.verbs.iter().any(|v| v == super::HOST_VERB));
-    let said = named.printed_text();
+    // Nothing found and nothing named: the command is the client's all the same.
+    let mut none = Harness::new(Vec::new());
+    none.frame();
     assert!(
-        said.iter().any(|l| l.contains("test.named 1.0.0 running"))
-            && !said.iter().any(|l| l.contains("test.extra")),
-        "{said:?}"
+        none.verbs.iter().any(|v| v == super::HOST_VERB),
+        "{:?}",
+        none.verbs
     );
+    none.frame_with(0.05, &[], &[typed("plugin", "")]);
+    let dump = none
+        .host
+        .window(super::HOST_ID, super::PANEL)
+        .filter(|w| w.open)
+        .map(|w| w.tree.dump())
+        .unwrap_or_default();
+    assert!(dump.contains("text=\"No plugins yet.\""), "{dump}");
+}
+
+/// A plugin a launcher offers (one it installed, or one in the player's own folders it lists) is
+/// ticked the first time the host sees it, and loads with no tick from the player; one found any
+/// other way waits for its tick. After that the player's tick decides: an offered plugin they
+/// untick stays off at the next start though it is offered still, and one that replaces a plugin
+/// they unticked is not ticked for them. A launcher's offer of an id ticks the copy listed, from
+/// whichever source lists it first.
+/// Behaviour: plugins.load.a-plugin-a-launcher-offers-starts-on-and-an-untick-is-kept
+#[test]
+fn a_plugin_a_launcher_offers_is_ticked_at_first_and_an_untick_is_kept() {
+    let storage = Shared::default();
+    let found = || {
+        vec![
+            package("test.found", r#"print("found up")"#, ""),
+            package("test.both", r#"print("folder copy")"#, ""),
+        ]
+    };
+    let offered = |more: Vec<Package>| {
+        let mut v = vec![
+            package("test.offered", r#"print("offered up")"#, ""),
+            package("test.both", r#"print("launcher copy")"#, ""),
+        ];
+        v.extend(more);
+        v
+    };
+    let ids = |h: &Harness| -> Vec<String> { h.host.plugins().into_iter().map(|p| p.id).collect() };
+    let ticks = |h: &Harness| -> Vec<(String, bool)> {
+        h.host.found().into_iter().map(|b| (b.id, b.on)).collect()
+    };
+    let mut h = Harness::launched(found(), offered(Vec::new()), storage.clone());
+    h.frame();
+    h.frame();
+    assert_eq!(
+        ticks(&h),
+        [
+            ("test.found".to_owned(), false),
+            ("test.both".to_owned(), true),
+            ("test.offered".to_owned(), true)
+        ]
+    );
+    assert_eq!(ids(&h), ["test.both", "test.offered"]);
+    assert_eq!(
+        h.console("test.both"),
+        ["folder copy"],
+        "the copy listed first"
+    );
+    // Unticked: unloaded, and kept off at the next start.
+    h.frame_with(0.05, &[], &[typed("plugin", "disable test.offered")]);
+    h.frame();
+    assert_eq!(ids(&h), ["test.both"]);
+    drop(h);
+    let renamed = package(
+        "test.renamed",
+        r#"print("renamed up")"#,
+        "replaces = [\"test.offered\"]\n",
+    );
+    let mut again = Harness::launched(found(), offered(vec![renamed]), storage.clone());
+    again.frame();
+    again.frame();
+    assert_eq!(ids(&again), ["test.both"], "{:?}", again.printed_text());
+    assert_eq!(
+        ticks(&again),
+        [
+            ("test.found".to_owned(), false),
+            ("test.both".to_owned(), true),
+            ("test.offered".to_owned(), false),
+            ("test.renamed".to_owned(), false)
+        ]
+    );
+    // Ticked again by the player: on at every start from then.
+    again.frame_with(0.05, &[], &[typed("plugin", "enable test.offered")]);
+    again.frame();
+    assert_eq!(ids(&again), ["test.both", "test.offered"]);
+    drop(again);
+    let mut third = Harness::launched(found(), offered(Vec::new()), storage);
+    third.frame();
+    third.frame();
+    assert_eq!(ids(&third), ["test.both", "test.offered"]);
 }
 
 /// A plugin that replaces an earlier one (a new id) is turned on where the player had turned the

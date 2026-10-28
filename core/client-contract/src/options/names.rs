@@ -36,8 +36,6 @@ pub const USE_IME: &str = "International.UseIME";
 pub const TOOLTIP_DELAY: &str = "Misc.TooltipDelay";
 /// `Misc.TooltipEnable`.
 pub const TOOLTIP_ENABLE: &str = "Misc.TooltipEnable";
-/// `Plugins.Experimental`: whether plugins are turned on.
-pub const PLUGINS_EXPERIMENTAL: &str = "Plugins.Experimental";
 /// `Render.AspectRatio`.
 pub const ASPECT_RATIO: &str = "Render.AspectRatio";
 /// `Render.AutomaticDegrades`.

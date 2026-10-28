@@ -66,7 +66,7 @@ domains = ["example.org"]         # the hosts its HTTPS requests may reach, and 
   nothing of its own kept yet, a host gives it what the player had under the first of them that
   has it: each of its stores ([api.md](api.md)), opened from the replaced plugin's and kept under
   the new id from then on (the replaced one's is left as it was), and, for a plugin that comes
-  with the client, being turned on.
+  with the client, being enabled.
 
 - `ubscript`: `true` for a script written for UtilityBelt's scripting ([ubscript.md](ubscript.md)):
   its entry runs with UtilityBelt's script API as its globals, and is `index.lua` when the

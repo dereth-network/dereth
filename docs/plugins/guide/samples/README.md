@@ -29,6 +29,6 @@ Every sample is MIT-licensed, as its manifest says, and may be copied as the sta
 your own; change its `id` first, since two plugins with one id cannot both load.
 
 Players install the samples from Dereth's own plugin source, which the launcher starts with; no
-release carries them installed, and while plugins are experimental the source is not published. A
-client built from the repository finds them, each off until the player turns it on
-([install-and-update](../install-and-update.md#dereths-plugins)).
+release carries them installed, and the source lists only those `dereth/plugins/published.toml`
+names. A client built from the repository finds none of them by itself: `--plugins
+dereth/plugins` loads them all ([running-the-samples](../running-the-samples.md)).

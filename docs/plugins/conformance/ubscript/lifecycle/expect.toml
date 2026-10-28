@@ -13,4 +13,12 @@ unload = "conformance.ub-lifecycle"
 
 [expect]
 status = "absent"
-printed = ["[Lifecycle] state Character_Select_Screen 2 Bravo true", "[Lifecycle] now Entering_Game", "[Lifecycle] now In_Game", "[Lifecycle] login true In_Game Bravo", "[Lifecycle] end Lifecycle In_Game"]
+printed = [
+    "[Plugins] Lifecycle loaded.",
+    "[Lifecycle] state Character_Select_Screen 2 Bravo true",
+    "[Lifecycle] now Entering_Game",
+    "[Lifecycle] now In_Game",
+    "[Lifecycle] login true In_Game Bravo",
+    "[Lifecycle] end Lifecycle In_Game",
+    "[Plugins] Lifecycle unloaded.",
+]

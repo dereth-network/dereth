@@ -16,7 +16,7 @@ wrong arguments, or one whose permission the plugin lacks, raises a Lua error.
 
 | function | what it does |
 |---|---|
-| `print(...)` | a line in the plugin's console (the values converted with `tostring`, separated by tabs) |
+| `print(...)` | a line in the chat window under the plugin's name, `[XP Meter] …` (the values converted with `tostring`, separated by tabs; on one line, cut to 200 characters); as many a frame as `chat.print` may print, the rest in the client's log |
 | `chat.print(text [, style])` | a local line in the chat window; nothing is sent. `style` is a chat kind (`default`, `system`, `advancement`, `help`, `magic`, `combat`, …; see [events.md](events.md)); `default` when absent. Needs `chat.print` |
 | `chat.hide(line)` | in a `chat.line` handler: this frame's line is not shown. `line` is the event table or its `line` field. Needs `chat.filter` |
 
@@ -28,14 +28,20 @@ wrong arguments, or one whose permission the plugin lacks, raises a Lua error.
 | `commands.remove(name)` | gives it up |
 
 The host's own command is `/plugin`: on its own (or `/plugin show`) it opens the plugin panel,
-which lists the loaded plugins and their state, shows the chosen one's console and reloads or
-unloads it; `/plugin list`, `/plugin load <id>`, `/plugin unload <id>`, `/plugin reload <id>` and
-`/plugin console <id>` do the same in the chat window. `/plugin on <id>` and `/plugin off <id>`
-turn a plugin the client found on or off (it is listed `off` until turned on, and the host
-remembers which are on; [install-and-update](guide/install-and-update.md)),
-`/plugin policy` tells the world's policy in force, and `/plugin huds unlock` and `/plugin huds
-lock` unlock and lock the plugins' HUDs for the player to move ([ui.md](ui.md#huds)), as the
-panel's *Unlock HUDs* toggle does.
+which lists the plugins and their state, says why the chosen one stopped, and has four buttons:
+**Enable** (lit for a plugin that is not running), **Disable** (lit for one that is enabled),
+**Reload** (lit for one running) and **Reload All** (lit while any runs). `/plugin list` and
+`/plugin reload <id>` do the same in the chat window, and `/plugin enable <id>` and
+`/plugin disable <id>` enable or disable a plugin the client found (one the launcher offers starts
+enabled, any other is listed `disabled` until enabled, and the host remembers which are enabled
+and which the player disabled; [install-and-update](guide/install-and-update.md)). A plugin named
+to load (`--plugins`) is enabled again after a fault, but not disabled. `/plugin policy` tells the
+world's policy in force, and `/plugin huds unlock` and `/plugin huds lock` unlock and lock the
+plugins' HUDs for the player to move ([ui.md](ui.md#huds)).
+
+The chat says when a plugin is loaded, reloaded, unloaded, enabled or disabled, one line each by
+its manifest's name: `[Plugins] XP Meter loaded.` A plugin enabled says `enabled.` rather than
+`loaded.`, and one disabled `disabled.` rather than `unloaded.`.
 
 ## Tasks
 

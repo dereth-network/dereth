@@ -8,29 +8,30 @@ can load the whole folder at once: a folder of packages loads each package in it
 
 ## In the desktop client
 
-Plugins are experimental, and none loads until you turn it on. **From source**, a client built
-in the repository and run from its `target` folder finds the samples: tick **Plugins
-(experimental)** on the Client Options page, and the plugin panel (`/plugin`) lists them, each off
-until you turn it on. To load them all at once instead, at the repository's root:
+**From source**, a client built in the repository finds what any client finds, and not the
+samples by itself. To load them all at once, at the repository's root:
 
 ```text
 cargo run -p dereth-client -- --plugins dereth/plugins
 ```
 
-with the switches you normally start it with: a `--plugins` folder loads whatever the setting
-says. **With the launcher**, install the ones you want from Dereth's own source on its Plugins
-page ([install-and-update.md](install-and-update.md#the-launcher-plugin-sources)), or copy the
-sample folders into the client's plugins folder (`%APPDATA%\Dereth\client\plugins` on Windows;
-the other systems are in
-[install-and-update.md](install-and-update.md#the-desktop-client-its-plugins-folder)); play a
-Dereth world as usual, and turn on the ones you want.
+with the switches you normally start it with: a `--plugins` folder loads at once. Or add
+`dereth/plugins` as a folder on this computer on the launcher's Plugins page: each sample in it is
+enabled the first time the client finds it. **With the launcher**, install the ones you want from
+Dereth's own source on its Plugins page
+([install-and-update.md](install-and-update.md#the-launcher-plugin-sources)) and play a Dereth
+world as usual: each is on the first time the client finds it. Or copy the sample folders into the
+client's plugins folder (`%APPDATA%\Dereth\client\plugins` on Windows; the other systems are in
+[install-and-update.md](install-and-update.md#the-desktop-client-its-plugins-folder)), and
+enable the ones you want in the plugin panel.
 
-A sample turned on loads at once; nothing is asked. Its windows start closed: open each from the
+A sample enabled loads at once; nothing is asked. Its windows start closed: open each from the
 plugin bar. What a sample does without a click of yours is bounded by the world's
 [policy](../policy.md): a world that publishes none allows everything.
 
-Type `/plugin` for the plugin panel: every plugin, its state, its console, and reload and unload
-buttons. The desktop client offers every capability the samples use, so all nine load.
+Type `/plugin` for the plugin panel: every plugin and its state, with **Enable**, **Disable**,
+**Reload** and **Reload All**. What a sample prints, and any error it meets, is in the chat. The
+desktop client offers every capability the samples use, so all nine load.
 
 ## In the headless client
 
@@ -105,7 +106,7 @@ Every window starts closed, as in the desktop client; `ui bar <plugin>` opens a 
 window as a click on its plugin bar button does (`ui bar network.dereth.xpmeter`). To click a
 window, `ui click <plugin> <window> <node>` (`ui click network.dereth.xpmeter main reset`);
 to change a toggle, `ui set <plugin> <window> <node> <json>` (`ui set network.dereth.looter main auto
-true`). `plugin console <id>` prints a plugin's console.
+true`). `plugin console <id>` prints what a plugin printed, and the errors it met.
 
 ## What to look for
 

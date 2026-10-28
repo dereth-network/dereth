@@ -12,9 +12,10 @@ nothing but its own package and the host.
 ## Loading
 
 Plugins are experimental. A host loads plugins when it starts: the desktop and browser clients
-the plugins the player turned on, once the player has ticked **Plugins (experimental)**, and the
-desktop client each `--plugins` folder whatever that says; the headless client each `--plugins`
-folder ([install-and-update.md](install-and-update.md)). For each package, in order, the host:
+the plugins that are on in the plugin panel (the launcher's start on, the others when the player
+turns them on), and the desktop client each `--plugins` folder; the headless client each
+`--plugins` folder ([install-and-update.md](install-and-update.md)). For each package, in order,
+the host:
 
 1. **reads the manifest**, and refuses a package whose manifest does not read (an unknown key, a
    malformed id or version, an entry file that is not there);
@@ -32,10 +33,13 @@ folder ([install-and-update.md](install-and-update.md)). For each package, in or
 A refusal at any step is told to the player in the chat window (`example.kills was not loaded:
 …`) and written to the host's log. An entry file that raises an error leaves the plugin
 **faulted**: what it had set up before the error (windows, timers, commands) goes with it, and the
-error is in its console.
+chat says why (`example.kills failed to load: …`, the error's first line; the whole of it, its
+traceback too, is in the client's log).
 
-After a successful load a plugin that listens for `plugin.loaded` hears it. The stores open as
-they become available: `store.global` at once, `store.world` and `store.character` at login.
+After a successful load a plugin that listens for `plugin.loaded` hears it, and the chat says so
+by the plugin's name (`[Plugins] Kill Counter loaded.`; `enabled.` when the player's Enable loaded
+it). The stores open as they become available: `store.global` at once, `store.world` and
+`store.character` at login.
 
 ## Running: one point in the frame
 
@@ -97,12 +101,13 @@ long for one entry (reading a spell book of thousands, a long file) belongs in a
 `task.sleep(0)`s between pieces.
 
 To see where a Lua plugin's time goes, start the desktop client with `DERETH_PLUGIN_PROFILE=1`.
-Every half minute each plugin writes to its console (and the client's log, `dereth::plugin` at
-debug) its entries by event (count, total, longest), the host calls it made by operation, and the
-time its own Lua spent by function and by line.
+Every half minute each plugin writes to the client's log (`dereth::plugin` at debug) its entries
+by event (count, total, longest), the host calls it made by operation, and the time its own Lua
+spent by function and by line.
 
-- A handler that raises an error is logged, with its traceback, to the plugin's console; the other
-  handlers of the same event still run.
+- A handler that raises an error is told in the chat, its first line under the plugin's name, and
+  written whole, with its traceback, to the client's log; the other handlers of the same event
+  still run.
 - **Ten errors within a minute**, or **three entries stopped by the budget within a minute**,
   **suspend** the plugin. The player is told (`example.kills was suspended (10 errors within a
   minute). /plugin reload example.kills starts it again.`). A suspended plugin keeps its VM and
@@ -116,8 +121,9 @@ shown with the reason by `/plugin list` and the plugin panel.
 
 ## Unloading and reloading
 
-`/plugin unload <id>` (or the panel's button) unloads a plugin; so does the client's shutdown. The
-host:
+`/plugin disable <id>` (or the panel's Disable) unloads a plugin and keeps it off at the next
+start; `/plugin reload <id>` (or Reload) unloads it and loads it again; the client's shutdown
+unloads every plugin. The host:
 
 1. runs the plugin's global `on_unload()`, if it defines one (a compiled plugin receives the event
    `plugin.unload`), and keeps what it returns;
@@ -147,16 +153,22 @@ most a minute lost; locals survive only a reload, through `on_unload`.
 
 ## The player's controls
 
-`/plugin` opens the plugin panel: every plugin with its state, the chosen one's console, and
-buttons to reload or unload it. In the chat bar:
+`/plugin` opens the plugin panel: every plugin with its state, why the chosen one stopped, and
+four buttons: **Enable** (lit for a plugin that is not running), **Disable** (lit for one that is
+enabled), **Reload** (lit for one running) and **Reload All** (lit while any runs). In the chat
+bar:
 
 | command | does |
 |---|---|
 | `/plugin list` | each plugin's id, version and state |
-| `/plugin load <id>`, `/plugin unload <id>`, `/plugin reload <id>` | as the words say; `reload` also loads a plugin that is not loaded |
-| `/plugin console <id>` | the plugin's console, in the chat window |
+| `/plugin enable <id>`, `/plugin disable <id>` | as the panel's buttons; a plugin named to load is not disabled |
+| `/plugin reload <id>` | as the panel's button; it also loads a plugin named to load that is not loaded |
 | `/plugin policy` | the world's policy in force |
-| `/plugin huds unlock`, `/plugin huds lock` | let the player drag any plugin's HUD to where they want it, kept for the character; lock them again (the panel's *Unlock HUDs* toggle does the same) |
+| `/plugin huds unlock`, `/plugin huds lock` | let the player drag any plugin's HUD to where they want it, kept for the character; lock them again |
+
+What a plugin prints, and each error it meets, is told in the chat under its name; the chat also
+says when a plugin is loaded, reloaded, unloaded, enabled or disabled
+([api.md](../api.md#commands)). Logging out closes every plugin window and HUD, and the panel.
 
 The headless client's script has the same verbs as `plugin load <folder or zip>`, `plugin unload`,
 `plugin reload`, `plugin list` and `plugin console`.
@@ -186,4 +198,4 @@ each checked against the world's policy and the host's limits, and nothing else:
   second, chat sent at most once a second with a burst of three, fifty local lines a frame
   ([permissions.md](../permissions.md#rate-ceilings)).
 - **Bounded output.** A window holds at most 2,000 nodes, 16 deep; a store 16 MiB; a plugin at most
-  256 markers and 256 queued actions; its console keeps its last 200 lines.
+  256 markers and 256 queued actions; the host keeps the last 200 lines it printed.

@@ -470,12 +470,13 @@ pub struct Config {
     // ---- plugins ----
     /// Load plugins (the default); `--no-plugins` runs the client with none, as retail runs.
     pub plugins: bool,
-    /// `--plugins <dir>`: a folder of plugin packages (or one package) to load, whatever the
-    /// player's *Plugins (experimental)* setting says. Repeatable.
+    /// `--plugins <dir>`: a folder of plugin packages (or one package) to load at once, ticked or
+    /// not. Repeatable.
     pub plugin_dirs: Vec<PathBuf>,
     /// `--offer-plugins <dir>`: a folder of plugin packages (or one package) to list beside the
-    /// plugins folder in the settings folder, each off until the player ticks it (the launcher
-    /// passes the plugins it installed). Repeatable.
+    /// plugins folder in the settings folder, each ticked the first time the client sees it and
+    /// then as the player leaves it (the launcher passes the plugins it installed and the
+    /// player's own folders). Repeatable.
     pub offered_plugin_dirs: Vec<PathBuf>,
     /// `--plugin-dev`: reload a plugin whenever one of its files changes.
     pub plugin_dev: bool,

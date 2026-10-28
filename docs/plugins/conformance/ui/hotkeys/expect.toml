@@ -14,7 +14,13 @@ hotkey = "host"
 [expect]
 status = "running"
 console = ["plain key\tfalse", "ran\trun fast\t2\ttrue"]
-printed = ["[Plugins] conformance.hotkeys's hotkey runs /nothere, which it has not claimed", "[Plugins] conformance.hotkeys's hotkey runs /plugin, which it has not claimed"]
+printed = [
+    "[Conformance: hotkeys] plain key false",
+    "[Plugins] Conformance: hotkeys loaded.",
+    "[Conformance: hotkeys] ran run fast 2 true",
+    "[Plugins] conformance.hotkeys's hotkey runs /nothere, which it has not claimed",
+    "[Plugins] conformance.hotkeys's hotkey runs /plugin, which it has not claimed",
+]
 ui = """
 window conformance.hotkeys main open=true
 window #main title="Hotkeys"

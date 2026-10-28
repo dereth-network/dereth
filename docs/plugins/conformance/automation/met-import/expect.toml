@@ -13,4 +13,15 @@ click = "view:Remote.c1:Go"
 [expect]
 status = "running"
 console = ["unsupported	condition dialog_popup", "option	enablecombat	false", "state	Default	->	Walk", "state	Walk	->	Walking", "state	Walking	->	Arrived", "state	Arrived	->	Clicked", "state	Clicked	->	Done"]
-printed = ["arrived", "clicked"]
+printed = [
+    "[Conformance: met-import] unsupported condition dialog_popup",
+    "[Plugins] Conformance: met-import loaded.",
+    "[Conformance: met-import] option enablecombat false",
+    "[Conformance: met-import] state Default -> Walk",
+    "[Conformance: met-import] state Walk -> Walking",
+    "arrived",
+    "[Conformance: met-import] state Walking -> Arrived",
+    "[Conformance: met-import] state Arrived -> Clicked",
+    "clicked",
+    "[Conformance: met-import] state Clicked -> Done",
+]

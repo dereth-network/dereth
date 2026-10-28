@@ -148,7 +148,7 @@ fn the_hosts_own_window_stands_over_every_plugin_window_and_takes_the_press_ther
     let mut panel = view(
         window(
             "panel",
-            vec![node("button").with("id", "unload").with("text", "Unload")],
+            vec![node("button").with("id", "disable").with("text", "Disable")],
         ),
         1,
     );
@@ -162,7 +162,7 @@ fn the_hosts_own_window_stands_over_every_plugin_window_and_takes_the_press_ther
         .ui
         .rect_of("dereth.plugins", "panel")
         .expect("the panel is drawn");
-    let unload = h
+    let disable = h
         .input
         .nav
         .last
@@ -179,23 +179,23 @@ fn the_hosts_own_window_stands_over_every_plugin_window_and_takes_the_press_ther
     // The plugin's window opens with its button under the panel's.
     h.layer
         .ui
-        .place_hint("test.kit", "main", unload.x - go.x, unload.y - go.y);
+        .place_hint("test.kit", "main", disable.x - go.x, disable.y - go.y);
     let views = [plugin, panel];
     h.frame(&views);
     h.frame(&views);
     let main = h.rect("main");
     assert!(
-        main.contains(unload.x + 4.0, unload.y + 4.0),
-        "the plugin's window, its button under the panel's: {main:?}, {unload:?}"
+        main.contains(disable.x + 4.0, disable.y + 4.0),
+        "the plugin's window, its button under the panel's: {main:?}, {disable:?}"
     );
-    let out = h.click(&views, unload.x + 4.0, unload.y + 4.0);
+    let out = h.click(&views, disable.x + 4.0, disable.y + 4.0);
     assert!(out.is_empty(), "no plugin took the press: {out:?}");
     assert_eq!(
         h.layer.host.ui.take_inputs(),
         [Input::Click {
             plugin: "dereth.plugins".into(),
             window: "panel".into(),
-            node: "unload".into(),
+            node: "disable".into(),
         }]
     );
 }

@@ -486,8 +486,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "The client can load plugin packages of Lua scripts that show windows and markers \
                  and act only through the interface's own requests, within a memory and time \
                  budget and the world's policy; the plugin audit is answered with every loaded \
-                 plugin. Plugins are experimental: none loads until the player turns on Plugins \
-                 (experimental) and ticks it, and with no plugin loaded it behaves as retail.",
+                 plugin. A plugin loads once it is ticked in the plugin panel (the ones the \
+                 launcher installs start ticked), and with no plugin loaded it behaves as retail.",
         why: "Players relied on add-ons; a sandboxed host can be carried to the web and seen \
               truthfully by a world.",
     },

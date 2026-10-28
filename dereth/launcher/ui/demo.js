@@ -462,7 +462,7 @@
       if (url === FIRST_PARTY) throw "Dereth's own source cannot be removed";
       pluginSources.splice(pluginSources.findIndex((s) => s.url === url), 1);
     },
-    install_plugin: ({ source, id }) => { const e = installFrom(source, id); return `Installed ${e.name} ${e.version}. Turn it on in the client.`; },
+    install_plugin: ({ source, id }) => { const e = installFrom(source, id); return `Installed ${e.name} ${e.version}.`; },
     update_plugin: ({ id }) => { const p = pluginsState.installed.find((x) => x.id === id); const e = installFrom(p.source, id); return `Updated ${e.name} to ${e.version}.`; },
     remove_plugin: ({ id }) => { pluginsState.installed = pluginsState.installed.filter((p) => p.id !== id); },
     set_plugin_updates: ({ setting }) => { pluginsState.auto_update = setting; },

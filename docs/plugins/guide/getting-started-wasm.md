@@ -99,7 +99,7 @@ export!(Hello);
 the generated [operations reference](../reference/operations.md) lists every one with its WIT
 signature.
 
-An `Err` from `init` fails the load and shows in the plugin's console. An `Err` from `deliver`
+An `Err` from `init` fails the load, and the chat says why. An `Err` from `deliver`
 counts as a failing handler, as a raised Lua error does ([lifecycle](lifecycle-and-sandbox.md#faults-and-suspension)).
 
 ## 3. Events: which arrive, and how

@@ -12,7 +12,6 @@ pub mod interface;
 pub mod landscape;
 pub mod names;
 pub mod performance;
-pub mod plugins;
 pub mod preferences;
 pub mod render_scale;
 pub mod renderer;

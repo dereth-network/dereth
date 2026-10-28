@@ -63,8 +63,8 @@ state by setting it to itself to run its rules again. The documentation does not
 state change ends a check; here it does, and so does the meta's stopping (another meta taking its
 place, say). A meta checks on its timer; the checks "whenever the macro needs to decide what to do
 next" are the engine's to make: a plugin that drives a macro calls `m:check()` as its macro decides
-(the Tank sample does). A condition that raises an error counts as false, and the error goes to the
-plugin's console.
+(the Tank sample does). A condition that raises an error counts as false, and the error is told in
+the chat.
 
 ```lua
 local meta = require("dereth.meta")

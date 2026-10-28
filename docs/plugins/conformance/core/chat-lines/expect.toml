@@ -6,4 +6,13 @@ seconds = 60
 [expect]
 status = "running"
 console = ["0\tdefault\t0\tWelcome to Asheron's Call\n  powered by ACEmulator\n\nFor more information on commands supported by this server, type @acehelp\n", "1\tdefault\t0\tYou have entered the General channel.", "2\tdefault\t0\tYou have entered the Trade channel.", "3\tdefault\t0\tYou have entered the LFG channel.", "0\tdefault\t0\tYou give Society Greeter Calling Stone.", "0\tdefault\t0\tJonathan gives you Academy Exit Token."]
-printed = ["chat-lines loaded"]
+printed = [
+    "chat-lines loaded",
+    "[Plugins] Conformance: chat-lines loaded.",
+    "[Conformance: chat-lines] 0 default 0 Welcome to Asheron's Call   powered by ACEmulator  For more information on commands supported by this server, type @acehelp",
+    "[Conformance: chat-lines] 1 default 0 You have entered the General channel.",
+    "[Conformance: chat-lines] 2 default 0 You have entered the Trade channel.",
+    "[Conformance: chat-lines] 3 default 0 You have entered the LFG channel.",
+    "[Conformance: chat-lines] 0 default 0 You give Society Greeter Calling Stone.",
+    "[Conformance: chat-lines] 0 default 0 Jonathan gives you Academy Exit Token.",
+]

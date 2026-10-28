@@ -2,8 +2,8 @@
 //!
 //! Besides its plugins folders, the host finds the plugins the launcher installed, as the launcher
 //! offers them to the Dereth client: each plugin installed from a plugin source, in the launcher's
-//! data folder, and each plugin in the folders on this computer the launcher lists. Like every
-//! found plugin, each is off until the player ticks it.
+//! data folder, and each plugin in the folders on this computer the launcher lists. As in the
+//! Dereth client, each is ticked the first time the host sees it, and an untick is kept.
 
 use dereth_launch::folders::Folders;
 use dereth_launch::plugins::Shelf;
@@ -34,28 +34,48 @@ fn launcher_with_one_of_two_plugins(tag: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn the_plugins_the_launcher_installed_are_found_and_load_once_ticked() {
+fn the_plugins_the_launcher_installed_load_at_first_and_an_untick_is_kept() {
     let data = launcher_with_one_of_two_plugins("launcher-on");
-    let mut r = Replay::frames_only(
-        &settings(&[])
-            .with("launcher", true)
-            .with("launcher_data", data.to_string_lossy().into_owned()),
-    );
+    let stores = std::env::temp_dir().join(format!(
+        "dereth-decal-host-launcher-on-stores-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&stores);
+    let run = || {
+        Replay::frames_only(
+            &settings(&[])
+                .with("launcher", true)
+                .with("launcher_data", data.to_string_lossy().into_owned())
+                .with("data", stores.to_string_lossy().into_owned()),
+        )
+    };
+    let mut r = run();
     r.frame();
-    assert_eq!(
+    r.frame();
+    assert_ne!(
         r.status("test.window"),
         "absent",
-        "found, and off until ticked"
+        "ticked the first time it is found"
     );
-    assert!(r.type_line("/plugin on test.window"));
-    r.frame();
-    r.frame();
-    assert_ne!(r.status("test.window"), "absent", "ticked");
-    assert!(r.type_line("/plugin on test.probe"));
+    assert!(r.type_line("/plugin enable test.probe"));
     r.frame();
     r.frame();
     assert_eq!(r.status("test.probe"), "absent", "listed, not installed");
+    assert!(r.type_line("/plugin disable test.window"));
+    r.frame();
+    r.frame();
+    assert_eq!(r.status("test.window"), "absent", "unticked");
+    drop(r);
+    let mut again = run();
+    again.frame();
+    again.frame();
+    assert_eq!(
+        again.status("test.window"),
+        "absent",
+        "the untick is kept, though the launcher offers it still"
+    );
     let _ = std::fs::remove_dir_all(&data);
+    let _ = std::fs::remove_dir_all(&stores);
 }
 
 #[test]
@@ -110,15 +130,12 @@ fn the_plugins_in_the_launchers_folders_on_this_computer_are_found_and_nothing_i
             .with("launcher_data", data.to_string_lossy().into_owned()),
     );
     r.frame();
-    assert_eq!(
+    r.frame();
+    assert_ne!(
         r.status("test.probe"),
         "absent",
-        "found, and off until ticked"
+        "ticked the first time it is found, from its folder"
     );
-    assert!(r.type_line("/plugin on test.probe"));
-    r.frame();
-    r.frame();
-    assert_ne!(r.status("test.probe"), "absent", "ticked, from its folder");
     drop(r);
     assert_eq!(files_under(&data), before, "nothing written");
     let _ = std::fs::remove_dir_all(&data);

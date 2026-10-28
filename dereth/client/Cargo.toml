@@ -66,8 +66,6 @@ dereth-plugin-api.workspace = true
 dereth-plugin-host.workspace = true
 dereth-plugin-lua.workspace = true
 dereth-plugin-wasm = { workspace = true, default-features = true }
-# The player's *Plugins (experimental)* setting, which the plugin host follows.
-dereth-client-contract.workspace = true
 # The game's data files, read for the plugins that draw maps.
 dereth-dat.workspace = true
 # Plugins' HTTPS requests to the domains their manifests list, and a world policy published at a
@@ -81,6 +79,8 @@ tracing.workspace = true
 dereth-launch.workspace = true
 
 [dev-dependencies]
+# The contract's views, chat lines and options, which the tests read.
+dereth-client-contract.workspace = true
 dereth-terrain.workspace = true
 dereth-rules.workspace = true
 dereth-client-shell = { workspace = true, features = ["test-support"] }

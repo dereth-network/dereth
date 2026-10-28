@@ -3,15 +3,16 @@
 //! client, packages named with `--plugins`, stores kept beside them, and the host installed as the
 //! runtime's frame hook.
 //!
-//! Plugins are experimental. A package is a folder holding `plugin.toml`. A found plugin loads
-//! only while the player's *Plugins (experimental)* setting is on and they have ticked it in the
-//! plugin panel (`/plugin`), which shows what its manifest says it uses; once loaded it may do
-//! what every permission covers. A `--plugins` folder's plugins load whatever the setting says:
-//! the command line names them. With `--plugin-dev` a plugin is reloaded whenever one of its files
-//! changes. Plugins beside the program are found too
-//! ([`bundled_dir_for`](crate::plugins::bundled_dir_for)): releases carry none (players install
-//! Dereth's from its plugin source, through the launcher), so it is a client built from the
-//! repository that finds the samples there.
+//! A package is a folder holding `plugin.toml`. A found plugin loads once it is enabled in the
+//! plugin panel (`/plugin`); once loaded it may do what every permission covers. The plugins the
+//! launcher offers (`--offer-plugins`: its installs and the player's own folders) are enabled the
+//! first time the client sees them, and the others wait for the player's Enable; a Disable is kept
+//! as an Enable is. A `--plugins` folder's plugins load at once: the command line names them. With
+//! `--plugin-dev` a plugin is reloaded whenever one of its files changes. Plugins beside the
+//! program are found too ([`bundled_dir_for`](crate::plugins::bundled_dir_for)): releases carry
+//! none (players install Dereth's from its plugin source, through the launcher). A client built
+//! from the repository finds what any client finds and no more: a developer names the samples'
+//! folder with `--plugins`, or adds it as a folder on the launcher's Plugins page.
 //!
 //! The desktop offers every drawn capability (windows, HUDs, markers, the arrow, radar and map
 //! marks), movement, the character list, a bus between the player's clients on this machine
@@ -38,8 +39,8 @@ pub const PLUGINS_DIR_NAME: &str = "plugins";
 
 /// The folder of the plugins that come with the client, for the client's program at `exe`: beside
 /// the program (the Windows release's folder), among a macOS bundle's resources, or in the
-/// AppImage's own folder of the app's files. A build of one's own, run from a source checkout's
-/// `target` folder, has the checkout's own `dereth/plugins`. None when there is none.
+/// AppImage's own folder of the app's files. None when there is none: a build of one's own, run
+/// from a source checkout's `target` folder, finds none of the checkout's plugins by itself.
 #[must_use]
 pub fn bundled_dir_for(exe: &Path) -> Option<PathBuf> {
     let dir = exe.parent()?;
@@ -53,20 +54,8 @@ pub fn bundled_dir_for(exe: &Path) -> Option<PathBuf> {
     ]
     .into_iter()
     .find(|d| d.is_dir())
-    .or_else(|| checkout_plugins(dir))
 }
 
-/// The plugins of the source checkout a program in `dir` was built in: `dir` is in the
-/// checkout's `target` folder (its profile's folder, or a target's under it), and the checkout
-/// holds `dereth/plugins`.
-fn checkout_plugins(dir: &Path) -> Option<PathBuf> {
-    dir.ancestors()
-        .take(3)
-        .find(|a| a.file_name().is_some_and(|n| n == "target"))
-        .and_then(Path::parent)
-        .map(|checkout| checkout.join("dereth").join(PLUGINS_DIR_NAME))
-        .filter(|d| d.is_dir())
-}
 /// The plugin stores' folder's name in the settings folder.
 pub const STORE_DIR_NAME: &str = "plugin-store";
 /// The most files one package may hold before it is refused unread.
@@ -606,9 +595,10 @@ pub struct DesktopPlugins {
     /// The settings folder; its `plugins` folder is always where plugins are found, and
     /// `plugin-store` holds the stores.
     pub settings_dir: Option<PathBuf>,
-    /// `--plugins` folders: their plugins load whatever the player's setting says.
+    /// `--plugins` folders: their plugins load at once.
     pub extra_dirs: Vec<PathBuf>,
-    /// `--offer-plugins` folders (the launcher's installs): their plugins are found.
+    /// `--offer-plugins` folders (the launcher's installs and the player's own folders): their
+    /// plugins are found, each ticked the first time the client sees it.
     pub offered_dirs: Vec<PathBuf>,
     /// The plugins that come with the client ([`bundled_dir_for`]): found, after the others.
     pub bundled_dir: Option<PathBuf>,
@@ -619,19 +609,18 @@ pub struct DesktopPlugins {
 }
 
 impl DesktopPlugins {
-    /// The host: the `--plugins` packages queued for the first frame, and the found ones listed,
-    /// each off until the player ticks it. It follows the player's *Plugins (experimental)*
-    /// setting.
+    /// The host: the `--plugins` packages queued for the first frame, and the found ones listed in
+    /// this order: the plugins folder's, each off until the player ticks it; the launcher's, each
+    /// ticked the first time the client sees it; and the ones that come with the client, each off
+    /// until the player ticks it.
     #[must_use]
     pub fn host(&self) -> PluginHost {
-        let mut found = Vec::new();
+        let mut own = Vec::new();
         if let Some(dir) = &self.settings_dir {
             let plugins = dir.join(PLUGINS_DIR_NAME);
             let _ = std::fs::create_dir_all(&plugins);
-            found.push(plugins);
+            own.push(plugins);
         }
-        found.extend(self.offered_dirs.iter().cloned());
-        found.extend(self.bundled_dir.iter().cloned());
         let storage: Box<dyn PluginStorage> = match &self.settings_dir {
             Some(dir) => Box::new(DirStorage {
                 root: dir.join(STORE_DIR_NAME),
@@ -662,14 +651,6 @@ impl DesktopPlugins {
             ],
         );
         config.watch = self.watch;
-        config.switch = Some(dereth_client_contract::options::plugins::turned_on);
-        config.adding_plugins = Some(match &self.settings_dir {
-            Some(dir) => format!(
-                "Put a plugin's folder in\n{}\nor start the client with --plugins <folder>.",
-                dir.join(PLUGINS_DIR_NAME).display()
-            ),
-            None => "Start the client with --plugins <folder>.".to_owned(),
-        });
         // `DERETH_PLUGIN_PROFILE=1`: each Lua plugin writes where its time goes to its console
         // (and so to the log, `dereth::plugin` at debug) every half minute.
         config.limits.profile =
@@ -682,7 +663,11 @@ impl DesktopPlugins {
         )
         .with_engine(Box::new(dereth_plugin_wasm::WasmEngine::interpreted()))
         .with_net(Box::new(ThreadNet::default()))
-        .with_found(Box::new(DirSource::new(found)));
+        .with_found(Box::new(DirSource::new(own)))
+        .with_offered(Box::new(DirSource::new(self.offered_dirs.clone())))
+        .with_found(Box::new(DirSource::new(
+            self.bundled_dir.iter().cloned().collect(),
+        )));
         if let Some(dir) = &self.settings_dir {
             host = host.with_files(Box::new(DirFiles {
                 root: dir.join(DATA_DIR_NAME),
@@ -868,8 +853,8 @@ mod tests {
 
     /// The plugins that come with the client are found where each release puts them for its
     /// program: beside it (the Windows folder), among a macOS bundle's resources, in the
-    /// AppImage's own folder of the app's files; a build of one's own in a source checkout finds
-    /// the checkout's; a build with none finds none.
+    /// AppImage's own folder of the app's files; a build with none finds none, and a build of
+    /// one's own in a source checkout finds none of the checkout's plugins by itself.
     /// Behaviour: plugins.load.a-found-plugin-is-listed-off-until-the-player-ticks-it
     #[test]
     fn the_plugins_that_come_with_the_client_are_found_where_each_release_puts_them() {
@@ -896,8 +881,9 @@ mod tests {
             super::bundled_dir_for(&own_build.join("dereth-client.exe")),
             None
         );
-        // A build of one's own in a source checkout's `target` folder has the checkout's plugins,
-        // for its profile's folder and for a target's.
+        // A build of one's own in a source checkout's `target` folder finds none of the
+        // checkout's plugins, for its profile's folder and for a target's: it finds what any
+        // client finds.
         let checkout = root.join("checkout");
         std::fs::create_dir_all(checkout.join("dereth").join("plugins")).expect("dirs");
         for build in [
@@ -910,7 +896,7 @@ mod tests {
             std::fs::create_dir_all(&build).expect("dirs");
             assert_eq!(
                 super::bundled_dir_for(&build.join("dereth-client.exe")),
-                Some(checkout.join("dereth").join("plugins"))
+                None
             );
         }
         let _ = std::fs::remove_dir_all(&root);
@@ -951,15 +937,14 @@ mod tests {
 
     /// Every way the desktop finds a plugin (its settings folder's `plugins`, a folder the
     /// launcher offers with `--offer-plugins`, the plugins that come with the client) lists it,
-    /// and none of them loads while the player's *Plugins (experimental)* setting is off, which a
-    /// profile that never had it reads as; a `--plugins` folder's plugin loads all the same. With
-    /// the setting on, each found plugin is off until the player ticks it, the tick is kept in the
-    /// settings folder for the next start, and turning the setting off unloads them again.
-    /// Behaviour: plugins.load.no-plugin-loads-while-plugins-are-off
+    /// and `/plugin` is the client's from the first frame, with nothing to turn on first. The
+    /// launcher's plugin loads at the first start with no tick; the others wait for theirs, and a
+    /// `--plugins` folder's plugin loads at once. Each tick and untick is kept in the settings
+    /// folder for the next start: the launcher's plugin, unticked, stays off though the launcher
+    /// offers it still.
+    /// Behaviour: plugins.load.a-plugin-a-launcher-offers-starts-on-and-an-untick-is-kept
     #[test]
-    fn no_found_plugin_loads_with_plugins_off_and_each_waits_for_its_tick() {
-        use dereth_client_contract::options::{plugins, store};
-        use dereth_client_contract::PrefValue;
+    fn the_launchers_plugins_load_at_first_and_the_others_wait_for_their_tick() {
         let root = scratch("found-sources");
         let settings = root.join("settings");
         plugin_at(&settings.join("plugins"), "mine", "t.mine");
@@ -979,49 +964,50 @@ mod tests {
         let loaded = |h: &dereth_plugin_host::PluginHost| -> Vec<String> {
             h.plugins().into_iter().map(|p| p.id).collect()
         };
-        // A profile from before plugins had a setting: off.
-        store::init();
-        plugins::register();
-        let old = dereth_client_contract::persist::preferences::UserPreferences::parse(
-            "[Display]\r\nFullScreen=False\r\n",
-        )
-        .expect("a profile");
-        store::load(&old);
+        let listed = |h: &dereth_plugin_host::PluginHost| -> Vec<(String, bool)> {
+            h.found().into_iter().map(|f| (f.id, f.on)).collect()
+        };
         let mut host = desktop.host();
-        for t in 1..4 {
+        let verbs = step(&mut host, 1.0);
+        assert!(
+            verbs.iter().any(|v| v == dereth_plugin_host::HOST_VERB),
+            "{verbs:?}"
+        );
+        for t in 2..4 {
             step(&mut host, f64::from(t));
         }
-        assert!(!host.plugins_on());
-        assert_eq!(loaded(&host), ["t.asked"], "only the plugin named to load");
-        let listed: Vec<(String, bool)> = host.found().into_iter().map(|f| (f.id, f.on)).collect();
+        assert_eq!(loaded(&host), ["t.asked", "t.installed"]);
         assert_eq!(
-            listed,
+            listed(&host),
             [
                 ("t.mine".to_owned(), false),
+                ("t.installed".to_owned(), true),
+                ("t.sample".to_owned(), false)
+            ]
+        );
+        // The plugins folder's, enabled: it loads.
+        assert!(host.set_ticked("t.mine", true).is_ok());
+        step(&mut host, 5.0);
+        assert_eq!(loaded(&host), ["t.asked", "t.installed", "t.mine"]);
+        // The launcher's, disabled: it unloads.
+        assert!(host.set_ticked("t.installed", false).is_ok());
+        step(&mut host, 6.0);
+        step(&mut host, 7.0);
+        assert_eq!(loaded(&host), ["t.asked", "t.mine"]);
+        drop(host);
+        // The next start keeps both as the player left them.
+        let mut again = desktop.host();
+        step(&mut again, 1.0);
+        step(&mut again, 2.0);
+        assert_eq!(loaded(&again), ["t.asked", "t.mine"]);
+        assert_eq!(
+            listed(&again),
+            [
+                ("t.mine".to_owned(), true),
                 ("t.installed".to_owned(), false),
                 ("t.sample".to_owned(), false)
             ]
         );
-        // On: still none of them, until one is ticked.
-        assert!(store::set_value(plugins::PLUGINS, PrefValue::Bool(true)));
-        step(&mut host, 5.0);
-        assert_eq!(loaded(&host), ["t.asked"]);
-        assert!(host
-            .set_ticked("t.installed", true)
-            .is_ok_and(|t| t.contains("loads now")));
-        step(&mut host, 6.0);
-        assert_eq!(loaded(&host), ["t.asked", "t.installed"]);
-        drop(host);
-        // The next start has the tick, and the others are still off.
-        let mut again = desktop.host();
-        step(&mut again, 1.0);
-        assert_eq!(loaded(&again), ["t.asked", "t.installed"]);
-        // Off: the found plugin unloads; the one named to load stays.
-        assert!(store::set_value(plugins::PLUGINS, PrefValue::Bool(false)));
-        step(&mut again, 2.0);
-        step(&mut again, 3.0);
-        assert_eq!(loaded(&again), ["t.asked"]);
-        store::clear();
         let _ = std::fs::remove_dir_all(&root);
     }
 }

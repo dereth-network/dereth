@@ -117,7 +117,7 @@ fn a_new_repository_is_the_filled_template_in_an_empty_folder_only() {
     let readme = std::fs::read_to_string(repo.join("README.md")).expect("README");
     for said in [
         "# XP Tracker\n",
-        "turn **XP Tracker** on",
+        "install **XP Tracker** from the list.",
         "`/plugin reload example.xp-tracker`",
         "dereth-plugin check xp-tracker\n",
         "`xp-tracker/CHANGES.md`",
@@ -331,13 +331,12 @@ In the Dereth Network launcher, open **Plugins**, paste this address under **Sou
 https://dereth-network.github.io/plugin-template/plugins.json
 ```
 
-Then install **plugin-template** from the list, and turn it on in the client's plugin panel (`/plugin`).
+Then install **plugin-template** from the list.
 
 ## Work on it
 
 1. In the Dereth Network launcher, open **Plugins**. Under **Installed**, press **Add Plugin Folder** and choose this folder. (If you used the launcher to create this plugin then this part is automatically done for you.)
-2. Play, and turn **plugin-template** on in the client's plugin panel (`/plugin`).
-3. Edit, save, and reload with `/plugin reload io.github.dereth-network.plugin-template` to check your work.
+2. Edit, save, and reload with `/plugin reload io.github.dereth-network.plugin-template` to check your work.
 
 The plugin interface is [documented here](<docs>).
 

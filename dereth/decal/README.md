@@ -35,13 +35,14 @@ shows the windows. Both must be on in Decal's list.
 
 ## Dereth Plugins
 
-Plugins are experimental, and none loads until you turn it on. **Your plugins** go in the Dereth
-client's plugins folder, `%APPDATA%\Dereth\client\plugins`, one folder (or `.zip`) each: a plugin
-put there once is found by both clients. The plugins you installed on the launcher's Plugins page
-are found here too, and so are the ones that come with Dereth Plugins. Every plugin found is listed
-but off: type `/plugin` in chat to open the plugin panel, pick one and click Turn on. Its windows
-stay closed until you open them from Decal's bar. What the plugins save is kept apart from the
-Dereth client's, in `%APPDATA%\Dereth\decal`.
+**Your plugins** go in the Dereth client's plugins folder, `%APPDATA%\Dereth\client\plugins`,
+one folder (or `.zip`) each: a plugin put there once is found by both clients. The plugins you
+installed or added on the launcher's Plugins page are found here too, each on the first time Dereth
+Plugins finds it, and so are the ones that come with Dereth Plugins. Type `/plugin` in chat to open
+the plugin panel: every plugin found is listed, and one that is off (yours and the ones that come
+with Dereth Plugins, until you enable each) loads when you pick it and click Enable. One you
+disable stays off. Its windows stay closed until you open them from Decal's bar. What the plugins
+save is kept apart from the Dereth client's, in `%APPDATA%\Dereth\decal`.
 
 A `settings.txt` in `%APPDATA%\Dereth\decal` can:
 
@@ -139,16 +140,17 @@ stand-ins for Decal's calls, windows and 3-D marks and for the game's window the
 
 1. Build and install it, start the game through Decal, and check Dereth Plugins is on in Decal's
    list (twice: the network filter and the plugin).
-2. Log in. Type `/plugin`: the plugin panel opens as a Decal window. Turn on Trackers, and open
+2. Log in. Type `/plugin`: the plugin panel opens as a Decal window. Enable Trackers, and open
    its window from Decal's bar.
 3. Kill something: Trackers' window counts it. Type `/track corpse` after a death: the arrow
    over your head points to your corpse.
-4. Turn on Navigator, open it from Decal's bar, type a town's name, and pick it: you turn toward it
+4. Enable Navigator, open it from Decal's bar, type a town's name, and pick it: you turn toward it
    and run. Press any key: you stop.
-5. Turn on Tank with a mage profile near some monsters: it buffs, casts at them and loots. With a
-   melee profile its attacks fail: the plugin panel's console says `unavailable`.
-6. Turn on Chat filter and hide a kind of line: those lines stop showing.
-7. Log out and in again: the plugins and their windows come back.
+5. Enable Tank with a mage profile near some monsters: it buffs, casts at them and loots. With a
+   melee profile its attacks fail: Tank's lines in the chat say `unavailable`.
+6. Enable Chat filter and hide a kind of line: those lines stop showing.
+7. Log out: every plugin window closes, and the plugin panel. Log in again: the plugins are back,
+   and their windows open again from Decal's bar.
 
 The game's keys:
 
@@ -156,14 +158,14 @@ The game's keys:
    plugins will use: check they are your attack and jump keys. `%APPDATA%\Dereth\decal\settings.txt`
    now has `keys = on`. The key map is the one the game saved when it last closed, so a key you
    rebind shows after a restart.
-9. With a melee profile and the game's window in front, turn on Tank near a monster: it selects the
+9. With a melee profile and the game's window in front, enable Tank near a monster: it selects the
     monster and swings, the power bar filling to the profile's power before each swing. Stop Tank
     mid-fight: the monster is no longer selected and the swings stop. Select a monster yourself,
     let Tank attack it and stop Tank: your selection stays.
-10. Click another window while it fights: its attacks stop, and the panel's console says
+10. Click another window while it fights: its attacks stop, and Tank's lines in the chat say
     `unavailable (the game window is not in front)`. Click back into the game: it fights again. Open
     the chat line: `unavailable (the chat line is open)`.
-11. Turn on Navigator and walk somewhere, or let Tank run a route with a jump in it, and press any
+11. Enable Navigator and walk somewhere, or let Tank run a route with a jump in it, and press any
     movement key: it stops at once and nothing stays held.
 12. Untick the switch: `settings.txt` says `keys = off`, and Tank's melee attacks fail as
     `unavailable` again.

@@ -179,8 +179,7 @@ such copy its own tool again, so an update reaches it. Its row says so when the 
 written. A folder added any other way gets none, and one taken off the list keeps its copy.
 
 Each such folder, then each installed plugin's zip, goes to the client with `--offer-plugins`, and
-installing one never turns it on: the client lists it off until the player turns plugins on and
-ticks it there. A source that cannot be read at start says so on its row, not in the notice. The
+the client loads each the first time it sees it, until the player unticks it in the plugin panel. A source that cannot be read at start says so on its row, not in the notice. The
 logic is `dereth-launch`'s `plugins` module; the files are under the launcher's data folder, in
 `plugins` (`sources.json`, which also keeps the folders on this computer and those it keeps the
 tool in, `installed.json`, a folder per plugin).
@@ -333,7 +332,6 @@ cargo test -p dereth-launch        # the logic crate, from the repository root
 cd dereth/launcher
 cargo run                          # the launcher, in a native window
 cargo run -- --downloads           # the same, downloading Empyrean and Lyceum as a release does
-cargo run -- --plugins             # the same, with the experimental plugins
 cargo test                         # the app's own tests
 cargo tauri build                  # the release build (`cargo install tauri-cli --version ^2 --locked`)
 ```

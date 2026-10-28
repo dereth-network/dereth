@@ -59,7 +59,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 
 ### `console.print`
 
-A line for the plugin's own console.
+A line the plugin prints: told in the chat under its name.
 
 - WIT: `console-print: func(text: string) -> result<_, string>`
 - Lua: through the Lua API ([api.md](../api.md))
@@ -137,7 +137,7 @@ Cancel a timer.
 
 ### `task.error`
 
-Report an error the plugin caught, to its console.
+Report an error the plugin caught: told in the chat, the whole of it in the log.
 
 - WIT: `task-error: func(message: string) -> result<_, string>`
 - Lua: through the Lua API ([api.md](../api.md))

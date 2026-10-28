@@ -251,10 +251,7 @@ impl Done {
         if self.updated {
             format!("Updated {} to {}.", self.name, self.version)
         } else {
-            format!(
-                "Installed {} {}. Turn it on in the client.",
-                self.name, self.version
-            )
+            format!("Installed {} {}.", self.name, self.version)
         }
     }
 }

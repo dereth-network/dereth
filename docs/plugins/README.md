@@ -15,8 +15,10 @@ passes the conformance profiles it needs.
 **This is draft 0.7.** The API version is `0.7`; a plugin written for `0.1` to `0.6` runs
 unchanged. Until 1.0 a minor version may still change things; after it, minor versions only add.
 
-**Plugins are experimental.** A plugin loads only when the player has turned plugins on and ticked
-that plugin. Its windows and HUDs open only when the player asks ([ui.md](ui.md#opening-a-window)).
+**Plugins are experimental.** A plugin loads only while it is ticked in the plugin panel
+(`/plugin`): the ones the player installs or adds through the launcher start ticked, and the
+others wait for the player. Its windows and HUDs open only when the player asks
+([ui.md](ui.md#opening-a-window)).
 
 To write a plugin, start with [the guide](guide/README.md): getting started in Lua and in
 WebAssembly, a plugin's lifecycle and sandbox, installing and updating, publishing, and each
@@ -109,8 +111,9 @@ windows is drawn in the same frame.
 replayed recording yields the same events in the same order. This is what makes the conformance
 suite possible.
 
-**Faults.** A failing handler is logged, with its traceback, to the plugin's console; the other
-handlers of the same event still run. Each entry into a plugin (loading it, or delivering one
+**Faults.** A failing handler is told in the chat, its first line under the plugin's name, and
+written whole, with its traceback, to the client's log; the other handlers of the same event still
+run. Each entry into a plugin (loading it, or delivering one
 event) has a time budget, 4 ms by default, and a VM has a memory cap, 64 MiB by default. The
 time is the entry's, the host's answers to its calls included (a search, a pattern matched, a file
 written). A handler past its budget is stopped (a Lua script is told where it was, and has a
@@ -123,8 +126,8 @@ plugins' together three: past either, the events still due for a plugin wait, in
 next frame. Ten failures within a minute, three entries stopped by the budget within a minute, or
 thirty frames past its share within a minute, suspend the plugin and the player is told. A value a plugin hands the host is copied
 within bounds (at most 262,144 values and 16 MiB, a table that appears twice counted twice, and
-one that holds itself refused), and a plugin's console keeps at most 200 lines and 256 KiB, each
-line cut at 4 KiB.
+one that holds itself refused), and the host keeps at most 200 lines and 256 KiB of what a plugin
+printed, each line cut at 4 KiB.
 
 **The sandbox.** A VM has Lua's safe libraries (`string`, `table`, `math`, `utf8`, `bit32`,
 `coroutine`, and `os.clock`, `os.time`, `os.date`, `os.difftime` on the host's clock). It has no
@@ -196,12 +199,12 @@ A file a plugin asks for is the host's dialog under every interface
 with the plugin windows still drawn beside it. Nothing else is asked: a plugin the player turns
 on loads at once.
 
-**Where Dereth finds plugins.** The desktop and browser clients load no plugin until the player
-ticks **Plugins (experimental)** on the Client Options page, and then only the ones the player
-turns on in the plugin panel (`/plugin`). The desktop client finds every package in the `plugins`
-folder of its settings folder, in each folder named with `--offer-plugins <dir>` (the launcher's
-installs) and beside the program; a folder named with `--plugins <dir>` loads whatever the setting
-says. `--no-plugins` starts it with none, `--plugin-dev` reloads a plugin whenever one of its files
+**Where Dereth finds plugins.** The desktop and browser clients load the plugins that are on in
+the plugin panel (`/plugin`). The desktop client finds every package in the `plugins` folder of
+its settings folder and beside the program, each off until the player turns it on, and in each
+folder named with `--offer-plugins <dir>` (the launcher's installs and the player's folders it
+lists), each on the first time the client finds it; a folder named with `--plugins <dir>` loads at
+once. `--no-plugins` starts it with none, `--plugin-dev` reloads a plugin whenever one of its files
 changes, and `--plugin-policy` names the world's [policy](policy.md) (the launcher passes it).
 Stores are kept in the `plugin-store` folder beside it. The headless client loads the folders
 named with `--plugins` and keeps stores where `--plugin-store` says, or in memory. The browser

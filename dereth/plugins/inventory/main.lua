@@ -93,10 +93,9 @@ local function set(name, value)
 	return string.format("%s = %s", n, tostring(value))
 end
 
+-- A line for the player: what the plugin prints is told in the chat under its name.
 local function say(fmt, ...)
-	local line = string.format(fmt, ...)
-	print(line)
-	chat.print("[Inventory] " .. line)
+	print(string.format(fmt, ...))
 end
 
 local function where_text(w)

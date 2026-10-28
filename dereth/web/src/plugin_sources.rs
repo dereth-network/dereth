@@ -540,10 +540,7 @@ mod tests {
             Some(own.clone()),
             None,
         );
-        assert_eq!(
-            said.as_deref(),
-            Ok("Installed Meter 1.0.0. Turn it on in the client.")
-        );
+        assert_eq!(said.as_deref(), Ok("Installed Meter 1.0.0."));
         let written = disk.write(&mut page);
         assert_eq!(
             written.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),

@@ -1,10 +1,10 @@
 //! Plugins in the browser: packages the player added to the page, kept in the browser's private
 //! file system, and each plugin's store kept there too.
 //!
-//! Plugins are experimental. The added packages, and the plugins installed from Dereth's plugin
-//! source (kept as zips beside them, [`crate::plugin_sources`]), are found
-//! plugins: each loads only while the player's *Plugins (experimental)* setting is on and they
-//! have ticked it in the plugin panel (`/plugin`).
+//! The added packages, and the plugins installed from plugin sources (kept as zips beside them,
+//! [`crate::plugin_sources`]), are the plugins the page offers the client, as the launcher
+//! offers the desktop client its own: each is ticked in the plugin panel (`/plugin`) the first
+//! time the client sees it, and loads while it is ticked; one the player unticks stays off.
 //!
 //! The page keeps added plugins in its private file system, one folder per package or a
 //! package's zip file as it came; the worker
@@ -107,9 +107,9 @@ pub struct Extras {
     pub policy: Option<String>,
 }
 
-/// The browser's plugin host over `packages`, the ones kept in the page: they are found, each off
-/// until the player ticks it, and the host follows the player's *Plugins (experimental)* setting. It offers what the desktop offers: the
-/// page draws the same interface.
+/// The browser's plugin host over `packages`, the ones kept in the page: the page offers them, each
+/// ticked the first time the client sees it. It offers what the desktop offers: the page draws the
+/// same interface.
 #[must_use]
 pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
     let mut caps = vec![
@@ -136,16 +136,13 @@ pub fn host(packages: Vec<Package>, extras: Extras) -> PluginHost {
     if extras.net.is_some() {
         caps.push(HostCapability::NetHttp);
     }
-    let mut config = HostConfig::new("dereth-web", caps);
-    config.switch = Some(dereth_client_contract::options::plugins::turned_on);
-    let found = packages;
     let mut host = PluginHost::new(
-        config,
+        HostConfig::new("dereth-web", caps),
         Box::new(dereth_client_sdk::plugin_lua::LuauEngine),
         Box::new(StaticSource::default()),
         Box::new(FileStorage),
     )
-    .with_found(Box::new(StaticSource { packages: found }));
+    .with_offered(Box::new(StaticSource { packages }));
     // Compiled plugins run in the browser's own WebAssembly.
     #[cfg(target_arch = "wasm32")]
     {
@@ -308,6 +305,28 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.ends_with(" ok")), "{lines:?}");
         assert_eq!(lines[0], "chunk: 3 3.14 true ok");
+    }
+
+    /// A plugin added to the page or installed there is offered to the client as the launcher
+    /// offers the desktop client its own: on the first time the client finds it.
+    /// Behaviour: plugins.load.a-plugin-a-launcher-offers-starts-on-and-an-untick-is-kept
+    #[test]
+    fn a_plugin_kept_in_the_page_is_on_the_first_time_the_client_finds_it() {
+        crate::settings::install(&[], None);
+        let kept = Package {
+            origin: "browser:xp".to_owned(),
+            files: [
+                (
+                    "plugin.toml".to_owned(),
+                    b"id = \"a.b\"\nname = \"xp\"\nversion = \"1.0.0\"\napi = \"0.1\"\n".to_vec(),
+                ),
+                ("main.lua".to_owned(), b"print(1)".to_vec()),
+            ]
+            .into(),
+        };
+        let host = super::host(vec![kept], super::Extras::default());
+        let listed: Vec<(String, bool)> = host.found().into_iter().map(|f| (f.id, f.on)).collect();
+        assert_eq!(listed, [("a.b".to_owned(), true)]);
     }
 
     /// Behaviour: none (the browser's own plumbing: a store is a file in the client's store).

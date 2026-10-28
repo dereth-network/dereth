@@ -10,7 +10,7 @@ interface host {
     /// Any value, as JSON text: a table, an array, a string, a number, a boolean or null.
     type value = string;
 
-    /// A line for the plugin's own console.
+    /// A line the plugin prints: told in the chat under its name.
     console-print: func(text: string) -> result<_, string>;
 
     /// Hear an event by name from now on (delivered to `deliver`).
@@ -40,7 +40,7 @@ interface host {
     /// Cancel a timer.
     task-cancel: func(timer: s64) -> result<_, string>;
 
-    /// Report an error the plugin caught, to its console.
+    /// Report an error the plugin caught: told in the chat, the whole of it in the log.
     task-error: func(message: string) -> result<_, string>;
 
     /// A value kept in a store scope (`global`, `world` or `character`).

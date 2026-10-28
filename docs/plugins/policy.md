@@ -3,7 +3,7 @@
 **Provenance: design.** The plugin interface is this client's own addition, not the original's; every statement here is what a host must do, and the conformance suite pins it.
 
 A world says which kinds of plugin automation it allows in a small document, which the client
-honours, shows to the player on the plugin panel (`/plugin`, and `/plugin policy`), and which
+honours, tells the player (`/plugin policy`), and which
 plugins read (`policy.info()`, and the `session.world_policy` event when it changes). The client cannot enforce anything against a modified client; the server keeps
 real enforcement. The policy is what an unmodified client respects and tells the player.
 

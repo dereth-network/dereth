@@ -609,11 +609,6 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::{interface, store};
         self.duties.preferences_started = true;
         self.register_display_modes();
-        // A client that runs plugins offers their switch, off, and the profile keeps it, so it is
-        // registered before the profile is read.
-        if self.cfg.plugins {
-            dereth_client_contract::options::plugins::register();
-        }
         let ini = crate::platform::files::read_to_string(&self.cfg.preferences_file)
             .ok()
             .and_then(|t| {

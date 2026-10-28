@@ -43,10 +43,10 @@ local hud = ui.hud{ id = "xp", anchor = "top_right", ui.label{ id = "rate", text
 hud:get("rate").text = "1.2M / hour"
 ```
 
-**Unlocking the HUDs.** The player moves any plugin's HUD by unlocking the HUDs: the plugin
-panel's *Unlock HUDs* toggle, or `/plugin huds unlock` (`/plugin huds lock` locks them again,
-`/plugin huds` alone toggles). While they are unlocked, every plugin's HUD is outlined and a press
-anywhere on one takes hold of it: it follows the pointer until let go, and its controls take no
+**Unlocking the HUDs.** The player moves any plugin's HUD by unlocking the HUDs:
+`/plugin huds unlock` (`/plugin huds lock` locks them again, `/plugin huds` alone toggles; the
+plugin panel has no toggle for it). While they are unlocked, every plugin's HUD is outlined and a
+press anywhere on one takes hold of it: it follows the pointer until let go, and its controls take no
 input, so its plugin hears nothing of the press. The place the player puts it is kept for the
 character, as a window's is, and the HUD stands there from then on, its anchor aside; it is kept
 wholly on the screen as it is dragged, as it opens and whenever the screen or the interface's
@@ -108,7 +108,7 @@ a picture the plugin fetched (the name `net.fetch{ …, as = "image" }` answered
 in its place while there is no picture. The desktop and browser clients draw it as a picture of
 its own. A picture is looked at once, as it arrives (with its package, or fetched): one over 1,024
 pixels a side, or one that would take the plugin's pictures over 32 MiB decoded, is not kept (the
-plugin's console says why, and a fetch of it fails), and the image shows its caption. Pictures are
+client's log says why, and a fetch of it fails), and the image shows its caption. Pictures are
 made one a frame, an image showing its caption until its turn.
 
 An `input` is one line the player types in, a `textbox` lines of text (typed in when it is
@@ -316,6 +316,8 @@ plugin answers the player; shown of the plugin's own accord (as it loads, on a t
 event), it stays closed. The player opens a plugin's main window from the plugin bar, and a
 plugin opens the rest, and its HUDs, as it answers them. A window the player had open opens again
 when its plugin is reloaded and declares it again; at the next start, every window is closed.
+Logging out closes every plugin window and HUD that is open, and the plugin panel; the plugin hears
+`session.logout`, and each stays closed until the player opens it again.
 
 ## The plugin bar
 

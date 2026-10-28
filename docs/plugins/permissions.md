@@ -52,9 +52,9 @@ words scrolling. The headless client has no player to pick one: a request for a 
 unanswered.
 
 The host's own window, the plugin panel (`/plugin`), is drawn as a window of the interface it
-stands in, above every plugin window. What a plugin wrote that it shows (the plugin's name, the
-lines of its console, the error it faulted on) is shown as the plugin's words: on one line, cut to
-its length, between double quotes and in a colour of its own.
+stands in, above every plugin window, so that no plugin can cover or imitate it. What a plugin
+wrote that it shows (the plugin's name, the error it faulted on) is shown as the plugin's words: on
+one line, cut to its length, between double quotes and in a colour of its own.
 
 ## Gestures and automation
 

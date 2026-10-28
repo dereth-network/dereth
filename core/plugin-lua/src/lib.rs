@@ -396,9 +396,9 @@ impl LuauInstance {
             p.end(label, now.saturating_sub(entered), lua.used_memory(), now)
         });
         if let Some(table) = table {
-            // To the plugin's console, which the client also writes to its log.
+            // To the plugin's record, which the client also writes to its log.
             if let Ok(mut host) = cell.try_borrow_mut() {
-                host.console(&format!("profile {table}"));
+                host.note(&format!("profile {table}"));
             }
         }
         let result = result.map_err(|e| self.error(&e));

@@ -51,14 +51,14 @@ The commands are shortcuts to the same:
 
 **It took the place of the Chat Logger.** The Chat Logger (`network.dereth.chatlogger`) kept every
 line and hid the lines holding the words the player filtered. The Chat Filter's manifest says it
-replaces it (`replaces`, [manifest.md](../../manifest.md)): turned on where the logger was, and,
+replaces it (`replaces`, [manifest.md](../../manifest.md)): enabled where the logger was, and,
 the first time it opens a character's store, reading the logger's. Its words become hide rules of
 their own, its log the filter's, its switch the filter's, and a rule logging every line keeps on
 what the logger did.
 
 ## The source
 
-The store opens at login (or at load, for a plugin turned on with a character in the world), so
+The store opens at login (or at load, for a plugin enabled with a character in the world), so
 the plugin remembers whether it is logged in: lines that arrive before (the server's welcome) are
 matched by no rule. At login it reads the rules back, or takes up what the logger kept:
 

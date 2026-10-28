@@ -4,4 +4,17 @@ after = 3
 say = "/nothing"
 [expect]
 status = "suspended"
-printed = ["[Plugins] conformance.faults was suspended (10 errors within a minute). /plugin reload conformance.faults starts it again."]
+printed = [
+    "[Plugins] Conformance: faults loaded.",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] Conformance: faults: error: main.lua:2: always",
+    "[Plugins] conformance.faults was suspended (10 errors within a minute). /plugin reload conformance.faults starts it again.",
+]

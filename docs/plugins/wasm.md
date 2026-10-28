@@ -33,7 +33,7 @@ dereth-testkit --test cpu plugins::the_wit_interface`.
 
 | export | when | what it does |
 |---|---|---|
-| `init() -> result<_, string>` | once, when the plugin loads | what a Lua plugin's entry file does at its top level: subscribe to events (`events-subscribe`), claim commands (`commands-add`), declare windows (`ui-window`), start timers (`task-timer`). An `err` fails the load, and the plugin's console shows it |
+| `init() -> result<_, string>` | once, when the plugin loads | what a Lua plugin's entry file does at its top level: subscribe to events (`events-subscribe`), claim commands (`commands-add`), declare windows (`ui-window`), start timers (`task-timer`). An `err` fails the load, and the chat says why |
 | `deliver(event: string, data: string) -> result<string, string>` | for each event the plugin hears | the event's name and its data (JSON), as a Lua handler receives them; answers a value (JSON; `null` for none), which for `plugin.unload` is the state the next load receives |
 
 What a Lua plugin receives through the Lua API's own dispatch arrives here as events too:
@@ -93,7 +93,7 @@ Its sources are not part of the package (a package holds no source files but Lua
    (`wasmi`), in the browser the browser's own WebAssembly.
 
 A trap (a panic in the plugin, a runaway loop, memory exhausted) fails the entry as a Lua error
-would: the plugin's console shows it, and repeated faults suspend the plugin.
+would: the chat says so, and repeated faults suspend the plugin.
 
 ## Writing one in Rust
 

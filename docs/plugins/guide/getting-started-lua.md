@@ -41,12 +41,12 @@ an unknown or misspelt key refuses the whole manifest, so a typo cannot silently
 cargo run -p dereth-client -- --plugins path/to/kills --plugin-dev
 ```
 
-A `--plugins` folder loads whatever the client's **Plugins (experimental)** setting says. (Or
-copy the folder into the `plugins` folder of the client's settings folder; the client finds it
-there, and loads it once you tick Plugins (experimental) on the Client Options page and turn it on
-in the plugin panel; [install-and-update.md](install-and-update.md) says where that is.) Type
-`/plugin` to open the plugin panel: it lists the plugin as running and shows its console, where
-`print` writes, with the line `Kill Counter loaded`.
+A `--plugins` folder loads at once. (Or copy the folder into the `plugins` folder of the
+client's settings folder; the client finds it there, and loads it once you enable it in the
+plugin panel; [install-and-update.md](install-and-update.md) says where that is.) The chat says
+`[Plugins] Kill Counter loaded.`, and what `print` writes is in the chat too, under the plugin's
+name: `[Kill Counter] Kill Counter loaded`. Type `/plugin` to open the plugin panel: it lists the
+plugin as running.
 
 ## 2. Hear an event
 
@@ -64,7 +64,7 @@ on("world.object_created", function(e)
 end)
 ```
 
-A misspelt event name is an error at the `on` call, so it shows in the console at once. Every
+A misspelt event name is an error at the `on` call, so it shows in the chat at once. Every
 event and its fields is in [events.md](../events.md); the order in which a frame's events arrive
 is there too.
 
