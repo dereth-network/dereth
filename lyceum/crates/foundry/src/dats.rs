@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use dereth_assets::{AssetError, Decode};
 use dereth_dat::overlay::OverlayDir;
-use dereth_dat::{ClassicDat, ContainerEra, DatFile, ModernDat};
+use dereth_dat::{ContainerEra, DatFile, FileSet, ModernDat};
 use dereth_primitives::{DataId, EraId};
 
 use crate::error::Error;
@@ -51,19 +51,25 @@ pub const fn era_of_layout(layout: ContainerEra) -> EraId {
 /// An era's files as a sentence names them.
 #[must_use]
 pub fn files_of(era: EraId) -> String {
+    let set = file_set(era);
+    let name = |t| set.name(t).unwrap_or_default();
     match era.container_era() {
         ContainerEra::Classic => format!(
             "the {} files ({} and {})",
             era_name(era),
-            ClassicDat::Portal.file_name(),
-            ClassicDat::Cell.file_name()
+            name(ModernDat::Portal),
+            name(ModernDat::Cell)
         ),
-        ContainerEra::Modern => format!(
-            "the {} files ({})",
-            era_name(era),
-            ModernDat::Portal.file_name()
-        ),
+        ContainerEra::Modern => {
+            format!("the {} files ({})", era_name(era), name(ModernDat::Portal))
+        }
     }
+}
+
+/// The files of `era`: their names on disk and their layout.
+#[must_use]
+pub const fn file_set(era: EraId) -> FileSet {
+    FileSet::of_era(era.container_era())
 }
 
 /// An era's name as a sentence says it.
@@ -75,15 +81,10 @@ pub const fn era_name(era: EraId) -> &'static str {
     }
 }
 
-/// Whether `dir` holds the files of `era`.
+/// Whether `dir` holds the files of `era`: its portal and cell files.
 #[must_use]
 pub fn holds(dir: &Path, era: EraId) -> bool {
-    match era.container_era() {
-        ContainerEra::Classic => dereth_dat::holds_classic_dats(dir),
-        ContainerEra::Modern => {
-            dereth_dat::holds_modern_dats(dir) && ModernDat::Cell.in_dir(dir).is_file()
-        }
-    }
+    file_set(era).holds(dir)
 }
 
 impl DatSet {
@@ -131,23 +132,15 @@ impl DatSet {
             }
             Ok(f)
         };
-        Ok(match layout {
-            ContainerEra::Classic => Self {
-                dir: dir.to_path_buf(),
-                era,
-                portal: need(ClassicDat::Portal.in_dir(dir))?,
-                cell: need(ClassicDat::Cell.in_dir(dir))?,
-                local: None,
-                highres: None,
-            },
-            ContainerEra::Modern => Self {
-                dir: dir.to_path_buf(),
-                era,
-                portal: need(ModernDat::Portal.in_dir(dir))?,
-                cell: need(ModernDat::Cell.in_dir(dir))?,
-                local: open_file(&ModernDat::Local.in_dir(dir))?,
-                highres: open_file(&ModernDat::HighRes.in_dir(dir))?,
-            },
+        let set = file_set(era);
+        let path = |t| set.in_dir(t, dir);
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            era,
+            portal: need(path(ModernDat::Portal).unwrap_or_default())?,
+            cell: need(path(ModernDat::Cell).unwrap_or_default())?,
+            local: path(ModernDat::Local).map_or(Ok(None), |p| open_file(&p))?,
+            highres: path(ModernDat::HighRes).map_or(Ok(None), |p| open_file(&p))?,
         })
     }
 
@@ -171,15 +164,18 @@ impl DatSet {
         self.era.container_era()
     }
 
-    /// The name on disk of the file `t` stands for: `portal.dat` and `cell.dat` for the files
-    /// from before Throne of Destiny, the later names otherwise. An overlay names its base by it.
+    /// The files' set: their names on disk and their layout.
     #[must_use]
-    pub fn base_name(&self, t: ModernDat) -> &'static str {
-        match (self.layout(), t) {
-            (ContainerEra::Classic, ModernDat::Cell) => ClassicDat::Cell.file_name(),
-            (ContainerEra::Classic, _) => ClassicDat::Portal.file_name(),
-            (ContainerEra::Modern, t) => t.file_name(),
-        }
+    pub const fn file_set(&self) -> FileSet {
+        file_set(self.era)
+    }
+
+    /// The name on disk of the file `t` stands for: `portal.dat` and `cell.dat` for the files
+    /// from before Throne of Destiny (whose portal file holds what the later language and
+    /// high-res files hold), the later names otherwise. An overlay names its base by it.
+    #[must_use]
+    pub const fn base_name(&self, t: ModernDat) -> &'static str {
+        self.file_set().holder_name(t)
     }
 
     /// The path of the file `t` stands for.

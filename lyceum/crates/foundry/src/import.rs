@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dereth_dat::overlay::{self, OverlayDir};
-use dereth_dat::{decompose, DatFile, ModernDat, ITERATION_LIST};
+use dereth_dat::{decompose, DatFile, FileSet, ModernDat, ITERATION_LIST};
 
 use crate::error::Error;
 
@@ -74,17 +74,9 @@ fn verify(base: &DatFile, world: &DatFile, path: &Path, key: &str) -> Result<usi
     Ok(n)
 }
 
-/// The names the file `t` has on disk, in either set: the later name, and for the portal and cell
-/// files the name from before Throne of Destiny.
-fn names(t: ModernDat) -> Vec<&'static str> {
-    let older = match t {
-        ModernDat::Portal => Some(dereth_dat::ClassicDat::Portal),
-        ModernDat::Cell => Some(dereth_dat::ClassicDat::Cell),
-        ModernDat::Local | ModernDat::HighRes => None,
-    };
-    std::iter::once(t.file_name())
-        .chain(older.map(dereth_dat::ClassicDat::file_name))
-        .collect()
+/// The names the file `t` has on disk in any of `sets`, in their order.
+fn names(t: ModernDat, sets: &[FileSet]) -> Vec<&'static str> {
+    sets.iter().filter_map(|s| s.name(t)).collect()
 }
 
 /// Take the files in `world` apart against the files in `base`, writing an overlay folder at
@@ -103,10 +95,35 @@ pub fn import(
     iterations: decompose::Iterations,
     check: bool,
 ) -> Result<Vec<ImportedFile>, Error> {
+    import_sets(
+        base,
+        world,
+        out,
+        key,
+        iterations,
+        check,
+        &[FileSet::MODERN, FileSet::CLASSIC],
+    )
+}
+
+/// [`import`] over files of any of `sets`: each role's file, under its name in the first of the
+/// sets whose file both folders hold.
+///
+/// # Errors
+/// As [`import`].
+pub fn import_sets(
+    base: &Path,
+    world: &Path,
+    out: &Path,
+    key: &str,
+    iterations: decompose::Iterations,
+    check: bool,
+    sets: &[FileSet],
+) -> Result<Vec<ImportedFile>, Error> {
     let dir = OverlayDir::new(out)?;
     let mut done = Vec::new();
     for t in ModernDat::ALL {
-        let Some((name, b, w)) = names(t).into_iter().find_map(|n| {
+        let Some((name, b, w)) = names(t, sets).into_iter().find_map(|n| {
             let (b, w) = (find(base, n)?, find(world, n)?);
             Some((n, b, w))
         }) else {

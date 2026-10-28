@@ -9,6 +9,7 @@ use dereth_assets::{BspNode, Environment, GfxObj, Polygon, VertexArray};
 use dereth_primitives::frame::V3;
 use dereth_primitives::{DataId, Frame, Vec3};
 
+use super::read::{PartModel as _, SceneRecords as _};
 use super::{add, named, read, Record};
 use crate::error::{Error, Loc};
 use crate::source::{Located, NewRecord, Target};

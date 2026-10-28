@@ -1,0 +1,26 @@
+[package]
+name = "dereth-pack"
+description = "The pack format the world builders share: worlds and their packs, symbols and the lockfile that keeps their ids, format versions and upgrades, and the conflicts between packs, each game's words supplied by its builder."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+# Its errors carry the data files' own, read or written.
+dereth-dat.workspace = true
+# The world, pack and lock files.
+serde.workspace = true
+toml.workspace = true
+# A source's format version written in place, its comments and layout kept.
+toml_edit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

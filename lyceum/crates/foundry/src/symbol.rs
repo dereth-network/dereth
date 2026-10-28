@@ -7,8 +7,14 @@
 //!
 //! One name may stand for several kinds at once: the weenie `guide` and the instance
 //! `guide@A9B4` are two symbols.
+//!
+//! The grammar of symbols is the shared pack format's (`dereth_pack::symbol`); the kinds here are
+//! Lyceum's, its game's table of what a symbol can name.
 
 use std::fmt;
+
+pub use dereth_pack::symbol::{canonical_instance, instance_landblock, is_name, qualify};
+use dereth_pack::Numbering;
 
 /// What a symbol names, and so where its number comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -115,59 +121,34 @@ impl fmt::Display for Kind {
     }
 }
 
-/// Whether `s` is a pack name or a symbol's name: lowercase letters, digits and hyphens, starting
-/// with a letter or a digit.
-#[must_use]
-pub fn is_name(s: &str) -> bool {
-    let mut chars = s.chars();
-    chars
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
+impl dereth_pack::SymbolKind for Kind {
+    const KINDS: &'static [Self] = &Self::ALL;
 
-/// `name` as written in `pack`, as the full `pack:name`.
-///
-/// # Errors
-/// A name that is not one, with the reason.
-pub fn qualify(pack: &str, name: &str) -> Result<String, String> {
-    let (p, n) = match name.split_once(':') {
-        Some((p, n)) => (p, n),
-        None => (pack, name),
-    };
-    if !is_name(p) {
-        return Err(format!("{p:?} is not a pack name"));
+    fn kind_name(self) -> &'static str {
+        self.name()
     }
-    let bare = n.split_once('@').map_or(n, |(b, _)| b);
-    if !is_name(bare) {
-        return Err(format!(
-            "{n:?} is not a symbol: lowercase letters, digits and hyphens"
-        ));
-    }
-    Ok(format!("{p}:{n}"))
-}
 
-/// An instance symbol's landblock, from its `@XXYY`: `None` when it names none.
-///
-/// # Errors
-/// An `@` not followed by four hexadecimal digits.
-pub fn instance_landblock(symbol: &str) -> Result<Option<u16>, String> {
-    let Some((_, lb)) = symbol.rsplit_once('@') else {
-        return Ok(None);
-    };
-    if lb.len() != 4 {
-        return Err(format!(
-            "{symbol:?}: a landblock is four hex digits, as A9B4"
-        ));
+    fn numbering(self) -> Numbering {
+        match self {
+            Self::Wcid => Numbering::Counted {
+                start: crate::world::DEFAULT_WCID_START,
+                world_sets: true,
+            },
+            Self::Treasure => Numbering::Counted {
+                start: crate::loot::NEW_ID,
+                world_sets: false,
+            },
+            Self::Guid | Self::Cell => Numbering::InLandblock,
+            k => k
+                .span()
+                .map_or(Numbering::InLandblock, |(first, last)| Numbering::Record {
+                    first,
+                    last,
+                }),
+        }
     }
-    u16::from_str_radix(lb, 16)
-        .map(Some)
-        .map_err(|_| format!("{symbol:?}: a landblock is four hex digits, as A9B4"))
-}
 
-/// An instance symbol with its landblock written the one way the lockfile keeps it, upper case.
-#[must_use]
-pub fn canonical_instance(symbol: &str, landblock: u16) -> String {
-    let bare = symbol.rsplit_once('@').map_or(symbol, |(b, _)| b);
-    format!("{bare}@{landblock:04X}")
+    fn written_in_hex(self) -> bool {
+        self.hex()
+    }
 }

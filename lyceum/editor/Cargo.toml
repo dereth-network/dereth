@@ -25,6 +25,8 @@ live-server-tests = ["retail-dats"]
 [dependencies]
 # The editing logic: the edit session, its operations and saves, the brushes and the picks.
 lyceum-foundry.workspace = true
+# The free camera the world builders share.
+dereth-builder.workspace = true
 # The world the runtime simulates and the scene draws, and the device under it.
 dereth-client-runtime.workspace = true
 dereth-client-contract.workspace = true

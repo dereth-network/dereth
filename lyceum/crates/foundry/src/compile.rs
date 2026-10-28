@@ -743,6 +743,37 @@ pub enum Field {
     Road,
 }
 
+impl Field {
+    /// Every field, in the order of [`Field::TABLE`].
+    pub const ALL: [Self; 4] = [Self::Height, Self::Terrain, Self::Scene, Self::Road];
+
+    /// The fields as the shared table writes them: each one's name, and its highest value.
+    pub const TABLE: [dereth_landscape::VertexField; 4] = [
+        dereth_landscape::VertexField {
+            name: "height",
+            max: 255,
+        },
+        dereth_landscape::VertexField {
+            name: "terrain",
+            max: 31,
+        },
+        dereth_landscape::VertexField {
+            name: "scene",
+            max: 31,
+        },
+        dereth_landscape::VertexField {
+            name: "road",
+            max: 3,
+        },
+    ];
+
+    /// The field called `name`.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        dereth_landscape::VertexField::find(&Self::TABLE, name).map(|(i, _)| Self::ALL[i])
+    }
+}
+
 /// Every vertex edit of every pack, by world vertex and field: the value and the file that set it.
 pub type VertexSets = BTreeMap<(u32, u32, Field), (u16, Loc)>;
 
@@ -851,39 +882,14 @@ pub fn gather_vertices(packs: &[Pack], overrides: &[Override]) -> (VertexSets, S
 /// A field's name, as an item names it.
 #[must_use]
 pub const fn field_name(field: Field) -> &'static str {
-    match field {
-        Field::Height => "height",
-        Field::Terrain => "terrain",
-        Field::Scene => "scene",
-        Field::Road => "road",
-    }
+    Field::TABLE[field as usize].name
 }
 
 /// The landblocks holding a copy of world vertex `(gx, gy)`, with its place in each: one inside a
 /// landblock, two on an edge, four at a corner.
 #[must_use]
 pub fn copies(gx: u32, gy: u32) -> Vec<(u16, usize, usize)> {
-    let xs: Vec<u32> = if gx.is_multiple_of(8) && gx > 0 {
-        vec![gx / 8 - 1, gx / 8]
-    } else {
-        vec![gx / 8]
-    };
-    let ys: Vec<u32> = if gy.is_multiple_of(8) && gy > 0 {
-        vec![gy / 8 - 1, gy / 8]
-    } else {
-        vec![gy / 8]
-    };
-    let mut out = Vec::new();
-    for bx in &xs {
-        for by in &ys {
-            if *bx > 0xFE || *by > 0xFE {
-                continue;
-            }
-            let lb = u16::try_from((bx << 8) | by).unwrap_or(u16::MAX);
-            out.push((lb, (gx - bx * 8) as usize, (gy - by * 8) as usize));
-        }
-    }
-    out
+    crate::brush::WORLD.copies(gx, gy)
 }
 
 fn set_field(lb: &mut CellLandblock, x: usize, y: usize, field: Field, value: u16) {
@@ -1858,7 +1864,7 @@ fn fill_sql(
         };
         let w = conflict::settle(&c.overrides, &item, &claims, &mut settled);
         for (j, (k, _)) in sets.iter().enumerate() {
-            if claims[j].value != claims[w].value {
+            if claims[j].value() != claims[w].value() {
                 lost.entry(*k).or_default().insert(key.clone());
             }
         }
@@ -2019,7 +2025,13 @@ pub fn compile(
     let (tokens, mut wanted) = sql_symbols(packs, &defs.defined)?;
     wanted.extend(cell_symbols(packs, None));
     let mut lock = c.lock.clone();
-    c.numbered = number(&mut lock, &wanted, base, &c.imported, world.wcid_start)?;
+    c.numbered = number(
+        &mut lock,
+        &wanted,
+        base,
+        &c.imported,
+        world.id_start(Kind::Wcid),
+    )?;
     c.lock = lock;
     build_records(packs, &defs, base, &mut c)?;
     c.settled.insert(Part::Records, defs.settled.clone());
@@ -2132,7 +2144,13 @@ pub fn refresh_sql(
             }
         }
     }
-    c.numbered = number(&mut lock, &wanted, base, &c.imported, world.wcid_start)?;
+    c.numbered = number(
+        &mut lock,
+        &wanted,
+        base,
+        &c.imported,
+        world.id_start(Kind::Wcid),
+    )?;
     c.lock = lock;
     c.sql.clear();
     fill_sql(packs, &defined, &tokens, c)

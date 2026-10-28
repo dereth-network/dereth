@@ -1,0 +1,16 @@
+[package]
+name = "dereth-builder"
+description = "The world builders' editor machinery shared between them: the free camera an editor flies through its world with."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true

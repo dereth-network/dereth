@@ -9,7 +9,7 @@ command, see [README.md](README.md).
 
 ```text
 mypack/
-  pack.toml                    name, version, authors, license, description
+  pack.toml                    name, version, game, authors, license, description
   art/*.png                    pictures for new textures
   records/*.toml               new records: pictures, textures, surfaces, models, pieces
   edits/landblocks/XXYY.toml   changes to one landblock
@@ -17,6 +17,14 @@ mypack/
 ```
 
 Only `pack.toml` is required; `name` is lowercase letters, digits and hyphens.
+
+A pack, like a world, may say which game it is for: `game = "ac1"`, the default when it says
+nothing, and the only game Lyceum builds.
+
+Any row of `records/` or `edits/` may say where it came from, for tools that show it:
+`prov = { from = "dat", record = 0x0200040B }`, or `from` `capture` (with `evidence`, `ref` and
+`confidence`), `derived` (with `rule`) or `authored` (with `by` and `note`). It changes nothing a
+build makes. A row without one was written by a person.
 
 Everything a pack makes has a symbol instead of a number: `stripes` inside its own pack,
 `mypack:stripes` from another. Ids are given per world when it is built.

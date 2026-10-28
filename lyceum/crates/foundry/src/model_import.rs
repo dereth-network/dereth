@@ -18,6 +18,7 @@ use serde::Deserialize;
 use crate::error::{Error, Loc};
 use crate::source::{Located, NewRecord, RecordRef, Target};
 use crate::symbol::Kind;
+use read::{PartModel as _, SceneRecords as _};
 
 /// A static model's collision representation.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]

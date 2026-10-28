@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! mypack/
-//!   pack.toml                    name, version, authors, license, description
+//!   pack.toml                    name, version, game, authors, license, description
 //!   art/*.png                    pictures for new textures
 //!   records/*.toml               new records: render surfaces, surface textures, surfaces
 //!   edits/landblocks/XXYY.toml   operations on one landblock: statics and terrain vertices
@@ -12,6 +12,11 @@
 //! Only `pack.toml` is required. Every file is read in sorted order, so a pack reads the same on
 //! every machine. A record or an operation that does not read stops the read with its file and
 //! line.
+//!
+//! Any row of `records/` or `edits/` may say where it came from with `prov`, an inline table:
+//! `prov = { from = "dat", record = 0x0200040B }`, or `from` `capture`, `derived` or `authored`
+//! with what each names (`dereth_pack::provenance`). A row that says nothing a person wrote. It
+//! changes nothing a build makes; [`Pack::provenance`] answers it for a row.
 //!
 //! **New records** (`records/*.toml`) each carry `name` (a symbol: a new id, numbered per world)
 //! or `replace` (an id the base holds, written over):
@@ -118,6 +123,8 @@ use dereth_primitives::DataId;
 use serde::Deserialize;
 use toml::Spanned;
 
+use dereth_pack::provenance::{Provenance, Rows};
+
 use crate::error::{Error, Loc};
 use crate::symbol::{self, Kind};
 
@@ -137,6 +144,18 @@ pub struct Pack {
     pub edits: Vec<LandblockEdits>,
     /// The SQL files, in path order.
     pub sql: Vec<SqlFile>,
+    /// The new records' rows that say where they came from (a landblock's are its edits').
+    pub provenance: Rows,
+}
+
+impl Pack {
+    /// Where the row at `at`, a record or an edit of this pack, came from: a person, unless the
+    /// row says otherwise.
+    #[must_use]
+    pub fn provenance(&self, at: &Loc) -> &Provenance {
+        let edits = self.edits.iter().find(|e| e.file == at.file);
+        edits.map_or_else(|| self.provenance.of(at), |e| e.provenance.of(at))
+    }
 }
 
 /// Something read from a source, and where.
@@ -502,6 +521,8 @@ pub struct LandblockEdits {
     pub dungeon_copies: Vec<Located<AddDungeon>>,
     /// The landblock's dungeon, as the pack names it.
     pub dungeon: Option<Located<DungeonInfo>>,
+    /// The rows that say where they came from.
+    pub provenance: Rows,
 }
 
 /// What a pack says of a landblock's dungeon: its name, and the look its pieces are drawn in, as a
@@ -546,19 +567,6 @@ pub struct SqlFile {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PackFile {
-    #[serde(default, rename = "format_version")]
-    _format_version: u32,
-    name: String,
-    version: String,
-    #[serde(default)]
-    authors: Vec<String>,
-    license: Option<String>,
-    description: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RecordsFile {
     #[serde(default)]
     piece: Vec<Spanned<PieceRow>>,
@@ -577,6 +585,9 @@ struct RecordsFile {
 struct PieceRow {
     name: String,
     file: String,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -589,6 +600,9 @@ struct ModelRow {
     collision: crate::model_import::Collision,
     #[serde(default)]
     distances: Vec<f32>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -599,6 +613,9 @@ struct RenderSurfaceRow {
     picture: String,
     format: Option<String>,
     category: Option<u32>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -608,6 +625,9 @@ struct SurfaceTextureRow {
     replace: Option<i64>,
     levels: Vec<toml::Value>,
     category: Option<u32>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -623,6 +643,9 @@ struct SurfaceRow {
     translucency: Option<f32>,
     luminosity: Option<f32>,
     diffuse: Option<f32>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -663,6 +686,9 @@ struct AddDungeonRow {
     name: String,
     template: i64,
     house: Option<String>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -670,6 +696,9 @@ struct AddDungeonRow {
 struct DungeonRow {
     name: Option<String>,
     look: Option<i64>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -683,6 +712,9 @@ struct AddBuildingRow {
     rotation: Option<Vec<f32>>,
     furnished: Option<toml::Value>,
     house: Option<toml::Value>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -696,12 +728,18 @@ struct ReplaceCellRow {
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
     portals: Vec<String>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemoveCellRow {
     cell: i64,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -712,6 +750,9 @@ struct AddCellStaticRow {
     at: Vec<toml::Value>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -722,6 +763,9 @@ struct MoveCellStaticRow {
     at: Option<Vec<toml::Value>>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -730,6 +774,9 @@ struct RemoveCellStaticRow {
     cell: toml::Value,
     index: usize,
     model: Option<i64>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -745,6 +792,9 @@ struct CellRow {
     portals: Vec<String>,
     #[serde(default, rename = "static")]
     statics: Vec<CellStaticRow>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -763,6 +813,9 @@ struct MoveBuildingRow {
     at: Option<Vec<toml::Value>>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -773,6 +826,9 @@ struct StaticRow {
     at: Vec<toml::Value>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -784,6 +840,9 @@ struct MoveRow {
     at: Option<Vec<toml::Value>>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -793,6 +852,9 @@ struct RemoveRow {
     #[serde(rename = "static")]
     symbol: Option<String>,
     model: Option<i64>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 #[derive(Deserialize)]
@@ -804,6 +866,9 @@ struct VertexRow {
     terrain: Option<i64>,
     scene: Option<i64>,
     road: Option<i64>,
+    /// Where the row came from; left out, a person wrote it.
+    #[serde(default)]
+    prov: Option<Provenance>,
 }
 
 fn read_text(path: &Path) -> Result<String, Error> {
@@ -900,13 +965,18 @@ fn target(at: &Loc, pack: &str, name: Option<&str>, replace: Option<i64>) -> Res
     }
 }
 
-fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Error> {
+fn read_records(
+    pack: &Pack,
+    path: &Path,
+    rows: &mut Rows,
+) -> Result<Vec<Located<NewRecord>>, Error> {
     let text = read_text(path)?;
     let file: RecordsFile = parse_toml(path, &text)?;
     let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
     let loc = |start: usize| Loc::at(path, &text, start);
     for row in &file.piece {
         let at = loc(row.span().start);
+        rows.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let name = symbol::qualify(&pack.name, &r.name).map_err(|s| Error::source(&at, s))?;
         for record in
@@ -917,6 +987,7 @@ fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Err
     }
     for row in &file.model {
         let at = loc(row.span().start);
+        rows.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let name = symbol::qualify(&pack.name, &r.name).map_err(|s| Error::source(&at, s))?;
         for record in crate::model_import::records(
@@ -933,6 +1004,7 @@ fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Err
     }
     for row in &file.render_surface {
         let at = loc(row.span().start);
+        rows.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let format = match r.format.as_deref() {
             None | Some("a8r8g8b8") => PixelFormat::A8R8G8B8,
@@ -954,6 +1026,7 @@ fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Err
     }
     for row in &file.surface_texture {
         let at = loc(row.span().start);
+        rows.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         if r.levels.is_empty() {
             return Err(Error::source(
@@ -975,6 +1048,7 @@ fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Err
     }
     for row in &file.surface {
         let at = loc(row.span().start);
+        rows.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let surface_type = r.surface_type.unwrap_or(2);
         let textured = surface_type & 6 != 0;
@@ -1223,9 +1297,11 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
         dungeon: None,
         drops: Vec::new(),
         dungeon_copies: Vec::new(),
+        provenance: Rows::default(),
     };
     if let Some(row) = &file.dungeon {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let look = r
             .look
@@ -1244,6 +1320,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.statics {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let name = r
             .name
@@ -1271,6 +1348,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.moves {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let item = MoveStatic {
             which: which(&at, &pack.name, r.index, r.symbol.as_deref())?,
@@ -1287,6 +1365,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.removes {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let item = RemoveStatic {
             which: which(&at, &pack.name, r.index, r.symbol.as_deref())?,
@@ -1296,6 +1375,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.vertex {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let from = vertex_at(&at, &r.at)?;
         let to =
@@ -1329,6 +1409,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.cell {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let environment = id_of(&at, r.environment, "environment")?;
         if environment.raw() >> 24 != 0x0D {
@@ -1399,6 +1480,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.move_building {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let item = MoveBuilding {
             index: r.index,
@@ -1424,6 +1506,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.replace_cell {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let CellRef::Number(cell) = cell_ref(&at, &pack.name, &toml::Value::Integer(r.cell))?
         else {
@@ -1468,6 +1551,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.remove_cell {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let CellRef::Number(cell) = cell_ref(&at, &pack.name, &toml::Value::Integer(r.cell))?
         else {
@@ -1501,6 +1585,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.move_cell_static {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let item = MoveCellStatic {
             cell: cell_ref(&at, &pack.name, &r.cell)?,
@@ -1518,6 +1603,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.remove_cell_static {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let item = RemoveCellStatic {
             cell: cell_ref(&at, &pack.name, &r.cell)?,
@@ -1528,6 +1614,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.add_cell_static {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let r = row.get_ref();
         let model = id_of(&at, r.model, "model")?;
         if !matches!(model.raw() >> 24, 0x01 | 0x02) {
@@ -1547,6 +1634,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.add_building {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let item = add_building(&at, &pack.name, row.get_ref())?;
         if let Some(first) = edits.drops.iter().find(|d| d.item.name == item.name) {
             return Err(twice(
@@ -1572,6 +1660,7 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
     }
     for row in &file.add_dungeon {
         let at = loc(row.span().start);
+        edits.provenance.note(&at, row.get_ref().prov.as_ref());
         let item = add_dungeon(&at, &pack.name, row.get_ref())?;
         let taken = edits
             .drops
@@ -1810,17 +1899,7 @@ fn twice(pack: &str, what: String, first: &Loc, second: &Loc, sets: &str) -> Err
 pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
     let meta_path = dir.join("pack.toml");
     let text = read_text(&meta_path)?;
-    crate::format::check(&meta_path, &text)?;
-    let meta: PackFile = parse_toml(&meta_path, &text)?;
-    if !symbol::is_name(&meta.name) {
-        return Err(Error::source(
-            &Loc::new(&meta_path, 0),
-            format!(
-                "{:?} is not a pack name: lowercase letters, digits and hyphens",
-                meta.name
-            ),
-        ));
-    }
+    let meta = dereth_pack::pack::PackHeader::parse::<crate::dialect::Ac1>(&meta_path, &text)?;
     let mut pack = Pack {
         dir: dir.to_path_buf(),
         name: meta.name,
@@ -1831,9 +1910,12 @@ pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
         records: Vec::new(),
         edits: Vec::new(),
         sql: Vec::new(),
+        provenance: Rows::default(),
     };
     for path in files_in(&dir.join("records"), "toml")? {
-        let records = read_records(&pack, &path)?;
+        let mut rows = Rows::default();
+        let records = read_records(&pack, &path, &mut rows)?;
+        pack.provenance.extend(rows);
         pack.records.extend(records);
     }
     for path in files_in(&dir.join("edits").join("landblocks"), "toml")? {

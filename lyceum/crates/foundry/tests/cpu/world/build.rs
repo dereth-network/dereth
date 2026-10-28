@@ -375,3 +375,48 @@ fn a_texture_whose_image_the_files_do_not_hold_fails_the_checks() {
     let e = build(&f, &world).unwrap_err().to_string();
     assert!(e.contains("names image 0x06000099"), "{e}");
 }
+
+#[test]
+fn a_row_that_says_where_it_came_from_builds_as_it_would_without_and_the_pack_answers_it() {
+    let edits = "[[static]]\nmodel = 0x02000001\nat = [12.0, 34.0, 56.0]\nheading = 90\n";
+    let plain = Fixture::new("pack-prov-plain");
+    let world = plain.world();
+    plain.write("sample/edits/landblocks/0102.toml", edits);
+    build(&plain, &world).unwrap();
+    let marked = Fixture::new("pack-prov-marked");
+    let world = marked.world();
+    let file = marked.write(
+        "sample/edits/landblocks/0102.toml",
+        &edits.replace(
+            "heading = 90\n",
+            "heading = 90\nprov = { from = \"dat\", record = 0x0102FFFE, fields = { heading = { from = \"authored\", by = \"a builder\" } } }\n",
+        ),
+    );
+    build(&marked, &world).unwrap();
+    assert_eq!(
+        statics(&marked, 0x0102),
+        statics(&plain, 0x0102),
+        "provenance changes nothing a build makes"
+    );
+    let pack = lyceum_foundry::source::read_pack(&marked.path().join("sample")).unwrap();
+    let at = &pack.edits[0].statics[0].at;
+    let prov = pack.provenance(at);
+    assert_eq!(prov.source, dereth_pack::provenance::Source::Dat);
+    assert_eq!(prov.record, Some(0x0102_FFFE));
+    assert_eq!(prov.of_field("heading").by.as_deref(), Some("a builder"));
+    assert!(pack
+        .provenance(&lyceum_foundry::Loc::new(&file, 99))
+        .is_plain_authored());
+    marked.write(
+        "sample/edits/landblocks/0102.toml",
+        &edits.replace(
+            "heading = 90\n",
+            "heading = 90\nprov = { from = \"dat\" }\n",
+        ),
+    );
+    let e = build(&marked, &world).unwrap_err().to_string();
+    assert!(
+        e.contains("0102.toml:5") && e.contains("names its record"),
+        "{e}"
+    );
+}

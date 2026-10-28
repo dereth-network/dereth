@@ -14,6 +14,9 @@ autotests = false
 retail-dats = []
 
 [dependencies]
+# The pack format shared with the other world builders: worlds, pack headers, symbols, the
+# lockfile, format versions and the conflict engine.
+dereth-pack.workspace = true
 # The containers, the overlay and its writer.
 dereth-dat.workspace = true
 dereth-primitives.workspace = true
@@ -21,6 +24,8 @@ dereth-primitives.workspace = true
 dereth-assets.workspace = true
 # The terrain under a static placed on the ground.
 dereth-terrain.workspace = true
+# The world's grid of vertices, which the brushes, the map and the terrain edits work in.
+dereth-landscape.workspace = true
 # A model's collision walked into by the client's own movement.
 dereth-physics.workspace = true
 dereth-world-data.workspace = true
@@ -29,9 +34,9 @@ png.workspace = true
 # The pack, world and lock files, and the server's names for the content forms (JSON).
 serde.workspace = true
 serde_json.workspace = true
-gltf.workspace = true
+# A static glTF scene, read by the world builders' shared reader.
+dereth-gltf.workspace = true
 glam.workspace = true
-base64.workspace = true
 toml.workspace = true
 # A source file edited in place, its comments and layout kept.
 toml_edit.workspace = true

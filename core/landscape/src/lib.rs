@@ -13,14 +13,15 @@
 //! distance from the viewer's block), and the blocks on the rings where the detail halves are
 //! stitched toward the finer ring so the two meshes meet without a crack. A window can instead
 //! keep every block at full detail ([`Detail::Full`]), and its block length is a setting
-//! ([`WindowSpec`]); the grid a block is cut into is [`LandGrid`].
+//! ([`WindowSpec`]); the grid a block is cut into is [`LandGrid`], and the world's grid of vertices
+//! across every block is [`WorldGrid`].
 
 #![forbid(unsafe_code)]
 
 pub mod grid;
 pub mod window;
 
-pub use grid::LandGrid;
+pub use grid::{LandGrid, VertexField, WorldGrid};
 pub use window::{Detail, LandblockWindow, SlotAction, WindowSlot, WindowSpec};
 
 /// A landblock side, in world units.

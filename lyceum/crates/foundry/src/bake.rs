@@ -174,10 +174,12 @@ pub fn bake(
         baked.world_key
     );
     let result = (|| -> Result<(), Error> {
+        let set = base.file_set();
         for (t, f) in layered.files() {
-            let source = t.in_dir(dats);
-            let target = t.in_dir(to);
-            let staging = to.join(format!("{}.baking", t.file_name()));
+            let name = set.holder_name(t);
+            let source = set.holder_in_dir(t, dats);
+            let target = set.holder_in_dir(t, to);
+            let staging = to.join(format!("{name}.baking"));
             match f.layer() {
                 Some(layer) => {
                     std::fs::copy(&source, &staging).map_err(|e| Error::io(&staging, e))?;
@@ -197,7 +199,7 @@ pub fn bake(
                     let _ = writeln!(
                         manifest,
                         "\n[{}]\nbase = \"records {}\"\noverlay = {:?}\niterations = {}",
-                        t.file_name(),
+                        name,
                         overlay::hex(&layer.manifest().base_records.unwrap_or_default()),
                         file_hash(layer.path())?,
                         iterations.len()

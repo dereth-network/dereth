@@ -898,6 +898,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-builder"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+]
+
+[[package]]
 name = "dereth-chargen"
 version = "0.0.0"
 dependencies = [
@@ -1210,6 +1217,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-gltf"
+version = "0.0.0"
+dependencies = [
+ "base64 0.23.1",
+ "dereth-primitives",
+ "glam",
+ "gltf",
+ "png",
+]
+
+[[package]]
 name = "dereth-headless"
 version = "0.4.7"
 dependencies = [
@@ -1341,6 +1359,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "dereth-pack"
+version = "0.0.0"
+dependencies = [
+ "dereth-dat",
+ "serde",
+ "toml",
+ "toml_edit",
 ]
 
 [[package]]
@@ -3132,6 +3160,7 @@ version = "0.2.1"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
+ "dereth-builder",
  "dereth-client-contract",
  "dereth-client-model",
  "dereth-client-runtime",
@@ -3170,15 +3199,16 @@ dependencies = [
 name = "lyceum-foundry"
 version = "0.2.1"
 dependencies = [
- "base64 0.23.1",
  "dereth-assets",
  "dereth-dat",
+ "dereth-gltf",
+ "dereth-landscape",
+ "dereth-pack",
  "dereth-physics",
  "dereth-primitives",
  "dereth-terrain",
  "dereth-world-data",
  "glam",
- "gltf",
  "png",
  "serde",
  "serde_json",

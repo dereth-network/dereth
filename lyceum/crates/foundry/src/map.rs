@@ -8,7 +8,7 @@ use dereth_assets::world::CellLandblock;
 use dereth_assets::Region;
 
 /// The picture's width and height, in pixels: room for every world vertex, 2,041 a side.
-pub const SIDE: usize = 2048;
+pub const SIDE: usize = crate::brush::WORLD.map_side();
 
 /// The color a road is drawn.
 const ROAD: [u8; 3] = [150, 140, 120];
@@ -39,17 +39,13 @@ impl Default for WorldMap {
 /// The map pixel (column, row) of world meters `(x, y)`.
 #[must_use]
 pub fn pixel_of(x: f32, y: f32) -> (f32, f32) {
-    #[allow(clippy::cast_precision_loss)] // the grid's last point, 2,040
-    let top = (crate::brush::GRID_MAX) as f32;
-    (x / GRID, top - y / GRID)
+    crate::brush::WORLD.map_pixel(x, y)
 }
 
 /// The world meters of map pixel (column, row): [`pixel_of`] undone.
 #[must_use]
 pub fn world_of(px: f32, py: f32) -> (f32, f32) {
-    #[allow(clippy::cast_precision_loss)] // the grid's last point, 2,040
-    let top = (crate::brush::GRID_MAX) as f32;
-    (px * GRID, (top - py) * GRID)
+    crate::brush::WORLD.map_world(px, py)
 }
 
 impl WorldMap {
@@ -119,8 +115,7 @@ impl WorldMap {
     /// The top-left pixel (column, row) of landblock `lb`'s 8×8 pixels.
     #[must_use]
     pub fn block_corner(lb: u16) -> (usize, usize) {
-        let (bx, by) = (usize::from(lb >> 8), usize::from(lb & 0xFF));
-        (bx * 8, crate::brush::GRID_MAX as usize - (by * 8 + 7))
+        crate::brush::WORLD.map_block_corner(lb)
     }
 
     /// Landblock `lb`'s 8×8 pixels, red, green, blue and alpha, a row at a time from the north.

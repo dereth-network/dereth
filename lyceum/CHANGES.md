@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+- Moving code; no material changes
+
 ## 0.2.1 (2026-10-26)
 
 - Definition shows a weenie read only; Edit opens it in its own Editor tab.

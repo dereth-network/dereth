@@ -29,6 +29,13 @@ members = [
     "core/audio",
     "core/client-sdk",
     "core/navigation",
+    # The world builders' shared machinery: the pack format (worlds, packs, symbols, the
+    # lockfile and conflicts), each game's vocabulary supplied by its builder.
+    "core/pack",
+    # A static glTF scene read for a world builder, its resources kept inside its pack.
+    "core/gltf",
+    # The world builders' shared editor machinery: the free camera.
+    "core/builder",
     # The plugin host: the interface as types, the host and the Lua engine.
     "core/plugin-api",
     "core/plugin-package",
@@ -133,6 +140,7 @@ publish = false
 dereth-animation = { path = "core/animation" }
 dereth-assets = { path = "core/assets" }
 dereth-audio = { path = "core/audio" }
+dereth-builder = { path = "core/builder" }
 dereth-chargen = { path = "core/chargen" }
 dereth-classic-dat = { path = "dereth/client/crates/classic-dat" }
 dereth-classic-fonts = { path = "dereth/client/crates/classic-fonts" }
@@ -151,10 +159,12 @@ dereth-corpus = { path = "tools/corpus" }
 dereth-dat = { path = "core/dat" }
 dereth-desktop = { path = "dereth/desktop" }
 dereth-headless = { path = "dereth/headless" }
+dereth-gltf = { path = "core/gltf" }
 dereth-input = { path = "dereth/client/crates/input" }
 dereth-landscape = { path = "core/landscape" }
 dereth-launch = { path = "dereth/launcher/crates/launch" }
 dereth-navigation = { path = "core/navigation" }
+dereth-pack = { path = "core/pack" }
 dereth-pcap = { path = "tools/pcap" }
 dereth-physics = { path = "core/physics" }
 dereth-plugin = { path = "tools/plugin" }

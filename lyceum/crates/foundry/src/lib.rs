@@ -1,9 +1,11 @@
 //! The Foundry, Lyceum's library: compiles content packs into a world's overlay, bakes an overlay
 //! into a copy of a player's data files, and packs pictures into Dereth's client layer.
 //!
-//! **Depends on** `dereth-dat` (the containers, the overlay and its writer), `dereth-assets` (every
+//! **Depends on** `dereth-pack` (the pack format it shares with the other world builders),
+//! `dereth-dat` (the containers, the overlay and its writer), `dereth-assets` (every
 //! record's decoder and the world builder's encoders), `dereth-terrain` (the ground under a static
-//! placed on it), `dereth-primitives` (ids and frames), `dereth-physics` (the collision a model's
+//! placed on it), `dereth-landscape` (the world's grid of vertices the brushes, the map and the
+//! terrain edits work in), `dereth-gltf` (a model's glTF scene, read), `dereth-primitives` (ids and frames), `dereth-physics` (the collision a model's
 //! fit is checked against), `dereth-world-data` (a setup's bounds), `png`, `toml_edit` (a source
 //! edited in place), and `serde_json` (the server's names for the content forms). **Used by**
 //! Lyceum: its command line, `lyceum` (`lyceum-cli`), and its editor (`lyceum-editor`), whose
@@ -42,6 +44,11 @@
 //! [`buildings`] is every building the world places, gathered from all its copies, and [`drops`] a
 //! copy of one dropped somewhere else, its rooms, doors and level ground with it. [`sample`] is the
 //! sample world Lyceum carries, and a new world made from it or empty.
+//!
+//! The pack format's grammar (worlds, pack headers, symbols, the lockfile, format versions and
+//! the conflict engine) is shared with the other world builders (`dereth-pack`); [`dialect`] is
+//! Lyceum's vocabulary for it, and [`world`], [`lock`], [`symbol`], [`format`](mod@format), [`conflict`] and
+//! [`error`] are that format in Lyceum's words.
 
 pub mod bake;
 pub mod brush;
@@ -53,6 +60,7 @@ pub mod conflict;
 pub mod content;
 pub mod content_check;
 pub mod dats;
+pub mod dialect;
 pub mod drops;
 pub mod dungeons;
 pub mod edit;

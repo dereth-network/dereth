@@ -94,3 +94,54 @@ fn an_upgrade_resumes_after_only_one_source_was_replaced() {
         original
     );
 }
+
+#[test]
+fn a_world_of_another_game_or_naming_a_base_database_is_refused_and_ac1_is_the_default() {
+    let f = Fixture::new("format-game");
+    let plain = f.write(
+        "plain.toml",
+        "key='world'
+",
+    );
+    let ac1 = f.write(
+        "ac1.toml",
+        "key='world'
+game='ac1'
+",
+    );
+    assert_eq!(
+        World::read(&plain).unwrap().key,
+        World::read(&ac1).unwrap().key
+    );
+    let other = f.write(
+        "other.toml",
+        "key='world'
+game='another'
+",
+    );
+    let e = World::read(&other).unwrap_err().to_string();
+    assert!(
+        e.contains("is for \"another\"") && e.contains("Lyceum"),
+        "{e}"
+    );
+    let based = f.write(
+        "based.toml",
+        "key='world'
+[base]
+db='some-db'
+",
+    );
+    let e = World::read(&based).unwrap_err().to_string();
+    assert!(e.contains("names no base database"), "{e}");
+    f.write(
+        "pack/pack.toml",
+        "name='pack'
+version='1'
+game='another'
+",
+    );
+    let e = source::read_pack(&f.path().join("pack"))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("this pack is for \"another\""), "{e}");
+}

@@ -26,6 +26,9 @@
 //! The container's layout (where the header and its fields are, the directory entry, the
 //! transaction slot) is a value, [`ContainerLayout`]: the two dat sets' layouts are built in, and a
 //! container in another layout opens by naming it.
+//! A whole set of files is a value too, [`FileSet`]: the name each of the four roles (portal,
+//! cell, language, high-res) has on disk and the layout of their containers, so a tool that
+//! builds, bakes or takes apart a set works by role.
 //!
 //! Writing is [`write`](mod@write). The container's half of the data-patch path is here too: [`inflate`], the
 //! zlib decompressor a compressed data message needs, and [`container::DatFile::reload`] /
@@ -46,6 +49,7 @@ pub mod cursor;
 pub mod decompose;
 pub mod divine;
 pub mod error;
+pub mod fileset;
 pub mod folder;
 pub mod inflate;
 pub mod iteration;
@@ -69,6 +73,7 @@ pub use divine::{
     classify_cell_id, dat_for_type, divine_type, divine_type_in, DatKind, DbType, ITERATION_LIST,
 };
 pub use error::DatError;
+pub use fileset::FileSet;
 pub use folder::{DatFolder, DatStorageMut, DiskFolder, MemoryFile, MemoryFolder};
 pub use inflate::{inflate_raw, inflate_zlib};
 pub use layout::{ContainerLayout, EntryLayout, HeaderLayout, TransactionSlot};

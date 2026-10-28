@@ -43,7 +43,7 @@ use lyceum_foundry::script::{Action as Edit, StaticName};
 use lyceum_foundry::source::{Height, Place, Rotation};
 
 use crate::args::Args;
-use crate::camera::{landblock_of, FlyCamera, Held};
+use crate::camera::{landblock_of, FlyCamera, Held, RuntimeCamera as _};
 use crate::gizmo::{self, Handle};
 use crate::script::{Camera, Pointer, Step, WeenieChoice};
 use crate::shell::EditorShell;

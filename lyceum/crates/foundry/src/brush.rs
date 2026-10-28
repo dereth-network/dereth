@@ -6,14 +6,20 @@
 //! table: raising by one is the next entry of the table, and smoothing settles each vertex on the
 //! entry nearest the mean of it and its eight neighbors.
 
+use dereth_landscape::WorldGrid;
+
 use crate::compile::Field;
 use crate::edit::{Session, VertexSet};
 
+/// The world's grid of vertices: 255 landblocks a side, each 8 cells of 24 meters with a vertex at
+/// every corner.
+pub const WORLD: WorldGrid = WorldGrid::DEFAULT;
+
 /// The spacing of the world grid, in meters.
-pub const GRID: f32 = 24.0;
+pub const GRID: f32 = WORLD.spacing();
 
 /// The highest world grid point on either axis: 255 landblocks of 8 cells.
-pub const GRID_MAX: u32 = 0xFF * 8;
+pub const GRID_MAX: u32 = WORLD.last_point();
 
 /// What a brush does to each vertex it covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,39 +78,14 @@ pub fn chosen_radius(from: Brush, to: Brush, r: f32) -> f32 {
 /// The world vertex nearest world meters `(x, y)`, in world meters.
 #[must_use]
 pub fn nearest_vertex(x: f32, y: f32) -> (f32, f32) {
-    #[allow(clippy::cast_precision_loss)] // the grid's last point, 2,040
-    let max = GRID_MAX as f32;
-    let snap = |v: f32| (v / GRID).round().clamp(0.0, max) * GRID;
-    (snap(x), snap(y))
+    WORLD.nearest_vertex(x, y)
 }
 
 /// Every world vertex within `radius` meters of world meters `(x, y)`, nearest the center first
 /// (ties by grid order).
 #[must_use]
 pub fn covered(x: f32, y: f32, radius: f32) -> Vec<(u32, u32)> {
-    let r = radius.max(0.0);
-    let lo = |v: f32| {
-        u32::try_from(dereth_primitives::num::floor_to_i32(((v - r) / GRID).ceil()).max(0))
-            .unwrap_or(0)
-    };
-    let hi = |v: f32| {
-        u32::try_from(dereth_primitives::num::floor_to_i32((v + r) / GRID).max(0))
-            .unwrap_or(0)
-            .min(GRID_MAX)
-    };
-    let mut out = Vec::new();
-    for gx in lo(x)..=hi(x) {
-        for gy in lo(y)..=hi(y) {
-            #[allow(clippy::cast_precision_loss)] // a grid point, at most 2,040
-            let (dx, dy) = (gx as f32 * GRID - x, gy as f32 * GRID - y);
-            let d = dx * dx + dy * dy;
-            if d <= r * r {
-                out.push((d, gx, gy));
-            }
-        }
-    }
-    out.sort_by(|a, b| a.0.total_cmp(&b.0).then((a.1, a.2).cmp(&(b.1, b.2))));
-    out.into_iter().map(|(_, gx, gy)| (gx, gy)).collect()
+    WORLD.within(x, y, radius)
 }
 
 /// The height-table entry nearest `z` meters.

@@ -27,6 +27,10 @@
 //!
 //! [`Session::save`] writes the target pack's files the session changed, and only where their text
 //! differs from the disk's, and the lockfile when an id is new.
+//!
+//! The text, the history and the save are the shared edit session core
+//! (`dereth_pack::session`); the operations, what a change compiles again and what it draws are
+//! Lyceum's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -34,6 +38,8 @@ use std::path::{Path, PathBuf};
 use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
 use dereth_assets::Region;
 use dereth_dat::ModernDat;
+use dereth_pack::session::{History, Sources, Step};
+use dereth_pack::store::DiskStore;
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
@@ -321,13 +327,6 @@ pub struct Applied {
     pub warnings: Vec<String>,
 }
 
-/// One step of the history: the text of each file it changed, before and after.
-#[derive(Clone, Debug)]
-struct Step {
-    before: BTreeMap<PathBuf, Option<String>>,
-    after: BTreeMap<PathBuf, Option<String>>,
-}
-
 /// A spawn the packs' SQL places.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn {
@@ -404,12 +403,10 @@ pub struct Session {
     opened_lock: Lock,
     compiled: Compiled,
     region: Option<Region>,
-    /// Every source file the session has read or changed, its text now (`None`: no file).
-    texts: BTreeMap<PathBuf, Option<String>>,
-    /// Those files' text on disk, as last read or saved.
-    disk: BTreeMap<PathBuf, Option<String>>,
-    undo: Vec<Step>,
-    redo: Vec<Step>,
+    /// Every source file the session has read or changed: its text now, and on disk as last
+    /// read or saved.
+    sources: Sources,
+    history: History,
     /// The date an SQL row is stamped with, `YYYY-MM-DD 00:00:00`.
     today: String,
     /// What the server's own weenies are, by class id, when the session was given them.
@@ -1166,14 +1163,7 @@ fn today() -> String {
 /// next one; the world's own far edge to the last.
 #[must_use]
 pub fn vertex_owner(gx: u32, gy: u32) -> (u16, u8, u8) {
-    let bx = (gx / 8).min(0xFE);
-    let by = (gy / 8).min(0xFE);
-    let lb = u16::try_from((bx << 8) | by).unwrap_or(0);
-    (
-        lb,
-        u8::try_from(gx - bx * 8).unwrap_or(8),
-        u8::try_from(gy - by * 8).unwrap_or(8),
-    )
+    crate::brush::WORLD.owner(gx, gy)
 }
 
 /// The outdoor cell of landblock meters `(x, y)`, `1` to `0x40`.
@@ -1239,10 +1229,8 @@ impl Session {
             opened_lock,
             compiled,
             region,
-            texts: BTreeMap::new(),
-            disk: BTreeMap::new(),
-            undo: Vec::new(),
-            redo: Vec::new(),
+            sources: Sources::default(),
+            history: History::default(),
             today: today(),
             retail: BTreeMap::new(),
             retail_instances: BTreeMap::new(),
@@ -1942,19 +1930,13 @@ impl Session {
     /// The SQL text of `path` as it was last read from the disk or saved: `None` for a file the
     /// disk did not have.
     pub fn saved_sql_text(&mut self, path: &Path) -> Option<String> {
-        if let Some(d) = self.disk.get(path) {
-            return d.clone();
-        }
-        self.text(path)
+        self.sources.stored(&DiskStore, path)
     }
 
     /// Whether the session's text of `path` differs from the disk's.
     #[must_use]
     pub fn sql_unsaved(&self, path: &Path) -> bool {
-        match (self.texts.get(path), self.disk.get(path)) {
-            (Some(t), Some(d)) => t != d,
-            _ => false,
-        }
+        self.sources.differs(path)
     }
 
     /// The file a new weenie of the pack being edited with symbol `name` is written in, and its
@@ -2941,13 +2923,7 @@ impl Session {
 
     /// The text of `path` as the session holds it.
     fn text(&mut self, path: &Path) -> Option<String> {
-        if let Some(t) = self.texts.get(path) {
-            return t.clone();
-        }
-        let t = std::fs::read_to_string(path).ok();
-        self.texts.insert(path.to_path_buf(), t.clone());
-        self.disk.insert(path.to_path_buf(), t.clone());
-        t
+        self.sources.text(&DiskStore, path)
     }
 
     fn pack_dir(&self) -> &Path {
@@ -2980,11 +2956,7 @@ impl Session {
         self.pack_class_facts = std::cell::OnceCell::new();
         self.pack_weenie_facts = std::cell::OnceCell::new();
         for (path, text) in texts {
-            if !self.disk.contains_key(path) {
-                self.disk
-                    .insert(path.clone(), std::fs::read_to_string(path).ok());
-            }
-            self.texts.insert(path.clone(), text.clone());
+            self.sources.put(&DiskStore, path, text.clone());
             if let Ok(rel) = path.strip_prefix(&sql_dir) {
                 let rel = rel.to_path_buf();
                 let sql = &mut self.packs[self.target].sql;
@@ -3121,10 +3093,10 @@ impl Session {
     /// An operation the sources cannot take (a static that is not there, an unnamed static of
     /// another pack), or a compile error it would cause; nothing changes then.
     pub fn apply(&mut self, op: &Op) -> Result<Applied, Error> {
-        let start = self.undo.len();
+        let start = self.history.len();
         let applied = self.apply_steps(op)?;
-        self.merge_since(start);
-        self.redo.clear();
+        self.history.merge_since(start);
+        self.history.clear_redo();
         Ok(applied)
     }
 
@@ -3134,30 +3106,11 @@ impl Session {
     /// # Errors
     /// As [`Self::apply`].
     pub fn apply_into_last(&mut self, op: &Op) -> Result<Applied, Error> {
-        let start = self.undo.len().saturating_sub(1);
+        let start = self.history.len().saturating_sub(1);
         let applied = self.apply_steps(op)?;
-        self.merge_since(start);
-        self.redo.clear();
+        self.history.merge_since(start);
+        self.history.clear_redo();
         Ok(applied)
-    }
-
-    /// Merge the history's steps from `start` on into one.
-    fn merge_since(&mut self, start: usize) {
-        if self.undo.len() <= start + 1 {
-            return;
-        }
-        let steps: Vec<Step> = self.undo.drain(start..).collect();
-        let mut merged = Step {
-            before: BTreeMap::new(),
-            after: BTreeMap::new(),
-        };
-        for s in steps {
-            for (p, t) in s.before {
-                merged.before.entry(p).or_insert(t);
-            }
-            merged.after.extend(s.after);
-        }
-        self.undo.push(merged);
     }
 
     fn apply_steps(&mut self, op: &Op) -> Result<Applied, Error> {
@@ -3176,7 +3129,7 @@ impl Session {
             _ => {}
         }
         if let Op::Batch(ops) = op {
-            let start = self.undo.len();
+            let start = self.history.len();
             let mut all = Applied::default();
             for o in ops {
                 match self.apply_steps(o) {
@@ -3187,7 +3140,7 @@ impl Session {
                     }
                     Err(e) => {
                         // Take back what the batch did so far.
-                        while self.undo.len() > start {
+                        while self.history.len() > start {
                             let _ = self.undo_step();
                         }
                         return Err(e);
@@ -3200,7 +3153,7 @@ impl Session {
         let before: BTreeMap<PathBuf, Option<String>> =
             texts.keys().map(|p| (p.clone(), self.text(p))).collect();
         let touched = self.change(&texts)?;
-        self.undo.push(Step {
+        self.history.push(Step {
             before,
             after: texts,
         });
@@ -3246,7 +3199,7 @@ impl Session {
         let before: BTreeMap<PathBuf, Option<String>> =
             texts.keys().map(|p| (p.clone(), self.text(p))).collect();
         let touched = self.change(&texts)?;
-        self.undo.push(Step {
+        self.history.push(Step {
             before,
             after: texts,
         });
@@ -3258,31 +3211,31 @@ impl Session {
 
     /// Take the history back to `len` steps, as a batch that failed partway is.
     pub(crate) fn roll_back_to(&mut self, len: usize) {
-        let redo = self.redo.len();
-        while self.undo.len() > len {
+        let redo = self.history.counts().1;
+        while self.history.len() > len {
             if self.undo_step().is_err() {
                 break;
             }
         }
-        self.redo.truncate(redo);
+        self.history.truncate_redo(redo);
     }
 
     /// How many steps the history holds.
     pub(crate) fn steps(&self) -> usize {
-        self.undo.len()
+        self.history.len()
     }
 
     fn undo_step(&mut self) -> Result<Touched, Error> {
-        let Some(step) = self.undo.pop() else {
+        let Some(step) = self.history.take_undo() else {
             return Ok(Touched::default());
         };
         match self.change(&step.before) {
             Ok(t) => {
-                self.redo.push(step);
+                self.history.undone(step);
                 Ok(t)
             }
             Err(e) => {
-                self.undo.push(step);
+                self.history.push(step);
                 Err(e)
             }
         }
@@ -3301,16 +3254,16 @@ impl Session {
     /// # Errors
     /// As [`Self::undo`].
     pub fn redo(&mut self) -> Result<Touched, Error> {
-        let Some(step) = self.redo.pop() else {
+        let Some(step) = self.history.take_redo() else {
             return Ok(Touched::default());
         };
         match self.change(&step.after) {
             Ok(t) => {
-                self.undo.push(step);
+                self.history.push(step);
                 Ok(t)
             }
             Err(e) => {
-                self.redo.push(step);
+                self.history.undone(step);
                 Err(e)
             }
         }
@@ -3319,15 +3272,13 @@ impl Session {
     /// How many steps undo and redo can take.
     #[must_use]
     pub fn history(&self) -> (usize, usize) {
-        (self.undo.len(), self.redo.len())
+        self.history.counts()
     }
 
     /// Whether any file differs from the disk's.
     #[must_use]
     pub fn unsaved(&self) -> bool {
-        self.texts
-            .iter()
-            .any(|(p, t)| self.disk.get(p).is_some_and(|d| d != t))
+        self.sources.unsaved()
     }
 
     /// Write every file of the target pack the session changed whose text differs from the
@@ -3337,32 +3288,12 @@ impl Session {
     /// # Errors
     /// A file that will not write.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, Error> {
-        let mut written = Vec::new();
-        for (path, text) in &self.texts {
-            let disk = self.disk.get(path).cloned().flatten();
-            if *text == disk {
-                continue;
-            }
-            match text {
-                Some(t) => {
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
-                    }
-                    std::fs::write(path, t).map_err(|e| Error::io(path, e))?;
-                }
-                None => std::fs::remove_file(path).map_err(|e| Error::io(path, e))?,
-            }
-            written.push(path.clone());
-        }
-        for path in &written {
-            self.disk.insert(path.clone(), self.texts[path].clone());
-        }
+        let mut written = self
+            .sources
+            .save(&DiskStore)
+            .map_err(|(path, e)| Error::io(&path, e))?;
         let lock_path = self.world.lock_path();
-        let lock = self.compiled.lock.render();
-        if std::fs::read_to_string(&lock_path).ok().as_deref() != Some(lock.as_str())
-            && (lock_path.is_file() || !self.compiled.lock.is_empty())
-        {
-            std::fs::write(&lock_path, &lock).map_err(|e| Error::io(&lock_path, e))?;
+        if self.compiled.lock.save(&DiskStore, &lock_path)? {
             written.push(lock_path);
         }
         Ok(written)
@@ -4888,12 +4819,7 @@ impl Session {
         out: &mut BTreeMap<PathBuf, Option<String>>,
         s: VertexSet,
     ) -> Result<(), Error> {
-        let key = match s.field {
-            Field::Height => "height",
-            Field::Terrain => "terrain",
-            Field::Scene => "scene",
-            Field::Road => "road",
-        };
+        let key = compile::field_name(s.field);
         // Every entry of the target pack's files that sets this field of this vertex: each is
         // changed, so the files never come to disagree.
         let mut found: Vec<(PathBuf, usize, (u8, u8), bool)> = Vec::new();
@@ -5009,12 +4935,7 @@ impl Session {
         gy: u32,
         field: Field,
     ) -> Result<(), Error> {
-        let key = match field {
-            Field::Height => "height",
-            Field::Terrain => "terrain",
-            Field::Scene => "scene",
-            Field::Road => "road",
-        };
+        let key = compile::field_name(field);
         let files: BTreeSet<PathBuf> = self.packs[self.target]
             .edits
             .iter()
@@ -5046,10 +4967,7 @@ impl Session {
                 }
                 t.remove(key);
                 changed = true;
-                if ["height", "terrain", "scene", "road"]
-                    .iter()
-                    .all(|f| !t.contains_key(f))
-                {
+                if Field::TABLE.iter().all(|f| !t.contains_key(f.name)) {
                     emptied.push(k);
                 }
             }
@@ -5315,9 +5233,7 @@ impl Session {
             })
             .find(|n| {
                 !dir.join(format!("{lb:04X} {n}.sql")).exists()
-                    && !self
-                        .texts
-                        .contains_key(&dir.join(format!("{lb:04X} {n}.sql")))
+                    && !self.sources.holds(&dir.join(format!("{lb:04X} {n}.sql")))
                     && !taken.contains(&format!("{{{{guid:{n}@{lb:04X}}}}}"))
             })
             .unwrap_or_default();

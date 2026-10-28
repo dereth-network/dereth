@@ -2,7 +2,8 @@
 //! edited in place and saved as the packs' sources.
 //!
 //! **Depends on** the Foundry's editing logic (`lyceum-foundry`: the edit session, its operations,
-//! undo, saves, brushes and picks), the client's crates for everything it shows (the runtime's
+//! undo, saves, brushes and picks), the free camera the world builders share (`dereth-builder`),
+//! the client's crates for everything it shows (the runtime's
 //! world and physics, `dereth-client-runtime`; the overlay and the projection's parameters,
 //! `dereth-client-contract`; the player's options it sets, `dereth-client-model`; the drawn world,
 //! `dereth-scene`; the device, `dereth-render`; the renderer that is the runtime's presentation,
