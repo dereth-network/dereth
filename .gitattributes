@@ -16,6 +16,7 @@ fixtures/** -text
 
 # Binary, stated rather than sniffed.
 *.png binary
+*.webp binary
 *.jpg binary
 *.jpeg binary
 *.gif binary

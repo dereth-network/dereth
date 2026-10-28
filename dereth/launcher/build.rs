@@ -1,8 +1,8 @@
 //! Put the launcher's artwork where the web front end can load it, then let Tauri build.
 //!
-//! The paintings and the two typefaces live once, in `dereth/launcher/assets`, the emblem and icon
-//! once, with the Dereth client, and Empyrean's and Lyceum's emblems with each of them. They
-//! are copied into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
+//! The paintings, the emblems the page shows and the two typefaces live in
+//! `dereth/launcher/assets`, and the app's icon once, with the Dereth client. They are copied
+//! into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
 //! among them: this front end draws its frames, buttons and beads in CSS and SVG rather than
 //! cutting them out of the sprite atlas.
 
@@ -35,43 +35,32 @@ fn main() {
     );
     let assets = Path::new("assets");
     println!("cargo:rerun-if-changed=assets");
+    // The paintings come in sets, one folder each; only the set shown is copied, so the others do
+    // not grow the download. Copied afresh, so nothing removed or renamed is left behind in the
+    // build: Tauri embeds whatever is there.
+    let set = "dereth";
+    let _ = std::fs::remove_dir_all("ui/assets");
     copy_tree(
-        &assets.join("background"),
-        Path::new("ui/assets/background"),
+        &assets.join("background").join(set),
+        &Path::new("ui/assets/background").join(set),
     );
     copy_tree(&assets.join("fonts"), Path::new("ui/assets/fonts"));
+    // The emblems the page shows, small: Dereth's at the top, and Empyrean's and Lyceum's beside
+    // the titles of Host a world and Build a world.
+    copy_tree(&assets.join("emblem"), Path::new("ui/assets/emblem"));
     // The list of paintings, so the page does not have to guess file names.
-    let mut names: Vec<String> = std::fs::read_dir(assets.join("background"))
+    let mut names: Vec<String> = std::fs::read_dir(assets.join("background").join(set))
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".png"))
+        .filter(|n| n.ends_with(".webp"))
+        .map(|n| format!("{set}/{n}"))
         .collect();
     names.sort();
-    // The emblem is the Dereth client's, kept once beside the client: the logo on the page, and
-    // (at 256) the app icon.
+    // The app's icon is the Dereth client's, kept once beside the client.
     let client = Path::new("../client/assets");
     println!("cargo:rerun-if-changed=../client/assets");
-    let _ = std::fs::copy(
-        client.join("Dereth.icon/Assets/dereth.png"),
-        "ui/assets/emblem.png",
-    );
-    // Empyrean's and Lyceum's emblems, kept once with each program, beside the titles of Host a
-    // world and Build a world.
-    for (from, to) in [
-        (
-            "../../empyrean/server/assets/empyrean-256.png",
-            "ui/assets/empyrean.png",
-        ),
-        (
-            "../../lyceum/editor/assets/lyceum-256.png",
-            "ui/assets/lyceum.png",
-        ),
-    ] {
-        println!("cargo:rerun-if-changed={from}");
-        let _ = std::fs::copy(from, to);
-    }
     let _ = std::fs::create_dir_all("icons");
     let _ = std::fs::copy(client.join("dereth-256.png"), "icons/icon.png");
     // Windows embeds the client's own multi-size icon in the executable.

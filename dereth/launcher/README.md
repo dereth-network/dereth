@@ -338,8 +338,8 @@ cargo tauri build                  # the release build (`cargo install tauri-cli
 
 The Tauri app is kept out of the main workspace, so nothing there needs a web view or, on Linux,
 WebKitGTK. There's no Node, npm or bundler: `ui/` is plain HTML, CSS and JavaScript, embedded at
-build time. `build.rs` copies the paintings and typefaces from `assets/` and the emblem and icons
-from `dereth/client/assets` into `ui/assets` (ignored by git). On macOS it also compiles the
+build time. `build.rs` copies the paintings, emblems and typefaces from `assets/` and the icons from
+`dereth/client/assets` into `ui/assets` (ignored by git). On macOS it also compiles the
 client's `Dereth.icon` with Xcode's `actool`; only `tauri.macos.conf.json` names the results.
 
 On Windows `cargo tauri build` leaves `target/release/dereth.exe`. On Linux it needs Tauri's build

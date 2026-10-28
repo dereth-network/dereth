@@ -359,7 +359,7 @@ const comp = (product) => (ui.snap.components ?? []).find((c) => c.product === p
 const TITLES = { empyrean: "Empyrean", lyceum: "Lyceum" };
 const SOFTWARE = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE" };
 // Each program's own emblem, beside its page's title and nowhere else.
-const BRAND = { empyrean: "assets/empyrean.png", lyceum: "assets/lyceum.png" };
+const BRAND = { empyrean: "assets/emblem/empyrean.webp", lyceum: "assets/emblem/lyceum.webp" };
 const brand = (product) => `<img class="brand" src="${BRAND[product]}" alt="">`;
 // Where a world's operator registers it on the Dereth Network.
 const NETWORK_REGISTER = "https://dereth.network/operators/#h-register";
