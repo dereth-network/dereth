@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.8 (2026-10-28)
+
 - Decal: a Dereth Network window for the retail client.
 - Plugins are on now: install, update and build them on the launcher's Plugins page.
 - Launcher: a Plugins page to install, update and build plugins.

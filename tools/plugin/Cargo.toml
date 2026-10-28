@@ -3,7 +3,7 @@ name = "dereth-plugin"
 description = "The plugin author's tool: makes a new plugin repository, checks a plugin as the hosts check it, packs it into a zip, releases it and lists it in a plugin source's plugins.json, and drops from that list the plugins a repository no longer holds."
 # Dereth's version: the tool's rules are those of the client released with it, and the template it
 # writes installs the tool of that release. `cargo xtask release dereth` moves it.
-version = "0.4.7"
+version = "0.4.8"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
