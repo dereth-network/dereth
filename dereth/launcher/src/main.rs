@@ -43,7 +43,7 @@ use backend::{lock, Backend, Choice, LaunchOutcome, Shared, Snapshot, WorldView}
 use dereth_launch::folders::{self, Folders, System};
 use dereth_launch::library::FolderFind;
 use dereth_launch::serverlist;
-use dereth_launch::state::Favourite;
+use dereth_launch::state::{Favourite, Realm};
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -75,6 +75,20 @@ struct PageSnapshot {
     /// web view's own right-click menu (Reload, Inspect) alone only when they are; a text box keeps its
     /// own either way.
     devtools: bool,
+    /// Whether the launcher was started with [`AUBEREAN_SWITCH`]: the page offers Auberean's realm
+    /// beside Dereth's.
+    auberean: bool,
+}
+
+/// The command-line switch that offers Auberean's realm beside Dereth's: a pair of portals above
+/// the rail picks which the page shows. Without it the launcher is Dereth's alone.
+const AUBEREAN_SWITCH: &str = "--auberean";
+
+/// Whether the launcher was started with [`AUBEREAN_SWITCH`].
+struct Auberean(bool);
+
+fn offers_auberean(args: &[String]) -> bool {
+    args.iter().any(|a| a == AUBEREAN_SWITCH)
 }
 
 /// The web view's developer tools, and with them its right-click menu, exist only in a debug
@@ -91,6 +105,7 @@ fn snapshot(
     l: State<'_, local::Shared>,
     s: State<'_, share::Shared>,
     j: State<'_, join::Pending>,
+    a: State<'_, Auberean>,
 ) -> PageSnapshot {
     let update = u
         .view
@@ -124,6 +139,7 @@ fn snapshot(
         shortcut: shortcut::OFFERED,
         development: components::checkout_builds(&c),
         devtools: DEVTOOLS,
+        auberean: a.0,
     }
 }
 
@@ -432,6 +448,12 @@ fn set_discord_presence(b: State<'_, Shared>, on: bool) {
     lock(&b).set_discord_presence(on);
 }
 
+/// The game the page shows, kept so the launcher opens in it again.
+#[tauri::command]
+fn set_realm(b: State<'_, Shared>, realm: Realm) {
+    lock(&b).set_realm(realm);
+}
+
 #[tauri::command]
 fn dismiss_message(b: State<'_, Shared>) {
     lock(&b).dismiss_message();
@@ -688,6 +710,7 @@ fn main() {
         .manage(hosts::new(folders.data.clone()))
         .manage(local::new(folders.data.clone()))
         .manage(share::Shared::default())
+        .manage(Auberean(offers_auberean(&args)))
         .setup(move |app| {
             // The window is made here rather than from the configuration so that the web view keeps
             // its cache in the launcher's data folder, not in one named after the app's identifier.
@@ -828,6 +851,7 @@ fn main() {
             remove_custom_world,
             set_interface,
             set_discord_presence,
+            set_realm,
             dismiss_message,
             open_url,
             create_desktop_shortcut,
@@ -903,6 +927,33 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    /// Only a launcher offering Auberean opens in the realm it last showed and draws the portals
+    /// that pick one; any other is Dereth's.
+    #[test]
+    fn only_a_launcher_offering_auberean_opens_in_its_realm_or_draws_the_portals() {
+        let open = page_function("openRealm");
+        assert!(
+            open.contains(r#"ui.realm = both && REALMS[saved] ? saved : "dereth";"#),
+            "{open}"
+        );
+        let portals = open.find("data-realm-pick").expect("the portals");
+        assert!(open[..portals].contains("if (both) {"), "{open}");
+    }
+
+    /// Auberean's realm is offered only to a launcher started with the switch, wherever it comes
+    /// among the arguments.
+    #[test]
+    fn only_the_switch_offers_auberean() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(!super::offers_auberean(&args(&[])));
+        assert!(!super::offers_auberean(&args(&["--downloads"])));
+        assert!(super::offers_auberean(&args(&["--auberean"])));
+        assert!(super::offers_auberean(&args(&[
+            "--downloads",
+            "--auberean"
+        ])));
+    }
+
     /// The release smoke run reads the first line: the program's name and its version.
     #[test]
     fn the_version_text_names_the_launcher_and_its_version_first() {
@@ -1033,14 +1084,18 @@ mod tests {
         assert!(console.contains(r#"class="log" data-log="#), "{console}");
     }
 
-    /// The Plugins section is always there, with no switch to start the launcher with: the rail
-    /// lists it, the shoulder buttons step to it, and its screen draws.
+    /// The Plugins section is always there in Dereth's realm, with no switch to start the launcher
+    /// with: the rail lists it (folding it away only in Auberean's realm, which has no plugins), the
+    /// shoulder buttons step to it, and its screen draws.
     #[test]
     fn the_plugins_section_is_always_there() {
         let app = include_str!("../ui/app.js");
-        assert!(page_function("rail").contains(r#"    item("plugins", "PLUGINS"),"#));
+        assert!(page_function("rail").contains(r#"    item("plugins", "PLUGINS", "dereth"),"#));
         assert!(!app.contains("ui.snap?.plugins") && !app.contains("ui.snap.plugins ?"));
-        assert!(page_function("padSection").contains("const sections = PAD_SECTIONS;"));
+        assert!(page_function("padSection").contains("const sections = padSections();"));
+        assert!(app.contains(
+            r#"const padSections = () => PAD_SECTIONS.filter((s) => s !== "plugins" || ui.realm === "dereth");"#
+        ));
         assert!(page_function("render").contains(" plugins, \"first-run\": firstRun"));
         assert!(!include_str!("main.rs").contains(&["\"--", "plugins\""].concat()));
     }
@@ -1126,20 +1181,23 @@ mod tests {
         }
     }
 
-    /// The rail: Play, Worlds, Accounts and, while plugins are on, Plugins; then Empyrean and
-    /// Lyceum; then the Library, each group apart. The shoulder buttons step through the sections
-    /// in the same order.
+    /// The rail: Play, Worlds, Accounts and Plugins; then the realm's server and world builder
+    /// (Empyrean and Lyceum in Dereth's); then the Library, each group apart. The shoulder buttons
+    /// step through the sections in the same order.
     #[test]
     fn the_rail_has_plugins_under_accounts_and_above_empyrean() {
         let rail = page_function("rail");
         let listed = &rail[rail.find("return [").expect("the rail's list")..];
-        let items: Vec<&str> = listed
-            .match_indices("item(\"")
+        let mut items: Vec<(usize, &str)> = ["item(\"", "tool(\""]
+            .iter()
+            .flat_map(|opener| listed.match_indices(opener))
             .map(|(at, opener)| {
                 let id = &listed[at + opener.len()..];
-                &id[..id.find('"').unwrap_or(0)]
+                (at, &id[..id.find('"').unwrap_or(0)])
             })
             .collect();
+        items.sort();
+        let items: Vec<&str> = items.into_iter().map(|(_, id)| id).collect();
         let order = [
             "home", "worlds", "accounts", "plugins", "server", "make", "library",
         ];
@@ -1147,8 +1205,8 @@ mod tests {
         let at = |s: &str| listed.find(s).unwrap_or_else(|| panic!("{s}"));
         let divider = at("divider,");
         assert!(
-            at(r#"item("plugins", "PLUGINS")"#) < divider
-                && divider < at(r#"item("server", "EMPYREAN")"#),
+            at(r#"item("plugins", "PLUGINS""#) < divider
+                && divider < at(r#"tool("server", "empyrean")"#),
             "{listed}"
         );
         let pad = order.map(|s| format!("\"{s}\"")).join(", ");

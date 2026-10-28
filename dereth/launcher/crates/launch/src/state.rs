@@ -239,10 +239,40 @@ pub struct Settings {
     /// Discord app on this computer shows its world, client and era ([`crate::discord`]).
     #[serde(default = "yes")]
     pub discord_presence: bool,
+    /// The game the page last showed, which it opens in again ([`Realm`]).
+    #[serde(default, skip_serializing_if = "Realm::is_dereth")]
+    pub realm: Realm,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// The realm the launcher's page shows: Dereth's or Auberean's. Only a launcher started with
+/// `--auberean` offers the choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Realm {
+    #[default]
+    Dereth,
+    Auberean,
+}
+
+impl Realm {
+    fn is_dereth(&self) -> bool {
+        *self == Realm::Dereth
+    }
+}
+
+/// Read leniently: a realm this launcher does not know, from a newer one, is Dereth, rather than
+/// the whole file set aside.
+impl<'de> Deserialize<'de> for Realm {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match Option::<String>::deserialize(d)?.as_deref() {
+            Some("auberean") => Realm::Auberean,
+            _ => Realm::Dereth,
+        })
+    }
 }
 
 impl Default for Settings {
@@ -252,6 +282,7 @@ impl Default for Settings {
             allow_play_anyway: false,
             auto_update: true,
             discord_presence: true,
+            realm: Realm::Dereth,
         }
     }
 }
@@ -630,6 +661,36 @@ mod tests {
         let s: LauncherState =
             serde_json::from_str(r#"{"schema":1,"settings":{"discord_presence":false}}"#).unwrap();
         assert!(!s.settings.discord_presence && s.settings.auto_update);
+        assert_eq!(
+            s.settings.realm,
+            Realm::Dereth,
+            "Dereth until another is picked"
+        );
+    }
+
+    #[test]
+    fn the_realm_round_trips_and_one_this_launcher_does_not_know_reads_as_dereth() {
+        let mut s = LauncherState::default();
+        s.settings.realm = Realm::Auberean;
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""realm":"auberean""#), "{json}");
+        let back: LauncherState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.settings.realm, Realm::Auberean);
+        assert!(
+            !serde_json::to_string(&LauncherState::default())
+                .unwrap()
+                .contains("realm"),
+            "Dereth, the default, is not written"
+        );
+        let newer: LauncherState = serde_json::from_str(
+            r#"{"schema":1,"settings":{"realm":"somewhere","discord_presence":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(newer.settings.realm, Realm::Dereth);
+        assert!(
+            !newer.settings.discord_presence,
+            "the rest of the file is kept"
+        );
     }
 
     #[test]

@@ -11,6 +11,10 @@
 
   // `?platform=macos` or `?platform=linux` shows the page as it is off Windows: Dereth only.
   const platform = new URLSearchParams(location.search).get("platform") ?? "windows";
+  // `?auberean` is the launcher started with `--auberean`, offering both games; `?realm=auberean`
+  // opens it in Auberean's realm, as one last left there does.
+  const auberean = new URLSearchParams(location.search).has("auberean");
+  const realm = new URLSearchParams(location.search).get("realm") === "auberean" ? "auberean" : "dereth";
   const EOR = { portal: 2072, cell: 982, local: 994, highres: 497 };
   const files = (it, ro, size = 360 * 1048576) =>
     ["portal", "cell", "local", "highres"].map((role) => ({ role, file_name: `client_${role}.dat`, size, modified: 0, read_only: ro, iterations: it[role] }));
@@ -66,6 +70,16 @@
     world("coldeve", "Coldeve", "gdle", "offline", null, "PvE", { dats: { expected: EOR, patches_over_wire: true, custom: null, highres_required: null } }),
     world("morningthaw", "Morningthaw", "ace", "unknown", null, "PvE"),
     world("darktide", "Darktide", "ace", "unknown", null, "PK"),
+    // Auberean's worlds, served by Yalain.
+    world("lumenvale", "Lumenvale", "yalain", "online", 9, "PvE", {
+      game: "ac2", description: "Internal dereth.network testbed world for Auberean.",
+      emulator_version: "0.1.0", development_status: "Development",
+      links: { website: "https://dereth.network", discord: null, rules: null, guide: null },
+    }),
+    world("shardfall", "Shardfall", "yalain", "high", 186, "PvE", { game: "ac2", description: "As it was at the end. Events every weekend.", emulator_version: "0.1.0" }),
+    world("duskmere", "Duskmere", "yalain", "online", 41, "PvP", { game: "ac2", description: "Faction war, every night." }),
+    world("emberreach", "Emberreach", "yalain", "unknown", null, "PvE", { game: "ac2", development_status: "Experimental" }),
+    world("tidecall", "Tidecall", "yalain", "offline", null, "PvE", { game: "ac2" }),
   ];
 
   const inst = (id, kind, client_id, version, date, path, extra = {}) => ({
@@ -86,11 +100,14 @@
       { world_slug: "eulmore", username: "player", remember: true, created_by_launcher: false },
       { world_slug: "eulmore", username: "alt1", remember: false, created_by_launcher: false },
       { world_slug: "achard", username: "player2", remember: true, created_by_launcher: false },
+      { world_slug: "lumenvale", username: "player", remember: true, created_by_launcher: false },
+      { world_slug: "shardfall", username: "alt1", remember: true, created_by_launcher: false },
     ],
     favourites: [
       { id: "f1", world_slug: "eulmore", account: "player", client: "dereth", dat_set_id: "eor" },
       { id: "f2", world_slug: "achard", account: "player2", client: "retail", dat_set_id: null },
       { id: "f3", world_slug: "coldeve", account: "player", client: "dereth", dat_set_id: "d2" },
+      { id: "f4", world_slug: "lumenvale", account: "player", client: "auberean", dat_set_id: null },
     ],
     world_prefs: {
       leafcull: { account: "player", client: "dereth", dat_set_id: "eor", last_played: 20 },
@@ -100,11 +117,13 @@
       { world_slug: "leafcull", account: "player", client: "dereth", dat_set_id: "eor", last_played: 20 },
       { world_slug: "eulmore", account: "player", client: "dereth", dat_set_id: "eor", last_played: 15 },
       { world_slug: "harvestgain", account: "alt1", client: "retail", last_played: 10 },
+      { world_slug: "shardfall", account: "alt1", client: "auberean", last_played: 18 },
+      { world_slug: "duskmere", account: "player", client: "auberean", last_played: 12 },
     ],
-    settings: { allow_play_anyway: false, auto_update: true, discord_presence: true },
+    settings: { allow_play_anyway: false, auto_update: true, discord_presence: true, realm },
     custom_worlds: [{ slug: "custom-1", name: "My test world", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
   };
-  const vault = new Set(["eulmore/player", "achard/player2"]);
+  const vault = new Set(["eulmore/player", "achard/player2", "lumenvale/player", "shardfall/alt1"]);
   // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
   let chosenInterface = location.hash === "#interface" ? null : "Horizon";
   const interfaceOffers = [
@@ -433,7 +452,7 @@
     },
     snapshot: () => ({
       hosts, components, local: looked ? local : [], sharing, join_waiting: !!join, worlds: allWorlds(), list_state: "loaded", list_error: null, list_fetched_at: Math.floor(Date.now() / 1000) - 3600, eras, features,
-      state: structuredClone(state), dereth, running: [], job, message,
+      state: structuredClone(state), dereth, auberean, running: [], job, message,
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
@@ -579,6 +598,7 @@
       chosenInterface = offer.name;
     },
     set_discord_presence: ({ on }) => { state.settings.discord_presence = on; },
+    set_realm: ({ realm }) => { state.settings.realm = realm; },
     dismiss_message: () => { message = null; },
     open_url: ({ url }) => { window.open(url, "_blank"); },
     create_desktop_shortcut: () => "C:\\Users\\you\\Desktop\\Dereth.lnk",

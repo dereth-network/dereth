@@ -32,6 +32,14 @@
   --offline: #d8584a;
   --unknown: #8e8a82;
 
+  /* The realm's accent, from its emblem: teal for Dereth, violet for Auberean. It eases from one to
+   * the other over `--swap`, which is nothing for someone who asks for less motion. */
+  --realm: #17a9bf;
+  --realm-bright: #74eef2;
+  --realm-dark: #01506f;
+  --swap: 520ms;
+  transition: --realm var(--swap) ease, --realm-bright var(--swap) ease, --realm-dark var(--swap) ease;
+
   /* The quiet register: lines, glass and rounding for panels and fields. */
   --line: rgba(233, 199, 122, 0.22);
   --line-strong: rgba(233, 199, 122, 0.5);
@@ -55,6 +63,15 @@
   /* A 2x2 dither: the soft-pixel texture on every panel. */
   --dither: repeating-conic-gradient(rgba(255, 240, 210, 0.022) 0% 25%, transparent 0% 50%) 0 0 / calc(var(--px) * 2) calc(var(--px) * 2);
 }
+
+/* Registered, so the accent can ease between the realms rather than jump. */
+@property --realm { syntax: "<color>"; inherits: true; initial-value: #17a9bf; }
+@property --realm-bright { syntax: "<color>"; inherits: true; initial-value: #74eef2; }
+@property --realm-dark { syntax: "<color>"; inherits: true; initial-value: #01506f; }
+:root[data-realm="auberean"] { --realm: #8a35d0; --realm-bright: #c77df5; --realm-dark: #3d1186; }
+/* The page opens in its realm without easing into it. */
+:root.still { transition: none; }
+@media (prefers-reduced-motion: reduce) { :root { --swap: 0s; } }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -85,11 +102,17 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
   transition: opacity 1.4s ease-in-out;
 }
 .vista img.on { opacity: 1; }
+/* A change of realm brings its painting in over the one shown, which goes once it is covered. */
+.vista img.coming { z-index: 1; opacity: 1; transition: none; }
+/* The realm's glow at the top of the curtain, in a launcher that offers both games. */
+.vista { --realm-glow: transparent; }
+:root[data-realms] .vista { --realm-glow: color-mix(in srgb, var(--realm-dark) 38%, transparent); }
 .vista::after {
   /* The two washes that let text sit on a painted sky, top and bottom, and a curtain on the left
-   * under the lockup and rail. */
-  content: ""; position: absolute; inset: 0;
+   * under the lockup and rail, with the realm's glow at its top. */
+  content: ""; position: absolute; inset: 0; z-index: 2;
   background:
+    radial-gradient(ellipse 420px 320px at 0 0, var(--realm-glow), transparent),
     linear-gradient(to bottom, rgba(12, 10, 16, 0.72), rgba(12, 10, 16, 0) 34%),
     linear-gradient(to top, rgba(12, 10, 16, 0.82), rgba(12, 10, 16, 0) 42%),
     linear-gradient(to right, rgba(12, 10, 16, 0.66), rgba(12, 10, 16, 0) 30%);
@@ -110,8 +133,11 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 
 .side { display: flex; flex-direction: column; gap: 22px; min-height: 0; }
 .lockup { display: flex; align-items: center; gap: 10px; }
-/* The client's emblem: painted, not pixel art, so scaled smoothly. */
-.lockup .emblem { width: 54px; height: 54px; flex: none; filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.6)); }
+/* The crest: the Dereth client's emblem, or in a launcher that offers both games the network's,
+ * teal and violet, glowing in the realm's colour. Painted, not pixel art, so scaled smoothly. */
+.lockup .crest { position: relative; width: 54px; height: 54px; flex: none; filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.6)); }
+:root[data-realms] .lockup .crest { filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 9px color-mix(in srgb, var(--realm) 30%, transparent)); }
+.lockup .emblem { position: absolute; inset: 0; width: 100%; height: 100%; }
 .lockup .word {
   font: 600 22px/0.98 var(--display);
   letter-spacing: 0.045em;
@@ -121,6 +147,7 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 
 .rail { display: flex; flex-direction: column; gap: 8px; width: 176px; }
 .rail button {
+  position: relative; z-index: 1;
   height: 38px;
   border: calc(var(--px) * 2) solid transparent;
   border-image: var(--frame-quiet) 2 / calc(var(--px) * 2) stretch;
@@ -158,6 +185,68 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 .foot .iconbtn:hover { color: var(--gold-bright); }
 .rail button:hover { border-image-source: var(--frame-lit); color: #fff; }
 .rail button.lit { border-image-source: var(--frame-lit); background-color: var(--stone-3); color: #fff; }
+/* In a launcher that offers both games, lit from below in the realm's colour: one art pixel and a
+ * glow. */
+:root[data-realms] .rail button.lit {
+  box-shadow: inset 0 calc(var(--px) * -1) 0 var(--realm), inset 0 -10px 14px -8px color-mix(in srgb, var(--realm) 55%, transparent);
+}
+/* Hosting and building: both realms' names, each passing out to its own side as the other comes in. */
+.rail .tool span {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity var(--swap) ease, transform var(--swap) ease;
+}
+:root[data-realm="dereth"] .rail .tool [data-realm-of="auberean"] { opacity: 0; transform: translateX(18px); }
+:root[data-realm="auberean"] .rail .tool [data-realm-of="dereth"] { opacity: 0; transform: translateX(-18px); }
+/* Plugins are Dereth's alone. In Auberean's realm the button folds up under Accounts, above it, and
+ * what is below closes up; it is a layer beneath the rail's other buttons, so it slides under them.
+ * Once folded it is hidden, and neither the pointer nor a pad reaches it. */
+.rail [data-realm-only] {
+  z-index: 0;
+  transition: margin-top var(--swap) ease, opacity var(--swap) ease, visibility 0s;
+}
+:root[data-realm="auberean"] .rail [data-realm-only="dereth"] {
+  margin-top: -46px; opacity: 0; visibility: hidden;
+  transition: margin-top var(--swap) ease, opacity var(--swap) ease, visibility 0s var(--swap);
+}
+
+/* ----- the realm picker ------------------------------------------------------------------------- */
+
+/* A portal for each game, side by side above the rail, as wide as it: painted, not pixel art, in a
+ * gold ring. The one picked glows in its own colour and its vortex turns under the ring, drawing
+ * inward; the other waits, dimmed and still. Changing realm opens the new realm's painting out from
+ * the portal picked. A launcher that offers one game has none. */
+.realm { display: flex; justify-content: space-around; width: 176px; flex: none; padding: 2px 0; }
+.realm:empty { display: none; }
+.realm .pick {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 0; border: 0; background: none;
+  font: 600 10px var(--display); letter-spacing: 0.06em;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--swap);
+}
+.realm .pick[aria-checked="true"] { color: #fff; }
+.realm .pick:hover { color: var(--gold-bright); }
+.realm .pick[aria-checked="true"]:hover { color: #fff; }
+/* Each realm's own colour, for its portal's glow: steady, where the page's accent is still easing
+ * over, so the glow comes in with the portal rather than chasing the accent. */
+.realm .pick[data-realm-of="dereth"] { --own: #17a9bf; }
+.realm .pick[data-realm-of="auberean"] { --own: #8a35d0; }
+/* Each look of a portal names the same filters, so one eases into another. */
+.realm .portal {
+  position: relative; width: 72px; height: 72px;
+  filter: saturate(0.3) brightness(0.55) drop-shadow(0 0 0 transparent);
+  transform: scale(0.8);
+  transition: filter var(--swap), transform var(--swap) cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.realm .portal img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.realm .vortex { animation: turn 14s linear infinite paused; }
+@keyframes turn { to { transform: rotate(-360deg); } }
+.realm .pick:hover .portal { filter: saturate(0.6) brightness(0.8) drop-shadow(0 0 0 transparent); }
+.realm .pick[aria-checked="true"] .portal { filter: saturate(1) brightness(1) drop-shadow(0 0 8px var(--own)); transform: none; }
+.realm .pick[aria-checked="true"] .vortex { animation-play-state: running; }
+@media (prefers-reduced-motion: reduce) { .realm .vortex { animation: none; } }
 
 /* ----- the content column ----------------------------------------------------------------------- */
 

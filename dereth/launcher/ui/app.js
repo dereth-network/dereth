@@ -23,6 +23,7 @@ const ui = {
   // made was.
   plugin: { add: "", confirm: false, search: "", busy: null, open: null, folded: { installed: false, available: true, sources: true, build: true }, make: { name: "", github: "", made: null } },
   screen: "home",          // home | worlds | world | library | accounts | plugins | first-run | interface
+  realm: "dereth",         // the game the page is about: dereth | auberean
   snap: null,
   homeSel: 0,
   search: "",
@@ -60,7 +61,7 @@ const ui = {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const worldBy = (slug) => ui.snap?.worlds.find((w) => w.slug === slug);
 // The two clients: the Dereth client the launcher found beside itself, and the player's retail one.
-const clientOf = (kind) => (kind === "retail" ? ui.snap?.state.retail : ui.snap?.dereth) ?? null;
+const clientOf = (kind) => (kind === "retail" ? ui.snap?.state.retail : kind === "dereth" ? ui.snap?.dereth : null) ?? null;
 const clients = () => [ui.snap?.dereth, ui.snap?.state.retail].filter(Boolean);
 // The retail client is a Windows program. Elsewhere the page offers the Dereth client alone and
 // never mentions retail.
@@ -115,7 +116,7 @@ function eraText(w) {
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
-  const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", unknown: "Unknown" }[w.emulator] ?? w.emulator;
+  const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", yalain: "Yalain", unknown: "Unknown" }[w.emulator] ?? w.emulator;
   const v = (w.emulator_version ?? "").replace(/^v/i, "");
   return v ? `${name} | v${v}` : name;
 }
@@ -147,7 +148,7 @@ function bead(cls) {
   return `<i class="dot ${esc(cls)}"></i>`;
 }
 function clientShort(kind) {
-  return kind === "retail" ? "Retail" : "Dereth";
+  return { retail: "Retail", auberean: "Auberean" }[kind] ?? "Dereth";
 }
 function gb(n) {
   return `${(n / 1073741824).toFixed(1)} GB`;
@@ -167,6 +168,7 @@ async function pull() {
     return;
   }
   const json = JSON.stringify(snap);
+  if (!ui.snap) openRealm(snap);
   ui.snap = snap;
   // The first start asks which interface the Dereth client plays in, before anything else, while
   // the client's preferences name none.
@@ -302,7 +304,13 @@ function render() {
   // drawn anew, whatever it is.
   const padKeep = !keep && document.body.classList.contains("pad") ? controlKey(active) : null;
 
-  document.getElementById("rail").innerHTML = rail();
+  // The rail is redrawn only when it changes, so a change of realm passes its names over in place.
+  const railDrawn = rail();
+  const railHost = document.getElementById("rail");
+  if (railHost.dataset.drawn !== railDrawn) {
+    railHost.innerHTML = railDrawn;
+    railHost.dataset.drawn = railDrawn;
+  }
   // The footnote is redrawn only when it changes, so the button under the pointer stays put.
   const footnote = foot();
   const footHost = document.getElementById("foot");
@@ -356,11 +364,16 @@ function render() {
 // computer; Build a world makes Lyceum worlds and opens them in the editor.
 
 const comp = (product) => (ui.snap.components ?? []).find((c) => c.product === product);
-const TITLES = { empyrean: "Empyrean", lyceum: "Lyceum" };
+// Each realm's server and world builder, by the product the backend names: Dereth's Empyrean
+// and Lyceum, and Auberean's Yalain and Athenaeum. Each title, with its emblem.
+const TOOLS = {
+  dereth: { empyrean: ["Empyrean", "assets/emblem/empyrean.webp"], lyceum: ["Lyceum", "assets/emblem/lyceum.webp"] },
+  auberean: { empyrean: ["Yalain", "assets/emblem/yalain.webp"], lyceum: ["Athenaeum", "assets/emblem/athenaeum.webp"] },
+};
+const titleOf = (product) => TOOLS[ui.realm][product][0];
 const SOFTWARE = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE" };
 // Each program's own emblem, beside its page's title and nowhere else.
-const BRAND = { empyrean: "assets/emblem/empyrean.webp", lyceum: "assets/emblem/lyceum.webp" };
-const brand = (product) => `<img class="brand" src="${BRAND[product]}" alt="">`;
+const brand = (product) => `<img class="brand" src="${TOOLS[ui.realm][product][1]}" alt="">`;
 // Where a world's operator registers it on the Dereth Network.
 const NETWORK_REGISTER = "https://dereth.network/operators/#h-register";
 const CHEVRON_RIGHT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/><rect x="5" y="5" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/><rect x="1" y="9" width="2" height="2"/></svg>`;
@@ -374,7 +387,7 @@ const vee = (version) => (/^v/i.test(String(version)) ? String(version) : `v${ve
 // The program as it is here: its name and version, and whether it is a local build.
 function programName(product) {
   const c = comp(product);
-  const title = TITLES[product];
+  const title = titleOf(product);
   if (c?.checkout) return `${title}${c.checkout_version ? ` ${vee(c.checkout_version)}` : ""} (Local Build)`;
   return c?.installed ? `${title} ${vee(c.installed.version)}` : title;
 }
@@ -422,7 +435,7 @@ function linkify(text) {
 function programLine(product) {
   const c = comp(product);
   if (!c) return "";
-  const title = TITLES[product];
+  const title = titleOf(product);
   if (c.checkout) return `<div class="program-line"><span title="${esc(c.checkout)}">${esc(programName(product))}</span></div>`;
   const busy = c.busy;
   const btns = [];
@@ -733,7 +746,16 @@ function newWorldFields(s) {
     </div>`;
 }
 
+// The realm's server or world builder, where the launcher cannot fetch it yet: its page says so.
+function toolNotYet(product, what) {
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header>${brand(product)}<h1>${titleOf(product).toUpperCase()}: ${what}</h1></header>
+        <p class="muted">${titleOf(product)} is not ready to download yet.</p></section>
+    </div>`;
+}
+
 function serverList() {
+  if (ui.realm !== "dereth") return toolNotYet("empyrean", "HOST A WORLD SERVER");
   const hosts = ui.snap.hosts ?? [];
   const others = ui.snap.local ?? [];
   const pending = ui.serverDraft
@@ -1163,6 +1185,7 @@ function lyceumDeleteRow(w, busy, running) {
 }
 
 function makePage() {
+  if (ui.realm !== "dereth") return toolNotYet("lyceum", "BUILD A WORLD");
   const c = comp("lyceum");
   const on = ready("lyceum");
   const worlds = c?.worlds ?? [];
@@ -1261,7 +1284,11 @@ async function copyText(text) {
 
 function rail() {
   const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen;
-  const item = (id, label) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}">${label}</button>`;
+  // A section only one realm has (`only`) folds away in the other's.
+  const item = (id, label, only) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}"${only ? ` data-realm-only="${only}"` : ""}>${label}</button>`;
+  // The realm's own server and world builder. Both realms' names are drawn, and the realm's
+  // shown, so changing realm passes from one name to the other rather than redrawing.
+  const tool = (id, product) => `<button class="tool ${lit === id ? "lit" : ""}" data-go="${id}">${Object.entries(TOOLS).map(([realm, t]) => `<span data-realm-of="${realm}">${t[product][0].toUpperCase()}</span>`).join("")}</button>`;
   // Playing first, with the plugins the client plays with; then hosting a world (Empyrean) and
   // building one (Lyceum); then the Library, each part apart.
   const divider = '<div class="rail-divider" role="separator"></div>';
@@ -1269,10 +1296,10 @@ function rail() {
     item("home", "PLAY"),
     item("worlds", "WORLDS"),
     item("accounts", "ACCOUNTS"),
-    item("plugins", "PLUGINS"),
+    item("plugins", "PLUGINS", "dereth"),
     divider,
-    item("server", "EMPYREAN"),
-    item("make", "LYCEUM"),
+    tool("server", "empyrean"),
+    tool("make", "lyceum"),
     divider,
     item("library", "LIBRARY"),
   ].join("");
@@ -1341,7 +1368,7 @@ function homeEntries() {
   const recents = s.recent.filter((r) => !s.favourites.some((f) => sameCombo(f, r))).map((r) => ({ ...r, fav: null }));
   // A world the list no longer names is not offered; the backend forgets it once the list is read.
   const listed = (e) => ui.snap.worlds.length === 0 || !!worldBy(e.world_slug);
-  return [...favs, ...recents].filter(listed);
+  return [...favs, ...recents].filter(listed).filter((e) => inRealm(worldBy(e.world_slug)));
 }
 
 function home() {
@@ -1409,6 +1436,7 @@ function visibleWorlds() {
   const favs = new Set(ui.snap.state.favourites.map((f) => f.world_slug));
   const rank = { online: 0, high: 0, starting: 1, unknown: 2, offline: 3 };
   return ui.snap.worlds
+    .filter(inRealm)
     .filter((w) => !q || w.name.toLowerCase().includes(q) || (w.description ?? "").toLowerCase().includes(q))
     .filter((w) => {
       const rs = (w.ruleset ?? "").toLowerCase();
@@ -1517,7 +1545,7 @@ function worlds() {
   return `<div class="column wide" style="height:100%">
       ${form}
       <section class="panel grow"><header><h1>WORLDS</h1><span class="muted small">${rows.length} worlds</span>
-        <button class="btn" data-act="server-open" title="Add a world by its address">+ Add world</button>
+        ${ui.realm === "dereth" ? `<button class="btn" data-act="server-open" title="Add a world by its address">+ Add world</button>` : ""}
         <button class="btn icon-btn" data-act="refresh" title="Fetch the world list again">↻</button></header>
         <div class="btns" style="margin-bottom:12px">
           <input id="search" class="field" autocomplete="off" style="max-width:360px" placeholder="search" value="${esc(ui.search)}">
@@ -1532,6 +1560,11 @@ function worlds() {
 // ----- one world ------------------------------------------------------------------------------------
 
 async function openWorld(slug, notice, preset) {
+  // A world's page plays in Dereth; Auberean is not played from the launcher yet.
+  if ((worldBy(slug)?.game ?? "ac1") !== "ac1") {
+    toast("Auberean can't be played from the launcher yet.", false);
+    return;
+  }
   api("probe_world", { slug }).catch(() => {});
   let view;
   try {
@@ -2231,10 +2264,15 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
+  if (d.realmPick) {
+    const portal = t.querySelector(".portal")?.getBoundingClientRect();
+    setRealm(d.realmPick, portal ? { x: portal.left + portal.width / 2, y: portal.top + portal.height / 2 } : null);
+    return;
+  }
   if (d.unfav) { ev.stopPropagation(); await act("remove_favourite", { id: d.unfav }); return; }
   if (d.fav) {
     ev.stopPropagation();
@@ -2635,14 +2673,16 @@ document.addEventListener("keydown", async (ev) => {
 // Every control a click acts on, in the page's order: a row is one, and so is a button on it.
 const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface], [data-srv-open], [data-local-open], [data-plugin-row], [data-plugin-fold]";
 
-// The sections the shoulder buttons step through, as the rail lists them.
+// The sections the shoulder buttons step through, as the rail lists them: Plugins only in Dereth's
+// realm.
 const PAD_SECTIONS = ["home", "worlds", "accounts", "plugins", "server", "make", "library"];
+const padSections = () => PAD_SECTIONS.filter((s) => s !== "plugins" || ui.realm === "dereth");
 
 // The controls a pad may reach: drawn, and not disabled. The screen's own come first, so a move
 // with nothing focused starts on the screen rather than on the rail.
 function padControls() {
   const drawn = (el) => {
-    if (el.disabled) return false;
+    if (el.disabled || getComputedStyle(el).visibility === "hidden") return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
@@ -2744,7 +2784,7 @@ function padBack() {
 // The next or previous section, as its rail button opens it, with the focus on its first control.
 // The first start's screens keep to themselves.
 function padSection(by) {
-  const sections = PAD_SECTIONS;
+  const sections = padSections();
   const at = sections.indexOf({ world: "worlds", "server-page": "server", "server-settings": "server", "local-page": "server" }[ui.screen] ?? ui.screen);
   if (at < 0) return;
   const go = sections[(at + by + sections.length) % sections.length];
@@ -2798,31 +2838,152 @@ async function watchLibrary() {
   lastSets = sets;
 }
 
+// ----- the realm ------------------------------------------------------------------------------------
+//
+// The launcher has two realms. Dereth's worlds are hosted with Empyrean and built with Lyceum,
+// Auberean's with Yalain and Athenaeum. Started with `--auberean`, the launcher offers both: a
+// portal for each above the rail picks which realm's worlds, tools and paintings the page shows,
+// and its accent, teal for Dereth and violet for Auberean. The golds are both realms'. Without the
+// switch the page is Dereth's alone, and a first start opens in Dereth.
+
+const REALMS = {
+  dereth: { game: "ac1", name: "DERETH" },
+  auberean: { game: "ac2", name: "AUBEREAN" },
+};
+
+// A world of the realm's game; a world that names no game is Asheron's Call's.
+const inRealm = (w) => (w?.game ?? "ac1") === REALMS[ui.realm].game;
+const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// The first snapshot: the page opens in the realm it last showed, without easing into it. Only a
+// launcher that offers both games wears the network's crest, of both, rather than Dereth's, and
+// shows the portals and both sets of paintings.
+function openRealm(snap) {
+  const both = !!snap.auberean;
+  const saved = snap.state.settings.realm;
+  ui.realm = both && REALMS[saved] ? saved : "dereth";
+  const root = document.documentElement;
+  root.dataset.realm = ui.realm;
+  document.querySelector(".lockup .emblem").src = `assets/emblem/${both ? "network" : "dereth"}.webp`;
+  if (both) {
+    root.dataset.realms = "";
+    document.getElementById("realm").innerHTML = Object.entries(REALMS).map(([id, r]) =>
+      `<button class="pick" role="radio" aria-checked="${ui.realm === id}" data-realm-pick="${id}" data-realm-of="${id}">
+        <span class="portal"><img class="vortex" src="assets/portal/${id}-vortex.webp" alt=""><img src="assets/portal/${id}-ring.webp" alt=""></span><span>${r.name}</span></button>`).join("");
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("still")));
+  vista(both ? Object.keys(REALMS) : ["dereth"]);
+}
+
+// Changing realm: the accent eases over, the rail's tools pass to the other game's and Plugins,
+// Dereth's alone, folds away or comes back, the new realm's first painting opens out from the
+// portal picked, and the screen fades to the new realm's worlds. The launcher keeps the realm.
+async function setRealm(realm, from) {
+  if (realm === ui.realm || !REALMS[realm]) return;
+  ui.realm = realm;
+  api("set_realm", { realm }).catch((e) => console.error(e));
+  document.documentElement.dataset.realm = realm;
+  document.querySelectorAll("[data-realm-pick]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.realmPick === realm)));
+  turnPainting(from);
+  ui.homeSel = 0;
+  ui.expanded = null;
+  ui.addServer = null;
+  // What is the other game's: a world's page goes back to the realm's list, a world server's to
+  // the realm's server, and Plugins, Dereth's alone, to Play.
+  if (ui.screen === "world") ui.screen = "worlds";
+  if (["server-page", "server-settings", "local-page"].includes(ui.screen)) ui.screen = "server";
+  if (realm !== "dereth" && ui.screen === "plugins") ui.screen = "home";
+  const main = document.getElementById("main");
+  if (still()) { render(); return; }
+  const out = main.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-in", fill: "forwards" });
+  await out.finished;
+  render();
+  out.cancel();
+  main.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 320, easing: "ease-out" });
+}
+
 // ----- the painting ---------------------------------------------------------------------------------
 
-async function vista() {
-  let names = [];
+// The paintings, a set for each realm: the realm's own turn over every ten seconds, from where it
+// last was. A realm with none shows the dark behind them.
+const paintings = {};
+const paintingAt = {};
+
+async function vista(realms) {
+  let sets = {};
   try {
-    names = await (await fetch("assets/backgrounds.json")).json();
+    sets = await (await fetch("assets/backgrounds.json")).json();
   } catch (_) {
     return;
   }
   const host = document.getElementById("vista");
-  const imgs = names.map((n) => {
-    const i = document.createElement("img");
-    i.src = `assets/background/${n}`;
-    i.alt = "";
-    host.appendChild(i);
-    return i;
-  });
-  let at = 0;
-  if (imgs[0]) imgs[0].classList.add("on");
+  for (const realm of realms) {
+    paintings[realm] = (sets[realm] ?? []).map((n) => {
+      const i = document.createElement("img");
+      i.src = `assets/background/${n}`;
+      i.alt = "";
+      host.appendChild(i);
+      return i;
+    });
+    paintingAt[realm] = 0;
+  }
+  paintings[ui.realm]?.[0]?.classList.add("on");
   setInterval(() => {
-    if (imgs.length < 2) return;
+    const imgs = paintings[ui.realm] ?? [];
+    if (imgs.length < 2 || turning) return;
+    let at = paintingAt[ui.realm];
     imgs[at].classList.remove("on");
     at = (at + 1) % imgs.length;
     imgs[at].classList.add("on");
+    paintingAt[ui.realm] = at;
   }, 10000);
+}
+
+// How long changing realm takes, as the page's `--swap` says.
+const swapMs = () => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--swap").trim();
+  return v.endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000 || 0;
+};
+
+// The realm changed: straight to its first painting. It comes in over the painting shown, by a
+// quick dissolve, or opening out from `from` (a point on the page) as through a portal, and the
+// old one goes once it is covered.
+let turning = null;
+function turnPainting(from) {
+  const host = document.getElementById("vista");
+  const next = paintings[ui.realm]?.[0] ?? null;
+  paintingAt[ui.realm] = 0;
+  turning?.cancel();
+  turning = null;
+  // Every other painting goes at once, under the one now shown.
+  const settle = () => {
+    for (const i of host.querySelectorAll("img")) {
+      if (i === next) continue;
+      i.style.transition = "none";
+      i.classList.remove("on", "coming");
+    }
+    host.offsetWidth;
+    for (const i of host.querySelectorAll("img")) i.style.transition = "";
+    next?.classList.remove("coming");
+  };
+  const ms = swapMs();
+  if (!next) {
+    // A realm with no paintings: the one shown fades to the dark.
+    for (const i of host.querySelectorAll("img.on")) i.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: "ease" });
+    settle();
+    return;
+  }
+  next.classList.add("coming", "on");
+  if (ms === 0) { settle(); return; }
+  turning = from
+    ? next.animate([{ clipPath: `circle(0 at ${from.x}px ${from.y}px)` }, { clipPath: `circle(150vmax at ${from.x}px ${from.y}px)` }], { duration: ms + 120, easing: "cubic-bezier(0.55, 0, 0.25, 1)" })
+    : next.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms, easing: "ease" });
+  const mine = turning;
+  mine.finished.then(() => {
+    if (turning !== mine) return;
+    turning = null;
+    settle();
+  }, () => {});
 }
 
 // ----- start --------------------------------------------------------------------------------------
@@ -2921,7 +3082,6 @@ async function demoJump() {
   render();
 }
 
-vista();
 if (!window.__TAURI__) {
   document.body.insertAdjacentHTML("beforeend", `<div class="demo-flag">DEMO DATA — NOT CONNECTED</div>`);
   demoJump();

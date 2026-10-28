@@ -1,8 +1,8 @@
 //! Put the launcher's artwork where the web front end can load it, then let Tauri build.
 //!
-//! The paintings, the emblems the page shows and the two typefaces live in
-//! `dereth/launcher/assets`, and the app's icon once, with the Dereth client. They are copied
-//! into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
+//! The paintings (a folder for each game), the portals, the emblems the page shows and the two
+//! typefaces live in `dereth/launcher/assets`, and the app's icon once, with the Dereth client.
+//! They are copied into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
 //! among them: this front end draws its frames, buttons and beads in CSS and SVG rather than
 //! cutting them out of the sprite atlas.
 
@@ -35,29 +35,33 @@ fn main() {
     );
     let assets = Path::new("assets");
     println!("cargo:rerun-if-changed=assets");
-    // The paintings come in sets, one folder each; only the set shown is copied, so the others do
-    // not grow the download. Copied afresh, so nothing removed or renamed is left behind in the
-    // build: Tauri embeds whatever is there.
-    let set = "dereth";
+    // Copied afresh, so nothing removed or renamed is left behind in the build: Tauri embeds
+    // whatever is there.
     let _ = std::fs::remove_dir_all("ui/assets");
     copy_tree(
-        &assets.join("background").join(set),
-        &Path::new("ui/assets/background").join(set),
+        &assets.join("background"),
+        Path::new("ui/assets/background"),
     );
     copy_tree(&assets.join("fonts"), Path::new("ui/assets/fonts"));
-    // The emblems the page shows, small: Dereth's at the top, and Empyrean's and Lyceum's beside
-    // the titles of Host a world and Build a world.
+    // The realm picker's portals: each realm's ring, and the vortex that turns under it.
+    copy_tree(&assets.join("portal"), Path::new("ui/assets/portal"));
+    // The emblems the page shows, small: Dereth's at the top, or the network's where the launcher
+    // offers both games, and each game's server and world builder beside their pages' titles.
     copy_tree(&assets.join("emblem"), Path::new("ui/assets/emblem"));
-    // The list of paintings, so the page does not have to guess file names.
-    let mut names: Vec<String> = std::fs::read_dir(assets.join("background").join(set))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".webp"))
-        .map(|n| format!("{set}/{n}"))
-        .collect();
-    names.sort();
+    // The list of paintings, a folder for each game, so the page does not have to guess file names.
+    let mut sets = std::collections::BTreeMap::new();
+    for realm in ["dereth", "auberean"] {
+        let mut names: Vec<String> = std::fs::read_dir(assets.join("background").join(realm))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".webp"))
+            .map(|n| format!("{realm}/{n}"))
+            .collect();
+        names.sort();
+        sets.insert(realm, names);
+    }
     // The app's icon is the Dereth client's, kept once beside the client.
     let client = Path::new("../client/assets");
     println!("cargo:rerun-if-changed=../client/assets");
@@ -67,7 +71,7 @@ fn main() {
     let _ = std::fs::copy(client.join("dereth.ico"), "icons/icon.ico");
     let _ = std::fs::write(
         "ui/assets/backgrounds.json",
-        serde_json::to_string(&names).unwrap_or_default(),
+        serde_json::to_string(&sets).unwrap_or_default(),
     );
     compile_icon(&client.join("Dereth.icon"));
     tauri_build::build();

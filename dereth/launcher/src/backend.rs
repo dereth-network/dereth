@@ -28,7 +28,7 @@ use dereth_launch::plugins::{
     keep_tool, AutoUpdate, PluginError, PluginsView, Refresh, Shelf, TOOL_FILE,
 };
 use dereth_launch::serverlist::{ListCache, ListSource};
-use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
+use dereth_launch::state::{Account, Favourite, LauncherState, Realm, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
 #[cfg(test)]
@@ -694,6 +694,12 @@ impl Backend {
     /// second.
     pub fn set_discord_presence(&mut self, on: bool) {
         self.state.settings.discord_presence = on;
+        self.save();
+    }
+
+    /// The game the page shows ([`Realm`]), kept so the launcher opens in it again.
+    pub fn set_realm(&mut self, realm: Realm) {
+        self.state.settings.realm = realm;
         self.save();
     }
 
@@ -3531,6 +3537,22 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(next(&rx), Seen::Closed);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_realm_picked_is_kept_with_the_state_and_shown_to_the_page() {
+        let (mut b, dir) = backend("realm");
+        assert_eq!(
+            b.state.settings.realm,
+            Realm::Dereth,
+            "Dereth to begin with"
+        );
+        b.set_realm(Realm::Auberean);
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert_eq!(saved.settings.realm, Realm::Auberean, "kept with the state");
+        let json = serde_json::to_value(b.snapshot()).unwrap();
+        assert_eq!(json["state"]["settings"]["realm"], "auberean");
         let _ = std::fs::remove_dir_all(dir);
     }
 
