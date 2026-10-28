@@ -562,11 +562,15 @@ pub fn validate_walkable(
         t.collision_info.contact_plane_cell_id = cell_id;
         if t.sphere_path.step_down {
             let denom = t.sphere_path.step_down_amt * t.sphere_path.walk_interp;
-            let interp = (1.0 - (-1.0 / denom) * lift) * t.sphere_path.walk_interp;
-            if interp >= t.sphere_path.walk_interp || interp < WALK_INTERP_FLOOR_STEP {
-                return TransitionState::Collided;
+            // A world that guards a zero drop lowers the sphere without dividing by it.
+            let guarded = t.rules.step_down_guards_zero_drop && denom.abs() < EPSILON;
+            if !guarded {
+                let interp = (1.0 - (-1.0 / denom) * lift) * t.sphere_path.walk_interp;
+                if interp >= t.sphere_path.walk_interp || interp < WALK_INTERP_FLOOR_STEP {
+                    return TransitionState::Collided;
+                }
+                t.sphere_path.walk_interp = interp;
             }
-            t.sphere_path.walk_interp = interp;
         }
         t.sphere_path
             .add_offset_to_check_pos(Vec3::new(0.0, 0.0, -lift));
@@ -1353,7 +1357,55 @@ pub fn find_obj_collisions_geom(
     } else if missile_ignore {
         // Neither geometry arm runs; the result stays `OK_TS`.
         t.counters.objects_missile_ignored += 1;
-    } else if other_state.has_physics_bsp() {
+    } else {
+        r = object_geometry(
+            ctx,
+            t,
+            other_state,
+            other_geom,
+            other_scale,
+            other_pos,
+            candidate_is_missile_or_creature,
+        );
+    }
+
+    // 5. Record.
+    if r != TransitionState::Ok && !t.sphere_path.step_down {
+        if other_state.is_static() {
+            // A static that is hit reports as *environment* rather than as an object.
+            if !t.object_info.has(ObjectInfoState::CONTACT) {
+                t.collision_info.collided_with_environment = true;
+            }
+        } else if obstruction_ethereal
+            || (candidate_is_missile_or_creature
+                && t.object_info.has(ObjectInfoState::IGNORE_CREATURES))
+        {
+            r = TransitionState::Ok;
+            t.collision_info.collision_normal_valid = false;
+            t.collision_info.add_object(other, TransitionState::Ok);
+        } else {
+            t.collision_info.add_object(other, r);
+        }
+    }
+    t.sphere_path.obstruction_ethereal = false;
+    r
+}
+
+/// The geometry of one candidate object's test: every part's tree when the candidate has physics
+/// trees, else each of its cylinder spheres, else each of its spheres; the first result that is
+/// not OK wins. `creature` is handed to the sphere test (a creature is never stepped down onto).
+#[allow(clippy::too_many_arguments)]
+pub fn object_geometry(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    other_state: PhysicsState,
+    other_geom: ObjGeometry<'_>,
+    other_scale: f32,
+    other_pos: &dereth_primitives::Position,
+    creature: bool,
+) -> TransitionState {
+    let mut r = TransitionState::Ok;
+    if other_state.has_physics_bsp() {
         // Every part is tested in order; the first non-OK result wins. A
         // null part is stepped over; here an absent one simply ends the loop.
         if let ObjGeometry::Setup(g, frames) = other_geom {
@@ -1402,32 +1454,12 @@ pub fn find_obj_collisions_geom(
                 .add(other_pos.frame.origin)
                 .add(off);
             let obstacle = Sphere::new(center, s.radius * other_scale);
-            r = sphere_intersects_sphere(ctx, t, &obstacle, candidate_is_missile_or_creature);
+            r = sphere_intersects_sphere(ctx, t, &obstacle, creature);
             if r != TransitionState::Ok {
                 break;
             }
         }
     }
-
-    // 5. Record.
-    if r != TransitionState::Ok && !t.sphere_path.step_down {
-        if other_state.is_static() {
-            // A static that is hit reports as *environment* rather than as an object.
-            if !t.object_info.has(ObjectInfoState::CONTACT) {
-                t.collision_info.collided_with_environment = true;
-            }
-        } else if obstruction_ethereal
-            || (candidate_is_missile_or_creature
-                && t.object_info.has(ObjectInfoState::IGNORE_CREATURES))
-        {
-            r = TransitionState::Ok;
-            t.collision_info.collision_normal_valid = false;
-            t.collision_info.add_object(other, TransitionState::Ok);
-        } else {
-            t.collision_info.add_object(other, r);
-        }
-    }
-    t.sphere_path.obstruction_ethereal = false;
     r
 }
 
@@ -1447,6 +1479,20 @@ fn cylspheres(g: ObjGeometry<'_>) -> Option<&[crate::geom::CylSphere]> {
             }
         }
     }
+}
+
+/// A world's own test of one candidate object against the mover, in place of the built-in one: its
+/// rules for what passes through what, which geometry it tests ([`object_geometry`]) and how a hit
+/// is recorded. A world offers it through [`crate::LandSource::object_collisions`]; the walk over
+/// each cell's objects around it is unchanged.
+pub trait ObjectCollisions: Send + Sync {
+    /// Test `other` against the mover of `t`.
+    fn find_obj_collisions(
+        &self,
+        ctx: &TransitionCtx<'_>,
+        t: &mut Transition,
+        other: crate::arena::PhysHandle,
+    ) -> TransitionState;
 }
 
 /// Walk the cell's **shadow** list.
@@ -1485,6 +1531,14 @@ pub fn cell_find_obj_collisions(
         // neither spheres nor cylspheres falls through every branch and returns `OK_TS`, so a
         // candidate with no geometry still counts as tested rather than as a skip.
         t.counters.objects_tested += 1;
+        // A world with rules of its own for what is solid to what tests the candidate itself.
+        if let Some(own) = ctx.land.object_collisions() {
+            let r = own.find_obj_collisions(ctx, t, h);
+            if r != TransitionState::Ok {
+                return r;
+            }
+            continue;
+        }
         // The whole setup collision half, not just the spheres: object collision search chooses
         // between the parts' BSPs and the spheres, and only the geometry knows
         // which. Cloned because `ctx.objects` is borrowed immutably while `t` is borrowed mutably.

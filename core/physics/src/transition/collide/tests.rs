@@ -1296,3 +1296,50 @@ fn initial_placement_skips_the_object_pass_entirely() {
         TransitionState::Ok
     );
 }
+
+/// A transition stepping a sunken sphere down onto flat ground at `z = 0` with no drop left.
+fn stepping_down_with_no_drop(guard: bool) -> (Transition, Sphere, Plane) {
+    let mut t = Transition::default();
+    t.init();
+    t.set_rules(crate::transition::TransitionRules {
+        step_down_guards_zero_drop: guard,
+        ..crate::transition::TransitionRules::default()
+    });
+    let at = Position::new(
+        LandblockId::new(0xA9, 0xB4).cell(1),
+        Frame::new(Vec3::new(10.0, 10.0, 0.4), Quat::IDENTITY),
+    );
+    t.sphere_path.set_check_pos(&at, Some(at.cell));
+    t.sphere_path.step_down = true;
+    t.sphere_path.step_down_amt = 0.0;
+    t.sphere_path.walk_interp = 1.0;
+    let sphere = Sphere::new(Vec3::new(10.0, 10.0, 0.4), 0.5);
+    let plane = Plane {
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    (t, sphere, plane)
+}
+
+#[test]
+fn a_step_down_with_no_drop_left_is_refused_unless_the_rules_guard_it() {
+    let cell = LandblockId::new(0xA9, 0xB4).cell(1);
+    let (mut t, sphere, plane) = stepping_down_with_no_drop(false);
+    assert_eq!(
+        validate_walkable(&mut t, &sphere, &plane, false, 0.0, cell),
+        TransitionState::Collided,
+        "the drop divides as it is"
+    );
+    let (mut t, sphere, plane) = stepping_down_with_no_drop(true);
+    let before = t.sphere_path.check_pos.frame.origin;
+    assert_eq!(
+        validate_walkable(&mut t, &sphere, &plane, false, 0.0, cell),
+        TransitionState::Adjusted
+    );
+    assert_eq!(t.sphere_path.walk_interp, 1.0, "the interpolation is kept");
+    let after = t.sphere_path.check_pos.frame.origin;
+    assert!(
+        (after.z - before.z - 0.1).abs() < 1e-5,
+        "lifted onto the ground: {before:?} -> {after:?}"
+    );
+}

@@ -42,6 +42,10 @@ pub struct TransitionRules {
     /// position is measured between the two positions, across landblocks; when `false` it is the
     /// difference of the two sphere centers, each in its own landblock's frame.
     pub edge_slide_offset_across_blocks: bool,
+    /// A step down onto ground whose drop so far (the step-down amount times the interpolation
+    /// reached) is within 0.0002 of zero lowers the sphere without narrowing the interpolation;
+    /// when `false` the drop divides as it is, and a zero drop refuses the step.
+    pub step_down_guards_zero_drop: bool,
 }
 
 impl Default for TransitionRules {
@@ -55,6 +59,7 @@ impl Default for TransitionRules {
             retry_each_cell: true,
             recheck_landing_with_budget: true,
             edge_slide_offset_across_blocks: false,
+            step_down_guards_zero_drop: false,
         }
     }
 }

@@ -440,6 +440,14 @@ pub trait LandSource: Send + Sync {
     ) -> Option<Option<crate::cell::Cell>> {
         None
     }
+
+    /// The world's own test of one candidate object against a mover, for a world whose objects
+    /// decide what is solid to what by rules of their own; `None` for the built-in test.
+    ///
+    /// The default is `None`, as for [`Self::host_cell`].
+    fn object_collisions(&self) -> Option<&dyn crate::transition::collide::ObjectCollisions> {
+        None
+    }
 }
 
 /// A `LandSource` backed by an explicit map. Used by every test in the crate, and a perfectly

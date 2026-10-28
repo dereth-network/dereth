@@ -34,6 +34,7 @@ fn other_rules() -> TransitionRules {
         retry_each_cell: false,
         recheck_landing_with_budget: false,
         edge_slide_offset_across_blocks: true,
+        step_down_guards_zero_drop: true,
     }
 }
 
