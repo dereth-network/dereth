@@ -117,8 +117,7 @@ pub fn step_cyl_sphere_up(
         return TransitionState::Ok;
     }
     // Failure takes the same slide tail.
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
     t.sphere_path.step_up = false;
     let s0 = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];

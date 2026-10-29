@@ -17,7 +17,7 @@ use dereth_physics::transition::insert::{
 };
 use dereth_physics::transition::place::{scatter_sequence, scatter_sequence_from};
 use dereth_physics::transition::{
-    collide, ObjectInfoState, Transition, TransitionCtx, TransitionRules, TransitionState,
+    collide, ObjectInfoState, Transition, TransitionCtx, TransitionRules, TransitionState, Turning,
 };
 use dereth_physics::{LandblockCollision, PhysicsObj, PhysicsState, SetupGeometry, V3};
 use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
@@ -35,6 +35,8 @@ fn other_rules() -> TransitionRules {
         recheck_landing_with_budget: false,
         edge_slide_offset_across_blocks: true,
         step_down_guards_zero_drop: true,
+        placement_retries_other_cells: true,
+        turning: Turning::Plain,
     }
 }
 

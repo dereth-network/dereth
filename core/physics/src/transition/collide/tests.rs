@@ -1343,3 +1343,171 @@ fn a_step_down_with_no_drop_left_is_refused_unless_the_rules_guard_it() {
         "lifted onto the ground: {before:?} -> {after:?}"
     );
 }
+
+#[test]
+fn ground_found_on_the_land_is_marked_as_the_landscape() {
+    let (mut t, block) = transition_on_flat_ground(20.0);
+    let cell = Cell::Land {
+        id: LandblockId::new(0xA9, 0xB4).cell(1),
+        block: Arc::new(block),
+    };
+    assert_eq!(land_find_env_collisions(&mut t, &cell), TransitionState::Ok);
+    let ci = &t.collision_info;
+    assert!(ci.contact_plane_valid && ci.contact_plane_is_landscape);
+    assert!(!ci.contact_plane_is_environment);
+    // A plane from anything else is neither, and forgetting the plane forgets its kinds.
+    t.collision_info.set_contact_plane(ci.contact_plane, false);
+    assert!(!t.collision_info.contact_plane_is_landscape);
+    t.collision_info
+        .set_contact_plane_on(t.collision_info.contact_plane, false, true, true);
+    t.collision_info.clear_contact_plane();
+    let ci = &t.collision_info;
+    assert!(!ci.contact_plane_valid && !ci.contact_plane_is_landscape);
+    assert!(!ci.contact_plane_is_environment && !ci.contact_plane_is_water);
+}
+
+/// One interior cell at the origin whose physics tree is a floor at `z = 0`, and a transition whose
+/// sphere has stepped down into it.
+fn an_interior_with_a_floor() -> (Cell, Transition) {
+    use crate::geom::bsp::{BspNode, BspNodeKind, BspTree};
+    use crate::geom::polygon::Polygon;
+    let big = Sphere::new(Vec3::ZERO, 100.0);
+    let leaf = |leaf_index, solid, in_polys| BspNode {
+        sphere: big,
+        splitting_plane: Plane {
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            d: 1000.0,
+        },
+        pos_child: None,
+        neg_child: None,
+        kind: BspNodeKind::Leaf { leaf_index, solid },
+        in_polys,
+    };
+    let tree = BspTree {
+        nodes: vec![
+            BspNode {
+                sphere: big,
+                splitting_plane: Plane {
+                    normal: Vec3::new(0.0, 0.0, 1.0),
+                    d: 0.0,
+                },
+                pos_child: Some(1),
+                neg_child: Some(2),
+                kind: BspNodeKind::Node,
+                in_polys: vec![],
+            },
+            leaf(0, false, vec![]),
+            leaf(1, true, vec![0]),
+        ],
+        polygons: vec![Polygon::new(vec![
+            Vec3::new(-5.0, -5.0, 0.0),
+            Vec3::new(5.0, -5.0, 0.0),
+            Vec3::new(5.0, 5.0, 0.0),
+            Vec3::new(-5.0, 5.0, 0.0),
+        ])],
+    };
+    let id = CellId(0xA9B4_0100);
+    let cell = Cell::Env {
+        id,
+        geom: Arc::new(crate::source::EnvCellGeometry {
+            id,
+            frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
+            physics_bsp: Some(Arc::new(tree)),
+            ..crate::source::EnvCellGeometry::default()
+        }),
+    };
+    let mut t = Transition::default();
+    t.init();
+    t.sphere_path
+        .init_sphere(&[Sphere::new(Vec3::new(0.0, 0.0, 0.5), 0.5)], 1.0);
+    // Stepped down 0.3 m into the floor, as a step down probes.
+    let at = Position::new(id, Frame::new(Vec3::new(0.0, 0.0, -0.3), Quat::IDENTITY));
+    t.sphere_path.init_path(Some(id), Some(at), &at);
+    t.sphere_path.set_check_pos(&at, Some(id));
+    (cell, t)
+}
+
+#[test]
+fn a_floor_found_in_an_interior_cell_is_marked_as_the_environment() {
+    bare_ctx!(ctx);
+    let (cell, mut t) = an_interior_with_a_floor();
+    t.sphere_path.step_down = true;
+    t.sphere_path.step_down_amt = 1.0;
+    t.sphere_path.walkable_allowance = LANDING_Z;
+    assert_eq!(
+        env_find_env_collisions(&ctx, &mut t, &cell),
+        TransitionState::Adjusted
+    );
+    let ci = &t.collision_info;
+    assert!(ci.contact_plane_valid && ci.contact_plane_is_environment);
+    assert!(!ci.contact_plane_is_landscape && !ci.contact_plane_is_water);
+
+    // The same tree as an object's part marks nothing.
+    let Cell::Env { geom, .. } = &cell else {
+        unreachable!()
+    };
+    let tree = geom.physics_bsp.clone().expect("a tree");
+    let (_, mut t) = an_interior_with_a_floor();
+    t.sphere_path.step_down = true;
+    t.sphere_path.step_down_amt = 1.0;
+    t.sphere_path.walkable_allowance = LANDING_Z;
+    let pos = cell.pos();
+    t.sphere_path.cache_localspace_sphere(&pos, 1.0);
+    assert_eq!(
+        bsp_find_collisions(&ctx, &mut t, &tree, 1.0),
+        TransitionState::Adjusted
+    );
+    let ci = &t.collision_info;
+    assert!(ci.contact_plane_valid && !ci.contact_plane_is_environment);
+}
+
+#[test]
+fn a_restored_ground_keeps_being_the_landscape_but_never_the_environment() {
+    bare_ctx!(ctx);
+    let (mut t, _) = transition_on_flat_ground(20.0);
+    let ground = Plane {
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        d: -20.0,
+    };
+    t.init_contact_plane_on(t.sphere_path.check_pos.cell, ground, false, true, true);
+    t.collision_info.contact_plane_valid = false;
+    let r = crate::transition::insert::validate_transition(
+        &ctx,
+        &mut t,
+        TransitionState::Collided,
+        true,
+    );
+    assert_eq!(r, TransitionState::Ok);
+    let ci = &t.collision_info;
+    assert!(ci.contact_plane_valid, "the last known ground is restored");
+    assert!(ci.contact_plane_is_landscape && !ci.contact_plane_is_environment);
+    // And what is kept as the last known plane is what the restored one is.
+    assert!(ci.last_known_contact_plane_is_landscape);
+    assert!(!ci.last_known_contact_plane_is_environment);
+}
+
+#[test]
+fn each_insert_attempt_takes_the_next_number() {
+    let (land, _, cells) = flat_world();
+    let (objects, mover) = a_mover();
+    let ctx = TransitionCtx {
+        land: &land,
+        objects: &objects,
+        cells: &cells,
+        mover: Some(mover),
+        object_table: None,
+        entry_host: None,
+    };
+    // Sunk 0.2 m into the ground: the first attempt lifts the sphere, the second finds it clear.
+    let (mut t, _) = transition_on_flat_ground(19.8);
+    t.object_info.object = Some(mover);
+    // A world whose attempts ask the cell once each.
+    t.set_rules(crate::transition::TransitionRules {
+        retry_each_cell: false,
+        ..crate::transition::TransitionRules::default()
+    });
+    t.attempt = 7;
+    let r = crate::transition::insert::transitional_insert(&ctx, &mut t, 3);
+    assert_eq!(r, TransitionState::Ok);
+    assert_eq!(t.attempt, 9);
+}

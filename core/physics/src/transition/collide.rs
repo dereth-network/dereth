@@ -165,8 +165,7 @@ pub(super) fn steps_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3
     if super::walk::step_up(ctx, t, normal) {
         return true;
     }
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
     false
 }
 
@@ -197,8 +196,7 @@ pub fn step_sphere_up(
         TransitionState::Ok
     } else {
         // The sphere path's step-up slide.
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         t.sphere_path.step_up = false;
         let sphere = t.sphere_path.global_sphere[0];
         let curr = t.sphere_path.global_curr_center[0];
@@ -496,6 +494,9 @@ fn glide_on_ground(
 /// The whole test runs along **Z only** (`lift = d / N.z`), which is why terrain contact is
 /// resolved as a vertical push and never as a slide; sliding on terrain comes from `adjust_offset`
 /// projecting subsequent movement onto the resulting contact plane.
+///
+/// Only land cells ask it, so the contact plane it sets is the land's ground
+/// ([`super::CollisionInfo::contact_plane_is_landscape`]).
 #[allow(clippy::too_many_arguments)]
 pub fn validate_walkable(
     t: &mut Transition,
@@ -540,7 +541,8 @@ pub fn validate_walkable(
         }
         let walkable = t.rules.is_valid_walkable(plane.normal);
         if t.sphere_path.step_down || !t.object_info.has(ObjectInfoState::ON_WALKABLE) || walkable {
-            t.collision_info.set_contact_plane(*plane, is_water);
+            t.collision_info
+                .set_contact_plane_on(*plane, is_water, true, false);
             t.collision_info.contact_plane_cell_id = cell_id;
         }
         if !t.object_info.has(ObjectInfoState::CONTACT) && !t.sphere_path.step_down {
@@ -558,7 +560,8 @@ pub fn validate_walkable(
     let walkable = t.rules.is_valid_walkable(plane.normal);
     let mut result = TransitionState::Ok;
     if t.sphere_path.step_down || !t.object_info.has(ObjectInfoState::ON_WALKABLE) || walkable {
-        t.collision_info.set_contact_plane(*plane, is_water);
+        t.collision_info
+            .set_contact_plane_on(*plane, is_water, true, false);
         t.collision_info.contact_plane_cell_id = cell_id;
         if t.sphere_path.step_down {
             let denom = t.sphere_path.step_down_amt * t.sphere_path.walk_interp;
@@ -727,7 +730,8 @@ pub fn env_find_env_collisions(
     let result = if t.sphere_path.insert_type == InsertType::InitialPlacement {
         bsp_placement_insert(t, bsp)
     } else {
-        bsp_find_collisions(ctx, t, bsp, 1.0)
+        // A floor found here is the cell's own.
+        bsp_find_collisions_on(ctx, t, bsp, 1.0, true)
     };
     if result != TransitionState::Ok && !t.object_info.has(ObjectInfoState::CONTACT) {
         t.collision_info.collided_with_environment = true;
@@ -745,6 +749,19 @@ pub fn bsp_find_collisions(
     t: &mut Transition,
     tree: &crate::geom::BspTree,
     scale: f32,
+) -> TransitionState {
+    bsp_find_collisions_on(ctx, t, tree, scale, false)
+}
+
+/// [`bsp_find_collisions`], with whether the tree is an interior cell's own (`environment`): a
+/// contact plane found on it is then marked as one
+/// ([`super::CollisionInfo::contact_plane_is_environment`]).
+fn bsp_find_collisions_on(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    tree: &crate::geom::BspTree,
+    scale: f32,
+    environment: bool,
 ) -> TransitionState {
     let local = t.sphere_path.localspace_sphere[0];
     let center = t.sphere_path.localspace_curr_center[0];
@@ -778,7 +795,7 @@ pub fn bsp_find_collisions(
     }
 
     if t.sphere_path.step_down {
-        return bsp_step_sphere_down(t, tree, scale);
+        return bsp_step_sphere_down(t, tree, scale, environment);
     }
 
     if t.sphere_path.collide {
@@ -809,7 +826,8 @@ pub fn bsp_find_collisions(
             t.sphere_path.add_offset_to_check_pos(world_delta);
             let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
             contact.d *= scale;
-            t.collision_info.set_contact_plane(contact, false);
+            t.collision_info
+                .set_contact_plane_on(contact, false, false, environment);
             t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
             t.sphere_path.set_walkable(valid, poly, up, pos, scale);
             return TransitionState::Adjusted;
@@ -1071,8 +1089,7 @@ fn step_sphere_up_from_normal(
     t.sphere_path.step_up_normal = normal;
     // The sphere path's step-up slide, the same tail the sphere's own step-up takes when it
     // fails -- reached unconditionally here, see above.
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
     t.sphere_path.step_up = false;
     let sphere = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];
@@ -1085,6 +1102,7 @@ fn bsp_step_sphere_down(
     t: &mut Transition,
     tree: &crate::geom::BspTree,
     scale: f32,
+    environment: bool,
 ) -> TransitionState {
     let mut valid = t.sphere_path.localspace_sphere[0];
     let up = t.sphere_path.localspace_z;
@@ -1119,7 +1137,8 @@ fn bsp_step_sphere_down(
     t.sphere_path.add_offset_to_check_pos(world_delta);
     let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
     contact.d *= scale;
-    t.collision_info.set_contact_plane(contact, false);
+    t.collision_info
+        .set_contact_plane_on(contact, false, false, environment);
     t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
     t.sphere_path.set_walkable(valid, poly, up, pos, scale);
     TransitionState::Adjusted

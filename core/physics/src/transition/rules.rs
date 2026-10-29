@@ -7,7 +7,7 @@
 //! client's own choice of every one of them, so a transition that never sets its rules behaves
 //! exactly as it always has.
 
-use dereth_primitives::{CellId, Position, Vec3};
+use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::globals::{BLOCK_LENGTH, FLOOR_Z};
 
@@ -46,6 +46,45 @@ pub struct TransitionRules {
     /// reached) is within 0.0002 of zero lowers the sphere without narrowing the interpolation;
     /// when `false` the drop divides as it is, and a zero drop refuses the step.
     pub step_down_guards_zero_drop: bool,
+    /// A placement's insert asks the cell it is in and then the other cells, up to three times,
+    /// starting again after any adjustment (each time an attempt of its own); when `false` it asks
+    /// the cell up to three times and the others once, and an adjustment the others make is its
+    /// answer.
+    pub placement_retries_other_cells: bool,
+    /// How a move turns its sub-steps from the rotation it begins at to the one it ends at.
+    pub turning: Turning,
+}
+
+/// How a move's sub-steps turn from where it begins to where it ends, and how a rotation is set.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Turning {
+    /// The arc's weights in double precision, a straight blend within `0.0002` of no turn or when
+    /// a weight leaves 0 to 1 ([`crate::math::interpolate_rotation`]); a rotation that comes out
+    /// invalid leaves the frame's as it was ([`crate::math::set_rotate`]).
+    #[default]
+    Guarded,
+    /// The arc's weights in single precision, a straight blend within `0.001` of no turn
+    /// ([`crate::math::slerp_rotation_plain`]); a rotation is made unit length only when it has
+    /// some length ([`crate::math::set_rotate_plain`]).
+    Plain,
+}
+
+impl Turning {
+    /// Set `f`'s rotation to `q`.
+    pub fn set_rotate(self, f: &mut Frame, q: Quat) {
+        match self {
+            Self::Guarded => crate::math::set_rotate(f, q.w, q.x, q.y, q.z),
+            Self::Plain => crate::math::set_rotate_plain(f, q),
+        }
+    }
+
+    /// Set `out`'s rotation `t` of the way from `a`'s to `b`'s.
+    pub fn blend(self, out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
+        match self {
+            Self::Guarded => crate::math::interpolate_rotation(out, a, b, t),
+            Self::Plain => crate::math::slerp_rotation_plain(out, a, b, t),
+        }
+    }
 }
 
 impl Default for TransitionRules {
@@ -60,6 +99,8 @@ impl Default for TransitionRules {
             recheck_landing_with_budget: true,
             edge_slide_offset_across_blocks: false,
             step_down_guards_zero_drop: false,
+            placement_retries_other_cells: false,
+            turning: Turning::Guarded,
         }
     }
 }
@@ -122,6 +163,9 @@ mod tests {
         assert!(r.retry_each_cell);
         assert!(r.recheck_landing_with_budget);
         assert!(!r.edge_slide_offset_across_blocks);
+        assert!(!r.step_down_guards_zero_drop);
+        assert!(!r.placement_retries_other_cells);
+        assert_eq!(r.turning, Turning::Guarded);
     }
 
     #[test]
@@ -183,5 +227,31 @@ mod tests {
         assert!(TransitionRules::default().is_valid_walkable(n));
         assert!(!steeper.is_valid_walkable(n));
         assert!(steeper.is_valid_walkable(Vec3::new(0.0, 0.0, 0.700_91)));
+    }
+
+    #[test]
+    fn a_plain_turn_blends_straight_through_small_turns_and_keeps_a_rotation_of_no_length() {
+        let a = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        // A turn of 0.06 rad about z: 1 - cos(0.03) is between the two thresholds.
+        let (c, s) = (
+            dereth_primitives::num::math::cosf(0.03),
+            dereth_primitives::num::math::sinf(0.03),
+        );
+        let b = Frame::new(Vec3::ZERO, Quat::new(c, 0.0, 0.0, s));
+        let (mut guarded, mut plain) = (a, a);
+        Turning::Guarded.blend(&mut guarded, &a, &b, 0.25);
+        Turning::Plain.blend(&mut plain, &a, &b, 0.25);
+        // Straight: three quarters of the one and a quarter of the other, made unit length.
+        let (w, z) = (0.75 + 0.25 * c, 0.25 * s);
+        let k = 1.0 / (z * z + w * w).sqrt();
+        assert_eq!((plain.rotation.w, plain.rotation.z), (k * w, k * z));
+        assert!((guarded.rotation.z - plain.rotation.z).abs() > 1e-8);
+
+        let zero = Quat::new(0.0, 0.0, 0.0, 0.0);
+        let (mut g, mut p) = (b, b);
+        Turning::Guarded.set_rotate(&mut g, zero);
+        Turning::Plain.set_rotate(&mut p, zero);
+        assert_eq!(g.rotation, b.rotation, "an invalid rotation is refused");
+        assert_eq!(p.rotation, zero, "kept as it is");
     }
 }

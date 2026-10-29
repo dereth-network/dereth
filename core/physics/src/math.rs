@@ -93,6 +93,45 @@ pub fn interpolate_rotation(out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
     );
 }
 
+/// Set a frame's rotation, made unit length only when its squared length exceeds `0.0002²`; a
+/// rotation of no length is kept as it is.
+pub fn set_rotate_plain(f: &mut Frame, q: Quat) {
+    let n2 = q.z * q.z + q.y * q.y + q.x * q.x + q.w * q.w;
+    f.rotation = if n2 > EPSILON * EPSILON {
+        let k = 1.0 / n2.sqrt();
+        Quat::new(k * q.w, k * q.x, k * q.y, k * q.z)
+    } else {
+        q
+    };
+}
+
+/// Slerp along the shorter arc in single precision, with a straight blend when `1 - |dot|` is at
+/// most `0.001`; the result set by [`set_rotate_plain`].
+pub fn slerp_rotation_plain(out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
+    let (p, mut q) = (a.rotation, b.rotation);
+    let mut cos = p.x * q.x + p.y * q.y + p.z * q.z + p.w * q.w;
+    if cos < 0.0 {
+        cos = -cos;
+        q = Quat::new(-q.w, -q.x, -q.y, -q.z);
+    }
+    let (wa, wb) = if 1.0 - cos > 0.001 {
+        let theta = math::acosf(cos);
+        let s = math::sinf(theta);
+        (math::sinf((1.0 - t) * theta) / s, math::sinf(t * theta) / s)
+    } else {
+        (1.0 - t, t)
+    };
+    set_rotate_plain(
+        out,
+        Quat::new(
+            wa * p.w + wb * q.w,
+            wa * p.x + wb * q.x,
+            wa * p.y + wb * q.y,
+            wa * p.z + wb * q.z,
+        ),
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Position
 // ---------------------------------------------------------------------------------------------

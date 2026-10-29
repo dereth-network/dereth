@@ -11,7 +11,7 @@ use crate::globals::{ATTEMPTS_NORMAL, EPSILON_SQ, LANDING_Z};
 use crate::math::{self, V3};
 use crate::obj::PhysicsState;
 use crate::transition::insert::{
-    adjust_offset, insert_into_cell, transitional_insert, validate_placement,
+    adjust_offset, placement_insert, transitional_insert, validate_placement,
     validate_placement_transition,
 };
 use crate::transition::spherepath::InsertType;
@@ -28,22 +28,7 @@ pub fn find_placement_position(
     t.sphere_path.cache_global_sphere(None);
     t.sphere_path.insert_type = InsertType::InitialPlacement;
 
-    let resolver = ctx.resolver();
-    let r = match t
-        .sphere_path
-        .check_cell
-        .and_then(|id| resolver.get_visible(id))
-    {
-        None => TransitionState::Collided,
-        Some(cell) => {
-            let first = insert_into_cell(ctx, t, &cell, ATTEMPTS_NORMAL);
-            if first == TransitionState::Ok {
-                crate::transition::insert::check_other_cells(ctx, t, Some(&cell))
-            } else {
-                first
-            }
-        }
-    };
+    let r = placement_insert(ctx, t);
     if validate_placement(ctx, t, r, true) != TransitionState::Ok {
         return false;
     }
@@ -72,8 +57,7 @@ pub fn find_placement_position(
         };
         if !ok {
             t.sphere_path.restore_check_pos();
-            t.collision_info.contact_plane_valid = false;
-            t.collision_info.contact_plane_is_water = false;
+            t.collision_info.clear_contact_plane();
         }
         t.sphere_path.insert_type = backup;
         t.sphere_path.walkable = None;
@@ -157,8 +141,7 @@ pub fn find_placement_pos(ctx: &TransitionCtx<'_>, t: &mut Transition) -> bool {
     t.sphere_path.check_cell = t.sphere_path.curr_cell;
     t.sphere_path.cache_global_sphere(None);
     t.collision_info.sliding_normal_valid = false;
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
 
     let first = transitional_insert(ctx, t, ATTEMPTS_NORMAL);
     if validate_placement_transition(t, first) == TransitionState::Ok {
@@ -186,8 +169,7 @@ pub fn find_placement_pos(ctx: &TransitionCtx<'_>, t: &mut Transition) -> bool {
         t.sphere_path.check_pos.frame.origin = t.sphere_path.check_pos.frame.origin.add(offset);
         t.sphere_path.cache_global_sphere(Some(offset));
         t.collision_info.sliding_normal_valid = false;
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         let r = transitional_insert(ctx, t, ATTEMPTS_NORMAL);
         if validate_placement_transition(t, r) == TransitionState::Ok {
             return true;

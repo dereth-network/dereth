@@ -24,7 +24,7 @@ pub mod spherepath;
 pub mod walk;
 
 pub use objectinfo::{ObjectInfo, ObjectInfoState};
-pub use rules::TransitionRules;
+pub use rules::{TransitionRules, Turning};
 pub use spherepath::{InsertType, SpherePath};
 
 use dereth_primitives::{CellId, ObjectId, Vec3};
@@ -61,12 +61,27 @@ pub struct CollisionInfo {
     pub last_known_contact_plane_valid: bool,
     pub last_known_contact_plane: Plane,
     pub last_known_contact_plane_is_water: bool,
+    /// Whether the last known contact plane was the land's own ground; see
+    /// [`Self::contact_plane_is_landscape`].
+    pub last_known_contact_plane_is_landscape: bool,
+    /// Whether the last known contact plane was an interior cell's own floor or wall; see
+    /// [`Self::contact_plane_is_environment`]. Kept, but a contact plane restored from it is never
+    /// marked as one.
+    pub last_known_contact_plane_is_environment: bool,
     pub last_known_contact_plane_cell_id: CellId,
 
     pub contact_plane_valid: bool,
     pub contact_plane: Plane,
     pub contact_plane_cell_id: CellId,
     pub contact_plane_is_water: bool,
+    /// Whether the contact plane is the land's own ground (a land cell's terrain). Recorded for a
+    /// world whose bodies tell standing on the land from standing on something else; nothing in the
+    /// transition reads it. Meaningful while [`Self::contact_plane_valid`] holds.
+    pub contact_plane_is_landscape: bool,
+    /// Whether the contact plane is an interior cell's own floor or wall. As
+    /// [`Self::contact_plane_is_landscape`], recorded and not read here. A plane from an object,
+    /// a building's parts included, is neither.
+    pub contact_plane_is_environment: bool,
 
     pub sliding_normal_valid: bool,
     pub sliding_normal: Vec3,
@@ -128,10 +143,35 @@ impl CollisionInfo {
     ///
     /// The visible consequence the client accepts is that a body standing on another object's
     /// sphere reports `WATER_CONTACT_TS`. That is reproduced here rather than resolved.
+    ///
+    /// The plane is neither the land's ground nor an interior's own surface: see
+    /// [`Self::set_contact_plane_on`].
     pub fn set_contact_plane(&mut self, plane: Plane, is_water: bool) {
+        self.set_contact_plane_on(plane, is_water, false, false);
+    }
+
+    /// Set the contact plane, recording whether it is the land's own ground (`is_landscape`) or an
+    /// interior cell's own surface (`is_environment`).
+    pub fn set_contact_plane_on(
+        &mut self,
+        plane: Plane,
+        is_water: bool,
+        is_landscape: bool,
+        is_environment: bool,
+    ) {
         self.contact_plane = plane;
         self.contact_plane_valid = true;
         self.contact_plane_is_water = is_water;
+        self.contact_plane_is_landscape = is_landscape;
+        self.contact_plane_is_environment = is_environment;
+    }
+
+    /// Forget the contact plane: it is no longer valid, and none of its kinds holds.
+    pub fn clear_contact_plane(&mut self) {
+        self.contact_plane_valid = false;
+        self.contact_plane_is_water = false;
+        self.contact_plane_is_landscape = false;
+        self.contact_plane_is_environment = false;
     }
 
     /// Set the collision normal.
@@ -271,6 +311,11 @@ pub struct Transition {
     /// How the world this transition runs in tunes it. Kept by [`Self::init`]: set them with
     /// [`Self::set_rules`].
     pub rules: TransitionRules,
+    /// Counts the insert attempts this transition has begun, each attempt of a transitional or a
+    /// placement insert taking the next number; never reset. Nothing here reads it: a world that
+    /// tests each object it meets once an attempt, rather than once for each cell the object is
+    /// in, keeps the number it tested an object at and passes the object over while it holds.
+    pub attempt: u64,
 }
 
 impl Transition {
@@ -338,14 +383,27 @@ impl Transition {
     /// Seeds **both** the contact plane and the
     /// last-known contact plane.
     pub fn init_contact_plane(&mut self, cell_id: CellId, plane: Plane, is_water: bool) {
+        self.init_contact_plane_on(cell_id, plane, is_water, false, false);
+    }
+
+    /// [`Self::init_contact_plane`], recording what the plane lies on as well (see
+    /// [`CollisionInfo::set_contact_plane_on`]), in both slots.
+    pub fn init_contact_plane_on(
+        &mut self,
+        cell_id: CellId,
+        plane: Plane,
+        is_water: bool,
+        is_landscape: bool,
+        is_environment: bool,
+    ) {
         let ci = &mut self.collision_info;
-        ci.contact_plane = plane;
-        ci.contact_plane_valid = true;
-        ci.contact_plane_is_water = is_water;
+        ci.set_contact_plane_on(plane, is_water, is_landscape, is_environment);
         ci.contact_plane_cell_id = cell_id;
         ci.last_known_contact_plane = plane;
         ci.last_known_contact_plane_valid = true;
         ci.last_known_contact_plane_is_water = is_water;
+        ci.last_known_contact_plane_is_landscape = is_landscape;
+        ci.last_known_contact_plane_is_environment = is_environment;
         ci.last_known_contact_plane_cell_id = cell_id;
     }
 

@@ -448,6 +448,16 @@ pub trait LandSource: Send + Sync {
     fn object_collisions(&self) -> Option<&dyn crate::transition::collide::ObjectCollisions> {
         None
     }
+
+    /// Brings a position outside into the land cell its point falls in, the point carried into
+    /// that cell's landblock frame; `false`, with the id zeroed, off the map. A transition that
+    /// has left every cell it knew falls out into the land here.
+    ///
+    /// The default is this crate's own land cells ([`crate::landdefs::adjust_to_outside`]); a
+    /// world whose land cells are another size answers with its own.
+    fn adjust_to_outside(&self, id: &mut CellId, origin: &mut Vec3) -> bool {
+        crate::landdefs::adjust_to_outside(id, origin)
+    }
 }
 
 /// A `LandSource` backed by an explicit map. Used by every test in the crate, and a perfectly

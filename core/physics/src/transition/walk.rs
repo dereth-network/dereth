@@ -17,8 +17,7 @@ use crate::transition::{Transition, TransitionCtx, TransitionState};
 
 /// The transition's step up.
 pub fn step_up(ctx: &TransitionCtx<'_>, t: &mut Transition, normal: Vec3) -> bool {
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
     t.sphere_path.step_up = true;
     t.sphere_path.step_up_normal = normal;
 
@@ -193,8 +192,7 @@ pub fn edge_slide(
         // Just walk off the edge.
         t.sphere_path.walkable = None;
         t.sphere_path.restore_check_pos();
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         t.sphere_path.cell_array_valid = true;
         *state = TransitionState::Ok;
         return true;
@@ -206,15 +204,13 @@ pub fn edge_slide(
         t.sphere_path.restore_check_pos();
         let plane = t.collision_info.contact_plane;
         *state = cliff_slide(t, &plane);
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         return false;
     }
 
     if t.sphere_path.walkable.is_some() {
         t.sphere_path.restore_check_pos();
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         *state = precipice_slide(t);
         return *state == TransitionState::Collided;
     }
@@ -230,16 +226,14 @@ pub fn edge_slide(
         };
         t.sphere_path.add_offset_to_check_pos(offset);
         step_down(ctx, t, amt, allowance);
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         t.sphere_path.restore_check_pos();
         if t.sphere_path.walkable.is_none() {
             *state = TransitionState::Collided;
             t.sphere_path.cell_array_valid = true;
             return true;
         }
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         let wp = t.sphere_path.walkable_pos;
         let scale = t.sphere_path.walkable_scale;
         t.sphere_path.cache_localspace_sphere(&wp, scale);
@@ -252,8 +246,7 @@ pub fn edge_slide(
     t.sphere_path.walkable = None;
     t.sphere_path.restore_check_pos();
     t.sphere_path.cell_array_valid = true;
-    t.collision_info.contact_plane_valid = false;
-    t.collision_info.contact_plane_is_water = false;
+    t.collision_info.clear_contact_plane();
     *state = TransitionState::Ok;
     true
 }

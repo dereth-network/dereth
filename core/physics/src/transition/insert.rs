@@ -131,8 +131,7 @@ pub fn insert_into_cell(
         match result {
             TransitionState::Ok | TransitionState::Collided => return result,
             TransitionState::Slid => {
-                t.collision_info.contact_plane_valid = false;
-                t.collision_info.contact_plane_is_water = false;
+                t.collision_info.clear_contact_plane();
             }
             _ => {}
         }
@@ -172,8 +171,7 @@ pub fn check_other_cells(
         match r {
             TransitionState::Collided | TransitionState::Adjusted => return r,
             TransitionState::Slid => {
-                t.collision_info.contact_plane_valid = false;
-                t.collision_info.contact_plane_is_water = false;
+                t.collision_info.clear_contact_plane();
                 return r;
             }
             _ => {}
@@ -188,12 +186,12 @@ pub fn check_other_cells(
     if t.sphere_path.step_down {
         return TransitionState::Collided;
     }
-    // We left every known cell: try to fall out into the open.
+    // We left every known cell: try to fall out into the open, into the world's own land cells.
     let mut tmp = t.sphere_path.check_pos;
     if landdefs::is_outdoors(tmp.cell) {
         let mut id = tmp.cell;
         let mut o = tmp.frame.origin;
-        landdefs::adjust_to_outside(&mut id, &mut o);
+        ctx.land.adjust_to_outside(&mut id, &mut o);
         tmp.cell = id;
         tmp.frame.origin = o;
     }
@@ -225,6 +223,7 @@ pub fn transitional_insert(
     let mut result = TransitionState::Invalid;
 
     for _ in 0..attempts {
+        t.attempt += 1;
         let Some(cell) = resolver.get_visible(check_cell_id) else {
             return TransitionState::Ok;
         };
@@ -249,8 +248,7 @@ pub fn transitional_insert(
                 return TransitionState::Collided;
             }
             TransitionState::Slid => {
-                t.collision_info.contact_plane_valid = false;
-                t.collision_info.contact_plane_is_water = false;
+                t.collision_info.clear_contact_plane();
                 t.sphere_path.neg_poly_hit = false;
             }
             TransitionState::Adjusted => {
@@ -288,8 +286,7 @@ pub fn transitional_insert(
                 return TransitionState::Ok;
             }
             t.sphere_path.restore_check_pos();
-            t.collision_info.contact_plane_valid = false;
-            t.collision_info.contact_plane_is_water = false;
+            t.collision_info.clear_contact_plane();
             if !t.collision_info.last_known_contact_plane_valid {
                 let n = t.sphere_path.step_up_normal;
                 t.collision_info.set_collision_normal(n);
@@ -305,8 +302,7 @@ pub fn transitional_insert(
             if t.sphere_path.neg_step_up {
                 let n = t.sphere_path.neg_collision_normal;
                 if !super::walk::step_up(ctx, t, n) {
-                    t.collision_info.contact_plane_valid = false;
-                    t.collision_info.contact_plane_is_water = false;
+                    t.collision_info.clear_contact_plane();
                     t.sphere_path.step_up = false;
                     let sphere = t.sphere_path.global_sphere[0];
                     let curr = t.sphere_path.global_curr_center[0];
@@ -427,7 +423,10 @@ pub fn validate_transition(
                 let d = lk.dot_point(t.sphere_path.global_curr_center[0]);
                 if d.abs() < t.sphere_path.global_sphere[0].radius + EPSILON {
                     let water = t.collision_info.last_known_contact_plane_is_water;
-                    t.collision_info.set_contact_plane(lk, water);
+                    // Restored as the land's ground when it was; never as an interior's own.
+                    let land = t.collision_info.last_known_contact_plane_is_landscape;
+                    t.collision_info
+                        .set_contact_plane_on(lk, water, land, false);
                     t.collision_info.contact_plane_cell_id =
                         t.collision_info.last_known_contact_plane_cell_id;
                     if t.object_info.has(ObjectInfoState::ON_WALKABLE) {
@@ -501,8 +500,7 @@ pub fn validate_transition(
     // A mover that slides along what it meets stands on nothing: the ground a step up found under
     // it is left with the step, so nothing after holds it to that ground or pulls it down.
     if t.object_info.slides {
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
     }
 
     t.collision_info.last_known_contact_plane_valid = t.collision_info.contact_plane_valid;
@@ -511,6 +509,10 @@ pub fn validate_transition(
         t.collision_info.last_known_contact_plane_cell_id = t.collision_info.contact_plane_cell_id;
         t.collision_info.last_known_contact_plane_is_water =
             t.collision_info.contact_plane_is_water;
+        t.collision_info.last_known_contact_plane_is_landscape =
+            t.collision_info.contact_plane_is_landscape;
+        t.collision_info.last_known_contact_plane_is_environment =
+            t.collision_info.contact_plane_is_environment;
     }
 
     if t.collision_info.contact_plane_valid {
@@ -555,7 +557,7 @@ pub fn find_transitional_position(
     if t.object_info.has(ObjectInfoState::FREE_ROTATE) {
         let q = t.sphere_path.end_pos.frame.rotation;
         let mut f = t.sphere_path.curr_pos.frame;
-        math::set_rotate(&mut f, q.w, q.x, q.y, q.z);
+        t.rules.turning.set_rotate(&mut f, q);
         t.sphere_path.curr_pos.frame = f;
     }
 
@@ -568,7 +570,7 @@ pub fn find_transitional_position(
         if !t.object_info.has(ObjectInfoState::FREE_ROTATE) {
             let q = t.sphere_path.end_pos.frame.rotation;
             let mut f = t.sphere_path.curr_pos.frame;
-            math::set_rotate(&mut f, q.w, q.x, q.y, q.z);
+            t.rules.turning.set_rotate(&mut f, q);
             t.sphere_path.curr_pos.frame = f;
         }
         let (pos, cell) = (t.sphere_path.curr_pos, t.sphere_path.curr_cell);
@@ -604,14 +606,15 @@ pub fn find_transitional_position(
                 let frac = (i + 1) as f32 / num_steps as f32;
                 let end = t.sphere_path.end_pos;
                 let mut f = t.sphere_path.check_pos.frame;
-                math::interpolate_rotation(&mut f, &begin.frame, &end.frame, frac);
+                t.rules
+                    .turning
+                    .blend(&mut f, &begin.frame, &end.frame, frac);
                 t.sphere_path.check_pos.frame = f;
             }
         }
 
         t.collision_info.sliding_normal_valid = false;
-        t.collision_info.contact_plane_valid = false;
-        t.collision_info.contact_plane_is_water = false;
+        t.collision_info.clear_contact_plane();
         t.collision_info.slid_along = None;
 
         if t.sphere_path.insert_type == InsertType::Transition {
@@ -690,8 +693,13 @@ pub fn validate_placement(
     state
 }
 
-/// `insert_into_cell(3)` then `check_other_cells`.
+/// `insert_into_cell(3)` then `check_other_cells`; in a world whose placements retry the other
+/// cells too ([`super::TransitionRules::placement_retries_other_cells`]), the two together, up to three
+/// times.
 pub fn placement_insert(ctx: &TransitionCtx<'_>, t: &mut Transition) -> TransitionState {
+    if t.rules.placement_retries_other_cells {
+        return placement_insert_retrying(ctx, t);
+    }
     let Some(id) = t.sphere_path.check_cell else {
         return TransitionState::Collided;
     };
@@ -704,6 +712,40 @@ pub fn placement_insert(ctx: &TransitionCtx<'_>, t: &mut Transition) -> Transiti
         return r;
     }
     check_other_cells(ctx, t, Some(&cell))
+}
+
+/// The cell the check position is in and then the others, each attempt from the start, until the
+/// others are clear or something collides: an adjustment by either starts the next attempt (a
+/// slide forgetting the contact plane first), and the last attempt's answer stands.
+fn placement_insert_retrying(ctx: &TransitionCtx<'_>, t: &mut Transition) -> TransitionState {
+    if t.sphere_path.check_cell.is_none() {
+        return TransitionState::Collided;
+    }
+    let mut result = TransitionState::Invalid;
+    for _ in 0..ATTEMPTS_NORMAL {
+        t.attempt += 1;
+        // The other cells may have moved the check position into another cell.
+        let Some(cell) = t
+            .sphere_path
+            .check_cell
+            .and_then(|id| ctx.resolver().get_visible(id))
+        else {
+            return TransitionState::Collided;
+        };
+        result = collide::cell_find_collisions(ctx, t, &cell);
+        match result {
+            TransitionState::Ok => {
+                result = check_other_cells(ctx, t, Some(&cell));
+                if matches!(result, TransitionState::Ok | TransitionState::Collided) {
+                    return result;
+                }
+            }
+            TransitionState::Collided => return result,
+            TransitionState::Slid => t.collision_info.clear_contact_plane(),
+            TransitionState::Adjusted | TransitionState::Invalid => {}
+        }
+    }
+    result
 }
 
 /// The valid-position search.
@@ -1012,5 +1054,180 @@ mod tests {
             ));
         }
         assert_eq!(seen, vec![(1, false), (2, false), (3, true)]);
+    }
+
+    /// Land whose cells are a quarter of a block: 48 m across.
+    struct QuarterCells(crate::StaticLandSource);
+
+    impl crate::source::LandSource for QuarterCells {
+        fn landblock(
+            &self,
+            id: dereth_primitives::LandblockId,
+        ) -> Option<std::sync::Arc<crate::LandblockCollision>> {
+            self.0.landblock(id)
+        }
+        fn height_table(&self) -> &[f32; crate::globals::LAND_HEIGHT_TABLE_LEN] {
+            self.0.height_table()
+        }
+        fn env_cell(&self, cell: CellId) -> Option<std::sync::Arc<crate::source::EnvCellGeometry>> {
+            self.0.env_cell(cell)
+        }
+        fn adjust_to_outside(&self, id: &mut CellId, origin: &mut Vec3) -> bool {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let (cx, cy) = ((origin.x / 48.0) as u32, (origin.y / 48.0) as u32);
+            *id = CellId((id.0 & 0xFFFF_0000) | (cx * 4 + cy + 1));
+            true
+        }
+    }
+
+    #[test]
+    fn a_transition_that_leaves_every_cell_falls_out_into_the_worlds_own_land_cells() {
+        let land = QuarterCells(crate::StaticLandSource::linear());
+        let objects = crate::arena::Arena::new();
+        let cells = std::collections::BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &land,
+            objects: &objects,
+            cells: &cells,
+            mover: None,
+            object_table: None,
+            entry_host: None,
+        };
+        let mut t = transition_moving(
+            0.5,
+            Vec3::new(100.0, 60.0, 20.0),
+            Vec3::new(101.0, 60.0, 20.0),
+        );
+        // No block is resident, so no cell holds the sphere.
+        assert_eq!(check_other_cells(&ctx, &mut t, None), TransitionState::Ok);
+        assert_eq!(t.sphere_path.check_pos.cell, CellId(0xA9B4_000A));
+        assert_eq!(t.sphere_path.check_cell, None);
+    }
+
+    /// Ground at `z` across a cell of the world's own.
+    #[derive(Debug)]
+    struct Ground(f32);
+
+    impl crate::cell::HostCell for Ground {
+        fn pos(&self, id: CellId) -> Position {
+            Position::new(id, Frame::new(Vec3::ZERO, Quat::IDENTITY))
+        }
+        fn point_in_cell(&self, _local: Vec3) -> bool {
+            true
+        }
+        fn find_env_collisions(
+            &self,
+            _ctx: &TransitionCtx<'_>,
+            t: &mut Transition,
+        ) -> TransitionState {
+            let ground = Plane {
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                d: -self.0,
+            };
+            let s = t.sphere_path.global_sphere[0];
+            let id = t.sphere_path.check_pos.cell;
+            collide::validate_walkable(t, &s, &ground, false, 0.0, id)
+        }
+    }
+
+    /// Two cells of the world's own: the one the sphere is in, its ground at 0, and one beside it
+    /// whose ground is 0.1 m higher.
+    struct TwoGrounds(crate::StaticLandSource);
+
+    const LOW: CellId = CellId(0xA9B4_0001);
+    const HIGH: CellId = CellId(0xA9B4_0002);
+
+    impl crate::source::LandSource for TwoGrounds {
+        fn landblock(
+            &self,
+            _id: dereth_primitives::LandblockId,
+        ) -> Option<std::sync::Arc<crate::LandblockCollision>> {
+            None
+        }
+        fn height_table(&self) -> &[f32; crate::globals::LAND_HEIGHT_TABLE_LEN] {
+            self.0.height_table()
+        }
+        fn env_cell(
+            &self,
+            _cell: CellId,
+        ) -> Option<std::sync::Arc<crate::source::EnvCellGeometry>> {
+            None
+        }
+        fn host_cell(&self, id: CellId) -> Option<std::sync::Arc<dyn crate::cell::HostCell>> {
+            match id {
+                LOW => Some(std::sync::Arc::new(Ground(0.0))),
+                HIGH => Some(std::sync::Arc::new(Ground(0.1))),
+                _ => None,
+            }
+        }
+        fn host_cell_list(
+            &self,
+            _pos: &Position,
+            _spheres: &[Sphere],
+            arr: &mut CellArray,
+            want_container: bool,
+            _hits_interior_cell: &mut bool,
+        ) -> Option<Option<Cell>> {
+            arr.cells.clear();
+            for id in [LOW, HIGH] {
+                arr.cells.push(crate::cell::CellInfo {
+                    cell_id: id,
+                    cell: self.host_cell(id).map(|cell| Cell::Host { id, cell }),
+                });
+            }
+            Some(want_container.then(|| Cell::Host {
+                id: LOW,
+                cell: std::sync::Arc::new(Ground(0.0)),
+            }))
+        }
+    }
+
+    /// A placement into the low cell, the sphere's foot 5 cm above its ground and so 5 cm into
+    /// the high cell's: the low cell is clear, the high one lifts the sphere.
+    fn placing_between_two_grounds(retry: bool) -> (TransitionState, Transition) {
+        let land = TwoGrounds(crate::StaticLandSource::linear());
+        let mut objects = crate::arena::Arena::new();
+        let mover = objects.insert(crate::obj::PhysicsObj::new(
+            dereth_primitives::ObjectId(1),
+            std::sync::Arc::new(crate::source::SetupGeometry::dummy()),
+            0.0,
+            true,
+        ));
+        let cells = std::collections::BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &land,
+            objects: &objects,
+            cells: &cells,
+            mover: Some(mover),
+            object_table: None,
+            entry_host: None,
+        };
+        let mut t = Transition::default();
+        t.set_rules(super::super::TransitionRules {
+            placement_retries_other_cells: retry,
+            ..super::super::TransitionRules::default()
+        });
+        t.object_info.object = Some(mover);
+        t.sphere_path
+            .init_sphere(&[Sphere::new(Vec3::new(0.0, 0.0, 0.5), 0.5)], 1.0);
+        let at = Position::new(LOW, Frame::new(Vec3::new(10.0, 10.0, 0.05), Quat::IDENTITY));
+        t.sphere_path.init_path(Some(LOW), None, &at);
+        t.sphere_path.set_check_pos(&at, Some(LOW));
+        t.sphere_path.insert_type = InsertType::Placement;
+        let r = placement_insert(&ctx, &mut t);
+        (r, t)
+    }
+
+    #[test]
+    fn a_placement_that_retries_the_other_cells_settles_where_they_moved_it() {
+        // Asked once, the high cell's lift is the answer.
+        let (r, t) = placing_between_two_grounds(false);
+        assert_eq!(r, TransitionState::Adjusted);
+        assert_eq!(t.attempt, 0);
+        // Retried, the next attempt finds both cells clear of the lifted sphere.
+        let (r, t) = placing_between_two_grounds(true);
+        assert_eq!(r, TransitionState::Ok);
+        assert_eq!(t.attempt, 2);
+        assert!((t.sphere_path.check_pos.frame.origin.z - 0.1).abs() < 1e-4);
     }
 }
