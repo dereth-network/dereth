@@ -5,7 +5,7 @@
 //! `max_dist` is 2.0**; that asymmetry is the client's and it changes how densely a small object
 //! samples.
 
-use dereth_primitives::Frame;
+use dereth_primitives::{Frame, Vec3};
 
 use crate::globals::{ATTEMPTS_NORMAL, EPSILON_SQ, LANDING_Z};
 use crate::math::{self, V3};
@@ -16,6 +16,10 @@ use crate::transition::insert::{
 };
 use crate::transition::spherepath::InsertType;
 use crate::transition::{Transition, TransitionCtx, TransitionState};
+
+/// How far above where it was asked a placement is tried again before the scatter, in worlds that
+/// do ([`crate::transition::TransitionRules::placement_lifts_before_scatter`]).
+pub const PLACEMENT_LIFT: f32 = 0.1;
 
 /// The placement-position search.
 pub fn find_placement_position(
@@ -84,6 +88,13 @@ pub fn scatter_sequence(radius: f32) -> Vec<ScatterSample> {
 /// The scatter sequence for a world whose smallest scatter radius is `floor`.
 #[must_use]
 pub fn scatter_sequence_from(radius: f32, floor: f32) -> Vec<ScatterSample> {
+    scatter_sequence_by(radius, floor, 1.0)
+}
+
+/// The scatter sequence for a world whose smallest scatter radius is `floor` and whose rings are
+/// counted by `ring_fraction` of the radius.
+#[must_use]
+pub fn scatter_sequence_by(radius: f32, floor: f32, ring_fraction: f32) -> Vec<ScatterSample> {
     let mut r = radius;
     let mut max_dist = 4.0_f32;
     let mut small = false;
@@ -95,7 +106,7 @@ pub fn scatter_sequence_from(radius: f32, floor: f32) -> Vec<ScatterSample> {
     }
 
     // Note: always 4.0, even when max_dist is 2.0.
-    let mut n = 4.0 / r;
+    let mut n = 4.0 / (ring_fraction * r);
     if small {
         n *= 0.5;
     }
@@ -150,9 +161,22 @@ pub fn find_placement_pos(ctx: &TransitionCtx<'_>, t: &mut Transition) -> bool {
     if !t.sphere_path.placement_allows_sliding {
         return false;
     }
+    if t.rules.placement_lifts_before_scatter {
+        let (at, cell) = (t.sphere_path.curr_pos, t.sphere_path.curr_cell);
+        t.sphere_path.set_check_pos(&at, cell);
+        t.sphere_path
+            .add_offset_to_check_pos(Vec3::new(0.0, 0.0, PLACEMENT_LIFT));
+        t.collision_info.sliding_normal_valid = false;
+        t.collision_info.clear_contact_plane();
+        let r = transitional_insert(ctx, t, ATTEMPTS_NORMAL);
+        if validate_placement_transition(t, r) == TransitionState::Ok {
+            return true;
+        }
+    }
 
     let floor = t.rules.placement_radius_floor;
-    for sample in scatter_sequence_from(t.sphere_path.local_sphere[0].radius, floor) {
+    let fraction = t.rules.placement_ring_fraction;
+    for sample in scatter_sequence_by(t.sphere_path.local_sphere[0].radius, floor, fraction) {
         t.sphere_path.check_pos = t.sphere_path.curr_pos;
         t.sphere_path.check_cell = t.sphere_path.curr_cell;
         t.sphere_path.cache_global_sphere(None);

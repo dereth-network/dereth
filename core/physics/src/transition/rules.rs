@@ -53,6 +53,12 @@ pub struct TransitionRules {
     pub placement_retries_other_cells: bool,
     /// How a move turns its sub-steps from the rotation it begins at to the one it ends at.
     pub turning: Turning,
+    /// The placement scatter's rings are counted by this fraction of the radius it scatters by:
+    /// `4 / (fraction x radius)` of them, rounded up, over its 4 m.
+    pub placement_ring_fraction: f32,
+    /// A placement that may slide, refused where it was asked, is tried once more 0.1 m above it
+    /// before the scatter.
+    pub placement_lifts_before_scatter: bool,
 }
 
 /// How a move's sub-steps turn from where it begins to where it ends, and how a rotation is set.
@@ -101,6 +107,8 @@ impl Default for TransitionRules {
             step_down_guards_zero_drop: false,
             placement_retries_other_cells: false,
             turning: Turning::Guarded,
+            placement_ring_fraction: 1.0,
+            placement_lifts_before_scatter: false,
         }
     }
 }

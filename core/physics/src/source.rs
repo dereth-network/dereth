@@ -458,6 +458,22 @@ pub trait LandSource: Send + Sync {
     fn adjust_to_outside(&self, id: &mut CellId, origin: &mut Vec3) -> bool {
         crate::landdefs::adjust_to_outside(id, origin)
     }
+
+    /// Adds to `arr` the land cells a cell search reaches outdoors for `spheres` at `pos` (a body
+    /// standing outside, or one inside near a doorway out), for a world whose land cells are
+    /// another size: `true` once it has added its own, `false` to leave it to this crate's. Asked
+    /// once a search, as the search first reaches the outdoors.
+    ///
+    /// The default is `false`: this crate's own land cells, which every existing implementation
+    /// uses and which stay byte-identical.
+    fn add_outside_cells(
+        &self,
+        _pos: &Position,
+        _spheres: &[Sphere],
+        _arr: &mut crate::cell::CellArray,
+    ) -> bool {
+        false
+    }
 }
 
 /// A `LandSource` backed by an explicit map. Used by every test in the crate, and a perfectly

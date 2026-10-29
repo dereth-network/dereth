@@ -1122,6 +1122,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.a-world-may-lift-a-placement-before-scattering",
+        says: "A world may try a placement that may slide, refused where it was asked, once more                0.1 m above it before scattering; this client does not, and scatters at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-PLACEMENT-LIFT"),
+        station: "dereth-physics::cpu::transition::rules::a_world_may_lift_a_placement_before_scattering",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-sets-how-placement-scatters",
+        says: "Placing a body where it does not fit tries rings of points around it, 4 m deep,                their count a world sets by a fraction of the radius: the whole radius here, eight                rings 0.5 m apart for a 0.5 m body.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-RULES-PLACEMENT-RINGS"),
+        station: "dereth-physics::cpu::transition::rules::a_world_sets_how_placement_scatters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.a-world-sets-the-placement-scatter-floor",
         says: "Placing a body where it does not fit tries points around it from a smallest radius \
                the world sets, 0.48 m here.",

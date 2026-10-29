@@ -15,7 +15,9 @@ use dereth_physics::source::{EnvCellGeometry, LandSource};
 use dereth_physics::transition::insert::{
     calc_num_steps, find_transitional_position, transitional_insert, validate_transition,
 };
-use dereth_physics::transition::place::{scatter_sequence, scatter_sequence_from};
+use dereth_physics::transition::place::{
+    find_placement_pos, scatter_sequence, scatter_sequence_by, scatter_sequence_from,
+};
 use dereth_physics::transition::{
     collide, ObjectInfoState, Transition, TransitionCtx, TransitionRules, TransitionState, Turning,
 };
@@ -23,7 +25,8 @@ use dereth_physics::{LandblockCollision, PhysicsObj, PhysicsState, SetupGeometry
 use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
 
 /// A world's rules as another Turbine world sets them: shorter blocks, a steeper walkable limit, a
-/// shorter sub-step, a wider placement floor, and the other choice of every switch.
+/// shorter sub-step, a wider placement floor with rings counted by nine tenths of the radius, and
+/// the other choice of every switch.
 fn other_rules() -> TransitionRules {
     TransitionRules {
         walkable_z: 0.700_91,
@@ -37,6 +40,8 @@ fn other_rules() -> TransitionRules {
         step_down_guards_zero_drop: true,
         placement_retries_other_cells: true,
         turning: Turning::Plain,
+        placement_ring_fraction: 0.9,
+        placement_lifts_before_scatter: true,
     }
 }
 
@@ -51,6 +56,8 @@ struct Ground {
     /// What it answers when it is not touched: `Ok`, or always `Adjusted` to make the transition
     /// retry.
     always_adjust: bool,
+    /// It refuses a sphere reaching below the ground (`Collided`) rather than lifting it.
+    refuse_below: bool,
 }
 
 /// The land cell (1 to 64) of a point in a 160 m block, x-major as the land cells are numbered.
@@ -80,6 +87,14 @@ impl HostCell for Ground {
         if self.always_adjust {
             return TransitionState::Adjusted;
         }
+        if self.refuse_below {
+            let s = t.sphere_path.global_sphere[0];
+            return if s.center.z - s.radius < 0.0 {
+                TransitionState::Collided
+            } else {
+                TransitionState::Ok
+            };
+        }
         let off = t.rules.block_offset(t.sphere_path.check_pos.cell, self.id);
         let mut s = t.sphere_path.global_sphere[0];
         s.center = s.center.sub(off);
@@ -96,6 +111,7 @@ struct HostWorld {
     table: [f32; LAND_HEIGHT_TABLE_LEN],
     asks: Arc<AtomicU32>,
     always_adjust: bool,
+    refuse_below: bool,
 }
 
 impl HostWorld {
@@ -104,6 +120,7 @@ impl HostWorld {
             table: [0.0; LAND_HEIGHT_TABLE_LEN],
             asks: Arc::new(AtomicU32::new(0)),
             always_adjust,
+            refuse_below: false,
         }
     }
 
@@ -112,6 +129,7 @@ impl HostWorld {
             id,
             asks: Arc::clone(&self.asks),
             always_adjust: self.always_adjust,
+            refuse_below: self.refuse_below,
         })
     }
 }
@@ -374,4 +392,57 @@ fn a_world_sets_the_placement_scatter_floor() {
     assert_eq!(scatter_sequence(0.3), scatter_sequence_from(0.3, 0.48));
     assert_eq!(scatter_sequence_from(0.3, 0.5), scatter_sequence(0.5));
     assert_ne!(scatter_sequence(0.3), scatter_sequence(0.5));
+}
+
+/// A world may count the placement scatter's rings by a fraction of the radius: a 0.5 m body
+/// scatters in rings 0.5 m apart, eight samples in the first, in this client, and in rings 4/9 m
+/// apart, six in the first, where the rings are counted by nine tenths of it.
+///
+/// Behaviour: physics.transition.a-world-sets-how-placement-scatters
+#[test]
+fn a_world_sets_how_placement_scatters() {
+    let ours = scatter_sequence(0.5);
+    assert_eq!(ours.iter().filter(|s| s.ring == 0).count(), 8);
+    assert!((ours[0].distance - 0.5).abs() < 1e-6);
+    assert_eq!(ours.last().map(|s| s.ring), Some(7));
+    let tenths = scatter_sequence_by(0.5, 0.5, 0.9);
+    assert_eq!(tenths.iter().filter(|s| s.ring == 0).count(), 6);
+    assert!((tenths[0].distance - 4.0 / 9.0).abs() < 1e-6);
+    assert_eq!(tenths.last().map(|s| s.ring), Some(8));
+    assert_eq!(scatter_sequence_by(0.5, 0.48, 1.0), ours);
+}
+
+/// A world may try a placement that may slide, refused where it was asked, once more 0.1 m above
+/// before the scatter: a body asked to stand 5 cm into ground that refuses it stands 5 cm above
+/// it there; in this client the scatter finds no room at that height and the placement fails.
+///
+/// Behaviour: physics.transition.a-world-may-lift-a-placement-before-scattering
+#[test]
+fn a_world_may_lift_a_placement_before_scattering() {
+    for (rules, placed) in [(TransitionRules::default(), false), (other_rules(), true)] {
+        let world = HostWorld {
+            refuse_below: true,
+            ..HostWorld::new(false)
+        };
+        let mut asked = at(0x1020_0001, 30.0, 30.0);
+        asked.frame.origin.z = -0.05;
+        let (mut t, objects) = walk(rules, asked, asked);
+        t.sphere_path.init_path(Some(asked.cell), None, &asked);
+        t.sphere_path.placement_allows_sliding = true;
+        let cells = BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &world,
+            objects: &objects,
+            cells: &cells,
+            mover: t.object_info.object,
+            object_table: None,
+            entry_host: None,
+        };
+        assert_eq!(find_placement_pos(&ctx, &mut t), placed);
+        if placed {
+            let at = t.sphere_path.check_pos.frame.origin;
+            assert!((at.z - 0.05).abs() < 1e-5, "{at:?}");
+            assert!((at.x - 30.0).abs() < 1e-5 && (at.y - 30.0).abs() < 1e-5);
+        }
+    }
 }

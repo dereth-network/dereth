@@ -517,12 +517,16 @@ impl<'a> CellResolver<'a> {
         }
     }
 
-    /// The outdoor cell-list builder.
+    /// The outdoor cell-list builder: the world's own land cells when it has them
+    /// ([`LandSource::add_outside_cells`]), else this crate's.
     pub fn add_all_outside_cells(&self, arr: &mut CellArray, pos: &Position, spheres: &[Sphere]) {
         if arr.added_outside {
             return;
         }
         arr.added_outside = true;
+        if self.land.add_outside_cells(pos, spheres, arr) {
+            return;
+        }
         if spheres.is_empty() {
             let mut id = pos.cell;
             let mut o = pos.frame.origin;
@@ -1406,5 +1410,84 @@ mod tests {
             vec![home],
             "the neighbour is not in the stab list: {ids:?}"
         );
+    }
+
+    /// Land whose cells are 20 m across, numbered across then up from 1, added by id.
+    struct TwentyMeterCells(StaticLandSource);
+
+    impl LandSource for TwentyMeterCells {
+        fn landblock(&self, id: LandblockId) -> Option<Arc<crate::LandblockCollision>> {
+            self.0.landblock(id)
+        }
+        fn height_table(&self) -> &[f32; crate::globals::LAND_HEIGHT_TABLE_LEN] {
+            self.0.height_table()
+        }
+        fn env_cell(&self, cell: CellId) -> Option<Arc<EnvCellGeometry>> {
+            self.0.env_cell(cell)
+        }
+        fn add_outside_cells(
+            &self,
+            pos: &Position,
+            spheres: &[Sphere],
+            arr: &mut CellArray,
+        ) -> bool {
+            for s in spheres {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let (cx, cy) = ((s.center.x / 20.0) as u32, (s.center.y / 20.0) as u32);
+                arr.add_cell(CellId((pos.cell.0 & 0xFFFF_0000) | (cx * 8 + cy + 1)), None);
+            }
+            true
+        }
+    }
+
+    /// A room at (50, 70) of block (0xA9, 0xB4) with a doorway out in its own plane y = 0, and
+    /// the cells a sphere standing in that doorway reaches.
+    fn cells_by_a_doorway_out(land: &mut StaticLandSource, own: bool) -> Vec<CellId> {
+        let room = CellId(0xA9B4_0100);
+        let doorway = crate::geom::Polygon::new(vec![
+            Vec3::new(-1.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(-1.0, 0.0, 1.0),
+        ]);
+        land.add_cell(EnvCellGeometry {
+            id: room,
+            frame: Frame::new(Vec3::new(50.0, 70.0, 0.0), Quat::IDENTITY),
+            portals: vec![crate::source::CellPortal {
+                other_cell_id: 0xFFFF_FFFF,
+                portal: doorway,
+                portal_side: true,
+                other_portal_id: 0,
+                exact_match: false,
+            }],
+            ..EnvCellGeometry::default()
+        });
+        let source = std::mem::take(land);
+        let land: Box<dyn LandSource> = if own {
+            Box::new(TwentyMeterCells(source))
+        } else {
+            Box::new(source)
+        };
+        let r = CellResolver::new(land.as_ref());
+        let mut arr = CellArray::new();
+        let mut interior = false;
+        r.find_cell_list(
+            &at(room, 50.0, 70.2, 0.5),
+            &[Sphere::new(Vec3::new(50.0, 70.2, 0.5), 0.5)],
+            &mut arr,
+            false,
+            &mut interior,
+        );
+        arr.cells.iter().map(|c| c.cell_id).collect()
+    }
+
+    #[test]
+    fn a_world_with_land_cells_of_its_own_adds_them_by_a_doorway_out() {
+        // This crate's 24 m cells: (50, 70.2) is cell (2, 2).
+        let ours = cells_by_a_doorway_out(&mut world(), false);
+        assert_eq!(ours, vec![CellId(0xA9B4_0100), CellId(0xA9B4_0013)]);
+        // The world's own 20 m cells: the same point is its cell (2, 3).
+        let theirs = cells_by_a_doorway_out(&mut world(), true);
+        assert_eq!(theirs, vec![CellId(0xA9B4_0100), CellId(0xA9B4_0014)]);
     }
 }
