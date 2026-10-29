@@ -1150,6 +1150,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.an-insert-attempt-with-no-check-cell-collides",
+        says: "When the cells a body touches have carried its check position out of every cell \
+               and the attempt does not settle, the next attempt has no cell to start from and \
+               stops the body there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-O317-NO-CELL"),
+        station: "dereth-physics::cpu::transition::insert_attempts::an_insert_attempt_with_no_check_cell_collides",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.each-insert-attempt-starts-from-the-cell-the-check-position-is-in",
+        says: "Each attempt to fit a body into the world starts from the cell its check position \
+               is in when the attempt begins: once the cells around it have moved the body into a \
+               neighboring cell, the next attempt asks that cell first and the one it left among \
+               the others.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-O317-CHECK-CELL"),
+        station: "dereth-physics::cpu::transition::insert_attempts::each_insert_attempt_starts_from_the_cell_the_check_position_is_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.the-default-rules-are-this-clients",
         says: "The transition's default settings are this client's own: its walkable limit, sub-steps \
                of a whole sphere radius, 192 m landblocks, a 0.48 m placement floor, cells retried \

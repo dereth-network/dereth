@@ -5,7 +5,7 @@
 //! The attempt budgets are **3 / 5 / 1 exactly** and they are what bounds the
 //! work: every `TransitionState` except `Ok` means "retry".
 
-use dereth_primitives::Vec3;
+use dereth_primitives::{CellId, Vec3};
 
 use crate::cell::{Cell, CellArray};
 use crate::geom::plane::Plane;
@@ -139,11 +139,12 @@ pub fn insert_into_cell(
     result
 }
 
-/// The check over the other cells.
+/// The check over the other cells: every cell the spheres touch except `except`, the cell the
+/// check position is in as the check begins.
 pub fn check_other_cells(
     ctx: &TransitionCtx<'_>,
     t: &mut Transition,
-    except: Option<&Cell>,
+    except: Option<CellId>,
 ) -> TransitionState {
     t.sphere_path.cell_array_valid = true;
     t.sphere_path.hits_interior_cell = false;
@@ -156,7 +157,6 @@ pub fn check_other_cells(
     t.cell_array = arr;
     t.sphere_path.hits_interior_cell = hits_interior;
 
-    let except_id = except.map(Cell::id);
     let candidates: Vec<Cell> = t
         .cell_array
         .cells
@@ -164,7 +164,7 @@ pub fn check_other_cells(
         .filter_map(|c| c.cell.clone())
         .collect();
     for c in candidates {
-        if Some(c.id()) == except_id {
+        if Some(c.id()) == except {
             continue;
         }
         let r = collide::cell_find_collisions(ctx, t, &c);
@@ -216,14 +216,20 @@ pub fn transitional_insert(
     t: &mut Transition,
     attempts: u32,
 ) -> TransitionState {
-    let Some(check_cell_id) = t.sphere_path.check_cell else {
+    if t.sphere_path.check_cell.is_none() {
         return TransitionState::Ok;
-    };
+    }
     let resolver = ctx.resolver();
     let mut result = TransitionState::Invalid;
 
     for _ in 0..attempts {
         t.attempt += 1;
+        // Each attempt starts from the cell the check position is in now: the other cells, or a
+        // step up inside the last attempt, may have carried it into another cell or out of all.
+        let Some(check_cell_id) = t.sphere_path.check_cell else {
+            t.sphere_path.neg_poly_hit = false;
+            return TransitionState::Collided;
+        };
         let Some(cell) = resolver.get_visible(check_cell_id) else {
             return TransitionState::Ok;
         };
@@ -235,7 +241,9 @@ pub fn transitional_insert(
         };
         match r {
             TransitionState::Ok => {
-                r = check_other_cells(ctx, t, Some(&cell));
+                // The cell's own answer may have stepped the body up into another cell.
+                let except = t.sphere_path.check_cell;
+                r = check_other_cells(ctx, t, except);
                 if r != TransitionState::Ok {
                     t.sphere_path.neg_poly_hit = false;
                 }
@@ -711,7 +719,8 @@ pub fn placement_insert(ctx: &TransitionCtx<'_>, t: &mut Transition) -> Transiti
     if r != TransitionState::Ok {
         return r;
     }
-    check_other_cells(ctx, t, Some(&cell))
+    let except = t.sphere_path.check_cell;
+    check_other_cells(ctx, t, except)
 }
 
 /// The cell the check position is in and then the others, each attempt from the start, until the
@@ -735,7 +744,8 @@ fn placement_insert_retrying(ctx: &TransitionCtx<'_>, t: &mut Transition) -> Tra
         result = collide::cell_find_collisions(ctx, t, &cell);
         match result {
             TransitionState::Ok => {
-                result = check_other_cells(ctx, t, Some(&cell));
+                let except = t.sphere_path.check_cell;
+                result = check_other_cells(ctx, t, except);
                 if matches!(result, TransitionState::Ok | TransitionState::Collided) {
                     return result;
                 }
