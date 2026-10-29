@@ -23,6 +23,33 @@ pub enum InsertType {
     InitialPlacement = 2,
 }
 
+/// How an object's scale reaches the tests of its parts' physics trees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TreeScale {
+    /// One scale along every axis: the mover's spheres are divided by it in the tree's frame, a
+    /// move the tree makes is scaled before it is turned into the world, and a contact plane's
+    /// distance is multiplied by it.
+    Uniform(f32),
+    /// A scale along each axis, with its inverse (a world's choice; this client takes one scale):
+    /// the mover's spheres are multiplied by the
+    /// inverse along each axis in the tree's frame (their radii by its z); a move the tree makes is
+    /// turned into the world and then multiplied by the scale along the world's axes; a contact
+    /// plane's normal is multiplied by the inverse along the world's axes and made unit length
+    /// again, its distance with it.
+    Axes { scale: Vec3, inverse: Vec3 },
+}
+
+impl TreeScale {
+    /// The scale `s` along each axis, its inverse worked out.
+    #[must_use]
+    pub fn axes(s: Vec3) -> Self {
+        Self::Axes {
+            scale: s,
+            inverse: Vec3::new(1.0 / s.x, 1.0 / s.y, 1.0 / s.z),
+        }
+    }
+}
+
 /// A sphere path.
 #[derive(Debug, Clone)]
 pub struct SpherePath {
@@ -76,6 +103,9 @@ pub struct SpherePath {
     pub walkable_up: Vec3,
     pub walkable_pos: Position,
     pub walkable_scale: f32,
+    /// The scale along each axis the walkable polygon was found at, when its tree took one
+    /// ([`TreeScale::Axes`]); `None` when it took [`Self::walkable_scale`].
+    pub walkable_axes: Option<Vec3>,
     /// Minimum `N.z` for a surface to count during this probe. `LANDING_Z` by default,
     /// `get_walkable_z()` when already on a walkable surface.
     pub walkable_allowance: f32,
@@ -142,6 +172,7 @@ impl Default for SpherePath {
             walkable_up: Vec3::new(0.0, 0.0, 1.0),
             walkable_pos: zero_pos,
             walkable_scale: 1.0,
+            walkable_axes: None,
             walkable_allowance: LANDING_Z,
             check_walkable: false,
             collide: false,
@@ -262,6 +293,33 @@ impl SpherePath {
         self.localspace_z = math::globaltolocalvec(m, Vec3::new(0.0, 0.0, 1.0));
     }
 
+    /// [`Self::cache_localspace_sphere`] for a scale along each axis ([`TreeScale::Axes`]): each
+    /// sphere is carried into `pos`'s frame and multiplied by `inverse` along each axis, its radius
+    /// by `inverse`'s z; the low point is then the first sphere's center less its radius along the
+    /// frame's own up. The scale the walkable polygon was found at is left as it is.
+    pub fn cache_localspace_sphere_axes(&mut self, pos: &Position, inverse: Vec3) {
+        self.localspace_pos = *pos;
+        let per = |v: Vec3| Vec3::new(v.x * inverse.x, v.y * inverse.y, v.z * inverse.z);
+        let m = math::l2g(pos.frame.rotation);
+        for i in 0..self.num_sphere {
+            let off = self.block_offset(pos.cell, self.check_pos.cell);
+            let local = math::globaltolocalvec(
+                m,
+                self.global_sphere[i].center.add(off).sub(pos.frame.origin),
+            );
+            self.localspace_sphere[i] =
+                Sphere::new(per(local), self.local_sphere[i].radius * inverse.z);
+            let off2 = self.block_offset(pos.cell, self.curr_pos.cell);
+            self.localspace_curr_center[i] = per(math::globaltolocalvec(
+                m,
+                self.global_curr_center[i].add(off2).sub(pos.frame.origin),
+            ));
+        }
+        self.localspace_z = math::globaltolocalvec(m, Vec3::new(0.0, 0.0, 1.0));
+        let first = self.localspace_sphere[0];
+        self.localspace_low_point = first.center.sub(self.localspace_z.mul(first.radius));
+    }
+
     /// Set the check position.
     pub fn set_check_pos(&mut self, pos: &Position, cell: Option<CellId>) {
         self.check_pos = *pos;
@@ -353,6 +411,23 @@ impl SpherePath {
         self.walkable_up = up;
         self.walkable_pos = pos;
         self.walkable_scale = scale;
+        self.walkable_axes = None;
+    }
+
+    /// [`Self::set_walkable`] for a tree with a scale along each axis, `scale` ([`TreeScale::Axes`]).
+    pub fn set_walkable_axes(
+        &mut self,
+        sphere: Sphere,
+        poly: Polygon,
+        up: Vec3,
+        pos: Position,
+        scale: Vec3,
+    ) {
+        self.walkable = Some(poly);
+        self.walkable_check_pos = sphere;
+        self.walkable_up = up;
+        self.walkable_pos = pos;
+        self.walkable_axes = Some(scale);
     }
 
     /// Set the walkable-check position on the sphere path.

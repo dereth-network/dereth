@@ -236,7 +236,13 @@ pub fn edge_slide(
         t.collision_info.clear_contact_plane();
         let wp = t.sphere_path.walkable_pos;
         let scale = t.sphere_path.walkable_scale;
-        t.sphere_path.cache_localspace_sphere(&wp, scale);
+        match t.sphere_path.walkable_axes {
+            // Found on a tree with a scale along each axis: brought back by the scale itself, as a
+            // world that tests its trees this way does (where the uniform scale divides, this one
+            // multiplies, so a scaled tree's walkable sphere comes back scaled the other way).
+            Some(axes) => t.sphere_path.cache_localspace_sphere_axes(&wp, axes),
+            None => t.sphere_path.cache_localspace_sphere(&wp, scale),
+        }
         let ls = t.sphere_path.localspace_sphere[0];
         t.sphere_path.set_walkable_check_pos(ls);
         *state = precipice_slide(t);

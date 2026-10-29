@@ -446,3 +446,115 @@ fn a_world_may_lift_a_placement_before_scattering() {
         }
     }
 }
+
+/// A square floor 10 m across, solid below it, open above, within 7.2 m of its middle.
+fn square_floor() -> dereth_physics::geom::bsp::BspTree {
+    use dereth_physics::geom::bsp::{BspNode, BspNodeKind, BspTree};
+    use dereth_physics::geom::Polygon;
+    let square = Polygon::new(vec![
+        Vec3::new(-5.0, -5.0, 0.0),
+        Vec3::new(5.0, -5.0, 0.0),
+        Vec3::new(5.0, 5.0, 0.0),
+        Vec3::new(-5.0, 5.0, 0.0),
+    ]);
+    let bound = Sphere::new(Vec3::ZERO, 7.2);
+    let leaf = |solid: bool, in_polys: Vec<u32>| BspNode {
+        sphere: bound,
+        splitting_plane: Plane {
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            d: 1000.0,
+        },
+        pos_child: None,
+        neg_child: None,
+        kind: BspNodeKind::Leaf {
+            leaf_index: 0,
+            solid,
+        },
+        in_polys,
+    };
+    BspTree {
+        nodes: vec![
+            BspNode {
+                sphere: bound,
+                splitting_plane: Plane {
+                    normal: Vec3::new(0.0, 0.0, 1.0),
+                    d: 0.0,
+                },
+                pos_child: Some(1),
+                neg_child: Some(2),
+                kind: BspNodeKind::Node,
+                in_polys: vec![],
+            },
+            leaf(false, vec![]),
+            leaf(true, vec![0]),
+        ],
+        polygons: vec![square],
+    }
+}
+
+/// A world whose objects take a scale along each axis has their trees tested at it: a square
+/// floor 10 m across stretched three times along x meets a body placed 12 m along x from its
+/// middle, sunk 0.2 m into its top, and not one placed 6 m along y; tested at one scale along every
+/// axis it meets neither. At an even scale along each axis it meets a body where the one scale
+/// does, and lets one stand where the one scale does.
+///
+/// Behaviour: physics.transition.a-world-may-test-an-objects-trees-at-a-scale-along-each-axis
+#[test]
+fn a_world_may_test_an_objects_trees_at_a_scale_along_each_axis() {
+    use dereth_physics::source::PhysicsPart;
+    use dereth_physics::transition::TreeScale;
+    let world = HostWorld::new(false);
+    let middle = Vec3::new(80.0, 80.0, 10.0);
+    let part = PhysicsPart {
+        pos: Position::new(CellId(0x1020_0001), Frame::new(middle, Quat::IDENTITY)),
+        physics_bsp: Some(Arc::new(square_floor())),
+        ..PhysicsPart::default()
+    };
+    let placed = |dx: f32, dy: f32, dz: f32, scale: TreeScale| {
+        let mut asked = at(0x1020_0001, middle.x + dx, middle.y + dy);
+        asked.frame.origin.z = middle.z + dz;
+        let (mut t, objects) = walk(TransitionRules::default(), asked, asked);
+        t.sphere_path.init_path(Some(asked.cell), None, &asked);
+        t.sphere_path.set_check_pos(&asked, Some(asked.cell));
+        let cells = BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &world,
+            objects: &objects,
+            cells: &cells,
+            mover: t.object_info.object,
+            object_table: None,
+            entry_host: None,
+        };
+        collide::object_part_find_obj_collisions_scaled(&ctx, &mut t, &part, scale)
+    };
+    let stretched = TreeScale::axes(Vec3::new(3.0, 1.0, 1.0));
+    assert_eq!(
+        placed(12.0, 0.0, -0.2, stretched),
+        TransitionState::Collided
+    );
+    assert_eq!(placed(0.0, 6.0, -0.2, stretched), TransitionState::Ok);
+    assert_eq!(
+        placed(12.0, 0.0, -0.2, TreeScale::Uniform(1.0)),
+        TransitionState::Ok
+    );
+    for (dx, dy, dz) in [
+        (8.0, 0.0, -0.2),
+        (0.0, 8.0, -0.2),
+        (11.0, 0.0, -0.2),
+        (3.0, 3.0, 0.1),
+    ] {
+        assert_eq!(
+            placed(dx, dy, dz, TreeScale::axes(Vec3::new(2.0, 2.0, 2.0))),
+            placed(dx, dy, dz, TreeScale::Uniform(2.0)),
+            "({dx}, {dy}, {dz})"
+        );
+    }
+    assert_eq!(
+        placed(8.0, 0.0, -0.2, TreeScale::Uniform(2.0)),
+        TransitionState::Collided
+    );
+    assert_eq!(
+        placed(3.0, 3.0, 0.1, TreeScale::Uniform(2.0)),
+        TransitionState::Ok
+    );
+}

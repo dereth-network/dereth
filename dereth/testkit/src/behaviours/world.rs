@@ -1130,6 +1130,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.a-world-may-test-an-objects-trees-at-a-scale-along-each-axis",
+        says: "A world whose objects take a scale along each axis may have their physics trees \
+               tested at it: a square floor stretched three times along one axis meets a body \
+               placed beyond its unstretched edge along that axis and not across it; at an even \
+               scale along each axis the tests answer as at that one scale; this client tests at \
+               one scale.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-TREE-AXES"),
+        station: "dereth-physics::cpu::transition::rules::a_world_may_test_an_objects_trees_at_a_scale_along_each_axis",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.a-world-sets-how-placement-scatters",
         says: "Placing a body where it does not fit tries rings of points around it, 4 m deep,                their count a world sets by a fraction of the radius: the whole radius here, eight                rings 0.5 m apart for a 0.5 m body.",
         since: TOOLING,

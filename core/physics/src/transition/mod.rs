@@ -25,7 +25,7 @@ pub mod walk;
 
 pub use objectinfo::{ObjectInfo, ObjectInfoState};
 pub use rules::{TransitionRules, Turning};
-pub use spherepath::{InsertType, SpherePath};
+pub use spherepath::{InsertType, SpherePath, TreeScale};
 
 use dereth_primitives::{CellId, ObjectId, Vec3};
 

@@ -22,7 +22,7 @@ use crate::math::V3;
 use crate::obj::PhysicsState;
 use crate::source::{BuildingGeometry, PhysicsPart};
 use crate::transition::objectinfo::ObjectInfoState;
-use crate::transition::spherepath::InsertType;
+use crate::transition::spherepath::{InsertType, TreeScale};
 use crate::transition::{Transition, TransitionCtx, TransitionState};
 
 /// The generic slide.
@@ -731,7 +731,7 @@ pub fn env_find_env_collisions(
         bsp_placement_insert(t, bsp)
     } else {
         // A floor found here is the cell's own.
-        bsp_find_collisions_on(ctx, t, bsp, 1.0, true)
+        bsp_find_collisions_on(ctx, t, bsp, TreeScale::Uniform(1.0), true)
     };
     if result != TransitionState::Ok && !t.object_info.has(ObjectInfoState::CONTACT) {
         t.collision_info.collided_with_environment = true;
@@ -750,7 +750,48 @@ pub fn bsp_find_collisions(
     tree: &crate::geom::BspTree,
     scale: f32,
 ) -> TransitionState {
+    bsp_find_collisions_on(ctx, t, tree, TreeScale::Uniform(scale), false)
+}
+
+/// [`bsp_find_collisions`] with the object's scale as `scale` says ([`TreeScale`]).
+pub fn bsp_find_collisions_scaled(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    tree: &crate::geom::BspTree,
+    scale: TreeScale,
+) -> TransitionState {
     bsp_find_collisions_on(ctx, t, tree, scale, false)
+}
+
+/// A plane carried into the world whose normal is multiplied by `v` along each axis, made unit
+/// length again with its distance: a contact plane found on a tree with a scale along each axis,
+/// `v` the inverse of that scale. The products and the length are worked in double precision, the
+/// third product once rounded to single for its square and its share, as a world that tests its
+/// trees this way does.
+fn plane_scaled_by(p: Plane, v: Vec3) -> Plane {
+    let x = f64::from(p.normal.x) * f64::from(v.x);
+    let y = f64::from(p.normal.y) * f64::from(v.y);
+    let z = f64::from(p.normal.z) * f64::from(v.z);
+    #[allow(clippy::cast_possible_truncation)]
+    let zf = z as f32;
+    let sum = (z * f64::from(zf) + x * x) + y * y;
+    #[allow(clippy::cast_possible_truncation)]
+    let k = (1.0 / sum.sqrt()) as f32;
+    let k64 = f64::from(k);
+    #[allow(clippy::cast_possible_truncation)]
+    Plane {
+        normal: Vec3::new(
+            (x * k64) as f32,
+            (y * k64) as f32,
+            (f64::from(zf) * k64) as f32,
+        ),
+        d: (k64 * f64::from(p.d)) as f32,
+    }
+}
+
+/// `v` multiplied by `s` along each axis.
+fn times(v: Vec3, s: Vec3) -> Vec3 {
+    Vec3::new(v.x * s.x, v.y * s.y, v.z * s.z)
 }
 
 /// [`bsp_find_collisions`], with whether the tree is an interior cell's own (`environment`): a
@@ -760,7 +801,7 @@ fn bsp_find_collisions_on(
     ctx: &TransitionCtx<'_>,
     t: &mut Transition,
     tree: &crate::geom::BspTree,
-    scale: f32,
+    scale: TreeScale,
     environment: bool,
 ) -> TransitionState {
     let local = t.sphere_path.localspace_sphere[0];
@@ -818,18 +859,36 @@ fn bsp_find_collisions_on(
                 return TransitionState::Ok;
             };
             let poly = tree.polygons[poly_idx as usize].clone();
-            let delta = valid.center.sub(local.center).mul(scale);
             let pos = t.sphere_path.localspace_pos;
-            let world_delta =
-                crate::math::localtoglobalvec(crate::math::l2g(pos.frame.rotation), delta);
+            let m = crate::math::l2g(pos.frame.rotation);
             t.sphere_path.walk_interp = interp;
-            t.sphere_path.add_offset_to_check_pos(world_delta);
-            let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
-            contact.d *= scale;
-            t.collision_info
-                .set_contact_plane_on(contact, false, false, environment);
-            t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
-            t.sphere_path.set_walkable(valid, poly, up, pos, scale);
+            match scale {
+                TreeScale::Uniform(scale) => {
+                    let delta = valid.center.sub(local.center).mul(scale);
+                    let world_delta = crate::math::localtoglobalvec(m, delta);
+                    t.sphere_path.add_offset_to_check_pos(world_delta);
+                    let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
+                    contact.d *= scale;
+                    t.collision_info
+                        .set_contact_plane_on(contact, false, false, environment);
+                    t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
+                    t.sphere_path.set_walkable(valid, poly, up, pos, scale);
+                }
+                TreeScale::Axes { scale, inverse } => {
+                    // Turned into the world first, then scaled along the world's axes.
+                    let delta = valid.center.sub(local.center);
+                    let world_delta = times(crate::math::localtoglobalvec(m, delta), scale);
+                    t.sphere_path.add_offset_to_check_pos(world_delta);
+                    let contact = plane_scaled_by(
+                        poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos),
+                        inverse,
+                    );
+                    t.collision_info
+                        .set_contact_plane_on(contact, false, false, environment);
+                    t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
+                    t.sphere_path.set_walkable_axes(valid, poly, up, pos, scale);
+                }
+            }
             return TransitionState::Adjusted;
         }
         return TransitionState::Ok;
@@ -985,7 +1044,7 @@ fn bsp_collide_with_pt(
     tree: &crate::geom::BspTree,
     poly_idx: u32,
     contact_pt: Vec3,
-    scale: f32,
+    scale: TreeScale,
 ) -> TransitionState {
     let pos = t.sphere_path.localspace_pos;
     let m = crate::math::l2g(pos.frame.rotation);
@@ -1004,7 +1063,11 @@ fn bsp_collide_with_pt(
         t.collision_info
             .set_collision_normal(crate::math::localtoglobalvec(m, normal));
         let delta = adjusted.center.sub(local.center);
-        let offset = crate::math::localtoglobalvec(m, delta).mul(scale);
+        let turned = crate::math::localtoglobalvec(m, delta);
+        let offset = match scale {
+            TreeScale::Uniform(scale) => turned.mul(scale),
+            TreeScale::Axes { scale, .. } => times(turned, scale),
+        };
         t.sphere_path.add_offset_to_check_pos(offset);
         return TransitionState::Adjusted;
     }
@@ -1097,13 +1160,19 @@ fn step_sphere_up_from_normal(
 }
 
 /// Probe downward along `-localspace_z` scaled by
-/// `1 / scale`.
+/// `1 / scale` (with a scale along each axis, divided by it along each axis).
 fn bsp_step_sphere_down(
     t: &mut Transition,
     tree: &crate::geom::BspTree,
-    scale: f32,
+    scale: TreeScale,
     environment: bool,
 ) -> TransitionState {
+    let scale = match scale {
+        TreeScale::Uniform(scale) => scale,
+        TreeScale::Axes { scale, inverse } => {
+            return bsp_step_sphere_down_axes(t, tree, scale, inverse, environment);
+        }
+    };
     let mut valid = t.sphere_path.localspace_sphere[0];
     let up = t.sphere_path.localspace_z;
     let amount = t.sphere_path.step_down_amt * t.sphere_path.walk_interp / scale;
@@ -1141,6 +1210,76 @@ fn bsp_step_sphere_down(
         .set_contact_plane_on(contact, false, false, environment);
     t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
     t.sphere_path.set_walkable(valid, poly, up, pos, scale);
+    TransitionState::Adjusted
+}
+
+/// [`bsp_step_sphere_down`] on a tree with a scale along each axis. The probe is the step-down
+/// amount times the interpolation left, down `localspace_z`, divided by the scale along each axis
+/// (its first part worked wholly in double precision, the others rounded to single before the
+/// division); a surface found moves the check position by the found sphere's offset turned into
+/// the world (in double precision, the first two parts rounded to single) and then multiplied by
+/// the scale along the world's axes; the contact plane is scaled by the inverse
+/// ([`plane_scaled_by`]) and the walkable polygon is kept with the scale.
+fn bsp_step_sphere_down_axes(
+    t: &mut Transition,
+    tree: &crate::geom::BspTree,
+    scale: Vec3,
+    inverse: Vec3,
+    environment: bool,
+) -> TransitionState {
+    let mut valid = t.sphere_path.localspace_sphere[0];
+    let up = t.sphere_path.localspace_z;
+    let f = -(f64::from(t.sphere_path.step_down_amt) * f64::from(t.sphere_path.walk_interp));
+    #[allow(clippy::cast_possible_truncation)]
+    let movement = Vec3::new(
+        (f * f64::from(up.x) / f64::from(scale.x)) as f32,
+        ((f * f64::from(up.y)) as f32) / scale.y,
+        ((f * f64::from(up.z)) as f32) / scale.z,
+    );
+    let mut hit = None;
+    let mut changed = false;
+    let mut interp = t.sphere_path.walk_interp;
+    tree.find_walkable(
+        &mut valid,
+        &mut hit,
+        movement,
+        up,
+        t.sphere_path.walkable_allowance,
+        &mut interp,
+        &mut changed,
+    );
+    if !changed {
+        return TransitionState::Ok;
+    }
+    let Some(poly_idx) = hit else {
+        return TransitionState::Ok;
+    };
+    let poly = tree.polygons[poly_idx as usize].clone();
+    let pos = t.sphere_path.localspace_pos;
+    let m = crate::math::l2g(pos.frame.rotation).0.map(f64::from);
+    let from = t.sphere_path.localspace_sphere[0].center;
+    let d = [
+        f64::from(valid.center.x) - f64::from(from.x),
+        f64::from(valid.center.y) - f64::from(from.y),
+        f64::from(valid.center.z) - f64::from(from.z),
+    ];
+    let turned = |a: usize, b: usize, c: usize| (d[2] * m[c] + d[1] * m[b]) + d[0] * m[a];
+    #[allow(clippy::cast_possible_truncation)]
+    let offset = Vec3::new(
+        (turned(0, 3, 6) as f32) * scale.x,
+        (turned(1, 4, 7) as f32) * scale.y,
+        (turned(2, 5, 8) * f64::from(scale.z)) as f32,
+    );
+    t.sphere_path.walk_interp = interp;
+    t.sphere_path.add_offset_to_check_pos(offset);
+    let contact = plane_scaled_by(
+        poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos),
+        inverse,
+    );
+    t.collision_info
+        .set_contact_plane_on(contact, false, false, environment);
+    t.collision_info.contact_plane_cell_id = t.sphere_path.check_pos.cell;
+    t.sphere_path.set_walkable_axes(valid, poly, up, pos, scale);
     TransitionState::Adjusted
 }
 
@@ -1423,6 +1562,55 @@ pub fn object_geometry(
     other_pos: &dereth_primitives::Position,
     creature: bool,
 ) -> TransitionState {
+    object_geometry_with(
+        ctx,
+        t,
+        other_state,
+        other_geom,
+        other_scale,
+        None,
+        other_pos,
+        creature,
+    )
+}
+
+/// [`object_geometry`] for an object whose trees are tested at `trees` ([`TreeScale`]) in place of
+/// each part's own scale; its parts are placed, and its cylinders and spheres tested, at
+/// `other_scale`.
+#[allow(clippy::too_many_arguments)]
+pub fn object_geometry_scaled(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    other_state: PhysicsState,
+    other_geom: ObjGeometry<'_>,
+    other_scale: f32,
+    trees: TreeScale,
+    other_pos: &dereth_primitives::Position,
+    creature: bool,
+) -> TransitionState {
+    object_geometry_with(
+        ctx,
+        t,
+        other_state,
+        other_geom,
+        other_scale,
+        Some(trees),
+        other_pos,
+        creature,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn object_geometry_with(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    other_state: PhysicsState,
+    other_geom: ObjGeometry<'_>,
+    other_scale: f32,
+    trees: Option<TreeScale>,
+    other_pos: &dereth_primitives::Position,
+    creature: bool,
+) -> TransitionState {
     let mut r = TransitionState::Ok;
     if other_state.has_physics_bsp() {
         // Every part is tested in order; the first non-OK result wins. A
@@ -1435,7 +1623,10 @@ pub fn object_geometry(
                     break;
                 };
                 t.counters.object_parts_visited += 1;
-                r = object_part_find_obj_collisions(ctx, t, &part);
+                r = match trees {
+                    Some(s) => object_part_find_obj_collisions_scaled(ctx, t, &part, s),
+                    None => object_part_find_obj_collisions(ctx, t, &part),
+                };
                 if r != TransitionState::Ok {
                     break;
                 }
@@ -1594,7 +1785,7 @@ fn gfxobj_find_obj_collisions(
     t: &mut Transition,
     tree: &crate::geom::BspTree,
     physics_sphere: Sphere,
-    scale: f32,
+    scale: TreeScale,
     owner: PartOwner,
 ) -> TransitionState {
     for i in 0..t.sphere_path.num_sphere {
@@ -1611,7 +1802,7 @@ fn gfxobj_find_obj_collisions(
         return if t.sphere_path.insert_type == InsertType::InitialPlacement {
             bsp_placement_insert(t, tree)
         } else {
-            bsp_find_collisions(ctx, t, tree, scale)
+            bsp_find_collisions_on(ctx, t, tree, scale, false)
         };
     }
     match owner {
@@ -1631,7 +1822,8 @@ pub fn part_find_obj_collisions(
     t: &mut Transition,
     part: &PhysicsPart,
 ) -> TransitionState {
-    part_find_obj_collisions_counted(ctx, t, part, PartOwner::Building)
+    let scale = TreeScale::Uniform(part.gfxobj_scale);
+    part_find_obj_collisions_counted(ctx, t, part, PartOwner::Building, scale)
 }
 
 /// The same collision walk for an ordinary object's part array.
@@ -1644,7 +1836,19 @@ pub fn object_part_find_obj_collisions(
     t: &mut Transition,
     part: &PhysicsPart,
 ) -> TransitionState {
-    part_find_obj_collisions_counted(ctx, t, part, PartOwner::Object)
+    let scale = TreeScale::Uniform(part.gfxobj_scale);
+    part_find_obj_collisions_counted(ctx, t, part, PartOwner::Object, scale)
+}
+
+/// [`object_part_find_obj_collisions`] with the object's scale as `scale` says ([`TreeScale`]),
+/// in place of the part's own scale.
+pub fn object_part_find_obj_collisions_scaled(
+    ctx: &TransitionCtx<'_>,
+    t: &mut Transition,
+    part: &PhysicsPart,
+    scale: TreeScale,
+) -> TransitionState {
+    part_find_obj_collisions_counted(ctx, t, part, PartOwner::Object, scale)
 }
 
 /// Which counter set a part walk belongs to. Rebuild-only bookkeeping; the client has one path.
@@ -1659,6 +1863,7 @@ fn part_find_obj_collisions_counted(
     t: &mut Transition,
     part: &PhysicsPart,
     owner: PartOwner,
+    scale: TreeScale,
 ) -> TransitionState {
     let no_bsp = |t: &mut Transition| match owner {
         PartOwner::Building => t.counters.building_parts_without_bsp += 1,
@@ -1675,9 +1880,13 @@ fn part_find_obj_collisions_counted(
         no_bsp(t);
         return TransitionState::Ok;
     };
-    t.sphere_path
-        .cache_localspace_sphere(&part.pos, part.gfxobj_scale);
-    gfxobj_find_obj_collisions(ctx, t, &tree, physics_sphere, part.gfxobj_scale, owner)
+    match scale {
+        TreeScale::Uniform(s) => t.sphere_path.cache_localspace_sphere(&part.pos, s),
+        TreeScale::Axes { inverse, .. } => t
+            .sphere_path
+            .cache_localspace_sphere_axes(&part.pos, inverse),
+    }
+    gfxobj_find_obj_collisions(ctx, t, &tree, physics_sphere, scale, owner)
 }
 
 /// The building's collision search -- the building **shell**.
