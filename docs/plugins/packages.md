@@ -69,6 +69,8 @@ dereth-plugin notes <folder> <version>    that version's change-log section
 dereth-plugin find <repository> <tag>     the plugin a release tag names
 dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <name>]
                                           list the zip's release in a source
-dereth-plugin prune <plugins.json> <repository>
-                                          drop from a source the plugins the repository no longer holds
+dereth-plugin latest <repository> <releases.json>
+                                          the zip of each plugin's latest GitHub release, to download
+dereth-plugin site <repository> <releases.json> <zips> <out> [--name <name>]
+                                          the repository's source made from its GitHub releases
 ```

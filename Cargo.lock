@@ -1405,6 +1405,7 @@ dependencies = [
  "dereth-plugin-package",
  "dereth-plugin-template",
  "dereth-plugin-wasm",
+ "serde_json",
  "sha2",
  "toml",
  "wit-component",

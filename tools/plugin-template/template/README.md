@@ -37,7 +37,7 @@ dereth-plugin release {{folder}} <version> --push
 `release` updates the version in `plugin.toml`, commits, tags the
 release and pushes the tag to GitHub. The GitHub workflows here will pack the plugin, make a release with the zip, and update the listing in `plugins.json`.
 
-Once, after your first release, you must navigate to your repository **Settings → Pages** and publish from the `gh-pages` branch.
+Once, before your first release, you must navigate to your repository **Settings → Pages** and set **Source** to **GitHub Actions**.
 
 ## One folder/repository, many plugins
 

@@ -1,17 +1,17 @@
 //! The plugin author's tool: makes a new plugin repository, checks a plugin as the hosts check it,
-//! packs it into a zip, releases it and lists it in a plugin source's `plugins.json`, and drops
-//! from that list the plugins a repository no longer holds.
+//! packs it into a zip, releases it and lists it in a plugin source's `plugins.json`, and makes a
+//! repository's whole source from its GitHub releases.
 //!
 //! **Depends on** `dereth-plugin-package` for the package (the hosts' own reading), a compiled
 //! plugin's source hash and the source's list, `dereth-plugin-api` for the API version and the
 //! versions and ids, `dereth-plugin-lua` to compile a plugin's scripts as the hosts compile them,
 //! `dereth-plugin-wasm` to check a compiled plugin's module as the hosts check it, `wit-component`
 //! to make a module a component, `dereth-plugin-template` for the template `new` writes, `toml` to
-//! read a crate's name and `sha2` for the zip's own hash.
+//! read a crate's name, `serde_json` to read GitHub's releases and `sha2` for the zip's own hash.
 //! **Used by** no crate: authors run it, and the template's workflows run it.
 //!
-//! **Must never** write anywhere but the paths it is given, the zips beside a list it prunes, and
-//! the git repository a release is made in.
+//! **Must never** write anywhere but the paths it is given and the git repository a release is
+//! made in, or reach the network: the template's workflows download what it reads.
 //!
 //! ```text
 //! dereth-plugin new <folder> [--id <id>] [--name <name>] [--github <username>/<repo>]
@@ -30,9 +30,12 @@
 //! dereth-plugin find <repository> <tag>     the plugin a release tag names: folder, id, version, name
 //! dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <source name>]
 //!                                           list the zip's release in a source's plugins.json
-//! dereth-plugin prune <plugins.json> <repository>
-//!                                           drop from a source's plugins.json every plugin the
-//!                                           repository no longer holds, and its zip beside it
+//! dereth-plugin latest <repository> <releases.json>
+//!                                           the zip of each of the repository's plugins' latest
+//!                                           GitHub release, to download: <tag> and <zip>
+//! dereth-plugin site <repository> <releases.json> <zips> <out> [--name <source name>]
+//!                                           the repository's source made from its releases:
+//!                                           <out>/plugins.json, each zip in <out>/<id>/
 //! dereth-plugin --version                   the tool's version (Dereth's), and the commit and
 //!                                           target a release build was made from
 //! ```
@@ -48,6 +51,7 @@
 mod check;
 mod list;
 mod release;
+mod site;
 #[cfg(test)]
 mod tests;
 
@@ -71,7 +75,8 @@ dereth-plugin -- make, check, pack, release and list plugins
   dereth-plugin notes <folder> <version>
   dereth-plugin find <repository> <tag>
   dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <source name>]
-  dereth-plugin prune <plugins.json> <repository>
+  dereth-plugin latest <repository> <releases.json>
+  dereth-plugin site <repository> <releases.json> <zips> <out> [--name <source name>]
   dereth-plugin --version";
 
 fn main() -> ExitCode {
@@ -211,9 +216,19 @@ fn run(args: &[String]) -> Result<String, String> {
                 &today(),
             )
         }
-        ["prune", list_file, repo] => {
+        ["latest", repo, releases] => {
             line.only(&[])?;
-            list::prune(Path::new(list_file), Path::new(repo))
+            site::latest(Path::new(repo), Path::new(releases))
+        }
+        ["site", repo, releases, zips, out] => {
+            line.only(&["name"])?;
+            site::site(
+                Path::new(repo),
+                Path::new(releases),
+                Path::new(zips),
+                Path::new(out),
+                line.value("name"),
+            )
         }
         _ => Err(USAGE.to_owned()),
     }

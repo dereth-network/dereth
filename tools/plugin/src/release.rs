@@ -5,7 +5,8 @@
 //! in the package's `CHANGES.md` under `## <version> (<date>)`, commits that as `<name> <version>`
 //! and makes the annotated tag: `v<version>` in a repository of one plugin, `<id>-v<version>` in a
 //! repository of several. Pushing the tag starts the template's release workflow, which finds the
-//! plugin by the tag (`find`), packs it, and lists it in the repository's `plugins.json`.
+//! plugin by the tag (`find`), packs it and releases it on GitHub; its Pages workflow then lists it
+//! in the repository's source (`site`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

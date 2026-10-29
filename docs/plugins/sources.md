@@ -121,8 +121,8 @@ is offline: the web client says it could not read that source there. GitHub's re
 send no such header, so a page cannot download a zip that is a release asset; the web client leaves
 such a plugin to the launcher, which can.
 
-The template's release workflow keeps the list and the zips on the repository's `gh-pages` branch,
-published by GitHub Pages ([publishing.md](guide/publishing.md)). Dereth's own source has a host of
+The template's Pages workflow makes the list and the zips from the repository's GitHub releases
+and deploys them to GitHub Pages, with no branch to keep ([publishing.md](guide/publishing.md)). Dereth's own source has a host of
 its own, `https://plugins.dereth.network/plugins.json`: `cargo xtask deploy plugins` builds it from
 the samples in `dereth/plugins/` that `dereth/plugins/published.toml` names, and puts it on its
 Cloudflare Pages project, with headers that let any page read it, the list kept five minutes and each versioned zip a year.

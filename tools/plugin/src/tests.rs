@@ -217,7 +217,8 @@ fn a_new_repository_holds_a_plugin_that_checks_packs_releases_and_is_listed() {
 #[test]
 fn the_templates_workflows_run_only_this_tools_commands_and_pin_their_actions() {
     const COMMANDS: &[&str] = &[
-        "new", "check", "pack", "hash", "build", "release", "notes", "find", "add", "prune",
+        "new", "check", "pack", "hash", "build", "release", "notes", "find", "add", "latest",
+        "site",
     ];
     for (path, text) in template::FILES {
         for (at, _) in text.match_indices("dereth-plugin ") {
@@ -271,9 +272,8 @@ fn the_templates_workflows_run_only_this_tools_commands_and_pin_their_actions() 
         .find(|(p, _)| p.ends_with("release.yml"))
         .expect("release.yml")
         .1;
-    // The workflow names the zip and its list entry the same way the documentation does.
+    // The workflow finds the plugin by its tag, as the documentation says.
     assert!(release.contains("dereth-plugin find . \"$GITHUB_REF_NAME\""));
-    assert!(release.contains("dereth-plugin add site/plugins.json"));
     assert!(release.contains("tags: ['v*', '*-v*']"));
 }
 
@@ -607,174 +607,173 @@ fn new_on_a_plugin_repository_adds_a_plugin_whose_releases_are_tagged_by_id() {
     );
 }
 
-/// `prune` keeps every plugin a source lists that the repository still holds, found as every
-/// command finds a repository's plugins, and drops the rest: their entries, and the zips the list
-/// names beside itself (the folder the release workflow put each in, and a `.sha256` that `pack`
-/// left), never a zip elsewhere. With nothing to drop it writes nothing; a repository holding no
-/// plugin, or one whose manifest does not read, drops nothing at all.
+/// A source made from a repository's releases lists each plugin the repository holds at its
+/// latest release (the highest version among the releases that are not drafts or pre-releases,
+/// whatever their order), with that release's notes and day and its zip beside the list. A plugin
+/// with no release is left out, and so is a release of a plugin the repository no longer holds.
+/// The releases read alike as the API's array or one to a line.
 #[test]
-fn prune_drops_the_plugins_the_repository_no_longer_holds_with_their_zips() {
-    let dir = Scratch::new("prune");
-    let repo = dir.0.join("repo");
-    let site = dir.0.join("site");
-    let list_file = site.join("plugins.json");
-    let write = |folder: &str, id: &str| {
-        let f = repo.join(folder);
-        std::fs::create_dir_all(&f).expect("folder");
-        std::fs::write(
-            f.join("plugin.toml"),
-            format!("id = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\napi = \"0.1\"\n"),
-        )
-        .expect("manifest");
+fn a_source_made_from_the_releases_lists_each_held_plugin_at_its_latest_release() {
+    let dir = Scratch::new("site");
+    let manifest = |id: &str, version: &str| {
+        format!("id = \"{id}\"\nname = \"{id}\"\nversion = \"{version}\"\napi = \"0.1\"\n")
+    };
+    let plugin = |f: &Path, id: &str, version: &str| {
+        std::fs::create_dir_all(f).expect("folder");
+        std::fs::write(f.join("plugin.toml"), manifest(id, version)).expect("manifest");
         std::fs::write(f.join("main.lua"), "print(1)\n").expect("main");
     };
-    // Three plugins released as the release workflow lists them, each zip in a folder of its own
-    // beside the list; a fourth listed at an address of its own.
-    let plugins = [
-        ("loot", "example.loot"),
+    let repo = dir.0.join("repo");
+    for (folder, id) in [
         ("meter", "example.meter"),
-        ("radar", "example.radar"),
-    ];
-    for (folder, id) in plugins {
-        write(folder, id);
-        let zip = dir.0.join(format!("{id}-1.0.0.zip"));
-        crate::pack(&repo.join(folder), &zip).expect("packed");
-        std::fs::create_dir_all(site.join(id)).expect("its folder");
-        let at = format!("{id}/{id}-1.0.0.zip");
-        std::fs::copy(&zip, site.join(&at)).expect("put beside the list");
-        list::add(&list_file, &zip, &at, "", Some("Mine"), "2026-10-27").expect("listed");
-    }
-    std::fs::write(
-        site.join("example.meter/example.meter-1.0.0.zip.sha256"),
-        "sum",
-    )
-    .expect("sum");
-    write("far", "example.far");
-    let far = dir.0.join("far.zip");
-    crate::pack(&repo.join("far"), &far).expect("packed");
-    let far_at = "https://example.org/far.zip";
-    list::add(&list_file, &far, far_at, "", None, "2026-10-27").expect("listed");
-    std::fs::remove_dir_all(repo.join("far")).expect("removed");
-    let other = site.join("other.txt");
-    std::fs::write(&other, "the site's own").expect("a file");
-    let listed = |path: &Path| -> Vec<String> {
-        let read =
-            dereth_plugin_package::catalog::Catalog::parse(&std::fs::read(path).expect("list"))
-                .expect("reads");
-        read.catalog
-            .plugins
-            .iter()
-            .map(|e| e.id.to_string())
-            .collect()
-    };
-    let repo_at = repo.display().to_string();
-    let list_at = list_file.display().to_string();
-    let prune = || crate::run(&["prune", &list_at, &repo_at].map(str::to_owned));
-
-    // Meter's folder is deleted: it and the plugin listed far away go, the others stay.
-    std::fs::remove_dir_all(repo.join("meter")).expect("deleted");
-    assert_eq!(
-        prune().as_deref(),
-        Ok("unlisted example.far 1.0.0\nunlisted example.meter 1.0.0")
-    );
-    assert_eq!(listed(&list_file), ["example.loot", "example.radar"]);
-    assert!(
-        !site.join("example.meter").exists(),
-        "its zip, sum and folder"
-    );
-    for id in ["example.loot", "example.radar"] {
-        assert!(site.join(format!("{id}/{id}-1.0.0.zip")).is_file(), "{id}");
-    }
-    assert!(other.is_file(), "what the list does not name stays");
-    let read =
-        dereth_plugin_package::catalog::Catalog::parse(&std::fs::read(&list_file).expect("list"))
-            .expect("reads");
-    assert_eq!(read.catalog.name, "Mine", "the rest of the list is kept");
-
-    // Nothing more to drop: the list is not written (a list written again would lose the blank
-    // line added to its end here).
-    let mut before = std::fs::read(&list_file).expect("list");
-    before.extend_from_slice(b"\n");
-    std::fs::write(&list_file, &before).expect("a blank line more");
-    assert!(prune().is_ok_and(|s| s.starts_with("every plugin")));
-    assert_eq!(std::fs::read(&list_file).expect("list"), before);
-
-    // A manifest that does not read, or a repository holding no plugin: nothing is dropped.
-    std::fs::write(repo.join("radar/plugin.toml"), "id = 1\n").expect("broken");
-    assert!(prune().is_err());
-    std::fs::remove_dir_all(repo.join("radar")).expect("deleted");
-    std::fs::remove_dir_all(repo.join("loot")).expect("deleted");
-    assert!(
-        prune().is_err_and(|e| e.ends_with("holds no plugin: give the repository's own folder"))
-    );
-    assert_eq!(std::fs::read(&list_file).expect("list"), before);
-    assert_eq!(listed(&list_file), ["example.loot", "example.radar"]);
-
-    // No list yet: nothing to do.
-    write("loot", "example.loot");
-    let none = dir.0.join("none").join("plugins.json");
-    let said = list::prune(&none, &repo).expect("nothing to do");
-    assert!(said.ends_with("is not there: nothing to unlist"), "{said}");
-    assert!(!none.exists());
-}
-
-/// A dropped plugin's zip is removed only when the list names it by a plain path beside itself:
-/// never one reached with `..`, an address, or a zip another plugin still listed names.
-#[test]
-fn prune_removes_only_zips_named_by_a_plain_path_beside_the_list() {
-    let dir = Scratch::new("prune-paths");
-    let repo = dir.0.join("repo");
-    let site = dir.0.join("site");
-    std::fs::create_dir_all(&site).expect("site");
-    let kept = repo.join("kept");
-    std::fs::create_dir_all(&kept).expect("folder");
-    std::fs::write(
-        kept.join("plugin.toml"),
-        "id = \"example.kept\"\nname = \"N\"\nversion = \"1.0.0\"\napi = \"0.1\"\n",
-    )
-    .expect("manifest");
-    std::fs::write(kept.join("main.lua"), "print(1)\n").expect("main");
-    let zip_of = |id: &str| {
-        let f = dir.0.join(format!("src-{id}"));
-        std::fs::create_dir_all(&f).expect("folder");
-        std::fs::write(
-            f.join("plugin.toml"),
-            format!("id = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\napi = \"0.1\"\n"),
-        )
-        .expect("manifest");
-        std::fs::write(f.join("main.lua"), "print(1)\n").expect("main");
-        let zip = dir.0.join(format!("{id}.zip"));
-        crate::pack(&f, &zip).expect("packed");
-        zip
-    };
-    let list_file = site.join("plugins.json");
-    let outside = dir.0.join("outside.zip");
-    std::fs::write(&outside, "not the site's").expect("a file");
-    let shared = site.join("shared.zip");
-    std::fs::write(&shared, "shared").expect("a file");
-    for (id, at) in [
-        ("example.kept", "shared.zip"),
-        ("example.gone", "shared.zip"),
-        ("example.away", "../outside.zip"),
+        ("loot", "example.loot"),
+        ("quiet", "example.quiet"),
     ] {
-        list::add(&list_file, &zip_of(id), at, "", None, "2026-10-27").expect("listed");
+        plugin(&repo.join(folder), id, "0.1.0");
     }
-    let said = list::prune(&list_file, &repo).expect("pruned");
+    let zips = dir.0.join("zips");
+    std::fs::create_dir_all(&zips).expect("zips");
+    let zip = |id: &str, version: &str| {
+        let f = dir.0.join(format!("src-{id}-{version}"));
+        plugin(&f, id, version);
+        let name = format!("{id}-{version}.zip");
+        crate::pack(&f, &zips.join(&name)).expect("packed");
+        name
+    };
+    // GitHub's releases, as its API gives them (a draft has no publishing time).
+    let release = |tag: &str, assets: &[String], at: Option<&str>, body: &str, kind: &str| {
+        serde_json::json!({
+            "tag_name": tag,
+            "draft": kind == "draft",
+            "prerelease": kind == "pre",
+            "published_at": at,
+            "body": body,
+            "assets": assets.iter().map(|n| serde_json::json!({ "name": n })).collect::<Vec<_>>(),
+        })
+    };
+    let (meter_old, meter) = (zip("example.meter", "1.0.0"), zip("example.meter", "1.1.0"));
+    let day = |d: u32| format!("2026-10-{d}T09:00:00Z");
+    let releases = [
+        release(
+            "v1.0.0",
+            std::slice::from_ref(&meter_old),
+            Some(&day(20)),
+            "- First.",
+            "",
+        ),
+        release(
+            "v2.0.0",
+            &[zip("example.meter", "2.0.0")],
+            None,
+            "",
+            "draft",
+        ),
+        release(
+            "v1.2.0",
+            &[zip("example.meter", "1.2.0")],
+            Some(&day(28)),
+            "",
+            "pre",
+        ),
+        release(
+            "example.gone-v0.5.0",
+            &[zip("example.gone", "0.5.0")],
+            Some(&day(21)),
+            "",
+            "",
+        ),
+        release(
+            "v1.1.0",
+            &[meter.clone(), format!("{meter}.sha256")],
+            Some(&day(27)),
+            "- Counts luminance too.\r\n",
+            "",
+        ),
+        release(
+            "example.loot-v0.1.0",
+            &[zip("example.loot", "0.1.0")],
+            Some(&day(22)),
+            "- First.",
+            "",
+        ),
+        release("tools", &["notes.txt".to_owned()], Some(&day(23)), "", ""),
+    ];
+    let lines = dir.0.join("releases.json");
+    let lines_text: Vec<String> = releases.iter().map(ToString::to_string).collect();
+    std::fs::write(&lines, lines_text.join("\n") + "\n").expect("releases");
+    let array = dir.0.join("releases-array.json");
+    std::fs::write(
+        &array,
+        serde_json::Value::Array(releases.to_vec()).to_string(),
+    )
+    .expect("releases");
+
+    let wanted = "example.loot-v0.1.0\texample.loot-0.1.0.zip\nv1.1.0\texample.meter-1.1.0.zip";
+    assert_eq!(crate::site::latest(&repo, &lines).as_deref(), Ok(wanted));
+    assert_eq!(crate::site::latest(&repo, &array).as_deref(), Ok(wanted));
+
+    let out = dir.0.join("site");
+    let said =
+        crate::site::site(&repo, &lines, &zips, &out, Some("Example's plugins")).expect("made");
     assert_eq!(
         said,
-        "unlisted example.away 1.0.0\nunlisted example.gone 1.0.0"
+        "listed example.loot 0.1.0 from example.loot-v0.1.0\nlisted example.meter 1.1.0 from v1.1.0"
     );
-    assert!(outside.is_file(), "not beside the list");
-    assert!(shared.is_file(), "still named by a plugin kept");
+    let read = dereth_plugin_package::catalog::Catalog::parse(
+        &std::fs::read(out.join("plugins.json")).expect("list"),
+    )
+    .expect("reads");
+    assert_eq!(read.catalog.name, "Example's plugins");
+    let listed: Vec<String> = read
+        .catalog
+        .plugins
+        .iter()
+        .map(|e| {
+            format!(
+                "{} {} {} {:?} {}",
+                e.id, e.version, e.zip, e.notes, e.released
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            "example.loot 0.1.0 example.loot/example.loot-0.1.0.zip \"- First.\" 2026-10-22",
+            "example.meter 1.1.0 example.meter/example.meter-1.1.0.zip \"- Counts luminance too.\" 2026-10-27",
+        ]
+    );
+    for e in &read.catalog.plugins {
+        let bytes = std::fs::read(out.join(&e.zip)).expect("the zip beside the list");
+        assert!(e.check(&bytes).is_ok(), "{}", e.zip);
+    }
+    assert!(!out.join("example.gone").exists() && !out.join("example.quiet").exists());
+
+    // It makes a new source only, from zips that are what their names say.
+    let again = crate::site::site(&repo, &lines, &zips, &out, None).unwrap_err();
+    assert!(again.ends_with("is not empty"), "{again}");
+    std::fs::copy(zips.join(&meter_old), zips.join(&meter)).expect("a zip that lies");
+    let lies = crate::site::site(&repo, &lines, &zips, &dir.0.join("site-2"), None).unwrap_err();
+    assert!(
+        lies.ends_with("holds example.meter 1.0.0, not what its name says"),
+        "{lies}"
+    );
+    std::fs::remove_file(zips.join(&meter)).expect("removed");
+    let missing = crate::site::site(&repo, &lines, &zips, &dir.0.join("site-3"), None).unwrap_err();
+    assert!(missing.contains("download the zips"), "{missing}");
+    let empty = dir.0.join("empty");
+    std::fs::create_dir_all(&empty).expect("folder");
+    assert!(crate::site::latest(&empty, &lines)
+        .unwrap_err()
+        .contains("holds no plugin"));
 }
 
-/// The unlist workflow runs `prune` as the tests above run it, on a copy of the gh-pages branch,
-/// only on the default branch and only once that branch exists. It commits and pushes only from
-/// the job that waits its turn with the releases, in their one concurrency group, and that job
-/// runs only when the first found something to drop, so an ordinary push never takes the place
-/// of a release waiting to run.
+/// The template publishes its source with no branch to keep. The Pages workflow makes the whole
+/// source from the releases as `site` makes it above and deploys it to Pages, one deployment at a
+/// time and on the default branch only: for a push there that touches a plugin's `plugin.toml`,
+/// and when the release workflow asks after a release (a release made with a workflow's own token
+/// starts no workflow by itself). Nothing in the template pushes a branch.
 #[test]
-fn the_unlist_workflow_prunes_gh_pages_on_the_default_branch_in_turn_with_the_releases() {
+fn the_pages_workflow_makes_the_source_from_the_releases_on_the_default_branch() {
     let file = |name: &str| {
         template::FILES
             .iter()
@@ -782,31 +781,36 @@ fn the_unlist_workflow_prunes_gh_pages_on_the_default_branch_in_turn_with_the_re
             .unwrap_or_else(|| panic!("{name}"))
             .1
     };
-    let (unlist, release) = (file("unlist.yml"), file("release.yml"));
-    let group = "concurrency:\n  group: release\n  cancel-in-progress: false\n";
-    assert!(release.contains(group), "{release}");
-    let (look, push) = unlist
-        .split_once("\n  unlist:\n")
-        .expect("the look job, then the unlist job");
-    let prune = "dereth-plugin prune site/plugins.json .";
-    for job in [look, push] {
-        assert_eq!(job.matches(prune).count(), 1, "{job}");
-        assert!(job.contains("git worktree add site gh-pages"), "{job}");
+    let (pages, release) = (file("pages.yml"), file("release.yml"));
+    assert!(
+        pages.contains("on:\n  push:\n    branches: ['**']\n"),
+        "{pages}"
+    );
+    assert!(pages.contains("\n    paths: ['plugin.toml', '*/plugin.toml']\n  workflow_dispatch:\n"));
+    assert!(pages.contains("\n    if: github.ref_name == github.event.repository.default_branch\n"));
+    assert!(pages.contains("concurrency:\n  group: pages\n  cancel-in-progress: false\n"));
+    assert!(pages.contains("      pages: write\n      id-token: write\n"));
+    let steps = [
+        "dereth-plugin latest . \"$releases\"",
+        "gh release download \"$tag\"",
+        "dereth-plugin site . \"$releases\" \"$RUNNER_TEMP/zips\"",
+        "actions/configure-pages@",
+        "actions/upload-pages-artifact@",
+        "actions/deploy-pages@",
+    ];
+    let at: Vec<usize> = steps
+        .iter()
+        .map(|s| pages.find(s).unwrap_or_else(|| panic!("{s}")))
+        .collect();
+    assert!(at.windows(2).all(|w| w[0] < w[1]), "{at:?}");
+    assert!(release.contains(
+        "gh workflow run pages.yml --repo \"$GITHUB_REPOSITORY\" --ref \"$DEFAULT_BRANCH\""
+    ));
+    assert!(release.contains("permissions:\n  contents: write\n  actions: write\n"));
+    for (path, text) in template::FILES {
+        assert!(
+            !text.contains("git push") && !text.contains("gh-pages"),
+            "{path}"
+        );
     }
-    assert!(look.contains("if: github.ref_name == github.event.repository.default_branch"));
-    assert!(look.contains("if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then"));
-    assert!(look.contains("echo \"dropped=true\" >> \"$GITHUB_OUTPUT\""));
-    assert!(
-        !look.contains("concurrency:") && !look.contains("git push") && !look.contains("commit")
-    );
-    assert!(push.contains("    needs: look\n    if: needs.look.outputs.dropped == 'true'\n"));
-    assert!(
-        push.contains("    concurrency:\n      group: release\n      cancel-in-progress: false\n")
-    );
-    let commit = push.find("git -C site commit").expect("a commit");
-    let nothing = push
-        .find("if git -C site diff --cached --quiet; then\n            exit 0")
-        .expect("nothing to commit, nothing done");
-    assert!(nothing < commit && commit < push.find("git -C site push").expect("a push"));
-    assert!(unlist.contains("on:\n  push:\n    branches: ['**']\n"));
 }

@@ -1,0 +1,88 @@
+# This repository's plugin source on GitHub Pages: plugins.json, and each plugin's zip beside it,
+# made afresh from the repository's GitHub releases, each plugin at its latest, and deployed. The
+# release workflow starts it after each release. A push to the default branch that adds, changes or
+# removes a plugin.toml starts it too, which is how a plugin whose folder is gone leaves the list.
+# It can be run by hand from the Actions tab.
+name: Pages
+
+on:
+  push:
+    branches: ['**']
+    # A plugin is a plugin.toml in the repository's root or a folder directly in it.
+    paths: ['plugin.toml', '*/plugin.toml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time. Each makes the whole source from the releases there when it runs, so
+# a later one taking the place of another waiting loses nothing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # The Dereth release whose author's tool this repository uses: its rules are that release's.
+  DERETH: '{{dereth}}'
+  # The source's name, as launchers show it.
+  SOURCE_NAME: '{{source_name}}'
+
+jobs:
+  pages:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The tool of the Dereth release named above, downloaded from that release and checked
+      # against its SHA256SUMS.
+      - name: Install the author's tool
+        run: |
+          cd "$RUNNER_TEMP"
+          file="dereth-plugin-$DERETH-linux-x86_64.tar.gz"
+          release="{{dereth_repo}}/releases/download/dereth-v$DERETH"
+          curl -fsSLO "$release/$file"
+          curl -fsSLO "$release/SHA256SUMS"
+          grep "  $file\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$file"
+          echo "$RUNNER_TEMP/dereth-plugin-$DERETH" >> "$GITHUB_PATH"
+      # The zip of each plugin's latest release downloaded, and the source made of them. Before the
+      # repository's first release there is nothing to publish.
+      - name: Make the source from the releases
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          releases="$RUNNER_TEMP/releases.json"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[]' \
+            > "$releases"
+          if [ ! -s "$releases" ]; then
+            echo "No release yet: nothing to publish."
+            exit 0
+          fi
+          mkdir "$RUNNER_TEMP/zips"
+          dereth-plugin latest . "$releases" > "$RUNNER_TEMP/latest.txt"
+          while IFS=$'\t' read -r tag zip; do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$zip" \
+              --dir "$RUNNER_TEMP/zips"
+          done < "$RUNNER_TEMP/latest.txt"
+          dereth-plugin site . "$releases" "$RUNNER_TEMP/zips" "$RUNNER_TEMP/site" \
+            --name "$SOURCE_NAME"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - if: steps.source.outputs.publish == 'true'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - if: steps.source.outputs.publish == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: ${{ runner.temp }}/site
+      - id: deploy
+        if: steps.source.outputs.publish == 'true'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

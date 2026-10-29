@@ -27,7 +27,8 @@ of its own, `dereth-plugin-<version>-<platform>`, which the template's workflows
 | `dereth-plugin notes <folder> <version>` | that version's notes from the change log |
 | `dereth-plugin find <repository> <tag>` | the plugin a release tag names: its folder, id, version and name |
 | `dereth-plugin add <plugins.json> <zip> <url> [--notes <file>] [--name <name>]` | lists the zip's release in a source, in place of the plugin's entry; `<url>` is where players download it, an `https://` address or a path beside the list |
-| `dereth-plugin prune <plugins.json> <repository>` | drops from a source every plugin the repository no longer holds, with its zip when the list names it by a path beside itself |
+| `dereth-plugin latest <repository> <releases.json>` | the zip of each of the repository's plugins' latest GitHub release, one `<tag>` and `<zip>` to a line, to download |
+| `dereth-plugin site <repository> <releases.json> <zips> <out> [--name <name>]` | the repository's whole source made from its GitHub releases: `<out>/plugins.json`, and each plugin's zip in `<out>/<id>/` |
 | `dereth-plugin hash <zip>` | a zip's id, version and SHA-256 |
 | `dereth-plugin build <crate> <folder>` | a Rust plugin built as a component ([getting-started-wasm.md](getting-started-wasm.md)) |
 
@@ -55,8 +56,9 @@ xp-tracker/
   README.md                      what it is, the source's address to add, how to release
   .gitattributes, .gitignore
   .github/workflows/check.yml    every push and pull request: each plugin checked
-  .github/workflows/release.yml  a release tag: packed, released, listed in plugins.json
-  .github/workflows/unlist.yml   a push to the default branch: a plugin whose folder is gone unlisted
+  .github/workflows/release.yml  a release tag: packed and released, then Pages started
+  .github/workflows/pages.yml    after a release, or a push changing a plugin.toml: the source made
+                                 from the releases and deployed to GitHub Pages
   xp-tracker/                    the plugin: exactly what goes in its zip
     plugin.toml                  id io.github.you.xp-tracker, version 0.1.0, homepage the repository
     main.lua                     a window that says hello, and /xptracker
@@ -123,14 +125,22 @@ The tag starts the release workflow, which:
 2. checks it, packs `io.github.you.xp-tracker-0.2.0.zip` with its `.sha256`, and takes the
    version's notes;
 3. makes the GitHub release `v0.2.0` with the zip, the sum and the notes;
-4. on the `gh-pages` branch (made on the first run), puts the zip in a folder named for the
-   plugin, replacing the release before it, lists it in `plugins.json` (`dereth-plugin add`), and
-   pushes the branch.
+4. starts the **Pages** workflow on the default branch.
 
-Once, after the first release, turn on GitHub Pages for the repository: **Settings → Pages**,
-publish from the `gh-pages` branch. The source's address is then
-`https://you.github.io/xp-tracker/plugins.json`, which the README gives players. Pages serves the
-list and the zips to any page, so the web client can read them too.
+The Pages workflow makes the source afresh from the repository's GitHub releases and deploys it to
+GitHub Pages, with no branch to keep: it lists the releases (`gh api`), downloads the zip of each
+plugin's latest release (`dereth-plugin latest`), and writes `plugins.json` with each zip in a
+folder named for its plugin (`dereth-plugin site`). A plugin's latest release is the highest
+version among the releases, not drafts or pre-releases, that hold its zip; each entry carries that
+release's notes and day. Deployments run one at a time, and each one makes the whole source again,
+so none is lost to another. It runs on the default branch only, and can be run by hand from the
+**Actions** tab.
+
+Once, before the first release, turn on GitHub Pages for the repository: **Settings → Pages**, set
+**Source** to **GitHub Actions**. (A release made before that fails its Pages run; run it again
+afterwards.) The source's address is then `https://you.github.io/xp-tracker/plugins.json`, which the
+README gives players. Pages serves the list and the zips to any page, so the web client can read
+them too.
 
 A release is a fix forward: the list holds each plugin's latest release, and a launcher offers it to
 everyone who installed the plugin from this source. A release that asks for a permission or a web
@@ -161,14 +171,12 @@ and the workflows serve every plugin. It refuses a folder name or an id the repo
 and a plugin's own folder. Any other folder that is not empty is refused too, one whose plugins are
 all further down among them.
 
-To remove one, delete its folder and push to the default branch. The **Unlist** workflow then drops
-it from `plugins.json` on the `gh-pages` branch, with its zip there (`dereth-plugin prune
-site/plugins.json .`), and its GitHub releases stay. Launchers that installed it keep it, with no
-more updates. The workflow first looks on a copy of `gh-pages` whether anything is to be dropped;
-only then does it drop and push, waiting its turn with the releases (one concurrency group), so an
-ordinary push never holds up a release. Before the first release there is no `gh-pages` branch,
-and nothing to do. `prune` drops nothing when the repository holds no plugin at all, or when a
-plugin's `plugin.toml` does not read.
+To remove one, delete its folder and push to the default branch. A push that adds, changes or
+removes a `plugin.toml` runs the **Pages** workflow, and the source it makes lists only the plugins
+the repository holds, so the removed plugin and its zip leave it; its GitHub releases stay.
+Launchers that installed it keep it, with no more updates. A repository that holds no plugin at
+all, or one whose `plugin.toml` does not read, fails the run, and the source deployed before stays
+as it was.
 
 ## A source of other repositories' releases
 

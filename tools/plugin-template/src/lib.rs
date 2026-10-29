@@ -18,10 +18,10 @@
 //!                                 and release it
 //! .gitattributes, .gitignore      .gitignore keeps out the launcher's copy of the author's tool
 //! .github/workflows/check.yml     every push: each plugin checked
-//! .github/workflows/release.yml   a release tag: packed, released on GitHub, listed in plugins.json
-//!                                 on the gh-pages branch, which GitHub Pages publishes
-//! .github/workflows/unlist.yml    a push to the default branch: a plugin whose folder is gone is
-//!                                 dropped from plugins.json on the gh-pages branch
+//! .github/workflows/release.yml   a release tag: packed and released on GitHub, then Pages started
+//! .github/workflows/pages.yml     after a release, and for a push to the default branch that adds,
+//!                                 changes or removes a plugin.toml: plugins.json and the zips made
+//!                                 from the releases, each plugin at its latest, deployed to Pages
 //! <folder>/plugin.toml            the plugin: a window that says hello, and a command
 //! <folder>/main.lua
 //! <folder>/CHANGES.md
@@ -56,8 +56,8 @@ pub const FILES: &[(&str, &str)] = &[
         include_str!("../template/release.yml"),
     ),
     (
-        ".github/workflows/unlist.yml",
-        include_str!("../template/unlist.yml"),
+        ".github/workflows/pages.yml",
+        include_str!("../template/pages.yml"),
     ),
     (
         "{folder}/plugin.toml",
