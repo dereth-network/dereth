@@ -863,7 +863,7 @@ fn next(w: &mut World, t: f64) -> Option<String> {
                 id,
                 who,
                 on: true,
-                profile: Some(Box::new(profile)),
+                profile: Some(Box::new(profile.into())),
             }
             .to_json(),
         );

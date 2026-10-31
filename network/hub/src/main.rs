@@ -922,7 +922,8 @@ mod tests {
                 gender: 2,
                 ..Profile::default()
             };
-            r.listing(&eve, Some(&profile)).expect("listed");
+            r.listing(&eve, Some(&profile.clone().into()))
+                .expect("listed");
             assert!(r.directory_character("Eve@aa").expect("asked").is_some());
         }
         let s = |v: &[&str]| v.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();

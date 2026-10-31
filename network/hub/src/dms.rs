@@ -987,7 +987,8 @@ mod tests {
         };
         for who in ["Ann@aa", "Ann@bb", "Ann@cc"] {
             // Its world has it on the network, and so lists it.
-            r.listing(&a(who), Some(&profile)).expect("listed");
+            r.listing(&a(who), Some(&profile.clone().into()))
+                .expect("listed");
             let (code, _) = r.person_code(&a(who)).expect("a code");
             r.redeem_link_code(&op, &code).expect("linked");
         }
@@ -1001,7 +1002,8 @@ mod tests {
         assert_eq!(person("Nobody@aa"), None);
         r.listing(&a("Ann@bb"), None).expect("off");
         assert_eq!(person("Ann@bb"), None, "off the network: its link paused");
-        r.listing(&a("Ann@bb"), Some(&profile)).expect("back on");
+        r.listing(&a("Ann@bb"), Some(&profile.clone().into()))
+            .expect("back on");
         assert_eq!(person("Ann@bb"), nelly, "back on");
         assert_eq!(r.tells_of(&op.id).expect("read"), Some("200".into()));
         r.set_operator_disabled("200", true).expect("disabled");

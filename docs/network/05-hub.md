@@ -30,7 +30,17 @@ below only make it slower and costlier).
 - **A world** has a slug (2–40 of `a-z`, `0-9` and inner hyphens, not one of the platform's words
   below), a name (2–80 characters, no angle bracket), a description, a ruleset (`PvE`, `PvP`,
   `PvP-lite`, `Custom`), a region, a maturity, optional website and Discord links, its game endpoint (a fixed address and port, or the address
-  its heartbeats come from), its emulator, and a federation flag ([01](01-addresses-and-settings.md)).
+  its heartbeats come from), its emulator, its game (below), and a federation flag ([01](01-addresses-and-settings.md)).
+- **A world's game** is the game its players play there: `dereth` (Asheron's Call) or `auberean`
+  (Asheron's Call 2), spelled exactly so. A registration may name it (`"game"`); a new world that
+  names none runs `dereth`, and a replaced registration that names none leaves the world's game as
+  it was. A heartbeat over HTTP may name it too, and the world's game becomes the one it names; a
+  heartbeat that names none, and `status` over a link, leave it as it is. A game the hub does not
+  know is refused (`400`). Every world in the public answers carries its `game`. The hub keeps the
+  game in the world's registry record beside its web addresses, not in the registration, so that a
+  hub of an earlier version reading the registry reads every world as it wrote it, and the
+  registry's schema does not change. The worlds of every game share one namespace of slugs: a
+  slug a world of one game holds is taken (`409`) for a world of any game.
 - **Lengths.** Every text field is bounded, and refused past its bound, never cut: a name 2–80
   characters, a description at most 2,000, a region 2–60, a maturity at most 60, an emulator family
   1–60 and its version 1–60, a website or Discord link at most 500 bytes; a heartbeat's message at
@@ -107,7 +117,7 @@ below only make it slower and costlier).
   turns it on under the same rules. `on` needs a managed world whose slug is a network slug and that
   is not locked. A world whose flag leaves `on` while linked loses its link.
 - **The audit log** keeps each world's registry events (registered, claimed, verified, key issued,
-  rotated or revoked, endpoint changed, federation set, imported, reported, locked), each with who
+  rotated or revoked, endpoint changed, federation set, game set, imported, reported, locked), each with who
   did it: an operator, the hub itself, or the hub's operator.
 
 ### The HTTP API
@@ -116,14 +126,14 @@ below only make it slower and costlier).
 |---|---|
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /v1/config` | the registry's domain and heartbeat lifetime |
-| `GET /v1/servers?q=&ruleset=&federation=&limit=&offset=` | a page of worlds: reporting online first, then by players, then by slug; `federation=on` (or `off`, `unset`) keeps only the worlds with that flag |
+| `GET /v1/servers?q=&ruleset=&federation=&game=&limit=&offset=` | a page of worlds: reporting online first, then by players, then by slug; `federation=on` (or `off`, `unset`) keeps only the worlds with that flag; `game=auberean` (or `dereth`) only that game's worlds, `game=all` every game's, and a list that names no game `dereth`'s alone, so that a reader that knows of no other game is never shown a world it cannot play; a word that names no game, none |
 | `GET /v1/servers/<slug>`, `/v1/servers/<slug>/status` | one world, or its status |
 | `GET /v1/resolve/<slug or slug.domain>` | the world with its endpoint resolved to addresses, as the hub already knows them: it never waits on a lookup (section 2.5), and gives only addresses on the public internet (none left answers `503` `DNS_RESOLUTION_FAILED`) |
-| `GET /v1/status` | the network's totals |
+| `GET /v1/status` | the network's totals over every game: `total`, `counts` (worlds by state), `playersOnline`, `reportingServers`, `demoServers`, `federatedServers`; and `games`, the same six for each game's worlds alone (`{"dereth": {...}, "auberean": {...}}`), which add up to the whole |
 | `GET /v1/network` | the federated worlds and which have a link up |
-| `POST /v1/servers/<slug>/heartbeat` | records a heartbeat (key required) |
-| `GET /compat/thwarg/Servers.xml` | the registry as a community list, for launchers that read that format |
-| `GET /compat/treestats/player_counts-latest.json` | population counts in the shape character-statistics sites read |
+| `POST /v1/servers/<slug>/heartbeat` | records a heartbeat (key required): `{"state", "playersOnline"?, "playersKind"?, "message"?, "emulatorVersion"?, "uptimeSeconds"?, "adapter"?, "game"?}`, where `adapter` is `{"kind", "version"}`, its kind one of `ace-mod`, `agent`, `manual`, `empyrean` and `yalain` |
+| `GET /compat/thwarg/Servers.xml` | the registry's `dereth` worlds as a community list, for launchers that read that format |
+| `GET /compat/treestats/player_counts-latest.json` | population counts of the `dereth` worlds, in the shape character-statistics sites read |
 | `GET /v1/servers/<slug>/link` (upgrade) | a world's link ([02](02-link-protocol.md)) |
 | `POST /v1/servers/<slug>/verify` | the world's half of verification in game: the hub challenges the world's game port and holds the call for its answer (key required; section 2.5) |
 | `POST /v1/servers/<slug>/verify/answer` | the world's answer to that challenge (key required; section 2.5) |
@@ -388,9 +398,12 @@ The registration body is the same as the command line's `register` file:
   "website": "https://coldeve.example.org", "discord": "https://discord.gg/example",
   "isDemo": false,
   "endpoint": {"mode": "manual", "address": "play.coldeve.example.org", "port": 9000},
-  "emulator": {"family": "ACE", "version": "1.77"}
+  "emulator": {"family": "ACE", "version": "1.77"},
+  "game": "dereth"
 }
 ```
+
+`game` may be left out (section 1).
 
 - **The operator's Discord account** must be at least 30 days old (the hub's setting
   `minAccountAgeDays`, section 2.14), by the time its id says it was made, to register a world or
@@ -696,7 +709,8 @@ but for an account since forgotten (section 5.3), which every reader sees as the
 Every operator action is a registry event of the world it acts on, with the operator who did it:
 registered, claimed, claim withdrawn, verification issued, verification attempted (its method and
 outcome), verified, endpoint changed, federation set (and by whom: an operator, the approval, the
-hub's operator), key issued, rotated or revoked, reported, report resolved, locked and unlocked,
+hub's operator), the game set by a registration (`game-set`) or named by a heartbeat
+(`game-reported`), key issued, rotated or revoked, reported, report resolved, locked and unlocked,
 a room of the world's mirrored into Discord or no longer (`discord-mirror`, section 5.7), by its
 operator, by the admin who took it away, or by the hub as the room that carries the Global room
 changed, and where the world carries the Global room (`global-room`, section 5.10), by its operator
@@ -1516,8 +1530,9 @@ trees.
 
 ### 6.1 What the hub keeps
 
-- **Per listed character:** its address, its world, the profile last sent, the hour that profile
-  last changed (never the minute), and the day a world last sent it.
+- **Per listed character:** its address, its world, the profile last sent (of the world's game,
+  [02](02-link-protocol.md) section 7), the hour that profile last changed (never the minute), and
+  the day a world last sent it.
 - **Per character held out:** its address, its world, whether its world has yet said it heard,
   who held it out, and until when it is held: the hub's operator for 30 days; a forgotten person's
   character until its world has heard (section 6.4).
@@ -1533,6 +1548,9 @@ trees.
 
 - A world lists only its own characters (`identity` otherwise), and only while it is on the
   network: a listing comes over a federated world's link.
+- A profile is read as the world's game's, and one of the other game's shape is `malformed`
+  ([02](02-link-protocol.md) section 7); a field the hub's version does not name is ignored, never
+  kept or published.
 - A listing that is `on` is refused `taken_down` while the character is held out, until the hub's
   operator's 30 days are up, whatever its world does. A listing that is not `on` is the world
   saying it heard, and the hold stays its time.
@@ -1566,8 +1584,8 @@ person layer.
 
 - `q`: the start of the name, or of any word of it, without regard to case: 2 to 32 letters,
   spaces, apostrophes and hyphens, at least two of them letters;
-- `world`: a world's slug; `heritage`: 1 to 13; `level_min` and `level_max`: 1 to 100,000, the
-  first no more than the second;
+- `world`: a world's slug; `heritage`: 1 to 13, which finds Asheron's Call characters alone;
+  `level_min` and `level_max`: 1 to 100,000, the first no more than the second;
 - `allegiance`: the start of the allegiance's name, or of any word of it, without regard to case:
   2 to 40 characters of shown text, matched as written (none is a wildcard);
 - `sort`: `updated`, the default, the profiles that changed most lately first; or `level`, the
@@ -1575,15 +1593,18 @@ person layer.
 - `limit`: 1 to 50 (50 when left out); `offset`, from 0. A search reaches its first 1,000 results:
   `offset` and `limit` together at most 1,000, past which the answer is `400`, to narrow it.
 
-Each result names `address`, `name`, `world` (`slug` and `name`), `updated` (the hour the profile
-last changed), `level`, `heritage`, `gender`, and `title` and `allegiance` (`key`, `name`, `rank`)
+Each result names `address`, `name`, `world` (`slug` and `name`), `game` (the world's game, so
+that a page shows each character in its game's words), `updated` (the hour the profile last
+changed), `level`, who the character is in its game's words (`heritage` and `gender` for
+`dereth`, `race` and `sex` for `auberean`), and `title` and `allegiance` (`key`, `name`, `rank`)
 where the profile has them. A character's own answer has the same, then every other field of its
-profile, but its allegiance's `patron` and `monarch` only while that character is listed itself:
+profile ([02](02-link-protocol.md) section 7: its game's), but its allegiance's `patron` and
+`monarch` only while that character is listed itself:
 
 ```json
 {"character": {"address": "Sir Bob@coldeve", "name": "Sir Bob",
-  "world": {"slug": "coldeve", "name": "Coldeve"}, "updated": "2026-10-12T14:00:00.000Z",
-  "level": 126, "heritage": 1, "gender": 1, "title": "the Bloodletter",
+  "world": {"slug": "coldeve", "name": "Coldeve"}, "game": "dereth",
+  "updated": "2026-10-12T14:00:00.000Z", "level": 126, "heritage": 1, "gender": 1, "title": "the Bloodletter",
   "allegiance": {"key": "k3Yq0pW9xLmN", "name": "Order of the Dawn", "members": 41, "rank": 3,
                  "patron": "Cara@coldeve"},
   "skills": [{"id": 6, "training": "specialized", "base": 420}], "deaths": 12}}
@@ -1613,6 +1634,7 @@ listed member as a search result with its `patron`, while listed.
 | the hub's operator, `dereth-network-hub directory remove <Name@world>` | the row is deleted at once (none, for a character not listed); the character is held out for 30 days, whatever its world does, and its world is sent `listing.off` (`operator`); the world's log records `listing-taken-down` and the address, for its operator |
 | its person forgetting itself on the site (section 5.3) | the row is deleted at once; its world is sent `listing.off` (`person`), however long it is away, and takes the character off the network; the hub holds the character out until its world has heard, and no longer, unless the operator's hold on it runs longer |
 | its world leaving the network (its flag leaving `on`: turned off, revoked, locked or unlisted, or its operator disabled) or the registry (removed, or lapsed while pending) | every listing and every hold of the world is deleted at once, but the offs it owes hearing of forgotten persons' characters, which it is sent when it comes back, while it is in the registry; a world that comes back lists its characters again as they log in |
+| its world's game changing (its registration or a heartbeat naming another) | every listing of the world is deleted at once, each being a profile of the game the world ran; its holds stay, and it lists its characters again, of its game now, as they log in |
 | no world sending the character's listing for 90 days | the listing lapses. A world lists a listed character at each login, so only one unplayed for 90 days, or gone, lapses; it is listed again at its next login |
 
 - Whenever a listing goes, its address goes too from every listing that named it as a patron or a

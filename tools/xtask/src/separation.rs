@@ -19,12 +19,12 @@
 //!    licence-leak rule), nor in the network's MIT crates.
 //! 6. The network (`network/`) is a third part, self-contained so that it can become a repository
 //!    of its own: a crate under it depends on no workspace crate outside it. A server crate may
-//!    name its protocol ([`NETWORK_SHARED`]) by path into `network/`, and its hub and conformance
-//!    suite ([`NETWORK_DEV`]) as dev-dependencies only; no client crate, and none of the network's
-//!    own MIT crates outside a dev-dependency, may name its hub, which carries the server's
-//!    licence ([`NETWORK_COPYLEFT`]); the rest of it is MIT ([`UNICODE_DATA`] adds the Unicode
-//!    licence of the data it embeds), and the copy of Windows' best-fit table it carries is the
-//!    client's ([`BEST_FIT_TABLES`]).
+//!    name its protocol and its link ([`NETWORK_SHARED`]) by path into `network/`, and its hub
+//!    and conformance suite ([`NETWORK_DEV`]) as dev-dependencies only; no client crate, and none
+//!    of the network's own MIT crates outside a dev-dependency, may name its hub, which carries
+//!    the server's licence ([`NETWORK_COPYLEFT`]); the rest of it is MIT ([`UNICODE_DATA`] adds
+//!    the Unicode licence of the data it embeds), and the copy of Windows' best-fit table it
+//!    carries is the client's ([`BEST_FIT_TABLES`]).
 //!
 //! `--client-only` enforces the client boundary without the server-side checks: 1, 3 and 5, plus
 //! the licence of every crate, for a checkout that has no server crates at all.
@@ -71,8 +71,9 @@ pub const DEV_EXCEPTIONS: &[(&str, &str)] = &[];
 /// The network's folder: the third part of the workspace (rule 6).
 const NETWORK_DIR: &str = "network";
 
-/// The network crates a server crate may name in any table.
-pub const NETWORK_SHARED: &[&str] = &["dereth-network-protocol"];
+/// The network crates a server crate may name in any table: the protocol, and a world's end of the
+/// link.
+pub const NETWORK_SHARED: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
 
 /// The network crates a server crate may name as dev-dependencies only (to run the network's own
 /// routing and checks in its tests).
@@ -89,7 +90,7 @@ pub const UNICODE_DATA: &[&str] = &["dereth-network-protocol"];
 const UNICODE_DATA_LICENSE: &str = "MIT AND Unicode-3.0";
 
 /// The network's MIT crates, which the licence-leak scan covers too.
-const NETWORK_MIT_DIRS: &[&str] = &["network/protocol", "network/conformance"];
+const NETWORK_MIT_DIRS: &[&str] = &["network/protocol", "network/link", "network/conformance"];
 
 /// The server's licence, spelled in pieces so this file does not itself carry the marker rule 5
 /// looks for.

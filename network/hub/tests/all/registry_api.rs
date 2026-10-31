@@ -1,5 +1,6 @@
 //! The registry's HTTP API on a running hub: resolution, heartbeats with and without the key, the
-//! network list and the compatibility feeds, and a world tried from outside for its host.
+//! network list and the compatibility feeds, each game's list of worlds, and a world tried from
+//! outside for its host.
 //! Fixture: the conformance fixture's hub, spoken to over plain HTTP/1.1 on loopback.
 
 use std::io::{Read, Write};
@@ -374,4 +375,159 @@ mod probe {
         f.advance(Duration::from_secs(10));
         assert_eq!(probe_at(&f, world.port).status, 200);
     }
+}
+
+fn game_registration(slug: &str, emulator: &str) -> dereth_network_hub::registry::Registration {
+    dereth_network_hub::registry::Registration::from_json(&serde_json::json!({
+        "slug": slug, "name": slug.to_uppercase(), "ruleset": "PvE",
+        "endpoint": { "mode": "manual", "address": "192.0.2.7", "port": 9000 },
+        "emulator": { "family": emulator },
+    }))
+    .expect("a registration")
+}
+
+/// The slugs and games of a page of `/v1/servers`, in its order.
+fn listed_games(addr: std::net::SocketAddr, query: &str) -> Vec<(String, String)> {
+    let (status, body) = http(addr, "GET", &format!("/v1/servers{query}"), None, "");
+    assert_eq!(status, 200, "{query}: {body}");
+    let page: serde_json::Value = serde_json::from_str(&body).expect("a page");
+    page["data"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|w| {
+            (
+                w["slug"].as_str().unwrap_or("").to_owned(),
+                w["game"].as_str().unwrap_or("").to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Spec: hub: a world that names no game is listed as `dereth`'s, one whose heartbeat names
+/// `auberean` as `auberean`'s; a list that names no game, and the community list and population
+/// feeds, show `dereth`'s worlds alone, a game's list that game's, and `all` both.
+#[test]
+fn each_games_list_shows_its_own_worlds_and_a_list_naming_none_shows_dereths() {
+    let registry = dereth_network_hub::registry::Registry::open(
+        ":memory:",
+        "dereth.network",
+        Box::new(std::time::SystemTime::now),
+    )
+    .expect("a registry");
+    let (_, linked_key) = registry
+        .register(&game_registration("coldeve", "Empyrean"))
+        .expect("registered");
+    registry
+        .set_federation("coldeve", dereth_network_protocol::Federation::On)
+        .expect("on");
+    let (_, reporting_key) = registry
+        .register(&game_registration("shardfall", "Example"))
+        .expect("registered");
+    let running = dereth_network_hub::server::start_with(
+        dereth_network_hub::server::HubConfig {
+            listen: "127.0.0.1:0".parse().expect("an address"),
+            db: ":memory:".into(),
+            ..dereth_network_hub::server::HubConfig::default()
+        },
+        registry,
+    )
+    .expect("the hub starts");
+    let addr = running.local_addr();
+
+    // The first world holds a link, says hello naming no game, and reports its status there.
+    let mut link = dereth_network_conformance::hub::Link::open(
+        &format!("ws://{addr}"),
+        "coldeve",
+        &linked_key,
+    )
+    .expect("coldeve links");
+    link.greet().expect("welcomed");
+    link.send(&dereth_network_protocol::Message::Status {
+        state: "online".into(),
+        players_online: Some(5),
+    })
+    .expect("status");
+
+    // The second reports over HTTP, naming its game.
+    let beat = dereth_network_protocol::heartbeat::Heartbeat {
+        state: "online".into(),
+        players_online: Some(2),
+        players_kind: Some(dereth_network_protocol::heartbeat::CONNECTED_CHARACTERS.into()),
+        emulator_version: Some("0.1.0".into()),
+        adapter: Some(dereth_network_protocol::heartbeat::Adapter {
+            kind: "yalain".into(),
+            version: "0.1.0".into(),
+        }),
+        game: Some(dereth_network_protocol::Game::Auberean),
+    };
+    let body = serde_json::to_string(&beat).expect("written");
+    let read: dereth_network_hub::registry::Heartbeat =
+        serde_json::from_str(&body).expect("the hub reads what a world writes");
+    assert_eq!(read.game, Some(dereth_network_protocol::Game::Auberean));
+    let (status, answer) = http(
+        addr,
+        "POST",
+        &dereth_network_protocol::heartbeat::path("shardfall"),
+        Some(&reporting_key),
+        &body,
+    );
+    assert_eq!(status, 200, "{answer}");
+
+    let (_, one) = http(addr, "GET", "/v1/servers/shardfall", None, "");
+    let one: serde_json::Value = serde_json::from_str(&one).expect("a world");
+    assert_eq!(one["game"], "auberean");
+    assert_eq!(one["status"]["playersOnline"], 2);
+    assert_eq!(one["status"]["reported"]["adapter"]["kind"], "yalain");
+
+    let dereth = vec![("coldeve".to_owned(), "dereth".to_owned())];
+    let auberean = vec![("shardfall".to_owned(), "auberean".to_owned())];
+    assert_eq!(listed_games(addr, ""), dereth, "a list naming no game");
+    assert_eq!(listed_games(addr, "?game=dereth"), dereth);
+    assert_eq!(listed_games(addr, "?game=auberean"), auberean);
+    let mut every = listed_games(addr, "?game=all&limit=100");
+    every.sort();
+    assert_eq!(every, [dereth.clone(), auberean].concat());
+    assert!(listed_games(addr, "?game=ac2").is_empty());
+
+    // The totals count both games' worlds, and each game's apart; they come from the same
+    // snapshot as the lists above, so whichever of coldeve's reports it holds, the games add up.
+    let (_, status) = http(addr, "GET", "/v1/status", None, "");
+    let status: serde_json::Value = serde_json::from_str(&status).expect("the totals");
+    assert_eq!(status["total"], 2, "{status}");
+    let (d, a) = (&status["games"]["dereth"], &status["games"]["auberean"]);
+    assert_eq!(
+        (d["total"].as_u64(), a["total"].as_u64()),
+        (Some(1), Some(1)),
+        "{status}"
+    );
+    assert_eq!(a["playersOnline"], 2, "{status}");
+    assert_eq!(
+        (&d["federatedServers"], &a["federatedServers"]),
+        (&serde_json::json!(1), &serde_json::json!(0))
+    );
+    assert_eq!(
+        status["playersOnline"].as_u64(),
+        Some(d["playersOnline"].as_u64().expect("dereth's") + 2)
+    );
+
+    let (_, xml) = http(addr, "GET", "/compat/thwarg/Servers.xml", None, "");
+    assert!(
+        xml.contains("COLDEVE") && !xml.contains("SHARDFALL"),
+        "{xml}"
+    );
+    let (_, counts) = http(
+        addr,
+        "GET",
+        "/compat/treestats/player_counts-latest.json",
+        None,
+        "",
+    );
+    assert!(
+        !counts.contains("SHARDFALL") && !counts.contains("shardfall"),
+        "{counts}"
+    );
+
+    link.close();
+    running.shutdown();
 }

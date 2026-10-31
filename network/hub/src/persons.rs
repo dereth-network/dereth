@@ -1003,7 +1003,8 @@ mod tests {
             gender: 1,
             ..dereth_network_protocol::Profile::default()
         };
-        f.r.listing(&a(who), Some(&profile)).expect("listed");
+        f.r.listing(&a(who), Some(&profile.clone().into()))
+            .expect("listed");
     }
 
     /// `who`'s world takes it off the network, and so out of the directory.

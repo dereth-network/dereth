@@ -940,6 +940,29 @@ mod tests {
         assert!(open[..portals].contains("if (both) {"), "{open}");
     }
 
+    /// Each realm of the page lists the worlds of the game the launcher's realm names, by the
+    /// word the hub's list gives it, and a world that names none is Dereth's.
+    #[test]
+    fn each_realm_of_the_page_lists_its_own_games_worlds() {
+        let page = include_str!("../ui/app.js");
+        for realm in [super::Realm::Dereth, super::Realm::Auberean] {
+            let id = serde_json::to_value(realm).expect("a realm");
+            let id = id.as_str().expect("its word");
+            let line = format!(
+                r#"  {id}: {{ game: "{}", name: "{}" }},"#,
+                realm.game().word(),
+                id.to_uppercase()
+            );
+            assert!(page.contains(&line), "{line}");
+        }
+        assert!(
+            page.contains(
+                r#"const inRealm = (w) => (w?.game ?? "dereth") === REALMS[ui.realm].game;"#
+            ),
+            "the page's filter"
+        );
+    }
+
     /// Auberean's realm is offered only to a launcher started with the switch, wherever it comes
     /// among the arguments.
     #[test]

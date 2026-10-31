@@ -11,8 +11,8 @@ use dereth_network_protocol::person::EarlierAlts;
 use dereth_network_protocol::standin::is_stand_in;
 use dereth_network_protocol::wire::PROTOCOL;
 use dereth_network_protocol::{
-    Address, DirectoryMessage, ListingOutcome, Message, OffBy, Outcome, PersonFriend, PersonOp,
-    PersonOutcome, Profile, WorldInfo,
+    Address, DirectoryMessage, ListingOutcome, ListingProfile, Message, OffBy, Outcome,
+    PersonFriend, PersonOp, PersonOutcome, Profile, WorldInfo,
 };
 
 use crate::Check;
@@ -1172,7 +1172,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
 // ---- the directory -------------------------------------------------------------------------------
 
 /// The listings among what the world sent: each as its address, whether it lists, and its
-/// profile.
+/// profile (the world under test is an Asheron's Call world, read as one).
 fn listings(sent: &[DirectoryMessage]) -> Vec<(String, String, bool, Option<Profile>)> {
     sent.iter()
         .filter_map(|m| match m {
@@ -1185,7 +1185,10 @@ fn listings(sent: &[DirectoryMessage]) -> Vec<(String, String, bool, Option<Prof
                 id.clone(),
                 who.to_string(),
                 *on,
-                profile.as_deref().cloned(),
+                profile.as_deref().and_then(|p| match p {
+                    ListingProfile::Dereth(p) => Some(p.clone()),
+                    ListingProfile::Auberean(_) => None,
+                }),
             )),
             _ => None,
         })

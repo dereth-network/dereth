@@ -293,6 +293,7 @@ impl Directory for Registry {
         self.0.get(slug).map(|&federation| DirEntry {
             name: slug.to_uppercase(),
             federation,
+            game: dereth_network_protocol::Game::Dereth,
         })
     }
     fn person_code(
@@ -352,7 +353,7 @@ impl Directory for Registry {
     fn listing(
         &self,
         who: &dereth_network_protocol::Address,
-        profile: Option<&dereth_network_protocol::Profile>,
+        profile: Option<&dereth_network_protocol::ListingProfile>,
     ) -> dereth_network_hub::core::ListingAnswer {
         Directory::listing(&self.1, who, profile)
     }

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use dereth_network_protocol::person::is_link_code;
 use dereth_network_protocol::wire::PROTOCOL;
+use dereth_network_protocol::{heartbeat, Game};
 use dereth_network_protocol::{
     Address, ChannelOp, ChannelOutcome, DirectoryMessage, ListingOutcome, Message, Outcome,
     PersonOp, PersonOutcome, Profile, ReachMessage, RoomsMessage, SayMessage,
@@ -477,12 +478,15 @@ fn listing(id: &str, who: &Address, on: bool) -> DirectoryMessage {
         who: who.clone(),
         on,
         profile: on.then(|| {
-            Box::new(Profile {
-                level: 1,
-                heritage: 1,
-                gender: 1,
-                ..Profile::default()
-            })
+            Box::new(
+                Profile {
+                    level: 1,
+                    heritage: 1,
+                    gender: 1,
+                    ..Profile::default()
+                }
+                .into(),
+            )
         }),
     }
 }
@@ -494,7 +498,94 @@ fn result_of(m: &Message, id: &str) -> Option<Outcome> {
     }
 }
 
+/// The game the hub's public answer names for world `slug`.
+fn game_of(t: &HubTarget, slug: &str) -> Result<Game, String> {
+    let w = http::get(&t.base, &format!("/v1/servers/{}", http::encode(slug)))?.json()?;
+    w["game"]
+        .as_str()
+        .and_then(|g| g.parse().ok())
+        .ok_or_else(|| format!("{slug} names no game: {w}"))
+}
+
+/// Posts a heartbeat for the suite's world `i` naming `game` (none: a heartbeat that names none).
+fn report_game(t: &HubTarget, i: usize, game: Option<Game>) -> Result<(), String> {
+    let (slug, key) = &t.worlds[i];
+    let body = serde_json::to_string(&heartbeat::Heartbeat {
+        state: "online".into(),
+        players_online: Some(0),
+        players_kind: Some(heartbeat::CONNECTED_CHARACTERS.into()),
+        emulator_version: None,
+        adapter: None,
+        game,
+    })
+    .map_err(|e| e.to_string())?;
+    let a = http::post(&t.base, &heartbeat::path(slug), key, &body)?;
+    (a.status == 200)
+        .then_some(())
+        .ok_or_else(|| format!("a heartbeat naming {game:?}: {} {}", a.status, a.body))
+}
+
+/// Runs `f` with the suite's world `i` reporting `game`, then gives it back the game it had.
+pub(super) fn as_game<T>(
+    t: &HubTarget,
+    i: usize,
+    game: Game,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let was = game_of(t, &t.worlds[i].0)?;
+    report_game(t, i, Some(game))?;
+    let out = f();
+    let back = if was == game {
+        Ok(())
+    } else {
+        report_game(t, i, Some(was))
+    };
+    let out = out?;
+    back.map(|()| out)
+}
+
 const WAIT: Duration = Duration::from_secs(5);
+
+/// How long a change may take to show on the lists of worlds, which a hub answers from a snapshot
+/// a moment old: a guard against a hub that never shows it, not the time it is expected to take.
+const LISTS_SETTLE: Duration = Duration::from_secs(30);
+
+/// Whether `/v1/status` names every game under `games`, the games' totals add up to the whole,
+/// each game's total is its list's, and `auberean`'s holds a world.
+fn each_game_totalled(t: &HubTarget) -> Result<(), String> {
+    let status = http::get(&t.base, "/v1/status")?.json()?;
+    for field in [
+        "total",
+        "playersOnline",
+        "reportingServers",
+        "demoServers",
+        "federatedServers",
+    ] {
+        let mut sum = 0;
+        for g in Game::ALL {
+            sum += status["games"][g.word()][field]
+                .as_u64()
+                .ok_or_else(|| format!("games.{g}.{field} is missing: {status}"))?;
+        }
+        if status[field].as_u64() != Some(sum) {
+            return Err(format!("the games' {field} add up to {sum}: {status}"));
+        }
+    }
+    for g in Game::ALL {
+        let page = http::get(&t.base, &format!("/v1/servers?game={g}&limit=1"))?.json()?;
+        if page["total"] != status["games"][g.word()]["total"] {
+            return Err(format!(
+                "{g}'s list holds {} worlds, its total {}",
+                page["total"],
+                status["games"][g.word()]["total"]
+            ));
+        }
+    }
+    if status["games"]["auberean"]["total"].as_u64().unwrap_or(0) == 0 {
+        return Err(format!("no world is auberean's: {status}"));
+    }
+    Ok(())
+}
 
 /// Runs every hub check against `t`.
 #[must_use]
@@ -735,6 +826,167 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
             Ok(())
         },
     );
+    check(
+        "registry.a_world_is_listed_under_the_game_its_heartbeat_names",
+        &mut || {
+            let key = &t.worlds[1].1;
+            let game_of = || game_of(t, &b);
+            let beat = |game: Option<Game>| report_game(t, 1, game);
+            // Whether `b` is on the list `query` names. The lists are answered from a snapshot a
+            // moment old, so a change shows once the next one is made.
+            let listed = |query: &str| -> Result<bool, String> {
+                let page = http::get(
+                    &t.base,
+                    &format!("/v1/servers?q={}&limit=100{query}", http::encode(&b)),
+                )?
+                .json()?;
+                Ok(page["data"]
+                    .as_array()
+                    .is_some_and(|rows| rows.iter().any(|w| w["slug"] == b.as_str())))
+            };
+            let until = |query: &str, shown: bool| -> Result<(), String> {
+                let give_up = Instant::now() + LISTS_SETTLE;
+                while listed(query)? != shown {
+                    if Instant::now() >= give_up {
+                        return Err(format!(
+                            "{b} is {}on the list ?{query} after {LISTS_SETTLE:?}",
+                            if shown { "not " } else { "still " }
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Ok(())
+            };
+            let was = game_of()?;
+            beat(Some(Game::Auberean))?;
+            if game_of()? != Game::Auberean {
+                return Err(format!("{b} is not auberean's once its heartbeat names it"));
+            }
+            until("&game=auberean", true)?;
+            until("", false)?;
+            until("&game=all", true)?;
+            beat(None)?;
+            if game_of()? != Game::Auberean {
+                return Err("a heartbeat naming no game changed the world's".into());
+            }
+            let odd = http::post(
+                &t.base,
+                &heartbeat::path(&b),
+                key,
+                r#"{"state":"online","game":"no-such-game"}"#,
+            )?;
+            if odd.status != 400 {
+                return Err(format!("a game the hub does not know: {}", odd.status));
+            }
+            beat(Some(Game::Dereth))?;
+            until("&game=dereth", true)?;
+            until("", true)?;
+            until("&game=auberean", false)?;
+            if was != Game::Dereth {
+                beat(Some(was))?;
+            }
+            Ok(())
+        },
+    );
+    check(
+        "tell.crosses_games_as_between_worlds_of_one_game",
+        &mut || {
+            as_game(t, 1, Game::Auberean, || {
+                // `b` links first, so that `a`'s welcome names it among the linked worlds.
+                let mut lb = open_greeted(t, 1)?;
+                let mut la =
+                    Link::open(&t.base, &a, &t.worlds[0].1).map_err(|e| format!("{a}: {e:?}"))?;
+                let welcome = la.greet()?;
+                match &welcome {
+                    Message::Welcome { worlds, .. } if worlds.iter().any(|w| w.slug == b) => {}
+                    other => return Err(format!("{a}'s welcome does not name {b}: {other:?}")),
+                }
+                for (from, to, l_from, l_to, id) in [
+                    (addr(&ann, &a), addr(&bob, &b), 0, 1, format!("xg{tg}")),
+                    (addr(&bob, &b), addr(&ann, &a), 1, 0, format!("xh{tg}")),
+                ] {
+                    let links = [&mut la, &mut lb];
+                    links[l_from].send(&Message::Tell {
+                        id: id.clone(),
+                        from: from.clone(),
+                        to: to.clone(),
+                        text: "across games".into(),
+                        friend: false,
+                    })?;
+                    let (hub_id, got_from, text) =
+                        links[l_to].expect(WAIT, "the tell", |m| match m {
+                            Message::Tell { id, from, text, .. } => {
+                                Some((id.clone(), from.clone(), text.clone()))
+                            }
+                            _ => None,
+                        })?;
+                    if !got_from.same(&from) || text != "across games" {
+                        return Err(format!("forwarded as {got_from} {text:?}"));
+                    }
+                    links[l_to].send(&Message::TellResult {
+                        id: hub_id,
+                        outcome: Outcome::Delivered,
+                        message: None,
+                    })?;
+                    let o = links[l_from].expect(WAIT, "the result", |m| result_of(m, &id))?;
+                    if o != Outcome::Delivered {
+                        return Err(format!("{from} to {to}: {o:?}"));
+                    }
+                }
+                la.close();
+                lb.close();
+                Ok(())
+            })
+        },
+    );
+    check("presence.crosses_games", &mut || {
+        as_game(t, 1, Game::Auberean, || {
+            let mut la = open_greeted(t, 0)?;
+            let mut lb = open_greeted(t, 1)?;
+            la.send(&Message::Watch {
+                owner: addr(&ann, &a),
+                target: addr(&bob, &b),
+                on: true,
+            })?;
+            lb.expect(WAIT, "the watch", |m| match m {
+                Message::Watch {
+                    owner,
+                    target,
+                    on: true,
+                } if owner.same(&addr(&ann, &a)) && target.same(&addr(&bob, &b)) => Some(()),
+                _ => None,
+            })?;
+            lb.send(&Message::Presence {
+                to: addr(&ann, &a),
+                of: addr(&bob, &b),
+                online: true,
+            })?;
+            la.expect(WAIT, "the presence", |m| match m {
+                Message::Presence {
+                    of, online: true, ..
+                } if of.same(&addr(&bob, &b)) => Some(()),
+                _ => None,
+            })?;
+            la.close();
+            lb.close();
+            Ok(())
+        })
+    });
+    check("status.each_game_is_totalled_apart", &mut || {
+        as_game(t, 1, Game::Auberean, || {
+            // The totals and the lists are answered from a snapshot a moment old: read until one
+            // snapshot shows `b` under `auberean`.
+            let give_up = Instant::now() + LISTS_SETTLE;
+            loop {
+                let found = each_game_totalled(t);
+                match found {
+                    Ok(()) => return Ok(()),
+                    Err(e) if Instant::now() >= give_up => return Err(e),
+                    Err(_) => std::thread::sleep(Duration::from_millis(200)),
+                }
+            }
+        })
+    });
     check(
         "tell.is_routed_and_answered_under_the_senders_id",
         &mut || {

@@ -5,9 +5,10 @@ Provenance: **network specification**.
 One implementation: `network/protocol/src/wire.rs` (the messages), `directory.rs` (the
 directory's messages, section 7), `reach.rs` (the reach messages, section 8), `say.rs` (the say
 messages, section 9), `rooms.rs` (the rooms messages, section 10) and `limits.rs`, with the hub's
-side in `network/hub/src/core.rs`. The vectors in `network/conformance/vectors/messages.json`,
-`directory.json`, `reach.json`, `say.json` and `rooms.json` give a frame of every message, with the
-values its fields must read as.
+side in `network/hub/src/core.rs` and a world's end of the connection (the WebSocket, its
+keep-alive and reconnects) in `network/link`. The vectors in
+`network/conformance/vectors/messages.json`, `directory.json`, `reach.json`, `say.json` and
+`rooms.json` give a frame of every message, with the values its fields must read as.
 
 ## 1. Transport and authentication
 
@@ -20,6 +21,13 @@ values its fields must read as.
 - **A link lasts as long as its key.** When the world's key is rotated or revoked, the hub closes
   every link opened with the old one, as it does when the flag leaves `on`.
 - **A second link** from the same world replaces the first, which the hub closes.
+- **Every game links the same way.** A world of Asheron's Call 2 holds the same link, under the same
+  rules, as one of Asheron's Call; its game is the registry's ([05](05-hub.md) section 1), and no
+  message carries it. The hub routes by an address's world half alone, never by game: `welcome`'s
+  `worlds` and `world` name the linked worlds of every game, and a tell, a watch or a presence
+  between worlds of two games goes exactly as between worlds of one. A world that does not serve
+  a family of messages (the directory's, reach, say, rooms: sections 7 to 10) skips them, as it
+  skips any type it does not know.
 - **Frames.** One JSON object per text frame, at most 16 KiB, either way: the hub never sends a
   longer one (it names the worlds in `welcome` only as far as they fit, and cuts a channel's member
   list to fit; everything else it hands on it read within the field rules below, which keep every
@@ -363,8 +371,21 @@ does not know them skips them, as it skips any type it does not know, and carrie
 ### The profile
 
 A `listing` that is `on` carries `profile`; one that is not carries none (either way otherwise is
-malformed). Every field but the first three may be left out. A field out of its bounds makes the
-whole listing malformed: nothing is cut or cleaned.
+malformed). **The profile is its world's game's**: an Asheron's Call world sends the profile below,
+an Asheron's Call 2 world the one of the next section. The message names no game: the hub reads
+the profile by the game the registry keeps for the world ([05](05-hub.md) section 1), and a profile
+of the other game's shape (a field the world's game requires missing, as `heritage` from an
+Asheron's Call 2 world or `race` from an Asheron's Call one) makes the listing malformed. A listing
+that is not `on` is every game's. Every field but the first three may be left out. A field out of
+its bounds makes the whole listing malformed: nothing is cut or cleaned.
+
+**A field the reader's profile does not name is ignored**, at the top of the profile or within one
+of its fields, the other game's fields among them, and the hub neither keeps nor publishes it. So a
+world sends every field its game's profile names in the version it was built to, and never asks
+which version its hub runs: a hub of a later version that adds a field publishes it, and one of an
+earlier version leaves it out, and both list the character. Refusing a field the reader does not
+know would refuse every character of a world newer than its hub. The cost is that a world learns
+nothing of a field its hub drops, which only a later hub's publishing can show.
 
 | field | holds | bounds |
 |---|---|---|
@@ -404,6 +425,32 @@ whole listing malformed: nothing is cut or cleaned.
 - **Shown text** has no white space at either end, no hidden character (those [05](05-hub.md)
   section 1 refuses) and no `<` or `>`.
 - The largest listing these bounds allow fits one frame.
+
+### An Asheron's Call 2 profile
+
+The profile of a world whose game is `auberean`. It is the least the directory needs to show a
+character; a later version may add fields, as above.
+
+```json
+{"type":"listing","id":"l1790000000-9","who":"Ann@dawnsong","on":true,
+ "profile":{"level":42,"race":4,"sex":8192,"title":"Dread Hivemistress",
+            "vitals":{"health":{"base":1250},"vigor":{"base":900}}}}
+```
+
+| field | holds | bounds |
+|---|---|---|
+| `level` | the character's level | 1 to 100,000 |
+| `race` | its race, as the game numbers them, each a bit of its own: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean | one of 1, 2, 4, 8 and 16 |
+| `sex` | its sex, as the game numbers them: `0x1000` (4096) male, `0x2000` (8192) female | 4096 or 8192 |
+| `title` | the title it shows | shown text of 1 to 64 characters, as above |
+| `vitals` | `health` and `vigor`, each `{base}`: its greatest value | both; at most 1,000,000 |
+| `allegiance` | `{key, name?, members, rank, patron?, monarch?}` | as above |
+
+- The race and sex are the game's own numbers, the ones its character creation sends, so that a
+  page shows each in the game's words.
+- **Nothing an Asheron's Call 2 character's options govern** goes yet: the game keeps no "Allow
+  others to see your …" option a world could follow for a date of birth, an age or a number of
+  deaths, so none of them is in this profile.
 
 ### Answers and offs
 

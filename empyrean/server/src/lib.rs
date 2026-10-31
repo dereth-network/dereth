@@ -5,8 +5,9 @@
 //! `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`, `empyrean-world` and
 //! `empyrean-command`, the shared `dereth-dat` for its search of the dat folder, and the shared
 //! `dereth-transport` for the WebSocket frame, and the Dereth Network's protocol
-//! (`dereth-network-protocol`) for its link to the hub; the updater adds an HTTP client (`ureq`, over
-//! rustls) and the archive readers (`zip`, `flate2`). **Used by** nothing: it is the `empyrean-server`
+//! (`dereth-network-protocol`) and a world's end of its link (`dereth-network-link`) for its link
+//! to the hub; the updater adds an HTTP client (`ureq`, over rustls) and the archive readers
+//! (`zip`, `flate2`). **Used by** nothing: it is the `empyrean-server`
 //! binary, and this library half holds what the binary uses that its integration tests also reach.
 //!
 //! **Must never** be configured by anything but its configuration file and command line: no

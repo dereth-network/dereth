@@ -537,7 +537,7 @@ mod tests {
         let read = watch.start(NOW).expect("due");
         assert_eq!(
             read.next_url(),
-            Some("https://hub.dereth.network/v1/servers?limit=100&offset=0")
+            Some("https://hub.dereth.network/v1/servers?game=all&limit=100&offset=0")
         );
         assert!(!watch.is_due(NOW + 120), "one read at a time");
         assert!(watch.start(NOW + 120).is_none());
@@ -567,7 +567,7 @@ mod tests {
         let mut read = watch.start(NOW + 60).unwrap();
         assert_eq!(
             read.next_url(),
-            Some(format!("{HUB_LIST_URL}?limit=100&offset=0").as_str())
+            Some(format!("{HUB_LIST_URL}?game=all&limit=100&offset=0").as_str())
         );
         read.take(Ok(page(
             &[row("a", "Asheron", &heartbeat("online", Some(20), 600))],
@@ -576,7 +576,7 @@ mod tests {
         .into_bytes()));
         assert_eq!(
             read.next_url(),
-            Some(format!("{HUB_LIST_URL}?limit=100&offset=100").as_str()),
+            Some(format!("{HUB_LIST_URL}?game=all&limit=100&offset=100").as_str()),
             "the next page"
         );
         read.take(Ok(page(

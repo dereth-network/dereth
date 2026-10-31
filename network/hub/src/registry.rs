@@ -8,11 +8,16 @@
 //! sets it, and a world's own operator turns it off, or on once the world is verified
 //! ([`crate::operators`]). A world registered through the operator API is `pending`, and in none of
 //! the public answers, until it is verified.
+//!
+//! A world runs one game ([`Game`]): its registration names it, or its heartbeats do, and a world
+//! named by neither runs `dereth`. The game is kept in the world's registry record, not in its
+//! registration's column, so that a hub of an earlier version reading the registry reads every
+//! world as it wrote it.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dereth_network_protocol::address::is_network_slug;
-use dereth_network_protocol::Federation;
+use dereth_network_protocol::{heartbeat, Federation, Game};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -226,6 +231,11 @@ pub struct Registration {
     pub is_demo: bool,
     pub endpoint: Endpoint,
     pub emulator: Emulator,
+    /// The game the world runs. A new world that names none runs `dereth`; a replaced
+    /// registration that names none leaves the world's game as it was. Never written into the
+    /// registration's own column (the registry record keeps it), so that it reads in every hub.
+    #[serde(default, skip_serializing)]
+    pub game: Option<Game>,
 }
 
 fn unspecified() -> String {
@@ -283,6 +293,7 @@ impl Registration {
                         family: l.software,
                         version: None,
                     },
+                    game: None,
                 },
                 Err(_) => return Err(RegistryError::bad(first.to_string())),
             },
@@ -407,6 +418,73 @@ pub fn is_address(s: &str) -> bool {
         })
 }
 
+/// The game a world's registry record names: `dereth` when it names none.
+fn game_of(registry: &Value) -> Game {
+    registry["game"]
+        .as_str()
+        .and_then(|g| g.parse().ok())
+        .unwrap_or_default()
+}
+
+/// Writes `game` into a world's registry record: nothing for `dereth`, so that a record of a world
+/// that never named a game stays as it was.
+fn set_game(registry: &mut Value, game: Game) {
+    if let Some(record) = registry.as_object_mut() {
+        if game.is_dereth() {
+            record.remove("game");
+        } else {
+            record.insert("game".to_owned(), json!(game));
+        }
+    }
+}
+
+/// Which games a list of worlds shows, as its `game` query names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Games {
+    /// One game's worlds.
+    Of(Game),
+    /// Every game's (`all`).
+    All,
+    /// A word that names no game: no world.
+    Unknown,
+}
+
+impl Default for Games {
+    /// A list that names no game shows `dereth`'s worlds, as every list did before worlds had a
+    /// game, so that a reader that knows of no other game is shown no world it cannot play.
+    fn default() -> Self {
+        Self::Of(Game::Dereth)
+    }
+}
+
+impl Games {
+    /// The games a `game` query names: none or empty is [`Games::default`], `all` every game, a
+    /// game's word that game, and anything else no game.
+    #[must_use]
+    pub fn from_query(word: Option<&str>) -> Self {
+        match word.map(str::trim).filter(|w| !w.is_empty()) {
+            None => Self::default(),
+            Some("all") => Self::All,
+            Some(w) => w.parse().map_or(Self::Unknown, Self::Of),
+        }
+    }
+
+    /// Whether `world` (rendered, as [`Registry::all`] gives it) is shown.
+    #[must_use]
+    pub fn shows(self, world: &Value) -> bool {
+        match self {
+            Self::All => true,
+            Self::Unknown => false,
+            Self::Of(g) => {
+                world["game"]
+                    .as_str()
+                    .map_or(Some(Game::Dereth), |w| w.parse().ok())
+                    == Some(g)
+            }
+        }
+    }
+}
+
 /// A heartbeat, as a world reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -432,6 +510,10 @@ pub struct Heartbeat {
     pub uptime_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<Adapter>,
+    /// The game the world says it runs, which becomes its game; a heartbeat that names none leaves
+    /// the world's game as it is. Kept with the world, never with the heartbeat.
+    #[serde(default, skip_serializing)]
+    pub game: Option<Game>,
 }
 
 fn unknown() -> String {
@@ -493,7 +575,7 @@ impl Heartbeat {
             return Err(RegistryError::bad("playersKind"));
         }
         if let Some(a) = &self.adapter {
-            if !["ace-mod", "agent", "manual", "empyrean"].contains(&a.kind.as_str())
+            if !heartbeat::ADAPTER_KINDS.contains(&a.kind.as_str())
                 || a.version.is_empty()
                 || a.version.len() > 40
             {
@@ -822,6 +904,8 @@ pub(crate) struct Row {
     pub(crate) id: String,
     pub(crate) slug: String,
     pub(crate) metadata: Registration,
+    /// The game the world runs, from its registry record.
+    pub(crate) game: Game,
     pub(crate) key_hash: Option<String>,
     created_at: String,
     last_seen_at: Option<String>,
@@ -1135,15 +1219,17 @@ impl Registry {
         let heartbeat: Option<String> = r.get(6)?;
         let registry: String = r.get(7)?;
         let federation: String = r.get(8)?;
+        let registry: Value = serde_json::from_str(&registry).unwrap_or_else(|_| json!({}));
         Ok(Row {
             id: r.get(0)?,
             slug: r.get(1)?,
             metadata: serde_json::from_str(&metadata).expect("the registry wrote this metadata"),
+            game: game_of(&registry),
             key_hash: r.get(3)?,
             created_at: r.get(4)?,
             last_seen_at: r.get(5)?,
             heartbeat: heartbeat.and_then(|h| serde_json::from_str(&h).ok()),
-            registry: serde_json::from_str(&registry).unwrap_or_else(|_| json!({})),
+            registry,
             federation: federation.parse().unwrap_or(Federation::Unset),
             operator_id: r.get(9)?,
         })
@@ -1227,13 +1313,14 @@ impl Registry {
         let key = new_key();
         let id = new_id();
         let now = iso(self.now());
-        let registry = json!({
+        let mut registry = json!({
             "state": "managed", "verifiedAt": null, "provenance": null,
             "observedAddress": null,
             "endpointUpdatedAt": matches!(r.endpoint, Endpoint::Manual { .. }).then(|| now.clone()),
             "verification": { "method": "review", "verifiedAt": now, "endpointVerified": true },
             "keyIssuedAt": now,
         });
+        set_game(&mut registry, r.game.unwrap_or_default());
         self.db.execute(
             "INSERT INTO servers(id, slug, metadata, key_hash, created_at, registry) VALUES (?, ?, ?, ?, ?, ?)",
             params![
@@ -1276,6 +1363,12 @@ impl Registry {
             ));
         }
         let mut registry = row.registry.clone();
+        let game = r.game.unwrap_or(row.game);
+        set_game(&mut registry, game);
+        if game != row.game {
+            self.event_by(&row.id, "game-set", actor, &json!({ "game": game }))?;
+            self.forget_other_games_listings(&r.slug)?;
+        }
         if row.metadata.endpoint != r.endpoint {
             registry["observedAddress"] = Value::Null;
             registry["endpointUpdatedAt"] = match r.endpoint {
@@ -1550,6 +1643,17 @@ impl Registry {
                 "Verify this world before it reports",
             ));
         }
+        if let Some(game) = h.game.filter(|g| *g != row.game) {
+            let mut registry = row.registry.clone();
+            set_game(&mut registry, game);
+            self.db.execute(
+                "UPDATE servers SET registry = ? WHERE id = ?",
+                params![registry.to_string(), row.id],
+            )?;
+            self.event(&row.id, "game-reported", &json!({ "game": game }))?;
+            self.forget_other_games_listings(slug)?;
+        }
+        let row = self.row(slug)?.ok_or_else(RegistryError::not_found)?;
         if let Endpoint::Observed { port, .. } = row.metadata.endpoint {
             // The address heartbeats come from becomes the world's: a public one only.
             let Some(addr) = source.filter(|a| {
@@ -1658,6 +1762,7 @@ impl Registry {
             },
             "provenance": row.registry["provenance"],
             "federation": row.federation.word(),
+            "game": row.game,
             "ip": ip, "port": port, "software": software, "transport": "udp",
             "createdAt": row.created_at,
             "status": self.status(row, at),
@@ -1735,11 +1840,11 @@ impl Registry {
     /// # Errors
     /// Database errors only.
     pub fn list(&self, q: &str, ruleset: &str, limit: usize, offset: usize) -> Result<Value> {
-        self.list_filtered(q, ruleset, "", limit, offset)
+        self.list_filtered(q, ruleset, "", Games::default(), limit, offset)
     }
 
     /// [`Self::list`], only the worlds whose federation flag is `federation` when it names one
-    /// (`on`, `off`, `unset`).
+    /// (`on`, `off`, `unset`), of the games `games` names.
     ///
     /// # Errors
     /// Database errors only.
@@ -1748,10 +1853,19 @@ impl Registry {
         q: &str,
         ruleset: &str,
         federation: &str,
+        games: Games,
         limit: usize,
         offset: usize,
     ) -> Result<Value> {
-        Ok(page_of(&self.all()?, q, ruleset, federation, limit, offset))
+        Ok(page_of(
+            &self.all()?,
+            q,
+            ruleset,
+            federation,
+            games,
+            limit,
+            offset,
+        ))
     }
 
     /// The network's totals: worlds by state and players online among those reporting.
@@ -1764,14 +1878,15 @@ impl Registry {
 }
 
 /// A page of `worlds` (rendered, as [`Registry::all`] gives them) matching `q` (in name, slug or
-/// description), `ruleset` and `federation` (`on`, `off`, `unset`) where they name one: those
-/// reporting online first, then by players, then by slug.
+/// description), `ruleset` and `federation` (`on`, `off`, `unset`) where they name one, of the
+/// games `games` names: those reporting online first, then by players, then by slug.
 #[must_use]
 pub fn page_of(
     worlds: &[Value],
     q: &str,
     ruleset: &str,
     federation: &str,
+    games: Games,
     limit: usize,
     offset: usize,
 ) -> Value {
@@ -1792,6 +1907,7 @@ pub fn page_of(
                 .contains(&q))
                 && (ruleset.is_empty() || text(v, "ruleset") == ruleset)
                 && federation.is_none_or(|f| text(v, "federation") == f.word())
+                && games.shows(v)
         })
         .cloned()
         .collect();
@@ -1820,9 +1936,26 @@ pub fn page_of(
 }
 
 /// The network's totals over `worlds` (rendered): worlds by state and players online among those
-/// reporting, at `at`.
+/// reporting, at `at`; and under `games`, the same totals for each game's worlds alone.
 #[must_use]
 pub fn totals_of(worlds: &[Value], at: SystemTime) -> Value {
+    let mut totals = tally(worlds.iter());
+    let games: serde_json::Map<String, Value> = Game::ALL
+        .into_iter()
+        .map(|g| {
+            let of = worlds.iter().filter(|v| Games::Of(g).shows(v));
+            (g.word().to_owned(), tally(of))
+        })
+        .collect();
+    totals["generatedAt"] = json!(iso(at));
+    totals["heartbeatTtlSeconds"] = json!(HEARTBEAT_TTL_SECS);
+    totals["games"] = Value::Object(games);
+    totals
+}
+
+/// The totals of some worlds (rendered): how many, by state, the players online among those
+/// reporting, how many report, are demonstrations, and are on the network.
+fn tally<'a>(worlds: impl Iterator<Item = &'a Value>) -> Value {
     let mut counts = serde_json::Map::new();
     for s in [
         "online",
@@ -1834,8 +1967,10 @@ pub fn totals_of(worlds: &[Value], at: SystemTime) -> Value {
     ] {
         counts.insert(s.to_owned(), json!(0));
     }
-    let (mut players, mut reporting, mut demo, mut federated) = (0u64, 0u64, 0u64, 0u64);
+    let (mut total, mut players, mut reporting, mut demo, mut federated) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
     for v in worlds {
+        total += 1;
         let st = &v["status"];
         let state = st["state"].as_str().unwrap_or("unknown").to_owned();
         if let Some(c) = counts.get_mut(&state) {
@@ -1849,9 +1984,8 @@ pub fn totals_of(worlds: &[Value], at: SystemTime) -> Value {
         federated += u64::from(v["federation"] == Federation::On.word());
     }
     json!({
-        "generatedAt": iso(at), "total": worlds.len(), "counts": counts,
-        "playersOnline": players, "reportingServers": reporting, "demoServers": demo,
-        "federatedServers": federated, "heartbeatTtlSeconds": HEARTBEAT_TTL_SECS,
+        "total": total, "counts": counts, "playersOnline": players,
+        "reportingServers": reporting, "demoServers": demo, "federatedServers": federated,
     })
 }
 
@@ -2263,10 +2397,14 @@ impl Registry {
 
 impl crate::core::Directory for Registry {
     fn lookup(&self, slug: &str) -> Option<crate::core::DirEntry> {
-        self.federation(slug)
+        self.row(slug)
             .ok()
             .flatten()
-            .map(|(name, federation)| crate::core::DirEntry { name, federation })
+            .map(|r| crate::core::DirEntry {
+                name: r.metadata.name,
+                federation: r.federation,
+                game: r.game,
+            })
     }
 
     fn key(&self, slug: &str) -> Option<String> {
@@ -2338,7 +2476,7 @@ impl crate::core::Directory for Registry {
     fn listing(
         &self,
         who: &dereth_network_protocol::Address,
-        profile: Option<&dereth_network_protocol::Profile>,
+        profile: Option<&dereth_network_protocol::ListingProfile>,
     ) -> crate::core::ListingAnswer {
         Registry::listing(self, who, profile).unwrap_or_else(|e| {
             crate::server::log("error", &format!("a listing: {}", e.message));
@@ -2957,6 +3095,310 @@ mod tests {
         );
     }
 
+    /// The raw `metadata` and `registry` columns of `slug`'s row.
+    fn columns(r: &Registry, slug: &str) -> (Value, Value) {
+        let (m, g): (String, String) =
+            r.db.query_row(
+                "SELECT metadata, registry FROM servers WHERE slug = ?",
+                [slug],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the row");
+        (
+            serde_json::from_str(&m).expect("metadata"),
+            serde_json::from_str(&g).expect("registry"),
+        )
+    }
+
+    fn beat(game: Option<&str>) -> Heartbeat {
+        let mut v = json!({ "state": "online", "playersOnline": 3 });
+        if let Some(g) = game {
+            v["game"] = json!(g);
+        }
+        serde_json::from_value(v).expect("a heartbeat")
+    }
+
+    /// Spec: hub: a world whose registration names no game runs `dereth`, and one that names
+    /// `auberean` runs it; the game is shown with the world and kept in its registry record, never
+    /// in its registration's column, which reads as it did in a hub that knew no game.
+    #[test]
+    fn a_registration_names_its_game_or_runs_dereth() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("coldeve")).expect("registered");
+        let mut shard = serde_json::to_value(reg("shardfall")).expect("a registration");
+        shard["game"] = json!("auberean");
+        let shard = Registration::from_json(&shard).expect("read");
+        assert_eq!(shard.game, Some(Game::Auberean));
+        r.register(&shard).expect("registered");
+        let game = |slug: &str| r.server(slug).expect("read").expect("present")["game"].clone();
+        assert_eq!(game("coldeve"), json!("dereth"));
+        assert_eq!(game("shardfall"), json!("auberean"));
+        for slug in ["coldeve", "shardfall"] {
+            let (metadata, _) = columns(&r, slug);
+            assert!(metadata.get("game").is_none(), "{slug}: {metadata}");
+            assert!(
+                serde_json::from_value::<Registration>(metadata).is_ok(),
+                "{slug}: its registration reads as a registration without a game"
+            );
+        }
+        assert!(columns(&r, "coldeve").1.get("game").is_none());
+        assert_eq!(columns(&r, "shardfall").1["game"], json!("auberean"));
+        let mut odd = serde_json::to_value(reg("frost")).expect("a registration");
+        odd["game"] = json!("ac2");
+        assert_eq!(
+            Registration::from_json(&odd).map_err(|e| e.status),
+            Err(400),
+            "a game this hub does not know"
+        );
+    }
+
+    /// Spec: hub: a heartbeat that names a game makes it the world's, logged; one that names none
+    /// leaves the game as it is; one that names a game the hub does not know is refused.
+    #[test]
+    fn a_heartbeat_names_the_worlds_game_or_leaves_it() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("shardfall")).expect("registered");
+        let game = || r.server("shardfall").expect("read").expect("present")["game"].clone();
+        assert_eq!(game(), json!("dereth"));
+        r.heartbeat("shardfall", &beat(Some("auberean")), None)
+            .expect("accepted");
+        assert_eq!(game(), json!("auberean"));
+        r.heartbeat("shardfall", &beat(None), None)
+            .expect("accepted");
+        assert_eq!(
+            game(),
+            json!("auberean"),
+            "a heartbeat naming none keeps it"
+        );
+        let kinds = |r: &Registry| -> Vec<String> {
+            r.audit("shardfall")
+                .expect("the log")
+                .as_array()
+                .expect("events")
+                .iter()
+                .filter_map(|e| e["kind"].as_str().map(str::to_owned))
+                .collect()
+        };
+        assert_eq!(
+            kinds(&r).iter().filter(|k| *k == "game-reported").count(),
+            1,
+            "{:?}",
+            kinds(&r)
+        );
+        let (_, record) = columns(&r, "shardfall");
+        assert_eq!(record["game"], json!("auberean"));
+        let stored: String =
+            r.db.query_row(
+                "SELECT heartbeat FROM servers WHERE slug = 'shardfall'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the heartbeat");
+        assert!(!stored.contains("game"), "{stored}");
+        r.heartbeat("shardfall", &beat(Some("dereth")), None)
+            .expect("accepted");
+        assert_eq!(game(), json!("dereth"));
+        assert!(columns(&r, "shardfall").1.get("game").is_none());
+        assert!(
+            serde_json::from_value::<Heartbeat>(json!({ "state": "online", "game": "ac2" }))
+                .is_err()
+        );
+    }
+
+    /// Spec: hub: replacing a registration sets the game it names, and one that names none
+    /// leaves the world's game as it was.
+    #[test]
+    fn an_updated_registration_sets_its_game_or_leaves_it() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("shardfall")).expect("registered");
+        let mut shard = reg("shardfall");
+        shard.game = Some(Game::Auberean);
+        r.update(&shard).expect("updated");
+        let game = || r.server("shardfall").expect("read").expect("present")["game"].clone();
+        assert_eq!(game(), json!("auberean"));
+        r.update(&reg("shardfall")).expect("updated");
+        assert_eq!(game(), json!("auberean"), "a registration naming none");
+        shard.game = Some(Game::Dereth);
+        r.update(&shard).expect("updated");
+        assert_eq!(game(), json!("dereth"));
+    }
+
+    /// A registration of `slug` naming `game`.
+    fn reg_of(slug: &str, game: Game) -> Registration {
+        let mut r = reg(slug);
+        r.game = Some(game);
+        r
+    }
+
+    /// Spec: hub: the worlds of every game share one namespace of slugs: a slug one game's world
+    /// holds is taken for the other game's too.
+    #[test]
+    fn a_slug_held_by_one_games_world_is_taken_for_the_other_games() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg_of("coldeve", Game::Dereth))
+            .expect("registered");
+        r.register(&reg_of("shardfall", Game::Auberean))
+            .expect("registered");
+        for (slug, game) in [("coldeve", Game::Auberean), ("shardfall", Game::Dereth)] {
+            assert_eq!(
+                r.register(&reg_of(slug, game)).map(|_| ()),
+                Err(RegistryError::conflict(format!(
+                    "The slug \"{slug}\" is already registered"
+                ))),
+                "{slug} for {game}"
+            );
+        }
+        let game = |slug: &str| r.server(slug).expect("read").expect("present")["game"].clone();
+        assert_eq!(
+            (game("coldeve"), game("shardfall")),
+            (json!("dereth"), json!("auberean")),
+            "each keeps its own game"
+        );
+    }
+
+    /// Spec: hub: a heartbeat may say it was sent by Yalain as by Empyrean or the ACE mod; a kind
+    /// the hub does not know is refused.
+    #[test]
+    fn a_heartbeat_names_its_adapter_among_the_known_kinds() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("shardfall")).expect("registered");
+        let with = |kind: &str| -> Heartbeat {
+            serde_json::from_value(json!({
+                "state": "online", "playersOnline": 1, "game": "auberean",
+                "adapter": { "kind": kind, "version": "0.1.0" },
+            }))
+            .expect("a heartbeat")
+        };
+        for kind in heartbeat::ADAPTER_KINDS {
+            r.heartbeat("shardfall", &with(kind), None)
+                .unwrap_or_else(|e| panic!("{kind}: {e:?}"));
+        }
+        assert_eq!(
+            r.server("shardfall").expect("read").expect("present")["status"]["reported"]["adapter"]
+                ["kind"],
+            json!("yalain")
+        );
+        for kind in ["Yalain", "auberean", ""] {
+            assert_eq!(
+                r.heartbeat("shardfall", &with(kind), None)
+                    .map_err(|e| e.status),
+                Err(400),
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// A rendered world of `game` (none: a world written before games), in `state`, with `players`
+    /// online when it reports them, on the network or not.
+    fn rendered(game: Option<&str>, state: &str, players: Option<u64>, federated: bool) -> Value {
+        let mut v = json!({
+            "status": { "state": state },
+            "federation": if federated { "on" } else { "unset" },
+            "isDemo": false,
+        });
+        if let Some(p) = players {
+            v["status"]["playersOnline"] = json!(p);
+        }
+        if let Some(g) = game {
+            v["game"] = json!(g);
+        }
+        v
+    }
+
+    /// Spec: hub: `/v1/status` totals every game's worlds together, and under `games` each game's
+    /// alone, which add up to the whole; a world that names no game is `dereth`'s.
+    #[test]
+    fn the_status_totals_each_game_apart_and_the_games_add_up_to_the_whole() {
+        let worlds = [
+            rendered(Some("dereth"), "online", Some(5), true),
+            rendered(None, "offline", None, false),
+            rendered(Some("auberean"), "online", Some(2), true),
+            rendered(Some("auberean"), "maintenance", Some(1), false),
+            rendered(Some("auberean"), "stale", None, false),
+        ];
+        let t = totals_of(&worlds, UNIX_EPOCH);
+        assert_eq!(t["total"], 5);
+        assert_eq!(t["playersOnline"], 8);
+        let d = &t["games"]["dereth"];
+        let a = &t["games"]["auberean"];
+        assert_eq!(
+            (&d["total"], &d["playersOnline"], &d["reportingServers"]),
+            (&json!(2), &json!(5), &json!(1))
+        );
+        assert_eq!(
+            (&a["total"], &a["playersOnline"], &a["reportingServers"]),
+            (&json!(3), &json!(3), &json!(2))
+        );
+        assert_eq!(
+            (&d["federatedServers"], &a["federatedServers"]),
+            (&json!(1), &json!(1))
+        );
+        assert_eq!(d["counts"]["offline"], 1);
+        assert_eq!(a["counts"]["stale"], 1);
+        for field in [
+            "total",
+            "playersOnline",
+            "reportingServers",
+            "demoServers",
+            "federatedServers",
+        ] {
+            assert_eq!(
+                t[field].as_u64(),
+                Some(
+                    Game::ALL
+                        .iter()
+                        .map(|g| t["games"][g.word()][field].as_u64().unwrap_or(0))
+                        .sum()
+                ),
+                "{field}"
+            );
+        }
+        assert!(d.get("generatedAt").is_none() && t.get("generatedAt").is_some());
+        let none = totals_of(&[], UNIX_EPOCH);
+        for g in Game::ALL {
+            assert_eq!(none["games"][g.word()]["total"], 0, "every game is named");
+        }
+    }
+
+    /// Spec: hub: a list of worlds names its game: none shows `dereth`'s alone, a game's word
+    /// that game's, `all` every game's, and a word that names no game none.
+    #[test]
+    fn a_list_shows_the_games_its_query_names() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("coldeve")).expect("registered");
+        r.register(&reg("shardfall")).expect("registered");
+        r.heartbeat("shardfall", &beat(Some("auberean")), None)
+            .expect("accepted");
+        let slugs = |game: Option<&str>| -> Vec<String> {
+            r.list_filtered("", "", "", Games::from_query(game), 50, 0)
+                .expect("a page")["data"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .filter_map(|w| w["slug"].as_str().map(str::to_owned))
+                .collect()
+        };
+        assert_eq!(slugs(None), ["coldeve"]);
+        assert_eq!(slugs(Some("")), ["coldeve"]);
+        assert_eq!(slugs(Some("dereth")), ["coldeve"]);
+        assert_eq!(slugs(Some("auberean")), ["shardfall"]);
+        let mut every = slugs(Some("all"));
+        every.sort();
+        assert_eq!(every, ["coldeve", "shardfall"]);
+        assert!(slugs(Some("ac2")).is_empty());
+        assert_eq!(
+            r.list("", "", 50, 0).expect("a page")["total"],
+            json!(1),
+            "a list naming no game"
+        );
+    }
+
     /// Spec: registry: a world's web addresses are kept in its record, each in place of the last,
     /// none clearing it, and shown with the world; a world that never named one shows none.
     #[test]
@@ -3015,6 +3457,7 @@ mod tests {
             emulator_version: None,
             uptime_seconds: Some(5),
             adapter: None,
+            game: None,
         };
         r.heartbeat("coldeve", &h, None).expect("accepted");
         let s = r.server("coldeve").expect("q").expect("w");

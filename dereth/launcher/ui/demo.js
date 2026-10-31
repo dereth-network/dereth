@@ -72,14 +72,14 @@
     world("darktide", "Darktide", "ace", "unknown", null, "PK"),
     // Auberean's worlds, served by Yalain.
     world("lumenvale", "Lumenvale", "yalain", "online", 9, "PvE", {
-      game: "ac2", description: "Internal dereth.network testbed world for Auberean.",
+      game: "auberean", description: "Internal dereth.network testbed world for Auberean.",
       emulator_version: "0.1.0", development_status: "Development",
       links: { website: "https://dereth.network", discord: null, rules: null, guide: null },
     }),
-    world("shardfall", "Shardfall", "yalain", "high", 186, "PvE", { game: "ac2", description: "As it was at the end. Events every weekend.", emulator_version: "0.1.0" }),
-    world("duskmere", "Duskmere", "yalain", "online", 41, "PvP", { game: "ac2", description: "Faction war, every night." }),
-    world("emberreach", "Emberreach", "yalain", "unknown", null, "PvE", { game: "ac2", development_status: "Experimental" }),
-    world("tidecall", "Tidecall", "yalain", "offline", null, "PvE", { game: "ac2" }),
+    world("shardfall", "Shardfall", "yalain", "high", 186, "PvE", { game: "auberean", description: "As it was at the end. Events every weekend.", emulator_version: "0.1.0" }),
+    world("duskmere", "Duskmere", "yalain", "online", 41, "PvP", { game: "auberean", description: "Faction war, every night." }),
+    world("emberreach", "Emberreach", "yalain", "unknown", null, "PvE", { game: "auberean", development_status: "Experimental" }),
+    world("tidecall", "Tidecall", "yalain", "offline", null, "PvE", { game: "auberean" }),
   ];
 
   const inst = (id, kind, client_id, version, date, path, extra = {}) => ({

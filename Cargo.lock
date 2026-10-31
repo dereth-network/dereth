@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-network-hub"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "ctrlc",
@@ -1351,6 +1351,16 @@ dependencies = [
  "tungstenite",
  "webpki-roots",
  "zip",
+]
+
+[[package]]
+name = "dereth-network-link"
+version = "0.1.0"
+dependencies = [
+ "dereth-network-protocol",
+ "rustls",
+ "tungstenite",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2106,6 +2116,7 @@ dependencies = [
  "ctrlc",
  "dereth-dat",
  "dereth-network-hub",
+ "dereth-network-link",
  "dereth-network-protocol",
  "dereth-transport",
  "embed-resource",
@@ -2129,7 +2140,6 @@ dependencies = [
  "tracing",
  "tungstenite",
  "ureq",
- "webpki-roots",
  "zip",
 ]
 

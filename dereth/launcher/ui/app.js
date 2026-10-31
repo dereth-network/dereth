@@ -1561,7 +1561,7 @@ function worlds() {
 
 async function openWorld(slug, notice, preset) {
   // A world's page plays in Dereth; Auberean is not played from the launcher yet.
-  if ((worldBy(slug)?.game ?? "ac1") !== "ac1") {
+  if ((worldBy(slug)?.game ?? "dereth") !== "dereth") {
     toast("Auberean can't be played from the launcher yet.", false);
     return;
   }
@@ -2847,12 +2847,13 @@ async function watchLibrary() {
 // switch the page is Dereth's alone, and a first start opens in Dereth.
 
 const REALMS = {
-  dereth: { game: "ac1", name: "DERETH" },
-  auberean: { game: "ac2", name: "AUBEREAN" },
+  dereth: { game: "dereth", name: "DERETH" },
+  auberean: { game: "auberean", name: "AUBEREAN" },
 };
 
-// A world of the realm's game; a world that names no game is Asheron's Call's.
-const inRealm = (w) => (w?.game ?? "ac1") === REALMS[ui.realm].game;
+// A world of the realm's game, as the hub's list names it; a world that names no game is Asheron's
+// Call's (`dereth`).
+const inRealm = (w) => (w?.game ?? "dereth") === REALMS[ui.realm].game;
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // The first snapshot: the page opens in the realm it last showed, without easing into it. Only a

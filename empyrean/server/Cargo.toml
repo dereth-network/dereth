@@ -50,10 +50,10 @@ sha2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Not ACE: the Dereth Network's link (`src/federation_link.rs`): its protocol, and the web's root
-# certificates for a `wss://` hub (the same set `ureq` already builds in).
+# Not ACE: the Dereth Network (`src/federation_link.rs`): its protocol, and a world's end of the
+# link to the hub.
 dereth-network-protocol.workspace = true
-webpki-roots = "1"
+dereth-network-link.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }

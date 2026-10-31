@@ -2,8 +2,9 @@
 //! rate limits and the link messages, with no I/O.
 //!
 //! **Depends on** no workspace crate. **Used by** the hub (`dereth-network-hub`), the conformance
-//! suite (`dereth-network-conformance`) and Empyrean's network module (`empyrean-world`,
-//! `empyrean-server`).
+//! suite (`dereth-network-conformance`), a world's end of the link (`dereth-network-link`),
+//! Empyrean's network module (`empyrean-world`,
+//! `empyrean-server`) and the launcher's tests (`dereth-launch`).
 //!
 //! **Must never** read a clock, open a socket or touch a file: every function takes the time it
 //! needs and returns what to send, so the same code runs in a hub, a world, a client in a browser
@@ -11,20 +12,23 @@
 //!
 //! **Specified in** `docs/network/`. The modules follow the specification's pages:
 //! [`address`] (`Name@world`), [`settings`] (whether a character is on the network, and a world's
-//! federation flag), [`text`] (what every receiving world does to a remote line),
-//! [`standin`] (the ids remote correspondents are shown under), [`limits`] (rate limits),
-//! [`person`] (the person layer's words), [`wire`] (the link messages), [`directory`] (a listed
-//! character's profile and the directory's own link messages), [`reach`] (the question the hub asks
-//! a world before it carries a tell to an offline character's person elsewhere), [`say`] (the line
-//! the hub asks a world to say as one of its characters, said by its person elsewhere), [`rooms`]
-//! (which of a world's own rooms carries the Global room, and which the hub mirrors into Discord),
-//! [`web`] (where a browser reaches a world), [`challenge`] (the datagram the hub sends a world's
-//! game port when its operator verifies it in game) and [`probe`] (the datagrams the hub sends a
+//! federation flag), [`game`] (which game a world runs), [`heartbeat`] (the status a world posts
+//! over HTTP), [`text`] (what every receiving world does to a remote line), [`standin`] (the ids
+//! remote correspondents are shown under), [`limits`] (rate limits), [`person`] (the person
+//! layer's words), [`wire`] (the link messages), [`directory`] (a listed character's profile and
+//! the directory's own link messages), [`reach`] (the question the hub asks a world before it
+//! carries a tell to an offline character's person elsewhere), [`say`] (the line the hub asks a
+//! world to say as one of its characters, said by its person elsewhere), [`rooms`] (which of a
+//! world's own rooms carries the Global room, and which the hub mirrors into Discord), [`web`]
+//! (where a browser reaches a world), [`challenge`] (the datagram the hub sends a world's game
+//! port when its operator verifies it in game) and [`probe`] (the datagrams the hub sends a
 //! world's game port when its host asks the hub to try it from outside).
 
 pub mod address;
 pub mod challenge;
 pub mod directory;
+pub mod game;
+pub mod heartbeat;
 pub mod limits;
 pub mod person;
 pub mod probe;
@@ -38,7 +42,10 @@ pub mod web;
 pub mod wire;
 
 pub use address::Address;
-pub use directory::{DirectoryMessage, ListingOutcome, OffBy, Profile};
+pub use directory::{
+    AubereanProfile, DirectoryMessage, ListingOutcome, ListingProfile, OffBy, Profile,
+};
+pub use game::Game;
 pub use person::{PersonFriend, PersonOp, PersonOutcome};
 pub use reach::ReachMessage;
 pub use rooms::RoomsMessage;

@@ -1011,7 +1011,8 @@ CREATE TABLE settings_events (
             (&bob, "Bob@frost", 40),
             (&ann, "Cat@coldeve", 50),
         ] {
-            r.listing(&a(who), Some(&profile(level))).expect("listed");
+            r.listing(&a(who), Some(&profile(level).into()))
+                .expect("listed");
             let (code, _) = r.person_code(&a(who)).expect("a code");
             r.redeem_link_code(op, &code).expect("linked");
         }

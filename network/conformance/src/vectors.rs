@@ -11,8 +11,8 @@ use dereth_network_protocol::challenge::{nonce_hex, parse_nonce_hex, Challenge};
 use dereth_network_protocol::say::without_mark;
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_LINE_CHARS};
 use dereth_network_protocol::wire::WireError;
-use dereth_network_protocol::DirectoryMessage;
 use dereth_network_protocol::{Address, Message, ReachMessage, RoomsMessage, SayMessage};
+use dereth_network_protocol::{DirectoryMessage, Game, ListingProfile};
 
 use crate::Check;
 
@@ -429,23 +429,36 @@ fn directory_field(m: &DirectoryMessage, name: &str) -> Option<Value> {
                 profile: Some(p), ..
             },
             field,
-        ) => match field {
-            "level" => json!(p.level),
-            "heritage" => json!(p.heritage),
-            "gender" => json!(p.gender),
-            "title" => json!(p.title),
-            "skills" => json!(p.skills.len()),
-            "augmentations" => json!(p.augmentations.len()),
-            "deaths" => json!(p.deaths),
-            "birth" => json!(p.birth),
-            "attributes.self.base" => json!(p.attributes.map(|a| a.self_.base)),
-            "allegiance.name" => json!(p.allegiance.as_ref().and_then(|a| a.name.clone())),
-            "allegiance.patron" => json!(p
-                .allegiance
-                .as_ref()
-                .and_then(|a| a.patron.as_ref())
-                .map(ToString::to_string)),
-            _ => return None,
+        ) => match &**p {
+            ListingProfile::Dereth(p) => match field {
+                "level" => json!(p.level),
+                "heritage" => json!(p.heritage),
+                "gender" => json!(p.gender),
+                "title" => json!(p.title),
+                "skills" => json!(p.skills.len()),
+                "augmentations" => json!(p.augmentations.len()),
+                "deaths" => json!(p.deaths),
+                "birth" => json!(p.birth),
+                "attributes.self.base" => json!(p.attributes.map(|a| a.self_.base)),
+                "allegiance.name" => json!(p.allegiance.as_ref().and_then(|a| a.name.clone())),
+                "allegiance.patron" => json!(p
+                    .allegiance
+                    .as_ref()
+                    .and_then(|a| a.patron.as_ref())
+                    .map(ToString::to_string)),
+                _ => return None,
+            },
+            ListingProfile::Auberean(p) => match field {
+                "level" => json!(p.level),
+                "race" => json!(p.race),
+                "sex" => json!(p.sex),
+                "title" => json!(p.title),
+                "vitals.health.base" => json!(p.vitals.map(|v| v.health.base)),
+                "vitals.vigor.base" => json!(p.vitals.map(|v| v.vigor.base)),
+                "allegiance.name" => json!(p.allegiance.as_ref().and_then(|a| a.name.clone())),
+                "allegiance.rank" => json!(p.allegiance.as_ref().map(|a| a.rank)),
+                _ => return None,
+            },
         },
         (DirectoryMessage::ListingResult { id, .. }, "id") => json!(id),
         (DirectoryMessage::ListingResult { outcome, .. }, "outcome") => {
@@ -464,7 +477,8 @@ fn directory_field(m: &DirectoryMessage, name: &str) -> Option<Value> {
 /// Every directory vector, against `dereth-network-protocol`: the frames that must read as their
 /// type, write back covering every field and read back unchanged, with the values `expect` gives;
 /// a later version's frames that must read, ignoring what they add; the link messages a reader of
-/// the directory alone skips; and the frames that must be refused.
+/// the directory alone skips; the frames that must be refused; and the listings read by their
+/// world's game, which must read as that game's (dropping what `drops` names) or be refused.
 #[must_use]
 pub fn directory() -> Vec<Check> {
     let v = parse(DIRECTORY);
@@ -472,7 +486,7 @@ pub fn directory() -> Vec<Check> {
     for case in v["ok"].as_array().into_iter().flatten() {
         let frame = expand(s(&case["frame"]));
         let result = match DirectoryMessage::from_json(&frame) {
-            Ok(m) if m.kind() == s(&case["type"]) => ok_directory(case, &frame, &m),
+            Ok(m) if m.kind() == s(&case["type"]) => ok_directory(Game::Dereth, case, &frame, &m),
             Ok(m) => Err(format!("{frame}: read as {}", m.kind())),
             Err(e) => Err(format!("{frame}: {e}")),
         };
@@ -509,11 +523,42 @@ pub fn directory() -> Vec<Check> {
         };
         out.push(Check::new("directory", "directory.malformed", result));
     }
+    for case in v["by_game"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let result = match s(&case["game"]).parse::<Game>() {
+            Err(()) => Err(format!("{}: no game", case["game"])),
+            Ok(game) => match (
+                DirectoryMessage::from_json_for(game, &frame),
+                case["reads"].as_bool(),
+            ) {
+                (Ok(m), Some(true)) if case["drops"].is_array() => {
+                    let written = m.to_json();
+                    match case["drops"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|f| written.contains(&format!("\"{}\"", s(f))))
+                    {
+                        Some(kept) => Err(format!("{frame}: kept {kept}: {written}")),
+                        None => Ok(()),
+                    }
+                }
+                (Ok(m), Some(true)) => ok_directory(game, case, &frame, &m),
+                (Err(WireError::Malformed(_)), Some(false)) => Ok(()),
+                (other, _) => Err(format!(
+                    "{frame}, from a {game} world ({}): {other:?}",
+                    s(&case["why"])
+                )),
+            },
+        };
+        out.push(Check::new("directory", "directory.by_game", result));
+    }
     out
 }
 
-/// An `ok` directory frame, read as `m`: as [`ok_message`] holds a link message to.
-fn ok_directory(case: &Value, frame: &str, m: &DirectoryMessage) -> Result<(), String> {
+/// An `ok` directory frame from a world of `game`, read as `m`: as [`ok_message`] holds a link
+/// message to.
+fn ok_directory(game: Game, case: &Value, frame: &str, m: &DirectoryMessage) -> Result<(), String> {
     let written = m.to_json();
     let (Ok(w), Ok(f)) = (
         serde_json::from_str::<Value>(&written),
@@ -526,7 +571,7 @@ fn ok_directory(case: &Value, frame: &str, m: &DirectoryMessage) -> Result<(), S
             "{frame}: written as {written}, which leaves out or changes a field"
         ));
     }
-    match DirectoryMessage::from_json(&written) {
+    match DirectoryMessage::from_json_for(game, &written) {
         Ok(again) if again == *m => {}
         other => {
             return Err(format!(

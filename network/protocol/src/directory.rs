@@ -2,6 +2,13 @@
 //! fields, the three messages a world and the hub exchange about listings, and the six fields a
 //! character's own "Allow others to see your ..." options keep out of its profile.
 //!
+//! **A profile is its world's game's** ([`ListingProfile`]): an Asheron's Call world sends a
+//! [`Profile`], an Asheron's Call 2 world an [`AubereanProfile`]. The message names no game; its
+//! reader knows the world's ([`DirectoryMessage::from_json_for`]), and a profile of the other
+//! game's shape is malformed. A field a profile of the reader's version does not name is ignored,
+//! and never published, so a later version may add fields without a world asking which hub it is
+//! linked to.
+//!
 //! A character is listed while it is on the network (`/dn on`). Its world sends its profile to the
 //! hub when it changes, and the hub publishes it at once in the network's directory
 //! (`docs/network/01-addresses-and-settings.md` section 2, `02-link-protocol.md` section 7).
@@ -13,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::address::Address;
+use crate::game::Game;
 use crate::limits::Rate;
 use crate::wire::{WireError, MAX_ID_CHARS, MAX_MESSAGE_BYTES};
 
@@ -397,6 +405,158 @@ impl Allegiance {
     }
 }
 
+/// The races of Asheron's Call 2, as the game numbers them, each a bit of its own: 1 human,
+/// 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean.
+pub const AUBEREAN_RACES: [u32; 5] = [1, 2, 4, 8, 16];
+
+/// The sexes of Asheron's Call 2, as the game numbers them: `0x1000` male, `0x2000` female.
+pub const AUBEREAN_SEXES: [u32; 2] = [0x1000, 0x2000];
+
+/// A listed Asheron's Call 2 character's profile, as its world sends it and the directory
+/// publishes it. Every field but the first three may be left out; the hub publishes only these
+/// fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AubereanProfile {
+    pub level: u32,
+    /// The race, one of [`AUBEREAN_RACES`].
+    pub race: u32,
+    /// The sex, one of [`AUBEREAN_SEXES`].
+    pub sex: u32,
+    /// The title the character shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vitals: Option<AubereanVitals>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allegiance: Option<Allegiance>,
+}
+
+/// An Asheron's Call 2 character's two vitals' maxima.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AubereanVitals {
+    pub health: Vital,
+    pub vigor: Vital,
+}
+
+impl AubereanProfile {
+    /// The bounds of every field, for a profile of `who`: why it is out of them, if it is.
+    ///
+    /// # Errors
+    /// The first field out of its bounds.
+    pub fn check(&self, who: &Address) -> Result<(), &'static str> {
+        if !(1..=MAX_LEVEL).contains(&self.level) {
+            return Err("level");
+        }
+        if !AUBEREAN_RACES.contains(&self.race) {
+            return Err("race");
+        }
+        if !AUBEREAN_SEXES.contains(&self.sex) {
+            return Err("sex");
+        }
+        if self
+            .title
+            .as_deref()
+            .is_some_and(|t| !is_shown_text(t, MAX_TITLE_CHARS))
+        {
+            return Err("title");
+        }
+        if self
+            .vitals
+            .is_some_and(|v| v.health.base > MAX_STAT || v.vigor.base > MAX_STAT)
+        {
+            return Err("vitals");
+        }
+        if let Some(a) = &self.allegiance {
+            a.check(who)?;
+        }
+        Ok(())
+    }
+}
+
+/// A listed character's profile, of its world's game.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant)] // one at a time, boxed in its message
+pub enum ListingProfile {
+    /// An Asheron's Call character's.
+    Dereth(Profile),
+    /// An Asheron's Call 2 character's.
+    Auberean(AubereanProfile),
+}
+
+impl ListingProfile {
+    /// Reads a profile as a world of `game` sends it. Fields the game's profile does not name are
+    /// ignored.
+    ///
+    /// # Errors
+    /// A value that is not the game's profile: a field it requires missing, or a field of the
+    /// wrong kind.
+    pub fn read(game: Game, value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        Ok(match game {
+            Game::Dereth => Self::Dereth(serde_json::from_value(value)?),
+            Game::Auberean => Self::Auberean(serde_json::from_value(value)?),
+        })
+    }
+
+    /// The game whose profile this is.
+    #[must_use]
+    pub fn game(&self) -> Game {
+        match self {
+            Self::Dereth(_) => Game::Dereth,
+            Self::Auberean(_) => Game::Auberean,
+        }
+    }
+
+    /// The character's level.
+    #[must_use]
+    pub fn level(&self) -> u32 {
+        match self {
+            Self::Dereth(p) => p.level,
+            Self::Auberean(p) => p.level,
+        }
+    }
+
+    /// The character's allegiance, as far as the directory shows it.
+    #[must_use]
+    pub fn allegiance(&self) -> Option<&Allegiance> {
+        match self {
+            Self::Dereth(p) => p.allegiance.as_ref(),
+            Self::Auberean(p) => p.allegiance.as_ref(),
+        }
+    }
+
+    /// The bounds of every field, for a profile of `who`: why it is out of them, if it is.
+    ///
+    /// # Errors
+    /// The first field out of its bounds.
+    pub fn check(&self, who: &Address) -> Result<(), &'static str> {
+        match self {
+            Self::Dereth(p) => p.check(who),
+            Self::Auberean(p) => p.check(who),
+        }
+    }
+}
+
+impl From<Profile> for ListingProfile {
+    fn from(p: Profile) -> Self {
+        Self::Dereth(p)
+    }
+}
+
+impl From<AubereanProfile> for ListingProfile {
+    fn from(p: AubereanProfile) -> Self {
+        Self::Auberean(p)
+    }
+}
+
+/// Read without a game, a profile is an Asheron's Call character's, as a world that names no game
+/// runs `dereth`. [`DirectoryMessage::from_json_for`] reads one by its world's game.
+impl<'de> Deserialize<'de> for ListingProfile {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Profile::deserialize(d).map(Self::Dereth)
+    }
+}
+
 /// Whether every value `values` gives is different.
 fn distinct(values: impl Iterator<Item = u32>) -> bool {
     let mut seen = std::collections::BTreeSet::new();
@@ -473,7 +633,7 @@ pub enum DirectoryMessage {
         who: Address,
         on: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        profile: Option<Box<Profile>>,
+        profile: Option<Box<ListingProfile>>,
     },
     /// Hub to world: how a listing ended, and the character's page in the directory once it is
     /// listed.
@@ -497,16 +657,28 @@ pub enum DirectoryMessage {
 pub const TYPES: &[&str] = &["listing", "listing.result", "listing.off"];
 
 impl DirectoryMessage {
-    /// Reads one frame.
+    /// Reads one frame from a world that names no game, or from the hub: a listing's profile is
+    /// an Asheron's Call character's. [`DirectoryMessage::from_json_for`] reads it by its world's
+    /// game.
     ///
     /// # Errors
     /// [`WireError::Unknown`] for a type that is not one of the directory's,
     /// [`WireError::Malformed`] for anything else that is not one of its messages.
     pub fn from_json(text: &str) -> Result<Self, WireError> {
+        Self::from_json_for(Game::Dereth, text)
+    }
+
+    /// Reads one frame from a world of `game`: a listing's profile must be that game's, and one of
+    /// the other game's shape is malformed.
+    ///
+    /// # Errors
+    /// [`WireError::Unknown`] for a type that is not one of the directory's,
+    /// [`WireError::Malformed`] for anything else that is not one of its messages.
+    pub fn from_json_for(game: Game, text: &str) -> Result<Self, WireError> {
         if text.len() > MAX_MESSAGE_BYTES {
             return Err(WireError::Malformed("longer than the limit".into()));
         }
-        let value: serde_json::Value =
+        let mut value: serde_json::Value =
             serde_json::from_str(text).map_err(|e| WireError::Malformed(e.to_string()))?;
         let Some(kind) = value.get("type").and_then(serde_json::Value::as_str) else {
             return Err(WireError::Malformed("no type".into()));
@@ -515,8 +687,23 @@ impl DirectoryMessage {
             return Err(WireError::Unknown(kind.to_owned()));
         }
         let kind = kind.to_owned();
-        let m: Self = serde_json::from_value(value)
+        // A listing's profile is read apart, by the game; the rest of the message is every
+        // game's.
+        let raw = if kind == "listing" {
+            value
+                .as_object_mut()
+                .and_then(|o| o.remove("profile"))
+                .filter(|p| !p.is_null())
+        } else {
+            None
+        };
+        let mut m: Self = serde_json::from_value(value)
             .map_err(|e| WireError::Malformed(format!("{kind}: {e}")))?;
+        if let (Some(raw), Self::Listing { profile, .. }) = (raw, &mut m) {
+            let read = ListingProfile::read(game, raw)
+                .map_err(|e| WireError::Malformed(format!("{kind}: a {game} profile: {e}")))?;
+            *profile = Some(Box::new(read));
+        }
         m.check()
             .map_err(|why| WireError::Malformed(format!("{kind}: {why}")))?;
         Ok(m)
@@ -661,7 +848,7 @@ mod tests {
             id: "l1".into(),
             who: a("Sir Bob@coldeve"),
             on: true,
-            profile: Some(Box::new(profile)),
+            profile: Some(Box::new(profile.into())),
         }
     }
 
@@ -866,7 +1053,7 @@ mod tests {
             id: "l".into(),
             who: a("Bob@coldeve"),
             on: false,
-            profile: Some(Box::new(full())),
+            profile: Some(Box::new(full().into())),
         };
         let on_without = DirectoryMessage::Listing {
             id: "l".into(),
@@ -945,11 +1132,190 @@ mod tests {
             id: "i".repeat(MAX_ID_CHARS),
             who: longest("c"),
             on: true,
-            profile: Some(Box::new(p)),
+            profile: Some(Box::new(p.into())),
         };
         let json = m.to_json();
         assert!(json.len() <= MAX_MESSAGE_BYTES, "{} bytes", json.len());
         assert_eq!(DirectoryMessage::from_json(&json), Ok(m));
+    }
+
+    /// An Asheron's Call 2 profile with a value in every field.
+    fn auberean() -> AubereanProfile {
+        AubereanProfile {
+            level: 42,
+            race: 4,
+            sex: 0x2000,
+            title: Some("Dread Hivemistress".into()),
+            vitals: Some(AubereanVitals {
+                health: Vital { base: 1_250 },
+                vigor: Vital { base: 900 },
+            }),
+            allegiance: full().allegiance,
+        }
+    }
+
+    fn listing_of(game: Game, frame: &str) -> Result<DirectoryMessage, WireError> {
+        DirectoryMessage::from_json_for(game, frame)
+    }
+
+    /// Spec: link messages: a listing's profile is read by its world's game: an Asheron's Call 2
+    /// world's is that game's profile and round-trips through its JSON, and a profile of either
+    /// game's shape from the other game's world is malformed.
+    #[test]
+    fn a_profile_is_read_by_its_worlds_game() {
+        let m = DirectoryMessage::Listing {
+            id: "l1".into(),
+            who: a("Sir Bob@coldeve"),
+            on: true,
+            profile: Some(Box::new(auberean().into())),
+        };
+        let json = m.to_json();
+        assert!(
+            json.contains(r#""race":4,"sex":8192"#) && !json.contains("heritage"),
+            "{json}"
+        );
+        assert_eq!(listing_of(Game::Auberean, &json), Ok(m.clone()));
+        assert!(
+            matches!(
+                listing_of(Game::Dereth, &json),
+                Err(WireError::Malformed(_))
+            ),
+            "an Asheron's Call 2 profile from an Asheron's Call world"
+        );
+        assert!(
+            matches!(
+                DirectoryMessage::from_json(&json),
+                Err(WireError::Malformed(_))
+            ),
+            "read without a game, a profile is an Asheron's Call character's"
+        );
+        let ac1 = listing(full()).to_json();
+        assert!(
+            matches!(
+                listing_of(Game::Auberean, &ac1),
+                Err(WireError::Malformed(_))
+            ),
+            "an Asheron's Call profile from an Asheron's Call 2 world"
+        );
+        assert_eq!(listing_of(Game::Dereth, &ac1), Ok(listing(full())));
+        // What carries no profile is every game's.
+        let off = r#"{"type":"listing","id":"l2","who":"Ann@frost","on":false}"#;
+        assert_eq!(
+            listing_of(Game::Auberean, off),
+            listing_of(Game::Dereth, off)
+        );
+        assert!(listing_of(Game::Auberean, off).is_ok());
+    }
+
+    /// Spec: link messages: a field the reader's profile of the world's game does not name is
+    /// ignored and never written back, the other game's fields among them.
+    #[test]
+    fn a_field_the_games_profile_does_not_name_is_ignored() {
+        let frame = r#"{"type":"listing","id":"l1","who":"Ann@frost","on":true,"profile":{"level":20,"race":1,"sex":4096,"luminance":{"available":1,"maximum":2},"heritage":1,"focus":{"base":40}}}"#;
+        let m = listing_of(Game::Auberean, frame).expect("read");
+        let DirectoryMessage::Listing {
+            profile: Some(p), ..
+        } = &m
+        else {
+            panic!("a listing with a profile: {m:?}");
+        };
+        assert_eq!(
+            **p,
+            ListingProfile::Auberean(AubereanProfile {
+                level: 20,
+                race: 1,
+                sex: 0x1000,
+                ..AubereanProfile::default()
+            })
+        );
+        let written = m.to_json();
+        for field in ["luminance", "heritage", "focus"] {
+            assert!(!written.contains(field), "{field}: {written}");
+        }
+    }
+
+    /// Spec: link messages: an Asheron's Call 2 profile out of any field's bounds is malformed,
+    /// refused and never cut: a race or a sex the game does not number, a level, a title, a vital
+    /// or an allegiance out of the bounds both games share.
+    #[test]
+    fn an_auberean_profile_out_of_its_bounds_is_malformed() {
+        type Change = Box<dyn Fn(&mut AubereanProfile)>;
+        let out_of_bounds: Vec<(&str, Change)> = vec![
+            ("level 0", Box::new(|p| p.level = 0)),
+            ("level", Box::new(|p| p.level = MAX_LEVEL + 1)),
+            ("race 0", Box::new(|p| p.race = 0)),
+            ("race 3, two races", Box::new(|p| p.race = 3)),
+            ("race 32", Box::new(|p| p.race = 32)),
+            ("sex 1, an Asheron's Call gender", Box::new(|p| p.sex = 1)),
+            ("sex 0x3000", Box::new(|p| p.sex = 0x3000)),
+            (
+                "a title with markup",
+                Box::new(|p| p.title = Some("<b>x".into())),
+            ),
+            (
+                "health",
+                Box::new(|p| {
+                    if let Some(v) = p.vitals.as_mut() {
+                        v.health.base = MAX_STAT + 1;
+                    }
+                }),
+            ),
+            (
+                "vigor",
+                Box::new(|p| {
+                    if let Some(v) = p.vitals.as_mut() {
+                        v.vigor.base = MAX_STAT + 1;
+                    }
+                }),
+            ),
+            (
+                "an allegiance rank",
+                Box::new(|p| {
+                    if let Some(al) = p.allegiance.as_mut() {
+                        al.rank = MAX_RANK + 1;
+                    }
+                }),
+            ),
+        ];
+        let on = |p: AubereanProfile| {
+            DirectoryMessage::Listing {
+                id: "l1".into(),
+                who: a("Sir Bob@coldeve"),
+                on: true,
+                profile: Some(Box::new(p.into())),
+            }
+            .to_json()
+        };
+        assert!(listing_of(Game::Auberean, &on(auberean())).is_ok());
+        for race in AUBEREAN_RACES {
+            for sex in AUBEREAN_SEXES {
+                let p = AubereanProfile {
+                    race,
+                    sex,
+                    ..auberean()
+                };
+                assert!(listing_of(Game::Auberean, &on(p)).is_ok(), "{race} {sex}");
+            }
+        }
+        for (what, change) in out_of_bounds {
+            let mut p = auberean();
+            change(&mut p);
+            assert!(
+                matches!(
+                    listing_of(Game::Auberean, &on(p)),
+                    Err(WireError::Malformed(_))
+                ),
+                "{what}"
+            );
+        }
+        let half = r#"{"type":"listing","id":"l1","who":"Ann@frost","on":true,"profile":{"level":20,"race":1,"sex":4096,"vitals":{"health":{"base":10}}}}"#;
+        assert!(
+            matches!(
+                listing_of(Game::Auberean, half),
+                Err(WireError::Malformed(_))
+            ),
+            "vitals name both"
+        );
     }
 
     /// Spec: settings: a field a character's "Allow others to see your ..." option keeps hidden is

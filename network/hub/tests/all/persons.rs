@@ -29,12 +29,15 @@ pub fn go_on(link: &mut Link, who: &str) {
             id: id.clone(),
             who: a(who),
             on: true,
-            profile: Some(Box::new(Profile {
-                level: 20,
-                heritage: 1,
-                gender: 1,
-                ..Profile::default()
-            })),
+            profile: Some(Box::new(
+                Profile {
+                    level: 20,
+                    heritage: 1,
+                    gender: 1,
+                    ..Profile::default()
+                }
+                .into(),
+            )),
         }
         .to_json(),
     )

@@ -35,6 +35,11 @@ A character on another world is addressed as **`Name@world`**: the character's n
   `Sir Bartholomew Whitmore@coldeve` (32 characters) is 223 pixels of the friends panel's 258.
   The panel's own add-friend and squelch boxes take 34 characters; longer addresses still work
   through the chat commands, whose line takes 255.
+- **Every game's worlds share the slugs.** A world of Asheron's Call 2 is addressed exactly as one
+  of Asheron's Call: the registry holds one namespace of slugs for every game ([05](05-hub.md)
+  section 1), so a slug names one world of one game, and `Ann@shardfall` reads the same whatever
+  game `shardfall` runs. An address never says its world's game, and nothing that routes it needs
+  to know.
 - **Reserved slugs.** No world may take the nine retail worlds' names (`darktide`, `frostfell`,
   `harvestgain`, `leafcull`, `morningthaw`, `solclaim`, `thistledown`, `verdantine`, `wintersebb`),
   nor `channel`, `discord`, `hub`, `net`, `network`, `local`, `localhost`, `world`, `all` or `any`
@@ -106,6 +111,11 @@ and the hub's public routes answer it ([05](05-hub.md) section 6):
   rank"), its fishing skill ("... your fishing skill") and its number of titles ("... your number
   of titles");
 - the hour its profile last changed.
+
+That is an Asheron's Call character's profile. An Asheron's Call 2 character's shows less: its
+address, its world's name, its level, race and sex, the title it shows, its health's and vigor's
+maximums, its allegiance as above, and the hour its profile last changed
+([02](02-link-protocol.md) section 7). Each character's page says which game it plays.
 
 Never: its inventory, its location, its house, its fellowship, its friends, whether it is online
 or when it was last seen, anything of its game account (the account's name, the order of its

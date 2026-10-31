@@ -33,9 +33,9 @@ use dereth_network_protocol::rooms::OWN_ROOMS;
 use dereth_network_protocol::web;
 use dereth_network_protocol::wire::{ErrorCode, MAX_MESSAGE_BYTES, PROTOCOL};
 use dereth_network_protocol::{
-    Address, ChannelOp, ChannelOutcome, DirectoryMessage, Federation, ListingOutcome, Message,
-    OffBy, Outcome, PersonFriend, PersonOp, PersonOutcome, Profile, ReachMessage, RoomsMessage,
-    SayMessage, SayOutcome, WorldInfo,
+    Address, ChannelOp, ChannelOutcome, DirectoryMessage, Federation, Game, ListingOutcome,
+    ListingProfile, Message, OffBy, Outcome, PersonFriend, PersonOp, PersonOutcome, ReachMessage,
+    RoomsMessage, SayMessage, SayOutcome, WorldInfo,
 };
 
 use crate::bridge::{BridgeLine, Bridged};
@@ -48,6 +48,8 @@ use serde::{Deserialize, Serialize};
 pub struct DirEntry {
     pub name: String,
     pub federation: Federation,
+    /// The game the world runs: its listings' profiles are that game's.
+    pub game: Game,
 }
 
 /// One character's person view, as the hub sends it to the character's world
@@ -304,8 +306,9 @@ pub trait Directory {
         PersonView::default()
     }
 
-    /// `who`'s world lists it with `profile`, or takes it out of the directory (`None`).
-    fn listing(&self, who: &Address, profile: Option<&Profile>) -> ListingAnswer {
+    /// `who`'s world lists it with `profile`, of the world's game, or takes it out of the
+    /// directory (`None`).
+    fn listing(&self, who: &Address, profile: Option<&ListingProfile>) -> ListingAnswer {
         let _ = (who, profile);
         ListingAnswer::unavailable()
     }
@@ -1538,7 +1541,9 @@ impl Hub {
     }
 
     /// One of the directory's messages from `slug`'s link. A listing names the world's own
-    /// character, or is refused as another world's; one that lists is held to the character's,
+    /// character, or is refused as another world's; its profile is the world's game's, or it is
+    /// malformed (the link's reader reads it by the game: this holds whatever reads it); one that
+    /// lists is held to the character's,
     /// the world's and the hub's paces for listings, and one that takes a character out to none.
     /// A listing sets what the directory holds, so a resent one is applied again, to no change.
     /// Its answer waits in [`Hub::take_listings`]; what this returns is the link's own (an error,
@@ -1603,6 +1608,15 @@ impl Hub {
         }
         if who.world() != slug {
             out.push(Self::error(slug, ErrorCode::Identity, "listing who"));
+            return out;
+        }
+        let game = dir.lookup(slug).map(|e| e.game).unwrap_or_default();
+        if profile.as_ref().is_some_and(|p| p.game() != game) {
+            out.push(Self::error(
+                slug,
+                ErrorCode::Malformed,
+                "a profile of another game's",
+            ));
             return out;
         }
         if on && !self.within_listing_paces(slug, &who, now) {
@@ -2921,6 +2935,7 @@ fn fit(mut m: Message) -> Message {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dereth_network_protocol::Profile;
     use std::collections::HashMap as Map;
 
     struct Dir(Map<String, Federation>);
@@ -2930,6 +2945,7 @@ mod tests {
             self.0.get(slug).map(|&federation| DirEntry {
                 name: slug.to_uppercase(),
                 federation,
+                game: Game::default(),
             })
         }
     }
@@ -3570,6 +3586,7 @@ mod tests {
             self.0.borrow().contains_key(slug).then(|| DirEntry {
                 name: slug.to_uppercase(),
                 federation: Federation::On,
+                game: Game::default(),
             })
         }
         fn key(&self, slug: &str) -> Option<String> {
@@ -5068,7 +5085,7 @@ mod tests {
             fn person_view(&self, who: &Address) -> PersonView {
                 self.views.person_view(who)
             }
-            fn listing(&self, _: &Address, _: Option<&Profile>) -> ListingAnswer {
+            fn listing(&self, _: &Address, _: Option<&ListingProfile>) -> ListingAnswer {
                 ListingAnswer {
                     outcome: ListingOutcome::Ok,
                     reason: None,
@@ -5195,7 +5212,7 @@ mod tests {
             self.worlds.lookup(slug)
         }
 
-        fn listing(&self, who: &Address, profile: Option<&Profile>) -> ListingAnswer {
+        fn listing(&self, who: &Address, profile: Option<&ListingProfile>) -> ListingAnswer {
             self.asked
                 .borrow_mut()
                 .push((who.to_string(), profile.is_some()));
@@ -5237,12 +5254,15 @@ mod tests {
             who: a(who),
             on,
             profile: on.then(|| {
-                Box::new(Profile {
-                    level: 10,
-                    heritage: 1,
-                    gender: 1,
-                    ..Profile::default()
-                })
+                Box::new(
+                    Profile {
+                        level: 10,
+                        heritage: 1,
+                        gender: 1,
+                        ..Profile::default()
+                    }
+                    .into(),
+                )
             }),
         }
     }
@@ -5285,6 +5305,53 @@ mod tests {
                 if id == "l2"
         ));
         assert_eq!(*d.asked.borrow(), [("Ann@aa".to_owned(), true)]);
+    }
+
+    /// Spec: hub: a listing whose profile is not its world's game's is malformed, wherever it
+    /// was read, and the directory is never asked; one of the world's game's is taken.
+    #[test]
+    fn a_profile_of_another_games_shape_is_refused_as_malformed() {
+        /// The listings' stand-in, with `aa` an Asheron's Call 2 world.
+        struct Aub(Listings);
+        impl Directory for Aub {
+            fn lookup(&self, slug: &str) -> Option<DirEntry> {
+                self.0.lookup(slug).map(|e| DirEntry {
+                    game: if slug == "aa" { Game::Auberean } else { e.game },
+                    ..e
+                })
+            }
+            fn listing(&self, who: &Address, profile: Option<&ListingProfile>) -> ListingAnswer {
+                self.0.listing(who, profile)
+            }
+        }
+        let d = Aub(listings());
+        let mut h = hub_with(&["aa", "bb"]);
+        let malformed = |out: &[Out], slug: &str| matches!(sent_to(out, slug)[..], [Message::Error { code, .. }] if code == "malformed");
+        let out = h.receive_listing(&d, "aa", listing("l1", "Ann@aa", true), 1.0);
+        assert!(malformed(&out, "aa"), "{out:?}");
+        let aub = |id: &str, who: &str| DirectoryMessage::Listing {
+            id: id.into(),
+            who: a(who),
+            on: true,
+            profile: Some(Box::new(
+                dereth_network_protocol::AubereanProfile {
+                    level: 10,
+                    race: 1,
+                    sex: 0x1000,
+                    ..Default::default()
+                }
+                .into(),
+            )),
+        };
+        let out = h.receive_listing(&d, "bb", aub("l2", "Bob@bb"), 1.0);
+        assert!(malformed(&out, "bb"), "{out:?}");
+        assert!(d.0.asked.borrow().is_empty(), "nothing kept");
+        assert!(h.take_listings().is_empty(), "no answer");
+        let out = h.receive_listing(&d, "aa", aub("l3", "Ann@aa"), 1.0);
+        assert!(out.is_empty(), "{out:?}");
+        assert_eq!(*d.0.asked.borrow(), [("Ann@aa".to_owned(), true)]);
+        let out = h.receive_listing(&d, "aa", listing("l4", "Ann@aa", false), 1.0);
+        assert!(out.is_empty(), "taking one out is every game's: {out:?}");
     }
 
     /// Spec: hub: a world's directory messages before its hello are refused, and a world may not

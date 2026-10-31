@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::datset::{DatOrigin, DatSet, SetKind, SHARED_SET_ID};
 use crate::install::{ClientKind, Installation};
-use crate::world::{Emulator, Endpoint, World};
+use crate::world::{Emulator, Endpoint, Game, World};
 
 pub const STATE_FILE: &str = "launcher-state.json";
 
@@ -261,6 +261,21 @@ pub enum Realm {
 impl Realm {
     fn is_dereth(&self) -> bool {
         *self == Realm::Dereth
+    }
+
+    /// The game whose worlds the realm lists.
+    #[must_use]
+    pub fn game(self) -> Game {
+        match self {
+            Realm::Dereth => Game::Dereth,
+            Realm::Auberean => Game::Auberean,
+        }
+    }
+
+    /// Whether the realm lists `world`: a world of its own game, and no other.
+    #[must_use]
+    pub fn shows(self, world: &World) -> bool {
+        world.game == self.game()
     }
 }
 
@@ -666,6 +681,20 @@ mod tests {
             Realm::Dereth,
             "Dereth until another is picked"
         );
+    }
+
+    /// Each realm lists the worlds of its own game alone: Dereth's the worlds that name no game
+    /// or `dereth`, Auberean's the `auberean` ones.
+    #[test]
+    fn each_realm_lists_only_its_own_games_worlds() {
+        let mut dereth = World::new("coldeve", "Coldeve");
+        dereth.game = Game::Dereth;
+        let mut auberean = World::new("shardfall", "Shardfall");
+        auberean.game = Game::Auberean;
+        assert!(Realm::Dereth.shows(&dereth) && !Realm::Dereth.shows(&auberean));
+        assert!(Realm::Auberean.shows(&auberean) && !Realm::Auberean.shows(&dereth));
+        assert!(Realm::Dereth.shows(&World::new("plain", "Plain")));
+        assert_eq!(Realm::default().game(), Game::Dereth);
     }
 
     #[test]

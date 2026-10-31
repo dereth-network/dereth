@@ -4,16 +4,16 @@
 //! The world half of the network (`empyrean_world::federation`) runs on the world thread and never
 //! touches a socket. This module is its host:
 //!
-//! - **The link thread** connects to `<hub>/v1/servers/<slug>/link` with the world's key, carries
-//!   frames both ways, and reconnects with growing waits (1, 2, 5, 10, then every 30 seconds; a
+//! - **The link** is the network's own ([`dereth_network_link::LinkClient`]): a thread that
+//!   connects to `<hub>/v1/servers/<slug>/link` with the world's key, carries frames both ways,
+//!   keeps the link alive and reconnects with growing waits (1, 2, 5, 10, then every 30 seconds; a
 //!   minute after the hub refuses the key or the world). `wss://` is served through rustls with
-//!   the web's root certificates; plain `ws://` is accepted for a loopback hub only.
+//!   the web's root certificates; plain `ws://` is accepted for a loopback hub only. A hub that
+//!   sends faster than the world takes its frames loses the link, as one that falls silent does.
 //! - **The pump** ([`FederationLink::pump`], run on the world thread between loop iterations)
 //!   hands the world what the link received, at most [`FRAMES_PER_PUMP`] at a time, lets the
-//!   world's clock run, and takes what it has to send. A frame the world queued for a connection
-//!   that has since gone is dropped rather than sent first on the next one, where only `hello` may
-//!   come first. A hub that sends faster than the world takes its frames, so that
-//!   [`MAX_WAITING_FRAMES`] wait, loses the link, as one that falls silent does.
+//!   world's clock run, and takes what it has to send, for the connection the world last heard
+//!   come up. It logs what happened to the link.
 //! - **`/dn verify`** goes to the hub's verification route over HTTPS (HTTP for a loopback hub),
 //!   with the world's key, on a thread of its own per request; its answer comes back to the world
 //!   on a later pump, so nothing waits on the hub. While it waits, the hub challenges the world's
@@ -29,34 +29,21 @@
 //!
 //! Nothing here logs a key or a message body.
 
-use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use dereth_network_link::{is_key, Event, HubUrl, LinkClient};
 use empyrean_common::federation_configuration::FederationConfiguration;
 use empyrean_world::federation::{self, FederationSettings, NetworkStore, RoomSlot};
 use empyrean_world::World;
 
-/// The waits between reconnection attempts; the last repeats.
-pub const BACKOFF_SECS: [u64; 5] = [1, 2, 5, 10, 30];
-
-/// The wait after the hub refuses the world's key or its federation flag.
-pub const REFUSED_WAIT: Duration = Duration::from_secs(60);
-
 /// How long `/dn verify` waits for the hub: it holds the call while it looks the world's host up
 /// and waits for the answer to its challenge.
 pub const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// How long a link may stay silent (the hub pings every 20 seconds) before it is given up.
-pub const SILENT_FOR: Duration = Duration::from_secs(70);
-
-/// How long one write to the hub may wait before the link is given up.
-pub const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The least time between two saves of the store: a burst of changes is one save.
 pub const SAVE_EVERY: Duration = Duration::from_secs(2);
@@ -64,139 +51,6 @@ pub const SAVE_EVERY: Duration = Duration::from_secs(2);
 /// The most of what the link received that one pump hands the world; the rest waits for the next,
 /// so a hub that sends without pause holds no iteration of the world's loop for long.
 pub const FRAMES_PER_PUMP: usize = 256;
-
-/// The most frames from the hub that may wait for the world. A hub sending faster than the world
-/// takes them loses the link here (it is made again, as after any lost link), so it never holds
-/// this world's memory.
-pub const MAX_WAITING_FRAMES: usize = 20_000;
-
-/// What the link thread tells the world.
-#[derive(Debug)]
-enum Event {
-    /// A connection is up; frames for it carry this number.
-    Up(u64),
-    Frame(String),
-    Down(String),
-}
-
-/// The hub's address, read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HubUrl {
-    pub tls: bool,
-    pub host: String,
-    pub port: u16,
-    /// The path prefix, without a trailing slash (usually empty).
-    pub prefix: String,
-}
-
-impl HubUrl {
-    /// Reads `ws://host[:port][/prefix]` or `wss://...`. A plain `ws://` hub must be on loopback.
-    ///
-    /// # Errors
-    /// A URL of another shape, or `ws://` to a host that is not loopback.
-    pub fn parse(url: &str) -> Result<Self, String> {
-        let (tls, rest) = if let Some(r) = url.strip_prefix("wss://") {
-            (true, r)
-        } else if let Some(r) = url.strip_prefix("ws://") {
-            (false, r)
-        } else {
-            return Err(format!(
-                "{url}: the hub's address is wss://host or ws://127.0.0.1:port"
-            ));
-        };
-        let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
-        let default_port = if tls { 443 } else { 80 };
-        let bad_port = || format!("{url}: a bad port");
-        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
-            let (h, after) = v6
-                .split_once(']')
-                .ok_or_else(|| format!("{url}: a bad address"))?;
-            let port = match after.strip_prefix(':') {
-                Some(p) => p.parse::<u16>().map_err(|_| bad_port())?,
-                None if after.is_empty() => default_port,
-                None => return Err(format!("{url}: a bad address")),
-            };
-            (h.to_owned(), port)
-        } else {
-            match authority.rsplit_once(':') {
-                Some((h, p)) => (h.to_owned(), p.parse::<u16>().map_err(|_| bad_port())?),
-                None => (authority.to_owned(), default_port),
-            }
-        };
-        if host.is_empty() || authority.contains('@') {
-            return Err(format!("{url}: no host"));
-        }
-        if !tls && !is_loopback(&host) {
-            return Err(format!(
-                "{url}: plain ws:// is for a hub on this machine only; use wss://"
-            ));
-        }
-        Ok(Self {
-            tls,
-            host,
-            port,
-            prefix: path.trim_end_matches('/').to_owned(),
-        })
-    }
-
-    /// The verification route's URL for `slug`: the same host over `https://` (`http://` for a
-    /// loopback hub on `ws://`).
-    #[must_use]
-    pub fn verify(&self, slug: &str) -> String {
-        let link = self.link(slug);
-        let link = link.strip_suffix("/link").unwrap_or(&link);
-        let rest = link
-            .strip_prefix("wss://")
-            .map(|r| format!("https://{r}"))
-            .or_else(|| link.strip_prefix("ws://").map(|r| format!("http://{r}")))
-            .unwrap_or_default();
-        format!("{rest}/verify")
-    }
-
-    /// The route the world posts its answer to the hub's challenge to, beside the verification
-    /// route.
-    #[must_use]
-    pub fn answer(&self, slug: &str) -> String {
-        format!("{}/answer", self.verify(slug))
-    }
-
-    /// The link's URL for `slug`.
-    #[must_use]
-    pub fn link(&self, slug: &str) -> String {
-        let scheme = if self.tls { "wss" } else { "ws" };
-        let prefix = if self.prefix.is_empty() {
-            String::new()
-        } else {
-            format!("/{}", self.prefix)
-        };
-        let host = if self.host.contains(':') {
-            format!("[{}]", self.host)
-        } else {
-            self.host.clone()
-        };
-        format!(
-            "{scheme}://{host}:{}{prefix}/v1/servers/{slug}/link",
-            self.port
-        )
-    }
-}
-
-fn is_loopback(host: &str) -> bool {
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
-}
-
-/// A `drth_` key: `drth_` and 43 characters of base64url.
-#[must_use]
-pub fn is_key(key: &str) -> bool {
-    key.len() == 48
-        && key.starts_with("drth_")
-        && key[5..]
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
 
 /// The network's settings and records, ready for the world.
 pub struct Prepared {
@@ -446,13 +300,7 @@ fn send_verification(url: &str, key: &str, r: &federation::VerifyRequest) -> Str
 
 /// The running link.
 pub struct FederationLink {
-    events: Receiver<Event>,
-    /// How many frames wait in `events` (see [`MAX_WAITING_FRAMES`]).
-    waiting: Arc<AtomicUsize>,
-    out: Sender<(u64, String)>,
-    epoch: u64,
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    link: LinkClient,
     saves: Saves,
     saver: Option<JoinHandle<()>>,
     /// The hub's verification route, the route for the answer to its challenge, and the key both
@@ -517,7 +365,7 @@ fn store_bytes(store: &NetworkStore) -> serde_json::Result<Vec<u8>> {
 impl std::fmt::Debug for FederationLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FederationLink")
-            .field("epoch", &self.epoch)
+            .field("link", &self.link)
             .finish_non_exhaustive()
     }
 }
@@ -528,18 +376,7 @@ impl FederationLink {
     /// # Errors
     /// When a thread cannot be started.
     pub fn start(p: &Prepared) -> io::Result<Self> {
-        let (event_tx, events) = mpsc::channel();
-        let (out, out_rx) = mpsc::channel::<(u64, String)>();
-        let stop = Arc::new(AtomicBool::new(false));
-        let url = p.url.link(&p.settings.slug);
-        let target = p.url.clone();
-        let key = p.key.clone();
-        let s = Arc::clone(&stop);
-        let waiting = Arc::new(AtomicUsize::new(0));
-        let w = Arc::clone(&waiting);
-        let thread = std::thread::Builder::new()
-            .name("federation-link".into())
-            .spawn(move || run(&target, &url, &key, &event_tx, &w, &out_rx, &s))?;
+        let link = LinkClient::start(&p.url, &p.settings.slug, &p.key)?;
         let (saves, save_rx) = mpsc::channel::<NetworkStore>();
         let path = p.store_path.clone();
         let saver = std::thread::Builder::new()
@@ -560,12 +397,7 @@ impl FederationLink {
                 }
             })?;
         Ok(Self {
-            events,
-            waiting,
-            out,
-            epoch: 0,
-            stop,
-            thread: Some(thread),
+            link,
             saves: Saves::new(saves, p.store.stand_ins.len()),
             saver: Some(saver),
             verify_url: p.url.verify(&p.settings.slug),
@@ -579,31 +411,29 @@ impl FederationLink {
     /// and what it has to send goes to the link; a changed store is saved.
     pub fn pump(&mut self, w: &mut World) {
         for _ in 0..FRAMES_PER_PUMP {
-            let Ok(e) = self.events.try_recv() else {
+            let Some(e) = self.link.try_event() else {
                 break;
             };
             match e {
-                Event::Up(epoch) => {
-                    self.epoch = epoch;
-                    federation::on_link_up(w);
-                }
-                Event::Frame(text) => {
-                    let _ = self
-                        .waiting
-                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                            Some(n.saturating_sub(1))
-                        });
-                    federation::on_link_frame(w, &text);
-                }
+                Event::Up => federation::on_link_up(w),
+                Event::Frame(text) => federation::on_link_frame(w, &text),
                 Event::Down(why) => {
                     log::info!("Dereth Network: link down ({why})");
                     federation::on_link_down(w);
                 }
+                Event::Refused { status, .. } => log::error!(
+                    "Dereth Network: the hub refused this world ({status}: {}); trying again in a minute",
+                    if status == 401 { "the key" } else { "its federation flag is not on" }
+                ),
+                Event::Unreachable { why, retry_in } => log::warn!(
+                    "Dereth Network: cannot reach the hub ({why}); trying again in {} s",
+                    retry_in.as_secs()
+                ),
             }
         }
         federation::tick(w);
         for frame in federation::take_frames(w) {
-            let _ = self.out.send((self.epoch, frame));
+            self.link.send(frame);
         }
         for r in federation::take_verify_requests(w) {
             let (url, key, tx) = (
@@ -648,245 +478,10 @@ impl FederationLink {
     pub fn shutdown(mut self, w: &mut World) {
         let _ = self.saves.tx.send(w.federation.store.clone());
         w.federation.dirty = false;
-        self.stop.store(true, Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        self.link.stop();
         drop(std::mem::replace(&mut self.saves.tx, mpsc::channel().0));
         if let Some(t) = self.saver.take() {
             let _ = t.join();
-        }
-    }
-}
-
-/// A plain or TLS stream to the hub.
-enum Stream {
-    Plain(TcpStream),
-    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
-}
-
-impl Read for Stream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Plain(s) => s.read(buf),
-            Self::Tls(s) => s.read(buf),
-        }
-    }
-}
-
-impl Write for Stream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Self::Plain(s) => s.write(buf),
-            Self::Tls(s) => s.write(buf),
-        }
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Self::Plain(s) => s.flush(),
-            Self::Tls(s) => s.flush(),
-        }
-    }
-}
-
-impl Stream {
-    fn tcp(&self) -> &TcpStream {
-        match self {
-            Self::Plain(s) => s,
-            Self::Tls(s) => s.get_ref(),
-        }
-    }
-}
-
-/// Why a connection attempt failed.
-enum Failed {
-    /// The hub refused the key (401) or the world (403).
-    Refused(u16),
-    Other(String),
-}
-
-fn connect(
-    target: &HubUrl,
-    url: &str,
-    key: &str,
-) -> Result<tungstenite::WebSocket<Stream>, Failed> {
-    use tungstenite::client::IntoClientRequest as _;
-    let addr = (target.host.as_str(), target.port)
-        .to_socket_addrs()
-        .map_err(|e| Failed::Other(format!("{}: {e}", target.host)))?
-        .next()
-        .ok_or_else(|| Failed::Other(format!("{}: no address", target.host)))?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(10))
-        .map_err(|e| Failed::Other(e.to_string()))?;
-    tcp.set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(|e| Failed::Other(e.to_string()))?;
-    // A hub that stops reading must not hold this thread in a write: past this, the link is lost.
-    tcp.set_write_timeout(Some(WRITE_TIMEOUT))
-        .map_err(|e| Failed::Other(e.to_string()))?;
-    let _ = tcp.set_nodelay(true);
-    let stream = if target.tls {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .map_err(|e| Failed::Other(e.to_string()))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-        let name = rustls::pki_types::ServerName::try_from(target.host.clone())
-            .map_err(|e| Failed::Other(e.to_string()))?;
-        let conn = rustls::ClientConnection::new(Arc::new(config), name)
-            .map_err(|e| Failed::Other(e.to_string()))?;
-        Stream::Tls(Box::new(rustls::StreamOwned::new(conn, tcp)))
-    } else {
-        Stream::Plain(tcp)
-    };
-    let mut request = url
-        .into_client_request()
-        .map_err(|e| Failed::Other(e.to_string()))?;
-    let auth = format!("Bearer {key}")
-        .parse()
-        .map_err(|_| Failed::Other("the key is not a header value".into()))?;
-    request.headers_mut().insert("Authorization", auth);
-    let config = tungstenite::protocol::WebSocketConfig::default()
-        .max_message_size(Some(dereth_network_protocol::wire::MAX_MESSAGE_BYTES))
-        .max_frame_size(Some(dereth_network_protocol::wire::MAX_MESSAGE_BYTES));
-    match tungstenite::client::client_with_config(request, stream, Some(config)) {
-        Ok((ws, _)) => Ok(ws),
-        Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r))) => {
-            let code = r.status().as_u16();
-            if code == 401 || code == 403 {
-                Err(Failed::Refused(code))
-            } else {
-                Err(Failed::Other(format!("the hub answered {code}")))
-            }
-        }
-        Err(e) => Err(Failed::Other(e.to_string())),
-    }
-}
-
-fn wait(stop: &AtomicBool, d: Duration) {
-    let until = Instant::now() + d;
-    while Instant::now() < until && !stop.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-static EPOCH: AtomicU64 = AtomicU64::new(1);
-
-fn run(
-    target: &HubUrl,
-    url: &str,
-    key: &str,
-    events: &Sender<Event>,
-    waiting: &AtomicUsize,
-    out: &Receiver<(u64, String)>,
-    stop: &AtomicBool,
-) {
-    let mut attempt = 0usize;
-    while !stop.load(Ordering::SeqCst) {
-        let mut ws = match connect(target, url, key) {
-            Ok(ws) => ws,
-            Err(Failed::Refused(code)) => {
-                log::error!(
-                    "Dereth Network: the hub refused this world ({code}: {}); trying again in a minute",
-                    if code == 401 { "the key" } else { "its federation flag is not on" }
-                );
-                wait(stop, REFUSED_WAIT);
-                continue;
-            }
-            Err(Failed::Other(why)) => {
-                let secs = BACKOFF_SECS[attempt.min(BACKOFF_SECS.len() - 1)];
-                attempt += 1;
-                log::warn!(
-                    "Dereth Network: cannot reach the hub ({why}); trying again in {secs} s"
-                );
-                wait(stop, Duration::from_secs(secs));
-                continue;
-            }
-        };
-        attempt = 0;
-        let _ = ws
-            .get_mut()
-            .tcp()
-            .set_read_timeout(Some(Duration::from_millis(20)));
-        let _ = ws.get_mut().tcp().set_write_timeout(Some(WRITE_TIMEOUT));
-        let epoch = EPOCH.fetch_add(1, Ordering::SeqCst);
-        log::info!("Dereth Network: connected to the hub");
-        if events.send(Event::Up(epoch)).is_err() {
-            return;
-        }
-        let why = carry(&mut ws, epoch, events, waiting, out, stop);
-        let _ = events.send(Event::Down(why.clone()));
-        if !stop.load(Ordering::SeqCst) {
-            wait(stop, Duration::from_secs(BACKOFF_SECS[0]));
-        }
-    }
-}
-
-fn carry(
-    ws: &mut tungstenite::WebSocket<Stream>,
-    epoch: u64,
-    events: &Sender<Event>,
-    waiting: &AtomicUsize,
-    out: &Receiver<(u64, String)>,
-    stop: &AtomicBool,
-) -> String {
-    let mut heard = Instant::now();
-    let mut stalled: Option<Instant> = None;
-    loop {
-        if stop.load(Ordering::SeqCst) {
-            let _ = ws.close(None);
-            let _ = ws.flush();
-            return "stopping".into();
-        }
-        match ws.read() {
-            Ok(tungstenite::Message::Text(t)) => {
-                heard = Instant::now();
-                if waiting.fetch_add(1, Ordering::SeqCst) >= MAX_WAITING_FRAMES {
-                    waiting.fetch_sub(1, Ordering::SeqCst);
-                    let _ = ws.close(None);
-                    return "the hub sends faster than this world takes its frames".into();
-                }
-                if events.send(Event::Frame(t.to_string())).is_err() {
-                    return "the world has gone".into();
-                }
-            }
-            Ok(tungstenite::Message::Close(_)) => return "closed by the hub".into(),
-            Ok(_) => heard = Instant::now(),
-            Err(tungstenite::Error::Io(e))
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
-            Err(e) => return e.to_string(),
-        }
-        while let Ok((for_epoch, frame)) = out.try_recv() {
-            if stop.load(Ordering::SeqCst) {
-                return "stopping".into();
-            }
-            if for_epoch != epoch {
-                continue;
-            }
-            if let Err(e) = ws.write(tungstenite::Message::Text(frame.into())) {
-                return e.to_string();
-            }
-        }
-        match ws.flush() {
-            Ok(()) => stalled = None,
-            Err(tungstenite::Error::Io(e)) if e.kind() == io::ErrorKind::WouldBlock => {
-                // A hub that takes nothing for longer than a write may wait is gone.
-                let since = *stalled.get_or_insert_with(Instant::now);
-                if since.elapsed() > WRITE_TIMEOUT {
-                    return "the hub stopped reading".into();
-                }
-            }
-            Err(e) => return e.to_string(),
-        }
-        if heard.elapsed() > SILENT_FOR {
-            let _ = ws.close(None);
-            return "the hub fell silent".into();
         }
     }
 }
@@ -1145,33 +740,6 @@ mod tests {
 
     /// Divergence: V451
     #[test]
-    fn a_hub_address_is_wss_or_loopback_ws() {
-        let u = HubUrl::parse("wss://hub.example.org").expect("wss");
-        assert_eq!(
-            (u.tls, u.host.as_str(), u.port),
-            (true, "hub.example.org", 443)
-        );
-        assert_eq!(
-            u.link("coldeve"),
-            "wss://hub.example.org:443/v1/servers/coldeve/link"
-        );
-        let l = HubUrl::parse("ws://127.0.0.1:8650/").expect("loopback ws");
-        assert_eq!(l.link("aa"), "ws://127.0.0.1:8650/v1/servers/aa/link");
-        let p = HubUrl::parse("wss://example.org:9443/net").expect("a prefix");
-        assert_eq!(
-            p.link("aa"),
-            "wss://example.org:9443/net/v1/servers/aa/link"
-        );
-        assert!(
-            HubUrl::parse("ws://hub.example.org").is_err(),
-            "plain ws only on loopback"
-        );
-        assert!(HubUrl::parse("https://hub.example.org").is_err());
-        assert!(HubUrl::parse("wss://user@hub.example.org").is_err());
-    }
-
-    /// Divergence: V451
-    #[test]
     fn the_store_is_saved_with_its_next_stand_in_id_moved_on() {
         let mut store = NetworkStore::default();
         let bob = dereth_network_protocol::Address::parse("Bob@bb").expect("an address");
@@ -1288,18 +856,12 @@ mod tests {
     }
 
     /// A link with no thread: the test hands it events itself.
-    fn bare_link() -> (FederationLink, Sender<Event>) {
-        let (event_tx, events) = mpsc::channel();
-        let (out, _) = mpsc::channel();
+    fn bare_link() -> (FederationLink, dereth_network_link::Detached) {
+        let (link, far) = LinkClient::detached();
         let (saves, _) = mpsc::channel();
         (
             FederationLink {
-                events,
-                waiting: Arc::new(AtomicUsize::new(0)),
-                out,
-                epoch: 0,
-                stop: Arc::new(AtomicBool::new(false)),
-                thread: None,
+                link,
                 saves: Saves::new(saves, 0),
                 saver: None,
                 verify_url: String::new(),
@@ -1307,7 +869,7 @@ mod tests {
                 key: String::new(),
                 verified: mpsc::channel(),
             },
-            event_tx,
+            far,
         )
     }
 
@@ -1315,99 +877,89 @@ mod tests {
     #[test]
     fn one_pump_hands_the_world_at_most_its_budget_of_frames() {
         let mut w = world();
-        let (mut link, events) = bare_link();
-        events.send(Event::Up(1)).expect("sent");
+        let (mut link, mut far) = bare_link();
+        far.hand(Event::Up);
         for _ in 0..1_000 {
-            link.waiting.fetch_add(1, Ordering::SeqCst);
-            events
-                .send(Event::Frame(r#"{"type":"a.later.type"}"#.into()))
-                .expect("sent");
+            far.hand(Event::Frame(r#"{"type":"a.later.type"}"#.into()));
         }
         link.pump(&mut w);
-        assert_eq!(link.events.try_iter().count(), 1_001 - FRAMES_PER_PUMP);
         assert_eq!(
-            link.waiting.load(Ordering::SeqCst),
+            far.waiting(),
             1_000 - (FRAMES_PER_PUMP - 1),
             "what was taken no longer counts as waiting"
         );
+        let mut left = 0;
+        while link.link.try_event().is_some() {
+            left += 1;
+        }
+        assert_eq!(left, 1_001 - FRAMES_PER_PUMP);
     }
 
     /// Divergence: V451
     #[test]
-    fn a_hub_sending_faster_than_the_world_takes_its_frames_loses_the_link() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
-        let port = listener.local_addr().expect("an address").port();
-        let (sent_tx, sent_rx) = mpsc::channel();
-        let hub = std::thread::spawn(move || {
-            let (s, _) = listener.accept().expect("the world connects");
-            let mut ws = tungstenite::accept(s).expect("the upgrade");
-            // The world never pumps, so it sends nothing, not even `hello`: the hub just sends.
-            for _ in 0..(MAX_WAITING_FRAMES + 5_000) {
-                if ws
-                    .send(tungstenite::Message::Text(
-                        r#"{"type":"a.later.type"}"#.into(),
-                    ))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            let _ = sent_tx.send(());
-            let _ = ws
-                .get_mut()
-                .set_read_timeout(Some(Duration::from_millis(200)));
-            let until = Instant::now() + Duration::from_secs(10);
-            while Instant::now() < until {
-                if let Err(
-                    tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed,
-                ) = ws.read()
-                {
-                    break;
-                }
-            }
-        });
-        let dir =
-            std::env::temp_dir().join(format!("empyrean-federation-flood-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a temp dir");
-        let prepared = Prepared {
-            settings: FederationSettings {
-                enabled: true,
-                slug: "aa".into(),
-                global_room: None,
-                global_room_named: false,
-                min_character_age_secs: 0,
-                websocket_url: None,
-                status_url: None,
+    fn the_world_links_to_its_hub_through_the_networks_link_and_is_welcomed() {
+        use dereth_network_hub::registry::{Registration, Registry};
+        use dereth_network_hub::server::{start_with, HubConfig};
+        let registry = Registry::open(
+            ":memory:",
+            "dereth.network",
+            Box::new(std::time::SystemTime::now),
+        )
+        .expect("a registry");
+        let r = Registration::from_json(&serde_json::json!({
+            "slug": "cc", "name": "World cc", "ruleset": "PvE",
+            "endpoint": { "mode": "manual", "address": "192.0.2.1", "port": 9000 },
+            "emulator": { "family": "Empyrean" },
+        }))
+        .expect("a registration");
+        let (_, key) = registry.register(&r).expect("registered");
+        registry
+            .set_federation("cc", dereth_network_protocol::Federation::On)
+            .expect("on");
+        let running = start_with(
+            HubConfig {
+                listen: "127.0.0.1:0".parse().expect("an address"),
+                db: ":memory:".into(),
+                ..HubConfig::default()
             },
+            registry,
+        )
+        .expect("the hub starts");
+        let dir =
+            std::env::temp_dir().join(format!("empyrean-federation-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let settings = FederationSettings {
+            enabled: true,
+            slug: "cc".into(),
+            global_room: None,
+            global_room_named: false,
+            min_character_age_secs: 0,
+            websocket_url: None,
+            status_url: None,
+        };
+        let prepared = Prepared {
+            settings: settings.clone(),
             store: NetworkStore::default(),
-            url: HubUrl::parse(&format!("ws://127.0.0.1:{port}")).expect("a loopback hub"),
-            key: format!("drth_{}", "A".repeat(43)),
+            url: HubUrl::parse(&format!("ws://{}", running.local_addr())).expect("a hub"),
+            key,
             store_path: dir.join("network.json"),
         };
-        let link = FederationLink::start(&prepared).expect("the link starts");
-        // The world takes nothing while the hub sends.
-        let _ = sent_rx.recv_timeout(Duration::from_secs(30));
-        std::thread::sleep(Duration::from_millis(500));
-        let (mut frames, mut down) = (0usize, None);
-        for e in link.events.try_iter() {
-            match e {
-                Event::Frame(_) => frames += 1,
-                Event::Down(why) => {
-                    down = Some(why);
-                    break;
-                }
-                Event::Up(_) => {}
-            }
-        }
         let mut w = world();
+        federation::configure(&mut w, settings, NetworkStore::default());
+        let mut link = FederationLink::start(&prepared).expect("the link starts");
+        // A guard against a link that never comes up, not the time it is expected to take.
+        let until = Instant::now() + Duration::from_secs(60);
+        while w.federation.link() != federation::LinkState::Up && Instant::now() < until {
+            link.pump(&mut w);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let up = w.federation.link() == federation::LinkState::Up;
+        let linked = running.linked();
         link.shutdown(&mut w);
-        let _ = hub.join();
+        running.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(frames, MAX_WAITING_FRAMES, "no more wait than the bound");
-        assert_eq!(
-            down.as_deref(),
-            Some("the hub sends faster than this world takes its frames")
-        );
+        assert!(up, "welcomed by the hub");
+        assert!(linked.contains("cc"), "{linked:?}");
     }
 
     /// Divergence: V451

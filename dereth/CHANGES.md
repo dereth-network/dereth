@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Launcher: each realm lists only its own game's worlds.
+
 ## 0.4.8 (2026-10-28)
 
 - Decal: a Dereth Network window for the retail client.

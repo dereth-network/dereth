@@ -3322,8 +3322,8 @@ mod tests {
         assert_eq!(
             *asked.lock().unwrap(),
             [
-                format!("{HUB_LIST_URL}?limit=100&offset=0"),
-                format!("{HUB_LIST_URL}?limit=100&offset=100")
+                format!("{HUB_LIST_URL}?game=all&limit=100&offset=0"),
+                format!("{HUB_LIST_URL}?game=all&limit=100&offset=100")
             ],
             "one list, a page at a time"
         );

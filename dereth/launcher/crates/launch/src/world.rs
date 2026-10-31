@@ -15,6 +15,35 @@ use serde_json::Value;
 
 use crate::datset::Iterations;
 
+/// The game a world runs, as the hub's list names it: Asheron's Call (`dereth`) or Asheron's Call 2
+/// (`auberean`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Game {
+    /// Every world of the community list, and every hub row that names no game.
+    #[default]
+    Dereth,
+    Auberean,
+}
+
+impl Game {
+    /// The game's word, as the hub writes it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Game::Dereth => "dereth",
+            Game::Auberean => "auberean",
+        }
+    }
+
+    /// The game a word names, exactly as the hub writes it; `None` for one this launcher does not
+    /// know.
+    pub fn parse(word: &str) -> Option<Self> {
+        [Game::Dereth, Game::Auberean]
+            .into_iter()
+            .find(|g| g.word() == word)
+    }
+}
+
 /// The server software a world runs. It decides the command-line form a retail client needs and
 /// which status source is worth asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -204,6 +233,10 @@ pub struct World {
     /// Stable identity. Every per-world record the launcher keeps is keyed by this.
     pub slug: String,
     pub name: String,
+    /// The game the world runs, as the hub's list names it. Every other world, and a hub row that
+    /// names none, runs `dereth`.
+    #[serde(default)]
+    pub game: Game,
     pub description: Option<String>,
     pub ruleset: Option<String>,
     /// The era the world plays (`"eor"`, the end of retail, or an earlier one such as

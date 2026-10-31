@@ -8,19 +8,24 @@
 
 use std::time::Duration;
 
-use dereth_network_protocol::directory::{Allegiance, Skill, Training};
-use dereth_network_protocol::{Address, DirectoryMessage, ListingOutcome, Profile};
+use dereth_network_protocol::directory::{Allegiance, AubereanVitals, Skill, Training, Vital};
+use dereth_network_protocol::{
+    Address, AubereanProfile, DirectoryMessage, Game, ListingOutcome, ListingProfile, Message,
+    Profile,
+};
 use serde_json::{json, Value};
 
 use super::http::{encode, get, Answer};
-use super::{addr, open_greeted, HubTarget, Link, WAIT};
+use super::{addr, as_game, open_greeted, HubTarget, Link, WAIT};
 use crate::Check;
 
-/// The fields of a search's results; a character's own answer has these and its profile's.
+/// The fields of a search's results from an Asheron's Call world; a character's own answer has
+/// these and its profile's.
 const SUMMARY: &[&str] = &[
     "address",
     "name",
     "world",
+    "game",
     "updated",
     "level",
     "heritage",
@@ -28,6 +33,24 @@ const SUMMARY: &[&str] = &[
     "title",
     "allegiance",
 ];
+
+/// The fields of a search's results from an Asheron's Call 2 world: its own words for who the
+/// character is, in place of the heritage and gender.
+const AUBEREAN_SUMMARY: &[&str] = &[
+    "address",
+    "name",
+    "world",
+    "game",
+    "updated",
+    "level",
+    "race",
+    "sex",
+    "title",
+    "allegiance",
+];
+
+/// Every field an Asheron's Call 2 profile names.
+const AUBEREAN_PROFILE: &[&str] = &["level", "race", "sex", "title", "vitals", "allegiance"];
 
 /// Every field a profile names.
 const PROFILE: &[&str] = &[
@@ -103,7 +126,7 @@ impl Lister<'_> {
                 id: self.next_id(),
                 who: who.clone(),
                 on: true,
-                profile: Some(Box::new(profile.clone())),
+                profile: Some(Box::new(profile.clone().into())),
             }
             .to_json(),
         )
@@ -121,6 +144,56 @@ impl Lister<'_> {
 
     fn list(&mut self, w: usize, who: &Address, profile: &Profile) -> Result<(), String> {
         self.list_as(w, who, profile, |_| {})
+    }
+
+    /// `who` listed with `profile`, of any game, on world `w`'s link: the hub's answer.
+    fn list_any(
+        &mut self,
+        w: usize,
+        who: &Address,
+        profile: ListingProfile,
+    ) -> Result<ListingOutcome, String> {
+        let frame = DirectoryMessage::Listing {
+            id: self.next_id(),
+            who: who.clone(),
+            on: true,
+            profile: Some(Box::new(profile)),
+        }
+        .to_json();
+        let outcome = self.send(w, &frame)?;
+        if !self.listed.iter().any(|(_, a)| a.same(who)) {
+            self.listed.push((w, who.clone()));
+        }
+        Ok(outcome)
+    }
+
+    /// `who` listed with `profile`, which world `w`'s game does not take: the hub answers that the
+    /// listing is malformed, and lists nothing.
+    fn refused_as_malformed(
+        &mut self,
+        w: usize,
+        who: &Address,
+        profile: ListingProfile,
+    ) -> Result<(), String> {
+        let frame = DirectoryMessage::Listing {
+            id: self.next_id(),
+            who: who.clone(),
+            on: true,
+            profile: Some(Box::new(profile)),
+        }
+        .to_json();
+        let link = &mut self.links[w];
+        link.send_raw(&frame)?;
+        link.expect(WAIT, "the listing refused as malformed", |m| match m {
+            Message::Error { code, .. } if code == "malformed" => Some(()),
+            _ => None,
+        })?;
+        let a = character(self.t, who)?;
+        if a.status == 404 {
+            Ok(())
+        } else {
+            Err(format!("{who}, refused, answers {}: {}", a.status, a.body))
+        }
     }
 
     /// `who` taken out by its world.
@@ -307,7 +380,7 @@ fn keeps_a_directory(t: &HubTarget, tg: &str) -> Result<bool, String> {
             id,
             who: probe.clone(),
             on: true,
-            profile: Some(Box::new(titled(1))),
+            profile: Some(Box::new(titled(1).into())),
         }
         .to_json();
         match d.send(0, &frame)? {
@@ -355,6 +428,9 @@ pub(super) fn checks(t: &HubTarget, tg: &str) -> Vec<Check> {
         "directory.only_the_profiles_own_fields_are_published",
         &|| own_fields(t, tg),
     );
+    check("directory.a_listing_is_read_by_its_worlds_game", &|| {
+        read_by_game(t, tg)
+    });
     check(
         "directory.a_search_is_paged_within_its_first_thousand_results",
         &|| paged(t, tg),
@@ -690,6 +766,80 @@ fn own_fields(t: &HubTarget, tg: &str) -> Result<(), String> {
             return Err(format!("the search: {found}"));
         }
         Ok(())
+    })
+}
+
+/// An Asheron's Call 2 profile, as the second world sends it once its game is `auberean`.
+fn aub(level: u32) -> AubereanProfile {
+    AubereanProfile {
+        level,
+        race: 4,
+        sex: 0x2000,
+        title: Some("Dread Hivemistress".into()),
+        vitals: Some(AubereanVitals {
+            health: Vital { base: 1_250 },
+            vigor: Vital { base: 900 },
+        }),
+        allegiance: None,
+    }
+}
+
+fn read_by_game(t: &HubTarget, tg: &str) -> Result<(), String> {
+    let w = word("k", tg);
+    as_game(t, 1, Game::Auberean, || {
+        with_links(t, tg, 2, |d| {
+            let (ann, bob) = (d.name(1, "Ann", &w), d.name(0, "Bob", &w));
+            match d.list_any(1, &ann, aub(42).into())? {
+                ListingOutcome::Ok => {}
+                other => return Err(format!("an Asheron's Call 2 listing: {other:?}")),
+            }
+            let c = published(t, &ann)?;
+            let want = json!({
+                "game": "auberean", "level": 42, "race": 4, "sex": 8192,
+                "title": "Dread Hivemistress",
+                "vitals": {"health": {"base": 1250}, "vigor": {"base": 900}},
+            });
+            for (k, v) in want.as_object().into_iter().flatten() {
+                if c[k] != *v {
+                    return Err(format!("{k} published as {}, not {v}: {c}", c[k]));
+                }
+            }
+            if let Some(k) = c.as_object().and_then(|o| {
+                o.keys()
+                    .find(|k| {
+                        !AUBEREAN_SUMMARY.contains(&k.as_str())
+                            && !AUBEREAN_PROFILE.contains(&k.as_str())
+                    })
+                    .cloned()
+            }) {
+                return Err(format!("published {k}, which no such profile names: {c}"));
+            }
+            let found = search(t, &by_word(&w))?;
+            let row = found["data"][0].clone();
+            if addresses(&found) != [ann.to_string()]
+                || row["game"] != "auberean"
+                || row["race"] != 4
+                || row["sex"] != 8192
+            {
+                return Err(format!("the search: {found}"));
+            }
+            if let Some(k) = row.as_object().and_then(|o| {
+                o.keys()
+                    .find(|k| !AUBEREAN_SUMMARY.contains(&k.as_str()))
+                    .cloned()
+            }) {
+                return Err(format!("a search's result carries {k}: {row}"));
+            }
+            // A profile of the other game's shape, from either world, is malformed.
+            d.refused_as_malformed(1, &d.name(1, "Cat", &w), titled(10).into())?;
+            d.refused_as_malformed(0, &bob, aub(10).into())?;
+            // And its world's own still lists, as before.
+            d.list(0, &bob, &titled(10))?;
+            if published(t, &bob)?["game"] != "dereth" {
+                return Err(format!("{bob}: not dereth's"));
+            }
+            Ok(())
+        })
     })
 }
 

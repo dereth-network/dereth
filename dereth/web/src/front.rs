@@ -27,7 +27,7 @@ use dereth_launch::eras;
 use dereth_launch::launch;
 use dereth_launch::listing::WorldList;
 use dereth_launch::serverlist::{self, ListCache, ListFetch};
-use dereth_launch::state::{LauncherState, WorldPrefs};
+use dereth_launch::state::{LauncherState, Realm, WorldPrefs};
 use dereth_launch::status::{self, LiveStatus};
 use dereth_launch::world::{Emulator, World};
 use serde_json::{json, Value};
@@ -197,23 +197,28 @@ impl Front {
         self.unanswered.insert(slug.to_owned(), false);
     }
 
-    /// Every world as it is shown at `now` (seconds since the epoch).
+    /// Every world as it is shown at `now` (seconds since the epoch): the worlds of the game this
+    /// client plays, Dereth's realm's ([`Realm::shows`]).
     /// A world whose status document did not answer is shown as down.
     fn shown(&self, now: u64) -> impl Iterator<Item = World> + '_ {
-        self.list.shown(&self.state, now, |slug| {
-            (self.live.get(slug), self.unanswered.get(slug).copied())
-        })
+        self.list
+            .shown(&self.state, now, |slug| {
+                (self.live.get(slug), self.unanswered.get(slug).copied())
+            })
+            .filter(|w| Realm::Dereth.shows(w))
     }
 
     /// The world shown for `slug` at `now`: the world itself, or, for a server the player added
-    /// that the list names too, the list's world.
+    /// that the list names too, the list's world; none for a world of another game.
     fn world_of(&self, slug: &str, now: u64) -> Option<World> {
-        self.list.shown_as(
-            &self.state,
-            now,
-            |slug| (self.live.get(slug), self.unanswered.get(slug).copied()),
-            slug,
-        )
+        self.list
+            .shown_as(
+                &self.state,
+                now,
+                |slug| (self.live.get(slug), self.unanswered.get(slug).copied()),
+                slug,
+            )
+            .filter(|w| Realm::Dereth.shows(w))
     }
 
     /// Every world as it is shown at `now` (seconds since the epoch), with the eras and systems
@@ -601,6 +606,35 @@ mod tests {
     /// list just fetched, then read again about once a minute a page at a time, kept while a read
     /// fails, never past the heartbeat's expiry, never over the world's own answer, and never
     /// from the day's copy, the community's list or a list the page names.
+    /// The page plays one game: of the hub's list it shows the worlds that name no game or
+    /// `dereth`, and no other game's, not even by its slug.
+    #[test]
+    fn the_page_shows_only_the_worlds_of_its_own_game() {
+        let mut f = Front::default();
+        f.list_start(None, None).unwrap();
+        let mut other = hub_row("Shardfall", "online", None, None);
+        other["game"] = json!("auberean");
+        let mut named = hub_row("Frostfell", "online", None, None);
+        named["game"] = json!("dereth");
+        assert_eq!(
+            f.list_next(hub_page(
+                &[hub_row("Coldeve", "online", None, None), other, named],
+                None
+            )),
+            None
+        );
+        f.list_done(NOW).unwrap();
+        let shown: Vec<String> = f.worlds(NOW)["worlds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["slug"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(shown, ["coldeve", "frostfell"]);
+        assert!(f.world("shardfall", NOW).is_none());
+        assert!(f.world("coldeve", NOW).is_some());
+    }
+
     #[test]
     fn the_page_shows_the_hubs_word_on_each_world_by_the_desktop_launchers_rules() {
         use serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
@@ -656,7 +690,7 @@ mod tests {
                 Some(100),
             ))
             .as_deref(),
-            Some(format!("{HUB_LIST_URL}?limit=100&offset=100").as_str())
+            Some(format!("{HUB_LIST_URL}?game=all&limit=100&offset=100").as_str())
         );
         assert_eq!(
             f.hub_next(hub_page(

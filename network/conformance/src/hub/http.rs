@@ -58,6 +58,23 @@ pub fn encode(s: &str) -> String {
 /// # Errors
 /// When the hub cannot be reached, or its answer does not read as HTTP.
 pub fn get(base: &str, path: &str) -> Result<Answer, String> {
+    request(base, "GET", path, "Accept: application/json\r\n", "")
+}
+
+/// `POST` of the JSON `body` to `path` on the hub at `base`, as a world posts it: with its key.
+///
+/// # Errors
+/// When the hub cannot be reached, or its answer does not read as HTTP.
+pub fn post(base: &str, path: &str, key: &str, body: &str) -> Result<Answer, String> {
+    let head = format!(
+        "Authorization: Bearer {key}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    request(base, "POST", path, &head, body)
+}
+
+/// One request: `method` of `path`, with the header lines `head` and `body`.
+fn request(base: &str, method: &str, path: &str, head: &str, body: &str) -> Result<Answer, String> {
     let rest = base
         .strip_prefix("ws://")
         .ok_or_else(|| format!("{base}: the suite speaks ws:// only"))?;
@@ -71,8 +88,7 @@ pub fn get(base: &str, path: &str) -> Result<Answer, String> {
         .map_err(|e| e.to_string())?;
     tcp.write_all(
         format!(
-            "GET {target} HTTP/1.1\r\nHost: {authority}\r\nAccept: application/json\r\n\
-             Connection: close\r\n\r\n"
+            "{method} {target} HTTP/1.1\r\nHost: {authority}\r\n{head}Connection: close\r\n\r\n{body}"
         )
         .as_bytes(),
     )

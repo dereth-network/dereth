@@ -8,7 +8,8 @@
 //!
 //! **What is public** is decided here and nowhere else:
 //!
-//! - only the listings of worlds on the network, each with the fields of a [`Profile`] and no more;
+//! - only the listings of worlds on the network, each with the fields of its world's game's profile
+//!   ([`ListingProfile`]) and no more, and the world's game beside it;
 //! - a patron or a monarch only while that character is listed itself, and an address that is
 //!   taken out of the directory is taken out of every other listing that named it;
 //! - absence alike: a character nobody listed, one taken off the network, one taken down and an
@@ -22,7 +23,7 @@ use dereth_network_protocol::address::is_character_name;
 use dereth_network_protocol::directory::{
     is_shown_text, Refusal, MAX_ALLEGIANCE_NAME_CHARS, MAX_HERITAGE, MAX_LEVEL,
 };
-use dereth_network_protocol::{Address, Federation, ListingOutcome, OffBy, Profile};
+use dereth_network_protocol::{Address, Federation, Game, ListingOutcome, ListingProfile, OffBy};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
@@ -317,12 +318,30 @@ fn page(data: Vec<Value>, total: usize, limit: usize, offset: usize) -> Value {
     })
 }
 
-/// One listing as a row of a search or an allegiance's members: who, where, and what the profile
-/// says of it at a glance.
+/// The SQL for the game of the world `s` (the registry's `servers`): `dereth` when it names none.
+const GAME_SQL: &str = "COALESCE(json_extract(s.registry, '$.game'), 'dereth')";
+
+/// The game a column read with [`GAME_SQL`] names.
+fn game_named(word: &str) -> Game {
+    word.parse().unwrap_or_default()
+}
+
+/// The fields a search's result shows of a profile at a glance, besides its level, title and
+/// allegiance: who the character is, in its game's words.
+fn glance(game: Game) -> [&'static str; 2] {
+    match game {
+        Game::Dereth => ["heritage", "gender"],
+        Game::Auberean => ["race", "sex"],
+    }
+}
+
+/// One listing as a row of a search or an allegiance's members: who, where, its world's game, and
+/// what the profile says of it at a glance.
 fn summary(
     address: &str,
     world: &str,
     world_name: Option<&str>,
+    game: Game,
     updated: &str,
     p: &Value,
 ) -> Value {
@@ -330,9 +349,13 @@ fn summary(
     let mut v = json!({
         "address": address, "name": name,
         "world": { "slug": world, "name": world_name },
+        "game": game,
         "updated": updated,
-        "level": p["level"], "heritage": p["heritage"], "gender": p["gender"],
+        "level": p["level"],
     });
+    for field in glance(game) {
+        v[field] = p[field].clone();
+    }
     if let Some(t) = p.get("title") {
         v["title"] = t.clone();
     }
@@ -429,7 +452,11 @@ impl Registry {
     ///
     /// # Errors
     /// Database errors only.
-    pub fn listing(&self, who: &Address, profile: Option<&Profile>) -> Result<ListingAnswer> {
+    pub fn listing(
+        &self,
+        who: &Address,
+        profile: Option<&ListingProfile>,
+    ) -> Result<ListingAnswer> {
         let key = who.key();
         let was = self.on_network(&key)?;
         let mut answer = self.apply_listing(who, profile)?;
@@ -437,7 +464,11 @@ impl Registry {
         Ok(answer)
     }
 
-    fn apply_listing(&self, who: &Address, profile: Option<&Profile>) -> Result<ListingAnswer> {
+    fn apply_listing(
+        &self,
+        who: &Address,
+        profile: Option<&ListingProfile>,
+    ) -> Result<ListingAnswer> {
         let answer = |outcome, reason, url| ListingAnswer {
             outcome,
             reason,
@@ -514,7 +545,13 @@ impl Registry {
                         return Ok(answer(ListingOutcome::Refused, Some(Refusal::Full), None));
                     }
                 }
-                let al = profile.allegiance.as_ref();
+                let al = profile.allegiance();
+                // The heritage a search filters by is an Asheron's Call character's alone: no
+                // heritage is 0.
+                let heritage = match profile {
+                    ListingProfile::Dereth(p) => p.heritage,
+                    ListingProfile::Auberean(_) => 0,
+                };
                 self.db.execute(
                     "INSERT INTO directory_listings(address_key, address, name_key, world, level,
                        heritage, allegiance_key, allegiance_name_key, allegiance_rank, patron_key,
@@ -532,8 +569,8 @@ impl Registry {
                         who.to_string(),
                         who.name().to_lowercase(),
                         who.world(),
-                        profile.level,
-                        profile.heritage,
+                        profile.level(),
+                        heritage,
                         al.map(|a| a.key.clone()),
                         al.and_then(|a| a.name.as_ref()).map(|n| n.to_lowercase()),
                         al.map(|a| a.rank),
@@ -671,6 +708,17 @@ impl Registry {
         Ok(())
     }
 
+    /// Forgets a world's listings as its game changes: each was a profile of the game it ran. Its
+    /// holds stay, and it lists its characters again, of its game now, as they log in.
+    ///
+    /// # Errors
+    /// Database errors only.
+    pub(crate) fn forget_other_games_listings(&self, slug: &str) -> Result<()> {
+        self.db
+            .execute("DELETE FROM directory_listings WHERE world = ?", [slug])?;
+        Ok(())
+    }
+
     /// Forgets a world's listings and holds, as the world leaves the network. What it owes hearing
     /// of forgotten persons' characters stays, for when it comes back: it goes with the world
     /// leaving the registry ([`Registry::forget_worlds_links`]).
@@ -785,7 +833,8 @@ impl Registry {
             i64::try_from(search.offset).unwrap_or(0),
         ));
         let mut q = self.db.prepare(&format!(
-            "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated, l.profile
+            "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated, l.profile,
+               {GAME_SQL}
              FROM directory_listings l JOIN servers s ON s.slug = l.world
              WHERE {clause} ORDER BY {order} LIMIT ? OFFSET ?"
         ))?;
@@ -797,14 +846,22 @@ impl Registry {
                     r.get::<_, Option<String>>(2)?,
                     r.get::<_, String>(3)?,
                     r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let data = rows
             .iter()
-            .map(|(address, world, name, updated, p)| {
+            .map(|(address, world, name, updated, p, game)| {
                 let p: Value = serde_json::from_str(p).unwrap_or(Value::Null);
-                summary(address, world, name.as_deref(), updated, &p)
+                summary(
+                    address,
+                    world,
+                    name.as_deref(),
+                    game_named(game),
+                    updated,
+                    &p,
+                )
             })
             .collect();
         Ok(page(
@@ -827,23 +884,37 @@ impl Registry {
         else {
             return Ok(None);
         };
-        let row: Option<(String, String, Option<String>, String, String)> = self
+        type Row = (String, String, Option<String>, String, String, String);
+        let row: Option<Row> = self
             .db
             .query_row(
-                "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated, l.profile
-                 FROM directory_listings l JOIN servers s ON s.slug = l.world
-                 WHERE l.address_key = ? AND s.federation = 'on'",
+                &format!(
+                    "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated,
+                       l.profile, {GAME_SQL}
+                     FROM directory_listings l JOIN servers s ON s.slug = l.world
+                     WHERE l.address_key = ? AND s.federation = 'on'"
+                ),
                 [&key],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
             )
             .optional()?;
-        let Some((address, world, world_name, updated, profile)) = row else {
+        let Some((address, world, world_name, updated, profile, game)) = row else {
             return Ok(None);
         };
         let profile = self.published(serde_json::from_str(&profile).unwrap_or(Value::Null))?;
         let mut v = json!({
             "address": address, "name": address.split('@').next().unwrap_or(""),
-            "world": { "slug": world, "name": world_name }, "updated": updated,
+            "world": { "slug": world, "name": world_name }, "game": game_named(&game),
+            "updated": updated,
         });
         if let (Some(o), Some(p)) = (v.as_object_mut(), profile.as_object()) {
             for (k, x) in p {
@@ -878,12 +949,13 @@ impl Registry {
         if total == 0 {
             return Ok(None);
         }
-        let mut q = self.db.prepare_cached(
-            "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated, l.profile
+        let mut q = self.db.prepare_cached(&format!(
+            "SELECT l.address, l.world, json_extract(s.metadata, '$.name'), l.updated, l.profile,
+               {GAME_SQL}
              FROM directory_listings l JOIN servers s ON s.slug = l.world
              WHERE l.world = ? AND l.allegiance_key = ? AND s.federation = 'on'
-             ORDER BY l.allegiance_rank DESC, l.name_key, l.address_key LIMIT ? OFFSET ?",
-        )?;
+             ORDER BY l.allegiance_rank DESC, l.name_key, l.address_key LIMIT ? OFFSET ?"
+        ))?;
         let rows = q
             .query_map(
                 params![
@@ -899,6 +971,7 @@ impl Registry {
                         r.get::<_, Option<String>>(2)?,
                         r.get::<_, String>(3)?,
                         r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
                     ))
                 },
             )?
@@ -917,9 +990,9 @@ impl Registry {
             .and_then(|h| serde_json::from_str(&h).ok())
             .unwrap_or(Value::Null);
         let mut data = Vec::new();
-        for (address, w, name, updated, p) in &rows {
+        for (address, w, name, updated, p, game) in &rows {
             let p = self.published(serde_json::from_str(p).unwrap_or(Value::Null))?;
-            let mut s = summary(address, w, name.as_deref(), updated, &p);
+            let mut s = summary(address, w, name.as_deref(), game_named(game), updated, &p);
             if let Some(patron) = p["allegiance"].get("patron") {
                 s["allegiance"]["patron"] = patron.clone();
             }
@@ -944,12 +1017,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use dereth_network_protocol::directory::{Allegiance, Refusal};
-    use dereth_network_protocol::{Address, Federation, ListingOutcome, OffBy, Profile};
+    use dereth_network_protocol::directory::{Allegiance, AubereanVitals, Refusal, Vital};
+    use dereth_network_protocol::{
+        Address, AubereanProfile, Federation, ListingOutcome, OffBy, Profile,
+    };
     use serde_json::{json, Value};
 
     use super::{Search, Sort, KEEP_DAYS, MAX_LISTINGS_PER_WORLD};
-    use crate::registry::{Registration, Registry};
+    use crate::registry::{Heartbeat, Registration, Registry};
 
     struct Fixture {
         clock: Arc<Mutex<SystemTime>>,
@@ -1020,7 +1095,9 @@ mod tests {
     }
 
     fn list(f: &Fixture, who: &str, p: &Profile) -> ListingOutcome {
-        f.r.listing(&a(who), Some(p)).expect("listed").outcome
+        f.r.listing(&a(who), Some(&p.clone().into()))
+            .expect("listed")
+            .outcome
     }
 
     fn page(f: &Fixture, who: &str) -> Option<Value> {
@@ -1058,8 +1135,11 @@ mod tests {
     fn a_listing_is_published_at_once_with_its_page() {
         let f = fixture();
         let answer =
-            f.r.listing(&a("Sir Bob@aa"), Some(&sworn(126, "dawn-key-1", 3, None)))
-                .expect("listed");
+            f.r.listing(
+                &a("Sir Bob@aa"),
+                Some(&sworn(126, "dawn-key-1", 3, None).into()),
+            )
+            .expect("listed");
         assert_eq!(answer.outcome, ListingOutcome::Ok);
         assert_eq!(
             answer.url.as_deref(),
@@ -1072,6 +1152,104 @@ mod tests {
         assert_eq!(c["allegiance"]["name"], "Order of the Dawn");
         assert_eq!(c["updated"], "2026-09-21T14:00:00.000Z", "the hour alone");
         assert!(c.get("birth").is_none() && c.get("online").is_none());
+    }
+
+    /// `slug`'s heartbeat names `game`, which becomes its game.
+    fn runs(f: &Fixture, slug: &str, game: &str) {
+        let beat: Heartbeat =
+            serde_json::from_value(json!({ "state": "online", "game": game })).expect("a beat");
+        f.r.heartbeat(slug, &beat, None).expect("accepted");
+    }
+
+    fn aub(level: u32) -> AubereanProfile {
+        AubereanProfile {
+            level,
+            race: 4,
+            sex: 0x2000,
+            title: Some("Dread Hivemistress".into()),
+            vitals: Some(AubereanVitals {
+                health: Vital { base: 1_250 },
+                vigor: Vital { base: 900 },
+            }),
+            allegiance: None,
+        }
+    }
+
+    /// Spec: hub: an Asheron's Call 2 world's listing is published with its world's game beside
+    /// it and in its own game's words (race and sex, not heritage and gender), and so is each
+    /// result of a search; a search by heritage finds Asheron's Call characters alone.
+    #[test]
+    fn a_listing_is_published_with_its_worlds_game_in_its_games_words() {
+        let f = fixture();
+        runs(&f, "bb", "auberean");
+        let answer =
+            f.r.listing(&a("Ann@bb"), Some(&aub(42).into()))
+                .expect("listed");
+        assert_eq!(answer.outcome, ListingOutcome::Ok);
+        list(&f, "Bob@aa", &profile(42));
+        let c = page(&f, "Ann@bb").expect("published");
+        assert_eq!(c["game"], "auberean");
+        assert_eq!(
+            (c["level"].clone(), c["race"].clone(), c["sex"].clone()),
+            (json!(42), json!(4), json!(8192))
+        );
+        assert_eq!(c["vitals"]["vigor"]["base"], 900);
+        assert!(
+            c.get("heritage").is_none() && c.get("gender").is_none(),
+            "{c}"
+        );
+        assert_eq!(page(&f, "Bob@aa").expect("published")["game"], "dereth");
+        let s = Search::from_query(&query(&[("q", "ann")])).expect("a search");
+        let row = f.r.directory_search(&s).expect("searched")["data"][0].clone();
+        assert_eq!(
+            (row["game"].clone(), row["race"].clone(), row["sex"].clone()),
+            (json!("auberean"), json!(4), json!(8192))
+        );
+        assert!(
+            row.get("heritage").is_none() && row.get("gender").is_none(),
+            "{row}"
+        );
+        let s = Search::from_query(&query(&[("q", "bob")])).expect("a search");
+        let row = f.r.directory_search(&s).expect("searched")["data"][0].clone();
+        assert_eq!(
+            (
+                row["game"].clone(),
+                row["heritage"].clone(),
+                row["gender"].clone()
+            ),
+            (json!("dereth"), json!(1), json!(1))
+        );
+        assert!(row.get("race").is_none(), "{row}");
+        assert_eq!(search(&f, &[("heritage", "1")]), ["Bob@aa"]);
+        assert!(
+            search(&f, &[("heritage", "4")]).is_empty(),
+            "a race is no heritage"
+        );
+    }
+
+    /// Spec: hub: a world whose game changes loses its listings, each a profile of the game it
+    /// ran, and lists its characters again as they come back; other worlds keep theirs.
+    #[test]
+    fn a_worlds_game_changing_takes_its_listings() {
+        let f = fixture();
+        list(&f, "Ann@aa", &profile(10));
+        list(&f, "Bob@bb", &profile(10));
+        runs(&f, "aa", "dereth");
+        assert!(page(&f, "Ann@aa").is_some(), "the same game: kept");
+        runs(&f, "aa", "auberean");
+        assert!(page(&f, "Ann@aa").is_none());
+        assert!(page(&f, "Bob@bb").is_some());
+        assert_eq!(rows(&f), 1);
+        assert_eq!(
+            f.r.listing(&a("Ann@aa"), Some(&aub(10).into()))
+                .expect("listed")
+                .outcome,
+            ListingOutcome::Ok
+        );
+        assert_eq!(
+            page(&f, "Ann@aa").expect("listed again")["game"],
+            "auberean"
+        );
     }
 
     /// Spec: hub: a profile sent again unchanged changes nothing published, not even the hour; a
@@ -1207,7 +1385,7 @@ mod tests {
             "owed nothing more"
         );
         let refused =
-            f.r.listing(&a("Ann@aa"), Some(&profile(10)))
+            f.r.listing(&a("Ann@aa"), Some(&profile(10).into()))
                 .expect("asked");
         assert_eq!(
             (refused.outcome, refused.reason),
@@ -1257,7 +1435,7 @@ mod tests {
             "owed however long the world is away"
         );
         let held =
-            f.r.listing(&a("Ann@aa"), Some(&profile(10)))
+            f.r.listing(&a("Ann@aa"), Some(&profile(10).into()))
                 .expect("asked");
         assert_eq!(
             (held.outcome, held.reason),
@@ -1302,7 +1480,7 @@ mod tests {
         f.r.listing(&a("Ann@aa"), None).expect("heard");
         assert!(f.r.owed_offs("aa").expect("asked").is_empty());
         let held =
-            f.r.listing(&a("Ann@aa"), Some(&profile(10)))
+            f.r.listing(&a("Ann@aa"), Some(&profile(10).into()))
                 .expect("asked");
         assert_eq!(
             (held.outcome, held.reason),
@@ -1325,7 +1503,7 @@ mod tests {
             f.r.redeem_link_code(&ann, &code).expect("linked");
         }
         let changed = |who: &str, p: Option<Profile>| -> Vec<String> {
-            f.r.listing(&a(who), p.as_ref())
+            f.r.listing(&a(who), p.map(Into::into).as_ref())
                 .expect("asked")
                 .changed
                 .iter()
@@ -1394,7 +1572,7 @@ mod tests {
             )
             .expect("filled");
         let refused =
-            f.r.listing(&a("Cat@aa"), Some(&profile(10)))
+            f.r.listing(&a("Cat@aa"), Some(&profile(10).into()))
                 .expect("asked");
         assert_eq!(
             (refused.outcome, refused.reason),

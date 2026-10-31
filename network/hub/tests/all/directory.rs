@@ -71,7 +71,7 @@ fn list(
             id: id.into(),
             who: a(who),
             on: profile.is_some(),
-            profile: profile.map(Box::new),
+            profile: profile.map(|p| Box::new(p.into())),
         }
         .to_json(),
     )

@@ -1,0 +1,26 @@
+[package]
+name = "dereth-network-link"
+description = "A world's end of the Dereth Network's link: the WebSocket to the hub with the world's key, its keep-alive and reconnects, carried on a thread of its own."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+
+# Everything under network/ names its own versions rather than the workspace's, so that the folder
+# can become a repository of its own unchanged.
+[dependencies]
+# The frame bound the link holds the hub to.
+dereth-network-protocol = { path = "../protocol" }
+# The WebSocket framing (blocking, on the link's own thread), and wss:// through rustls on its ring
+# provider with the web's root certificates.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"

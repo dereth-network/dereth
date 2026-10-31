@@ -25,6 +25,11 @@
 //! Reading is tolerant: a row without a name is skipped, a malformed port is no endpoint, and
 //! nothing in one row can cost the player another. Of the hub's rows, one with no address to
 //! connect to is not shown, and a world the hub lists for demonstration is shown as a test world.
+//!
+//! The hub's list is read for every game (`game=all`): each world carries its game, and each front
+//! end shows the worlds of the game it plays ([`crate::state::Realm`]). A row of a game this
+//! launcher does not know is not shown; a row that names no game, and every world of the community
+//! list, runs `dereth`. A hub that knows no game answers every world, all of them `dereth`'s.
 
 use std::collections::{BTreeMap, HashSet};
 use std::io;
@@ -33,7 +38,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::world::{Emulator, Endpoint, Links, World};
+use crate::world::{Emulator, Endpoint, Game, Links, World};
 
 /// Where the list is read from unless the launcher is told otherwise: the Dereth Network's hub.
 pub const HUB_LIST_URL: &str = "https://hub.dereth.network/v1/servers";
@@ -100,10 +105,15 @@ pub fn sources_from(named: Option<&str>, hub: Option<&str>) -> Vec<ListSource> {
     }
 }
 
-/// The address of the page of the hub's list `base` that starts at `offset`.
+/// The address of the page of the hub's list `base` that starts at `offset`: every game's worlds,
+/// unless `base` names a game itself.
 fn hub_page_url(base: &str, offset: u64) -> String {
     let join = if base.contains('?') { '&' } else { '?' };
-    format!("{base}{join}limit={HUB_PAGE_SIZE}&offset={offset}")
+    let names_game = base
+        .split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv.starts_with("game=")));
+    let games = if names_game { "" } else { "game=all&" };
+    format!("{base}{join}{games}limit={HUB_PAGE_SIZE}&offset={offset}")
 }
 
 /// Reading the list: each source in turn until one answers with its whole list, the hub's a page
@@ -473,9 +483,14 @@ pub(crate) fn hub_key(row: &Value) -> Option<String> {
 }
 
 /// One world of the hub's list, read as the same world is from `Servers.xml`. `None` for a row
-/// with no name, and one with no address and port to connect to.
+/// with no name, one with no address and port to connect to, and one of a game this launcher does
+/// not know.
 fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
     let text = |at: &str| hub_text(row, at);
+    let game = match row.get("game") {
+        None | Some(Value::Null) => Game::Dereth,
+        Some(g) => Game::parse(g.as_str()?)?,
+    };
     let (name, fallback, address, port) = hub_shown(row)?;
     // The community list's id, which the hub keeps for a world it imported from it.
     let list_id = text("/provenance/externalId").map(str::to_owned);
@@ -483,6 +498,7 @@ fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
     let slug = take_slug(name, fallback, taken);
 
     let mut w = World::new(slug, name);
+    w.game = game;
     w.list_id = list_id;
     w.hub_slug = text("/slug").map(str::to_owned);
     w.description = text("/description").map(str::to_owned);
@@ -923,6 +939,84 @@ mod tests {
         worlds.iter().map(|w| w.name.as_str()).collect()
     }
 
+    /// The hub's list is asked for every game's worlds, unless the address the launcher is given
+    /// names a game itself.
+    #[test]
+    fn the_hubs_list_is_asked_for_every_games_worlds_unless_its_address_names_one() {
+        assert_eq!(
+            hub_page_url(HUB_LIST_URL, 100),
+            format!("{HUB_LIST_URL}?game=all&limit=100&offset=100")
+        );
+        assert_eq!(
+            hub_page_url("https://dev-hub.example.org/v1/servers?q=frost", 0),
+            "https://dev-hub.example.org/v1/servers?q=frost&game=all&limit=100&offset=0"
+        );
+        assert_eq!(
+            hub_page_url("https://dev-hub.example.org/v1/servers?game=auberean", 0),
+            "https://dev-hub.example.org/v1/servers?game=auberean&limit=100&offset=0"
+        );
+    }
+
+    /// Each world of the hub's list carries the game its row names, a row that names none runs
+    /// `dereth`, and a row of a game this launcher does not know is not shown; the community
+    /// list's worlds are all `dereth`'s.
+    #[test]
+    fn a_hub_rows_game_is_the_worlds_and_one_of_an_unknown_game_is_not_shown() {
+        let row = |slug: &str, game: Option<Value>| {
+            let mut r = hub_row(slug, &slug.to_uppercase());
+            if let Some(g) = game {
+                r["game"] = g;
+            }
+            r
+        };
+        let page = String::from_utf8(hub_page_of(
+            &[
+                row("coldeve", None),
+                row("frost", Some(Value::Null)),
+                row("darktide", Some(serde_json::json!("dereth"))),
+                row("shardfall", Some(serde_json::json!("auberean"))),
+                row("later", Some(serde_json::json!("a-later-game"))),
+                row("odd", Some(serde_json::json!(2))),
+            ],
+            None,
+        ))
+        .expect("text");
+        let games: Vec<(String, Game)> = parse_hub_pages(&[page])
+            .expect("read")
+            .into_iter()
+            .map(|w| (w.hub_slug.unwrap_or_default(), w.game))
+            .collect();
+        assert_eq!(
+            games,
+            [
+                ("coldeve".to_owned(), Game::Dereth),
+                ("frost".to_owned(), Game::Dereth),
+                ("darktide".to_owned(), Game::Dereth),
+                ("shardfall".to_owned(), Game::Auberean),
+            ]
+        );
+        let community = parse_servers_xml(&list_of("Community World")).expect("read");
+        assert!(community.iter().all(|w| w.game == Game::Dereth));
+    }
+
+    /// The launcher's words for the games are the network's.
+    #[test]
+    fn the_launchers_game_words_are_the_networks() {
+        let ours: Vec<&str> = [Game::Dereth, Game::Auberean]
+            .into_iter()
+            .map(Game::word)
+            .collect();
+        let theirs: Vec<&str> = dereth_network_protocol::Game::ALL
+            .into_iter()
+            .map(dereth_network_protocol::Game::word)
+            .collect();
+        assert_eq!(ours, theirs);
+        for w in theirs {
+            assert_eq!(Game::parse(w).map(Game::word), Some(w));
+        }
+        assert_eq!(Game::parse("Auberean"), None);
+    }
+
     #[test]
     fn the_hubs_list_is_read_first_a_page_at_a_time_and_alone_when_it_answers() {
         let order: Vec<_> = sources(None)
@@ -940,7 +1034,7 @@ mod tests {
         let second = hub_page_url(HUB_LIST_URL, 100);
         assert_eq!(
             first,
-            "https://hub.dereth.network/v1/servers?limit=100&offset=0"
+            "https://hub.dereth.network/v1/servers?game=all&limit=100&offset=0"
         );
         let (read, asked) = fetch_with(
             &sources(None),

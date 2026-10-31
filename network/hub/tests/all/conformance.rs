@@ -105,9 +105,20 @@ fn the_hub_passes_every_hub_check() {
             .iter()
             .filter(|c| c.name.starts_with("directory."))
             .count(),
-        9,
+        10,
         "the directory's checks over the public routes ran"
     );
+    for name in [
+        "tell.crosses_games_as_between_worlds_of_one_game",
+        "presence.crosses_games",
+        "status.each_game_is_totalled_apart",
+        "directory.a_listing_is_read_by_its_worlds_game",
+    ] {
+        assert!(
+            checks.iter().any(|c| c.name == name),
+            "the check across games {name} ran"
+        );
+    }
     assert!(
         failed.is_empty(),
         "{}",

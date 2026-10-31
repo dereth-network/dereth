@@ -53,7 +53,7 @@ use tungstenite::handshake::server::{Request, Response};
 
 use crate::core::{Channels, Hub, Out};
 use crate::forwarded::{ClientHeader, ProxyRange};
-use crate::registry::{Heartbeat, Registry, RegistryError};
+use crate::registry::{Games, Heartbeat, Registry, RegistryError};
 
 /// The hub's own name and version, as `welcome` reports it.
 pub const SOFTWARE: &str = concat!("dereth-network-hub ", env!("CARGO_PKG_VERSION"));
@@ -1032,12 +1032,16 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
                         Err(WireError::Unknown(t))
                             if dereth_network_protocol::directory::TYPES.contains(&t.as_str()) =>
                         {
-                            match DirectoryMessage::from_json(&text) {
+                            // A listing's profile is read as the world's game's.
+                            let reg = shared.registry();
+                            let game = crate::core::Directory::lookup(&*reg, &slug)
+                                .map(|e| e.game)
+                                .unwrap_or_default();
+                            match DirectoryMessage::from_json_for(game, &text) {
                                 Ok(d) => {
                                     if let Some(f) = wire.as_mut() {
                                         wire_line(f, &format!("{slug} -> hub"), d.kind());
                                     }
-                                    let reg = shared.registry();
                                     hub.receive_listing(&*reg, &slug, d, now)
                                 }
                                 Err(_) => vec![Out::Send(
@@ -1328,6 +1332,7 @@ fn apply(
                     emulator_version: None,
                     uptime_seconds: None,
                     adapter: None,
+                    game: None,
                 };
                 if let Err(e) = shared.registry().heartbeat(&slug, &h, None) {
                     log(
@@ -1938,6 +1943,16 @@ fn reg_result(r: Result<Value, RegistryError>) -> (u16, String) {
     }
 }
 
+/// The worlds of the first game alone (`dereth`), for the feeds made for readers that know no
+/// other: the community list's launchers and the population sites.
+fn first_game(worlds: &[Value]) -> Vec<Value> {
+    worlds
+        .iter()
+        .filter(|w| Games::default().shows(w))
+        .cloned()
+        .collect()
+}
+
 /// The one answer for a character the directory does not show, whatever the reason.
 const NOT_LISTED: &str = "No such character in the directory";
 
@@ -1981,6 +1996,7 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
                     q.get("q").map_or("", String::as_str),
                     q.get("ruleset").map_or("", String::as_str),
                     q.get("federation").map_or("", String::as_str),
+                    Games::from_query(q.get("game").map(String::as_str)),
                     limit,
                     offset,
                 )
@@ -2057,7 +2073,7 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
             return match shared.public() {
                 Ok(p) => (
                     200,
-                    crate::community::thwarg_xml(&p.worlds),
+                    crate::community::thwarg_xml(&first_game(&p.worlds)),
                     "application/xml; charset=utf-8",
                 ),
                 Err(e) => {
@@ -2068,7 +2084,10 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
         }
         (_, ["compat", "treestats", "player_counts-latest.json"]) if get => {
             reg_result(shared.public().map(|p| {
-                crate::community::treestats_counts(&p.worlds, std::time::SystemTime::now())
+                crate::community::treestats_counts(
+                    &first_game(&p.worlds),
+                    std::time::SystemTime::now(),
+                )
             }))
         }
         (_, ["v1", "directory", "characters"]) if get => {

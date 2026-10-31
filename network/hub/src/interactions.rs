@@ -1477,7 +1477,8 @@ mod tests {
             gender: 1,
             ..dereth_network_protocol::Profile::default()
         };
-        r.listing(&a(who), Some(&profile)).expect("listed");
+        r.listing(&a(who), Some(&profile.clone().into()))
+            .expect("listed");
     }
 
     /// Spec: hub: a person speaks only as its characters on the network: one off it pauses its
