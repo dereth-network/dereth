@@ -1,0 +1,817 @@
+//! The effects objects play from their looks, read from the install.
+
+use auberean_assets::fx::Particles;
+use auberean_draw::effects::{
+    node_for, particle_is_looping, FxSpot, FxWho, NoRig, ObjectEffects, Rig,
+};
+use auberean_draw::particles::approximate_lifetime;
+use auberean_draw::systems::ParticleSystems;
+use auberean_primitives::{DataId, Vec3};
+use auberean_world::color::Color;
+use auberean_world::look::Look;
+use auberean_world::math::Mat4;
+
+use crate::common::{ids_of, install};
+
+/// The camp's Arcane Fire (look `0x1F0001D3`) burns blue: its look names an effect table whose
+/// five startup effects are orange flames, and its appearance at full strength lists blue ones
+/// for the same five ids, which join its table as it starts, in place of the stored ones.
+///
+/// Behaviour: draw.effects.an-appearances-effects-play-in-place-of-its-tables
+#[test]
+fn the_arcane_fire_burns_its_appearances_blue_flames() {
+    use auberean_draw::effects::ObjectFxTable;
+    let r = &install().records;
+    let look = Look::of_record(r, DataId(0x1F00_01D3)).expect("the arcane fire's look");
+    let systems_of = |t: &ObjectFxTable| -> Vec<u32> {
+        let mut d: Vec<u32> = (0x8100_0069..=0x8100_006D)
+            .flat_map(|e| t.fx_data(r, e))
+            .flat_map(|data| node_for(&data, 0).particles.clone().unwrap_or_default())
+            .map(|id| id.0)
+            .collect();
+        d.sort_unstable();
+        d
+    };
+    assert_eq!(
+        systems_of(&ObjectFxTable::of_group(&look.global)),
+        vec![
+            0x3900_0126,
+            0x3900_0127,
+            0x3900_0128,
+            0x3900_0129,
+            0x3900_0140
+        ],
+        "the stored table's own"
+    );
+    assert_eq!(
+        systems_of(&ObjectFxTable::of_group_with(r, &look.global)),
+        vec![
+            0x3900_0128,
+            0x3900_0136,
+            0x3900_0137,
+            0x3900_0138,
+            0x3900_0139
+        ],
+        "the appearance's blue systems"
+    );
+    let manager = ParticleSystems::default();
+    let place = Mat4::translation(Vec3::new(130.0, 90.0, 82.0));
+    let mut fx = ObjectEffects::of_look(&look).expect("its look carries effects");
+    fx.start(
+        &manager,
+        r,
+        (0xC1, 0x56),
+        &place,
+        Vec3::new(1.0, 1.0, 1.0),
+        0.0,
+    );
+    let mut started: Vec<u32> = fx.systems().iter().map(|c| c.desc).collect();
+    started.sort_unstable();
+    assert_eq!(
+        started,
+        vec![
+            0x3900_0128,
+            0x3900_0136,
+            0x3900_0137,
+            0x3900_0138,
+            0x3900_0139
+        ],
+        "started blue"
+    );
+}
+
+/// The camp's Arcane Fire burns over the lake: its blue flames are drawn after the water. A frame
+/// draws its opaque objects, then the water, then what is seen through, the particle systems
+/// last. Every quad of the fire's five systems adds itself onto what lies behind without marking
+/// how near it is, so water drawn after them would cover each flame with the lake behind it.
+///
+/// Behaviour: draw.frame.the-water-is-drawn-before-what-is-seen-through
+#[test]
+fn the_arcane_fires_flames_are_drawn_after_the_water() {
+    use auberean_draw::scene::{Pass, PASSES};
+    let step = |p: Pass| PASSES.iter().position(|q| *q == p).expect("a step");
+    assert!(
+        step(Pass::Opaque) < step(Pass::Water),
+        "the opaque objects first"
+    );
+    assert!(
+        step(Pass::Water) < step(Pass::Translucent),
+        "the water before what is seen through"
+    );
+    let r = &install().records;
+    let look = Look::of_record(r, DataId(0x1F00_01D3)).expect("the arcane fire's look");
+    let manager = ParticleSystems::default();
+    let home = (0xC1, 0x56);
+    let place = Mat4::translation(Vec3::new(122.8, 89.8, 82.2));
+    let one = Vec3::new(1.0, 1.0, 1.0);
+    let mut fx = ObjectEffects::of_look(&look).expect("its look carries effects");
+    fx.start(&manager, r, home, &place, one, 0.0);
+    let eye = Vec3::new(126.0, 84.0, 82.0);
+    let axes = (
+        Vec3::new(0.85, 0.53, 0.0),
+        Vec3::new(-0.53, 0.85, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let mut t = 0.0;
+    while t < 3.0 {
+        t += 0.05;
+        fx.think(&manager, home, &place, one, Color::WHITE, t);
+    }
+    let batches = manager.batches(home, 192.0, t, eye, axes);
+    let quads: usize = batches.iter().map(|b| b.vertices.len() / 4).sum();
+    assert!(quads > 50, "the fire burns: {quads} quads");
+    for b in &batches {
+        assert!(!b.layer.depth_write, "a flame marks no nearness");
+        assert_eq!(b.pass(), Pass::Translucent, "a flame is seen through");
+    }
+}
+
+/// The start hall's quick exit (look `0x1F00031E`) plays three startup effects from its look:
+/// two swirls, a purple and an orange particle system a meter below the object's origin, and a
+/// sound. Nothing on the wire asks for them.
+///
+/// Behaviour: draw.effects.an-object-plays-its-looks-startup-effects-when-it-is-made
+#[test]
+fn the_quick_exit_plays_its_swirls_from_its_look() {
+    let r = &install().records;
+    let look = Look::of_record(r, DataId(0x1F00_031E)).expect("the quick exit's look");
+    let mut fx = ObjectEffects::of_look(&look).expect("its look carries effects");
+    assert_eq!(fx.table().stored(), DataId(0x1E00_00E0));
+    let place = Mat4::translation(Vec3::new(101.0, 240.1, -43.52));
+    let manager = ParticleSystems::default();
+    fx.start(
+        &manager,
+        r,
+        (2, 0x98),
+        &place,
+        Vec3::new(1.0, 1.0, 1.0),
+        0.0,
+    );
+    let systems: Vec<(u32, Vec3)> = fx
+        .systems()
+        .iter()
+        .map(|c| (c.desc, c.offset.point(Vec3::ZERO)))
+        .collect();
+    assert_eq!(
+        systems,
+        vec![
+            (0x3900_00C9, Vec3::new(0.0, 0.0, -1.0)),
+            (0x3900_00C8, Vec3::new(0.0, 0.0, -1.0)),
+        ]
+    );
+    let states: Vec<(u32, bool, usize)> = fx
+        .states()
+        .iter()
+        .map(|(id, s)| (*id, s.startup, s.systems.len()))
+        .collect();
+    // The swirls run until stopped, so their effects keep them; the sound starts no system.
+    assert_eq!(
+        states,
+        vec![
+            (0x8100_0006, true, 0),
+            (0x8100_01C3, true, 1),
+            (0x8100_01C4, true, 1)
+        ]
+    );
+    // Run a few seconds where it stands: both swirls have particles to draw.
+    for k in 1..=60 {
+        fx.think(
+            &manager,
+            (2, 0x98),
+            &place,
+            Vec3::new(1.0, 1.0, 1.0),
+            auberean_world::color::Color::WHITE,
+            f64::from(k) * 0.05,
+        );
+    }
+    assert_eq!(fx.systems().len(), 2);
+    assert!(fx.systems().iter().all(|c| manager.alive(&c.system) > 0));
+}
+
+/// The quick exit's swirls light nothing and live with their object, so objects placed with the
+/// world share them: a second quick exit placed with the world draws the first one's two systems
+/// at its own place, every particle twice; an object that is not placed with the world (one the
+/// server makes) takes a shared system too, but then forbids sharing it, so a third placed quick
+/// exit sets new ones going. A system its last owner lets go of discharges no more; one that may
+/// not be shared draws where it was left until its particles are gone.
+///
+/// Behaviour: draw.systems.objects-placed-with-the-world-share-their-particle-systems
+#[test]
+fn objects_placed_with_the_world_share_their_particle_systems() {
+    let r = &install().records;
+    let look = Look::of_record(r, DataId(0x1F00_031E)).expect("the quick exit's look");
+    let systems = ParticleSystems::default();
+    let one = Vec3::new(1.0, 1.0, 1.0);
+    let light = auberean_world::color::Color::WHITE;
+    let make = |shared: bool, x: f32| {
+        let mut fx = ObjectEffects::of_look(&look).expect("its look carries effects");
+        fx.shared = shared;
+        let place = Mat4::translation(Vec3::new(x, 240.0, -43.5));
+        fx.start(&systems, r, (2, 0x98), &place, one, 0.0);
+        (fx, place)
+    };
+    let ids =
+        |fx: &ObjectEffects| -> Vec<u32> { fx.systems().iter().map(|c| c.system.id()).collect() };
+    let (mut a, pa) = make(true, 100.0);
+    let (mut b, pb) = make(true, 110.0);
+    assert_eq!(
+        ids(&a),
+        ids(&b),
+        "the second placed quick exit takes the first's systems"
+    );
+    assert_eq!(systems.counts(), (2, 0));
+    assert!(a.systems().iter().all(|c| systems.owners(&c.system) == 2));
+    let eye = Vec3::new(105.0, 230.0, -43.0);
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let mut drawn = (0, 0);
+    // Frames a little longer than the step, so the systems think at the first queue of a frame.
+    for k in 1..=40 {
+        let now = f64::from(k) * 0.0525;
+        a.think(&systems, (2, 0x98), &pa, one, light, now);
+        let alone: usize = systems
+            .batches((2, 0x98), 192.0, now, eye, axes)
+            .iter()
+            .map(|b| b.vertices.len())
+            .sum();
+        a.think(&systems, (2, 0x98), &pa, one, light, now + 0.01);
+        b.think(&systems, (2, 0x98), &pb, one, light, now + 0.01);
+        let both: usize = systems
+            .batches((2, 0x98), 192.0, now + 0.01, eye, axes)
+            .iter()
+            .map(|b| b.vertices.len())
+            .sum();
+        drawn = (alone, both);
+    }
+    assert!(drawn.0 > 0 && drawn.1 >= 2 * drawn.0 - 8, "{drawn:?}");
+    // One the server makes takes them, and then they are no longer shared.
+    let (c, _) = make(false, 120.0);
+    assert_eq!(ids(&c), ids(&a));
+    let (d, _) = make(true, 130.0);
+    assert!(
+        ids(&d).iter().all(|k| !ids(&a).contains(k)),
+        "{:?} {:?}",
+        ids(&d),
+        ids(&a)
+    );
+    assert_eq!(systems.counts(), (4, 0));
+    // Let go of: the unshared pair keeps drawing where it was until its particles are gone; the
+    // new pair, with no particles yet, goes at once.
+    drop((a, b, c, d));
+    assert_eq!(systems.counts(), (0, 2));
+    let mut t = 2.0;
+    while systems.counts().1 > 0 && t < 60.0 {
+        t += 0.05;
+        let _ = systems.batches((2, 0x98), 192.0, t, eye, axes);
+    }
+    assert_eq!(systems.counts(), (0, 0), "gone by {t:.1} s");
+}
+
+/// Every look whose whole-object group names startup effects puts together, and each entry of
+/// those effects that names a particle system sets one going (every system named exists); nearly
+/// all of them run until stopped.
+///
+/// Behaviour: draw.effects.an-object-plays-its-looks-startup-effects-when-it-is-made
+#[test]
+fn every_look_with_startup_effects_sets_its_systems_going() {
+    let r = &install().records;
+    let (mut looks, mut with_systems, mut systems, mut endless) = (0, 0, 0, 0);
+    let mut missing = Vec::new();
+    for id in ids_of(0x1F) {
+        let Ok(look) = Look::of_record(r, DataId(id)) else {
+            continue;
+        };
+        if look.global.startup_fx.is_empty() {
+            continue;
+        }
+        let Some(mut fx) = ObjectEffects::of_look(&look) else {
+            continue;
+        };
+        looks += 1;
+        let manager = ParticleSystems::default();
+        fx.start(
+            &manager,
+            r,
+            (0, 0),
+            &Mat4::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+            0.0,
+        );
+        // Every entry of every startup effect (its table as started) that names a particle system
+        // sets one going.
+        let named: usize = look
+            .global
+            .startup_fx
+            .entries
+            .iter()
+            .flat_map(|(effect, _)| fx.table().fx_data(r, *effect))
+            .filter(|d| {
+                node_for(d, 0)
+                    .particles
+                    .as_ref()
+                    .is_some_and(|p| !p.is_empty())
+            })
+            .count();
+        if fx.systems().len() != named {
+            missing.push(id);
+        }
+        if !fx.systems().is_empty() {
+            with_systems += 1;
+        }
+        for c in fx.systems() {
+            systems += 1;
+            if particle_is_looping(r, c.desc) {
+                endless += 1;
+            }
+        }
+    }
+    println!("{looks} looks with startup effects, {with_systems} set systems going: {systems} systems, {endless} endless");
+    assert!(missing.is_empty(), "{missing:08X?}");
+    assert!(looks > 1_000, "{looks}");
+    assert!(with_systems > 600, "{with_systems}");
+    assert!(endless * 10 > systems * 9, "{endless} of {systems}");
+}
+
+/// Every particle system in the data either runs until it is stopped or lasts a time its
+/// emitters give.
+///
+/// Behaviour: draw.particles.every-stored-system-runs-until-stopped-or-for-a-time
+#[test]
+fn every_particle_system_has_a_lifetime() {
+    let r = &install().records;
+    let (mut n, mut endless) = (0, 0);
+    for id in ids_of(0x39) {
+        let p: Particles = r.get(id).unwrap_or_else(|| panic!("{id:08X} decodes"));
+        n += 1;
+        let t = approximate_lifetime(&p);
+        assert!(t.is_finite(), "{id:08X}: {t}");
+        if t < 0.0 {
+            endless += 1;
+        }
+    }
+    println!("{n} particle systems, {endless} run until stopped");
+    assert!(n > 1_000, "{n}");
+    // About two in three run until stopped.
+    assert!(
+        endless * 100 >= n * 60 && endless * 100 <= n * 75,
+        "{endless} of {n}"
+    );
+}
+
+/// A system set going on its own, owned by nothing, draws where it was set until it is spent and
+/// its particles are dead, then goes: the first of the install's systems that lasts a few
+/// seconds; a record that is not a system sets nothing going.
+///
+/// Behaviour: draw.systems.a-system-set-going-on-its-own-draws-until-it-is-spent
+#[test]
+fn a_system_set_going_on_its_own_draws_until_it_is_spent() {
+    let r = &install().records;
+    let (id, life) = ids_of(0x39)
+        .into_iter()
+        .find_map(|id| {
+            let p: Particles = r.get(id)?;
+            let t = approximate_lifetime(&p);
+            (p.material.0 != 0 && (1.0..5.0).contains(&t) && !p.emitters.is_empty())
+                .then_some((id, t))
+        })
+        .expect("a system lasting a few seconds");
+    let systems = ParticleSystems::default();
+    let one = Vec3::new(1.0, 1.0, 1.0);
+    let place = Mat4::translation(Vec3::new(100.0, 240.0, -43.5));
+    assert!(!systems.create_autonomous(r, 0x3900_0000 - 1, (2, 0x98), place, one, 0.0));
+    assert!(systems.create_autonomous(r, id, (2, 0x98), place, one, 0.0));
+    assert_eq!(systems.counts(), (0, 1));
+    let eye = Vec3::new(100.0, 230.0, -43.0);
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let (mut t, mut most) = (0.0, 0);
+    while systems.counts().1 > 0 && t < 60.0 {
+        t += 0.05;
+        let drawn: usize = systems
+            .batches((2, 0x98), 192.0, t, eye, axes)
+            .iter()
+            .map(|b| b.vertices.len())
+            .sum();
+        most = most.max(drawn);
+    }
+    println!("{id:08X}: lasts about {life:.2} s, gone by {t:.2} s, at most {most} vertices");
+    assert!(most > 0, "{id:08X} drew nothing");
+    assert_eq!(systems.counts(), (0, 0), "{id:08X} not gone by {t:.1} s");
+    assert!(
+        t >= f64::from(life) * 0.5,
+        "{id:08X} gone at {t:.2} s, lasts {life:.2} s"
+    );
+}
+
+/// A rig whose every bone stands 5 m east of the object's origin.
+struct FarBones;
+
+impl Rig for FarBones {
+    fn holding_location(&self, _kind: u32) -> Option<Mat4> {
+        None
+    }
+    fn bone(&self, _kind: u32) -> Option<Mat4> {
+        Some(Mat4::translation(Vec3::new(5.0, 0.0, 0.0)))
+    }
+    fn water_height(&self) -> Option<f32> {
+        None
+    }
+}
+
+/// Effect `0x40000002` of effect table `0x1E000057` (a creature's step) fires and forgets two
+/// dust systems, each at a foot's bone: set going on a body whose bones stand 5 m east of it,
+/// their particles are drawn there; on a body with no such bones, at the effect's offset (none:
+/// the body's own place).
+///
+/// Behaviour: draw.effects.a-fired-system-stands-at-its-effects-holding-location-or-bone
+#[test]
+fn a_fired_system_stands_at_its_effects_bone() {
+    let r = &install().records;
+    let look = ids_of(0x1F)
+        .into_iter()
+        .find_map(|id| {
+            let l = Look::of_record(r, DataId(id)).ok()?;
+            (l.global.fx_table == DataId(0x1E00_0057)).then_some(l)
+        })
+        .expect("a look of the table");
+    let nodes = auberean_draw::effects::effect_nodes(r, 0x1E00_0057, 0x4000_0002, 0);
+    assert!(
+        nodes
+            .iter()
+            .all(|n| n.fire_and_forget == Some(true) && n.bone.is_some_and(|b| b != 0)),
+        "fired at bones: {nodes:?}"
+    );
+    let place = Mat4::translation(Vec3::new(100.0, 240.0, -43.5));
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let eye = Vec3::new(100.0, 230.0, -43.0);
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let mut near = Vec::new();
+    for rig in [&FarBones as &dyn Rig, &NoRig] {
+        let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+        let systems = ParticleSystems::default();
+        let (took, _) = fx.do_fx(&systems, r, 0x4000_0002, 1.0, &spot, FxWho::default(), rig);
+        assert!(took, "the step plays");
+        assert_eq!(systems.counts(), (0, 2), "two systems on their own");
+        let b = systems.batches((2, 0x98), 192.0, 0.1, eye, axes);
+        near.push((
+            within(&b, Vec3::new(105.0, 240.0, -43.5), 1.0),
+            within(&b, Vec3::new(100.0, 240.0, -43.5), 1.0),
+        ));
+    }
+    assert!(near[0].0 > 0 && near[0].1 == 0, "at the bones: {near:?}");
+    assert!(
+        near[1].0 == 0 && near[1].1 > 0,
+        "with no bones, at the body: {near:?}"
+    );
+}
+
+/// The start hall's ground mist (system `0x3900018D`, particles living in the world, moved by
+/// repulsors) parts around a human walking through it: every human's look carries a repulsor
+/// that pushes while it moves (3 m/s² at its center, 3.5 m out). Walked 6 m across the mist at
+/// a walk's pace, fewer of the mist's particles lie within 2 m of the walker than when nothing
+/// walks there.
+///
+/// Behaviour: draw.particles.a-repulsor-pushes-the-particles-in-its-range
+#[test]
+fn the_start_halls_mist_parts_around_a_walker() {
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let home = (2, 0x98);
+    let mist_at = Mat4::translation(Vec3::new(60.0, 240.0, -44.6));
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let run = |walk: bool| {
+        let systems = ParticleSystems::default();
+        let mist = systems
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .expect("the mist");
+        let mut walker = ObjectEffects::of_look(&human).expect("its look carries effects");
+        let start = Mat4::translation(Vec3::new(57.0, 240.0, -44.6));
+        walker.start(&systems, r, home, &start, unit, 0.0);
+        assert_eq!(walker.repulsor_count(), 1, "its look's repulsor");
+        let mut near = 0;
+        let mut at = Vec3::new(57.0, 240.0, -44.6);
+        for f in 0..600_u16 {
+            let t = f32::from(f) / 30.0;
+            let now = f64::from(t);
+            let x = (57.0 + (t - 8.0).max(0.0) * 1.5).min(63.0);
+            if walk {
+                at.x = x;
+            }
+            if walk {
+                walker.think(
+                    &systems,
+                    home,
+                    &Mat4::translation(at),
+                    unit,
+                    Color::WHITE,
+                    now,
+                );
+            }
+            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            let batches = systems.batches(
+                home,
+                160.0,
+                now,
+                Vec3::new(60.0, 230.0, -43.0),
+                (
+                    Vec3::new(1.0, 0.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            );
+            if f % 3 == 0 && t > 9.0 && t < 12.0 {
+                near += within(&batches, Vec3::new(x, 240.0, -44.6), 2.0);
+            }
+        }
+        near
+    };
+    let undisturbed = run(false);
+    let parted = run(true);
+    assert!(undisturbed > 0, "mist about the path");
+    assert!(
+        parted < undisturbed,
+        "parted: {parted} near the walker against {undisturbed}"
+    );
+}
+
+/// A human's repulsor pushes at the speed its physics moves it, not at how far it was carried
+/// since the last frame: one running in place in the start hall's mist (its velocity a run's,
+/// standing where it is) parts the mist about it; one standing with no velocity does not.
+///
+/// Behaviour: draw.particles.a-repulsor-moves-at-its-objects-velocity
+#[test]
+fn a_human_running_in_place_parts_the_mist() {
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let home = (2, 0x98);
+    let mist_at = Mat4::translation(Vec3::new(60.0, 240.0, -44.6));
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let stands = Vec3::new(58.0, 240.0, -44.6);
+    let run = |velocity: Vec3| {
+        let systems = ParticleSystems::default();
+        let mist = systems
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .expect("the mist");
+        let mut runner = ObjectEffects::of_look(&human).expect("its look carries effects");
+        let place = Mat4::translation(stands);
+        runner.start(&systems, r, home, &place, unit, 0.0);
+        let mut near = 0;
+        for f in 0..450_u16 {
+            let t = f32::from(f) / 30.0;
+            let now = f64::from(t);
+            runner.set_velocity(velocity);
+            runner.think(&systems, home, &place, unit, Color::WHITE, now);
+            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            let batches = systems.batches(
+                home,
+                160.0,
+                now,
+                Vec3::new(60.0, 230.0, -43.0),
+                (
+                    Vec3::new(1.0, 0.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            );
+            if f % 3 == 0 && t > 9.0 {
+                near += within(&batches, stands, 2.0);
+            }
+        }
+        near
+    };
+    let standing = run(Vec3::ZERO);
+    let running = run(Vec3::new(4.0, 0.0, 0.0));
+    assert!(standing > 0, "mist about the one standing");
+    assert!(
+        running < standing,
+        "parted: {running} near the one running in place against {standing}"
+    );
+}
+
+/// The wounded effect (`0x41000002`) of effect table `0x1E00012E` lays value 2 of four appearance
+/// tables over its object, at the strength it is played at: played at 0.3 the four go on at 0.3;
+/// played again at 0.6 while it plays, again at 0.6 (each time in the effect's order); its time
+/// passing changes nothing (it does not ramp, and an appearance laid on runs until stopped);
+/// stopped, the four keys come off. Stopped by force (its object's effects let go of), they stay.
+///
+/// Behaviour: draw.effects.an-effects-appearance-is-laid-over-its-object-until-it-stops
+#[test]
+fn the_wounded_effect_lays_its_appearance_over_its_object_until_it_stops() {
+    use auberean_assets::fx::AppearanceKey;
+    use auberean_draw::effects::AppearanceFx;
+    const WOUNDED: u32 = 0x4100_0002;
+    const TABLES: [u32; 4] = [0x2000_01CD, 0x2000_003A, 0x2000_01CE, 0x2000_0056];
+    let r = &install().records;
+    let mut look = Look::default();
+    look.global.fx_table = DataId(0x1E00_012E);
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let applied = |scalar: f32| -> Vec<AppearanceFx> {
+        TABLES
+            .iter()
+            .map(|t| AppearanceFx::Apply {
+                table: *t,
+                key: AppearanceKey { key: 2, scalar },
+            })
+            .collect()
+    };
+    let removed: Vec<AppearanceFx> = TABLES
+        .iter()
+        .map(|t| AppearanceFx::Remove { table: *t, key: 2 })
+        .collect();
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+    fx.start(&systems, r, spot.home, &spot.place, spot.scale, 0.0);
+    assert!(fx.take_appearance().is_empty(), "nothing as it starts");
+    let (took, _) = fx.do_fx(&systems, r, WOUNDED, 0.3, &spot, FxWho::default(), &NoRig);
+    assert!(took, "the wound plays");
+    assert_eq!(fx.take_appearance(), applied(0.3));
+    let (took, _) = fx.do_fx(&systems, r, WOUNDED, 0.6, &spot, FxWho::default(), &NoRig);
+    assert!(took, "and plays on");
+    assert_eq!(fx.take_appearance(), applied(0.6));
+    fx.use_time(r, 0.5);
+    fx.use_time(r, 60.0);
+    assert!(
+        fx.take_appearance().is_empty(),
+        "the time passing changes nothing"
+    );
+    assert_eq!(fx.current_fx(), vec![(WOUNDED, 0.6)]);
+    assert!(fx.stop_fx(r, WOUNDED, false), "stopped");
+    assert_eq!(fx.take_appearance(), removed);
+    let _ = fx.do_fx(&systems, r, WOUNDED, 0.3, &spot, FxWho::default(), &NoRig);
+    let _ = fx.take_appearance();
+    assert!(fx.stop_fx(r, WOUNDED, true), "let go of");
+    assert!(
+        fx.take_appearance().is_empty(),
+        "let go of, it leaves its appearance"
+    );
+}
+
+/// An appearance effect that ramps (its own list on the object: appearance table `0x2000003A`,
+/// value 2, over a second) goes on at nothing (its key taken off) and grows by the time passed
+/// over its ramp's time each time the effects have their time, laid over the object at each
+/// strength, until it reaches the strength asked; asked again at less while it plays, it shrinks
+/// the same way.
+///
+/// Behaviour: draw.effects.an-effects-appearance-is-laid-over-its-object-until-it-stops
+#[test]
+fn a_ramping_appearance_grows_by_the_time_passed_over_its_ramp() {
+    use auberean_assets::fx::{AppearanceKey, FxData, FxNode};
+    use auberean_draw::effects::AppearanceFx;
+    const FX: u32 = 0x4100_0002;
+    const TABLE: u32 = 0x2000_003A;
+    let r = &install().records;
+    let mut look = Look::default();
+    let node = FxNode {
+        appearance: Some(DataId(TABLE)),
+        appearance_key: Some(AppearanceKey {
+            key: 2,
+            scalar: 1.0,
+        }),
+        ramp_time: Some(1.0),
+        ..FxNode::default()
+    };
+    look.global.fx_overrides = vec![(
+        FX,
+        vec![FxData {
+            default: node,
+            by_terrain: Vec::new(),
+        }],
+    )];
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let strengths = |fx: &mut ObjectEffects| -> Vec<Option<f32>> {
+        fx.take_appearance()
+            .into_iter()
+            .map(|a| match a {
+                AppearanceFx::Apply { table, key } if table == TABLE && key.key == 2 => {
+                    Some(key.scalar)
+                }
+                AppearanceFx::Remove { table, key } if table == TABLE && key == 2 => None,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+    fx.start(&systems, r, spot.home, &spot.place, spot.scale, 0.0);
+    fx.use_time(r, 0.0);
+    let _ = fx.do_fx(&systems, r, FX, 0.8, &spot, FxWho::default(), &NoRig);
+    assert_eq!(strengths(&mut fx), vec![None], "on at nothing");
+    fx.use_time(r, 0.25);
+    fx.use_time(r, 0.5);
+    assert_eq!(strengths(&mut fx), vec![Some(0.25), Some(0.5)]);
+    fx.use_time(r, 1.0);
+    fx.use_time(r, 2.0);
+    assert_eq!(
+        strengths(&mut fx),
+        vec![Some(0.8)],
+        "held at the strength asked"
+    );
+    let _ = fx.do_fx(&systems, r, FX, 0.5, &spot, FxWho::default(), &NoRig);
+    assert_eq!(strengths(&mut fx), vec![Some(0.8)], "asked again, as it is");
+    fx.use_time(r, 2.125);
+    fx.use_time(r, 3.0);
+    assert_eq!(strengths(&mut fx), vec![Some(0.675), Some(0.5)]);
+}
+
+/// How many particles drawn lie within `r` of `at` (across, as seen from above).
+fn within(batches: &[auberean_draw::scene::ObjectBatch], at: Vec3, r: f32) -> usize {
+    let mut n = 0;
+    for b in batches {
+        for q in b.vertices.chunks(4) {
+            #[allow(clippy::cast_precision_loss)]
+            let k = q.len() as f32;
+            let c = Vec3::new(
+                q.iter().map(|v| v.position[0]).sum::<f32>() / k,
+                q.iter().map(|v| v.position[1]).sum::<f32>() / k,
+                q.iter().map(|v| v.position[2]).sum::<f32>() / k,
+            );
+            let w = b.transform.point(c);
+            let (dx, dy) = (w.x - at.x, w.y - at.y);
+            if dx * dx + dy * dy < r * r {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// The town's torches light the land: the objects placed with the world about block `6FA9` place
+/// orange point lights of range 8 with their startup effects, at their effects' offsets, and those
+/// standing less than their range above the land lay a pool of their light there.
+///
+/// Behaviour: draw.effects.placed-objects-torches-light-the-land
+#[test]
+fn placed_objects_torches_light_the_land() {
+    use auberean_draw::decal::{ground_height, landscape_decal, point_light_pool};
+    use auberean_draw::effects::PlacedEffects;
+    use auberean_draw::scene::{SceneBuilder, Spot};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let spot = Spot {
+        block: (0x6F, 0xA9),
+        position: Vec3::new(96.0, 96.0, 100.0),
+        heading: 0.0,
+        pitch: 0.0,
+        time_of_day: 0.05,
+        day: None,
+    };
+    let frame = builder.frame(&spot, 60.0);
+    let systems = ParticleSystems::default();
+    let mut placed = PlacedEffects::default();
+    placed.sync(&systems, r, &frame.placed, 0.0);
+    let lights = placed.lights(spot.block, 160.0, 1.0);
+    assert!(lights.len() >= 5, "{} lights", lights.len());
+    let mut pools = 0;
+    for l in &lights {
+        assert!(
+            (l.light.range.base - 8.0).abs() < 1e-4,
+            "range {}",
+            l.light.range.base
+        );
+        assert!(
+            l.light.light.color.r > 0.9 && l.light.light.color.b < 0.1,
+            "orange"
+        );
+        let Some(square) = builder.ground_square(spot.block, l.origin) else {
+            continue;
+        };
+        let ground = ground_height(&square, l.origin.x, l.origin.y).expect("a height");
+        // one high on a roof or a platform, its range above the land, lays none
+        let Some(pool) = point_light_pool(1, l.origin, ground, 8.0, 1.0, l.light.light.color, 1.0)
+        else {
+            continue;
+        };
+        let at = |p: Vec3| builder.ground_square(spot.block, p);
+        if !landscape_decal(l.origin, &pool, builder.square_side(), &at).is_empty() {
+            pools += 1;
+        }
+    }
+    println!("{} lights, {pools} pools", lights.len());
+    assert!(pools >= 5, "{pools} pools");
+}

@@ -133,6 +133,7 @@ pub mod animation;
 pub mod collision;
 pub mod data;
 pub mod detection;
+pub mod draw;
 pub mod missile;
 pub mod model;
 pub mod motion;
@@ -164,6 +165,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "detection",
         rows: detection::ROWS,
+    },
+    Subject {
+        name: "draw",
+        rows: draw::ROWS,
     },
     Subject {
         name: "missile",

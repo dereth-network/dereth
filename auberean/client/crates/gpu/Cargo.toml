@@ -1,0 +1,40 @@
+[package]
+name = "auberean-gpu"
+description = "The wgpu device: a frame of the world drawn to a picture, with pipelines for the terrain's layers, placed objects and the sky, and shaders written from the retail vertex program's fragments."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `gpu` test binary, whose tests read the
+# retail install under $AUBEREAN_TEST_DAT_DIR and need a hardware graphics device.
+retail-dats = []
+
+[dependencies]
+auberean-world.workspace = true
+auberean-draw.workspace = true
+# The transcendental functions, the same bits on every host.
+dereth-primitives.workspace = true
+wgpu = "30"
+pollster.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The shader compiler wgpu uses, to check the world's shaders without a device.
+naga = { version = "30", features = ["wgsl-in"] }
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-assets.workspace = true
+auberean-primitives.workspace = true
+# The bodies whose volumes of shadow the device draws.
+auberean-animation.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]

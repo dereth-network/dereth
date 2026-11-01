@@ -1,0 +1,27 @@
+[package]
+name = "auberean-viewer"
+description = "The offline world viewer: draws the world at a chosen spot and time of day to a picture, with no network."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "auberean-viewer"
+path = "src/main.rs"
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-assets.workspace = true
+auberean-world.workspace = true
+auberean-draw.workspace = true
+auberean-gpu.workspace = true
+auberean-physics.workspace = true
+auberean-animation.workspace = true
+dereth-primitives.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

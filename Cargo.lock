@@ -320,6 +320,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-draw"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-testkit",
+ "auberean-world",
+ "dereth-landscape",
+ "dereth-primitives",
+ "dereth-render-cpu",
+]
+
+[[package]]
 name = "auberean-glue"
 version = "0.0.0"
 dependencies = [
@@ -332,6 +348,23 @@ dependencies = [
  "auberean-testkit",
  "auberean-text",
  "dereth-primitives",
+]
+
+[[package]]
+name = "auberean-gpu"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-primitives",
+ "auberean-world",
+ "bytemuck",
+ "dereth-primitives",
+ "naga",
+ "pollster",
+ "wgpu",
 ]
 
 [[package]]
@@ -407,6 +440,22 @@ dependencies = [
  "auberean-assets",
  "auberean-dat",
  "auberean-primitives",
+]
+
+[[package]]
+name = "auberean-viewer"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-world",
+ "dereth-primitives",
+ "png",
 ]
 
 [[package]]
