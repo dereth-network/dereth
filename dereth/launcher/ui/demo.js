@@ -287,10 +287,13 @@
   };
   const AC2_LOG = ["the level table read", "listening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world, referred as 127.0.0.1)"];
   const auberean = {
-    check: null, playing: 0, editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
+    check: null, playing: [], editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
     server: { running: false, ready: false, starting: false, address: "127.0.0.1:9200", log: [] },
     worlds: ["C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp"],
+    retail: null, client: "auberean", friends: {}, friends_dll: true,
   };
+  // The install the page chooses has the retail client of September 2013 in it.
+  const AC2_RETAIL = { exe: "C:\\Games\\Asheron's Call 2\\AC2client.exe", september_2013: true };
   const hosts = [];
   const hostBy = (id) => hosts.find((h) => h.id === id);
   // The other worlds on this computer, once the page has looked: an ACE world a Windows service
@@ -468,11 +471,14 @@
       c.error = false;
     },
     // Auberean's realm: the install, as the backend checks it, and the world on this computer.
-    choose_auberean_install: () => { state.auberean = { ...(state.auberean ?? {}), install: "C:\\Games\\Asheron's Call 2" }; auberean.check = AC2_CHECK; },
-    start_auberean_world: () => { auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; },
+    choose_auberean_install: () => { state.auberean = { ...(state.auberean ?? {}), install: "C:\\Games\\Asheron's Call 2" }; auberean.check = AC2_CHECK; auberean.retail = AC2_RETAIL; },
+    start_auberean_world: () => { auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.friends["127.0.0.1:9200"] = true; },
     stop_auberean_world: () => { auberean.server = { ...auberean.server, running: false, ready: false }; },
-    play_auberean_local: ({ account }) => { state.auberean = { ...(state.auberean ?? {}), account }; auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.playing = 1; },
-    play_auberean_world: ({ account }) => { state.auberean = { ...(state.auberean ?? {}), account }; auberean.playing = 1; },
+    play_auberean_local: ({ account, client }) => { state.auberean = { ...(state.auberean ?? {}), account, client }; auberean.client = client; auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.friends["127.0.0.1:9200"] = true; auberean.playing.push(client); },
+    play_auberean_world: ({ account, client }) => { state.auberean = { ...(state.auberean ?? {}), account, client }; auberean.client = client; auberean.playing.push(client); },
+    set_auberean_client: ({ client }) => { auberean.client = client; },
+    // Shardfall serves its friends service; the others do not.
+    probe_auberean_friends: ({ slug }) => { const w = worlds.find((x) => x.slug === slug); if (w?.endpoint) auberean.friends[`${w.endpoint.address}:${w.endpoint.port}`] = slug === "shardfall"; },
     new_athenaeum_world: ({ name }) => { auberean.worlds.unshift(`C:\\Users\\you\\Documents\\Athenaeum\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`); },
     open_athenaeum: () => { message = { kind: "info", text: "The app opens Athenaeum here." }; },
     choose_athenaeum_world: () => {},

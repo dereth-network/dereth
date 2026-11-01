@@ -7,7 +7,7 @@ not how it was done.
 
 ## Unreleased
 
-- Comes with the Dereth Network launcher, which opens in Auberean's realm and keeps it up to date.
+- Comes with the Dereth Network launcher, which opens in Auberean's realm, keeps it up to date, and starts your retail client too, with friends.
 - A desktop window to walk Asheron's Call 2's world in, with the game's default keys and chase camera.
 - The game's own screens: opening pictures, a connecting screen, then pick or make a character and play.
 - The screens before the world fill a larger window, and Credits plays.

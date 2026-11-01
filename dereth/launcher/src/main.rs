@@ -712,21 +712,21 @@ fn main() {
         client.as_deref().and_then(Path::parent),
     );
 
+    let checkout = components::uses_checkout(components::DEVELOPMENT, &args);
+    // The retail client's friends library, which this launcher carries beside it.
+    let friends_dll = auberean::friends_dll(&here, checkout);
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .manage(pending)
         .manage(update::Updates::default())
-        .manage(components::new(
-            folders.data.clone(),
-            &here,
-            components::uses_checkout(components::DEVELOPMENT, &args),
-        ))
+        .manage(components::new(folders.data.clone(), &here, checkout))
         .manage(hosts::new(folders.data.clone()))
         .manage(local::new(folders.data.clone()))
         .manage(share::Shared::default())
-        .manage(auberean::new(folders.data.clone()))
+        .manage(auberean::new(folders.data.clone(), friends_dll))
         .setup(move |app| {
             // The window is made here rather than from the configuration so that the web view keeps
             // its cache in the launcher's data folder, not in one named after the app's identifier.
@@ -859,6 +859,8 @@ fn main() {
             auberean::stop_auberean_world,
             auberean::play_auberean_local,
             auberean::play_auberean_world,
+            auberean::probe_auberean_friends,
+            auberean::set_auberean_client,
             auberean::open_athenaeum,
             auberean::choose_athenaeum_world,
             auberean::new_athenaeum_world,
@@ -1069,13 +1071,19 @@ mod tests {
             2,
             "{pull}"
         );
-        // Play starts the client with the account typed; a listed world's page sends its password
-        // to the client and forgets it.
+        // Play starts the chosen client with the account typed; a listed world's page sends the
+        // password typed, which the launcher keeps, and the page forgets it.
         let page = include_str!("../ui/app.js");
-        assert!(page.contains(r#"await act("play_auberean_local", { account });"#));
         assert!(
-            page.contains(r#"password: ui.ac2.password })) !== undefined) ui.ac2.password = "";"#)
+            page.contains(r#"await act("play_auberean_local", { account, client: ac2Client() });"#)
         );
+        assert!(page.contains(
+            r#"password: ui.ac2.password, client: ac2Client() })) !== undefined) ui.ac2.password = "";"#
+        ));
+        // A listed world's page asks whether the world serves its friends service, and both pages
+        // say what it answered.
+        assert!(page_function("openWorld").contains(r#"api("probe_auberean_friends", { slug })"#));
+        assert!(page.contains("Friends and tells across worlds: ${on ? \"on\" : \"off\"}"));
     }
 
     /// Every command the page calls is one the app registers, and one the demo backend answers, so

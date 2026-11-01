@@ -228,7 +228,8 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 }
 
 /// The Windows zip is what the launcher's own update installs: one top-level folder holding
-/// `dereth.exe` and the client and the plugin author's tool beside it.
+/// `dereth.exe` and the client, the plugin author's tool and the retail client's friends library
+/// beside it.
 #[test]
 fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     let w = target(WINDOWS);
@@ -240,6 +241,7 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
             "LICENSE",
             "NOTICE.txt",
             "THIRD-PARTY-LICENSES.html",
+            "auberean_friends.dll",
             "dereth-client.exe",
             "dereth-plugin.exe",
             "dereth.exe"
@@ -260,10 +262,11 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
     let tool = stage.join("bin").join("dereth-plugin");
     let beside: [&std::path::Path; 2] = [&client, &tool];
     let notices = stage.join("notices");
-    let win = dereth::bundle_config(target(WINDOWS), &app, &beside, &notices).unwrap();
+    let library = stage.join("auberean_friends.dll");
+    let win = dereth::bundle_config(target(WINDOWS), &app, &beside, &notices, &library).unwrap();
     assert_eq!(win, serde_json::json!({ "createUpdaterArtifacts": false }));
     for t in [target(MAC_ARM), target(LINUX)] {
-        let c = dereth::bundle_config(t, &app, &beside, &notices).unwrap();
+        let c = dereth::bundle_config(t, &app, &beside, &notices, &library).unwrap();
         assert_eq!(
             c["externalBin"],
             serde_json::json!([
@@ -274,6 +277,11 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
         assert_eq!(
             c["resources"]["../../target/package/stage/x/notices/NOTICE.txt"],
             "NOTICE.txt"
+        );
+        // The retail client's friends library, beside the notices.
+        assert_eq!(
+            c["resources"]["../../target/package/stage/x/auberean_friends.dll"],
+            "auberean_friends.dll"
         );
         let text = c.to_string();
         assert!(

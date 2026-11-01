@@ -405,8 +405,10 @@ The Tauri app is kept out of the main workspace, so nothing there needs a web vi
 WebKitGTK. There's no Node, npm or bundler: `ui/` is plain HTML, CSS and JavaScript, embedded at
 build time. `build.rs` copies the paintings, emblems and typefaces from `assets/` into `ui/assets`
 (ignored by git), and the launcher's own icon, the network's emblem, from `assets/icon` into
-`icons/`: a 256-pixel PNG, the Windows icon and the macOS `Network.icns`, which only
-`tauri.macos.conf.json` names.
+`icons/`: a 256-pixel PNG, the Windows icon (16 to 256 pixels) and the macOS `Network.icns` (16 to
+1024), which only `tauri.macos.conf.json` names. All three are drawn down from the emblem's layered
+source, `assets/Network.icon`, which a macOS build also compiles with Xcode's `actool` into the
+`Assets.car` macOS 26 draws the icon from.
 
 On Windows `cargo tauri build` leaves `target/release/dereth.exe`. On Linux it needs Tauri's build
 dependencies (WebKitGTK 4.1 and friends). A release, with the client inside, is built by

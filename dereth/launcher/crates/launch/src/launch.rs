@@ -57,6 +57,9 @@ pub enum Arg {
     Password,
     /// `<account>:<password>`, GDLE's form.
     AccountAndPassword(String),
+    /// The friends ticket of an Asheron's Call 2 world's friends service for this account and the
+    /// password ([`crate::auberean::friends_ticket`]).
+    FriendsTicket(String),
 }
 
 /// Everything needed to start a client, minus the password.
@@ -249,6 +252,9 @@ impl LaunchPlan {
                 Arg::Plain(s) => s.clone(),
                 Arg::Password => password.to_owned(),
                 Arg::AccountAndPassword(acct) => format!("{acct}:{password}"),
+                Arg::FriendsTicket(acct) => {
+                    crate::auberean::friends_ticket(acct, password).unwrap_or_default()
+                }
             })
             .collect()
     }
@@ -260,7 +266,7 @@ impl LaunchPlan {
             out.push(' ');
             out.push_str(&match a {
                 Arg::Plain(s) => quote(s),
-                Arg::Password => "***".into(),
+                Arg::Password | Arg::FriendsTicket(_) => "***".into(),
                 Arg::AccountAndPassword(acct) => format!("{}:***", quote(acct)),
             });
         }

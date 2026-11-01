@@ -187,8 +187,9 @@ and put the printed public key in `plugins.updater.pubkey`.
 ## `cargo xtask package dereth`
 
 ```
-cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
 cargo xtask package dereth --gather <dir>
+cargo xtask package friends-dll [--out <dir>] [--allow-dirty]
 ```
 
 Builds the client (`cargo build --release -p dereth-client`) and the launcher (`cargo tauri build`
@@ -206,6 +207,12 @@ What it needs, and says when missing, before building anything:
 - **cargo-about**, for `THIRD-PARTY-LICENSES.html`: `cargo install --locked cargo-about --features cli`.
 - **The Tauri CLI**: `cargo install --locked tauri-cli --version ^2`.
 - **Windows:** the MSVC build tools.
+- **The retail Asheron's Call 2 client's friends library** (`auberean_friends.dll`), which every
+  package carries beside the launcher (on macOS in `Contents/Resources`): a 32-bit Windows DLL,
+  which only Windows links. A Windows host builds it itself, with
+  `rustup target add i686-pc-windows-msvc`; another host is given the file
+  `cargo xtask package friends-dll` wrote on Windows, with `--friends-dll <file>` or
+  `DERETH_FRIENDS_DLL`. The workflow builds it once and gives every job the same file.
 - **macOS:** Xcode's command-line tools (Xcode itself for the layered icon), and **MoltenVK**:
   its macOS release, `MoltenVK-macos.tar` from
   <https://github.com/KhronosGroup/MoltenVK/releases>, unpacked, named with `--moltenvk <dir>` or
@@ -258,10 +265,12 @@ tier-2 modules the release touches on a hardware GPU.
    (`cargo xtask release-notes dereth --version <version>`; on a dry run, the notes the next
    release would get) and keeps them as the `release-notes-dereth` artifact; they are on the run's
    summary page too.
-2. **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS for
+2. **the friends library**, on Windows: `cargo xtask package friends-dll`, kept as an artifact.
+   **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS for
    both Apple silicon and Intel): installs the build dependencies, cargo-about and the Tauri CLI
    (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
-   `cargo xtask package dereth --target <target>` with the signing secrets, and smoke-runs the
+   `cargo xtask package dereth --target <target> --friends-dll <the library>` with the signing
+   secrets, checks the package holds that same library, and smoke-runs the
    packaged programs' `--version`, the plugin author's tool's too (the AppImage unpacked; the
    macOS bundle's signature verified;
    Intel macOS under Rosetta when the runner has it). The launcher has no headless mode, so its

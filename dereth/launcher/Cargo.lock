@@ -214,6 +214,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auberean-friends"
+version = "0.0.0"
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -906,6 +910,7 @@ dependencies = [
 name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
+ "auberean-friends",
  "dereth-client-contract",
  "dereth-dat",
  "dereth-input",
@@ -925,10 +930,12 @@ dependencies = [
 name = "dereth-launcher"
 version = "0.4.9"
 dependencies = [
+ "auberean-friends",
  "ctrlc",
  "dereth-launch",
  "dereth-plugin-template",
  "flate2",
+ "getrandom 0.4.3",
  "gilrs",
  "glib",
  "keyring",

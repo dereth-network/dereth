@@ -771,6 +771,32 @@ impl Backend {
         self.save();
     }
 
+    /// Keep `client` as the client the player plays Asheron's Call 2 with.
+    pub fn set_auberean_client(&mut self, client: dereth_launch::auberean::Client) {
+        if self.state.auberean.client != client {
+            self.state.auberean.client = client;
+            self.save();
+        }
+    }
+
+    /// The secret `account` logs in to the Asheron's Call 2 world `slug` with, the same at every
+    /// launch: the one typed (`typed`, kept from then on), else the one kept, else a new one, kept
+    /// with the player's other passwords ([`dereth_launch::auberean::secret_for`]).
+    pub fn auberean_secret(
+        &mut self,
+        slug: &str,
+        account: &str,
+        typed: Option<&str>,
+    ) -> Result<String, String> {
+        dereth_launch::auberean::secret_for(
+            self.vault.as_mut(),
+            slug,
+            account,
+            typed,
+            &mut crate::auberean::new_secret,
+        )
+    }
+
     /// Keep `account` as the account the player plays Auberean with.
     pub fn set_auberean_account(&mut self, account: &str) {
         if self.state.auberean.account.as_deref() != Some(account) {

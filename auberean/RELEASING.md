@@ -97,7 +97,7 @@ code signature.
 ## `cargo xtask package`
 
 ```
-cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
 cargo xtask package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package yalain [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package <product> --gather <dir>
@@ -123,8 +123,10 @@ What it needs, and says when missing, before building anything:
 
 - **cargo-about**: `cargo install --locked cargo-about --features cli`.
 - **Auberean:** what Dereth's package needs (dereth/launcher/RELEASING.md): the Tauri CLI
-  (`cargo install --locked tauri-cli --version ^2`), and on macOS MoltenVK (`--moltenvk <dir>` or
-  `DERETH_MOLTENVK_DIR`).
+  (`cargo install --locked tauri-cli --version ^2`), on macOS MoltenVK (`--moltenvk <dir>` or
+  `DERETH_MOLTENVK_DIR`), and the retail client's friends library, which the launcher carries:
+  built on a Windows host (`rustup target add i686-pc-windows-msvc`), else the file
+  `cargo xtask package friends-dll` wrote on Windows, with `--friends-dll <file>`.
 - **Windows:** the MSVC build tools.
 - **macOS:** Xcode's command-line tools; with Xcode itself, the layered icon is compiled too.
 - **Linux, Auberean and Athenaeum:** `appimagetool` (`APPIMAGETOOL`, or on `PATH`), and the AppImage
@@ -173,8 +175,9 @@ Auberean's workflow installs what Dereth's does (the same pinned Tauri CLI, carg
 MoltenVK, the launcher's update-signing key) and builds with the same source URL, so the launcher
 it packages is the one Dereth's release of the same commit would; its smoke run checks that the
 launcher answers `dereth <launcher version>`, the client `auberean <version>`, that the defaults
-file names Auberean, and that no Dereth client is in the package. A tag's run refuses unsigned
-files and a missing `latest.json`.
+file names Auberean, that no Dereth client is in the package, and that the package holds the
+retail client's friends library one Windows job built for the whole release. A tag's run refuses
+unsigned files and a missing `latest.json`.
 
 ## Publishing
 

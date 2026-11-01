@@ -35,6 +35,7 @@ pub mod auberean;
 pub mod declaration;
 pub mod dereth;
 pub mod desktop;
+pub mod friends_dll;
 mod guard;
 mod headers;
 pub mod lyceum;
@@ -52,6 +53,8 @@ mod auberean_tests;
 mod dereth_tests;
 #[cfg(test)]
 mod desktop_tests;
+#[cfg(test)]
+mod friends_dll_tests;
 #[cfg(test)]
 mod lyceum_tests;
 #[cfg(test)]
@@ -372,7 +375,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         Some("empyrean") => {}
         _ => {
             return Err(format!(
-                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 dereth::USAGE,
                 lyceum::USAGE,
                 web::USAGE,
@@ -380,6 +383,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
                 auberean::USAGE,
                 yalain::USAGE,
                 desktop::usage("athenaeum"),
+                friends_dll::USAGE,
             ))
         }
     }
@@ -419,6 +423,9 @@ pub fn package(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("plugins") {
         return plugins::package(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("friends-dll") {
+        return friends_dll::package(&args[1..]);
     }
     match args.first().map(String::as_str) {
         Some("auberean") => return auberean::package(&args[1..]),

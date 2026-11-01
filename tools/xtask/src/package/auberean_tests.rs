@@ -76,8 +76,8 @@ fn release_files_are_named_as_the_launcher_fetches_them_and_read_back() {
     }
 }
 
-/// The package holds the launcher, the Auberean client, the defaults file and the notices, and
-/// never Dereth's client or tool: those are what the launcher's build took in, and are taken out.
+/// The package holds the launcher, the Auberean client, the defaults file, the retail client's
+/// friends library and the notices, and never Dereth's client or tool: those are what the launcher's build took in, and are taken out.
 #[test]
 fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_client() {
     let (windows, none) = auberean::contents(target(WINDOWS));
@@ -88,6 +88,7 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
             "NOTICE.txt",
             "THIRD-PARTY-LICENSES.html",
             "auberean.exe",
+            "auberean_friends.dll",
             "dereth.exe",
             "launcher-defaults.json",
         ]
@@ -99,6 +100,7 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
         "Contents/MacOS/auberean",
         "Contents/Resources/launcher-defaults.json",
         "Contents/Resources/NOTICE.txt",
+        "Contents/Resources/auberean_friends.dll",
     ] {
         assert!(mac.iter().any(|m| m == needed), "{needed}");
     }

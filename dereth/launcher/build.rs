@@ -63,7 +63,8 @@ fn main() {
         sets.insert(realm, names);
     }
     // The app's icon is the network's emblem, the one the page's crest shows: a 256-pixel picture,
-    // the Windows icon with every size the shell asks for, and the macOS one.
+    // the Windows icon with every size the shell asks for, and the macOS one, 16 to 1024 pixels,
+    // all drawn down from the emblem's layered source, `assets/Network.icon`.
     let icon = assets.join("icon");
     let _ = std::fs::create_dir_all("icons");
     let _ = std::fs::copy(icon.join("network.png"), "icons/icon.png");
@@ -73,5 +74,52 @@ fn main() {
         "ui/assets/backgrounds.json",
         serde_json::to_string(&sets).unwrap_or_default(),
     );
+    compile_icon(&assets.join("Network.icon"));
     tauri_build::build();
+}
+
+/// The layered `Network.icon`, compiled the way the clients' bundles compile theirs: Xcode's
+/// `actool` writes `Assets.car`, what macOS 26 draws (with its glass and shading), which the bundle
+/// carries (`tauri.macos.conf.json`, which only a macOS build reads) and `Info.plist` names. Every
+/// earlier macOS draws `Network.icns`. `actool`'s other outputs stay in `icons/layered`.
+///
+/// Without Xcode there is no `actool`; `cargo run` needs neither file, so this only warns, and
+/// packaging is what fails, naming the missing file.
+fn compile_icon(source: &Path) {
+    let out = Path::new("icons/layered");
+    if !cfg!(target_os = "macos") || !source.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(out);
+    let partial = out.join("partial-info.plist");
+    let status = std::process::Command::new("xcrun")
+        .args([
+            "actool",
+            "--output-format",
+            "human-readable-text",
+            "--notices",
+            "--warnings",
+        ])
+        .args(["--app-icon", "Network", "--output-partial-info-plist"])
+        .arg(&partial)
+        .args([
+            "--target-device",
+            "mac",
+            "--platform",
+            "macosx",
+            "--minimum-deployment-target",
+            "11.0",
+            "--compile",
+        ])
+        .arg(out)
+        .arg(source)
+        .stdout(std::process::Stdio::null())
+        .status();
+    let _ = std::fs::remove_file(&partial);
+    if !matches!(status, Ok(s) if s.success()) {
+        println!(
+            "cargo:warning=actool could not compile {}; an .app bundle will lack the layered icon",
+            source.display()
+        );
+    }
 }

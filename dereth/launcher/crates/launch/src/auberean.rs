@@ -1,6 +1,6 @@
 //! Auberean's realm, as the launcher knows it: the player's own Asheron's Call 2 install and its
-//! check, and the command lines that start Yalain (a world on this computer) and the Auberean
-//! client.
+//! check, and the command lines that start Yalain (a world on this computer), the Auberean client
+//! and the retail client, with a world's friends service when it has one.
 //!
 //! # The install
 //!
@@ -22,15 +22,36 @@
 //! world on this computer is Yalain on [`LOCAL_LOGIN_PORT`] (and the three ports after it), over
 //! the install, keeping its accounts and characters in one database file in the launcher's data
 //! folder, and serving the world database its release pins, which `yalain world fetch` puts in the
-//! player's cache. The client connects to a world's address with an account; a world on this
-//! computer makes an account the first time a name logs in, and asks for no password.
+//! player's cache. The client connects to a world's address with an account and its secret.
+//!
+//! # Playing
+//!
+//! - **The clients.** Auberean, downloaded; or, on Windows, the retail client of September 2013
+//!   when the player's install has it ([`find_retail`]), started from its own folder. The launcher
+//!   never writes into the install.
+//! - **The secret.** A world makes an account the first time it logs in, with the secret it logs
+//!   in with, and admits only that secret from then on. So the launcher keeps one secret for each
+//!   world and account, with the player's other passwords, and gives it to either client at every
+//!   launch ([`secret_for`]): the one the player typed, else one it made. A world on this computer
+//!   asks the player for none.
+//! - **The friends service.** Before each launch the launcher asks the world whether it serves the
+//!   friends stream on its login port ([`FriendsProbe`], over the host's connection). When it does, the client is given the
+//!   friends options in the retail client's own spelling and the friends ticket, made from the
+//!   account and its secret at spawn ([`Arg::FriendsTicket`]); the retail client is given the
+//!   friends library the launcher carries too ([`FRIENDS_DLL`]). When it does not, the client plays
+//!   without one.
 
 use std::ffi::OsString;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use serde::Serialize;
+use auberean_friends::{ClientConfig, ClientOut, ClientSession, Ticket, Welcome};
+use serde::{Deserialize, Serialize};
+
+use crate::launch::{Arg, LaunchPlan};
+use crate::vault::{self, Vault};
 
 /// Where an Asheron's Call 2 data file's header starts, and the mark it starts with.
 const HEADER_AT: usize = 0x12C;
@@ -300,68 +321,84 @@ pub fn account_name(raw: &str) -> Result<&str, AccountError> {
     Ok(name)
 }
 
-/// The arguments that start the Auberean client over `install`, logging in to the world at
-/// `server` as `account` with `password` (empty for a world on this computer, which asks none).
-#[must_use]
-pub fn client_args(
-    install: &Path,
-    server: SocketAddr,
-    account: &str,
-    password: &str,
-) -> Vec<OsString> {
-    vec![
-        "--dats".into(),
-        install.into(),
-        "--server".into(),
-        server.to_string().into(),
-        "--account".into(),
-        format!("{account}:{password}").into(),
-    ]
-}
-
-/// The client's command line as the launcher shows and logs it: the password after `--account`,
-/// the secret after `--glsticketdirect` and the friends ticket after `--gunticketoverride`
-/// replaced by `***`.
-#[must_use]
-pub fn shown_client_args(args: &[OsString]) -> String {
-    let mut out = Vec::new();
-    let mut before = String::new();
-    for a in args {
-        let a = a.to_string_lossy();
-        out.push(match before.as_str() {
-            "--account" if a.contains(':') => {
-                format!("{}:***", a.split(':').next().unwrap_or(""))
-            }
-            "--glsticketdirect" | "--gunticketoverride" => "***".to_owned(),
-            _ => a.clone().into_owned(),
-        });
-        before = a.into_owned();
-    }
-    out.join(" ")
-}
-
-// ----- the friends service ------------------------------------------------------------------------
+// ----- the clients -------------------------------------------------------------------------------
 //
-// A world of Asheron's Call 2's may run a friends service beside its login, which both clients
-// reach with the friends options and a ticket. The launcher names it only when the world answers
-// for it (the probe, which waits on the friends stream's handshake), and the client plays without
-// it otherwise, as retail did from 2013 to 2017.
+// Two clients play a world of Asheron's Call 2's: Auberean, which the launcher downloads, and the
+// retail client of September 2013 in the player's own install, on Windows. Each logs in with an
+// account and its secret, which the launcher keeps for each world and account ([`secret_for`]).
 
-/// The retail 0930 client's friends library, which the launcher carries beside its own program and
-/// names by its full path: never a file in the player's install. Until a launcher carries it, the
-/// retail client starts without the friends options.
-pub const FRIENDS_DLL: &str = "auberean_friends.dll";
+/// Which client plays.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Client {
+    #[default]
+    Auberean,
+    /// The retail client in the player's install.
+    Retail,
+}
 
-/// The friends ticket for `account` and `secret`: the game login's own account and secret, each
-/// base64url without padding, as `a1.<account>.<secret>`. Only the world reads it; the clients pass
-/// it on. It is a secret, as the password is.
+/// The retail client's program in an install.
+pub const RETAIL_EXE: &str = "AC2client.exe";
+
+/// The link stamp in the September 2013 client's program header: the client the end-of-retail
+/// files are for, and the one the friends library is made for.
+pub const RETAIL_STAMP: u32 = 0x524A_35F5;
+
+/// The retail client in an install.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RetailClient {
+    pub exe: PathBuf,
+    /// Whether it is the September 2013 client.
+    pub september_2013: bool,
+}
+
+/// The link stamp in a Windows program's first bytes, when they start one.
 #[must_use]
-pub fn friends_ticket(account: &str, secret: &str) -> String {
-    format!(
-        "a1.{}.{}",
-        base64url(account.as_bytes()),
-        base64url(secret.as_bytes())
-    )
+pub fn link_stamp(head: &[u8]) -> Option<u32> {
+    let word = |at: usize| {
+        head.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    if head.get(..2) != Some(b"MZ".as_slice()) {
+        return None;
+    }
+    let pe = usize::try_from(word(0x3C)?).ok()?;
+    if head.get(pe..pe + 4) != Some(b"PE\0\0".as_slice()) {
+        return None;
+    }
+    word(pe + 8)
+}
+
+/// The retail client in the install `dir`, if it has one.
+#[must_use]
+pub fn find_retail(dir: &Path) -> Option<RetailClient> {
+    let exe = find_file(dir, RETAIL_EXE)?;
+    let mut head = Vec::new();
+    let _ = std::fs::File::open(&exe).and_then(|f| f.take(4096).read_to_end(&mut head));
+    Some(RetailClient {
+        september_2013: link_stamp(&head) == Some(RETAIL_STAMP),
+        exe,
+    })
+}
+
+/// Whether the retail client takes `secret` whole on its command line, which it splits at spaces
+/// and in which a double quote only turns quoting on or off: printable, and no double quote.
+#[must_use]
+pub fn retail_takes(secret: &str) -> bool {
+    !secret.is_empty() && !secret.chars().any(|c| c == '"' || c.is_control())
+}
+
+// ----- the secret ---------------------------------------------------------------------------------
+
+/// The name the world on this computer's accounts are kept under, as a listed world's are under its
+/// slug.
+pub const LOCAL_SLUG: &str = "auberean-this-computer";
+
+/// A new secret from 16 random bytes (the host's random source's): URL-safe base64 without
+/// padding, 22 letters, digits, `-` and `_`, which any command line carries as is.
+#[must_use]
+pub fn secret_from(random: &[u8; 16]) -> String {
+    base64url(random)
 }
 
 /// `bytes` in base64url, without padding.
@@ -382,6 +419,143 @@ fn base64url(bytes: &[u8]) -> String {
     out
 }
 
+/// The secret `account` logs in to the world `slug` with: the same at every launch, for both
+/// clients. A world makes an account the first time it logs in, and from then on admits only the
+/// secret it was made with, so the secret is kept with the player's other passwords ([`Vault`]):
+/// the one the player typed, which is kept from then on; else the one kept; else a new one
+/// (`fresh`), which is kept before it is used.
+///
+/// # Errors
+/// In words for a person, when a new secret cannot be made or kept: one not kept would lock the
+/// account out at the next launch.
+pub fn secret_for(
+    vault: &mut dyn Vault,
+    slug: &str,
+    account: &str,
+    typed: Option<&str>,
+    fresh: &mut dyn FnMut() -> Result<String, String>,
+) -> Result<String, String> {
+    let key = vault::target(slug, account);
+    if let Some(typed) = typed.filter(|t| !t.is_empty()) {
+        // Kept if it can be; the player can type it again if not.
+        let _ = vault.set(&key, account, typed);
+        return Ok(typed.to_owned());
+    }
+    if let Some(kept) = vault.get(&key).ok().flatten().filter(|k| !k.is_empty()) {
+        return Ok(kept);
+    }
+    let secret = fresh()?;
+    vault
+        .set(&key, account, &secret)
+        .map_err(|e| format!("The account's secret could not be kept: {e}"))?;
+    Ok(secret)
+}
+
+// ----- the friends service ------------------------------------------------------------------------
+//
+// A world of Asheron's Call 2's may run a friends service beside its login, which both clients
+// reach with the friends options and a ticket. The launcher names it only when the world answers
+// for it (the probe, which waits on the friends stream's greeting), and the client plays without
+// it otherwise, as retail did from 2013 to 2017.
+
+/// The retail client's friends library, which the launcher carries beside its own program and
+/// names by its full path: never a file in the player's install.
+pub const FRIENDS_DLL: &str = "auberean_friends.dll";
+
+/// The friends ticket for `account` and `secret`: the game login's own account and secret, as the
+/// friends stream writes them (`a1.<account>.<secret>`). Only the world reads it; the clients pass
+/// it on. It is a secret, as the password is. `None` for a ticket the stream cannot carry: no
+/// account, or past its length.
+#[must_use]
+pub fn friends_ticket(account: &str, secret: &str) -> Option<String> {
+    Ticket::new(account, secret).encode().ok()
+}
+
+/// How long the probe waits for a world's friends service to greet it before a launch.
+pub const PROBE_WAIT: Duration = Duration::from_secs(2);
+
+/// What the probe says of itself in its greeting.
+const PROBE_SOFTWARE: &str = concat!("dereth-launch/", env!("CARGO_PKG_VERSION"));
+
+/// What the probe heard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Heard {
+    /// Not yet a whole answer.
+    Nothing,
+    /// The world's greeting: it serves the friends stream.
+    Welcome(Welcome),
+    /// Anything else: a goodbye, or what is not the stream.
+    Refused,
+}
+
+/// Asking a world whether it serves the friends stream, with no I/O: its host opens a connection to
+/// the world's login port, writes [`FriendsProbe::opening`], passes in what it reads until
+/// [`FriendsProbe::read`] says, and writes [`FriendsProbe::goodbye`] before it closes. It is the
+/// stream's own client session, which presents no ticket and makes no request.
+#[derive(Debug)]
+pub struct FriendsProbe {
+    session: ClientSession,
+}
+
+impl Default for FriendsProbe {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FriendsProbe {
+    #[must_use]
+    pub fn new() -> Self {
+        let mut session = ClientSession::new(ClientConfig {
+            software: PROBE_SOFTWARE.to_owned(),
+            locale: None,
+        });
+        session.connect(Duration::ZERO);
+        let _dial = session.poll(Duration::ZERO);
+        Self { session }
+    }
+
+    /// The bytes to write once the connection is open: the stream's preamble and greeting.
+    pub fn opening(&mut self) -> Vec<u8> {
+        self.session.opened(Duration::ZERO);
+        self.written()
+    }
+
+    /// What `bytes`, read from the connection, say.
+    pub fn read(&mut self, bytes: &[u8]) -> Heard {
+        self.session.on_bytes(Duration::ZERO, bytes);
+        let mut heard = Heard::Nothing;
+        for out in self.session.poll(Duration::ZERO) {
+            match out {
+                ClientOut::Up(welcome) if heard == Heard::Nothing => {
+                    heard = Heard::Welcome(welcome);
+                }
+                ClientOut::Down { .. } => heard = Heard::Refused,
+                _ => {}
+            }
+        }
+        heard
+    }
+
+    /// The bytes to write before closing: the stream's goodbye.
+    pub fn goodbye(&mut self) -> Vec<u8> {
+        self.session.disconnect(Duration::ZERO);
+        self.written()
+    }
+
+    fn written(&mut self) -> Vec<u8> {
+        self.session
+            .poll(Duration::ZERO)
+            .into_iter()
+            .filter_map(|o| match o {
+                ClientOut::Write(bytes) => Some(bytes),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+}
+
 /// Where a world's friends service is, as the launcher names it to a client: the world's host and
 /// login port, and for the retail client the friends library's path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,52 +566,143 @@ pub struct Friends {
     pub dll: Option<PathBuf>,
 }
 
-/// The friends options in the clients' own spelling, with the ticket for `account` and `secret`:
-/// the library when there is one, the service's host and port, the request for its events, and the
-/// ticket.
-#[must_use]
-pub fn friends_args(friends: &Friends, account: &str, secret: &str) -> Vec<OsString> {
-    let mut out: Vec<OsString> = Vec::new();
+/// The friends options in the clients' own spelling, with the ticket for `account`: the library
+/// when there is one, the service's host and port, the request for its events, and the ticket.
+fn friends_args(friends: &Friends, account: &str) -> Vec<Arg> {
+    let mut out = Vec::new();
     if let Some(dll) = &friends.dll {
-        out.extend(["--gunclientdll".into(), dll.into()]);
+        out.extend([plain("--gunclientdll"), plain(dll.display().to_string())]);
     }
     out.extend([
-        "--gunserver".into(),
-        friends.host.as_str().into(),
-        "--gunport".into(),
-        friends.port.to_string().into(),
-        "--gunticket".into(),
-        "--gunticketoverride".into(),
-        friends_ticket(account, secret).into(),
+        plain("--gunserver"),
+        plain(friends.host.clone()),
+        plain("--gunport"),
+        plain(friends.port.to_string()),
+        plain("--gunticket"),
+        plain("--gunticketoverride"),
+        Arg::FriendsTicket(account.to_owned()),
     ]);
     out
 }
 
-/// The arguments that start the retail 0930 client, from its own install folder, logging in to the
-/// world at `host` and `port` as `account` with `secret`, and with the friends options when the
-/// world's friends service answered.
+fn plain(s: impl Into<String>) -> Arg {
+    Arg::Plain(s.into())
+}
+
+/// The plan that starts the Auberean client `program` over `install`, logging in to the world at
+/// `server` as `account` (with its secret, put in at spawn), and naming the world's friends service
+/// when it answered. Auberean takes no library.
 #[must_use]
-pub fn retail_args(
-    host: &str,
-    port: u16,
+pub fn auberean_plan(
+    program: &Path,
+    install: &Path,
+    server: SocketAddr,
     account: &str,
-    secret: &str,
     friends: Option<&Friends>,
-) -> Vec<OsString> {
-    let mut out: Vec<OsString> = vec![
-        "--host".into(),
-        host.into(),
-        "--port".into(),
-        port.to_string().into(),
-        "--account".into(),
-        account.into(),
-        "--glsticketdirect".into(),
-        secret.into(),
+) -> LaunchPlan {
+    let mut args = vec![
+        plain("--dats"),
+        plain(install.display().to_string()),
+        plain("--server"),
+        plain(server.to_string()),
+        plain("--account"),
+        Arg::AccountAndPassword(account.to_owned()),
     ];
     if let Some(f) = friends {
-        out.extend(friends_args(f, account, secret));
+        let own = Friends {
+            dll: None,
+            ..f.clone()
+        };
+        args.extend(friends_args(&own, account));
     }
-    out
+    LaunchPlan {
+        exe: program.to_path_buf(),
+        working_dir: program.parent().map(Path::to_path_buf).unwrap_or_default(),
+        args,
+    }
+}
+
+/// The plan that starts the retail client `exe` from its own install folder, logging in to the
+/// world at `server` as `account` with its secret (put in at spawn), and with the friends options
+/// and the library when the world's friends service answered. The client opens its data files
+/// only to read them (its own `--rodat`): it changes nothing in the player's install, and a second
+/// one can play from the same folder.
+#[must_use]
+pub fn retail_plan(
+    exe: &Path,
+    server: SocketAddr,
+    account: &str,
+    friends: Option<&Friends>,
+) -> LaunchPlan {
+    let mut args = vec![
+        plain("--rodat"),
+        plain("--host"),
+        plain(server.ip().to_string()),
+        plain("--port"),
+        plain(server.port().to_string()),
+        plain("--account"),
+        plain(account),
+        plain("--glsticketdirect"),
+        Arg::Password,
+    ];
+    if let Some(f) = friends {
+        args.extend(friends_args(f, account));
+    }
+    LaunchPlan {
+        exe: exe.to_path_buf(),
+        working_dir: exe.parent().map(Path::to_path_buf).unwrap_or_default(),
+        args,
+    }
+}
+
+/// The friends library a launcher in the folder `here` carries: beside its program, or in a macOS
+/// bundle's resources.
+#[must_use]
+pub fn friends_dll_beside(here: &Path) -> Option<PathBuf> {
+    [
+        here.join(FRIENDS_DLL),
+        here.join("../Resources").join(FRIENDS_DLL),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
+/// Whether the retail client loads `path` by the name it is given: printable ASCII, the system's
+/// code page whatever it is, with no space and no double quote.
+fn retail_reads(path: &Path) -> bool {
+    path.to_str()
+        .is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_graphic() && c != '"'))
+}
+
+/// The friends library `dll` as the retail client is given it: absolute, and with no space or
+/// letter outside ASCII where that can be had. The path itself when it has none; else its short
+/// form (`short`, the system's 8.3 name, where it has one); else a copy in the launcher's data
+/// folder `data`, or that copy's short form; else the path itself, which the client keeps whole
+/// when it is quoted.
+#[must_use]
+pub fn dll_for_retail(
+    dll: &Path,
+    data: &Path,
+    short: &dyn Fn(&Path) -> Option<PathBuf>,
+) -> PathBuf {
+    let usable = |p: &Path| retail_reads(p).then(|| p.to_path_buf());
+    if let Some(p) = usable(dll).or_else(|| short(dll).as_deref().and_then(usable)) {
+        return p;
+    }
+    let dir = data.join("auberean");
+    let copy = dir.join(FRIENDS_DLL);
+    let same = matches!(
+        (std::fs::read(dll), std::fs::read(&copy)),
+        (Ok(ours), Ok(theirs)) if ours == theirs
+    );
+    let copied =
+        same || (std::fs::create_dir_all(&dir).is_ok() && std::fs::copy(dll, &copy).is_ok());
+    if copied {
+        if let Some(p) = usable(&copy).or_else(|| short(&copy).as_deref().and_then(usable)) {
+            return p;
+        }
+    }
+    dll.to_path_buf()
 }
 
 /// The last `n` lines of a log's text, without a trailing empty one.
@@ -612,23 +877,6 @@ mod tests {
     }
 
     #[test]
-    fn the_client_logs_in_with_its_account_and_the_password_is_never_shown() {
-        let server: SocketAddr = "127.0.0.1:9200".parse().unwrap();
-        let args = client_args(Path::new("ac2"), server, "player", "secret");
-        let shown = shown_client_args(&args);
-        assert_eq!(
-            shown,
-            "--dats ac2 --server 127.0.0.1:9200 --account player:***"
-        );
-        assert!(!shown.contains("secret"));
-        assert_eq!(args[5], OsString::from("player:secret"));
-        assert_eq!(account_name("  Asheron "), Ok("Asheron"));
-        assert_eq!(account_name(" "), Err(AccountError::Empty));
-        assert_eq!(account_name("a:b"), Err(AccountError::Colon));
-        assert_eq!(account_name(&"x".repeat(33)), Err(AccountError::TooLong));
-    }
-
-    #[test]
     fn yalain_is_ready_once_its_log_says_where_it_listens() {
         assert!(!is_ready(
             "reading the install\ncompiling the world database\n"
@@ -638,70 +886,401 @@ mod tests {
         ));
     }
 
+    fn local() -> SocketAddr {
+        "127.0.0.1:9200".parse().unwrap()
+    }
+
+    fn friends(dll: Option<&str>) -> Friends {
+        Friends {
+            host: "127.0.0.1".into(),
+            port: 9200,
+            dll: dll.map(PathBuf::from),
+        }
+    }
+
     #[test]
-    fn the_friends_ticket_is_the_account_and_secret_in_base64url_without_padding() {
-        assert_eq!(friends_ticket("player", "secret"), "a1.cGxheWVy.c2VjcmV0");
+    fn auberean_logs_in_with_its_account_and_secret_and_the_secret_is_never_shown() {
+        let program = Path::new("/apps/auberean/auberean.exe");
+        let plan = auberean_plan(program, Path::new("ac2"), local(), "player", None);
+        assert_eq!(
+            plan.argv("s3cret"),
+            [
+                "--dats",
+                "ac2",
+                "--server",
+                "127.0.0.1:9200",
+                "--account",
+                "player:s3cret"
+            ]
+        );
+        assert_eq!(plan.exe, program);
+        assert_eq!(plan.working_dir, Path::new("/apps/auberean"));
+        let shown = plan.redacted();
+        assert!(
+            shown.ends_with("--account player:***") && !shown.contains("s3cret"),
+            "{shown}"
+        );
+        assert_eq!(account_name("  Asheron "), Ok("Asheron"));
+        assert_eq!(account_name(" "), Err(AccountError::Empty));
+        assert_eq!(account_name("a:b"), Err(AccountError::Colon));
+        assert_eq!(account_name(&"x".repeat(33)), Err(AccountError::TooLong));
+    }
+
+    #[test]
+    fn with_a_friends_service_auberean_gets_the_four_options_and_a_ticket_made_at_spawn() {
+        // Auberean takes no library, whatever the launcher carries.
+        let with = Some(friends(Some("C:/launcher/auberean_friends.dll")));
+        let plan = auberean_plan(
+            Path::new("auberean"),
+            Path::new("ac2"),
+            local(),
+            "player",
+            with.as_ref(),
+        );
+        let argv = plan.argv("secret");
+        assert_eq!(
+            argv[6..],
+            [
+                "--gunserver",
+                "127.0.0.1",
+                "--gunport",
+                "9200",
+                "--gunticket",
+                "--gunticketoverride",
+                "a1.cGxheWVy.c2VjcmV0"
+            ]
+        );
+        let ticket = Ticket::decode(&argv[12]).unwrap();
+        assert_eq!(
+            (ticket.account.as_str(), ticket.secret.as_str()),
+            ("player", "secret")
+        );
+        assert!(plan.args.contains(&Arg::FriendsTicket("player".into())));
+        let shown = plan.redacted();
+        assert!(
+            shown.ends_with("--gunticketoverride ***")
+                && !shown.contains("secret")
+                && !shown.contains("c2VjcmV0"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn the_retail_client_logs_in_with_its_secret_from_its_install_and_the_library_only_with_friends(
+    ) {
+        let exe = Path::new("/games/ac2/AC2client.exe");
+        let plan = retail_plan(exe, local(), "player", None);
+        assert_eq!(
+            plan.argv("secret"),
+            [
+                "--rodat",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "9200",
+                "--account",
+                "player",
+                "--glsticketdirect",
+                "secret"
+            ]
+        );
+        assert_eq!(plan.working_dir, Path::new("/games/ac2"));
+        assert!(plan.redacted().ends_with("--glsticketdirect ***"));
+        let with = friends(Some("C:/launcher/auberean_friends.dll"));
+        let plan = retail_plan(exe, local(), "player", Some(&with));
+        assert_eq!(
+            plan.argv("secret")[9..],
+            [
+                "--gunclientdll",
+                "C:/launcher/auberean_friends.dll",
+                "--gunserver",
+                "127.0.0.1",
+                "--gunport",
+                "9200",
+                "--gunticket",
+                "--gunticketoverride",
+                "a1.cGxheWVy.c2VjcmV0"
+            ]
+        );
+        let shown = plan.redacted();
+        assert!(
+            !shown.contains("secret") && !shown.contains("c2VjcmV0"),
+            "{shown}"
+        );
+        assert_eq!(FRIENDS_DLL, "auberean_friends.dll");
+        // What its command line cannot carry whole.
+        assert!(retail_takes("p@ss word:1"));
+        assert!(!retail_takes("say \"hi\""));
+        assert!(!retail_takes(""));
+    }
+
+    /// A world admits an account only with the secret it was made with, so every launch for one
+    /// world and account passes one secret, to either client and in its friends ticket.
+    #[test]
+    fn two_launches_for_the_same_world_and_account_pass_the_same_secret() {
+        let mut vault = crate::vault::MemoryVault::default();
+        let mut made = 0;
+        let mut fresh = || {
+            made += 1;
+            Ok(format!("made-{made}"))
+        };
+        let first = secret_for(&mut vault, LOCAL_SLUG, "Player", None, &mut fresh).unwrap();
+        let second = secret_for(&mut vault, LOCAL_SLUG, "player", None, &mut fresh).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first, "made-1");
+        let launch = |secret: &str| {
+            let with = friends(Some("C:/launcher/auberean_friends.dll"));
+            let own = auberean_plan(
+                Path::new("auberean"),
+                Path::new("ac2"),
+                local(),
+                "player",
+                Some(&with),
+            );
+            let retail = retail_plan(Path::new("AC2client.exe"), local(), "player", Some(&with));
+            (own.argv(secret), retail.argv(secret))
+        };
+        assert_eq!(launch(&first), launch(&second));
+        // Another account, or the same name on another world, has its own.
+        let other = secret_for(&mut vault, LOCAL_SLUG, "someone", None, &mut fresh).unwrap();
+        let elsewhere = secret_for(&mut vault, "dawnsong", "player", None, &mut fresh).unwrap();
+        assert_eq!((other.as_str(), elsewhere.as_str()), ("made-2", "made-3"));
+        // A secret the player types is used and kept from then on.
+        let typed = secret_for(
+            &mut vault,
+            "dawnsong",
+            "player",
+            Some("hunter2"),
+            &mut fresh,
+        );
+        assert_eq!(typed.as_deref(), Ok("hunter2"));
+        let again = secret_for(&mut vault, "dawnsong", "player", Some(""), &mut fresh);
+        assert_eq!(again.as_deref(), Ok("hunter2"));
+        assert_eq!(made, 3);
+    }
+
+    /// A store that keeps nothing.
+    #[derive(Debug)]
+    struct Broken;
+
+    impl Vault for Broken {
+        fn get(&self, _: &str) -> Result<Option<String>, crate::vault::VaultError> {
+            Ok(None)
+        }
+        fn set(&mut self, _: &str, _: &str, _: &str) -> Result<(), crate::vault::VaultError> {
+            Err(crate::vault::VaultError("no store".into()))
+        }
+        fn delete(&mut self, _: &str) -> Result<(), crate::vault::VaultError> {
+            Ok(())
+        }
+        fn list(&self, _: &str) -> Result<Vec<String>, crate::vault::VaultError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn a_secret_that_cannot_be_kept_is_not_used_but_a_typed_one_is() {
+        let mut fresh = || Ok("made".to_owned());
+        let made = secret_for(&mut Broken, LOCAL_SLUG, "player", None, &mut fresh);
+        assert!(made.unwrap_err().contains("could not be kept"));
+        let typed = secret_for(
+            &mut Broken,
+            "dawnsong",
+            "player",
+            Some("hunter2"),
+            &mut fresh,
+        );
+        assert_eq!(typed.as_deref(), Ok("hunter2"));
+    }
+
+    #[test]
+    fn a_new_secret_is_its_random_bytes_and_carried_by_any_command_line() {
+        let a = secret_from(&[0; 16]);
+        let b = secret_from(&[0xFF; 16]);
+        assert_eq!(a, "AAAAAAAAAAAAAAAAAAAAAA");
+        assert_eq!(b, "_____________________w");
+        for s in [&a, &b] {
+            assert_eq!(s.len(), 22, "{s}");
+            assert!(retail_takes(s));
+        }
+    }
+
+    #[test]
+    fn the_friends_ticket_is_the_streams_own_writing_and_one_it_cannot_carry_is_none() {
+        assert_eq!(
+            friends_ticket("player", "secret").as_deref(),
+            Some("a1.cGxheWVy.c2VjcmV0")
+        );
         assert_eq!(base64url(b"a"), "YQ");
         assert_eq!(base64url(b"ab"), "YWI");
         assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
         assert_eq!(base64url(b""), "");
-        let ticket = friends_ticket("Ölaf", "p@ss word:1");
+        let ticket = friends_ticket("Ölaf", "p@ss word:1").unwrap();
         assert!(
             ticket
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)),
             "{ticket}"
         );
+        assert_eq!(friends_ticket("", "secret"), None);
+        assert_eq!(friends_ticket("player", &"x".repeat(600)), None);
+        // Spawned with a secret the ticket cannot carry, the placeholder is empty rather than wrong.
+        let plan = LaunchPlan {
+            exe: PathBuf::new(),
+            working_dir: PathBuf::new(),
+            args: vec![Arg::FriendsTicket("player".into())],
+        };
+        assert_eq!(plan.argv(&"x".repeat(600)), [""]);
+    }
+
+    /// A world's friends service as the probe meets it: the stream's own world half, in memory.
+    fn world() -> auberean_friends::ServerStream {
+        auberean_friends::ServerStream::new(
+            Duration::ZERO,
+            auberean_friends::ServerConfig::new("dawnsong", "Dawnsong"),
+        )
+    }
+
+    fn written(out: Vec<auberean_friends::ServerOut>) -> Vec<u8> {
+        out.into_iter()
+            .filter_map(|o| match o {
+                auberean_friends::ServerOut::Write(b) => Some(b),
+                _ => None,
+            })
+            .flatten()
+            .collect()
     }
 
     #[test]
-    fn the_retail_client_logs_in_with_its_secret_and_names_the_friends_service_only_when_asked() {
-        let plain = retail_args("play.example", 9000, "player", "secret", None);
-        let shown = shown_client_args(&plain);
-        assert_eq!(
-            shown,
-            "--host play.example --port 9000 --account player --glsticketdirect ***"
-        );
-        let friends = Friends {
-            host: "play.example".into(),
-            port: 9000,
-            dll: Some(PathBuf::from("C:/launcher/auberean_friends.dll")),
+    fn the_probe_greets_a_world_hears_its_welcome_and_says_goodbye() {
+        let mut probe = FriendsProbe::new();
+        let mut w = world();
+        let opening = probe.opening();
+        assert_eq!(opening[..4], auberean_friends::PREAMBLE);
+        w.on_bytes(Duration::ZERO, &opening);
+        let answer = written(w.poll(Duration::ZERO));
+        // A whole answer, however it arrives.
+        let (first, rest) = answer.split_at(3);
+        assert_eq!(probe.read(first), Heard::Nothing);
+        let Heard::Welcome(welcome) = probe.read(rest) else {
+            panic!("no welcome");
         };
-        let with = retail_args("play.example", 9000, "player", "secret", Some(&friends));
-        let with: Vec<String> = with
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
         assert_eq!(
-            &with[8..],
-            [
-                "--gunclientdll",
-                "C:/launcher/auberean_friends.dll",
-                "--gunserver",
-                "play.example",
-                "--gunport",
-                "9000",
-                "--gunticket",
-                "--gunticketoverride",
-                "a1.cGxheWVy.c2VjcmV0"
-            ]
+            (welcome.world.as_str(), welcome.name.as_str()),
+            ("dawnsong", "Dawnsong")
         );
-        let shown = shown_client_args(&retail_args("h", 1, "player", "secret", Some(&friends)));
-        assert!(
-            !shown.contains("secret") && !shown.contains("c2VjcmV0"),
-            "{shown}"
+        w.on_bytes(Duration::ZERO, &probe.goodbye());
+        let _ = w.poll(Duration::ZERO);
+        assert!(w.is_ended());
+        assert!(!w.is_admitted());
+    }
+
+    #[test]
+    fn anything_but_a_welcome_is_no_friends_service() {
+        let mut probe = FriendsProbe::new();
+        let _ = probe.opening();
+        assert_eq!(
+            probe.read(b"HTTP/1.1 400 Bad Request\r\n\r\n"),
+            Heard::Refused
         );
-        // Auberean takes no library: the same options, without it.
-        let own = friends_args(
-            &Friends {
-                dll: None,
-                ..friends
-            },
-            "player",
-            "secret",
+        let mut probe = FriendsProbe::new();
+        let _ = probe.opening();
+        let mut bye = Vec::new();
+        auberean_friends::Element::Bye {
+            reason: auberean_friends::ByeReason::Full,
+        }
+        .write_frame(&mut bye)
+        .unwrap();
+        assert_eq!(probe.read(&bye), Heard::Refused);
+    }
+
+    /// A Windows program's first bytes with the link stamp `stamp`.
+    fn program(stamp: u32) -> Vec<u8> {
+        let mut b = vec![0u8; 0x200];
+        b[..2].copy_from_slice(b"MZ");
+        b[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        b[0x80..0x84].copy_from_slice(b"PE\0\0");
+        b[0x88..0x8C].copy_from_slice(&stamp.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn the_retail_client_is_found_in_the_install_and_known_by_its_link_stamp() {
+        let d = tmp("ac2-retail");
+        std::fs::create_dir_all(&d).unwrap();
+        assert_eq!(find_retail(&d), None);
+        std::fs::write(d.join("ac2client.exe"), program(RETAIL_STAMP)).unwrap();
+        let found = find_retail(&d).unwrap();
+        assert!(found.september_2013);
+        // By its own name on a system that minds case, by either on one that does not.
+        assert!(found.exe.is_file());
+        assert!(found
+            .exe
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&d.join("ac2client.exe").to_string_lossy()));
+        // An older client of the game, or a file that is no program.
+        std::fs::write(d.join("ac2client.exe"), program(0x430D_48DB)).unwrap();
+        assert!(!find_retail(&d).unwrap().september_2013);
+        std::fs::write(d.join("ac2client.exe"), b"not a program").unwrap();
+        assert!(!find_retail(&d).unwrap().september_2013);
+        assert_eq!(link_stamp(&program(7)), Some(7));
+        assert_eq!(link_stamp(b"MZ"), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_library_is_found_beside_the_launcher_or_in_its_bundles_resources() {
+        let d = tmp("ac2-dll-beside");
+        let (macos, resources) = (d.join("MacOS"), d.join("Resources"));
+        std::fs::create_dir_all(&macos).unwrap();
+        std::fs::create_dir_all(&resources).unwrap();
+        assert_eq!(friends_dll_beside(&macos), None);
+        std::fs::write(resources.join(FRIENDS_DLL), b"dll").unwrap();
+        assert!(friends_dll_beside(&macos).is_some_and(|p| p.is_file()));
+        std::fs::write(macos.join(FRIENDS_DLL), b"dll").unwrap();
+        assert_eq!(friends_dll_beside(&macos), Some(macos.join(FRIENDS_DLL)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_retail_client_is_given_the_library_by_a_path_without_spaces_where_there_is_one() {
+        let none = |_: &Path| None;
+        // A path it reads as it is.
+        let plain = Path::new("C:/Dereth/auberean_friends.dll");
+        assert_eq!(dll_for_retail(plain, Path::new("unused"), &none), plain);
+        // Else its short form.
+        let spaced = Path::new("C:/Program Files/Dereth Network/auberean_friends.dll");
+        let short =
+            |p: &Path| (p == spaced).then(|| PathBuf::from("C:/PROGRA~1/DERETH~1/AUBERE~1.DLL"));
+        assert_eq!(
+            dll_for_retail(spaced, Path::new("unused"), &short),
+            Path::new("C:/PROGRA~1/DERETH~1/AUBERE~1.DLL")
         );
-        assert_eq!(own[0], OsString::from("--gunserver"));
-        assert_eq!(FRIENDS_DLL, "auberean_friends.dll");
+        assert!(!retail_reads(Path::new(
+            "C:/Users/Åsa/auberean_friends.dll"
+        )));
+        assert!(!retail_reads(Path::new("C:/a\"b/auberean_friends.dll")));
+
+        // Else a copy in the launcher's data folder, when that has none.
+        let d = tmp("ac2-dll-copy");
+        let from = d.join("with space");
+        std::fs::create_dir_all(&from).unwrap();
+        let dll = from.join(FRIENDS_DLL);
+        std::fs::write(&dll, b"the library").unwrap();
+        let data = d.join("data");
+        let given = dll_for_retail(&dll, &data, &none);
+        let copy = data.join("auberean").join(FRIENDS_DLL);
+        assert_eq!(std::fs::read(&copy).unwrap(), b"the library");
+        if retail_reads(&copy) {
+            assert_eq!(given, copy);
+        } else {
+            assert_eq!(given, dll, "no plain path: the path itself");
+        }
+        // A newer library replaces the copy.
+        std::fs::write(&dll, b"the library, newer").unwrap();
+        let _ = dll_for_retail(&dll, &data, &none);
+        assert_eq!(std::fs::read(&copy).unwrap(), b"the library, newer");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

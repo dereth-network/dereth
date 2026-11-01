@@ -235,6 +235,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(format!("dereth{exe}"));
             required.push(format!("dereth-client{exe}"));
             required.push(tool_in_release(target));
+            required.push(super::friends_dll::FILE.to_owned());
             required.extend(notices_in(""));
         }
         Os::Mac => {
@@ -244,6 +245,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/MacOS/dereth-client",
                 "Contents/Frameworks/libMoltenVK.dylib",
             ]));
+            required.push(format!("Contents/Resources/{}", super::friends_dll::FILE));
             required.push(tool_in_release(target));
             required.extend(notices_in("Contents/Resources/"));
             // The bundler names the icon after the product, or `icon`, by version.
@@ -339,9 +341,10 @@ struct Options {
     gather: Option<PathBuf>,
     allow_dirty: bool,
     moltenvk: Option<PathBuf>,
+    friends_dll: Option<PathBuf>,
 }
 
-pub const USAGE: &str = "usage: cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+pub const USAGE: &str = "usage: cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
        cargo xtask package dereth --gather <dir>";
 
 fn parse_options(args: &[String]) -> Result<Options, String> {
@@ -358,13 +361,19 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
             "--out" => o.out = Some(PathBuf::from(value()?)),
             "--gather" => o.gather = Some(PathBuf::from(value()?)),
             "--moltenvk" => o.moltenvk = Some(PathBuf::from(value()?)),
+            "--friends-dll" => o.friends_dll = Some(PathBuf::from(value()?)),
             "--allow-dirty" => o.allow_dirty = true,
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
     }
-    if o.gather.is_some() && (!o.targets.is_empty() || o.out.is_some() || o.moltenvk.is_some()) {
+    if o.gather.is_some()
+        && (!o.targets.is_empty()
+            || o.out.is_some()
+            || o.moltenvk.is_some()
+            || o.friends_dll.is_some())
+    {
         return Err(format!(
-            "--gather builds nothing: it takes no --target, --out or --moltenvk\n{USAGE}"
+            "--gather builds nothing: it takes no --target, --out, --moltenvk or --friends-dll\n{USAGE}"
         ));
     }
     Ok(o)
@@ -400,6 +409,7 @@ pub fn package(args: &[String]) -> i32 {
                 options.out.as_deref(),
                 options.allow_dirty,
                 options.moltenvk.as_deref(),
+                options.friends_dll.as_deref(),
             )
         }
     };
@@ -462,13 +472,16 @@ pub(super) fn succeeds(program: &str, args: &[&str]) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Build, check and write every target's files, then the index. The folder they are in.
+/// Build, check and write every target's files, then the index. The folder they are in. The
+/// retail client's friends library is `friends_dll` when given, else built here
+/// ([`super::friends_dll::find`]).
 pub fn build_packages(
     ws: &Path,
     triples: &[String],
     out: Option<&Path>,
     allow_dirty: bool,
     moltenvk: Option<&Path>,
+    friends_dll: Option<&Path>,
 ) -> Result<PathBuf, String> {
     let version = Product::Dereth.version(ws)?;
     version::parse_release_version(&version)?;
@@ -496,6 +509,9 @@ pub fn build_packages(
              `cargo install --locked tauri-cli --version ^2`"
                 .to_owned(),
         );
+    }
+    if let Some(why) = super::friends_dll::refusal(friends_dll, &host) {
+        refusals.push(format!("  {why}"));
     }
     let mut moltenvk_found = None;
     if plans.iter().any(|t| t.os == Os::Mac) {
@@ -538,6 +554,12 @@ pub fn build_packages(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| base.join(format!("dereth-{version}")));
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+    let library = super::friends_dll::find(
+        ws,
+        &facts,
+        friends_dll,
+        &base.join("stage").join("friends-dll"),
+    )?;
     for target in plans {
         println!("\n=== dereth {version} for {}", target.triple);
         let job = Job {
@@ -549,6 +571,7 @@ pub fn build_packages(
             stage: &launcher_stage(&base, target),
             signer: signer.as_ref(),
             moltenvk: moltenvk_found.as_ref(),
+            library: &library,
         };
         job.run()?;
     }
@@ -714,7 +737,8 @@ pub(crate) fn launcher_stage(base: &Path, target: Target) -> PathBuf {
 }
 
 /// Build the launcher for `target` exactly as [`build_packages`] does, at Dereth's `version`, in
-/// [`launcher_stage`] ([`BuiltLauncher`]).
+/// [`launcher_stage`], with the retail client's friends library `library` beside it on macOS and
+/// Linux ([`BuiltLauncher`]).
 pub(crate) fn build_launcher_as_dereth(
     ws: &Path,
     target: Target,
@@ -722,6 +746,7 @@ pub(crate) fn build_launcher_as_dereth(
     version: &str,
     stage: &Path,
     moltenvk: Option<&(PathBuf, PathBuf)>,
+    library: &Path,
 ) -> Result<BuiltLauncher, String> {
     let job = Job {
         ws,
@@ -732,6 +757,7 @@ pub(crate) fn build_launcher_as_dereth(
         stage,
         signer: None,
         moltenvk,
+        library,
     };
     fresh_dir(stage)?;
     let client = job.build_client()?;
@@ -764,6 +790,8 @@ struct Job<'a> {
     signer: Option<&'a Signer>,
     /// MoltenVK's dylib and licence (macOS).
     moltenvk: Option<&'a (PathBuf, PathBuf)>,
+    /// The retail client's friends library, checked ([`super::friends_dll`]).
+    library: &'a Path,
 }
 
 impl Job<'_> {
@@ -779,6 +807,10 @@ impl Job<'_> {
                     ("dereth.exe".to_owned(), launcher),
                     ("dereth-client.exe".to_owned(), client),
                     (tool_in_release(self.target), tool.clone()),
+                    (
+                        super::friends_dll::FILE.to_owned(),
+                        self.library.to_path_buf(),
+                    ),
                 ];
                 members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
                 self.write_archive(&members)
@@ -1006,7 +1038,13 @@ impl Job<'_> {
             .unwrap_or(Path::new("."))
             .join("dereth-client");
         let tool_base = tool.parent().unwrap_or(Path::new(".")).join(TOOL);
-        let mut bundle = bundle_config(t, &tauri_dir, &[&client_base, &tool_base], notices)?;
+        let mut bundle = bundle_config(
+            t,
+            &tauri_dir,
+            &[&client_base, &tool_base],
+            notices,
+            self.library,
+        )?;
         if t.os == Os::Mac {
             let (dylib, _) = self.moltenvk.ok_or("a macOS launcher needs MoltenVK")?;
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
@@ -1642,12 +1680,15 @@ pub(crate) fn write_index(
 /// carried by the program. Each is named relative to the app's folder `app_dir`, as the bundler
 /// reads it, so no machine's folder is. On Windows the launcher is not bundled (the archive is
 /// assembled from the files themselves, and the launcher finds the client beside it by name), so
-/// neither is named at all.
+/// neither is named at all. The retail client's friends library (`library`) is a resource beside
+/// the notices: in the macOS bundle's `Contents/Resources`, where the launcher finds it, and in the
+/// AppImage for a player who runs the retail client under Wine.
 pub fn bundle_config(
     target: Target,
     app_dir: &Path,
     beside: &[&Path],
     notices: &Path,
+    library: &Path,
 ) -> Result<serde_json::Value, String> {
     if target.os == Os::Windows {
         return Ok(serde_json::json!({ "createUpdaterArtifacts": false }));
@@ -1659,6 +1700,10 @@ pub fn bundle_config(
             serde_json::Value::from(*n),
         );
     }
+    resources.insert(
+        relative_to(app_dir, library)?,
+        serde_json::Value::from(super::friends_dll::FILE),
+    );
     let programs = beside
         .iter()
         .map(|p| relative_to(app_dir, p))

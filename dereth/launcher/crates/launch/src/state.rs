@@ -322,6 +322,13 @@ pub struct AubereanSettings {
     /// The account name the player last played with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// The client the player last played with: Auberean, or the retail client in the install.
+    #[serde(default, skip_serializing_if = "is_auberean")]
+    pub client: crate::auberean::Client,
+}
+
+fn is_auberean(client: &crate::auberean::Client) -> bool {
+    *client == crate::auberean::Client::Auberean
 }
 
 impl AubereanSettings {

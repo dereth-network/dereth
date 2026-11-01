@@ -12,6 +12,10 @@ name: Release Dereth
 # (dereth/launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
 # push.
 #
+# Every package carries the retail Asheron's Call 2 client's friends library
+# (auberean_friends.dll) beside the launcher. It is a 32-bit Windows DLL, so one Windows job builds
+# it (`cargo xtask package friends-dll`) and every system's job takes that same file.
+#
 # The release's description starts with its notes, which `cargo xtask release-notes dereth` writes
 # from the tagged tree: the release's section of dereth/CHANGES.md, then the client's commits since
 # the previous dereth-v tag, grouped. A dry run writes the notes the next release would get.
@@ -91,9 +95,38 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  friends-library:
+    name: the retail client's friends library
+    # Built once, on Windows (the only host that links a 32-bit Windows DLL), and given to every
+    # system's package job: each package carries the same file beside the launcher.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the retail client's target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target i686-pc-windows-msvc
+          rustup override set "$toolchain"
+      - name: cargo xtask package friends-dll
+        run: cargo xtask package friends-dll --out friends-library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: friends-library-dereth
+          path: friends-library/auberean_friends.dll
+          if-no-files-found: error
+          retention-days: 7
+
   package:
     name: package (${{ matrix.target }})
-    needs: version
+    needs: [version, friends-library]
     strategy:
       fail-fast: false
       matrix:
@@ -142,13 +175,17 @@ jobs:
           echo "$MOLTENVK_SHA256  $RUNNER_TEMP/MoltenVK-macos.tar" | shasum -a 256 -c -
           tar -xf "$RUNNER_TEMP/MoltenVK-macos.tar" -C "$RUNNER_TEMP"
           echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: friends-library-dereth
+          path: friends-library
       - name: cargo xtask package dereth
         env:
           # The launcher's update-signing key. Without it the files are built unsigned and no
           # latest.json is written, which a tag refuses below.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo xtask package dereth --target ${{ matrix.target }} --out dist
+        run: cargo xtask package dereth --target ${{ matrix.target }} --out dist --friends-dll friends-library/auberean_friends.dll
       - name: A release is signed
         if: github.ref_type == 'tag'
         run: |
@@ -179,7 +216,8 @@ jobs:
               launcher="smoke/dereth-$VERSION/dereth.exe"
               client="smoke/dereth-$VERSION/dereth-client.exe"
               bundled="smoke/dereth-$VERSION/dereth-plugin.exe"
-              tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe" ;;
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe"
+              library="smoke/dereth-$VERSION/auberean_friends.dll" ;;
             *linux*)
               appimage="$PWD/dist/Dereth-$VERSION-linux-x86_64.AppImage"
               (cd smoke && "$appimage" --appimage-extract > /dev/null)
@@ -187,7 +225,8 @@ jobs:
               client="smoke/squashfs-root/usr/bin/dereth-client"
               bundled="smoke/squashfs-root/usr/bin/dereth-plugin"
               tar -xzf "dist/dereth-plugin-$VERSION-linux-x86_64.tar.gz" -C smoke
-              tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin"
+              library=$(find smoke/squashfs-root -name auberean_friends.dll | head -n 1) ;;
             *apple*)
               arch=${TARGET%%-*}
               tar -xzf "dist/Dereth-$VERSION-macos-$arch.app.tar.gz" -C smoke
@@ -196,7 +235,8 @@ jobs:
               client="smoke/Dereth.app/Contents/MacOS/dereth-client"
               bundled="smoke/Dereth.app/Contents/MacOS/dereth-plugin"
               tar -xzf "dist/dereth-plugin-$VERSION-macos-$arch.tar.gz" -C smoke
-              tool="smoke/dereth-plugin-$VERSION/dereth-plugin" ;;
+              tool="smoke/dereth-plugin-$VERSION/dereth-plugin"
+              library="smoke/Dereth.app/Contents/Resources/auberean_friends.dll" ;;
           esac
           run "$launcher" --version | tee version-launcher.txt
           grep -qx "dereth $VERSION" version-launcher.txt
@@ -210,6 +250,8 @@ jobs:
           # The same tool comes with Dereth, beside the client.
           run "$bundled" --version | tee version-bundled-tool.txt
           cmp version-tool.txt version-bundled-tool.txt
+          # The retail client's friends library is beside the launcher: the one built for this release.
+          cmp "$library" "friends-library/auberean_friends.dll"
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json

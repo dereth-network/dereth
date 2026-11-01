@@ -50,6 +50,9 @@ flate2 = "1"
 toml = "1"
 toml_edit = "0.25"
 ctrlc = { version = "3.5", features = ["termination"] }
+# The secret the launcher makes for an Asheron's Call 2 account a player gave none: the system's
+# random source.
+getrandom = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Passwords in the login Keychain.
@@ -79,6 +82,8 @@ glib = "0.18"
 
 [dev-dependencies]
 tempfile = "3"
+# A world's half of the friends stream, the stand-in the probe's test greets.
+auberean-friends = { path = "../../core/auberean-friends" }
 dereth-launch = { path = "crates/launch", features = ["testing"] }
 
 

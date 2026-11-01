@@ -672,6 +672,14 @@ mod tests {
             mac["bundle"]["icon"],
             serde_json::json!(["icons/Network.icns", "icons/icon.png", "icons/icon.ico"])
         );
+        // And macOS 26's own drawing of it, compiled from the layered source, which the bundle's
+        // Info.plist names.
+        assert_eq!(
+            mac["bundle"]["macOS"]["files"]["Resources/Assets.car"],
+            "icons/layered/Assets.car"
+        );
+        assert!(include_str!("../Info.plist")
+            .contains("<key>CFBundleIconName</key>\n\t<string>Network</string>"));
         let build = include_str!("../build.rs");
         for (from, to) in [
             ("network.png", "icons/icon.png"),
@@ -683,6 +691,44 @@ mod tests {
                 "{from}"
             );
         }
+        assert!(build.contains(r#"compile_icon(&assets.join("Network.icon"))"#));
+        assert!(build.contains(r#""--app-icon", "Network""#));
+    }
+
+    /// The icon files hold every size each system asks for: the Windows icon 16 to 256 pixels,
+    /// the macOS one up to 1024 (512 at twice the density).
+    #[test]
+    fn the_icon_files_hold_every_size_up_to_the_largest_each_system_draws() {
+        let ico = include_bytes!("../assets/icon/network.ico");
+        let count = usize::from(u16::from_le_bytes([ico[4], ico[5]]));
+        // A directory entry's width byte is the width, 0 for 256.
+        let widths: Vec<u32> = (0..count)
+            .map(|i| match ico[6 + 16 * i] {
+                0 => 256,
+                w => u32::from(w),
+            })
+            .collect();
+        for want in [16, 24, 32, 48, 64, 128, 256] {
+            assert!(widths.contains(&want), "{want} in {widths:?}");
+        }
+        let icns = include_bytes!("../assets/icon/Network.icns");
+        assert_eq!(&icns[..4], b"icns");
+        let mut kinds = Vec::new();
+        let mut at = 8;
+        while at + 8 <= icns.len() {
+            let len = u32::from_be_bytes([icns[at + 4], icns[at + 5], icns[at + 6], icns[at + 7]]);
+            kinds.push(String::from_utf8_lossy(&icns[at..at + 4]).into_owned());
+            at += len as usize;
+        }
+        // 16, 32, 128, 256, 512 and 1024 pixels.
+        for want in ["icp4", "icp5", "ic07", "ic08", "ic09", "ic10"] {
+            assert!(kinds.iter().any(|k| k == want), "{want} in {kinds:?}");
+        }
+        let png = include_bytes!("../assets/icon/network.png");
+        assert_eq!(
+            u32::from_be_bytes([png[16], png[17], png[18], png[19]]),
+            256
+        );
     }
 
     #[cfg(windows)]

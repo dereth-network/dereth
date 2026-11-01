@@ -21,7 +21,8 @@
 //!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
 //!    network, store or program: it runs Yalain as a program); a core crate's
 //!    tests may use the client's test kit and the server's network crate (the server double), the
-//!    server's tests the client's test kit. Nothing of the first game's uses any of them. No crate
+//!    server's tests the client's test kit. Nothing of the first game's uses any of them, but the
+//!    launcher's knowledge the friends stream's codec ([`OUTSIDE_MAY_USE`]). No crate
 //!    but a test kit names a test kit outside its tests, and no library names a log subscriber
 //!    ([`super::LIBRARY_NO_SUBSCRIBER`]): only an executable installs one, and the libraries in
 //!    [`OUTERMOST`], loaded by a program that is not ours.
@@ -148,6 +149,12 @@ pub const ATHENAEUM_MAY_USE: &[&str] = &[
     "yalain-content",
 ];
 
+/// The crates of the second game's a crate outside the four parts may use, by that crate: the
+/// launcher's knowledge, which serves both games, asks a world whether it serves the friends stream
+/// and writes the friends ticket with the stream's own codec (a core crate with no I/O and no
+/// dependencies), rather than a copy of its framing.
+pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[("dereth-launch", "auberean-friends")];
+
 /// The four parts' folders.
 const PARTS: [&str; 4] = ["core/auberean-", "auberean/", "yalain/", "athenaeum/"];
 
@@ -219,7 +226,10 @@ pub fn part_violations(packages: &[WorkspacePackage]) -> Vec<String> {
             let test = if d.dev { " (for its tests)" } else { "" };
             let in_core = dir_of(&d.name).is_some_and(|x| x.starts_with("core/"));
             let allowed = match ours {
-                None => theirs.is_none(),
+                None => {
+                    theirs.is_none()
+                        || OUTSIDE_MAY_USE.contains(&(p.name.as_str(), d.name.as_str()))
+                }
                 Some("core/auberean-") => {
                     in_core
                         || dir_of(&d.name).is_none()
@@ -851,6 +861,26 @@ mod tests {
         // The retail client's friends library is the outermost Rust of its process, and installs
         // its own log subscriber (the base layout's); a library beside it may not.
         assert!(plant(3, ("tracing-subscriber", false))[0].contains("log subscriber"));
+    }
+
+    /// **The launcher's knowledge may use the friends stream's codec**, and nothing else of the
+    /// second game's; no other crate of the first game's may use even that.
+    #[test]
+    fn only_the_launchers_knowledge_uses_the_friends_stream_from_outside() {
+        let with = |name: &str, dir: &str, dep: &str| {
+            let mut w = base();
+            w.push(pkg("auberean-friends", "core/auberean-friends", &[], false));
+            w.push(pkg(name, dir, &[(dep, false)], false));
+            part_violations(&w)
+        };
+        let launch = "dereth/launcher/crates/launch";
+        assert!(with("dereth-launch", launch, "auberean-friends").is_empty());
+        assert!(with("dereth-launch", launch, "auberean-dat")[0]
+            .contains("dereth-launch depends on `auberean-dat`"));
+        assert!(
+            with("dereth-client-x", "dereth/client/x", "auberean-friends")[0]
+                .contains("dereth-client-x depends on `auberean-friends`")
+        );
     }
 
     /// **The core reaches only the core and the shared crates**, the primitives nothing and the

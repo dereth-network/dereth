@@ -110,6 +110,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(format!("dereth{exe}"));
             required.push(format!("{CLIENT}{exe}"));
             required.push(DEFAULTS_FILE.to_owned());
+            required.push(super::friends_dll::FILE.to_owned());
             required.extend(notices_in(""));
         }
         Os::Mac => {
@@ -119,9 +120,11 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/MacOS/auberean",
                 "Contents/Resources/launcher-defaults.json",
             ]));
+            required.push(format!("Contents/Resources/{}", super::friends_dll::FILE));
             required.extend(notices_in("Contents/Resources/"));
             optional.extend(own(&[
                 "Contents/PkgInfo",
+                "Contents/Resources/Assets.car",
                 "Contents/Resources/Dereth.icns",
                 "Contents/Resources/icon.icns",
                 "Contents/_CodeSignature/CodeResources",
@@ -221,9 +224,10 @@ struct Options {
     gather: Option<PathBuf>,
     allow_dirty: bool,
     moltenvk: Option<PathBuf>,
+    friends_dll: Option<PathBuf>,
 }
 
-pub const USAGE: &str = "usage: cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+pub const USAGE: &str = "usage: cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
        cargo xtask package auberean --gather <dir>";
 
 fn parse_options(args: &[String]) -> Result<Options, String> {
@@ -240,13 +244,19 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
             "--out" => o.out = Some(PathBuf::from(value()?)),
             "--gather" => o.gather = Some(PathBuf::from(value()?)),
             "--moltenvk" => o.moltenvk = Some(PathBuf::from(value()?)),
+            "--friends-dll" => o.friends_dll = Some(PathBuf::from(value()?)),
             "--allow-dirty" => o.allow_dirty = true,
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
     }
-    if o.gather.is_some() && (!o.targets.is_empty() || o.out.is_some() || o.moltenvk.is_some()) {
+    if o.gather.is_some()
+        && (!o.targets.is_empty()
+            || o.out.is_some()
+            || o.moltenvk.is_some()
+            || o.friends_dll.is_some())
+    {
         return Err(format!(
-            "--gather builds nothing: it takes no --target, --out or --moltenvk\n{USAGE}"
+            "--gather builds nothing: it takes no --target, --out, --moltenvk or --friends-dll\n{USAGE}"
         ));
     }
     Ok(o)
@@ -282,6 +292,7 @@ pub fn package(args: &[String]) -> i32 {
                 options.out.as_deref(),
                 options.allow_dirty,
                 options.moltenvk.as_deref(),
+                options.friends_dll.as_deref(),
             )
         }
     };
@@ -309,13 +320,16 @@ pub(super) fn versions(ws: &Path) -> Result<(String, String), String> {
     Ok((auberean, launcher))
 }
 
-/// Build, check and write every target's files, then the index. The folder they are in.
+/// Build, check and write every target's files, then the index. The folder they are in. The
+/// retail client's friends library is `friends_dll` when given, else built here, as Dereth's
+/// package has it.
 pub fn build_packages(
     ws: &Path,
     triples: &[String],
     out: Option<&Path>,
     allow_dirty: bool,
     moltenvk: Option<&Path>,
+    friends_dll: Option<&Path>,
 ) -> Result<PathBuf, String> {
     let (version, launcher_version) = versions(ws)?;
     let host = super::host();
@@ -361,6 +375,9 @@ pub fn build_packages(
             )),
         }
     }
+    if let Some(why) = super::friends_dll::refusal(friends_dll, &host) {
+        refusals.push(format!("  {why}"));
+    }
     let appimagetool = if plans.iter().any(|t| t.os == Os::Linux) {
         match super::desktop::appimagetool() {
             Ok(t) => Some(t),
@@ -396,6 +413,12 @@ pub fn build_packages(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| base.join(format!("auberean-{version}")));
     mkdir(&out_dir)?;
+    let library = super::friends_dll::find(
+        ws,
+        &facts,
+        friends_dll,
+        &base.join("stage").join("friends-dll"),
+    )?;
     for target in plans {
         println!(
             "\n=== auberean {version} (the launcher {launcher_version}) for {}",
@@ -414,6 +437,7 @@ pub fn build_packages(
             signer: signer.as_ref(),
             moltenvk: moltenvk_found.as_ref(),
             appimagetool: appimagetool.as_deref(),
+            library: &library,
         };
         job.run()?;
     }
@@ -443,6 +467,8 @@ struct Job<'a> {
     signer: Option<&'a Signer>,
     moltenvk: Option<&'a (PathBuf, PathBuf)>,
     appimagetool: Option<&'a str>,
+    /// The retail client's friends library, checked.
+    library: &'a Path,
 }
 
 impl Job<'_> {
@@ -457,6 +483,7 @@ impl Job<'_> {
             self.launcher_version,
             &dereth::launcher_stage(&target_dir().join("package"), self.target),
             self.moltenvk,
+            self.library,
         )?;
         let client = self.build_client()?;
         let notices = self.notices()?;
@@ -589,6 +616,7 @@ impl Job<'_> {
         dereth::copy(&launcher.bundle, &tree.join("dereth.exe"))?;
         dereth::copy(client, &tree.join(format!("{CLIENT}.exe")))?;
         dereth::copy(defaults, &tree.join(DEFAULTS_FILE))?;
+        dereth::copy(self.library, &tree.join(super::friends_dll::FILE))?;
         for n in NOTICES {
             dereth::copy(&notices.join(n), &tree.join(n))?;
         }

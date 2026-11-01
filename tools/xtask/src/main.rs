@@ -126,12 +126,13 @@ Release and packaging:
                             the archives, MANIFEST.txt, release.json and SHA256SUMS
                             (empyrean/RELEASING.md)
   package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 | --gather <dir>
+                 [--friends-dll <file>] | --gather <dir>
                             Dereth's release files: builds the client and the launcher (Tauri) for
                             this host, and writes the launcher (Windows zip, macOS Dereth.app,
-                            Linux AppImage), with the client inside it, checked and scanned, and
-                            signed for the launcher's updater (latest.json) when
-                            TAURI_SIGNING_PRIVATE_KEY is set (dereth/launcher/RELEASING.md)
+                            Linux AppImage), with the client and the retail AC2 client's friends
+                            library inside it, checked and scanned, and signed for the launcher's
+                            updater (latest.json) when TAURI_SIGNING_PRIVATE_KEY is set
+                            (dereth/launcher/RELEASING.md)
   package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
                  | --gather <dir>
                             Lyceum's release files: builds the editor and the lyceum command for
@@ -140,13 +141,18 @@ Release and packaging:
                             checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
                             (lyceum/RELEASING.md)
   package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 | --gather <dir>
+                 [--friends-dll <file>] | --gather <dir>
                             Auberean's release files: the launcher built exactly as `package
                             dereth` builds it, with the Auberean client and launcher-defaults.json
                             beside it in place of Dereth's client (Windows zip, macOS Dereth.app,
                             Linux AppImage), checked and scanned, and signed for the launcher's
                             updater (latest.json, version <launcher>+auberean.<client>) when
                             TAURI_SIGNING_PRIVATE_KEY is set (auberean/RELEASING.md)
+  package friends-dll [--out <dir>] [--allow-dirty]
+                            the retail AC2 client's friends library (auberean_friends.dll), which
+                            both launcher packages carry: built on Windows for
+                            i686-pc-windows-msvc with the C runtime linked in, and checked; a
+                            launcher package on another host takes it with --friends-dll
   package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
                             Asheron's Call 2's world builder: the editor and the athenaeum command,
                             with yalain and auberean beside them, built for this host and written

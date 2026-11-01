@@ -56,7 +56,7 @@ const ui = {
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
   // Auberean's realm: the account and password as typed, the listed world whose page is open, and
   // a new Athenaeum world's form.
-  ac2: { account: null, password: "", world: null, draft: null, making: false },
+  ac2: { account: null, password: "", world: null, draft: null, making: false, client: null },
 };
 
 // ----- small helpers ---------------------------------------------------------------------------------
@@ -1593,7 +1593,7 @@ function worlds() {
 // ----- one world ------------------------------------------------------------------------------------
 
 async function openWorld(slug, notice, preset) {
-  if (worldBy(slug)?.game === "auberean") { ui.ac2.world = slug; ui.ac2.password = ""; ui.screen = "a-world"; checkComponents(false); render(); return; }
+  if (worldBy(slug)?.game === "auberean") { ui.ac2.world = slug; ui.ac2.password = ""; ui.screen = "a-world"; checkComponents(false); api("probe_auberean_friends", { slug }).catch(() => {}); render(); return; }
   // A world's page plays in Dereth; Auberean is not played from the launcher yet.
   if ((worldBy(slug)?.game ?? "dereth") !== "dereth") {
     toast("Auberean can't be played from the launcher yet.", false);
@@ -2428,12 +2428,19 @@ document.addEventListener("click", async (ev) => {
     case "a-stop": await act("stop_auberean_world"); break;
     case "a-play": {
       const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-      await act("play_auberean_local", { account });
+      await act("play_auberean_local", { account, client: ac2Client() });
       break;
     }
     case "a-world-play": {
       const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-      if ((await act("play_auberean_world", { slug: ui.ac2.world, account, password: ui.ac2.password })) !== undefined) ui.ac2.password = "";
+      if ((await act("play_auberean_world", { slug: ui.ac2.world, account, password: ui.ac2.password, client: ac2Client() })) !== undefined) ui.ac2.password = "";
+      break;
+    }
+    case "a-client-auberean":
+    case "a-client-retail": {
+      ui.ac2.client = d.act === "a-client-retail" ? "retail" : "auberean";
+      render();
+      await act("set_auberean_client", { client: ui.ac2.client });
       break;
     }
     case "ath-new": ui.ac2.draft = { name: "" }; render(); focusSoon("ath-name"); break;
@@ -2928,6 +2935,38 @@ function installLine() {
       <span class="btns"><button class="btn ${check ? "mini-btn" : ""}" data-act="a-install">${check ? "Change" : "Choose Your Asheron's Call 2 Folder"}</button></span></div>`;
 }
 
+// The client the player plays with: Auberean, or the retail client in their install (on Windows).
+function ac2Client() {
+  const chosen = ui.ac2.client ?? ac2().client ?? "auberean";
+  return chosen === "retail" && ac2().retail ? "retail" : "auberean";
+}
+
+// Whether the chosen client can be started.
+function ac2ClientReady() {
+  return ac2Client() === "retail" ? !!ac2().retail?.september_2013 : ready("auberean");
+}
+
+// The client: Auberean's download line, and where the install has the retail client, a choice of
+// the two.
+function ac2ClientLine() {
+  const retail = ac2().retail;
+  if (!retail) return programLine("auberean");
+  const chosen = ac2Client();
+  const seg = (kind, label) => `<button class="btn seg ${chosen === kind ? "on" : ""}" data-act="a-client-${kind}">${label}</button>`;
+  const line = chosen === "auberean"
+    ? programLine("auberean")
+    : `<div class="program-line"><span title="${esc(retail.exe)}">${esc(retail.exe)}</span>${retail.september_2013 ? "" : `<span class="bad">Not the September 2013 client these files are for.</span>`}</div>
+       ${ac2().friends_dll ? "" : `<p class="muted small">This launcher has no friends library, so the retail client plays without friends.</p>`}`;
+  return `<div class="pair">${seg("auberean", "AUBEREAN")}${seg("retail", "RETAIL")}</div>${line}`;
+}
+
+// What the last probe found of the friends service of the world at `address`, if it was asked.
+function friendsLine(address) {
+  const on = (ac2().friends ?? {})[address];
+  if (on === undefined) return "";
+  return `<span class="small ${on ? "good" : "muted"}">Friends and tells across worlds: ${on ? "on" : "off"}</span>`;
+}
+
 // What the realm's last action said.
 function ac2Said() {
   const a = ac2();
@@ -2947,15 +2986,17 @@ function aubereanHome() {
   const a = ac2();
   const s = a.server ?? {};
   const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-  const canPlay = !!(a.check?.ok && ready("auberean") && (ready("yalain") || ready("athenaeum")) && account.trim());
-  const playing = a.playing ? `<p class="small good">Auberean is running.</p>` : "";
+  const canPlay = !!(a.check?.ok && ac2ClientReady() && (ready("yalain") || ready("athenaeum")) && account.trim());
+  // What the launcher started and is still running: Auberean, the retail client, or both.
+  const running = ["auberean", "retail"].filter((k) => (a.playing ?? []).includes(k)).map((k) => (k === "retail" ? "the retail client" : "Auberean"));
+  const playing = running.length ? `<p class="small good">${esc(running.join(" and ").replace(/^t/, "T"))} ${running.length > 1 ? "are" : "is"} running.</p>` : "";
   return `<div class="column narrow">
       <section class="panel"><header><h1>PLAY AUBEREAN</h1></header>
         <div class="scroll">
           <h2>YOUR GAME FILES</h2>${installLine()}
-          <h2>THE CLIENT</h2>${programLine("auberean")}
+          <h2>THE CLIENT</h2>${ac2ClientLine()}
           <h2>A WORLD ON THIS COMPUTER</h2>
-          <div class="program-line"><span>${localState()}</span>
+          <div class="program-line"><span>${localState()}</span>${s.running && s.ready ? friendsLine(s.address) : ""}
             <span class="btns">${s.running ? `<button class="btn mini-btn" data-act="a-stop">Stop</button>` : `<button class="btn mini-btn" data-act="a-start" ${a.check?.ok && (ready("yalain") || ready("athenaeum")) && !s.starting ? "" : "disabled"}>Start</button>`}</span></div>
           ${ready("yalain") || ready("athenaeum") ? "" : `<p class="muted small">Download Yalain (on its page) to play a world on this computer.</p>`}
           <div class="form">
@@ -2974,18 +3015,21 @@ function aubereanWorldPage() {
   const w = worldBy(ui.ac2.world);
   if (!w) { ui.screen = "worlds"; return worlds(); }
   const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-  const canPlay = !!(ac2().check?.ok && ready("auberean") && account.trim() && w.endpoint);
+  const canPlay = !!(ac2().check?.ok && ac2ClientReady() && account.trim() && w.endpoint);
+  const address = w.endpoint ? `${w.endpoint.address}:${w.endpoint.port}` : "";
   return `<div class="column narrow">
       <section class="panel"><header><button class="btn icon-btn" data-go="worlds" title="Back to the worlds">‹</button><h1>${esc(w.name.toUpperCase())}</h1></header>
         <div class="scroll">
           ${w.description ? `<p>${esc(w.description)}</p>` : ""}
-          <p class="small muted">${esc(w.endpoint ? `${w.endpoint.address}:${w.endpoint.port}` : "No address")} · ${stateLabel(w)}</p>
+          <p class="small muted">${esc(address || "No address")} · ${stateLabel(w)}</p>
+          ${address ? `<p>${friendsLine(address)}</p>` : ""}
           <h2>YOUR GAME FILES</h2>${installLine()}
-          <h2>THE CLIENT</h2>${programLine("auberean")}
+          <h2>THE CLIENT</h2>${ac2ClientLine()}
           <div class="form">
             <label class="lab" for="a-account">ACCOUNT</label><input id="a-account" class="field" autocomplete="off" style="max-width:280px" value="${esc(account)}">
-            <label class="lab" for="a-password">PASSWORD</label><input id="a-password" class="field" type="password" autocomplete="off" style="max-width:280px" value="${esc(ui.ac2.password)}">
+            <label class="lab" for="a-password">PASSWORD</label><input id="a-password" class="field" type="password" autocomplete="off" style="max-width:280px" value="${esc(ui.ac2.password)}" placeholder="the one kept">
           </div>
+          <p class="muted small">The launcher keeps your password for this world. Leave it empty to use the kept one; a new account gets one made for it.</p>
           ${ac2Said()}
         </div></section>
       <button class="play" data-act="a-world-play" ${canPlay ? "" : "disabled"}>PLAY</button>
@@ -3191,7 +3235,7 @@ function turnPainting(from) {
 // ----- start --------------------------------------------------------------------------------------
 
 // In the browser demo, `#world=eulmore`, `#worlds`, `#worlds=add`, `#worlds=<slug>` (that row
-// open), `#library`, `#library=add`,
+// open), `#ac2=retail`, `#ac2=playing`, `#ac2=<slug>`, `#library`, `#library=add`,
 // `#accounts`, `#first-run`, `#first-run=guide` and `#interface` (the first start's question) open that
 // screen directly, for looking at designs.
 async function demoJump() {
@@ -3256,6 +3300,16 @@ async function demoJump() {
     if (what === "make" && arg === "notes") { render(); document.getElementById("notes-lyceum")?.setAttribute("open", ""); }
   }
   else if (what === "world") await openWorld(arg || "eulmore");
+  else if (what === "ac2") {
+    // `#ac2=retail`: Auberean's Play with an install holding the retail client, the world on this
+    // computer running and the retail client chosen; `#ac2=playing` with both clients started;
+    // `#ac2=<slug>` an Asheron's Call 2 world's page.
+    await api("choose_auberean_install", {});
+    if (arg === "playing") { for (const client of ["retail", "auberean"]) await api("play_auberean_local", { account: "player", client }); }
+    if (arg === "retail" || arg === "playing") { await api("start_auberean_world", {}); ui.ac2.client = "retail"; ui.screen = "home"; }
+    else await openWorld(arg || "shardfall");
+    await pull();
+  }
   else if (what === "worlds" && arg === "add") {
     ui.addServer = { name: "", host: "play.example.org", port: "9000", ruleset: "PvE", error: null };
     ui.filter = "pve";

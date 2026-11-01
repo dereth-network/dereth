@@ -49,6 +49,9 @@ dereth-client-contract.workspace = true
 dereth-input.workspace = true
 # An Empyrean server's configuration, read to find where it keeps its things.
 toml.workspace = true
+# Asheron's Call 2's friends stream, with no I/O: the probe that asks a world whether it serves it
+# (the stream's own greeting and its answer), and the friends ticket, written as the stream writes it.
+auberean-friends.workspace = true
 
 [dev-dependencies]
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.

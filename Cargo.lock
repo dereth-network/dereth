@@ -1717,6 +1717,7 @@ dependencies = [
 name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
+ "auberean-friends",
  "dereth-client-contract",
  "dereth-client-runtime",
  "dereth-dat",

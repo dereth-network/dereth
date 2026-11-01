@@ -13,21 +13,28 @@
 //!   install, its accounts and characters in `auberean/yalain.sqlite` in the launcher's data
 //!   folder, listening on this computer alone. Its output is kept in `auberean/yalain.log` there,
 //!   whose last lines the page shows. Stop ends it at once.
-//! - **Playing.** The client is started over the install, logging in to the world on this computer
-//!   (started first, and waited for, when it is not running) or to a listed world by its address,
-//!   with the player's account. The password, for a world that asks one, goes to the client and is
-//!   never kept or shown.
+//! - **Playing.** Auberean, or on Windows the retail client in the install, is started into the
+//!   world on this computer (started first, and waited for, when it is not running) or into a
+//!   listed world by its address, with the player's account and its secret: the password typed for
+//!   a listed world, else the one the launcher keeps for that world and account, else a new one it
+//!   makes and keeps ([`dereth_launch::auberean::secret_for`]), so that every launch passes the
+//!   secret the account was made with. A secret is never shown.
+//! - **Friends.** Before each launch the world is asked whether it serves its friends service
+//!   ([`dereth_launch::auberean::probe_friends`]); when it does, the client is given the friends
+//!   options and its ticket, and the retail client the friends library the launcher carries. The
+//!   page says what the last probe of each world found.
 //! - **Athenaeum's worlds.** New World makes one with `athenaeum new` in the player's Documents and
 //!   opens the editor on it; Open World opens one by its folder. The editor finds Yalain and the
 //!   client beside itself.
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::collections::{HashMap, HashSet};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use dereth_launch::auberean::{self as ac2, InstallCheck};
+use dereth_launch::auberean::{self as ac2, Client, InstallCheck, RetailClient};
 use dereth_launch::components::Product;
 use serde::Serialize;
 use tauri::State;
@@ -63,19 +70,30 @@ pub struct Store {
     /// What the last action said, and whether it went wrong.
     message: Option<String>,
     error: bool,
-    /// The clients the launcher started.
-    clients: Vec<Child>,
+    /// The clients the launcher started, and which each is.
+    clients: Vec<(Child, Client)>,
     /// The editors the launcher started.
     editors: Vec<Child>,
     /// The last check of the install, by the folder it checked.
     check: Option<InstallCheck>,
+    /// The retail client in that install, found with the check.
+    retail: Option<RetailClient>,
     /// Where Athenaeum's new worlds go.
     home: Option<PathBuf>,
+    /// The retail client's friends library this launcher carries, when it carries one.
+    dll: Option<PathBuf>,
+    /// Whether each world's friends service answered the last probe, by the world's address as
+    /// the page names it.
+    friends: HashMap<String, bool>,
+    /// The worlds being probed now, by the same address.
+    probing: HashSet<String>,
 }
 
 pub type Shared = Arc<Mutex<Store>>;
 
-pub fn new(data: PathBuf) -> Shared {
+/// The store, over the launcher's data folder `data`, with the friends library `dll` the launcher
+/// carries ([`friends_dll`]).
+pub fn new(data: PathBuf, dll: Option<PathBuf>) -> Shared {
     Arc::new(Mutex::new(Store {
         data,
         server: None,
@@ -85,8 +103,34 @@ pub fn new(data: PathBuf) -> Shared {
         clients: Vec::new(),
         editors: Vec::new(),
         check: None,
+        retail: None,
         home: None,
+        dll,
+        friends: HashMap::new(),
+        probing: HashSet::new(),
     }))
+}
+
+/// The retail client's friends library this launcher carries: beside it (or in its bundle's
+/// resources), else in a development build that uses its checkout's builds
+/// ([`components::uses_checkout`]) the checkout's 32-bit Windows build of it.
+pub fn friends_dll(here: &Path, checkout: bool) -> Option<PathBuf> {
+    ac2::friends_dll_beside(here).or_else(|| {
+        let folders = if checkout {
+            components::build_folders(here)
+        } else {
+            Vec::new()
+        };
+        folders.into_iter().find_map(|d| {
+            let profile = d.file_name()?;
+            let p = d
+                .parent()?
+                .join("i686-pc-windows-msvc")
+                .join(profile)
+                .join(ac2::FRIENDS_DLL);
+            p.is_file().then_some(p)
+        })
+    })
 }
 
 fn lock(shared: &Shared) -> std::sync::MutexGuard<'_, Store> {
@@ -106,8 +150,8 @@ pub struct View {
     /// The check of the player's install, once they named one.
     pub check: Option<InstallCheck>,
     pub server: ServerView,
-    /// How many clients the launcher started are running.
-    pub playing: usize,
+    /// The clients the launcher started that are running, one entry each.
+    pub playing: Vec<Client>,
     /// Whether an editor the launcher started is open.
     pub editing: bool,
     /// Athenaeum's worlds the launcher made or opened, newest first.
@@ -115,6 +159,15 @@ pub struct View {
     pub home: Option<PathBuf>,
     pub message: Option<String>,
     pub error: bool,
+    /// The retail client in the install, when this system can start it.
+    pub retail: Option<RetailClient>,
+    /// The client the player plays with.
+    pub client: Client,
+    /// Whether each world's friends service answered the last probe, by the world's address
+    /// (`host:port`).
+    pub friends: HashMap<String, bool>,
+    /// Whether the launcher carries the retail client's friends library.
+    pub friends_dll: bool,
 }
 
 /// The world on this computer, as the page shows it.
@@ -165,32 +218,143 @@ pub fn view(shared: &Shared, b: &backend::Shared) -> View {
     }
     store
         .clients
-        .retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+        .retain_mut(|(c, _)| matches!(c.try_wait(), Ok(None)));
     store
         .editors
         .retain_mut(|c| matches!(c.try_wait(), Ok(None)));
     if let Some(install) = &settings.install {
         if store.check.as_ref().is_none_or(|c| &c.dir != install) {
             store.check = Some(ac2::check_install(install));
+            store.retail = ac2::find_retail(install);
         }
     }
     let log = read_log(&log_file(&store.data));
-    View {
+    let ready = running && ac2::is_ready(&log);
+    let local = local_address().to_string();
+    // The world on this computer is asked once it is ready, so the page can say.
+    let ask = ready && !store.friends.contains_key(&local) && !store.probing.contains(&local);
+    let view = View {
         check: settings.install.as_ref().and(store.check.clone()),
         server: ServerView {
             running,
-            ready: running && ac2::is_ready(&log),
+            ready,
             starting: store.starting,
-            address: local_address().to_string(),
+            address: local.clone(),
             log: ac2::tail(&log, LOG_LINES),
         },
-        playing: store.clients.len(),
+        playing: store.clients.iter().map(|(_, k)| *k).collect(),
         editing: !store.editors.is_empty(),
         worlds: opened_worlds(&store.data),
         home: store.home.clone(),
         message: store.message.clone(),
         error: store.error,
+        retail: settings
+            .install
+            .as_ref()
+            .and(store.retail.clone())
+            .filter(|_| cfg!(windows)),
+        client: settings.client,
+        friends: store.friends.clone(),
+        friends_dll: store.dll.is_some(),
+    };
+    drop(store);
+    if ask {
+        probe_in_background(shared, local, local_address(), true);
     }
+    view
+}
+
+/// Ask the world at `addr` (`address` on the page) whether it serves its friends service, on a
+/// thread of its own, and keep what it says.
+fn probe_in_background(shared: &Shared, address: String, addr: SocketAddr, local: bool) {
+    if !lock(shared).probing.insert(address.clone()) {
+        return;
+    }
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let on = probe(addr, local);
+        let mut store = lock(&shared);
+        store.probing.remove(&address);
+        store.friends.insert(address, on);
+    });
+}
+
+/// Whether the world at `addr` serves its friends service: it greets the probe within
+/// [`ac2::PROBE_WAIT`]. The world on this computer (`local`), just started, may open its friends
+/// service a moment after its log says it is ready, so a refused connection is tried again within
+/// the same wait.
+fn probe(addr: SocketAddr, local: bool) -> bool {
+    let began = Instant::now();
+    loop {
+        let left = ac2::PROBE_WAIT.saturating_sub(began.elapsed());
+        if probe_friends(addr, left) {
+            return true;
+        }
+        if !local || began.elapsed() + Duration::from_millis(200) >= ac2::PROBE_WAIT {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Whether the world at `addr` serves the friends stream on its login port: it greets the stream's
+/// own greeting ([`ac2::FriendsProbe`]), over a connection of this host's, within `wait`
+/// ([`ac2::PROBE_WAIT`] before a launch).
+fn probe_friends(addr: SocketAddr, wait: Duration) -> bool {
+    use std::io::{Read, Write};
+    let began = Instant::now();
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, wait) else {
+        return false;
+    };
+    let mut probe = ac2::FriendsProbe::new();
+    if stream.write_all(&probe.opening()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 4096];
+    loop {
+        let left = wait.saturating_sub(began.elapsed());
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
+            return false;
+        }
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => match probe.read(&buf[..n]) {
+                ac2::Heard::Nothing => {}
+                ac2::Heard::Welcome(_) => {
+                    let _ = stream.write_all(&probe.goodbye());
+                    return true;
+                }
+                ac2::Heard::Refused => return false,
+            },
+        }
+    }
+}
+
+/// A new secret for an account, from the system's random source ([`ac2::secret_from`]).
+pub fn new_secret() -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| format!("No secret could be made: {e}"))?;
+    Ok(ac2::secret_from(&bytes))
+}
+
+/// Ask the listed world `slug` whether it serves its friends service, for its page.
+#[tauri::command]
+pub fn probe_auberean_friends(a: State<'_, Shared>, b: State<'_, backend::Shared>, slug: String) {
+    let Some((host, port)) = backend::lock(&b).world_address(&slug) else {
+        return;
+    };
+    let shared = a.inner().clone();
+    std::thread::spawn(move || {
+        if let Ok(addr) = resolve(&host, port) {
+            probe_in_background(&shared, format!("{host}:{port}"), addr, false);
+        }
+    });
+}
+
+/// Keep `client` as the client the player plays with.
+#[tauri::command]
+pub fn set_auberean_client(b: State<'_, backend::Shared>, client: Client) {
+    backend::lock(&b).set_auberean_client(client);
 }
 
 /// Say `text` on the page, as an error when `error`.
@@ -210,7 +374,10 @@ fn install(shared: &Shared, b: &backend::Shared) -> Result<PathBuf, String> {
     let check = ac2::check_install(&install);
     let ok = check.ok;
     let summary = check.summary.clone();
-    lock(shared).check = Some(check);
+    let mut store = lock(shared);
+    store.check = Some(check);
+    store.retail = ac2::find_retail(&install);
+    drop(store);
     if ok {
         Ok(install)
     } else {
@@ -227,8 +394,11 @@ pub fn set_auberean_install(
     dir: PathBuf,
 ) -> Result<InstallCheck, String> {
     let check = ac2::check_install(&dir);
+    let retail = ac2::find_retail(&dir);
     backend::lock(&b).set_auberean_install(dir);
-    lock(&a).check = Some(check.clone());
+    let mut store = lock(&a);
+    store.check = Some(check.clone());
+    store.retail = retail;
     Ok(check)
 }
 
@@ -335,6 +505,8 @@ fn start_server(
         Ok(child) => {
             store.server = Some(child);
             store.message = None;
+            // A new world: asked again once it is ready.
+            store.friends.remove(&local_address().to_string());
             Ok(())
         }
         Err(e) => {
@@ -372,39 +544,137 @@ pub fn stop(shared: &Shared) {
     }
 }
 
-/// Start the client into the world at `server` as `account` with `password`.
+/// A launch: the world to start a client into, where it is and what it is called, and the client,
+/// the account and the secret the player typed.
+struct Launch<'a> {
+    /// The name its accounts' secrets are kept under: the world's slug, or the world on this
+    /// computer's.
+    slug: &'a str,
+    /// Its address as the page names it.
+    address: String,
+    server: SocketAddr,
+    /// The world on this computer.
+    local: bool,
+    client: Client,
+    account: &'a str,
+    /// The secret the player typed, if any.
+    typed: Option<&'a str>,
+}
+
+/// The retail client in `install` the launcher starts: the September 2013 client, on Windows.
+fn retail_client(install: &Path) -> Result<RetailClient, String> {
+    if !cfg!(windows) {
+        return Err("The retail client needs Windows. Play with Auberean here.".into());
+    }
+    let retail = ac2::find_retail(install)
+        .ok_or("Your Asheron's Call 2 folder has no AC2client.exe. Play with Auberean.")?;
+    if !retail.september_2013 {
+        return Err("This AC2client.exe is not the September 2013 client, the one these files are for. Play with Auberean.".into());
+    }
+    Ok(retail)
+}
+
+/// Start the launch's client into its world as its account, with the secret the player typed or
+/// the one kept for that world and account, and with the world's friends service when it answers.
 fn start_client(
     shared: &Shared,
     c: &components::Shared,
+    b: &backend::Shared,
     install: &Path,
-    server: SocketAddr,
-    account: &str,
-    password: &str,
+    to: &Launch<'_>,
 ) -> Result<(), String> {
-    let client = components::program_of(c, Product::Auberean).ok_or("Download Auberean first.")?;
-    let args = ac2::client_args(install, server, account, password);
-    eprintln!(
-        "launcher: {} {}",
-        client.display(),
-        ac2::shown_client_args(&args)
-    );
-    let child = command(&client)
-        .args(&args)
+    let (account, client) = (to.account, to.client);
+    let program = match client {
+        Client::Auberean => {
+            components::program_of(c, Product::Auberean).ok_or("Download Auberean first.")?
+        }
+        Client::Retail => retail_client(install)?.exe,
+    };
+    let secret = backend::lock(b).auberean_secret(to.slug, account, to.typed)?;
+    if client == Client::Retail && !ac2::retail_takes(&secret) {
+        return Err("The retail client can't take a password with a double quote in it.".into());
+    }
+    let answered = probe(to.server, to.local);
+    let data = {
+        let mut store = lock(shared);
+        store.friends.insert(to.address.clone(), answered);
+        store.data.clone()
+    };
+    let friends =
+        (answered && ac2::friends_ticket(account, &secret).is_some()).then(|| ac2::Friends {
+            host: to.server.ip().to_string(),
+            port: to.server.port(),
+            dll: None,
+        });
+    let (plan, mut cmd) = match client {
+        Client::Auberean => {
+            let plan = ac2::auberean_plan(&program, install, to.server, account, friends.as_ref());
+            let cmd = command(&plan.exe);
+            (plan, cmd)
+        }
+        Client::Retail => {
+            // The library goes with the friends options; without it the client plays without.
+            let dll = lock(shared).dll.clone();
+            let friends = friends.zip(dll).map(|(f, dll)| ac2::Friends {
+                dll: Some(ac2::dll_for_retail(&dll, &data, &short_path)),
+                ..f
+            });
+            let plan = ac2::retail_plan(&program, to.server, account, friends.as_ref());
+            let mut cmd = std::process::Command::new(&plan.exe);
+            cmd.current_dir(&plan.working_dir);
+            if friends.is_some() {
+                cmd.env(
+                    "AUBEREAN_FRIENDS_LOG",
+                    data.join("auberean").join("friends-library.log"),
+                );
+            }
+            (plan, cmd)
+        }
+    };
+    eprintln!("launcher: {}", plan.redacted());
+    let name = match client {
+        Client::Auberean => "Auberean",
+        Client::Retail => "the retail client",
+    };
+    let child = cmd
+        .args(plan.argv(&secret))
         .stdin(Stdio::null())
         .spawn()
-        .map_err(|e| format!("Could not start Auberean: {e}"))?;
-    lock(shared).clients.push(child);
+        .map_err(|e| format!("Could not start {name}: {e}"))?;
+    lock(shared).clients.push((child, client));
     Ok(())
 }
 
-/// Play the world on this computer as `account`: start it first when it is not running, wait for
-/// it to be ready, then start the client into it.
+/// The short (8.3) form of `path`, where the file system keeps one.
+#[cfg(windows)]
+fn short_path(path: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    let mut out = vec![0u16; 1024];
+    let room = u32::try_from(out.len()).ok()?;
+    // SAFETY: `wide` is a NUL-terminated wide string and `out` a buffer of `room` wide characters,
+    // both alive for the call, which writes at most `room` characters into `out`.
+    let n = unsafe { GetShortPathNameW(wide.as_ptr(), out.as_mut_ptr(), room) };
+    let n = usize::try_from(n).ok()?;
+    (n > 0 && n < out.len()).then(|| PathBuf::from(std::ffi::OsString::from_wide(&out[..n])))
+}
+
+/// No other system keeps short forms.
+#[cfg(not(windows))]
+fn short_path(_: &Path) -> Option<PathBuf> {
+    None
+}
+
+/// Play the world on this computer as `account` with `client`: start it first when it is not
+/// running, wait for it to be ready, then start the client into it.
 #[tauri::command]
 pub async fn play_auberean_local(
     a: State<'_, Shared>,
     c: State<'_, components::Shared>,
     b: State<'_, backend::Shared>,
     account: String,
+    client: Client,
 ) -> Result<(), String> {
     let account = ac2::account_name(&account)
         .map_err(|e| e.to_string())?
@@ -412,8 +682,19 @@ pub async fn play_auberean_local(
     let (a, c, b) = (a.inner().clone(), c.inner().clone(), b.inner().clone());
     tauri::async_runtime::spawn_blocking(move || {
         let install = install(&a, &b)?;
-        components::program_of(&c, Product::Auberean).ok_or("Download Auberean first.")?;
-        backend::lock(&b).set_auberean_account(&account);
+        match client {
+            Client::Auberean => {
+                components::program_of(&c, Product::Auberean).ok_or("Download Auberean first.")?;
+            }
+            Client::Retail => {
+                retail_client(&install)?;
+            }
+        }
+        {
+            let mut backend = backend::lock(&b);
+            backend.set_auberean_account(&account);
+            backend.set_auberean_client(client);
+        }
         start_server(&a, &c, &b)?;
         let data = lock(&a).data.clone();
         say(&a, "Waiting for the world to be ready...", false);
@@ -439,7 +720,16 @@ pub async fn play_auberean_local(
             std::thread::sleep(Duration::from_millis(250));
         }
         lock(&a).message = None;
-        start_client(&a, &c, &install, local_address(), &account, "")
+        let to = Launch {
+            slug: ac2::LOCAL_SLUG,
+            address: local_address().to_string(),
+            server: local_address(),
+            local: true,
+            client,
+            account: &account,
+            typed: None,
+        };
+        start_client(&a, &c, &b, &install, &to)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -460,7 +750,8 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, String> {
         .ok_or_else(|| format!("{host} could not be found. Check the address."))
 }
 
-/// Play the listed world `slug` as `account` with `password`.
+/// Play the listed world `slug` as `account` with `client`, and with `password` when the player
+/// typed one (else the one kept for that world and account).
 #[tauri::command]
 pub async fn play_auberean_world(
     a: State<'_, Shared>,
@@ -469,6 +760,7 @@ pub async fn play_auberean_world(
     slug: String,
     account: String,
     password: String,
+    client: Client,
 ) -> Result<(), String> {
     let account = ac2::account_name(&account)
         .map_err(|e| e.to_string())?
@@ -480,8 +772,21 @@ pub async fn play_auberean_world(
             .world_address(&slug)
             .ok_or("This world names no address to connect to.")?;
         let server = resolve(&host, port)?;
-        backend::lock(&b).set_auberean_account(&account);
-        start_client(&a, &c, &install, server, &account, &password)
+        {
+            let mut backend = backend::lock(&b);
+            backend.set_auberean_account(&account);
+            backend.set_auberean_client(client);
+        }
+        let to = Launch {
+            slug: &slug,
+            address: format!("{host}:{port}"),
+            server,
+            local: false,
+            client,
+            account: &account,
+            typed: Some(&password),
+        };
+        start_client(&a, &c, &b, &install, &to)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -708,6 +1013,106 @@ mod tests {
         assert!(ac2::is_ready(&read));
         assert_eq!(read_log(&d.join("none.log")), "");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_friends_library_is_beside_the_launcher_or_in_its_checkouts_32_bit_build() {
+        let d = scratch("dll");
+        // A checkout: the workspace's manifests, and the launcher built into its release folder.
+        std::fs::write(d.join("Cargo.toml"), b"").unwrap();
+        std::fs::create_dir_all(d.join("dereth/client")).unwrap();
+        std::fs::write(d.join("dereth/client/Cargo.toml"), b"").unwrap();
+        let here = d.join("target").join("release");
+        std::fs::create_dir_all(&here).unwrap();
+        assert_eq!(friends_dll(&here, true), None);
+        let built = d
+            .join("target")
+            .join("i686-pc-windows-msvc")
+            .join("release");
+        std::fs::create_dir_all(&built).unwrap();
+        std::fs::write(built.join(ac2::FRIENDS_DLL), b"dll").unwrap();
+        assert_eq!(friends_dll(&here, true), Some(built.join(ac2::FRIENDS_DLL)));
+        // A release looks only beside itself.
+        assert_eq!(friends_dll(&here, false), None);
+        std::fs::write(here.join(ac2::FRIENDS_DLL), b"dll").unwrap();
+        assert_eq!(friends_dll(&here, false), Some(here.join(ac2::FRIENDS_DLL)));
+        assert_eq!(friends_dll(&here, true), Some(here.join(ac2::FRIENDS_DLL)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A world's half of the friends stream, as the probe meets it.
+    fn world() -> auberean_friends::ServerStream {
+        auberean_friends::ServerStream::new(
+            Duration::ZERO,
+            auberean_friends::ServerConfig::new("dawnsong", "Dawnsong"),
+        )
+    }
+
+    fn written(out: Vec<auberean_friends::ServerOut>) -> Vec<u8> {
+        out.into_iter()
+            .filter_map(|o| match o {
+                auberean_friends::ServerOut::Write(b) => Some(b),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// A world on this computer that serves the friends stream on one connection, on its own
+    /// thread.
+    fn serving_world() -> (SocketAddr, std::thread::JoinHandle<bool>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let world = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut w = world();
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = s.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                w.on_bytes(Duration::ZERO, &buf[..n]);
+                let out = written(w.poll(Duration::ZERO));
+                if !out.is_empty() && s.write_all(&out).is_err() {
+                    break;
+                }
+                if w.is_ended() {
+                    break;
+                }
+            }
+            w.is_ended()
+        });
+        (addr, world)
+    }
+
+    #[test]
+    fn a_world_that_serves_the_stream_answers_the_probe_and_one_that_does_not_never_does() {
+        // The wait only stops a hang: a welcome ends it.
+        let (addr, world) = serving_world();
+        assert!(probe_friends(addr, Duration::from_secs(60)));
+        assert!(world.join().unwrap(), "the probe said goodbye");
+
+        // A port no one listens on.
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        assert!(!probe_friends(closed, Duration::from_secs(60)));
+
+        // One that takes the connection and says nothing, until the wait is over.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        assert!(!probe_friends(
+            silent.local_addr().unwrap(),
+            Duration::from_millis(50)
+        ));
+    }
+
+    #[test]
+    fn a_new_secret_is_random() {
+        let (a, b) = (new_secret().unwrap(), new_secret().unwrap());
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 22);
     }
 
     #[test]
