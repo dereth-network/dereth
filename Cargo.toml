@@ -58,6 +58,9 @@ members = [
     "core/auberean-world",
     "core/auberean-physics",
     "core/auberean-animation",
+    # The Asheron's Call 2 dialect of the shared pack format, which the world database's packs
+    # and the world builder's are written in.
+    "core/auberean-pack",
     # The Asheron's Call 2 client SDK: the session, the model, the actions, the runtime and the
     # facade over them, as Dereth's `core/client-*` are.
     "core/auberean-client-net",
@@ -168,6 +171,8 @@ members = [
     # and the game (yalain/crates/), the `yalain` executable and its test kit. It shares Auberean's
     # core and never names a crate of the client's.
     "yalain/crates/net",
+    "yalain/crates/content",
+    "yalain/crates/world-db",
 ]
 
 [workspace.package]
@@ -274,6 +279,7 @@ auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }
 auberean-ui-game = { path = "auberean/client/crates/ui-game" }
 auberean-interface = { path = "auberean/client/crates/interface" }
+auberean-pack = { path = "core/auberean-pack" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }
@@ -282,7 +288,9 @@ auberean-script = { path = "core/auberean-script" }
 auberean-testkit = { path = "auberean/testkit" }
 auberean-text = { path = "core/auberean-text" }
 auberean-world = { path = "core/auberean-world" }
+yalain-content = { path = "yalain/crates/content" }
 yalain-net = { path = "yalain/crates/net" }
+yalain-world-db = { path = "yalain/crates/world-db" }
 
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output

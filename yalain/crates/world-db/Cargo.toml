@@ -1,0 +1,30 @@
+[package]
+name = "yalain-world-db"
+description = "The Asheron's Call 2 world database: its packs of server rows read and checked, merged in load order, compiled against an install into the server's tables, and packaged as a release."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+auberean-assets.workspace = true
+auberean-pack.workspace = true
+auberean-script.workspace = true
+dereth-pack.workspace = true
+dereth-primitives.workspace = true
+yalain-content.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+auberean-primitives.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

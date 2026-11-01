@@ -421,6 +421,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-pack"
+version = "0.0.0"
+dependencies = [
+ "dereth-pack",
+]
+
+[[package]]
 name = "auberean-physics"
 version = "0.0.0"
 dependencies = [
@@ -6862,6 +6869,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "yalain-content"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+]
+
+[[package]]
 name = "yalain-net"
 version = "0.0.0"
 dependencies = [
@@ -6869,6 +6883,22 @@ dependencies = [
  "dereth-primitives",
  "dereth-transport",
  "tracing",
+]
+
+[[package]]
+name = "yalain-world-db"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-pack",
+ "auberean-primitives",
+ "auberean-script",
+ "dereth-pack",
+ "dereth-primitives",
+ "serde_json",
+ "sha2",
+ "toml",
+ "yalain-content",
 ]
 
 [[package]]
