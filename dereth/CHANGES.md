@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.9 (2026-11-01)
+
 - Launcher: each realm lists only its own game's worlds.
 
 ## 0.4.8 (2026-10-28)
