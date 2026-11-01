@@ -705,6 +705,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.the-world-pulled-on-drags-the-selection-not-a-pack-item",
+        says: "A press on the world held and moved drags the selection's icon (the object selected \
+               in the world, wherever it lies), not an item of the pack the pointer then passes \
+               over; let go over another cell of the pack, the selection is asked to be put \
+               there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-WORLD-DRAG"),
+        station: "auberean-ui-game::dat::play::inventory::the_world_pulled_on_drags_the_selection_not_a_pack_item",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.keyboard.the-key-map-shows-each-actions-keys-and-rebinds-them",
         says: "The key map shows each action that has a name, its name and its two keys (a key \
                held with Ctrl or Shift written with it); a key cell pressed waits for a key: one \
@@ -1071,6 +1082,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.pointer.a-press-taken-in-front-is-not-held-behind",
+        says: "A press taken by an element in front stops there: the top-level elements behind                it never hear it nor hold the button, so the next press on one of them alone is                its own, pressed on the topmost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PRESS-STOPS"),
+        station: "auberean-ui::cpu::pointer::a_press_taken_in_front_is_not_held_behind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.pointer.mouse-invisible-elements-let-the-pointer-through",
         says: "An element marked invisible to the mouse lets the pointer through to what is beneath \
                it.",
@@ -1148,6 +1167,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-SCROLLBAR-DRAG"),
         station: "auberean-ui::cpu::lists::dragging_the_widget_scrolls_its_list",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.selection.a-press-on-the-world-after-a-button-still-selects",
+        says: "A press taken by a panel in front (a toolbar button clicked, opening its window)                leaves the field over the world untouched: the next press on the world selects                what lies under it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-AFTER-BUTTON"),
+        station: "auberean-ui-game::dat::play::selection::a_press_on_the_world_after_a_button_still_selects",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.selection.a-press-on-the-world-selects-what-lies-under-it",
@@ -1376,6 +1403,20 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-EFFECT-LIST"),
         station: "auberean-client-runtime::corpus::effects::the_effects_from_the_scripts_are_the_effects_the_server_gave_the_player",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "ui.statusbar.the-latency-graph-option-draws-the-bandwidth-over-the-network-indicator",
+        says: "With the player's latency graph option on, the network indicator's tooltip gives the \
+               bytes in and out each second and a graph is blended over the indicator inside its \
+               border: a column a measure, the bytes sent a second down from the top and those \
+               received up from the foot, each bar as long as the eighth of the bytes takes halvings \
+               to come down to one, the texel past its end part of the way to its color; the dark \
+               ground is clear for the measure at which the indicator's state changes; with the \
+               option off, no graph.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NET-GRAPH"),
+        station: "auberean-ui-game::dat::play::bar::the_latency_graph_option_draws_the_bandwidth_over_the_network_indicator",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.statusbar.vitals-indicators-and-effects-follow-the-scripts",

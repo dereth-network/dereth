@@ -198,6 +198,9 @@ pub struct Node {
     /// Rectangles of one color painted over the element once it is drawn (a panel drawing on
     /// its picture): each inclusive, from the element's top left, blue, green, red, alpha.
     pub fills: Vec<(Rect, [u8; 4])>,
+    /// A picture a panel drew, blended over the element once it is drawn, its top left at a point
+    /// of the element (from the element's top left).
+    pub overlay: Option<(i32, i32, crate::draw::Surface)>,
 }
 
 impl Node {
@@ -704,6 +707,7 @@ impl Ui {
             tooltip_text: None,
             rotation: 0,
             fills: Vec::new(),
+            overlay: None,
         });
         self.note_name(h);
         self.register_for_global_message(h, crate::manager::global::TIME);
@@ -1125,6 +1129,16 @@ impl Ui {
         if self.node(h).is_some_and(|n| n.fills != fills) {
             if let Some(n) = self.node_mut(h) {
                 n.fills = fills;
+            }
+        }
+    }
+
+    /// Blend a picture a panel drew over an element once it is drawn, its top left at `(x, y)`
+    /// of the element, in place of the last one; `None` takes it away.
+    pub fn set_overlay(&mut self, h: Handle, overlay: Option<(i32, i32, crate::draw::Surface)>) {
+        if self.node(h).is_some_and(|n| n.overlay != overlay) {
+            if let Some(n) = self.node_mut(h) {
+                n.overlay = overlay;
             }
         }
     }

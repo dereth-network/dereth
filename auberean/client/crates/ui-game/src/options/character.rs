@@ -78,7 +78,7 @@ const FLAGS: &[(u32, Bit)] = &[
     (label::SHORTCUT_LOCKED, Bit::Options(0x800)),
     (label::INSTANT_SCROLL, Bit::Options(0x2000)),
     (label::GOLD_MELTING, Bit::Opposite(0x400)),
-    (label::LATENCY_GRAPH, Bit::Options(0x4000)),
+    (label::LATENCY_GRAPH, Bit::Options(super::LATENCY_GRAPH)),
     (label::FELLOWS_ON_MAP, Bit::Options(0x8000)),
     (label::PET_PANEL, Bit::Options(0x1_0000)),
     (label::CLASSIC_EXAMINATION, Bit::Options(0x2_0000)),

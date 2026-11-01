@@ -118,6 +118,11 @@ impl Items3d {
     // D2-02963
     pub fn start_3d_drag(&mut self, ui: &mut Ui) {
         let Some(icon) = self.icon else { return };
+        // The world is pulled on at every move until a drag starts; heard after the moves (the
+        // original hears it at once), only the first pull starts one.
+        if ui.dragged().is_some() {
+            return;
+        }
         if !self.facts.here(self.facts.player) {
             return;
         }

@@ -177,6 +177,34 @@ fn a_press_on_the_world_selects_what_lies_under_it() {
     );
 }
 
+/// A press taken by a panel in front (a toolbar button clicked, opening its window) leaves the
+/// field over the world untouched: the next press on the world selects what lies under it, as
+/// the first press did before.
+///
+/// Behaviour: ui.selection.a-press-on-the-world-after-a-button-still-selects
+#[test]
+fn a_press_on_the_world_after_a_button_still_selects() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(vec![thing(7, kind::CREATURE, 1.0, 5.0)]);
+    let button = ui
+        .element(Token::of("InventoryButton"))
+        .expect("the inventory's button");
+    let r = ui.screen_rect(button).expect("placed");
+    ui.pointer_move((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    for down in [true, false] {
+        ui.pointer_button(button_id::LEFT, down);
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+    }
+    let window = ui.element(Token::of("InventoryField")).expect("the window");
+    assert!(ui.shown(window), "the button opened its window");
+    let out = press_world(&mut ui, &mut p, &mut t, &w, button_id::LEFT, Some(7));
+    assert!(out.contains(&Request::Pick { x: 512, y: 300 }), "{out:?}");
+    assert_eq!(selects(&out), vec![7]);
+}
+
 /// A selection key on its own panel.
 fn select(w: &World, k: u32) -> Vec<u64> {
     let mut ui = Ui::new(records(), 1024, 768);

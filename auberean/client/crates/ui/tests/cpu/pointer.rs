@@ -177,3 +177,68 @@ fn a_pressed_row_is_selected() {
         .iter()
         .any(|m| m.what == msg::NEW_SELECTION && m.param == 1));
 }
+
+/// A press taken by a window in front never reaches a window behind it: the one behind does not
+/// hold the button afterwards, so the next press on it alone (once the first is let go) is its
+/// own, heard as pressed on the topmost.
+///
+/// Behaviour: ui.pointer.a-press-taken-in-front-is-not-held-behind
+#[test]
+fn a_press_taken_in_front_is_not_held_behind() {
+    let back = element(
+        "Back",
+        "field",
+        [0, 0, 199, 199],
+        10,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mut u = ui(vec![button(), back], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let behind = u.create_root(l, Token::of("Back")).unwrap();
+    let b = u.create_root(l, Token::of("Button")).unwrap();
+    assert!(
+        u.node(b).unwrap().z < u.node(behind).unwrap().z,
+        "the button in front"
+    );
+    // Clicked on the button, which lies over the field.
+    u.pointer_move(20, 20);
+    u.take_messages();
+    u.pointer_press();
+    u.pointer_release();
+    let what: Vec<(Token, Token)> = u
+        .take_messages()
+        .iter()
+        .map(|m| (m.element, m.what))
+        .collect();
+    assert!(what.contains(&(Token::of("Button"), msg::BUTTON_RELEASE_ON)));
+    let pressed = [
+        msg::MOUSE_PRESS,
+        msg::MOUSE_PRESS_TOP,
+        msg::MOUSE_RELEASE,
+        msg::MOUSE_RELEASE_TOP,
+    ];
+    assert!(
+        !what
+            .iter()
+            .any(|(e, m)| *e == Token::of("Back") && pressed.contains(m)),
+        "the field behind heard no press: {what:?}"
+    );
+    assert!(!u
+        .node(behind)
+        .unwrap()
+        .holds(auberean_ui::types::button_id::LEFT));
+    // Pressed on the field alone: its own press.
+    u.pointer_move(150, 150);
+    u.take_messages();
+    u.pointer_press();
+    let what: Vec<(Token, Token)> = u
+        .take_messages()
+        .iter()
+        .map(|m| (m.element, m.what))
+        .collect();
+    assert!(
+        what.contains(&(Token::of("Back"), msg::MOUSE_PRESS_TOP)),
+        "the field pressed: {what:?}"
+    );
+    u.pointer_release();
+}

@@ -105,6 +105,8 @@ pub const INVENTORY_NOTICES: u32 = 0x008B;
 pub const MONEY_NOTICES: u32 = 0x008C;
 /// A container opened or closed for the player (its state a byte: 0 closed).
 pub const CONTAINER_STATE_UPDATE: u32 = INVENTORY_NOTICES << 16 | 3;
+/// The player's selection changed (the scripts' notice to the panels).
+pub const SELECTION_CHANGED: u32 = 0x0085 << 16 | 3;
 
 /// A slot the called function may write into, pushed before the result slot.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -373,7 +375,8 @@ impl Scripts {
 
     /// Everything the inventory panels show: the player's pack in its segments and what it wears,
     /// the containers in `open`, and each item in them and in `also` (items shown outside a
-    /// container: those a trade's partner offers, still in the partner's pack).
+    /// container: those a trade's partner offers, still in the partner's pack), and the player's
+    /// selection (dragged from the world by its icon).
     // D2-00488, D2-01125, D2-00554, D2-01112, D2-01493
     pub fn inventory(&mut self, open: &BTreeSet<u64>, also: &BTreeSet<u64>) -> Inventory {
         let Some(player) = self
@@ -416,6 +419,11 @@ impl Scripts {
             .unwrap_or_default();
         // D2-00420, D2-01134
         inv.selection = self.call_on_long(player, function::SELECTION).unwrap_or(0);
+        // The selection, held anywhere in the world: pulled on in the world, its icon is dragged
+        // to the pack.
+        if inv.selection != player && self.host.model.object(inv.selection).is_some() {
+            shown.push(inv.selection);
+        }
         inv.worn = self.worn(player);
         shown.extend(inv.worn.iter().map(|(_, id)| *id));
         shown.extend(
@@ -531,10 +539,10 @@ pub struct Inventory {
 }
 
 impl Inventory {
-    /// The notices that change what the inventory panels show.
+    /// The notices that change what the inventory panels show (the selection's among them).
     #[must_use]
     pub fn noticed(native: u32) -> bool {
         let package = native >> 16;
-        package == INVENTORY_NOTICES || package == MONEY_NOTICES
+        package == INVENTORY_NOTICES || package == MONEY_NOTICES || native == SELECTION_CHANGED
     }
 }

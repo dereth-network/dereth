@@ -488,3 +488,110 @@ fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
     assert!(t.sent >= 100, "{t:?}");
     assert_eq!(t.hidden, 0, "{t:?}");
 }
+
+/// The player's own request selecting an object.
+const SET_SELECTION: u32 = 0x8212_0016;
+
+/// How many selections the look below makes at most (the 2017 captures in time order).
+const SELECTIONS: u64 = 2_000;
+
+/// What the looks at the selection found.
+#[derive(Default, Debug)]
+struct Picked {
+    /// Selections of an object the client held; the inventory naming it as the selection; listing
+    /// its facts; with an icon; and a few that were not listed.
+    selected: u64,
+    named: u64,
+    listed: u64,
+    with_icon: u64,
+    unlisted: Vec<(i64, u64)>,
+}
+
+/// Each object the recorded 2017 players selected, once selected again, is the inventory's
+/// selection and is listed among the inventory's items with its facts (its icon among them), as
+/// the panels need it to drag it from the world into the pack: the first 2,000 selections of an
+/// object the client held, every one listed.
+///
+/// Behaviour: script.model.the-selection-is-listed-with-the-inventory
+#[test]
+fn the_selection_is_listed_with_the_inventory() {
+    let data = data().expect("the September 2013 install opens");
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.extend([PLAY_CHARACTER, captures::carrier::TO_SERVER]);
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    let mut t = Picked::default();
+    captures::messages_in_time_order(&index, &types, &[2017], |m| {
+        if t.selected >= SELECTIONS {
+            return;
+        }
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        c.notices.clear();
+        if m.to_client {
+            if let Ok(msg) = ServerMessage::decode(&m.raw) {
+                c.take_message(m.blob_id, msg);
+            }
+            return;
+        }
+        if m.message_type == PLAY_CHARACTER {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Some(call) = m.script_call() else { return };
+        if call.function != SET_SELECTION || c.model.player_object().is_none() {
+            return;
+        }
+        let Ok(v) = auberean_script::args::decode(&call.args, lib) else {
+            return;
+        };
+        let [auberean_script::args::Arg::LongInt(target)] = v[..] else {
+            return;
+        };
+        if target == 0 || Some(target) == c.model.player || c.model.object(target).is_none() {
+            return;
+        }
+        c.act(Action::Select { target });
+        c.refresh_inventory();
+        t.selected += 1;
+        let inv = c.inventory();
+        if inv.selection == target {
+            t.named += 1;
+        }
+        match inv.items.get(&target) {
+            Some(f) => {
+                t.listed += 1;
+                if f.icon != 0 {
+                    t.with_icon += 1;
+                }
+            }
+            None => {
+                if t.unlisted.len() < 5 {
+                    t.unlisted.push((capture, target));
+                }
+            }
+        }
+    })
+    .expect("the index reads");
+    eprintln!("{t:?}");
+    assert_eq!(t.selected, SELECTIONS, "{t:?}");
+    assert_eq!(t.named, t.selected, "{t:?}");
+    assert_eq!(t.listed, t.selected, "{t:?}");
+}

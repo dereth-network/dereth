@@ -728,6 +728,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.the-selection-is-listed-with-the-inventory",
+        says: "Each object the recorded 2017 players selected, selected again, is the inventory's selection and is listed among the inventory's items with its facts, its icon among them, as the panels need it to drag the selection from the world into the pack: the first 2,000 selections of an object the client held, every one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SELECTION-LISTED"),
+        station: "auberean-client-runtime::corpus::inventory::the_selection_is_listed_with_the_inventory",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.the-servers-updates-go-to-the-description-first",
         says: "The server's update of a quality the object's description holds (an item's container, its quantity, the scale, the icon, a yes-or-no flag) goes to the description, which answers for it first; the object's own qualities are left as they were. An update of a quality the description does not hold is the object's own.",
         since: RETAIL,

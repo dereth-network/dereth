@@ -682,3 +682,90 @@ fn an_item_dropped_in_the_world_goes_to_what_lies_there() {
         );
     }
 }
+
+/// A press on the world held and moved drags the selection's icon (the object selected in the
+/// world, wherever it lies), not an item of the pack the pointer then passes over; let go over the
+/// pack, the selection is asked to be put in it.
+///
+/// Behaviour: ui.inventory.the-world-pulled-on-drags-the-selection-not-a-pack-item
+#[test]
+fn the_world_pulled_on_drags_the_selection_not_a_pack_item() {
+    use auberean_ui::token::attr;
+    const STONE: u64 = 0x8000_0000_0000_0077;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    let mut stone = item("Stone", HELM_ICON, 1, false);
+    stone.had = false;
+    f.items.insert(STONE, stone);
+    f.selection = STONE;
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    key(&mut ui, &mut p, &mut t, &f, tb::INVENTORY_PANEL);
+    let sword = window(&p)
+        .backpack()
+        .and_then(|b| b.packs()[0].item_display(SWORD))
+        .and_then(|d| d.icon())
+        .expect("the sword in the pack");
+    let world = (400, 200);
+    ui.pointer_move(world.0, world.1);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    assert_eq!(
+        ui.top(),
+        ui.element(Token::of("ItemSelectionField")),
+        "the pointer on the world"
+    );
+    ui.pointer_button(button_id::LEFT, true);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    // Pulled: moved on in steps of a few texels toward the pack, over the world, two moves within
+    // one frame.
+    let (sx, sy) = middle(&ui, sword);
+    for i in 1..=4 {
+        ui.pointer_move(world.0 + 4 * i, world.1 + 4 * i);
+        if i > 1 {
+            tick(&mut ui, &mut p, &mut t, &f, &[]);
+        }
+    }
+    let carried = |ui: &Ui| {
+        ui.dragged()
+            .and_then(|d| ui.node(d))
+            .and_then(|n| n.instance_id_attr(Token::of("ShortcutData")))
+    };
+    assert_eq!(carried(&ui), Some(STONE), "the selection's icon dragged");
+    // On over the pack's sword: still the selection.
+    for i in 1..=8 {
+        let x = world.0 + 16 + (sx - world.0 - 16) * i / 8;
+        let y = world.1 + 16 + (sy - world.1 - 16) * i / 8;
+        ui.pointer_move(x, y);
+        tick(&mut ui, &mut p, &mut t, &f, &[]);
+    }
+    assert_eq!(carried(&ui), Some(STONE), "the sword is not dragged");
+    assert!(
+        ui.node(sword).is_some_and(|n| n.bool_attr(attr::DRAGABLE)),
+        "the sword stays in its cell"
+    );
+    // Let go on the pack's second cell.
+    let shield = window(&p)
+        .backpack()
+        .and_then(|b| b.packs()[0].item_display(SHIELD))
+        .and_then(|d| d.icon())
+        .expect("the shield in the pack");
+    let (x, y) = middle(&ui, shield);
+    ui.pointer_move(x, y);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_button(button_id::LEFT, false);
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert_eq!(
+        asked(&out),
+        vec![Asked::Put {
+            item: STONE,
+            from: inventory::NO_OBJECT,
+            to: PLAYER,
+            old_slot: 0,
+            new_slot: 1,
+            quantity: 1,
+        }],
+        "the selection asked into the pack"
+    );
+}

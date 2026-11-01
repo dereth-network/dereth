@@ -240,6 +240,17 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
             }
         }
     }
+    if let Some((ox, oy, picture)) = &n.overlay {
+        let (x0, y0) = (area.x0 + ox, area.y0 + oy);
+        let r = Rect::sized(x0, y0, picture.width, picture.height);
+        if let Some(c) = r.intersect(clip) {
+            for y in c.y0..=c.y1 {
+                for x in c.x0..=c.x1 {
+                    blit_texel(layer, x, y, picture.get(x - x0, y - y0), Blit::Blend);
+                }
+            }
+        }
+    }
 }
 
 /// A top-level element's layer turned about the middle of its rectangle by whole degrees,

@@ -91,6 +91,19 @@ mod name {
     pub const LOSS: Token = Token::of("loss");
     pub const BYTES_IN: Token = Token::of("BytesIn");
     pub const BYTES_OUT: Token = Token::of("BytesOut");
+    pub const BORDER_PIXELS: Token = Token::of("border_pixels");
+    pub const R_BACK: Token = Token::of("r_back");
+    pub const G_BACK: Token = Token::of("g_back");
+    pub const B_BACK: Token = Token::of("b_back");
+    pub const A_BACK: Token = Token::of("a_back");
+    pub const R_SENT: Token = Token::of("r_sent");
+    pub const G_SENT: Token = Token::of("g_sent");
+    pub const B_SENT: Token = Token::of("b_sent");
+    pub const A_SENT: Token = Token::of("a_sent");
+    pub const R_RECV: Token = Token::of("r_recv");
+    pub const G_RECV: Token = Token::of("g_recv");
+    pub const B_RECV: Token = Token::of("b_recv");
+    pub const A_RECV: Token = Token::of("a_recv");
     pub const CUR: Token = Token::of("cur");
     pub const INC: Token = Token::of("inc");
     pub const XP: Token = Token::of("xp");
@@ -987,7 +1000,25 @@ pub struct NetworkIndicator {
     ugly: f32,
     graph: bool,
     last: Option<Link>,
+    /// The graph's columns, one a measure, the oldest at `next` (written over next).
+    traffic: Vec<Traffic>,
+    next: usize,
+    /// The state shown changed at the last measure from a lit one: the graph's ground is left
+    /// clear until the next.
+    fresh: bool,
+    /// The options were read again: whether the graph shows is asked of them.
+    reload: bool,
 }
+
+/// One column of the bandwidth graph: the bytes sent and received a second at one measure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Traffic {
+    pub sent: u32,
+    pub received: u32,
+}
+
+/// The bandwidth graph's largest size, either way.
+const GRAPH_SIZE: i32 = 32;
 
 impl NetworkIndicator {
     /// The network indicator under the indicators' framework: its field, its thresholds, plain.
@@ -1010,6 +1041,10 @@ impl NetworkIndicator {
             ugly: f(name::UGLY),
             graph: false,
             last: None,
+            traffic: Vec::new(),
+            next: 0,
+            fresh: false,
+            reload: false,
         }
     }
 
@@ -1019,12 +1054,26 @@ impl NetworkIndicator {
         self.shown
     }
 
+    /// Whether the bandwidth graph shows.
+    #[must_use]
+    pub const fn graph(&self) -> bool {
+        self.graph
+    }
+
+    /// The bandwidth graph's columns, the oldest first.
+    #[must_use]
+    pub fn traffic(&self) -> Vec<Traffic> {
+        let n = self.traffic.len();
+        (0..n).map(|i| self.traffic[(self.next + i) % n]).collect()
+    }
+
     /// The connection measured again: the tooltip (the round trip and the loss, with the graph
-    /// the bytes in and out each second); the state by how long since the server was last heard.
+    /// the bytes in and out each second); with the graph, a column of it (as many columns as the
+    /// indicator is wide inside its border); the state by how long since the server was last
+    /// heard; the graph drawn again.
     // D2-02437
     pub fn heartbeat(&mut self, ui: &mut Ui, link: Link) {
         let Some(field) = self.field else { return };
-        let per = 1.0 / link.span;
         #[allow(clippy::cast_possible_truncation)]
         let loss = f64::from((link.loss * 100.0) as f32);
         let mut vars = vec![
@@ -1043,20 +1092,22 @@ impl NetworkIndicator {
                 },
             ),
         ];
+        // The bytes a second: the count over the span, kept as a single.
+        #[allow(clippy::cast_possible_truncation)]
+        let rate = |bytes: u32| (f64::from(bytes) * (1.0 / f64::from(link.span))) as f32;
+        let (bytes_in, bytes_out) = (rate(link.bytes_in), rate(link.bytes_out));
         let string = if self.graph {
-            #[allow(clippy::cast_precision_loss)]
             vars.push((
                 name::BYTES_IN,
                 auberean_text::Value::Float {
-                    value: f64::from(link.bytes_in as f32 * per),
+                    value: f64::from(bytes_in),
                     decimals: 1,
                 },
             ));
-            #[allow(clippy::cast_precision_loss)]
             vars.push((
                 name::BYTES_OUT,
                 auberean_text::Value::Float {
-                    value: f64::from(link.bytes_out as f32 * per),
+                    value: f64::from(bytes_out),
                     decimals: 1,
                 },
             ));
@@ -1066,6 +1117,27 @@ impl NetworkIndicator {
         };
         let text = write(ui, string, vars);
         ui.set_tooltip(field, &text);
+        let border = ui
+            .node(field)
+            .and_then(|n| n.int_attr(name::BORDER_PIXELS))
+            .unwrap_or(0);
+        let width = ui.node(field).map_or(0, |n| n.rect.width());
+        if self.graph && border * 2 < width {
+            let columns = usize::try_from(width - border * 2).unwrap_or(1);
+            if columns != self.traffic.len() {
+                self.traffic.resize(columns, Traffic::default());
+            }
+            // The rates kept as whole bytes, cut toward zero.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let column = Traffic {
+                sent: bytes_out as u32,
+                received: bytes_in as u32,
+            };
+            if let Some(c) = self.traffic.get_mut(self.next) {
+                *c = column;
+            }
+            self.next = (self.next + 1) % columns;
+        }
         let f = link.since_heard;
         let s = if f >= self.ugly {
             name::UGLY
@@ -1076,17 +1148,141 @@ impl NetworkIndicator {
         } else {
             state::STATELESS
         };
-        if self.shown != s {
+        if self.shown == s {
+            self.fresh = false;
+        } else {
+            self.fresh = self.shown != state::STATELESS;
             ui.set_state(field, s);
             self.shown = s;
         }
         self.last = Some(link);
+        self.draw_graph(ui);
     }
 
-    /// The options came again: whether the bandwidth graph shows.
+    /// The options came again: whether the bandwidth graph shows; the indicator drawn again.
     // D2-02430, D2-02431
-    pub fn reload_options(&mut self, graph: bool) {
+    pub fn reload_options(&mut self, ui: &mut Ui, graph: bool) {
         self.graph = graph;
+        self.draw_graph(ui);
+    }
+
+    /// The bandwidth graph over the indicator, inside its border (at most 32 texels either way),
+    /// while the indicator shows and the player asked for it: the ground in its color (clear just
+    /// after the state changed from a lit one), then a column a measure from the oldest, the bytes
+    /// sent a second as a bar down from the top and the bytes received as one up from the foot,
+    /// blended over the indicator's picture.
+    // D2-02433, D2-02438
+    fn draw_graph(&self, ui: &mut Ui) {
+        let Some(field) = self.field else { return };
+        let Some(n) = ui.node(field) else { return };
+        let border = n.int_attr(name::BORDER_PIXELS).unwrap_or(0);
+        let (w, h) = (n.rect.width(), n.rect.height());
+        if !self.graph || !ui.frame_shown(self.frame) || border * 2 >= w || border * 2 >= h {
+            ui.set_overlay(field, None);
+            return;
+        }
+        let color = |parts: [Token; 4]| parts.map(|t| n.float_attr(t).unwrap_or(0.0));
+        let mut ground = color([name::R_BACK, name::G_BACK, name::B_BACK, name::A_BACK]);
+        let sent = color([name::R_SENT, name::G_SENT, name::B_SENT, name::A_SENT]);
+        let received = color([name::R_RECV, name::G_RECV, name::B_RECV, name::A_RECV]);
+        if self.fresh {
+            ground[3] = 0.0;
+        }
+        let mut graph = Graph::new(
+            (w - border * 2).min(GRAPH_SIZE),
+            (h - border * 2).min(GRAPH_SIZE),
+            ground,
+        );
+        let columns = self.traffic.len();
+        let mut at = self.next;
+        for x in 0..graph.picture.width {
+            if at >= columns {
+                break;
+            }
+            let c = self.traffic[at];
+            graph.bar(c.sent, x, sent, false);
+            graph.bar(c.received, x, received, true);
+            at = (at + 1) % columns;
+        }
+        ui.set_overlay(field, Some((border, border, graph.picture)));
+    }
+}
+
+/// A color as the interface's pictures hold it: each part times 255, cut toward zero.
+// D2-03480
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn texel(c: [f32; 4]) -> [u8; 4] {
+    let p = |v: f32| (f64::from(v) * 255.0) as u8;
+    [p(c[2]), p(c[1]), p(c[0]), p(c[3])]
+}
+
+/// The bandwidth graph being drawn: its picture, its ground's color, and the longest a bar grows
+/// (half the graph's height, less one).
+#[derive(Debug)]
+struct Graph {
+    picture: auberean_ui::draw::Surface,
+    ground: [f32; 4],
+    longest: u32,
+}
+
+impl Graph {
+    /// A graph `w` by `h` filled with its ground.
+    // D2-02428
+    fn new(w: i32, h: i32, ground: [f32; 4]) -> Self {
+        let mut picture = auberean_ui::draw::Surface::new(w, h);
+        let g = texel(ground);
+        for y in 0..h {
+            for x in 0..w {
+                picture.put(x, y, g);
+            }
+        }
+        Self {
+            picture,
+            ground,
+            longest: u32::try_from((h + 1) / 2 - 1).unwrap_or(0),
+        }
+    }
+
+    /// A color part of the way from the ground to `color`.
+    // D2-02429
+    #[allow(clippy::cast_possible_truncation)]
+    fn blend(&self, color: [f32; 4], t: f32) -> [f32; 4] {
+        let keep = 1.0 - f64::from(t);
+        let mut out = [0.0; 4];
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = (keep * f64::from(self.ground[i]) + f64::from(t) * f64::from(color[i])) as f32;
+        }
+        out
+    }
+
+    /// One measure's bar in column `x`: as long as the eighth of the bytes takes halvings to come
+    /// down to one (at most the longest), down from the top or up from the foot, with the texel
+    /// past its end part of the way to its color by how far the bytes go past that power of two.
+    // D2-02432
+    #[allow(clippy::cast_possible_truncation)]
+    fn bar(&mut self, bytes: u32, x: i32, color: [f32; 4], from_foot: bool) {
+        let eighths = bytes >> 3;
+        if eighths == 0 {
+            return;
+        }
+        let level = (31 - eighths.leading_zeros()).min(self.longest);
+        let l = i32::try_from(level).unwrap_or(0);
+        let foot = self.picture.height - 1;
+        let (y0, y1, past) = if from_foot {
+            (foot - l, foot, foot - l - 1)
+        } else {
+            (0, l, l + 1)
+        };
+        let c = texel(color);
+        for y in y0..=y1 {
+            self.picture.put(x, y, c);
+        }
+        if level != self.longest {
+            let whole = 1u32 << level;
+            let t = (f64::from(eighths - whole) / f64::from(whole)) as f32;
+            let b = texel(self.blend(color, t));
+            self.picture.put(x, past, b);
+        }
     }
 }
 
@@ -1095,7 +1291,23 @@ impl Child for NetworkIndicator {
         self.frame
     }
 
+    /// The player's options read again, or changed by the options window: whether the graph
+    /// shows is asked of them.
+    fn notice(&mut self, _ui: &mut Ui, n: &Notice, _out: &mut Vec<Request>) {
+        if n.native == gameplay::notice::RELOAD_OPTIONS
+            || n.native == crate::options::notice::OPTIONS_CHANGED
+        {
+            self.reload = true;
+        }
+    }
+
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
+        if self.reload {
+            if let Some(o) = view.options {
+                self.reload = false;
+                self.reload_options(ui, o.bits & crate::options::LATENCY_GRAPH != 0);
+            }
+        }
         if let Some(l) = view.link {
             if self.last != Some(l) {
                 self.heartbeat(ui, l);

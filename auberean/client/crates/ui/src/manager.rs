@@ -514,7 +514,8 @@ impl Ui {
 
     /// A press: global listeners hear it; the element with the keyboard loses it unless the
     /// pointer is on it; each root from the nearest passes the press down to the elements the
-    /// pointer is over; then the pointer's elements are worked out again and the tooltip goes.
+    /// pointer is over, until one takes it (the roots behind never hear it, nor hold the button);
+    /// then the pointer's elements are worked out again and the tooltip goes.
     // D2-11208
     fn mouse_down_event(&mut self, button: u32) {
         self.broadcast_global(global::MOUSE_DOWN, button);
@@ -533,6 +534,9 @@ impl Ui {
         let (x, y) = (self.mgr.x, self.mgr.y);
         let mut handled = false;
         for r in self.roots().to_vec() {
+            if handled {
+                break;
+            }
             self.notify_mouse_down(r, x, y, button, &mut handled);
         }
         self.flush_pending();

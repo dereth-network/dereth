@@ -572,6 +572,142 @@ fn vitals_indicators_and_effects_follow_the_scripts() {
     assert!(effect_icons(&s).is_empty());
 }
 
+/// With the player's latency graph option on, the network indicator's tooltip also gives the bytes
+/// in and out each second, and a graph is blended over the indicator inside its border: a column
+/// a measure, the newest at the right, the bytes sent a second as a bar down from the top and
+/// those received as one up from the foot, each as long as the eighth of the bytes takes halvings
+/// to come down to one, the texel past its end part of the way to its color; the graph's dark
+/// ground is left clear for the measure at which the indicator's state changes. With the option
+/// off again, the graph goes.
+///
+/// Behaviour: ui.statusbar.the-latency-graph-option-draws-the-bandwidth-over-the-network-indicator
+#[test]
+fn the_latency_graph_option_draws_the_bandwidth_over_the_network_indicator() {
+    use auberean_ui::draw::{self, Surface};
+    use auberean_ui_game::options::{self, Values};
+    use auberean_ui_game::statusbar::Link;
+
+    let mut s = Play::new();
+    // The pointer away from the status bar, so no tooltip covers it.
+    s.ui.pointer_move(600, 300);
+    let field = s.element("NetStatusField");
+    let mut beat = 0;
+    let mut measure =
+        |s: &mut Play, sent: u32, received: u32, quiet: f32, bits: u32, n: &[Notice]| {
+            beat += 1;
+            let link = Link {
+                beat,
+                latency: 0.05,
+                loss: 0.0,
+                bytes_in: received,
+                bytes_out: sent,
+                span: 1.0,
+                since_heard: quiet,
+            };
+            s.t += 0.05;
+            s.ui.use_time(s.t);
+            let view = View {
+                link: Some(link),
+                options: Some(Values {
+                    bits,
+                    ..Values::default()
+                }),
+                ..View::default()
+            };
+            let mut out = Vec::new();
+            s.p.tick(&mut s.ui, &view, n, &mut out);
+        };
+    let overlay = |s: &Play| s.ui.node(field).and_then(|n| n.overlay.clone());
+    let tip = |s: &Play| s.ui.element_tooltip(field).unwrap_or_default().to_owned();
+
+    // The option off: no graph, and the tooltip without the bytes.
+    measure(&mut s, 40, 8, 0.0, 0, &[]);
+    assert!(overlay(&s).is_none(), "no graph while the option is off");
+    let plain = tip(&s);
+    let mut plain_screen = Surface::new(1024, 768);
+    draw::draw(&s.ui, &mut plain_screen);
+
+    // The option on, read again: a graph inside the 2-texel border, 16 by 28, and the bytes in the
+    // tooltip.
+    let reload = notice(gameplay::notice::RELOAD_OPTIONS, vec![]);
+    measure(&mut s, 40, 8, 0.0, options::LATENCY_GRAPH, &[reload]);
+    let (x, y, graph) = overlay(&s).expect("the graph over the indicator");
+    assert_eq!((x, y, graph.width, graph.height), (2, 2, 16, 28));
+    assert_ne!(tip(&s), plain, "the tooltip gives the bytes too");
+    assert!(
+        tip(&s).contains("40"),
+        "the bytes sent a second: {}",
+        tip(&s)
+    );
+
+    // Its newest column: 40 bytes sent (an eighth of 5: two halvings, 3 texels down, the fourth a
+    // quarter of the way from the ground) and 8 received (one texel up from the foot).
+    let ground = [0, 0, 0, 127];
+    let sent = [119, 141, 151, 191];
+    let received = [150, 170, 176, 191];
+    let quarter = [29, 35, 37, 143];
+    let column = |g: &Surface, x: i32| (0..g.height).map(|y| g.get(x, y)).collect::<Vec<_>>();
+    let newest = column(&graph, 15);
+    assert_eq!(&newest[..3], &[sent; 3]);
+    assert_eq!(newest[3], quarter);
+    assert!(newest[4..27].iter().all(|t| *t == ground));
+    assert_eq!(newest[27], received);
+    for x in 0..15 {
+        assert!(
+            column(&graph, x).iter().all(|t| *t == ground),
+            "column {x}: no measure yet"
+        );
+    }
+
+    // Blended over the indicator's picture: each texel moves toward the graph's by its alpha.
+    let mut screen = Surface::new(1024, 768);
+    draw::draw(&s.ui, &mut screen);
+    let at = s.ui.screen_rect(field).expect("placed");
+    let blend = |d: [u8; 4], g: [u8; 4]| {
+        let a = i32::from(g[3]);
+        let m = |dc: u8, gc: u8| {
+            let dc = i32::from(dc);
+            u8::try_from(dc - (dc - i32::from(gc)) * a / 256).unwrap_or(0)
+        };
+        [m(d[0], g[0]), m(d[1], g[1]), m(d[2], g[2])]
+    };
+    for (gx, gy) in [(15, 0), (15, 3), (15, 10), (15, 27), (0, 0)] {
+        let (sx, sy) = (at.x0 + 2 + gx, at.y0 + 2 + gy);
+        let before = plain_screen.get(sx, sy);
+        assert_eq!(
+            screen.get(sx, sy)[..3],
+            blend(before, graph.get(gx, gy)),
+            "texel ({gx}, {gy}) of the graph"
+        );
+    }
+
+    // More measures move the columns left; one 800 bytes sent a second reaches 7 texels down.
+    measure(&mut s, 800, 0, 0.0, options::LATENCY_GRAPH, &[]);
+    let (_, _, graph) = overlay(&s).expect("the graph");
+    assert_eq!(column(&graph, 14)[..3], [sent; 3]);
+    let newest = column(&graph, 15);
+    assert_eq!(&newest[..7], &[sent; 7]);
+    assert_eq!(newest[27], ground, "nothing received");
+
+    // The indicator turns bad (the server unheard for 12 seconds): for that measure the ground is
+    // clear; the next measure, dark again.
+    measure(&mut s, 0, 0, 12.0, options::LATENCY_GRAPH, &[]);
+    let (_, _, graph) = overlay(&s).expect("the graph");
+    assert_eq!(
+        graph.get(0, 10)[3],
+        0,
+        "the ground left clear as the state changes"
+    );
+    measure(&mut s, 0, 0, 12.0, options::LATENCY_GRAPH, &[]);
+    let (_, _, graph) = overlay(&s).expect("the graph");
+    assert_eq!(graph.get(0, 10), ground);
+
+    // The option turned off in the options window: the graph goes.
+    let changed = notice(options::notice::OPTIONS_CHANGED, vec![]);
+    measure(&mut s, 0, 0, 12.0, 0, &[changed]);
+    assert!(overlay(&s).is_none(), "the graph goes with the option");
+}
+
 /// The player's pack holding the sword, whose look makes its icon of two layers (its own icon
 /// number is 0, as for every item of the recorded sessions).
 fn pack_with_a_sword() -> Facts {

@@ -75,6 +75,9 @@ pub mod notice {
     pub const OPTIONS_CHANGED: u32 = 0x46D;
 }
 
+/// The player's option bit for the bandwidth graph over the network indicator.
+pub const LATENCY_GRAPH: u32 = 0x4000;
+
 /// The player's options as the client last read them, for the character page.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Values {
