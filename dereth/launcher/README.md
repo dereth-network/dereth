@@ -3,7 +3,15 @@
 The launcher gets you from "I have Asheron's Call" to "in the world I chose". It lists the worlds,
 keeps your accounts (passwords only in the system's secret store), checks that your client and data
 files suit a world before connecting, starts the client, and keeps itself and the Dereth client up
-to date. It can also host a world with Empyrean and build one with Lyceum.
+to date. It can also host a world with Empyrean and build one with Lyceum. A portal above the rail
+turns the page to Asheron's Call 2: Auberean, its client; Yalain, a world on this computer; and
+Athenaeum, its world builder.
+
+One launcher serves both games. Dereth's release carries it with the Dereth client, and Auberean's
+with the Auberean client and a small `launcher-defaults.json` that opens a first run in Auberean's
+realm and takes the launcher's updates from Auberean's releases ([RELEASING.md](RELEASING.md),
+"Two channels"). The other game's client is downloaded the first time it is wanted. The window is
+titled Dereth Network, and its icon is the network's emblem; the game clients keep their own.
 
 | Folder | What |
 |---|---|
@@ -146,7 +154,8 @@ that run a client of their own, else the end of retail.
 
 On Windows and Linux, a button beside the version under the rail creates a desktop shortcut. On
 Linux each start also writes the launcher's application entry (`network.dereth.dereth.desktop`
-and its icon under `$XDG_DATA_HOME`), so its window gets its name and icon.
+and its icon under `$XDG_DATA_HOME`), and the Dereth client window's hidden entry with the client's
+own icon, so each window gets its name and icon.
 
 ## Plugins
 
@@ -315,6 +324,10 @@ For scripts, with Lyceum closed, `dereth --publish-host <world-folder> <world.to
 | What | Where |
 |---|---|
 | Empyrean and Lyceum as downloaded | `components/empyrean/<version>` and `components/lyceum/<version>` in the launcher's data folder, with `current.json` naming the version in use |
+| Auberean, Yalain and Athenaeum as downloaded | `components/auberean/<version>`, `components/yalain/<version>` and `components/athenaeum/<version>` there, the same way |
+| the Dereth client as downloaded (by a launcher from Auberean's release) | `components/dereth/<version>` there, the same way |
+| the world on this computer (Auberean's realm) | `auberean/yalain.sqlite` (accounts and characters) and `auberean/yalain.log` (its log, the one before it as `yalain.log.old`) in the launcher's data folder |
+| Athenaeum's worlds | `Athenaeum` in your Documents; the ones the launcher made or opened, in `athenaeum-worlds.json` in its data folder |
 | each world you host | `hosts/<id>` in the launcher's data folder: `empyrean.toml`, `auth.db` (accounts), `shard.db` (characters), `world.pack` and `world.pack.base` (the ACE release it came from), `server.log` and `server.log.old`, `runtime/<version>` (its own Empyrean), `published/snapshot-<n>` (published Lyceum worlds), `client-overlays` (the launcher's client's patches) |
 | backups | `auth.db.backup-update-v<old>-v<new>-<time>` and the same for `shard.db`, made before each update; the newest three are kept |
 | ACE's world release, as downloaded | Empyrean's cache: `%LOCALAPPDATA%\Empyrean\world-database`, `~/Library/Caches/Empyrean/world-database`, `$XDG_CACHE_HOME/empyrean/world-database` |
@@ -325,22 +338,75 @@ For scripts, with Lyceum closed, `dereth --publish-host <world-folder> <world.to
 
 **Delete World** deletes the world's folder, its databases included.
 
+## Asheron's Call 2: Auberean's realm
+
+The two portals above the rail pick the game the page is about: Dereth's, or Auberean's. The page
+opens in the one it last showed; a first run opens in the one its release names (Auberean's for the
+launcher from Auberean's release). In Auberean's realm the rail's Empyrean and Lyceum are **Yalain**
+and **Athenaeum**, and Plugins (Dereth's alone) folds away.
+
+**Your game files.** Nothing of Asheron's Call 2 comes with the launcher or is downloaded. On Play
+(or Yalain's or Athenaeum's page), **Choose Your Asheron's Call 2 Folder** names the folder of your
+own install. The launcher checks its data files as it checks Asheron's Call's: `portal.dat`,
+`cell_1.dat` and `local_English.dat` must be there, and `highres.dat` is read when it is; each
+file's header must say it is that file, written at the size it is (a copy cut short is caught). It
+keeps the folder in `launcher-state.json` and gives it to the programs as it is; it never copies
+or changes a file in it.
+
+**The programs.** The launcher from Auberean's release has the Auberean client beside it. Yalain
+and Athenaeum, and the Auberean client for a launcher from Dereth's release, are downloaded,
+updated and removed as Empyrean and Lyceum are, each its own newest release (`auberean-v<version>`,
+`yalain-v<version>`, `athenaeum-v<version>`), checked against the release's `SHA256SUMS`. The
+Auberean client comes out of its release, which is the launcher with the client beside it (on
+Linux the AppImage unpacks itself to give it up); Athenaeum's AppImage is kept as it is. A
+downloaded client newer than the one beside the launcher is used instead of it. In the same way a
+launcher from Auberean's release offers the Dereth client on Play when it is first wanted, from the
+newest `dereth-v<version>` release. A development build uses its checkout's builds, as for
+Empyrean and Lyceum.
+
+**Join links** name their game: `dereth://join?host=...&port=...&name=...&game=auberean` (and
+the site's `https://dereth.network/join#...&game=auberean`) adds the world to Auberean's realm. A
+link without `game` is Dereth's, as every link was before; a game this launcher does not know is
+refused. Links the launcher writes name the game only for Auberean.
+
+**Play** runs a world on this computer and logs in to it: it starts Yalain when it is not running,
+waits until Yalain says it is listening, then starts Auberean with `--dats <your folder> --server
+127.0.0.1:9200 --account <name>:`. The account is the name you type; the world makes it the first
+time it logs in, and asks no password. A world of Asheron's Call 2's on the Dereth Network opens
+from **Worlds**, with an account and a password; the password goes to the client and is kept
+nowhere. The launcher logs the client's command line with the password replaced by `***`.
+
+**Yalain's page** runs the world on this computer: **Start** fetches the world database Yalain's
+release pins into your user cache when it is not there yet (`yalain world fetch`), then runs
+`yalain --dats <your folder> --data <data>/auberean/yalain.sqlite --login-port 9200 --world-port
+9202`, listening on this computer alone; **Stop** ends it at once. Its log is on the page. Closing
+the launcher stops it.
+
+**Athenaeum's page** makes and opens worlds. **New world** makes one with `athenaeum new` in an
+`Athenaeum` folder in your Documents and opens the editor on it; **Open World** opens one by its
+folder. The editor is started with `<world> --dats <your folder>`, and finds Yalain and Auberean
+beside itself.
+
+Started with `DERETH_SETTINGS_DIR` set, the launcher gives Auberean `AUBEREAN_SETTINGS_DIR` as a
+folder `auberean` in it, so a trial run keeps away from the player's own settings.
+
 ## Building
 
 ```sh
 cargo test -p dereth-launch        # the logic crate, from the repository root
 cd dereth/launcher
 cargo run                          # the launcher, in a native window
-cargo run -- --downloads           # the same, downloading Empyrean and Lyceum as a release does
+cargo run -- --downloads           # the same, downloading the servers and builders as a release does
 cargo test                         # the app's own tests
 cargo tauri build                  # the release build (`cargo install tauri-cli --version ^2 --locked`)
 ```
 
 The Tauri app is kept out of the main workspace, so nothing there needs a web view or, on Linux,
 WebKitGTK. There's no Node, npm or bundler: `ui/` is plain HTML, CSS and JavaScript, embedded at
-build time. `build.rs` copies the paintings, emblems and typefaces from `assets/` and the icons from
-`dereth/client/assets` into `ui/assets` (ignored by git). On macOS it also compiles the
-client's `Dereth.icon` with Xcode's `actool`; only `tauri.macos.conf.json` names the results.
+build time. `build.rs` copies the paintings, emblems and typefaces from `assets/` into `ui/assets`
+(ignored by git), and the launcher's own icon, the network's emblem, from `assets/icon` into
+`icons/`: a 256-pixel PNG, the Windows icon and the macOS `Network.icns`, which only
+`tauri.macos.conf.json` names.
 
 On Windows `cargo tauri build` leaves `target/release/dereth.exe`. On Linux it needs Tauri's build
 dependencies (WebKitGTK 4.1 and friends). A release, with the client inside, is built by

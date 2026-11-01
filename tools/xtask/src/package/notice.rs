@@ -37,11 +37,20 @@ pub fn parse_cargo_tree(output: &str) -> Vec<Crate> {
 }
 
 /// Whether a crate is one of this repository's own (the shared `dereth-*` crates and the world
-/// builder's `lyceum-*`, MIT, and the server's `empyrean-*`, under the server's copyleft license).
+/// builder's `lyceum-*`, MIT, the server's `empyrean-*`, under the server's copyleft license, and
+/// Asheron's Call 2's `auberean-*`, `yalain-*` and `athenaeum-*`, MIT).
 pub fn is_own(c: &Crate) -> bool {
-    c.name.starts_with("dereth-")
-        || c.name.starts_with("empyrean-")
-        || c.name.starts_with("lyceum-")
+    [
+        "dereth-",
+        "empyrean-",
+        "lyceum-",
+        "auberean-",
+        "yalain-",
+        "athenaeum-",
+    ]
+    .iter()
+    .any(|p| c.name.starts_with(p))
+        || c.name == "yalain"
 }
 
 /// Everything `NOTICE.txt` states.
@@ -471,6 +480,106 @@ LYCEUM
     if let Some(license) = f.moltenvk_license {
         out.push_str(&moltenvk_section("editor", license));
     }
+    out.push_str(&built_from_section(
+        &own.iter().map(line).collect::<Vec<_>>(),
+        &third.iter().map(line).collect::<Vec<_>>(),
+    ));
+    out
+}
+
+/// Everything the `NOTICE.txt` of an Asheron's Call 2 product's package states: Auberean's,
+/// Yalain's or Athenaeum's.
+#[derive(Debug, Clone)]
+pub struct GameFacts<'a> {
+    /// The product, which names the release's tag.
+    pub product: super::version::Product,
+    pub version: &'a str,
+    pub target: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    pub crates: &'a [Crate],
+    /// The project's MIT license (the repository's top-level `LICENSE`).
+    pub mit_license: &'a str,
+    /// The typefaces the package carries, as (typeface, what carries it and for what, license
+    /// text).
+    pub fonts: &'a [(&'a str, &'a str, String)],
+}
+
+/// What the package of `product` is, in a sentence or two, and what it does with the game's data.
+fn game_words(product: super::version::Product) -> (&'static str, &'static str) {
+    use super::version::Product;
+    match product {
+        Product::Yalain => (
+            "This package is Yalain, an Asheron's Call 2 server: the `yalain` program, with its world
+database tool built in (`yalain world fetch`, `check` and `compile`).",
+            "This package contains no Asheron's Call 2 files and no world database. The server reads
+the game's data files from an install of your own, and fetches the world database it is built for
+into your user cache (`yalain world fetch`). Its accounts and characters are kept in SQLite,
+compiled into the program; SQLite is in the public domain (https://sqlite.org/copyright.html).",
+        ),
+        Product::Athenaeum => (
+            "This package is Athenaeum, the Asheron's Call 2 world builder: its editor and the
+`athenaeum` command, with Yalain, the server it plays a world on, and Auberean, the client it
+plays a world in, each a separate program beside them, from the same commit.",
+            "This package contains no Asheron's Call 2 files and no world database. Athenaeum reads
+the game's data files from an install of your own and never writes them; a world's changes are
+kept in the world's own folder. The world database is fetched into your user cache
+(`yalain world fetch`). Yalain keeps its accounts and characters in SQLite, compiled into the
+program; SQLite is in the public domain (https://sqlite.org/copyright.html).",
+        ),
+        _ => (
+            "This package is Auberean, an Asheron's Call 2 client, with the Dereth Network launcher
+beside it: the same launcher Dereth's package carries, which opens here in Auberean's realm and
+takes its updates from Auberean's releases.",
+            "This package contains no Asheron's Call 2 files. The client reads the game's data files
+from an install of your own.",
+        ),
+    }
+}
+
+/// The `NOTICE.txt` of an Asheron's Call 2 product's package.
+pub fn game_notice(f: &GameFacts) -> String {
+    let name = f.product.display_name();
+    let tag = f.product.tag_for(f.version);
+    let url = f.source_url.trim_end_matches('/');
+    let title = format!("{name} {} ({})", f.version, f.target);
+    let (what, data) = game_words(f.product);
+    let (own, third): (Vec<&Crate>, Vec<&Crate>) = f.crates.iter().partition(|c| is_own(c));
+    let line = |c: &&Crate| format!("  {} {} ({})", c.name, c.version, c.licence);
+    let mut out = format!(
+        "{title}
+{rule}
+
+{what}
+It is made by the Dereth project (https://dereth.network), and is free software under the MIT
+license, which is in LICENSE beside this file and below.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The source of exactly that commit:
+  {url}/tree/{commit}
+The release this package belongs to:
+  {url}/releases/tag/{tag}
+
+
+NO GAME DATA
+
+{data}
+
+
+{upper}
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        commit = f.commit,
+        upper = name.to_ascii_uppercase(),
+        mit = indent(f.mit_license.trim_end()),
+    );
+    out.push_str(&font_sections(f.fonts));
     out.push_str(&built_from_section(
         &own.iter().map(line).collect::<Vec<_>>(),
         &third.iter().map(line).collect::<Vec<_>>(),

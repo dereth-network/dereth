@@ -29,8 +29,13 @@
 //! client's `--dev-script`, say). Screenshots (F12, and a script's) go to `--shots`, by
 //! default the world's `build/shots`. A script (`script.rs`) plays editor steps as frames pass.
 //!
+//! `athenaeum-editor --version` prints the version, and the commit and target a release build was
+//! made from. A release build is a windowed program on Windows, with no console of its own.
+//!
 //! **Must never** write a base database or an install: it writes only the world's pack, its build
 //! folder and its screenshots.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -542,11 +547,46 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // `--version` alone: what this build is, and nothing opened.
+    if std::env::args().skip(1).eq(["--version"]) {
+        print!("{}", version_text());
+        return ExitCode::SUCCESS;
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("athenaeum-editor: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// What `athenaeum-editor --version` prints: the version, and the commit and target a release build
+/// was made from (`unknown` in a build that did not say).
+fn version_text() -> String {
+    format!(
+        "athenaeum-editor {}\ncommit: {}\ntarget: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("ATHENAEUM_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("ATHENAEUM_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
+#[cfg(test)]
+mod version_tests {
+    //! Behaviour: none (tooling: what `--version` prints, which the release workflow checks)
+    use super::version_text;
+
+    #[test]
+    fn version_names_the_program_its_version_its_commit_and_its_target() {
+        let text = version_text();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(
+            lines[0],
+            concat!("athenaeum-editor ", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(lines[1].starts_with("commit: "), "{text}");
+        assert!(lines[2].starts_with("target: "), "{text}");
     }
 }

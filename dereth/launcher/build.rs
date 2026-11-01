@@ -1,8 +1,8 @@
 //! Put the launcher's artwork where the web front end can load it, then let Tauri build.
 //!
-//! The paintings (a folder for each game), the portals, the emblems the page shows and the two
-//! typefaces live in `dereth/launcher/assets`, and the app's icon once, with the Dereth client.
-//! They are copied into `ui/assets` (which git ignores) before Tauri embeds `ui/`. The chrome is not
+//! The paintings (a folder for each game), the portals, the emblems the page shows, the two
+//! typefaces and the app's own icon live in `dereth/launcher/assets`. The page's are copied into
+//! `ui/assets` (which git ignores) before Tauri embeds `ui/`, and the icon's files into `icons/`. The chrome is not
 //! among them: this front end draws its frames, buttons and beads in CSS and SVG rather than
 //! cutting them out of the sprite atlas.
 
@@ -62,63 +62,16 @@ fn main() {
         names.sort();
         sets.insert(realm, names);
     }
-    // The app's icon is the Dereth client's, kept once beside the client.
-    let client = Path::new("../client/assets");
-    println!("cargo:rerun-if-changed=../client/assets");
+    // The app's icon is the network's emblem, the one the page's crest shows: a 256-pixel picture,
+    // the Windows icon with every size the shell asks for, and the macOS one.
+    let icon = assets.join("icon");
     let _ = std::fs::create_dir_all("icons");
-    let _ = std::fs::copy(client.join("dereth-256.png"), "icons/icon.png");
-    // Windows embeds the client's own multi-size icon in the executable.
-    let _ = std::fs::copy(client.join("dereth.ico"), "icons/icon.ico");
+    let _ = std::fs::copy(icon.join("network.png"), "icons/icon.png");
+    let _ = std::fs::copy(icon.join("network.ico"), "icons/icon.ico");
+    let _ = std::fs::copy(icon.join("Network.icns"), "icons/Network.icns");
     let _ = std::fs::write(
         "ui/assets/backgrounds.json",
         serde_json::to_string(&sets).unwrap_or_default(),
     );
-    compile_icon(&client.join("Dereth.icon"));
     tauri_build::build();
-}
-
-/// The client's layered `Dereth.icon`, compiled the way the client's own bundle compiles it: Xcode's
-/// `actool` writes `Assets.car` (what macOS 26 draws, with its glass and shading) and a flat
-/// `Dereth.icns` beside it for every earlier macOS. The bundle carries both (`tauri.macos.conf.json`,
-/// which only a macOS build reads: no other system has the files), and
-/// `Info.plist` names the one inside `Assets.car`.
-///
-/// Without Xcode there is no `actool`; `cargo run` needs neither file, so this only warns, and
-/// packaging is what fails, naming the missing file.
-fn compile_icon(source: &Path) {
-    let out = Path::new("icons");
-    if !cfg!(target_os = "macos") || !source.is_dir() {
-        return;
-    }
-    let partial = out.join("partial-info.plist");
-    let status = std::process::Command::new("xcrun")
-        .args([
-            "actool",
-            "--output-format",
-            "human-readable-text",
-            "--notices",
-            "--warnings",
-        ])
-        .args(["--app-icon", "Dereth", "--output-partial-info-plist"])
-        .arg(&partial)
-        .args([
-            "--target-device",
-            "mac",
-            "--platform",
-            "macosx",
-            "--minimum-deployment-target",
-            "11.0",
-            "--compile",
-        ])
-        .arg(out)
-        .arg(source)
-        .stdout(std::process::Stdio::null())
-        .status();
-    let _ = std::fs::remove_file(&partial);
-    if !matches!(status, Ok(s) if s.success()) {
-        println!(
-            "cargo:warning=actool could not compile {}; an .app bundle will lack the layered icon",
-            source.display()
-        );
-    }
 }

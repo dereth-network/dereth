@@ -40,6 +40,9 @@
 //! player without friends when the login has its secret; a service named for a login without one
 //! ends the login, as the September 2013 client does.
 //!
+//! `auberean --version` prints the version, and the commit and target a release build was made
+//! from. A release build is a windowed program on Windows, with no console of its own.
+//!
 //! The settings (`Preferences.ini`) are kept in the folder `AUBEREAN_SETTINGS_DIR` names, else in
 //! the user's application data (`Auberean`). Tests and trial runs set the variable to a folder of
 //! their own. The key maps' files are saved there too; one not saved there is read from the
@@ -47,6 +50,8 @@
 //!
 //! **Must never** hold the game: what a frame shows and what the player's input does are the
 //! shell's (`auberean-shell`); this program only brings the platform under it.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod friends;
 mod icon;
@@ -796,11 +801,43 @@ fn no_window(
 }
 
 fn main() -> ExitCode {
+    // `--version` alone: what this build is, and nothing opened.
+    if std::env::args().skip(1).eq(["--version"]) {
+        print!("{}", version_text());
+        return ExitCode::SUCCESS;
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("auberean: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// What `auberean --version` prints: the version, and the commit and target a release build
+/// was made from (`unknown` in a build that did not say).
+fn version_text() -> String {
+    format!(
+        "auberean {}\ncommit: {}\ntarget: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("AUBEREAN_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("AUBEREAN_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
+#[cfg(test)]
+mod version_tests {
+    //! Behaviour: none (tooling: what `--version` prints, which the release workflow checks)
+    use super::version_text;
+
+    #[test]
+    fn version_names_the_program_its_version_its_commit_and_its_target() {
+        let text = version_text();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[0], concat!("auberean ", env!("CARGO_PKG_VERSION")));
+        assert!(lines[1].starts_with("commit: "), "{text}");
+        assert!(lines[2].starts_with("target: "), "{text}");
     }
 }

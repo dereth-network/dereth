@@ -124,6 +124,14 @@ Lyceum (the world builder's editor and its `lyceum` command) is released the sam
 the release. `cargo xtask package lyceum` builds this host's release files locally.
 [lyceum/RELEASING.md](lyceum/RELEASING.md) describes the whole flow.
 
+Asheron's Call 2's three products, Auberean (the client, released with the launcher beside it, as
+Dereth's is), Yalain (the server) and Athenaeum (the world builder, with Yalain and Auberean beside
+its editor), are released the same way, each on tags of its own: `cargo xtask release auberean|yalain|athenaeum <version>` and a pushed
+`<product>-v<version>` tag, whose workflow drafts the release; the release also runs
+`cargo xtask ci tier1 --game auberean` when Asheron's Call 2's data is found.
+`cargo xtask package auberean|yalain|athenaeum` builds this host's release files locally.
+[auberean/RELEASING.md](auberean/RELEASING.md) describes the whole flow.
+
 The Dereth Network's hub and ACE mod are released the same way, each on tags of its own:
 `cargo xtask release network-hub <version>` (a pushed `network-hub-v<version>` tag) and
 `cargo xtask release network-ace <version>` (`network-ace-v<version>`). They keep no change log;

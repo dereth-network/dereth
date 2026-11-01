@@ -1,33 +1,41 @@
-//! The Linux desktop's entries for the launcher's window and the client's, and the icon they name.
+//! The Linux desktop's entries for the launcher's window and the client's, and the icons they name.
 //!
 //! A Linux desktop finds a window's icon and name through a `.desktop` file whose name, or whose
 //! `StartupWMClass`, matches the window's application id (on Wayland) or its window class (on
 //! X11). A Wayland window has no icon of its own at all, and an AppImage or a tarball installs
-//! nothing, so without these files both windows show a generic icon. Three files under the user's
+//! nothing, so without these files both windows show a generic icon. Four files under the user's
 //! data folder (`$XDG_DATA_HOME`, by default `~/.local/share`), each written only when its content
 //! differs:
 //!
 //! - `applications/network.dereth.dereth.desktop`, the launcher's entry in the application list;
 //! - `applications/network.dereth.dereth-client.desktop`, the client window's entry, hidden from
 //!   the application list (`NoDisplay=true`) because a player starts the client from the launcher;
-//! - `icons/hicolor/256x256/apps/network.dereth.dereth.png`, the icon both name.
+//! - `icons/hicolor/256x256/apps/network.dereth.dereth.png`, the launcher's icon, the network's
+//!   emblem;
+//! - `icons/hicolor/256x256/apps/network.dereth.dereth-client.png`, the client's, the Dereth emblem.
 //!
-//! The launcher writes all three on every start; the client, started on its own, writes its entry
-//! and the icon. Both compute the client's entry the same way ([`entry_target`]), so a client the
+//! The launcher writes all four on every start; the client, started on its own, writes its entry
+//! and its icon. Both compute the client's entry the same way ([`entry_target`]), so a client the
 //! launcher started finds its entry already as it would write it and writes nothing.
 
 use std::path::{Path, PathBuf};
 
 /// The launcher's application id: its window's Wayland app id and X11 class, its `.desktop` file's
-/// name and `StartupWMClass`, and the icon's name.
+/// name and `StartupWMClass`, and its icon's name.
 pub const LAUNCHER_APP_ID: &str = "network.dereth.dereth";
 
-/// The client's application id: its window's Wayland app id and X11 class, and its `.desktop`
-/// file's name and `StartupWMClass`.
+/// The client's application id: its window's Wayland app id and X11 class, its `.desktop` file's
+/// name and `StartupWMClass`, and its icon's name.
 pub const CLIENT_APP_ID: &str = "network.dereth.dereth-client";
 
-/// The name both entries give as their `Icon`: one picture, the Dereth emblem.
-pub const ICON_NAME: &str = LAUNCHER_APP_ID;
+/// The pictures the two entries name, each a 256-pixel PNG: the launcher's own and the client's.
+#[derive(Debug, Clone, Copy)]
+pub struct Icons<'a> {
+    /// The launcher's icon.
+    pub launcher: &'a [u8],
+    /// The client's icon.
+    pub client: &'a [u8],
+}
 
 /// A path quoted as a `.desktop` file's `Exec` key takes one argument: in double quotes, with the
 /// characters the quoting reserves escaped, then the string escapes applied, and `%` doubled so it
@@ -52,8 +60,8 @@ fn exec_argument(path: &Path) -> String {
 /// The launcher's `.desktop` entry, starting `exec`.
 pub fn launcher_entry(exec: &Path) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Dereth\nComment=Worlds, accounts and the Dereth client\n\
-         Exec={}\nIcon={ICON_NAME}\nTerminal=false\nCategories=Game;\nStartupWMClass={LAUNCHER_APP_ID}\n",
+        "[Desktop Entry]\nType=Application\nName=Dereth Network\nComment=Worlds, accounts and the games' clients\n\
+         Exec={}\nIcon={LAUNCHER_APP_ID}\nTerminal=false\nCategories=Game;\nStartupWMClass={LAUNCHER_APP_ID}\n",
         exec_argument(exec)
     )
 }
@@ -63,8 +71,8 @@ pub fn launcher_entry(exec: &Path) -> String {
 /// the scheme's MIME type. Only a release's launcher writes this one.
 pub fn launcher_entry_for_links(exec: &Path) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Dereth\nComment=Worlds, accounts and the Dereth client\n\
-         Exec={} %u\nIcon={ICON_NAME}\nTerminal=false\nCategories=Game;\nMimeType={};\n\
+        "[Desktop Entry]\nType=Application\nName=Dereth Network\nComment=Worlds, accounts and the games' clients\n\
+         Exec={} %u\nIcon={LAUNCHER_APP_ID}\nTerminal=false\nCategories=Game;\nMimeType={};\n\
          StartupWMClass={LAUNCHER_APP_ID}\n",
         exec_argument(exec),
         crate::join::LINUX_MIME
@@ -76,7 +84,7 @@ pub fn launcher_entry_for_links(exec: &Path) -> String {
 pub fn client_entry(exec: &Path) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName=Dereth\nComment=The Dereth client\n\
-         Exec={}\nIcon={ICON_NAME}\nTerminal=false\nNoDisplay=true\nCategories=Game;\n\
+         Exec={}\nIcon={CLIENT_APP_ID}\nTerminal=false\nNoDisplay=true\nCategories=Game;\n\
          StartupWMClass={CLIENT_APP_ID}\n",
         exec_argument(exec)
     )
@@ -101,11 +109,11 @@ pub fn entry_path(data_home: &Path, app_id: &str) -> PathBuf {
         .join(format!("{app_id}.desktop"))
 }
 
-/// Where the icon goes, under `data_home`.
-pub fn icon_path(data_home: &Path) -> PathBuf {
+/// Where the icon of the entry for `app_id` goes, under `data_home`.
+pub fn icon_path(data_home: &Path, app_id: &str) -> PathBuf {
     data_home
         .join("icons/hicolor/256x256/apps")
-        .join(format!("{ICON_NAME}.png"))
+        .join(format!("{app_id}.png"))
 }
 
 /// What an entry starts: the AppImage this process runs from (`$APPIMAGE`, which a program the
@@ -120,10 +128,10 @@ pub fn entry_target(
         .map_or(this_program, PathBuf::from)
 }
 
-/// The launcher's three files, as (path, content), under `data_home`: its entry and the client's,
-/// both starting `exec`, and the icon.
-pub fn launcher_files(data_home: &Path, exec: &Path, icon: &[u8]) -> Vec<(PathBuf, Vec<u8>)> {
-    launcher_files_with(data_home, exec, icon, false)
+/// The launcher's four files, as (path, content), under `data_home`: its entry and the client's,
+/// both starting `exec`, and their icons.
+pub fn launcher_files(data_home: &Path, exec: &Path, icons: Icons) -> Vec<(PathBuf, Vec<u8>)> {
+    launcher_files_with(data_home, exec, icons, false)
 }
 
 /// [`launcher_files`], the launcher's entry opening join links when `links`
@@ -131,7 +139,7 @@ pub fn launcher_files(data_home: &Path, exec: &Path, icon: &[u8]) -> Vec<(PathBu
 pub fn launcher_files_with(
     data_home: &Path,
     exec: &Path,
-    icon: &[u8],
+    icons: Icons,
     links: bool,
 ) -> Vec<(PathBuf, Vec<u8>)> {
     let entry = if links {
@@ -145,19 +153,23 @@ pub fn launcher_files_with(
             entry_path(data_home, CLIENT_APP_ID),
             client_entry(exec).into_bytes(),
         ),
-        (icon_path(data_home), icon.to_vec()),
+        (
+            icon_path(data_home, LAUNCHER_APP_ID),
+            icons.launcher.to_vec(),
+        ),
+        (icon_path(data_home, CLIENT_APP_ID), icons.client.to_vec()),
     ]
 }
 
 /// The client's two files, as (path, content), under `data_home`: its entry, starting `exec`, and
-/// the icon.
+/// its icon.
 pub fn client_files(data_home: &Path, exec: &Path, icon: &[u8]) -> Vec<(PathBuf, Vec<u8>)> {
     vec![
         (
             entry_path(data_home, CLIENT_APP_ID),
             client_entry(exec).into_bytes(),
         ),
-        (icon_path(data_home), icon.to_vec()),
+        (icon_path(data_home, CLIENT_APP_ID), icon.to_vec()),
     ]
 }
 
@@ -185,7 +197,11 @@ pub fn write_changed(files: &[(PathBuf, Vec<u8>)]) -> std::io::Result<Vec<PathBu
 mod tests {
     use super::*;
 
-    const ICON: &[u8] = b"\x89PNG\r\n\x1a\nicon";
+    const ICON: &[u8] = b"\x89PNG\r\n\x1a\nclient";
+    const ICONS: Icons = Icons {
+        launcher: b"\x89PNG\r\n\x1a\nlauncher",
+        client: ICON,
+    };
 
     fn temp(name: &str) -> PathBuf {
         let dir =
@@ -226,7 +242,7 @@ mod tests {
             entry.contains("\nExec=\"/home/p/My Apps/Dereth.AppImage\"\n"),
             "{entry}"
         );
-        assert!(entry.contains("\nName=Dereth\n"));
+        assert!(entry.contains("\nName=Dereth Network\n"));
         assert!(entry.contains("\nIcon=network.dereth.dereth\n"), "{entry}");
         assert!(
             entry.contains("\nStartupWMClass=network.dereth.dereth\n"),
@@ -237,12 +253,16 @@ mod tests {
     }
 
     #[test]
-    fn the_client_entry_is_hidden_names_the_client_window_class_and_the_same_icon() {
+    fn the_client_entry_is_hidden_names_the_client_window_class_and_its_own_icon() {
         let entry = client_entry(Path::new("/opt/dereth/dereth-client"));
         assert!(entry.starts_with("[Desktop Entry]\n"));
         assert!(entry.contains("\nType=Application\n"));
         assert!(entry.contains("\nNoDisplay=true\n"), "{entry}");
-        assert!(entry.contains("\nIcon=network.dereth.dereth\n"), "{entry}");
+        assert!(entry.contains("\nName=Dereth\n"), "{entry}");
+        assert!(
+            entry.contains("\nIcon=network.dereth.dereth-client\n"),
+            "{entry}"
+        );
         assert!(
             entry.contains("\nStartupWMClass=network.dereth.dereth-client\n"),
             "{entry}"
@@ -294,15 +314,16 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_writes_both_entries_and_the_icon_once_and_nothing_else() {
+    fn the_launcher_writes_both_entries_and_their_icons_once_and_nothing_else() {
         let home = temp("launcher");
         let exec = Path::new("/apps/Dereth.AppImage");
-        let files = launcher_files(&home, exec, ICON);
+        let files = launcher_files(&home, exec, ICONS);
         let written = write_changed(&files).unwrap();
         let expected = vec![
             home.join("applications/network.dereth.dereth.desktop"),
             home.join("applications/network.dereth.dereth-client.desktop"),
             home.join("icons/hicolor/256x256/apps/network.dereth.dereth.png"),
+            home.join("icons/hicolor/256x256/apps/network.dereth.dereth-client.png"),
         ];
         assert_eq!(written, expected);
         assert_eq!(files_under(&home), {
@@ -318,7 +339,8 @@ mod tests {
             std::fs::read_to_string(&expected[1]).unwrap(),
             client_entry(exec)
         );
-        assert_eq!(std::fs::read(&expected[2]).unwrap(), ICON);
+        assert_eq!(std::fs::read(&expected[2]).unwrap(), ICONS.launcher);
+        assert_eq!(std::fs::read(&expected[3]).unwrap(), ICONS.client);
 
         // The same again writes nothing.
         assert!(write_changed(&files).unwrap().is_empty());
@@ -326,7 +348,7 @@ mod tests {
         // The AppImage moved: only the two entries are rewritten.
         let moved = Path::new("/elsewhere/Dereth.AppImage");
         assert_eq!(
-            write_changed(&launcher_files(&home, moved, ICON)).unwrap(),
+            write_changed(&launcher_files(&home, moved, ICONS)).unwrap(),
             expected[..2]
         );
         assert!(std::fs::read_to_string(&expected[1])
@@ -339,7 +361,7 @@ mod tests {
     fn a_client_the_launcher_started_finds_its_files_already_written() {
         let home = temp("client");
         let appimage = Path::new("/apps/Dereth.AppImage");
-        write_changed(&launcher_files(&home, appimage, ICON)).unwrap();
+        write_changed(&launcher_files(&home, appimage, ICONS)).unwrap();
         // Inside the AppImage the client's entry target is the AppImage too.
         let env = lookup(vec![("APPIMAGE", appimage.display().to_string())]);
         let target = entry_target(&env, PathBuf::from("/tmp/.mount_x/usr/bin/dereth-client"));
@@ -350,13 +372,13 @@ mod tests {
     }
 
     #[test]
-    fn a_client_on_its_own_writes_its_entry_and_the_icon_and_nothing_else() {
+    fn a_client_on_its_own_writes_its_entry_and_its_icon_and_nothing_else() {
         let home = temp("standalone");
         let exec = Path::new("/opt/dereth/dereth-client");
         let written = write_changed(&client_files(&home, exec, ICON)).unwrap();
         let expected = vec![
             home.join("applications/network.dereth.dereth-client.desktop"),
-            home.join("icons/hicolor/256x256/apps/network.dereth.dereth.png"),
+            home.join("icons/hicolor/256x256/apps/network.dereth.dereth-client.png"),
         ];
         assert_eq!(written, expected);
         assert_eq!(files_under(&home), {

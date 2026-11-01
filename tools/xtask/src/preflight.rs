@@ -218,6 +218,19 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         Product::Lyceum,
         crate::package::version::Product::Lyceum.version(root)?,
     );
+    for (product, released) in [
+        (
+            Product::Auberean,
+            crate::package::version::Product::Auberean,
+        ),
+        (Product::Yalain, crate::package::version::Product::Yalain),
+        (
+            Product::Athenaeum,
+            crate::package::version::Product::Athenaeum,
+        ),
+    ] {
+        versions.insert(product, released.version(root)?);
+    }
     let mut bumps = BTreeMap::new();
     let schema_now = plan::hub_schema(
         &std::fs::read_to_string(root.join("network/hub/src/registry.rs")).unwrap_or_default(),
@@ -232,6 +245,9 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     bumps.insert(Product::Lyceum, plan::lyceum_bump());
+    for product in [Product::Auberean, Product::Yalain, Product::Athenaeum] {
+        bumps.insert(product, plan::auberean_game_bump(product));
+    }
     for (product, moves) in &moved {
         if let Some((_, why)) = bumps.get_mut(product) {
             why.push_str("; ");
@@ -427,10 +443,16 @@ pub fn run(
         );
     }
     let releases = releases(repo, &mut ledger.stamped)?;
-    // A Lyceum release that `ship` would refuse for want of highlights is said now, before
-    // anything is built or stopped.
-    if let Some(r) = releases.iter().find(|r| r.product == Product::Lyceum) {
-        let file = crate::release::notes::LYCEUM_CHANGES;
+    // A release that `ship` would refuse for want of highlights (Lyceum's, or one of Asheron's
+    // Call 2's products') is said now, before anything is built or stopped.
+    for r in &releases {
+        let Some(released) =
+            crate::package::version::Product::from_command_name(r.product.command_name())
+                .filter(|p| crate::release::needs_highlights(*p))
+        else {
+            continue;
+        };
+        let file = crate::release::notes::changes_file(released);
         let text = m.read(&root.join(file))?;
         crate::release::check_highlights(file, &text, &r.version)?;
     }

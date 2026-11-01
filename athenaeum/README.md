@@ -11,13 +11,39 @@ and places, outdoors. It shares Asheron's Call 2's core (`core/auberean-*`) with
 [Auberean](../auberean/README.md) and Yalain, draws the world with Auberean's drawing crates, and
 runs Yalain as a program.
 
+## Getting it and running it
+
+You need your own Asheron's Call 2 install: the end-of-retail data files `portal.dat`,
+`cell_1.dat` and `local_English.dat`. Athenaeum reads them and never writes them; nothing of the
+game ships with it, and nothing of it is downloaded. The world database a world lies over is
+fetched once into your user cache.
+
+**From the launcher.** In the Dereth Network launcher, pick Auberean's portal above the rail and
+open Athenaeum's page: download Athenaeum, choose your Asheron's Call 2 folder, then New World
+(made in an `Athenaeum` folder in your Documents) or Open World. The editor opens on it.
+
+**By hand.** Each release has a file for your system: `athenaeum-<version>-windows-x86_64.zip`
+(unzip it anywhere), `Athenaeum-<version>-macos-<arch>.app.tar.gz` (unpack it and move
+`Athenaeum.app` to Applications) or `Athenaeum-<version>-linux-x86_64.AppImage` (make it
+executable; give it a program's name first to run that program, as in `Athenaeum-...AppImage
+athenaeum new <folder>`). Each carries the editor, the `athenaeum` command, and Yalain and
+Auberean, which the editor serves and plays a world with:
+
+```text
+yalain world fetch
+athenaeum new <folder>
+athenaeum-editor <folder> --dats <install folder>
+```
+
+`athenaeum --version` and `athenaeum-editor --version` say which build they are.
+
 | Folder | Package | What it is |
 |---|---|---|
 | [`crates/foundry/`](crates/foundry/) | `athenaeum-foundry` | the world machinery: a world over the database read, checked, built into the server's tables against an install, counted, and edited row by row with undo and redo |
 | [`cli/`](cli/) | `athenaeum-cli` | the `athenaeum` command: worlds made, built, checked and counted; an install's data files read and counted |
 | [`editor/`](editor/) | `athenaeum-editor` | the editor: the world drawn as the client draws it, its rows marked where they stand, edited, saved, and played on Yalain |
 
-## Running it
+## Running it from the repository
 
 You need your own Asheron's Call 2 install, and the world database Yalain pins, fetched once into
 your user cache (`yalain world fetch`).

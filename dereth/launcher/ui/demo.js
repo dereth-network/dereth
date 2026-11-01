@@ -11,9 +11,7 @@
 
   // `?platform=macos` or `?platform=linux` shows the page as it is off Windows: Dereth only.
   const platform = new URLSearchParams(location.search).get("platform") ?? "windows";
-  // `?auberean` is the launcher started with `--auberean`, offering both games; `?realm=auberean`
-  // opens it in Auberean's realm, as one last left there does.
-  const auberean = new URLSearchParams(location.search).has("auberean");
+  // `?realm=auberean` opens the page in Auberean's realm, as one last left there does.
   const realm = new URLSearchParams(location.search).get("realm") === "auberean" ? "auberean" : "dereth";
   const EOR = { portal: 2072, cell: 982, local: 994, highres: 497 };
   const files = (it, ro, size = 360 * 1048576) =>
@@ -254,19 +252,25 @@
   const allWorlds = () => [...worlds, ...state.custom_worlds.map((c) => ({
     ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null),
     endpoint: { address: c.host, port: c.port, transport: null },
-    description: `Added by you: ${c.host}:${c.port}`, development_status: null,
+    description: `Added by you: ${c.host}:${c.port}`, development_status: null, game: c.game ?? "dereth",
   }))].map((w) => ({ ...w, favorite: (state.favorite_worlds ?? []).includes(w.slug) }));
 
   // Empyrean and Lyceum as GitHub lists them, and what is here. `?dev=1` is a development build with
   // its checkout's own builds.
   const development = new URLSearchParams(location.search).has("dev");
   const RELEASES = {
+    dereth: { version: "0.4.9", size: 61203456, notes: "The launcher is now Dereth Network, with its own icon." },
+    auberean: { version: "0.1.0", size: 7917896, notes: "The first release: walk Asheron's Call 2's world with your own game files." },
+    yalain: { version: "0.1.0", size: 4950329, notes: "The first release: a world on your computer, with creatures, loot, quests and the start area." },
+    athenaeum: { version: "0.1.0", size: 19701370, notes: "The first release: place people, creatures and things, and play them on Yalain." },
     empyrean: { version: "0.3.3", size: 16352529, notes: "Worlds keep running through a lost connection to the hub.\n\nFixed corpses sometimes landing under the floor." },
     lyceum: { version: "0.1.0", size: 13587452, notes: "The first release: open a world over your own data files, edit it in place, and play it.\n\nRead [the guide](https://dereth.network/lyceum/) first, or the notes at https://dereth.network/changes." },
   };
   const checkout = { empyrean: "C:\\code\\dereth\\target\\release\\empyrean-server.exe", lyceum: "C:\\code\\dereth\\target\\release\\lyceum-editor.exe" };
-  const components = ["empyrean", "lyceum"].map((product) => ({
-    product, installed: null, checkout: development ? checkout[product] : null, checkout_version: development ? { empyrean: "0.4.0", lyceum: "0.1.1" }[product] : null,
+  // Dereth's package: the Dereth client beside the launcher, Auberean's fetched when asked.
+  const packaged = { dereth: { version: "0.4.9", executable: "C:\Games\Dereth\dereth-client.exe", notes: "" } };
+  const components = ["empyrean", "lyceum", "dereth", "auberean", "yalain", "athenaeum"].map((product) => ({
+    product, installed: packaged[product] ?? null, bundled: !!packaged[product], checkout: development ? checkout[product] : null, checkout_version: development ? { empyrean: "0.4.0", lyceum: "0.1.1" }[product] : null,
     latest: null, latest_notes: "", latest_size: null,
     offer: { kind: "none" }, checking: false, busy: false, progress: null, message: null, error: false, running: false, worlds: [],
     home: product === "lyceum" ? "C:\\Users\\you\\Documents\\Lyceum" : null,
@@ -276,6 +280,17 @@
   // The ACE world each era's world database is made from, as Get world database records it.
   const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" } };
   const offerOf = (c) => c.checkout || !c.latest ? { kind: "none" } : !c.installed ? { kind: "download", version: c.latest } : c.installed.version !== c.latest ? { kind: "update", version: c.latest } : { kind: "none" };
+  // Auberean's realm, as the backend shows it.
+  const AC2_CHECK = {
+    dir: "C:\\Games\\Asheron's Call 2", ok: true, summary: "Your Asheron's Call 2 files are ready.",
+    files: ["portal.dat", "cell_1.dat", "local_English.dat", "highres.dat"].map((name) => ({ name, required: name !== "highres.dat", found: true, problem: null })),
+  };
+  const AC2_LOG = ["the level table read", "listening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world, referred as 127.0.0.1)"];
+  const auberean = {
+    check: null, playing: 0, editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
+    server: { running: false, ready: false, starting: false, address: "127.0.0.1:9200", log: [] },
+    worlds: ["C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp"],
+  };
   const hosts = [];
   const hostBy = (id) => hosts.find((h) => h.id === id);
   // The other worlds on this computer, once the page has looked: an ACE world a Windows service
@@ -302,7 +317,8 @@
   // This computer's address, and a router that answers with documentation addresses.
   let sharing = { lan: null, router: false, public: null, shared_address: false, forwards: [], checking: false, outside: {} };
   // `#join`: a join link waiting, as the system hands one to the launcher.
-  let join = location.hash === "#join" ? { host: "203.0.113.7", port: 9000, name: "Kazin's world" } : null;
+  let join = location.hash === "#join" ? { host: "203.0.113.7", port: 9000, name: "Kazin's world", game: "dereth" }
+    : location.hash === "#join-auberean" ? { host: "203.0.113.7", port: 9200, name: "A friend's Auberean world", game: "auberean" } : null;
   const handlers = {
     choose_host_dats: () => "C:\\Turbine\\Asheron's Call",
     create_host: ({ settings }) => {
@@ -426,7 +442,7 @@
       const r = RELEASES[product];
       c.latest = r.version;
       c.installed = { version: r.version, notes: r.notes };
-      c.message = `${product === "empyrean" ? "Empyrean" : "Lyceum"} ${r.version} is ready.`;
+      c.message = `${product[0].toUpperCase()}${product.slice(1)} ${r.version} is ready.`;
       c.offer = offerOf(c);
       if (product === "lyceum") {
         // Two in Lyceum's folder, one made with an older Lyceum, which Upgrade brings up to date;
@@ -438,7 +454,7 @@
         ];
       }
     },
-    remove_component: ({ product }) => { const c = components.find((c) => c.product === product); c.installed = null; c.offer = offerOf(c); c.message = product === "empyrean" ? "Removed Empyrean. Your worlds are kept." : "Removed Lyceum. Your worlds are kept."; },
+    remove_component: ({ product }) => { const c = components.find((c) => c.product === product); c.installed = null; c.offer = offerOf(c); c.message = product === "auberean" ? "Removed Auberean." : `Removed ${product[0].toUpperCase()}${product.slice(1)}. Your worlds are kept.`; },
     open_lyceum: () => { message = { kind: "info", text: "The app opens Lyceum here." }; },
     open_worlds_folder: () => {},
     choose_lyceum_world: () => {},
@@ -451,6 +467,16 @@
       c.message = `Exported ${name} for ${server} to C:\\Users\\you\\Documents\\${name}-${target}.`;
       c.error = false;
     },
+    // Auberean's realm: the install, as the backend checks it, and the world on this computer.
+    choose_auberean_install: () => { state.auberean = { ...(state.auberean ?? {}), install: "C:\\Games\\Asheron's Call 2" }; auberean.check = AC2_CHECK; },
+    start_auberean_world: () => { auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; },
+    stop_auberean_world: () => { auberean.server = { ...auberean.server, running: false, ready: false }; },
+    play_auberean_local: ({ account }) => { state.auberean = { ...(state.auberean ?? {}), account }; auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.playing = 1; },
+    play_auberean_world: ({ account }) => { state.auberean = { ...(state.auberean ?? {}), account }; auberean.playing = 1; },
+    new_athenaeum_world: ({ name }) => { auberean.worlds.unshift(`C:\\Users\\you\\Documents\\Athenaeum\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`); },
+    open_athenaeum: () => { message = { kind: "info", text: "The app opens Athenaeum here." }; },
+    choose_athenaeum_world: () => {},
+    open_athenaeum_folder: () => {},
     snapshot: () => ({
       hosts, components, local: looked ? local : [], sharing, join_waiting: !!join, worlds: allWorlds(), list_state: "loaded", list_error: null, list_fetched_at: Math.floor(Date.now() / 1000) - 3600, eras, features,
       state: structuredClone(state), dereth, auberean, running: [], job, message,
@@ -587,12 +613,12 @@
     set_remember: ({ slug, username, remember }) => { const a = state.accounts.find((x) => x.world_slug === slug && x.username === username); if (a) a.remember = remember; if (!remember) vault.delete(`${slug}/${username}`); },
     forget_all_passwords: () => { vault.clear(); state.accounts.forEach((a) => (a.remember = false)); },
     forget_all_accounts: () => { vault.clear(); state.accounts = []; state.favourites = []; state.recent = []; },
-    add_custom_world: ({ server: { name, host, port, ruleset, emulator } }) => {
+    add_custom_world: ({ server: { name, host, port, ruleset, emulator, game } }) => {
       if (!host.trim()) throw "Enter the world's host name or address.";
       const p = Number(port);
       if (!(p >= 1 && p <= 65535)) throw "The port must be a number from 1 to 65535.";
       const slug = `custom-${state.custom_worlds.length + 1}`;
-      state.custom_worlds.push({ slug, name: name.trim() || host.trim(), host: host.trim(), port: p, ruleset: ruleset ?? null, emulator: emulator ?? "unknown" });
+      state.custom_worlds.push({ slug, name: name.trim() || host.trim(), host: host.trim(), port: p, ruleset: ruleset ?? null, emulator: emulator ?? "unknown", game: game ?? "dereth" });
       return slug;
     },
     probe_world: () => {},

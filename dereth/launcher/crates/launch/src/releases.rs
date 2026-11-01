@@ -13,6 +13,18 @@
 //! looked for ([`Need`]) is found: one page when every product's newest release is on the first.
 //! At most [`MAX_PAGES`] pages are read.
 //!
+//! **Two channels.** Every package carries the same launcher, and each game's release carries it
+//! with that game's client: a launcher from Dereth's package updates from the newest `dereth-v*`
+//! release, one from Auberean's from the newest `auberean-v*` ([`channel_prefix`], named by the
+//! package's [`crate::defaults`]). Each release's `latest.json` names what it carries
+//! ([`Bundled`]): Dereth's its own version, which the launcher and the client share, and Auberean's
+//! the launcher's with the client's after it, `<launcher>+auberean.<client>`. The two channels can
+//! briefly carry different launcher builds, one released before the other.
+//!
+//! **Never backwards.** A launcher never installs an older launcher than itself
+//! ([`update_step`]): when its channel's newest release carries an older launcher (the other
+//! channel released a newer one first), it updates the game's client alone, or nothing.
+//!
 //! This module is the choosing and the paging, over the API's answers; the launcher does the
 //! fetching.
 
@@ -31,6 +43,16 @@ pub const SOURCE_URL: &str = match option_env!("DERETH_BUILD_SOURCE_URL") {
 
 /// The prefix of a Dereth release's tag; the rest is its version.
 pub const TAG_PREFIX: &str = "dereth-v";
+
+/// The prefix of the tags of the releases a launcher on `channel` updates from: `dereth-v` or
+/// `auberean-v`.
+#[must_use]
+pub fn channel_prefix(channel: crate::world::Game) -> &'static str {
+    match channel {
+        crate::world::Game::Dereth => TAG_PREFIX,
+        crate::world::Game::Auberean => "auberean-v",
+    }
+}
 
 /// The release asset the updater reads.
 pub const MANIFEST_ASSET: &str = "latest.json";
@@ -275,7 +297,13 @@ impl Version {
     /// (`-rc.1`), which launchers never update to whatever the release is marked.
     #[must_use]
     pub fn from_tag(tag: &str) -> Option<Self> {
-        let version = tag.strip_prefix(TAG_PREFIX)?;
+        Self::parse(tag.strip_prefix(TAG_PREFIX)?)
+    }
+
+    /// The version `<MAJOR>.<MINOR>.<PATCH>`, build metadata (`+...`) allowed and ignored; `None`
+    /// for anything else, a pre-release version included.
+    #[must_use]
+    pub fn parse(version: &str) -> Option<Self> {
         let core = version.split_once('+').map_or(version, |(core, _)| core);
         let mut parts = core.split('.');
         let (Some(major), Some(minor), Some(patch), None) =
@@ -339,12 +367,23 @@ struct ApiAsset {
 /// When `json` is not a list of releases: an error document (a rate limit, an unknown
 /// repository) or anything else.
 pub fn newest_update_release(json: &[u8]) -> Result<Option<UpdateRelease>, String> {
+    newest_update_release_of(json, TAG_PREFIX)
+}
+
+/// [`newest_update_release`] among the releases whose tags start `prefix` ([`channel_prefix`]).
+///
+/// # Errors
+/// As [`newest_update_release`].
+pub fn newest_update_release_of(
+    json: &[u8],
+    prefix: &str,
+) -> Result<Option<UpdateRelease>, String> {
     let list: Vec<ApiRelease> = serde_json::from_slice(json)
         .map_err(|e| format!("the release list cannot be read: {e}"))?;
     let newest = list
         .into_iter()
         .filter(|r| !r.draft && !r.prerelease)
-        .filter_map(|r| Some((Version::from_tag(&r.tag_name)?, r)))
+        .filter_map(|r| Some((Version::parse(r.tag_name.strip_prefix(prefix)?)?, r)))
         .max_by_key(|(version, _)| *version);
     Ok(newest.and_then(|(version, r)| {
         let manifest_url = r
@@ -360,10 +399,183 @@ pub fn newest_update_release(json: &[u8]) -> Result<Option<UpdateRelease>, Strin
     }))
 }
 
+/// What a release's `latest.json` says it carries, by its version: the launcher, and Auberean's
+/// client when it is Auberean's release (`0.5.0+auberean.0.2.0`). Dereth's names one version,
+/// which its launcher and client share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bundled {
+    pub launcher: Version,
+    /// The game client's own version, when it is not the launcher's.
+    pub client: Option<Version>,
+}
+
+/// The build metadata that names Auberean's client in its release's version.
+pub const AUBEREAN_CLIENT_MARK: &str = "auberean.";
+
+impl Bundled {
+    /// Read a `latest.json` version. `None` for one that is not a release version.
+    #[must_use]
+    pub fn parse(version: &str) -> Option<Self> {
+        let version = version.trim().trim_start_matches('v');
+        let launcher = Version::parse(version)?;
+        let client = match version.split_once('+') {
+            None => None,
+            Some((_, build)) => match build.strip_prefix(AUBEREAN_CLIENT_MARK) {
+                Some(client) => Some(Version::parse(client)?),
+                None => None,
+            },
+        };
+        Some(Self { launcher, client })
+    }
+
+    /// The version Auberean's release writes in its `latest.json`: the launcher's, with the
+    /// client's as build metadata.
+    #[must_use]
+    pub fn auberean(launcher: &str, client: &str) -> String {
+        format!("{launcher}+{AUBEREAN_CLIENT_MARK}{client}")
+    }
+}
+
+/// What a launcher does with its channel's newest release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateStep {
+    /// Nothing: it carries nothing newer, or only an older launcher.
+    Nothing,
+    /// Install the release: the launcher and the client it carries.
+    Release,
+    /// Its launcher is older than this one, so only its game client is taken, as a component.
+    ClientOnly,
+}
+
+/// What a launcher at `running`, with its game's client at `client` (`None` when it has none, or
+/// for Dereth's channel, whose client is the launcher's own version), does with a release that
+/// carries `remote`. It never installs an older launcher than itself.
+#[must_use]
+pub fn update_step(running: Version, client: Option<Version>, remote: Bundled) -> UpdateStep {
+    let newer_client = match (remote.client, client) {
+        (Some(theirs), Some(ours)) => theirs > ours,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if remote.launcher > running || (remote.launcher == running && newer_client) {
+        UpdateStep::Release
+    } else if remote.launcher < running && newer_client {
+        UpdateStep::ClientOnly
+    } else {
+        UpdateStep::Nothing
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::components::{self, Product, RATE_LIMITED};
+
+    fn v(s: &str) -> Version {
+        Version::parse(s).unwrap()
+    }
+
+    /// A launcher from Auberean's package reads `auberean-v*` releases and one from Dereth's
+    /// `dereth-v*`, each passing over the other's however new.
+    #[test]
+    fn each_channel_reads_its_own_game_s_releases() {
+        use crate::world::Game;
+        let json = answer(&[
+            release("dereth-v0.6.0", false, false, &["latest.json"]),
+            release("auberean-v0.2.0", false, false, &["latest.json"]),
+            release("auberean-v0.1.0", false, false, &["latest.json"]),
+            release("auberean-v0.3.0", true, false, &["latest.json"]),
+        ]);
+        let auberean = newest_update_release_of(&json, channel_prefix(Game::Auberean))
+            .unwrap()
+            .unwrap();
+        assert_eq!(auberean.tag, "auberean-v0.2.0");
+        assert!(auberean
+            .manifest_url
+            .ends_with("/auberean-v0.2.0/latest.json"));
+        let dereth = newest_update_release_of(&json, channel_prefix(Game::Dereth))
+            .unwrap()
+            .unwrap();
+        assert_eq!(dereth.tag, "dereth-v0.6.0");
+        assert_eq!(
+            newest_update_release(&json).unwrap().unwrap().tag,
+            "dereth-v0.6.0"
+        );
+    }
+
+    /// Auberean's `latest.json` names the launcher and its client; Dereth's one version.
+    #[test]
+    fn a_release_version_names_its_launcher_and_auberean_s_its_client_too() {
+        let written = Bundled::auberean("0.5.0", "0.2.0");
+        assert_eq!(written, "0.5.0+auberean.0.2.0");
+        assert_eq!(
+            Bundled::parse(&written),
+            Some(Bundled {
+                launcher: v("0.5.0"),
+                client: Some(v("0.2.0"))
+            })
+        );
+        assert_eq!(
+            Bundled::parse("0.4.9"),
+            Some(Bundled {
+                launcher: v("0.4.9"),
+                client: None
+            })
+        );
+        assert_eq!(Bundled::parse("0.4.9+auberean.x"), None);
+        assert_eq!(Bundled::parse("0.4.9-rc.1"), None);
+    }
+
+    /// A newer launcher is installed with its client; the same launcher is installed again only
+    /// for a newer client; and an older launcher never is: its newer client is taken alone, or
+    /// nothing at all.
+    #[test]
+    fn a_launcher_never_installs_an_older_launcher_than_itself() {
+        let release = |launcher: &str, client: Option<&str>| Bundled {
+            launcher: v(launcher),
+            client: client.map(v),
+        };
+        let running = v("0.5.0");
+        let ours = Some(v("0.2.0"));
+        assert_eq!(
+            update_step(running, ours, release("0.5.1", Some("0.2.0"))),
+            UpdateStep::Release
+        );
+        assert_eq!(
+            update_step(running, ours, release("0.5.0", Some("0.3.0"))),
+            UpdateStep::Release
+        );
+        assert_eq!(
+            update_step(running, ours, release("0.5.0", Some("0.2.0"))),
+            UpdateStep::Nothing
+        );
+        // The other channel shipped launcher 0.5.0 first; this channel's newest still carries 0.4.9.
+        assert_eq!(
+            update_step(running, ours, release("0.4.9", Some("0.3.0"))),
+            UpdateStep::ClientOnly
+        );
+        assert_eq!(
+            update_step(running, ours, release("0.4.9", Some("0.2.0"))),
+            UpdateStep::Nothing
+        );
+        assert_eq!(
+            update_step(running, ours, release("0.4.9", Some("0.1.0"))),
+            UpdateStep::Nothing
+        );
+        // Dereth's channel: one version for the launcher and the client.
+        assert_eq!(
+            update_step(running, None, release("0.5.1", None)),
+            UpdateStep::Release
+        );
+        assert_eq!(
+            update_step(running, None, release("0.5.0", None)),
+            UpdateStep::Nothing
+        );
+        assert_eq!(
+            update_step(running, None, release("0.4.9", None)),
+            UpdateStep::Nothing
+        );
+    }
 
     fn release(tag: &str, draft: bool, prerelease: bool, assets: &[&str]) -> serde_json::Value {
         serde_json::json!({

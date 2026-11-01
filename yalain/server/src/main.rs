@@ -69,6 +69,10 @@
 //!   --seconds S           stop after S seconds (default: run until stopped)
 //!   --verbose             log at the debug level (every connection event, and more)
 //!
+//! yalain --version
+//!
+//!   the version, and the commit and target a release build was made from
+//!
 //! yalain world check|release|fetch|compile ...
 //!
 //!   the world database's commands (see the `world` module)
@@ -966,6 +970,10 @@ fn read_banned_names(path: &Path) -> Result<NameRules, String> {
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--version"] {
+        print!("{}", version_text());
+        return std::process::ExitCode::SUCCESS;
+    }
     if args.first().map(String::as_str) == Some("world") {
         return match world::main(&args[1..]) {
             Ok(()) => std::process::ExitCode::SUCCESS,
@@ -1077,5 +1085,32 @@ fn main() -> std::process::ExitCode {
             eprintln!("yalain: {e}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+/// What `yalain --version` prints: the version, and the commit and target a release build
+/// was made from (`unknown` in a build that did not say).
+fn version_text() -> String {
+    format!(
+        "yalain {}\ncommit: {}\ntarget: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("YALAIN_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("YALAIN_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
+#[cfg(test)]
+mod version_tests {
+    //! Behaviour: none (tooling: what `--version` prints, which the release workflow checks)
+    use super::version_text;
+
+    #[test]
+    fn version_names_the_program_its_version_its_commit_and_its_target() {
+        let text = version_text();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[0], concat!("yalain ", env!("CARGO_PKG_VERSION")));
+        assert!(lines[1].starts_with("commit: "), "{text}");
+        assert!(lines[2].starts_with("target: "), "{text}");
     }
 }

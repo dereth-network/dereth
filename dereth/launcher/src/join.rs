@@ -315,7 +315,11 @@ mod tests {
         let home = std::env::temp_dir().join("join-linux");
         let data = home.join(".local/share");
         let exec = Path::new("/apps/Dereth.AppImage");
-        let files = dereth_launch::desktop::launcher_files_with(&data, exec, b"png", true);
+        let icons = dereth_launch::desktop::Icons {
+            launcher: b"png",
+            client: b"png",
+        };
+        let files = dereth_launch::desktop::launcher_files_with(&data, exec, icons, true);
         let entry = String::from_utf8(files[0].1.clone()).unwrap();
         assert!(
             entry.contains("\nExec=\"/apps/Dereth.AppImage\" %u\n"),
@@ -325,7 +329,7 @@ mod tests {
             entry.contains("\nMimeType=x-scheme-handler/dereth;\n"),
             "{entry}"
         );
-        let plain = dereth_launch::desktop::launcher_files(&data, exec, b"png");
+        let plain = dereth_launch::desktop::launcher_files(&data, exec, icons);
         assert!(!String::from_utf8_lossy(&plain[0].1).contains("MimeType"));
         let mimeapps = home.join(".config/mimeapps.list");
         let theirs = "[Default Applications]\ntext/html=firefox.desktop\n";

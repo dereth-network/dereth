@@ -136,6 +136,45 @@ workflow run refuses that. The Windows entry is the zip itself: the launcher's o
 in (README.md, "Updates"); macOS's is the `.app.tar.gz` and Linux's the AppImage, which the updater
 installs itself.
 
+### Two channels: Dereth's releases and Auberean's
+
+Every package carries the same launcher. Dereth's release is the launcher with the Dereth client;
+Auberean's release (`auberean-v<version>`, auberean/RELEASING.md) is the same launcher, built the
+same way from its own commit, with the Auberean client beside it and a small file,
+`launcher-defaults.json`:
+
+```json
+{"realm": "auberean", "updates": "auberean"}
+```
+
+It sits beside the launcher (in `Dereth.app`, in `Contents/Resources`; in the AppImage, in
+`usr/bin`). It names the realm a first run opens in, before the launcher has a state file (after
+that the realm the player last showed wins), and the channel the launcher updates from: the newest
+published `auberean-v*` release's `latest.json` instead of `dereth-v*`'s. Dereth's package has no
+such file, and a Dereth install updates from `dereth-v*` exactly as before.
+
+Each release's `latest.json` names what it carries by its version. Dereth's is Dereth's version,
+which the launcher and the Dereth client share. Auberean's is the launcher's version with the
+client's after it as build metadata, `0.4.9+auberean.0.1.0`, and that whole string is what its
+signatures are made for. A launcher on Auberean's channel installs the release when it carries a
+newer launcher, or the same launcher with a newer client.
+
+**The launcher never downgrades itself.** The two channels can briefly carry different launcher
+builds: Dereth's release can ship launcher 0.5.0 while Auberean's newest still carries 0.4.9. A
+launcher on a channel whose newest release carries an older launcher than its own installs nothing
+of the launcher: when that release carries a newer client than the one it has, it fetches the
+client alone, as it fetches the other game's client, and otherwise it does nothing until the
+channel catches up.
+
+**The other game's client is a component.** A launcher from Dereth's package fetches the Auberean
+client when it is first wanted, and one from Auberean's fetches the Dereth client, from that game's
+own newest release: the release file for this system, checked against that release's
+`SHA256SUMS`, with the client taken out of it (an AppImage unpacks itself to give it up). It is
+updated as Yalain, Athenaeum, Empyrean and Lyceum are, from the page. The client that came with the
+launcher is used until a downloaded one is newer.
+
+### The signing key
+
 To make a new key pair (only if the old one is lost; every launcher already installed trusts the
 old public key, so it would not update past that release):
 

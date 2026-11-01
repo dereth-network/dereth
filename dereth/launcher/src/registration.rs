@@ -1,8 +1,8 @@
 //! The launcher's entry in the Linux desktop's application list, the client window's entry, and
-//! the icon both name.
+//! the icons they name.
 //!
-//! On every start the launcher makes sure of three files under the user's data folder, each written
-//! only when its content differs: its own entry, the client window's hidden entry and the icon. The
+//! On every start the launcher makes sure of four files under the user's data folder, each written
+//! only when its content differs: its own entry, the client window's hidden entry and their icons. The
 //! entries, where they go and the only-when-different rule are [`dereth_launch::desktop`]'s, which
 //! the client uses too when it is started on its own.
 //!
@@ -17,16 +17,25 @@ use dereth_launch::desktop;
 /// name and `StartupWMClass`, and the icon's name.
 pub const APP_ID: &str = desktop::LAUNCHER_APP_ID;
 
-/// The icon, 256 pixels square: the Dereth emblem the client uses too.
-const ICON_PNG: &[u8] = include_bytes!("../../client/assets/dereth-256.png");
+/// The launcher's icon, 256 pixels square: the network's emblem.
+const ICON_PNG: &[u8] = include_bytes!("../assets/icon/network.png");
+
+/// The client's icon, 256 pixels square: the Dereth emblem, the one the client writes itself.
+const CLIENT_ICON_PNG: &[u8] = include_bytes!("../../client/assets/dereth-256.png");
+
+/// Both icons, as the entries name them.
+const ICONS: desktop::Icons = desktop::Icons {
+    launcher: ICON_PNG,
+    client: CLIENT_ICON_PNG,
+};
 
 /// The launcher's `.desktop` entry that starts `exec`, named for the window it makes.
 pub fn desktop_entry(exec: &Path) -> String {
     desktop::launcher_entry(exec)
 }
 
-/// Make sure the launcher's entry, the client's entry (both starting `exec`) and `icon` are in
-/// `data_home`, writing each file only when its content differs; the launcher's entry opens join
+/// Make sure the launcher's entry, the client's entry (both starting `exec`) and their `icons` are
+/// in `data_home`, writing each file only when its content differs; the launcher's entry opens join
 /// links when `links` (a release's). Returns the files written.
 ///
 /// # Errors
@@ -34,10 +43,10 @@ pub fn desktop_entry(exec: &Path) -> String {
 pub fn register(
     data_home: &Path,
     exec: &Path,
-    icon: &[u8],
+    icons: desktop::Icons,
     links: bool,
 ) -> std::io::Result<Vec<PathBuf>> {
-    desktop::write_changed(&desktop::launcher_files_with(data_home, exec, icon, links))
+    desktop::write_changed(&desktop::launcher_files_with(data_home, exec, icons, links))
 }
 
 /// What the entries start: the AppImage the launcher runs from, else the launcher itself.
@@ -59,7 +68,7 @@ pub fn on_start(links: bool) {
     ) else {
         return;
     };
-    if let Err(e) = register(&home, &exec, ICON_PNG, links) {
+    if let Err(e) = register(&home, &exec, ICONS, links) {
         eprintln!("dereth: could not register the desktop entries: {e}");
     }
 }
@@ -93,7 +102,7 @@ mod tests {
     fn registration_writes_the_launcher_entry_the_hidden_client_entry_and_the_icon_once() {
         let home = temp("registration");
         let exec = Path::new("/apps/Dereth.AppImage");
-        let written = register(&home, exec, ICON_PNG, false).unwrap();
+        let written = register(&home, exec, ICONS, false).unwrap();
         let client = home.join("applications/network.dereth.dereth-client.desktop");
         assert_eq!(
             written,
@@ -101,6 +110,7 @@ mod tests {
                 home.join("applications/network.dereth.dereth.desktop"),
                 client.clone(),
                 home.join("icons/hicolor/256x256/apps/network.dereth.dereth.png"),
+                home.join("icons/hicolor/256x256/apps/network.dereth.dereth-client.png"),
             ]
         );
         let client_entry = std::fs::read_to_string(&client).unwrap();
@@ -113,16 +123,19 @@ mod tests {
             "{client_entry}"
         );
         assert!(
-            client_entry.contains("\nIcon=network.dereth.dereth\n"),
+            client_entry.contains("\nIcon=network.dereth.dereth-client\n"),
             "{client_entry}"
         );
         // The same again writes nothing.
-        assert!(register(&home, exec, ICON_PNG, false).unwrap().is_empty());
+        assert!(register(&home, exec, ICONS, false).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// The launcher's icon is its own, the network's emblem, and the client keeps the Dereth one.
     #[test]
-    fn the_icon_is_a_png() {
+    fn the_launchers_icon_is_the_networks_emblem_and_the_clients_its_own() {
         assert_eq!(&ICON_PNG[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(&CLIENT_ICON_PNG[..8], b"\x89PNG\r\n\x1a\n");
+        assert_ne!(ICON_PNG, CLIENT_ICON_PNG);
     }
 }

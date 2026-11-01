@@ -445,6 +445,9 @@ pub struct NewServer {
     /// Unknown when not said.
     #[serde(default)]
     pub emulator: Emulator,
+    /// The game it runs; Dereth's when not said.
+    #[serde(default)]
+    pub game: dereth_launch::world::Game,
 }
 
 /// What pressing PLAY came to.
@@ -597,6 +600,29 @@ impl Backend {
         self
     }
 
+    /// A first run (no state file yet) opens in `realm`, the one the launcher's package names;
+    /// after that, the realm the player last showed.
+    #[must_use]
+    pub fn with_first_realm(mut self, defaults: dereth_launch::defaults::Defaults) -> Self {
+        let first_run = !self
+            .folders
+            .config
+            .join(dereth_launch::state::STATE_FILE)
+            .is_file();
+        self.state.settings.realm = defaults.opening_realm(first_run, self.state.settings.realm);
+        self
+    }
+
+    /// Play with the Dereth client at `exe` from now on: one downloaded after the launcher started,
+    /// for a launcher whose package carries another game's client. Its tool beside it comes too.
+    pub fn use_dereth_client(&mut self, exe: &Path) {
+        self.dereth = library::dereth_client(exe);
+        if self.tool.is_none() {
+            let tool = exe.with_file_name(dereth_launch::plugins::TOOL_FILE);
+            self.tool = tool.is_file().then_some(tool);
+        }
+    }
+
     fn save(&mut self) {
         if let Err(e) = self.state.save(&self.folders.config) {
             self.say(format!("Could not save the launcher's state: {e}"), true);
@@ -732,6 +758,31 @@ impl Backend {
     pub fn set_realm(&mut self, realm: Realm) {
         self.state.settings.realm = realm;
         self.save();
+    }
+
+    /// What the player told the launcher for Auberean's realm: their install and their account.
+    pub fn auberean_settings(&self) -> dereth_launch::state::AubereanSettings {
+        self.state.auberean.clone()
+    }
+
+    /// Keep `install` as the player's Asheron's Call 2 install.
+    pub fn set_auberean_install(&mut self, install: PathBuf) {
+        self.state.auberean.install = Some(install);
+        self.save();
+    }
+
+    /// Keep `account` as the account the player plays Auberean with.
+    pub fn set_auberean_account(&mut self, account: &str) {
+        if self.state.auberean.account.as_deref() != Some(account) {
+            self.state.auberean.account = Some(account.to_owned());
+            self.save();
+        }
+    }
+
+    /// The address and game port of the world `slug`, as its list row or the player names it.
+    pub fn world_address(&self, slug: &str) -> Option<(String, u16)> {
+        let endpoint = self.world(slug)?.endpoint?;
+        Some((endpoint.address, endpoint.port))
     }
 
     fn running_clients(&self) -> Vec<RunningClient> {
@@ -1459,6 +1510,7 @@ impl Backend {
             .state
             .add_custom_world(&s.name, &s.host, &s.port, s.ruleset.as_deref(), s.emulator)
             .map_err(|e| e.to_string())?;
+        self.state.set_custom_world_game(&slug, s.game);
         self.save();
         Ok(slug)
     }
@@ -1479,6 +1531,7 @@ impl Backend {
             port: settings.port.to_string(),
             ruleset: None,
             emulator: Emulator::Empyrean,
+            ..NewServer::default()
         })?;
         let find = self.read_folder(&settings.dats);
         self.add_folder(find);
@@ -2606,6 +2659,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A world added from a join link that names Auberean is listed in Auberean's realm, not
+    /// Dereth's.
+    #[test]
+    fn a_world_added_for_auberean_is_listed_in_auberean_s_realm() {
+        let (mut b, dir) = backend("auberean-world");
+        let slug = b
+            .add_custom_world(&NewServer {
+                name: "A friend's".into(),
+                host: "203.0.113.7".into(),
+                port: "9200".into(),
+                game: dereth_launch::world::Game::Auberean,
+                ..NewServer::default()
+            })
+            .unwrap();
+        let world = b
+            .snapshot()
+            .worlds
+            .into_iter()
+            .find(|w| w.slug == slug)
+            .expect("listed");
+        assert_eq!(world.game, dereth_launch::world::Game::Auberean);
+        assert!(Realm::Auberean.shows(&world) && !Realm::Dereth.shows(&world));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A first run opens in the realm the launcher's package names; once there is a state file,
+    /// the realm the player last showed wins.
+    #[test]
+    fn a_first_run_opens_in_the_package_s_realm_and_later_runs_in_the_last_one() {
+        use dereth_launch::defaults::Defaults;
+        let auberean = Defaults::parse(r#"{"realm":"auberean","updates":"auberean"}"#);
+        let dir = tmp("first-realm");
+        let open = || {
+            Backend::new(
+                Folders::single(dir.join("state")),
+                Vec::new(),
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            )
+            .with_first_realm(auberean)
+        };
+        let mut b = open();
+        assert_eq!(b.state.settings.realm, Realm::Auberean, "a first run");
+        b.set_realm(Realm::Dereth);
+        drop(b);
+        assert_eq!(
+            open().state.settings.realm,
+            Realm::Dereth,
+            "the last one shown"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_server_added_by_hand_is_a_world_and_goes_with_its_accounts() {
         let (mut b, dir) = backend("custom");
@@ -2616,6 +2724,7 @@ mod tests {
                 port: "9001".into(),
                 ruleset: Some("PvP".into()),
                 emulator: Emulator::ClassicAce,
+                game: dereth_launch::world::Game::Dereth,
             })
             .unwrap();
         assert!(b

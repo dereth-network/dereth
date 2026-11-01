@@ -13,6 +13,30 @@ The world it serves is the Asheron's Call 2 world database (`yalain-world`): whe
 and camps stand, what drops and is sold, how quests move on, what people say, each row saying where
 it came from, compiled at start against your install.
 
+## Getting it and running it
+
+You need your own Asheron's Call 2 install: the end-of-retail data files `portal.dat`,
+`cell_1.dat` and `local_English.dat`. Nothing of the game ships with Yalain, and nothing of it is
+downloaded; the world database is, once, into your user cache.
+
+**From the launcher.** In the Dereth Network launcher, pick Auberean's portal above the rail and
+open Yalain's page: download Yalain, choose your Asheron's Call 2 folder, and press Start. The
+launcher fetches the world database, runs Yalain on your computer alone (logins on port 9200), and
+shows its log; Play on the Play page starts it when it is not running and logs you in.
+
+**By hand.** Each release has an archive for your system, `yalain-<version>-<target>.zip` on
+Windows and `.tar.gz` elsewhere (Linux x86-64 and arm64 with glibc 2.28 or newer, macOS 11 or
+newer). Unpack it anywhere, then:
+
+```text
+yalain world fetch
+yalain --dats <install folder>
+```
+
+It listens on 127.0.0.1, logins on port 9000 and the world on 9002, and keeps its accounts and
+characters in `yalain.sqlite` where it was started (`--data` names another file). `yalain --help`
+lists every option; `yalain --version` says which build it is.
+
 | Folder | Package | What it is |
 |---|---|---|
 | [`server/`](server/) | `yalain` | the `yalain` program: settings, the data it reads at start, the sockets and the loop |
@@ -23,10 +47,10 @@ it came from, compiled at start against your install.
 | [`crates/world-db/`](crates/world-db/) | `yalain-world-db` | the world database: read, checked, merged and compiled into those tables |
 | [`testkit/`](testkit/) | `yalain-testkit` | a whole server on a virtual clock with clients that speak the wire, and the replay of recorded logins |
 
-## Running it
+## Running it from the repository
 
-You need your own Asheron's Call 2 install, one no client is running from, and the world database
-this build pins, fetched once into your user cache.
+You need your own Asheron's Call 2 install, one no retail client is running from, and the world
+database this build pins, fetched once into your user cache.
 
 ```text
 cargo run --profile test-release -p yalain -- world fetch

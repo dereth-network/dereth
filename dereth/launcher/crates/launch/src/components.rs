@@ -1,9 +1,12 @@
-//! The two programs the launcher fetches only when asked: Empyrean, the server a player runs their
-//! own world on, and Lyceum, the world builder.
+//! The programs the launcher fetches only when asked: for Asheron's Call, Empyrean, the server a
+//! player runs their own world on, and Lyceum, the world builder; for Asheron's Call 2, Yalain, its
+//! server, and Athenaeum, its world builder; and the game client the launcher's package does not
+//! carry: Auberean in Dereth's package, Dereth in Auberean's. A game client comes out of its game's
+//! own release, which is the launcher with that client inside it.
 //!
 //! Each comes from its own newest published GitHub release in the repository the launcher updates
-//! from: tagged `empyrean-v<version>` or `lyceum-v<version>`, not a draft, not a pre-release, and
-//! newest by version. The launcher takes the release's file for this system, named as the release
+//! from: tagged `<product>-v<version>` (`empyrean-v0.3.3`, `auberean-v0.1.0`), not a draft, not a
+//! pre-release, and newest by version. The launcher takes the release's file for this system, named as the release
 //! packaging names it ([`Product::archive_name`]), and checks it against the release's
 //! `SHA256SUMS` before unpacking it. Nothing is signed: the checksums come from the same release as
 //! the file, so they catch a damaged or altered download, as the server's own updater does.
@@ -17,16 +20,31 @@ use std::collections::BTreeMap;
 use std::path::{Component as PathComponent, Path, PathBuf};
 
 /// A separately released program the launcher can fetch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Product {
     Empyrean,
     Lyceum,
+    /// Asheron's Call's client, for a launcher from Auberean's package.
+    Dereth,
+    /// Asheron's Call 2's client, for a launcher from Dereth's package.
+    Auberean,
+    /// Asheron's Call 2's server.
+    Yalain,
+    /// Asheron's Call 2's world builder, with Yalain and Auberean beside its editor.
+    Athenaeum,
 }
 
 impl Product {
-    /// Both, in the order the page shows them.
-    pub const ALL: [Self; 2] = [Self::Empyrean, Self::Lyceum];
+    /// Every one, in the order the page shows them: Asheron's Call's, then Asheron's Call 2's.
+    pub const ALL: [Self; 6] = [
+        Self::Empyrean,
+        Self::Lyceum,
+        Self::Dereth,
+        Self::Auberean,
+        Self::Yalain,
+        Self::Athenaeum,
+    ];
 
     /// The lower-case name its tags, files and folders use.
     #[must_use]
@@ -34,6 +52,10 @@ impl Product {
         match self {
             Self::Empyrean => "empyrean",
             Self::Lyceum => "lyceum",
+            Self::Dereth => "dereth",
+            Self::Auberean => "auberean",
+            Self::Yalain => "yalain",
+            Self::Athenaeum => "athenaeum",
         }
     }
 
@@ -43,6 +65,10 @@ impl Product {
         match self {
             Self::Empyrean => "Empyrean",
             Self::Lyceum => "Lyceum",
+            Self::Dereth => "Dereth",
+            Self::Auberean => "Auberean",
+            Self::Yalain => "Yalain",
+            Self::Athenaeum => "Athenaeum",
         }
     }
 
@@ -52,7 +78,24 @@ impl Product {
         match self {
             Self::Empyrean => "empyrean-server",
             Self::Lyceum => "lyceum-editor",
+            Self::Dereth => "dereth-client",
+            Self::Auberean => "auberean",
+            Self::Yalain => "yalain",
+            Self::Athenaeum => "athenaeum-editor",
         }
+    }
+
+    /// Whether the product is one of Asheron's Call 2's.
+    #[must_use]
+    pub const fn is_auberean_game(self) -> bool {
+        matches!(self, Self::Auberean | Self::Yalain | Self::Athenaeum)
+    }
+
+    /// Whether the product is a game's client, which comes inside its game's launcher release
+    /// rather than in a release file of its own.
+    #[must_use]
+    pub const fn is_game_client(self) -> bool {
+        matches!(self, Self::Dereth | Self::Auberean)
     }
 
     /// A release's tag: `empyrean-v0.3.3`.
@@ -76,13 +119,18 @@ impl Product {
     /// The release file for the target `triple`, as the release packaging names it; `None` when
     /// the product is not released for that target.
     ///
-    /// Empyrean's is `empyrean-<version>-<triple>`, a `.zip` on Windows and a `.tar.gz` elsewhere.
-    /// Lyceum's names the platform rather than the triple: `lyceum-<version>-windows-x86_64.zip`,
-    /// `lyceum-<version>-linux-x86_64.tar.gz` and `Lyceum-<version>-macos-<arch>.app.tar.gz`.
+    /// Empyrean's and Yalain's are `<name>-<version>-<triple>`, a `.zip` on Windows and a `.tar.gz`
+    /// elsewhere. Lyceum's names the platform rather than the triple:
+    /// `lyceum-<version>-windows-x86_64.zip`, `lyceum-<version>-linux-x86_64.tar.gz` and
+    /// `Lyceum-<version>-macos-<arch>.app.tar.gz`. Dereth's, Auberean's and Athenaeum's are the
+    /// same on Windows and macOS (`auberean-<version>-windows-x86_64.zip`,
+    /// `Auberean-<version>-macos-<arch>.app.tar.gz`), and on Linux an AppImage,
+    /// `Auberean-<version>-linux-x86_64.AppImage`. A game's is its launcher release, which holds
+    /// the client beside the launcher.
     #[must_use]
     pub fn archive_name(self, triple: &str, version: &str) -> Option<String> {
         match self {
-            Self::Empyrean => {
+            Self::Empyrean | Self::Yalain => {
                 let ext = match triple {
                     "x86_64-pc-windows-msvc" => "zip",
                     "x86_64-unknown-linux-gnu"
@@ -91,7 +139,19 @@ impl Product {
                     | "x86_64-apple-darwin" => "tar.gz",
                     _ => return None,
                 };
-                Some(format!("empyrean-{version}-{triple}.{ext}"))
+                Some(format!("{}-{version}-{triple}.{ext}", self.name()))
+            }
+            Self::Dereth | Self::Auberean | Self::Athenaeum => {
+                let (name, title) = (self.name(), self.title());
+                Some(match triple {
+                    "x86_64-pc-windows-msvc" => format!("{name}-{version}-windows-x86_64.zip"),
+                    "x86_64-unknown-linux-gnu" => {
+                        format!("{title}-{version}-linux-x86_64.AppImage")
+                    }
+                    "aarch64-apple-darwin" => format!("{title}-{version}-macos-aarch64.app.tar.gz"),
+                    "x86_64-apple-darwin" => format!("{title}-{version}-macos-x86_64.app.tar.gz"),
+                    _ => return None,
+                })
             }
             Self::Lyceum => Some(match triple {
                 "x86_64-pc-windows-msvc" => format!("lyceum-{version}-windows-x86_64.zip"),
@@ -553,6 +613,118 @@ mod tests {
         assert_eq!(
             Product::Empyrean.archive_name("riscv64gc-unknown-linux-gnu", v),
             None
+        );
+    }
+
+    /// Asheron's Call 2's products are named as their release packaging names them: Yalain as
+    /// Empyrean is, by target; Auberean and Athenaeum by platform, an AppImage on Linux; and each
+    /// is found among the releases by its own tag.
+    #[test]
+    fn asheron_s_call_2_s_products_are_named_as_their_packaging_names_them() {
+        let v = "0.1.0";
+        for (triple, auberean, yalain, athenaeum) in [
+            (
+                "x86_64-pc-windows-msvc",
+                Some("auberean-0.1.0-windows-x86_64.zip"),
+                Some("yalain-0.1.0-x86_64-pc-windows-msvc.zip"),
+                Some("athenaeum-0.1.0-windows-x86_64.zip"),
+            ),
+            (
+                "x86_64-unknown-linux-gnu",
+                Some("Auberean-0.1.0-linux-x86_64.AppImage"),
+                Some("yalain-0.1.0-x86_64-unknown-linux-gnu.tar.gz"),
+                Some("Athenaeum-0.1.0-linux-x86_64.AppImage"),
+            ),
+            (
+                "aarch64-unknown-linux-gnu",
+                None,
+                Some("yalain-0.1.0-aarch64-unknown-linux-gnu.tar.gz"),
+                None,
+            ),
+            (
+                "aarch64-apple-darwin",
+                Some("Auberean-0.1.0-macos-aarch64.app.tar.gz"),
+                Some("yalain-0.1.0-aarch64-apple-darwin.tar.gz"),
+                Some("Athenaeum-0.1.0-macos-aarch64.app.tar.gz"),
+            ),
+        ] {
+            assert_eq!(
+                Product::Auberean.archive_name(triple, v).as_deref(),
+                auberean
+            );
+            assert_eq!(Product::Yalain.archive_name(triple, v).as_deref(), yalain);
+            assert_eq!(
+                Product::Athenaeum.archive_name(triple, v).as_deref(),
+                athenaeum
+            );
+        }
+        let json = serde_json::to_vec(&[
+            entry("auberean-v0.1.0", false, false, &["SHA256SUMS"]),
+            entry("yalain-v0.2.0", false, false, &["SHA256SUMS"]),
+            entry("athenaeum-v0.1.0", false, true, &["SHA256SUMS"]),
+            entry("lyceum-v9.0.0", false, false, &["SHA256SUMS"]),
+        ])
+        .unwrap();
+        assert_eq!(
+            newest(&json, Product::Auberean).unwrap().unwrap().version,
+            "0.1.0"
+        );
+        assert_eq!(
+            newest(&json, Product::Yalain).unwrap().unwrap().version,
+            "0.2.0"
+        );
+        assert!(
+            newest(&json, Product::Athenaeum).unwrap().is_none(),
+            "a pre-release"
+        );
+        assert_eq!(Product::Athenaeum.program(), "athenaeum-editor");
+        assert!(Product::ALL.iter().filter(|p| p.is_auberean_game()).count() == 3);
+        assert_eq!(
+            install_dir(Path::new("root"), Product::Yalain, "0.1.0").unwrap(),
+            Path::new("root/components/yalain/0.1.0")
+        );
+    }
+
+    /// The game client a launcher's package does not carry is fetched from its own game's
+    /// release, which is that game's launcher with the client inside: Dereth's client from the
+    /// newest `dereth-v*` release's file, named as Dereth's packaging names it, never from
+    /// Auberean's, and the other way round.
+    #[test]
+    fn the_other_game_s_client_comes_from_its_own_game_s_release() {
+        let v = "0.4.9";
+        for (triple, dereth) in [
+            ("x86_64-pc-windows-msvc", "dereth-0.4.9-windows-x86_64.zip"),
+            (
+                "x86_64-unknown-linux-gnu",
+                "Dereth-0.4.9-linux-x86_64.AppImage",
+            ),
+            (
+                "aarch64-apple-darwin",
+                "Dereth-0.4.9-macos-aarch64.app.tar.gz",
+            ),
+        ] {
+            assert_eq!(
+                Product::Dereth.archive_name(triple, v).as_deref(),
+                Some(dereth)
+            );
+        }
+        assert_eq!(Product::Dereth.program(), "dereth-client");
+        assert_eq!(Product::Auberean.program(), "auberean");
+        assert!(Product::Dereth.is_game_client() && Product::Auberean.is_game_client());
+        assert!(!Product::Yalain.is_game_client() && !Product::Lyceum.is_game_client());
+        let json = serde_json::to_vec(&[
+            entry("auberean-v0.3.0", false, false, &["SHA256SUMS"]),
+            entry("dereth-v0.4.9", false, false, &["SHA256SUMS"]),
+            entry("dereth-v0.5.0", true, false, &["SHA256SUMS"]),
+        ])
+        .unwrap();
+        assert_eq!(
+            newest(&json, Product::Dereth).unwrap().unwrap().version,
+            "0.4.9"
+        );
+        assert_eq!(
+            newest(&json, Product::Auberean).unwrap().unwrap().version,
+            "0.3.0"
         );
     }
 

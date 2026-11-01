@@ -240,3 +240,39 @@ fn lyceum_is_released_by_its_command_name() {
     );
     assert!(USAGE.contains("lyceum"), "{USAGE}");
 }
+
+/// Asheron's Call 2's three products are released on tags of their own, need highlights as
+/// Lyceum's do, stamp their own change logs, and are named on the command line by their names.
+#[test]
+fn each_of_asheron_s_call_2_s_products_is_released_on_its_own_tag_with_its_own_highlights() {
+    for (product, file) in [
+        (Product::Auberean, notes::AUBEREAN_CHANGES),
+        (Product::Yalain, notes::YALAIN_CHANGES),
+        (Product::Athenaeum, notes::ATHENAEUM_CHANGES),
+    ] {
+        let name = product.command_name();
+        let mut state = clean("0.1.0");
+        state.local_tags = vec!["lyceum-v0.1.0".to_owned(), "dereth-v0.1.0".to_owned()];
+        assert_eq!(
+            preconditions_for(product, "0.1.0", &state),
+            Ok(Plan {
+                bump: false,
+                tag: format!("{name}-v0.1.0")
+            })
+        );
+        state.remote_tags = Some(vec![format!("{name}-v0.1.0")]);
+        assert!(preconditions_for(product, "0.1.0", &state).is_err());
+        assert!(needs_highlights(product));
+        assert_eq!(notes::changes_file(product), file);
+        assert!(file.starts_with(&format!("{name}/")), "{file}");
+        let e = check_highlights(file, "# Changes\n\n## Unreleased\n", "0.1.0").expect_err("none");
+        assert!(e.contains(file), "{e}");
+        assert_eq!(
+            Releasable::from_command_name(name),
+            Some(Releasable::Product(product))
+        );
+        assert!(USAGE.contains(name), "{USAGE}");
+        assert_eq!(locks(product), [("", "Cargo.lock")]);
+    }
+    assert!(!needs_highlights(Product::Dereth) && !needs_highlights(Product::Empyrean));
+}

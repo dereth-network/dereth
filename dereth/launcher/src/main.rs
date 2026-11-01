@@ -12,6 +12,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auberean;
 mod backend;
 mod component_archive;
 mod components;
@@ -75,20 +76,9 @@ struct PageSnapshot {
     /// web view's own right-click menu (Reload, Inspect) alone only when they are; a text box keeps its
     /// own either way.
     devtools: bool,
-    /// Whether the launcher was started with [`AUBEREAN_SWITCH`]: the page offers Auberean's realm
-    /// beside Dereth's.
-    auberean: bool,
-}
-
-/// The command-line switch that offers Auberean's realm beside Dereth's: a pair of portals above
-/// the rail picks which the page shows. Without it the launcher is Dereth's alone.
-const AUBEREAN_SWITCH: &str = "--auberean";
-
-/// Whether the launcher was started with [`AUBEREAN_SWITCH`].
-struct Auberean(bool);
-
-fn offers_auberean(args: &[String]) -> bool {
-    args.iter().any(|a| a == AUBEREAN_SWITCH)
+    /// Auberean's realm, which the page offers beside Dereth's: a pair of portals above the rail
+    /// picks which it shows.
+    auberean: auberean::View,
 }
 
 /// The web view's developer tools, and with them its right-click menu, exist only in a debug
@@ -96,6 +86,8 @@ fn offers_auberean(args: &[String]) -> bool {
 /// enabled, and the window is built with them off.
 const DEVTOOLS: bool = cfg!(debug_assertions);
 
+// A command is given each piece of the launcher's state it reads, one argument each.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn snapshot(
     b: State<'_, Shared>,
@@ -105,7 +97,7 @@ fn snapshot(
     l: State<'_, local::Shared>,
     s: State<'_, share::Shared>,
     j: State<'_, join::Pending>,
-    a: State<'_, Auberean>,
+    a: State<'_, auberean::Shared>,
 ) -> PageSnapshot {
     let update = u
         .view
@@ -139,7 +131,7 @@ fn snapshot(
         shortcut: shortcut::OFFERED,
         development: components::checkout_builds(&c),
         devtools: DEVTOOLS,
-        auberean: a.0,
+        auberean: auberean::view(&a, &b),
     }
 }
 
@@ -388,7 +380,11 @@ fn set_remember(b: State<'_, Shared>, slug: String, username: String, remember: 
 #[tauri::command]
 fn add_custom_world(b: State<'_, Shared>, server: backend::NewServer) -> Cmd<String> {
     let slug = lock(&b).add_custom_world(&server)?;
-    Backend::probe(&b, vec![slug.clone()]);
+    // The status probe asks as Asheron's Call's login does, which an Auberean world does not
+    // answer.
+    if server.game == dereth_launch::world::Game::Dereth {
+        Backend::probe(&b, vec![slug.clone()]);
+    }
     Ok(slug)
 }
 
@@ -416,6 +412,7 @@ fn open_local_world(b: State<'_, Shared>, l: State<'_, local::Shared>, key: Stri
             Some(dereth_launch::local::Software::Gdle) => dereth_launch::world::Emulator::Gdle,
             None => dereth_launch::world::Emulator::Unknown,
         },
+        game: dereth_launch::world::Game::Dereth,
     })?;
     Backend::probe(&b, vec![slug.clone()]);
     Ok(slug)
@@ -542,7 +539,7 @@ fn webview_present() -> bool {
     if tauri::webview_version().is_err() {
         let open = rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title("Dereth")
+            .set_title("Dereth Network")
             .set_description(
                 "Dereth needs the Microsoft Edge WebView2 Runtime to show its window, and it is not \
                  installed on this computer.\n\nInstall the Evergreen runtime from Microsoft, then \
@@ -697,8 +694,15 @@ fn main() {
         join::offer(&pending, l);
     }
     let running = std::sync::Mutex::new(Some(join::Running::mark(&folders.data)));
-    let is_release = client_beside(&here).is_some();
-    let client = find_client(&here);
+    // What the package says: the realm a first run opens in, and the releases it updates from.
+    let defaults = dereth_launch::defaults::Defaults::read(&here);
+    // A release has its game's client beside it: Dereth's, or Auberean's.
+    let is_release =
+        client_beside(&here).is_some() || !components::bundled_clients(&here).is_empty();
+    // A launcher from Auberean's package plays Dereth with the client it downloaded.
+    let client = find_client(&here).or_else(|| {
+        components::downloaded(&folders.data, dereth_launch::components::Product::Dereth)
+    });
     let tool = find_tool(&here, client.as_deref());
     // The preferences file the Dereth client reads when it is started from its own folder, which
     // names the interface it starts in.
@@ -722,7 +726,7 @@ fn main() {
         .manage(hosts::new(folders.data.clone()))
         .manage(local::new(folders.data.clone()))
         .manage(share::Shared::default())
-        .manage(Auberean(offers_auberean(&args)))
+        .manage(auberean::new(folders.data.clone()))
         .setup(move |app| {
             // The window is made here rather than from the configuration so that the web view keeps
             // its cache in the launcher's data folder, not in one named after the app's identifier.
@@ -755,7 +759,8 @@ fn main() {
                     name,
                     client_preferences.clone(),
                 )
-                .with_tool(tool.clone()),
+                .with_tool(tool.clone())
+                .with_first_realm(defaults),
             ));
             Backend::load_list(&shared);
             // Every plugin source's list is read at start, and the updates the setting allows are
@@ -788,9 +793,15 @@ fn main() {
             });
             components::set_worlds_home(
                 app.state::<components::Shared>().inner(),
-                documents.map(|d| d.join(components::WORLDS_FOLDER)),
+                documents
+                    .as_ref()
+                    .map(|d| d.join(components::WORLDS_FOLDER)),
             );
-            update::check(app.handle(), is_release);
+            auberean::set_worlds_home(
+                app.state::<auberean::Shared>().inner(),
+                documents.map(|d| d.join(auberean::WORLDS_FOLDER)),
+            );
+            update::check(app.handle(), is_release, defaults.updates);
             hosts::watch(app.state::<hosts::Shared>().inner().clone());
             // Join links: one a second launcher leaves, and on macOS one the system hands over.
             join::watch(app.handle().clone(), folders.data.clone());
@@ -828,6 +839,9 @@ fn main() {
                     &window.state::<local::Shared>(),
                 ) {
                     api.prevent_close();
+                } else {
+                    // The world on this computer is the launcher's to run: it ends with it.
+                    auberean::stop(&window.state::<auberean::Shared>());
                 }
             }
             if matches!(event, tauri::WindowEvent::Resized(_))
@@ -839,6 +853,16 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             snapshot,
             worlds_shown,
+            auberean::set_auberean_install,
+            auberean::choose_auberean_install,
+            auberean::start_auberean_world,
+            auberean::stop_auberean_world,
+            auberean::play_auberean_local,
+            auberean::play_auberean_world,
+            auberean::open_athenaeum,
+            auberean::choose_athenaeum_world,
+            auberean::new_athenaeum_world,
+            auberean::open_athenaeum_folder,
             restart_to_update,
             refresh,
             world_view,
@@ -941,17 +965,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    /// Only a launcher offering Auberean opens in the realm it last showed and draws the portals
-    /// that pick one; any other is Dereth's.
+    /// Every launcher offers both realms: it opens in the one it last showed, and draws the
+    /// portals that pick one.
     #[test]
-    fn only_a_launcher_offering_auberean_opens_in_its_realm_or_draws_the_portals() {
+    fn every_launcher_opens_in_the_realm_it_last_showed_and_draws_the_portals() {
         let open = page_function("openRealm");
         assert!(
-            open.contains(r#"ui.realm = both && REALMS[saved] ? saved : "dereth";"#),
+            open.contains(r#"ui.realm = REALMS[saved] ? saved : "dereth";"#),
             "{open}"
         );
-        let portals = open.find("data-realm-pick").expect("the portals");
-        assert!(open[..portals].contains("if (both) {"), "{open}");
+        assert!(open.contains("data-realm-pick"), "{open}");
+        assert!(!open.contains("if (both)"), "{open}");
     }
 
     /// Each realm of the page lists the worlds of the game the launcher's realm names, by the
@@ -977,18 +1001,13 @@ mod tests {
         );
     }
 
-    /// Auberean's realm is offered only to a launcher started with the switch, wherever it comes
-    /// among the arguments.
+    /// The window is titled for the network, whichever game it opens on.
     #[test]
-    fn only_the_switch_offers_auberean() {
-        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(!super::offers_auberean(&args(&[])));
-        assert!(!super::offers_auberean(&args(&["--downloads"])));
-        assert!(super::offers_auberean(&args(&["--auberean"])));
-        assert!(super::offers_auberean(&args(&[
-            "--downloads",
-            "--auberean"
-        ])));
+    fn the_window_is_titled_dereth_network() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(base["app"]["windows"][0]["title"], "Dereth Network");
+        assert!(include_str!("../ui/index.html").contains("<title>Dereth Network</title>"));
     }
 
     /// The release smoke run reads the first line: the program's name and its version.
@@ -1024,6 +1043,38 @@ mod tests {
         assert!(
             body.contains("input, textarea"),
             "text boxes keep their menu: {body}"
+        );
+    }
+
+    /// In Auberean's realm, Play, the server's page and the world builder's are Auberean's, Yalain's
+    /// and Athenaeum's; a listed world of that game opens its own page; and the first start's
+    /// questions about Dereth's game files and interface are Dereth's realm's alone.
+    #[test]
+    fn auberean_s_realm_has_its_own_play_server_and_world_builder_pages() {
+        for (function, page) in [
+            ("home", "aubereanHome"),
+            ("serverList", "yalainPage"),
+            ("makePage", "athenaeumPage"),
+        ] {
+            let body = page_function(function);
+            assert!(
+                body.contains(&format!(r#"if (ui.realm !== "dereth") return {page}();"#)),
+                "{function}: {body}"
+            );
+        }
+        assert!(page_function("openWorld").contains(r#"worldBy(slug)?.game === "auberean""#));
+        let pull = page_function("pull");
+        assert_eq!(
+            pull.matches(r#"ui.realm === "dereth" && "#).count(),
+            2,
+            "{pull}"
+        );
+        // Play starts the client with the account typed; a listed world's page sends its password
+        // to the client and forgets it.
+        let page = include_str!("../ui/app.js");
+        assert!(page.contains(r#"await act("play_auberean_local", { account });"#));
+        assert!(
+            page.contains(r#"password: ui.ac2.password })) !== undefined) ui.ac2.password = "";"#)
         );
     }
 
@@ -1405,7 +1456,9 @@ mod tests {
         ));
     }
 
-    /// The emblems are on Empyrean's and Lyceum's headings, and on no button.
+    /// The emblems are on the servers' and the world builders' headings, Empyrean's and Lyceum's in
+    /// Dereth's realm and Yalain's and Athenaeum's in Auberean's (the realm's tool by the same
+    /// name), and on no button.
     #[test]
     fn each_emblem_is_on_its_pages_heading_and_on_no_button() {
         let page = include_str!("../ui/app.js");
@@ -1421,10 +1474,18 @@ mod tests {
                 &name[..name.find('"').unwrap_or(0)]
             })
             .collect();
-        assert_eq!(used, ["empyrean", "lyceum"], "used once each");
+        assert_eq!(
+            used,
+            ["empyrean", "lyceum", "empyrean", "lyceum"],
+            "used once each in each realm"
+        );
         assert!(page_function("serverList")
             .contains(r#"brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER"#));
         assert!(page_function("makePage").contains(r#"brand("lyceum")}<h1>LYCEUM: BUILD A WORLD"#));
+        assert!(page_function("yalainPage")
+            .contains(r#"brand("empyrean")}<h1>YALAIN: A WORLD ON THIS COMPUTER"#));
+        assert!(page_function("athenaeumPage")
+            .contains(r#"brand("lyceum")}<h1>ATHENAEUM: BUILD A WORLD"#));
     }
 
     /// What's new shows its links as links that open in the system's browser, and it and the log

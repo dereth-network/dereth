@@ -40,6 +40,14 @@ inside:
 The launcher updates itself and the client, and downloads Empyrean and Lyceum when you want them.
 Their own releases are in the same list, tagged `empyrean-v<version>` and `lyceum-v<version>`.
 
+For Asheron's Call 2, download Auberean's release (tagged `auberean-v<version>`): the same
+launcher, with the Auberean client beside it, opening in Auberean's realm and updating from
+Auberean's releases. Or pick Auberean's portal above the rail of the launcher you have: it
+downloads Auberean, Yalain and Athenaeum when you want them (tagged `auberean-v<version>`,
+`yalain-v<version>` and `athenaeum-v<version>`), plays them over your own Asheron's Call 2 install,
+and runs a world on your computer. Either release's launcher fetches the other game's client in the
+same way.
+
 The builds aren't code-signed yet. Windows SmartScreen asks once (**More info**, then **Run
 anyway**), and so does macOS (**System Settings**, **Privacy & Security**, **Open Anyway**).
 
@@ -89,8 +97,8 @@ speaks only UDP, run [`dereth-web-relay`](tools/web-relay/README.md).
 ## Layout
 
 One Cargo workspace. A crate's folder is usually its package name without the `dereth-`,
-`empyrean-` or `lyceum-` prefix: `core/physics` is `dereth-physics`, `empyrean/crates/world` is
-`empyrean-world`.
+`empyrean-`, `lyceum-`, `auberean-`, `yalain-` or `athenaeum-` prefix: `core/physics` is
+`dereth-physics`, `empyrean/crates/world` is `empyrean-world`.
 
 | Folder | What it holds | License |
 |---|---|---|
@@ -98,6 +106,7 @@ One Cargo workspace. A crate's folder is usually its package name without the `d
 | `dereth/` | The client (`dereth/client`, with its crates under `dereth/client/crates/`), the web client (`dereth/web`), the launcher (`dereth/launcher`, a Tauri app with a workspace of its own), the headless client and the client's test kit. | MIT |
 | `empyrean/` | The server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` programs and the server's test kit. | AGPL-3.0-only |
 | `lyceum/` | The world builder: the editor, the Foundry library and the `lyceum` command. | MIT |
+| `auberean/`, `yalain/`, `athenaeum/` | Asheron's Call 2's client (the `auberean` program), server (`yalain`) and world builder (`athenaeum-editor` and the `athenaeum` command), over its core under `core/auberean-*`. | MIT |
 | `network/` | The Dereth Network: its protocol, hub, conformance suite and ACE mod. | MIT; the hub and the mod AGPL-3.0-only |
 | `tools/` | Developer tools: the `xtask` task runner, the capture and corpus tools, and the web client's relay and dev server. [`tools/README.md`](tools/README.md) describes each. | MIT |
 | `docs/` | The behavior specification (below). | |

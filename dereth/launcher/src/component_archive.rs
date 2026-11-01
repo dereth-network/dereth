@@ -60,6 +60,77 @@ impl Extractor<'_> {
     }
 }
 
+/// A release file that is a program in itself, which is put in place rather than unpacked: an
+/// AppImage.
+const APPIMAGE: &str = ".AppImage";
+
+/// The name a launcher's AppImage is written under while it unpacks itself.
+const UNPACKING: &str = "unpacking.AppImage";
+
+/// [`extract`], or for a release file that is the program itself (an AppImage), the file put in the
+/// staging folder `root` as `program`, executable. An AppImage that is a game's launcher, holding
+/// the client (`holds_program`), is unpacked instead ([`unpack_appimage`]).
+pub fn extract_program(
+    bytes: &[u8],
+    filename: &str,
+    program: &str,
+    root: &Path,
+    holds_program: bool,
+) -> Result<(), String> {
+    if !filename.ends_with(APPIMAGE) {
+        return extract(bytes, filename, root);
+    }
+    if bytes.get(..4) != Some(b"\x7fELF") {
+        return Err("The download is not a program for this system.".into());
+    }
+    if std::fs::read_dir(root)
+        .map_err(|e| e.to_string())?
+        .next()
+        .is_some()
+    {
+        return Err("The installation staging folder is not empty.".into());
+    }
+    if holds_program {
+        return unpack_appimage(bytes, root);
+    }
+    let mut out = Extractor {
+        root,
+        names: BTreeSet::new(),
+        remaining: MAX_UNPACKED_BYTES,
+    };
+    out.member(program, false, bytes.len() as u64, true, &mut &bytes[..])
+}
+
+/// A launcher's AppImage, which holds a game's client: written into the empty staging folder
+/// `root`, and asked to unpack itself there (`--appimage-extract` writes `squashfs-root`), then
+/// removed. Its checksum was checked before it is run.
+fn unpack_appimage(bytes: &[u8], root: &Path) -> Result<(), String> {
+    let file = root.join(UNPACKING);
+    std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    let status = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+        std::process::Command::new(&file)
+            .arg("--appimage-extract")
+            .current_dir(root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|e| e.to_string())
+    };
+    #[cfg(not(unix))]
+    let status: Result<std::process::ExitStatus, String> =
+        Err("An AppImage unpacks on Linux only.".to_owned());
+    let _ = std::fs::remove_file(&file);
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(_) => Err("The download could not be unpacked.".into()),
+        Err(e) => Err(format!("The download could not be unpacked: {e}")),
+    }
+}
+
 /// The caller owns a fresh, empty staging folder. Links and special files are refused.
 pub fn extract(bytes: &[u8], filename: &str, root: &Path) -> Result<(), String> {
     if std::fs::read_dir(root)
@@ -206,6 +277,72 @@ mod tests {
             std::fs::remove_dir_all(root).unwrap();
         }
     }
+    #[test]
+    fn an_appimage_is_put_in_place_as_the_program_and_anything_else_unpacked() {
+        let root = scratch();
+        let mut appimage = b"\x7fELF".to_vec();
+        appimage.extend_from_slice(&[0; 60]);
+        extract_program(
+            &appimage,
+            "Athenaeum-0.1.0-linux-x86_64.AppImage",
+            "athenaeum-editor",
+            &root,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(root.join("athenaeum-editor")).unwrap(),
+            appimage
+        );
+        std::fs::remove_dir_all(root).unwrap();
+
+        let root = scratch();
+        assert!(extract_program(
+            b"PK",
+            "Athenaeum-0.1.0-linux-x86_64.AppImage",
+            "athenaeum-editor",
+            &root,
+            false
+        )
+        .is_err());
+        // A game's release is its launcher with the client inside: the whole of it is unpacked,
+        // and the client is found in it.
+        let bytes = zip(&[
+            ("auberean-0.1.0/dereth.exe", b"launcher"),
+            ("auberean-0.1.0/auberean.exe", b"exe"),
+        ]);
+        extract_program(
+            &bytes,
+            "auberean-0.1.0-windows-x86_64.zip",
+            "auberean.exe",
+            &root,
+            true,
+        )
+        .unwrap();
+        assert!(root.join("auberean-0.1.0/auberean.exe").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A game's launcher AppImage is never put in place as the client: it is asked to unpack
+    /// itself, and one that cannot leaves nothing behind.
+    #[test]
+    fn a_game_s_launcher_appimage_is_unpacked_not_put_in_place() {
+        let root = scratch();
+        let mut appimage = b"\x7fELF".to_vec();
+        appimage.extend_from_slice(&[0; 60]);
+        let result = extract_program(
+            &appimage,
+            "Auberean-0.1.0-linux-x86_64.AppImage",
+            "auberean",
+            &root,
+            true,
+        );
+        assert!(result.is_err(), "no real AppImage unpacks");
+        assert!(!root.join("auberean").exists());
+        assert!(!root.join(UNPACKING).exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn oversized_members_are_refused_before_creating_a_file() {
         let root = scratch();

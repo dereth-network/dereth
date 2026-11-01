@@ -1626,10 +1626,14 @@ fn metadata(members: &[&str], packages: &[(&str, Option<&str>, &[&str])]) -> ser
 
 /// The main workspace and the launcher's, as `cargo metadata` reads them: the hub, Empyrean's
 /// server and import tool, and the client, the web client and the launcher, over shared crates,
-/// a vendored crate, and crates only tests are built with.
+/// a vendored crate, and crates only tests are built with; and Asheron's Call 2's client and
+/// server over a core crate of their own.
 fn workspaces() -> plan::Built {
     let main = metadata(
         &[
+            "auberean-client",
+            "yalain",
+            "auberean-dat",
             "dereth-network-hub",
             "empyrean-server",
             "empyrean-import",
@@ -1642,6 +1646,13 @@ fn workspaces() -> plan::Built {
             "dereth-primitives",
         ],
         &[
+            (
+                "auberean-client",
+                Some("auberean/client"),
+                &["auberean-dat"],
+            ),
+            ("yalain", Some("yalain/server"), &["auberean-dat"]),
+            ("auberean-dat", Some("core/auberean-dat"), &[]),
             (
                 "dereth-network-hub",
                 Some("network/hub"),
@@ -1814,6 +1825,8 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                     "mlua"
                 ])
             ),
+            (Product::Auberean, set(&["auberean-client", "auberean-dat"])),
+            (Product::Yalain, set(&["yalain", "auberean-dat"])),
         ]
         .into()
     );
@@ -1883,6 +1896,14 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
         of("core/primitives/src/lib.rs"),
         [Product::Hub, Product::Empyrean, Product::Dereth]
     );
+    // Asheron's Call 2's core is its client's and its server's; the world builder is released for
+    // its own folder, as Lyceum is.
+    assert_eq!(
+        of("core/auberean-dat/src/lib.rs"),
+        [Product::Auberean, Product::Yalain]
+    );
+    assert_eq!(of("yalain/server/src/main.rs"), [Product::Yalain]);
+    assert_eq!(of("athenaeum/editor/src/main.rs"), [Product::Athenaeum]);
 
     // What the release packaging builds for Empyrean is what Empyrean ships.
     assert_eq!(

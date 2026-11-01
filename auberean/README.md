@@ -6,10 +6,39 @@ builder [Athenaeum](../athenaeum/README.md); all three share the Asheron's Call 
 `core/auberean-*`, and that core shares the engine's common crates with Dereth (the data-file
 container, the transport, the connection manager, the landscape, the swept-sphere transition).
 
-It is early work. The desktop client opens a window in which a character walks the world against
-Yalain; the game's own interface is not in yet, so it logs in from the command line. The world
+It is early work, released for the first time as 0.1.0. The desktop client opens a window with the
+game's own screens: make a character, enter the world, walk, fight and talk on Yalain. The world
 viewer draws the world offline to a picture, and the headless client logs in, enters the world and
 plays a script of actions.
+
+## Playing it
+
+You need your own Asheron's Call 2 install: the end-of-retail data files `portal.dat`,
+`cell_1.dat` and `local_English.dat` (and `highres.dat`, when the install has it). Nothing of the
+game ships with Auberean, and nothing of it is downloaded.
+
+**From the launcher.** Auberean's release is the Dereth Network launcher with the Auberean client
+beside it: `auberean-<version>-windows-x86_64.zip` (unzip it anywhere and run `dereth.exe`),
+`Auberean-<version>-macos-<arch>.app.tar.gz` (unpack it and move `Dereth.app` to Applications) or
+`Auberean-<version>-linux-x86_64.AppImage` (make it executable and run it). It opens in
+Auberean's realm. On Play, choose your Asheron's Call 2 folder (the launcher checks its data files)
+and press Play: it starts a world on your computer with Yalain (downloaded on Yalain's page) and
+logs you in with the account name you give. A world on the Dereth Network opens from Worlds, with
+its account and password. The launcher keeps itself and the client up to date. Dereth's release
+carries the same launcher: in it, pick Auberean's portal above the rail and download Auberean on
+Play.
+
+**By hand.** The client is `auberean` beside the launcher in the release (in `Dereth.app`, in
+`Contents/MacOS`; in the AppImage, `Auberean-<version>-linux-x86_64.AppImage --appimage-extract`
+unpacks it to `squashfs-root/usr/bin`). Start a world with Yalain, then:
+
+```text
+auberean --dats <install folder> --server 127.0.0.1:9000 --account <name>:<password>
+```
+
+`--server` is the world's login address and port. The client keeps its settings in the folder
+`AUBEREAN_SETTINGS_DIR` names, else in your application data's `Auberean`, and its screenshots
+(Ctrl+P) there in `screenshots`. `auberean --version` says which build it is.
 
 | Folder | Package | What it is |
 |---|---|---|
@@ -38,7 +67,7 @@ The core, in [`core/`](../core/):
 | `auberean-port` | the marker for a retail function not ported yet |
 | `auberean-client-net`, `-model`, `-contract`, `-runtime`, `-sdk` | the client without a window: the session, the model, the actions, the runtime and the SDK over them |
 
-## Running it
+## Running it from the repository
 
 You need your own Asheron's Call 2 install; nothing of the game ships here.
 

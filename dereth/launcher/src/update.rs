@@ -1,11 +1,17 @@
-//! The launcher updating itself, and with it the Dereth client that ships beside it.
+//! The launcher updating itself, and with it the game client that ships beside it.
 //!
-//! At start the launcher lists its repository's GitHub releases through GitHub's REST API, as many
-//! pages as it takes to reach a Dereth release, picks the newest published Dereth release
-//! ([`dereth_launch::releases`]) and reads that release's `latest.json` (or the `latest.json`
-//! that `DERETH_UPDATE_URL` names). When it names a newer version for this platform, the launcher
-//! downloads that release in the background. When the list cannot be had, or holds no Dereth
-//! release, there is no update this time: the player is not told, and the next start tries again.
+//! Every package carries the same launcher, beside Dereth's client or Auberean's, and a launcher
+//! updates from its own channel ([`dereth_launch::defaults`]): Dereth's releases (`dereth-v*`) or
+//! Auberean's (`auberean-v*`), each the launcher with that game's client. At start the launcher
+//! lists its repository's GitHub releases through GitHub's REST API, as many pages as it takes to
+//! reach one of its channel's, picks the newest published one ([`dereth_launch::releases`]) and
+//! reads that release's `latest.json` (or the `latest.json` that `DERETH_UPDATE_URL` names). When
+//! it carries a newer launcher, or the same launcher with a newer client, the launcher downloads
+//! that release in the background. It never installs an older launcher than itself
+//! ([`releases::update_step`]): when the other channel shipped a newer launcher first, this one's
+//! newer client is fetched alone, as the other game's client is, or nothing is. When the list
+//! cannot be had, or holds none of the channel's releases, there is no update this time: the
+//! player is not told, and the next start tries again.
 //! The download is checked against the update-signing public key in `tauri.conf.json`: an
 //! unsigned or wrongly signed file is refused. Once it is in, the page offers a restart.
 //!
@@ -16,13 +22,15 @@
 //! from the new files; the next start removes the old ones. Nothing here touches the launcher's
 //! state, which lives in its own folders.
 //!
-//! Only a launcher that is a release looks for updates: one with the Dereth client beside it. A
+//! Only a launcher that is a release looks for updates: one with a game's client beside it. A
 //! launcher built from the repository has none there and never checks (unless `DERETH_UPDATE_URL`
 //! says to).
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use dereth_launch::releases;
+use dereth_launch::components::Product;
+use dereth_launch::releases::{self, Bundled, UpdateStep, Version};
+use dereth_launch::world::Game;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -63,9 +71,9 @@ fn set(app: &AppHandle, view: UpdateView) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = view;
 }
 
-/// Check for a newer launcher and download it, in the background. `is_release` says whether this
-/// launcher is a release (the Dereth client ships beside it).
-pub fn check(app: &AppHandle, is_release: bool) {
+/// Check for a newer launcher on `channel` and download it, in the background. `is_release` says
+/// whether this launcher is a release (a game's client ships beside it).
+pub fn check(app: &AppHandle, is_release: bool, channel: Game) {
     let override_url = std::env::var("DERETH_UPDATE_URL")
         .ok()
         .filter(|u| !u.is_empty());
@@ -74,15 +82,18 @@ pub fn check(app: &AppHandle, is_release: bool) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let found =
-            tauri::async_runtime::spawn_blocking(move || manifest_url(override_url, list_page))
-                .await
-                .ok()
-                .flatten();
-        let Some(url) = found else {
+        let asking = app.clone();
+        let found = tauri::async_runtime::spawn_blocking(move || {
+            let url = manifest_url(override_url, channel, list_page)?;
+            Some((url, client_version(&asking, channel)))
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some((url, client)) = found else {
             return;
         };
-        if let Err(reason) = check_and_download(&app, &url).await {
+        if let Err(reason) = check_and_download(&app, &url, channel, client).await {
             eprintln!("dereth: the update failed: {reason}");
             if let Some(b) = app.try_state::<crate::backend::Shared>() {
                 crate::backend::lock(&b).notify_error(format!("Dereth could not update: {reason}"));
@@ -92,12 +103,39 @@ pub fn check(app: &AppHandle, is_release: bool) {
     });
 }
 
+/// The game client a launcher on `channel` has, when its version is its own: Auberean's, packaged
+/// or downloaded. Dereth's client carries the launcher's version, so `None` for Dereth's channel.
+fn client_version(app: &AppHandle, channel: Game) -> Option<Version> {
+    match channel {
+        Game::Dereth => None,
+        Game::Auberean => {
+            let shared = app.try_state::<crate::components::Shared>()?;
+            crate::components::version_of(shared.inner(), Product::Auberean)
+        }
+    }
+}
+
+/// The game client a channel's releases carry.
+fn channel_client(channel: Game) -> Product {
+    match channel {
+        Game::Dereth => Product::Dereth,
+        Game::Auberean => Product::Auberean,
+    }
+}
+
+/// What a channel is called in the log.
+fn channel_title(channel: Game) -> &'static str {
+    channel_client(channel).title()
+}
+
 /// Where the `latest.json` to update from is: the one `DERETH_UPDATE_URL` names when it is set,
-/// else the newest Dereth release's, found in the source repository's releases as `fetch` fetches
-/// their pages. `None`, logged and not shown, when the list cannot be fetched or read, or holds no
-/// Dereth release to update from: not reaching GitHub is no reason to bother the player.
+/// else the newest release of `channel`'s, found in the source repository's releases as `fetch`
+/// fetches their pages. `None`, logged and not shown, when the list cannot be fetched or read, or
+/// holds none of the channel's releases to update from: not reaching GitHub is no reason to bother
+/// the player.
 fn manifest_url(
     override_url: Option<String>,
+    channel: Game,
     mut fetch: impl FnMut(&str) -> Result<releases::Page, String>,
 ) -> Option<String> {
     if override_url.is_some() {
@@ -109,15 +147,17 @@ fn manifest_url(
         return None;
     };
     let mut listing = releases::Listing::new(&api);
-    let needs = [releases::Need::Newest(releases::TAG_PREFIX.to_owned())];
+    let prefix = releases::channel_prefix(channel);
+    let needs = [releases::Need::Newest(prefix.to_owned())];
     match listing
         .read(&needs, &mut fetch)
-        .and_then(|()| releases::newest_update_release(&listing.json()))
+        .and_then(|()| releases::newest_update_release_of(&listing.json(), prefix))
     {
         Ok(Some(release)) => Some(release.manifest_url),
         Ok(None) => {
             eprintln!(
-                "dereth: no update check: {source} has no published Dereth release to update from"
+                "dereth: no update check: {source} has no published {} release to update from",
+                channel_title(channel)
             );
             None
         }
@@ -159,10 +199,46 @@ fn list_page(url: &str) -> Result<releases::Page, String> {
     Ok(releases::Page { body, next })
 }
 
-async fn check_and_download(app: &AppHandle, url: &str) -> Result<(), String> {
+/// What a launcher at `current` does with a release whose `latest.json` names `remote`, with its
+/// game's client at `client` ([`releases::update_step`]). A version that does not read is passed
+/// over.
+fn step_for(current: &str, remote: &str, client: Option<Version>) -> UpdateStep {
+    match (Version::parse(current), Bundled::parse(remote)) {
+        (Some(running), Some(remote)) => releases::update_step(running, client, remote),
+        _ => UpdateStep::Nothing,
+    }
+}
+
+/// A release's version as the page shows it: `0.5.0`, or `0.5.0 with Auberean 0.2.0`.
+fn shown_version(version: &str) -> String {
+    match Bundled::parse(version) {
+        Some(Bundled {
+            launcher,
+            client: Some(client),
+        }) => format!("{launcher} with Auberean {client}"),
+        Some(b) => b.launcher.to_string(),
+        None => version.to_owned(),
+    }
+}
+
+async fn check_and_download(
+    app: &AppHandle,
+    url: &str,
+    channel: Game,
+    client: Option<Version>,
+) -> Result<(), String> {
     let endpoint = url.parse().map_err(|e| format!("{url}: {e}"))?;
+    let step = Arc::new(Mutex::new(UpdateStep::Nothing));
+    let decided = step.clone();
     let updater = app
         .updater_builder()
+        .version_comparator(move |current, remote| {
+            let s = step_for(&current.to_string(), &remote.version.to_string(), client);
+            *decided
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = s;
+            s == UpdateStep::Release
+        })
         .endpoints(vec![endpoint])
         .map_err(|e| e.to_string())?
         .build()
@@ -171,13 +247,28 @@ async fn check_and_download(app: &AppHandle, url: &str) -> Result<(), String> {
     // player either: the check is tried again on the next start.
     let update = match updater.check().await {
         Ok(Some(update)) => update,
-        Ok(None) => return Ok(()),
+        Ok(None) => {
+            let step = *step
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // The release carries an older launcher than this one: its newer client comes alone.
+            if step == UpdateStep::ClientOnly {
+                if let Some(shared) = app.try_state::<crate::components::Shared>() {
+                    let _ = crate::components::start_get(
+                        app.clone(),
+                        shared.inner().clone(),
+                        channel_client(channel),
+                    );
+                }
+            }
+            return Ok(());
+        }
         Err(e) => {
             eprintln!("dereth: no update information: {e}");
             return Ok(());
         }
     };
-    let version = update.version.clone();
+    let version = shown_version(&update.version);
     set(
         app,
         UpdateView::Downloading {
@@ -321,7 +412,8 @@ pub mod windows {
 
 #[cfg(test)]
 mod tests {
-    use dereth_launch::releases;
+    use dereth_launch::releases::{self, UpdateStep};
+    use dereth_launch::world::Game;
     use tauri_plugin_updater::RemoteRelease;
 
     /// `latest.json` as the release writes it: one entry per platform, each the download and its
@@ -383,11 +475,65 @@ mod tests {
             .is_some_and(|k| !k.is_empty()));
     }
 
+    /// Auberean's `latest.json` names the launcher and the client it carries, and the launcher reads
+    /// both: the same launcher with a newer client is an update, an older launcher never is.
+    #[test]
+    fn auberean_s_latest_json_names_its_launcher_and_client_and_never_downgrades() {
+        let auberean = LATEST.replace(
+            r#""version": "0.2.0""#,
+            r#""version": "0.5.0+auberean.0.2.0""#,
+        );
+        let release: RemoteRelease = serde_json::from_str(&auberean).unwrap();
+        let remote = release.version.to_string();
+        assert_eq!(remote, "0.5.0+auberean.0.2.0");
+        let ours = releases::Version::parse("0.1.0");
+        assert_eq!(super::step_for("0.5.0", &remote, ours), UpdateStep::Release);
+        assert_eq!(super::step_for("0.4.9", &remote, ours), UpdateStep::Release);
+        assert_eq!(
+            super::step_for("0.5.1", &remote, ours),
+            UpdateStep::ClientOnly
+        );
+        assert_eq!(
+            super::step_for("0.5.1", &remote, releases::Version::parse("0.2.0")),
+            UpdateStep::Nothing
+        );
+        assert_eq!(super::step_for("0.5.1", "0.5.0", None), UpdateStep::Nothing);
+        assert_eq!(super::step_for("0.5.0", "0.5.1", None), UpdateStep::Release);
+        assert_eq!(super::shown_version(&remote), "0.5.0 with Auberean 0.2.0");
+        assert_eq!(super::shown_version("0.5.1"), "0.5.1");
+    }
+
+    /// A launcher from Auberean's package reads Auberean's newest release, passing over Dereth's.
+    #[test]
+    fn a_launcher_on_auberean_s_channel_updates_from_auberean_s_newest_release() {
+        let url = super::manifest_url(None, Game::Auberean, |_| {
+            page(
+                br#"[
+                {"tag_name":"dereth-v0.6.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/d060/latest.json"}]},
+                {"tag_name":"auberean-v0.2.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/a020/latest.json"}]}
+            ]"#,
+                None,
+            )
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/a020/latest.json")
+        );
+        let none = super::manifest_url(None, Game::Auberean, |_| {
+            page(br#"[{"tag_name":"dereth-v0.6.0","assets":[]}]"#, None)
+        });
+        assert_eq!(none, None);
+    }
+
     #[test]
     fn dereth_update_url_wins_and_no_release_list_is_fetched() {
-        let url = super::manifest_url(Some("https://example.test/latest.json".into()), |_| {
-            panic!("the release list is not fetched when DERETH_UPDATE_URL is set")
-        });
+        let url = super::manifest_url(
+            Some("https://example.test/latest.json".into()),
+            Game::Dereth,
+            |_| panic!("the release list is not fetched when DERETH_UPDATE_URL is set"),
+        );
         assert_eq!(url.as_deref(), Some("https://example.test/latest.json"));
     }
 
@@ -402,7 +548,7 @@ mod tests {
     #[test]
     fn the_newest_dereth_releases_latest_json_is_read_from_the_source_repositorys_list() {
         let mut asked = Vec::new();
-        let url = super::manifest_url(None, |api| {
+        let url = super::manifest_url(None, Game::Dereth, |api| {
             asked.push(api.to_owned());
             page(
                 br#"[
@@ -431,7 +577,7 @@ mod tests {
     fn the_list_is_read_on_to_the_page_holding_a_dereth_release() {
         let second = "https://api.github.com/repositories/1/releases?per_page=100&page=2";
         let mut asked = Vec::new();
-        let url = super::manifest_url(None, |api| {
+        let url = super::manifest_url(None, Game::Dereth, |api| {
             asked.push(api.to_owned());
             if api == second {
                 page(
@@ -491,44 +637,52 @@ mod tests {
     #[test]
     fn an_unreachable_or_unreadable_release_list_skips_the_check_quietly() {
         assert_eq!(
-            super::manifest_url(None, |_| Err("connection refused".into())),
+            super::manifest_url(None, Game::Dereth, |_| Err("connection refused".into())),
             None
         );
         assert_eq!(
-            super::manifest_url(None, |_| page(
+            super::manifest_url(None, Game::Dereth, |_| page(
                 br#"{"message":"API rate limit exceeded"}"#,
                 None
             )),
             None
         );
         assert_eq!(
-            super::manifest_url(None, |_| page(br#"[{"tag_name":"empyrean-v1.0.0"}]"#, None)),
+            super::manifest_url(None, Game::Dereth, |_| page(
+                br#"[{"tag_name":"empyrean-v1.0.0"}]"#,
+                None
+            )),
             None
         );
     }
 
-    /// The layered icon's files exist only where Xcode compiled them, on macOS: the shared
-    /// configuration names only the icons every system builds, and the macOS one adds the rest.
+    /// The launcher's icon is the network's emblem in every package: the shared configuration
+    /// names the picture and the Windows icon, and the macOS one adds its own icon file.
     #[test]
-    fn only_the_macos_configuration_names_the_icon_files_only_macos_builds() {
+    fn every_configuration_names_the_launchers_own_icon_files() {
         let base: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        let icons = base["bundle"]["icon"].as_array().unwrap();
-        assert!(icons.iter().all(|i| {
-            let i = i.as_str().unwrap();
-            i == "icons/icon.png" || i == "icons/icon.ico"
-        }));
-        assert!(base["bundle"]["macOS"]["files"].is_null());
+        assert_eq!(
+            base["bundle"]["icon"],
+            serde_json::json!(["icons/icon.png", "icons/icon.ico"])
+        );
         let mac: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
         assert_eq!(
             mac["bundle"]["icon"],
-            serde_json::json!(["icons/Dereth.icns", "icons/icon.png", "icons/icon.ico"])
+            serde_json::json!(["icons/Network.icns", "icons/icon.png", "icons/icon.ico"])
         );
-        assert_eq!(
-            mac["bundle"]["macOS"]["files"]["Resources/Assets.car"],
-            "icons/Assets.car"
-        );
+        let build = include_str!("../build.rs");
+        for (from, to) in [
+            ("network.png", "icons/icon.png"),
+            ("network.ico", "icons/icon.ico"),
+            ("Network.icns", "icons/Network.icns"),
+        ] {
+            assert!(
+                build.contains(&format!(r#"std::fs::copy(icon.join("{from}"), "{to}")"#)),
+                "{from}"
+            );
+        }
     }
 
     #[cfg(windows)]

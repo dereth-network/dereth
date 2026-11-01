@@ -1,4 +1,5 @@
-//! The targets Empyrean is released for, and which host can build which.
+//! The targets Empyrean (and Yalain, built the same way) is released for, the desktop products'
+//! targets, and which host can build which.
 
 /// An operating system, of a target or of the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +135,47 @@ pub fn plan_lyceum(target: Target, host: &Host) -> Result<(), String> {
         target,
         host,
         "the editor is built with that system's own linker and libraries",
+    )
+}
+
+/// The targets Asheron's Call 2's desktop programs are released for (Auberean, the client, and
+/// Athenaeum, the world builder): Dereth's, each built natively as Dereth's are.
+pub const DESKTOP_TRIPLES: &[&str] = DERETH_TRIPLES;
+
+/// The oldest glibc an Auberean or Athenaeum Linux release runs on: Dereth's, since it is built on
+/// the same Ubuntu 22.04.
+pub const DESKTOP_GLIBC_FLOOR: (u32, u32) = DERETH_GLIBC_FLOOR;
+
+/// The release target named `triple` among `triples`, the targets of `product` (its name, for the
+/// error).
+pub fn find_among(triples: &[&str], product: &str, triple: &str) -> Result<Target, String> {
+    if !triples.contains(&triple) {
+        return Err(format!(
+            "`{triple}` is not {} {product} release target; the targets are {}",
+            article(product),
+            triples.join(", ")
+        ));
+    }
+    find(triple)
+}
+
+/// `a` or `an`, as a product's name takes it.
+fn article(name: &str) -> &'static str {
+    if name.starts_with(['A', 'E', 'I', 'O', 'U', 'a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    }
+}
+
+/// How this host builds an Auberean or Athenaeum release for `target`, or why it cannot:
+/// natively, on the target's own operating system, whose linker, system libraries and (on Linux)
+/// glibc the programs are built against.
+pub fn plan_desktop(target: Target, host: &Host) -> Result<(), String> {
+    plan_native(
+        target,
+        host,
+        "the programs are built with that system's own linker and libraries",
     )
 }
 

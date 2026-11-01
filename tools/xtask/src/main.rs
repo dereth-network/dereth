@@ -139,6 +139,24 @@ Release and packaging:
                             (Windows zip, macOS Lyceum.app, Linux tarball with a desktop entry),
                             checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
                             (lyceum/RELEASING.md)
+  package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+                 | --gather <dir>
+                            Auberean's release files: the launcher built exactly as `package
+                            dereth` builds it, with the Auberean client and launcher-defaults.json
+                            beside it in place of Dereth's client (Windows zip, macOS Dereth.app,
+                            Linux AppImage), checked and scanned, and signed for the launcher's
+                            updater (latest.json, version <launcher>+auberean.<client>) when
+                            TAURI_SIGNING_PRIVATE_KEY is set (auberean/RELEASING.md)
+  package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
+                            Asheron's Call 2's world builder: the editor and the athenaeum command,
+                            with yalain and auberean beside them, built for this host and written
+                            with the notices, README and CHANGES (Windows zip, macOS .app, Linux
+                            AppImage packed by appimagetool), checked and scanned, with
+                            MANIFEST.txt, release.json and SHA256SUMS (auberean/RELEASING.md)
+  package yalain [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
+                            Asheron's Call 2's server: builds yalain per target as Empyrean's are
+                            built, stages the allowlist, runs the deny scan and the header check,
+                            and writes the archives, MANIFEST.txt, release.json and SHA256SUMS
   package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
                             the web client's release files: builds the module, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
@@ -165,13 +183,13 @@ Release and packaging:
                             of https://plugins.dereth.network/plugins.json: built from a commit
                             main has (a branch's with --force), with its _headers; the project is
                             --project or DERETH_PLUGINS_PAGES_PROJECT (docs/plugins/sources.md)
-  release empyrean|dereth|lyceum <version> [--push] [--remote <name>]
+  release empyrean|dereth|lyceum|auberean|yalain|athenaeum <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
-                            tier 0 and a host package, tag empyrean-v<version>,
-                            dereth-v<version> or lyceum-v<version>; pushes only with --push. A
-                            final release also turns the Unreleased section of the product's
-                            CHANGES.md (empyrean/, dereth/ or lyceum/) into the release's own,
-                            dated; Lyceum's refuses a release without highlights there
+                            tier 0 (and, for Asheron's Call 2's products, tier 1 --game auberean
+                            when its data is found) and a host package, tag <product>-v<version>;
+                            pushes only with --push. A final release also turns the Unreleased
+                            section of the product's CHANGES.md into the release's own, dated;
+                            Lyceum's and Asheron's Call 2's refuse a release without highlights
   release network-hub|network-ace <version> [--push] [--remote <name>]
                             the same for the Dereth Network's hub or ACE mod: set its version
                             and commit it, run its checks as CI does (the mod's need dotnet,
@@ -194,12 +212,13 @@ Release and packaging:
                             process, and the web client tagged with Dereth; --skip-checks does not
                             ask CI, --allow-failing ships despite failed checks, --local-tier0 runs
                             tier 0 here first
-  release-notes dereth|empyrean|lyceum [--since <tag>] [--version <v>] [--out <file>]
+  release-notes dereth|empyrean|lyceum|auberean|yalain|athenaeum [--since <tag>] [--version <v>]
+                [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final
-                            dereth-v, empyrean-v or lyceum-v tag, grouped (the release workflow
-                            writes them the same way); a first release has its highlights alone
-  version empyrean|dereth|lyceum [--tag <tag>]
+                            <product>-v tag, grouped (the release workflow writes them the same
+                            way); a first release has its highlights alone
+  version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)

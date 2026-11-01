@@ -765,3 +765,134 @@ fn an_unreachable_earlier_release_is_refused_not_taken_for_a_first() {
     let e = notes(&repo.0, Product::Lyceum, &Request::default()).expect_err("unreachable");
     assert!(e.contains("--since"), "{e}");
 }
+
+/// Each of Asheron's Call 2's products keeps the commits that change what it ships: the client its
+/// folder and the core crates under `core/auberean-*`, the server its folder and the core crates it
+/// is built from, the world builder its folder. Their test kits, the world viewer, documents and
+/// their own version commits are left out, and Dereth's notes do not count their core crates.
+#[test]
+fn only_commits_that_change_what_each_asheron_s_call_2_product_ships_are_kept() {
+    let kept = |product: Product, subject: &str, paths: &[&str]| {
+        group(product, &commit(subject, paths)).is_some()
+    };
+    assert!(kept(
+        Product::Auberean,
+        "Doors open",
+        &["auberean/client/src/main.rs"]
+    ));
+    assert!(kept(
+        Product::Auberean,
+        "Hills cast shadows",
+        &["core/auberean-world/src/sky.rs"]
+    ));
+    assert!(kept(
+        Product::Yalain,
+        "Camps respawn",
+        &["yalain/crates/world/src/camp.rs"]
+    ));
+    assert!(kept(
+        Product::Yalain,
+        "Portals read their records",
+        &["core/auberean-dat/src/lib.rs"]
+    ));
+    assert!(kept(
+        Product::Athenaeum,
+        "Camps can be placed",
+        &["athenaeum/editor/src/app.rs"]
+    ));
+    for (product, path) in [
+        (Product::Auberean, "auberean/testkit/src/behaviours.rs"),
+        (Product::Auberean, "auberean/viewer/src/main.rs"),
+        (Product::Auberean, "auberean/README.md"),
+        (Product::Yalain, "yalain/testkit/src/lib.rs"),
+        (Product::Yalain, "auberean/client/src/main.rs"),
+        (Product::Athenaeum, "yalain/server/src/main.rs"),
+        (Product::Dereth, "core/auberean-world/src/sky.rs"),
+        (Product::Empyrean, "yalain/server/src/main.rs"),
+        (Product::Lyceum, "athenaeum/editor/src/app.rs"),
+    ] {
+        assert!(!kept(product, "A change", &[path]), "{product:?} {path}");
+    }
+    // A core crate both are built from is the server's too, unless the commit changes something
+    // only the client ships.
+    let both = [
+        "core/auberean-world/src/sky.rs",
+        "auberean/client/crates/gpu/src/sky.rs",
+    ];
+    assert!(kept(Product::Auberean, "The sky is drawn", &both));
+    assert!(!kept(Product::Yalain, "The sky is drawn", &both));
+    for subject in [
+        "Auberean 0.1.0",
+        "Yalain 0.2.0: its changes",
+        "Athenaeum 0.1.1",
+    ] {
+        assert!(is_release_commit(subject), "{subject}");
+    }
+    assert!(!kept(
+        Product::Auberean,
+        "Auberean 0.1.0",
+        &["auberean/client/Cargo.toml"]
+    ));
+}
+
+/// Athenaeum's notes group as Lyceum's do, with its own command named under the Foundry's heading;
+/// the server's group as Empyrean's, and the client's as Dereth's.
+#[test]
+fn asheron_s_call_2_s_products_group_their_commits_under_their_own_headings() {
+    let g =
+        |product: Product, subject: &str, paths: &[&str]| group(product, &commit(subject, paths));
+    assert_eq!(
+        g(
+            Product::Athenaeum,
+            "Worlds validate faster",
+            &["athenaeum/cli/src/main.rs"]
+        ),
+        Some(Group::Foundry)
+    );
+    assert_eq!(
+        g(
+            Product::Athenaeum,
+            "Markers follow the ground",
+            &["athenaeum/editor/src/view.rs"]
+        ),
+        Some(Group::Editor)
+    );
+    assert_eq!(
+        g(
+            Product::Yalain,
+            "Loot drops from creatures",
+            &["yalain/crates/world/src/loot.rs"]
+        ),
+        Some(Group::World)
+    );
+    assert_eq!(
+        g(
+            Product::Auberean,
+            "Fix a crash at login",
+            &["auberean/client/src/main.rs"]
+        ),
+        Some(Group::Fixes)
+    );
+    let text = render(
+        Product::Athenaeum,
+        None,
+        &grouped(
+            Product::Athenaeum,
+            &[commit(
+                "athenaeum: worlds validate faster",
+                &["athenaeum/cli/src/main.rs"],
+            )],
+        ),
+        "athenaeum-v0.1.0",
+        None,
+    );
+    assert!(
+        text.contains("### Foundry and the athenaeum command\n"),
+        "{text}"
+    );
+    assert_eq!(
+        render(Product::Auberean, None, &[], "auberean-v0.1.0", None),
+        "## All changes\n\nNo change to the client since auberean-v0.1.0.\n\n"
+    );
+    assert!(render_first(Product::Yalain, Some("- A server")).contains("The first Yalain release."));
+}

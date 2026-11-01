@@ -1,8 +1,10 @@
 //! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries;
 //! Dereth's, the one the client, the launcher, the web client, the headless client and the plugin
 //! author's tool share; and
-//! Lyceum's, the one its editor, its command and the Foundry share; the release tags that name
-//! them, and the edit that moves them.
+//! Lyceum's, the one its editor, its command and the Foundry share; Asheron's Call 2's three:
+//! Auberean's (the client and the headless client), Yalain's (every `yalain-*` crate) and
+//! Athenaeum's (its editor, its command and its Foundry); the release tags that name them, and the
+//! edit that moves them.
 
 use std::path::{Path, PathBuf};
 
@@ -160,6 +162,58 @@ pub fn lyceum_version(ws: &Path) -> Result<String, String> {
     )
 }
 
+/// The prefix of an Auberean release tag: `auberean-v<version>`.
+pub const AUBEREAN_TAG_PREFIX: &str = "auberean-v";
+
+/// The crates that carry Auberean's version: the client and the headless client, released
+/// together, as Dereth's client and headless client are. The core crates under `core/auberean-*`
+/// keep the workspace's.
+pub const AUBEREAN_MANIFESTS: &[&str] =
+    &["auberean/client/Cargo.toml", "auberean/headless/Cargo.toml"];
+
+/// The prefix of a Yalain release tag: `yalain-v<version>`.
+pub const YALAIN_TAG_PREFIX: &str = "yalain-v";
+
+/// The prefix of an Athenaeum release tag: `athenaeum-v<version>`.
+pub const ATHENAEUM_TAG_PREFIX: &str = "athenaeum-v";
+
+/// The crates that carry Athenaeum's version: the editor and the `athenaeum` command, released
+/// together, and the Foundry, the library both are built on.
+pub const ATHENAEUM_MANIFESTS: &[&str] = &[
+    "athenaeum/editor/Cargo.toml",
+    "athenaeum/cli/Cargo.toml",
+    "athenaeum/crates/foundry/Cargo.toml",
+];
+
+/// The manifests of the workspace members under `yalain/`, in the root manifest's order: every
+/// `yalain-*` crate and the `yalain` program.
+pub fn yalain_manifests(ws: &Path) -> Result<Vec<PathBuf>, String> {
+    let manifests = members_under(ws, "yalain/")?;
+    if manifests.is_empty() {
+        return Err("the workspace has no yalain/ members".to_owned());
+    }
+    Ok(manifests)
+}
+
+/// The manifests of the workspace members whose folder starts with `prefix`.
+fn members_under(ws: &Path, prefix: &str) -> Result<Vec<PathBuf>, String> {
+    let root = std::fs::read_to_string(ws.join("Cargo.toml"))
+        .map_err(|e| format!("reading Cargo.toml: {e}"))?;
+    let table: toml::Table =
+        toml::from_str(&root).map_err(|e| format!("parsing Cargo.toml: {e}"))?;
+    let members = table
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .ok_or("Cargo.toml has no [workspace] members")?;
+    Ok(members
+        .iter()
+        .filter_map(|m| m.as_str())
+        .filter(|m| m.starts_with(prefix))
+        .map(|m| ws.join(m).join("Cargo.toml"))
+        .collect())
+}
+
 /// A release version: `MAJOR.MINOR.PATCH`, optionally followed by a pre-release suffix
 /// (`-rc.1`: dot-separated identifiers of letters, digits and hyphens). No build suffix (`+...`).
 /// Returns the numeric core; the server reports only that core as its version numbers.
@@ -222,17 +276,29 @@ pub enum Product {
     Empyrean,
     Dereth,
     Lyceum,
+    /// Asheron's Call 2's client.
+    Auberean,
+    /// Asheron's Call 2's server.
+    Yalain,
+    /// Asheron's Call 2's world builder.
+    Athenaeum,
 }
 
 impl Product {
-    /// The product named on a command line: `empyrean`, `dereth` or `lyceum`.
+    /// Every product, in the order the commands list them.
+    pub const ALL: [Self; 6] = [
+        Self::Empyrean,
+        Self::Dereth,
+        Self::Lyceum,
+        Self::Auberean,
+        Self::Yalain,
+        Self::Athenaeum,
+    ];
+
+    /// The product named on a command line: `empyrean`, `dereth`, `lyceum`, `auberean`, `yalain`
+    /// or `athenaeum`.
     pub fn from_command_name(name: &str) -> Option<Self> {
-        match name {
-            "empyrean" => Some(Self::Empyrean),
-            "dereth" => Some(Self::Dereth),
-            "lyceum" => Some(Self::Lyceum),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|p| p.command_name() == name)
     }
 
     /// The name the commands take.
@@ -241,6 +307,9 @@ impl Product {
             Self::Empyrean => "empyrean",
             Self::Dereth => "dereth",
             Self::Lyceum => "lyceum",
+            Self::Auberean => "auberean",
+            Self::Yalain => "yalain",
+            Self::Athenaeum => "athenaeum",
         }
     }
 
@@ -250,7 +319,15 @@ impl Product {
             Self::Empyrean => "Empyrean",
             Self::Dereth => "Dereth",
             Self::Lyceum => "Lyceum",
+            Self::Auberean => "Auberean",
+            Self::Yalain => "Yalain",
+            Self::Athenaeum => "Athenaeum",
         }
+    }
+
+    /// Whether the product is one of Asheron's Call 2's: Auberean, Yalain or Athenaeum.
+    pub fn is_auberean_game(self) -> bool {
+        matches!(self, Self::Auberean | Self::Yalain | Self::Athenaeum)
     }
 
     /// The prefix of the product's release tags.
@@ -259,6 +336,9 @@ impl Product {
             Self::Empyrean => TAG_PREFIX,
             Self::Dereth => DERETH_TAG_PREFIX,
             Self::Lyceum => LYCEUM_TAG_PREFIX,
+            Self::Auberean => AUBEREAN_TAG_PREFIX,
+            Self::Yalain => YALAIN_TAG_PREFIX,
+            Self::Athenaeum => ATHENAEUM_TAG_PREFIX,
         }
     }
 
@@ -275,15 +355,22 @@ impl Product {
                 "the client, the launcher, the web client, the headless client and the plugin                  author's tool carry"
             }
             Self::Lyceum => "the editor, the lyceum command and the Foundry carry",
+            Self::Auberean => "the client and the headless client carry",
+            Self::Yalain => "the yalain-* crates carry",
+            Self::Athenaeum => "the editor, the athenaeum command and the Foundry carry",
         }
     }
 
     /// The manifests that carry the version.
     pub fn manifests(self, ws: &Path) -> Result<Vec<PathBuf>, String> {
+        let listed = |list: &[&str]| list.iter().map(|m| ws.join(m)).collect();
         match self {
             Self::Empyrean => empyrean_manifests(ws),
             Self::Dereth => Ok(dereth_manifests(ws)),
             Self::Lyceum => Ok(lyceum_manifests(ws)),
+            Self::Auberean => Ok(listed(AUBEREAN_MANIFESTS)),
+            Self::Yalain => yalain_manifests(ws),
+            Self::Athenaeum => Ok(listed(ATHENAEUM_MANIFESTS)),
         }
     }
 
@@ -293,6 +380,17 @@ impl Product {
             Self::Empyrean => empyrean_version(ws),
             Self::Dereth => dereth_version(ws),
             Self::Lyceum => lyceum_version(ws),
+            Self::Auberean => manifests_version(
+                ws,
+                &self.manifests(ws)?,
+                "Auberean crate (the client and the headless client)",
+            ),
+            Self::Yalain => manifests_version(ws, &self.manifests(ws)?, "yalain-* crate"),
+            Self::Athenaeum => manifests_version(
+                ws,
+                &self.manifests(ws)?,
+                "Athenaeum crate (the editor, the athenaeum command and the Foundry)",
+            ),
         }
     }
 }
@@ -302,7 +400,7 @@ pub fn check_product_tag(product: Product, tag: &str, version: &str) -> Result<(
     let tag = tag.strip_prefix("refs/tags/").unwrap_or(tag);
     let prefix = product.tag_prefix();
     let Some(tagged) = tag.strip_prefix(prefix) else {
-        let article = if product == Product::Empyrean {
+        let article = if matches!(product, Product::Empyrean | Product::Athenaeum) {
             "an"
         } else {
             "a"

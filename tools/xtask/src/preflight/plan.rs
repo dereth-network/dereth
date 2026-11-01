@@ -19,16 +19,25 @@ pub enum Product {
     Dereth,
     /// Lyceum, the world builder: its editor and its command.
     Lyceum,
+    /// Auberean, Asheron's Call 2's client.
+    Auberean,
+    /// Yalain, Asheron's Call 2's server.
+    Yalain,
+    /// Athenaeum, Asheron's Call 2's world builder: its editor and its command.
+    Athenaeum,
 }
 
 impl Product {
     /// Every product, in the order the preflight builds them and `ship` releases them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::Hub,
         Self::Ace,
         Self::Empyrean,
         Self::Dereth,
         Self::Lyceum,
+        Self::Auberean,
+        Self::Yalain,
+        Self::Athenaeum,
     ];
 
     /// Its name on the command line of `cargo xtask release`.
@@ -39,14 +48,19 @@ impl Product {
             Self::Empyrean => "empyrean",
             Self::Dereth => "dereth",
             Self::Lyceum => "lyceum",
+            Self::Auberean => "auberean",
+            Self::Yalain => "yalain",
+            Self::Athenaeum => "athenaeum",
         }
     }
 
     /// The packages its release ships, each with the lock file of the workspace it is built in
     /// ([`LOCKS`]): what a change must reach for the product to be released. Dereth's are the
-    /// client, the web client (it carries Dereth's version) and the launcher. The ACE mod is not
-    /// built by cargo; Lyceum is released for its own folder's changes ([`products_of`]), and the
-    /// client's drawing it is built on reaches it with its next release.
+    /// client, the web client (it carries Dereth's version) and the launcher; Auberean's is its
+    /// client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
+    /// released for their own folders' changes ([`products_of`]), and the client's drawing each is
+    /// built on (and, for Athenaeum, the server and client it carries) reaches it with its next
+    /// release.
     pub const fn ships(self) -> &'static [(&'static str, &'static str)] {
         match self {
             Self::Hub => &[("Cargo.lock", "dereth-network-hub")],
@@ -59,7 +73,9 @@ impl Product {
                 ("Cargo.lock", "dereth-web"),
                 ("dereth/launcher/Cargo.lock", "dereth-launcher"),
             ],
-            Self::Ace | Self::Lyceum => &[],
+            Self::Auberean => &[("Cargo.lock", "auberean-client")],
+            Self::Yalain => &[("Cargo.lock", "yalain")],
+            Self::Ace | Self::Lyceum | Self::Athenaeum => &[],
         }
     }
 }
@@ -188,7 +204,8 @@ pub fn is_web(path: &str) -> bool {
 /// to the path crate whose folder holds it (`packages`, name and folder: a workspace's package or
 /// a vendored crate, [`Built::packages`]) and so to every product built from that crate
 /// (`depends`, [`Built::depends`]); the
-/// ACE mod's folder is the mod's, Lyceum's folder is Lyceum's, a change to the launcher's own app
+/// ACE mod's folder is the mod's, Lyceum's folder is Lyceum's and Athenaeum's Athenaeum's, a
+/// change to the launcher's own app
 /// belongs to Dereth, the web client is released as Dereth (it carries Dereth's version), and
 /// nothing else (the docs, the research notes) is a product. A lock file ([`LOCKS`]) belongs to no
 /// product by itself: a product is in when the crates it is built from moved in one (`moved`, from
@@ -215,6 +232,10 @@ pub fn products_of(
         }
         if path.starts_with("lyceum/") {
             out.insert(Product::Lyceum);
+            continue;
+        }
+        if path.starts_with("athenaeum/") {
+            out.insert(Product::Athenaeum);
             continue;
         }
         if (path.starts_with("dereth/launcher/") && !path.starts_with("dereth/launcher/crates/"))
@@ -517,6 +538,16 @@ pub fn lyceum_bump() -> (Bump, String) {
         Bump::Patch,
         "the editor's, the lyceum command's or the Foundry's changes".to_owned(),
     )
+}
+
+/// The release of one of Asheron's Call 2's products and why: a patch, for what it is built from.
+pub fn auberean_game_bump(product: Product) -> (Bump, String) {
+    let why = match product {
+        Product::Yalain => "the server's changes",
+        Product::Athenaeum => "the editor's, the athenaeum command's or the Foundry's changes",
+        _ => "the client's changes",
+    };
+    (Bump::Patch, why.to_owned())
 }
 
 /// The release-candidate stamp of `product`'s next build of `version`: one past the last that

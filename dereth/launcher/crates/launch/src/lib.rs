@@ -43,10 +43,12 @@
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
 //! | [`interface`] | the interface the Dereth client starts in, asked for once and written where the client reads it |
 //! | [`pad`] | a pad on the launcher's page: what each button does there, and which control a move reaches |
-//! | [`releases`] | which of the repository's GitHub releases the launcher updates from |
-//! | [`components`] | the server and the world builder, fetched when asked: which release, which file, and its checksum |
+//! | [`releases`] | which of the repository's GitHub releases the launcher updates from, on its channel, never to an older launcher |
+//! | [`defaults`] | what a package tells its launcher: the realm a first run opens in, and the channel it updates from |
+//! | [`components`] | the servers, the world builders and the game client a package does not carry, fetched when asked: which release, which file, and its checksum |
+//! | [`auberean`] | Auberean's realm: the player's Asheron's Call 2 install and its check, and the command lines of a world on this computer and of the client |
 //! | [`swap`] | putting a downloaded release in place of the running one, where no installer does |
-//! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icon |
+//! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icons |
 //! | [`vault`] | the seam to the operating system's secret store; passwords live nowhere else |
 //! | [`registry`] | the signed snapshot, and which source is trusted for which fields |
 //! | [`status`] | Empyrean's public status document |
@@ -62,12 +64,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod auberean;
 pub mod check;
 pub mod choices;
 pub mod components;
 pub mod copy;
 pub mod dat;
 pub mod datset;
+pub mod defaults;
 pub mod desktop;
 pub mod direct;
 pub mod discord;

@@ -1,11 +1,20 @@
-//! Empyrean and Lyceum, fetched only when asked.
+//! Empyrean and Lyceum, and Asheron's Call 2's Yalain and Athenaeum, fetched only when asked; and
+//! the game client the launcher's package does not carry, Auberean beside Dereth's launcher or
+//! Dereth beside Auberean's.
+//!
+//! **A game's client comes with its launcher.** Each game's package is the same launcher with that
+//! game's client beside it, so the client already here is the packaged one ([`View::bundled`]).
+//! The other game's client is fetched from that game's release, which is its launcher package:
+//! the client is taken out of it (out of an AppImage, by having it unpack itself) and the rest
+//! left unused. A downloaded client newer than the packaged one is used instead of it.
 //!
 //! Each is its own newest GitHub release ([`dereth_launch::components`]): the page shows that
 //! version before anything is downloaded, and the newer one when there is one. Getting it
 //! downloads this system's file and the release's `SHA256SUMS`, checks one against the other,
-//! unpacks it into a staging folder and moves that into `components/<product>/<version>` in the
-//! launcher's data folder. `current.json` there names the version in use. A failed download or
-//! unpack leaves the version in use as it was.
+//! unpacks it into a staging folder (an AppImage, which is the program itself, is put there as
+//! it is) and moves that into `components/<product>/<version>` in the launcher's data folder.
+//! `current.json` there names the version in use. A failed download or unpack leaves the version
+//! in use as it was.
 //!
 //! A development build (one the release packaging did not make: [`DEVELOPMENT`]) downloads
 //! nothing it can find built in its own checkout: it uses the newest build of the program beside
@@ -73,6 +82,9 @@ pub struct View {
     pub running: bool,
     /// In a development build, the version of this checkout's build, once it has said.
     pub checkout_version: Option<String>,
+    /// `installed` is the game client that came beside the launcher in its package, not a
+    /// download: there is nothing to remove.
+    pub bundled: bool,
     /// Lyceum's worlds: those in its folder for worlds, then the others it or the launcher
     /// opened, newest first, each once.
     pub worlds: Vec<LyceumWorld>,
@@ -114,6 +126,9 @@ pub struct Store {
     facts: Facts,
     /// What each checkout build said its version is, by the program and when it was written.
     versions: HashMap<PathBuf, (Option<SystemTime>, Option<String>)>,
+    /// The game client that came beside the launcher in its package, by product; none in a
+    /// development build.
+    bundled: HashMap<Product, PathBuf>,
     versions_asking: bool,
     /// The worlds listed a moment ago, with their stamps: the list is read again every few
     /// seconds, or at once after the launcher opens or makes a world.
@@ -227,8 +242,50 @@ pub fn newest_build(folders: &[PathBuf], program: &str) -> Option<PathBuf> {
         .map(|(_, p)| p)
 }
 
+/// The game client that came beside the launcher in `here` in its package: a release's launcher
+/// has its own game's beside it (in `Dereth.app`, in `Contents/MacOS`; in the AppImage, in its
+/// `usr/bin`).
+pub fn bundled_clients(here: &Path) -> HashMap<Product, PathBuf> {
+    Product::ALL
+        .into_iter()
+        .filter(|p| p.is_game_client())
+        .filter_map(|p| {
+            let program = here.join(program_file(p.program()));
+            program.is_file().then_some((p, program))
+        })
+        .collect()
+}
+
+/// The client to use of the packaged one (`bundled`, at `bundled_version` once it has said) and
+/// the downloaded one (`installed`): the download when it is newer, else the packaged one.
+fn in_use(
+    installed: Option<&Installed>,
+    bundled: Option<(&Path, Option<&str>)>,
+) -> Option<(Installed, bool)> {
+    let Some((path, version)) = bundled else {
+        return installed.map(|i| (i.clone(), false));
+    };
+    let packaged = Installed {
+        version: version.unwrap_or_default().to_owned(),
+        executable: path.to_path_buf(),
+        notes: String::new(),
+    };
+    let newer = |i: &Installed| match (
+        components::version(&i.version),
+        version.and_then(components::version),
+    ) {
+        (Some(theirs), Some(ours)) => theirs > ours,
+        _ => false,
+    };
+    match installed {
+        Some(i) if newer(i) => Some((i.clone(), false)),
+        _ => Some((packaged, true)),
+    }
+}
+
 /// The store, over the launcher's data folder `root`. A launcher that uses its checkout's builds
-/// ([`uses_checkout`]) looks for them from the launcher's folder `here`.
+/// ([`uses_checkout`]) looks for them from the launcher's folder `here`; a release finds its
+/// packaged game client there.
 pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
     let entries = Product::ALL
         .into_iter()
@@ -248,16 +305,17 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
                 error: false,
                 running: false,
                 checkout_version: None,
+                bundled: false,
                 worlds: Vec::new(),
                 home: None,
             },
             children: Vec::new(),
         })
         .collect();
-    let builds = if checkout {
-        build_folders(here)
+    let (builds, bundled) = if checkout {
+        (build_folders(here), HashMap::new())
     } else {
-        Vec::new()
+        (Vec::new(), bundled_clients(here))
     };
     Arc::new(Mutex::new(Store {
         root,
@@ -268,6 +326,7 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
         facts: Facts::default(),
         versions: HashMap::new(),
         versions_asking: false,
+        bundled,
         listed: None,
     }))
 }
@@ -316,6 +375,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
         formats,
         facts,
         versions,
+        bundled,
         ..
     } = &mut *store;
     for e in entries.iter_mut() {
@@ -333,11 +393,29 @@ pub fn views(shared: &Shared) -> Vec<View> {
                 }
             }
         });
+        // The packaged client's version: what it says, asked once per build of it.
+        let packaged = bundled.get(&e.view.product).map(|program| {
+            let written = modified(program);
+            let version = match versions.get(program) {
+                Some((then, version)) if *then == written => version.clone(),
+                _ => {
+                    ask_versions.push((e.view.product, program.clone(), written));
+                    None
+                }
+            };
+            (program.clone(), version)
+        });
+        let using = in_use(
+            e.view.installed.as_ref(),
+            packaged.as_ref().map(|(p, v)| (p.as_path(), v.as_deref())),
+        );
+        e.view.bundled = using.as_ref().is_some_and(|(_, b)| *b);
+        let have = using.as_ref().map(|(i, _)| i.version.clone());
         e.view.offer = if e.view.checkout.is_some() {
             Offer::None
         } else {
             components::offer(
-                e.view.installed.as_ref().map(|i| i.version.as_str()),
+                have.as_deref().filter(|v| !v.is_empty()),
                 e.view.latest.as_deref(),
             )
         };
@@ -413,7 +491,38 @@ pub fn views(shared: &Shared) -> Vec<View> {
             lock(&shared).versions_asking = false;
         });
     }
-    store.entries.iter().map(|e| e.view.clone()).collect()
+    let bundled = store.bundled.clone();
+    let versions = store.versions.clone();
+    store
+        .entries
+        .iter()
+        .map(|e| {
+            let mut view = e.view.clone();
+            if view.bundled {
+                view.installed = packaged_view(&bundled, &versions, &view)
+                    .map(|(i, _)| i)
+                    .or(view.installed);
+            }
+            view
+        })
+        .collect()
+}
+
+/// The client `view`'s product runs as, of its packaged and downloaded ones ([`in_use`]), with
+/// whether it is the packaged one.
+fn packaged_view(
+    bundled: &HashMap<Product, PathBuf>,
+    versions: &HashMap<PathBuf, (Option<SystemTime>, Option<String>)>,
+    view: &View,
+) -> Option<(Installed, bool)> {
+    let packaged = bundled.get(&view.product).map(|program| {
+        let version = versions.get(program).and_then(|(_, v)| v.clone());
+        (program.clone(), version)
+    });
+    in_use(
+        view.installed.as_ref(),
+        packaged.as_ref().map(|(p, v)| (p.as_path(), v.as_deref())),
+    )
 }
 
 /// When `file` was last written.
@@ -422,11 +531,15 @@ fn modified(file: &Path) -> Option<SystemTime> {
 }
 
 /// What a checkout's build of `product` at `program` says its version is: Empyrean's server in
-/// its release facts, Lyceum by its `lyceum` command beside the editor.
+/// its release facts, Lyceum by its `lyceum` command beside the editor, and Asheron's Call 2's
+/// programs by their own `--version`.
 fn program_version(product: Product, program: &Path) -> Option<String> {
     let (program, arg) = match product {
         Product::Empyrean => (program.to_path_buf(), "--release-facts"),
         Product::Lyceum => (program.with_file_name(program_file("lyceum")), "--version"),
+        Product::Dereth | Product::Auberean | Product::Yalain | Product::Athenaeum => {
+            (program.to_path_buf(), "--version")
+        }
     };
     let output = command(&program).arg(arg).output().ok()?;
     if !output.status.success() {
@@ -436,7 +549,8 @@ fn program_version(product: Product, program: &Path) -> Option<String> {
 }
 
 /// The version in what a program prints of itself: the `version` of Empyrean's release facts
-/// (one line of JSON), or the first line of `lyceum --version` (`lyceum 0.1.0`).
+/// (one line of JSON), or the first line of `lyceum --version` (`lyceum 0.1.0`), of the Dereth
+/// client's (`dereth-client 0.4.9`) and of each of Asheron's Call 2's programs' (`yalain 0.1.0`).
 fn version_from(product: Product, said: &str) -> Option<String> {
     let version = match product {
         Product::Empyrean => serde_json::from_str::<serde_json::Value>(said.trim())
@@ -449,6 +563,13 @@ fn version_from(product: Product, said: &str) -> Option<String> {
             .next()?
             .trim()
             .strip_prefix("lyceum ")?
+            .trim()
+            .to_owned(),
+        Product::Dereth | Product::Auberean | Product::Yalain | Product::Athenaeum => said
+            .lines()
+            .next()?
+            .trim()
+            .strip_prefix(product.program())?
             .trim()
             .to_owned(),
     };
@@ -909,7 +1030,13 @@ fn install_archive(
     }
     std::fs::create_dir(&stage).map_err(|e| e.to_string())?;
     let prepared = (|| {
-        crate::component_archive::extract(bytes, filename, &stage)?;
+        crate::component_archive::extract_program(
+            bytes,
+            filename,
+            &program_file(product.program()),
+            &stage,
+            product.is_game_client(),
+        )?;
         let executable = find_executable(&stage, product)?;
         let relative = executable.strip_prefix(&stage).map_err(|e| e.to_string())?;
         let installed = Installed {
@@ -934,6 +1061,19 @@ fn install_archive(
     prepared
 }
 
+/// The version of the program `product` runs as here ([`program_of`]), as it says it: asked of
+/// the program itself, so this waits for it.
+pub fn version_of(shared: &Shared, product: Product) -> Option<dereth_launch::releases::Version> {
+    let program = program_of(shared, product)?;
+    let said = program_version(product, &program)?;
+    components::version(&said)
+}
+
+/// The downloaded copy of `product` in the launcher's data folder `root`, when there is one.
+pub fn downloaded(root: &Path, product: Product) -> Option<PathBuf> {
+    read_installed(root, product).map(|i| i.executable)
+}
+
 /// Remove every downloaded version of `product` but `keep`: a version no longer in use is only
 /// disk space, since each server keeps its own copy of the server it runs.
 fn remove_other_versions(root: &Path, product: Product, keep: &str) {
@@ -954,8 +1094,20 @@ fn remove_other_versions(root: &Path, product: Product, keep: &str) {
 /// Download the newest release of `product` and use it from now on: the first copy, or an
 /// update. Nothing changes until the download is checked and unpacked.
 #[tauri::command]
-pub fn get_component(shared: State<'_, Shared>, product: Product) -> Result<(), String> {
-    let shared = shared.inner().clone();
+pub fn get_component(
+    app: tauri::AppHandle,
+    shared: State<'_, Shared>,
+    product: Product,
+) -> Result<(), String> {
+    start_get(app, shared.inner().clone(), product)
+}
+
+/// [`get_component`], from the launcher itself: the update check fetches a game's newer client
+/// this way when its release carries an older launcher.
+///
+/// # Errors
+/// This checkout's build is used instead, or the product is busy or running.
+pub fn start_get(app: tauri::AppHandle, shared: Shared, product: Product) -> Result<(), String> {
     let root = {
         let mut store = lock(&shared);
         let root = store.root.clone();
@@ -993,6 +1145,13 @@ pub fn get_component(shared: State<'_, Shared>, product: Product) -> Result<(), 
                     installed.version
                 ));
                 e.view.error = false;
+                // The Dereth client plays from the main page, which learns of it at once.
+                if product == Product::Dereth {
+                    use tauri::Manager;
+                    if let Some(b) = app.try_state::<crate::backend::Shared>() {
+                        crate::backend::lock(&b).use_dereth_client(&installed.executable);
+                    }
+                }
                 e.view.installed = Some(installed);
             }
             Err(error) => {
@@ -1032,8 +1191,8 @@ pub fn remove_component(shared: State<'_, Shared>, product: Product) -> Result<(
     e.view.installed = None;
     e.view.error = false;
     e.view.message = Some(match product {
-        Product::Empyrean => "Removed Empyrean. Your worlds are kept.".to_owned(),
-        Product::Lyceum => "Removed Lyceum. Your worlds are kept.".to_owned(),
+        Product::Dereth | Product::Auberean => format!("Removed {}.", product.title()),
+        _ => format!("Removed {}. Your worlds are kept.", product.title()),
     });
     Ok(())
 }
@@ -1049,18 +1208,27 @@ pub fn command(program: &Path) -> Command {
 }
 
 /// The program `product` runs as here: this checkout's build in a development build that has
-/// one, else the downloaded copy.
+/// one, else the packaged or the downloaded copy, whichever is newer ([`in_use`]).
 fn program(store: &Store, product: Product) -> Option<PathBuf> {
     newest_build(&store.builds, product.program()).or_else(|| {
-        store
+        let view = &store
             .entries
             .iter()
             .find(|e| e.view.product == product)?
-            .view
-            .installed
-            .as_ref()
-            .map(|i| i.executable.clone())
+            .view;
+        packaged_view(&store.bundled, &store.versions, view).map(|(i, _)| i.executable)
     })
+}
+
+/// The program `product` runs as here, if it is here: this checkout's build in a development build
+/// that has one, else the downloaded copy.
+pub fn program_of(shared: &Shared, product: Product) -> Option<PathBuf> {
+    program(&lock(shared), product)
+}
+
+/// Whether `product` is busy downloading.
+pub fn busy(shared: &Shared, product: Product) -> bool {
+    entry(&mut lock(shared), product).view.busy
 }
 
 /// The `lyceum` command beside the editor in use.

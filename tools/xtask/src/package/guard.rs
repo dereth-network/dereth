@@ -14,8 +14,9 @@ pub const FILE_CAP: u64 = 64 << 20;
 /// No archive holds more than this in all.
 pub const ARCHIVE_CAP: u64 = 256 << 20;
 
-/// Where the game's data container keeps its header, and the magic it starts with.
-const DAT_HEADER_OFFSET: usize = 0x140;
+/// Where the games' data container keeps its header, and the magic it starts with: Asheron's
+/// Call's files at the first offset, Asheron's Call 2's at the second.
+const DAT_HEADER_OFFSETS: [usize; 2] = [0x140, 0x12C];
 const DAT_MAGIC: u32 = 0x5442;
 
 /// How many leading bytes of each file the scan keeps: enough for the container header.
@@ -113,7 +114,8 @@ pub fn name_finding(path: &str) -> Option<&'static str> {
     if name.ends_with(".dat") {
         return Some("a .dat file");
     }
-    if name.starts_with("client_") || name.starts_with("acclient") {
+    if name.starts_with("client_") || name.starts_with("acclient") || name.starts_with("ac2client")
+    {
         return Some("named like a game client file");
     }
     if name.ends_with(".what") {
@@ -134,10 +136,12 @@ pub fn name_finding(path: &str) -> Option<&'static str> {
     None
 }
 
-/// The game's data container header, at its offset, in these leading bytes.
+/// Either game's data container header, at its offset, in these leading bytes.
 pub fn has_dat_magic(head: &[u8]) -> bool {
-    head.get(DAT_HEADER_OFFSET..DAT_HEADER_OFFSET + 4)
-        .is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) == DAT_MAGIC)
+    DAT_HEADER_OFFSETS.iter().any(|&at| {
+        head.get(at..at + 4)
+            .is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) == DAT_MAGIC)
+    })
 }
 
 /// Every finding over one package's entries: each entry must be a plain file on `allowlist` (or

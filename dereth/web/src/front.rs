@@ -296,6 +296,7 @@ impl Front {
                 host: e.address.clone(),
                 port: e.port,
                 name: w.name.clone(),
+                game: w.game,
             }
             .web_link(),
         )

@@ -1,0 +1,319 @@
+name: Release Athenaeum
+
+# Builds, checks and drafts an Athenaeum release: the Asheron's Call 2 world builder (its editor and
+# its `athenaeum` command, with Yalain and Auberean beside them), for Windows, macOS and Linux. A
+# pushed `athenaeum-v<version>` tag builds every target and creates a DRAFT GitHub release, which a
+# maintainer reviews and publishes by hand. Running it by hand (workflow_dispatch) is a dry run: the
+# same builds and checks, the release files kept as a workflow artifact for 7 days, nothing
+# published.
+#
+# Every job runs `cargo xtask package athenaeum`, the same command a contributor runs locally
+# (auberean/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every push.
+#
+# The release's description starts with its notes, which `cargo xtask release-notes athenaeum`
+# writes from the tagged tree: the release's section of athenaeum/CHANGES.md, then the world
+# builder's commits since the previous athenaeum-v tag, grouped. A dry run writes the notes the
+# next release would get.
+
+on:
+  push:
+    tags: ['athenaeum-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-athenaeum-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The build tools, pinned.
+  CARGO_ABOUT_VERSION: 0.9.2
+  # The Linux AppImage's packer and the runtime it embeds, pinned by their checksums.
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+  APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+  # Where the release files are downloaded from, and the source the notices name: this repository.
+  ATHENAEUM_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  version:
+    name: version and tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        shell: bash
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: The tag names the version the editor, the command and the Foundry carry, on main
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(cargo xtask version athenaeum --tag "$GITHUB_REF_NAME")
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          else
+            version=$(cargo xtask version athenaeum)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Athenaeum $version"
+      - name: The release notes, from CHANGES.md and the commits since the previous release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-notes athenaeum --version "$VERSION" --out target/release-notes.md
+          else
+            cargo xtask release-notes athenaeum --out target/release-notes.md
+          fi
+          cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-athenaeum
+          path: target/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number is the commit count.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target ${{ matrix.target }}
+          rustup override set "$toolchain"
+      - name: Install the Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev build-essential pkg-config
+      - name: Fetch appimagetool and the AppImage runtime (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" "$APPIMAGETOOL_URL"
+          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          curl -fsSL -o "$RUNNER_TEMP/appimage-runtime" "$APPIMAGE_RUNTIME_URL"
+          echo "$APPIMAGE_RUNTIME_SHA256  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+          echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
+          # An AppImage runs without FUSE by unpacking itself first.
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+      - name: Build and package Athenaeum with its Yalain and Auberean
+        run: cargo xtask package athenaeum --target ${{ matrix.target }} --out dist
+      - name: Smoke-run the packaged programs
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir smoke
+          run() { "$@"; }
+          case "$TARGET" in
+            x86_64-apple-darwin)
+              if arch -x86_64 /usr/bin/true 2> /dev/null; then
+                run() { arch -x86_64 "$@"; }
+              else
+                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
+                exit 0
+              fi ;;
+          esac
+          # `program <name>`: the command line that starts one of the package's four programs.
+          case "$TARGET" in
+            *windows*)
+              (cd smoke && 7z x "../dist/athenaeum-$VERSION-windows-x86_64.zip" > /dev/null)
+              program() { echo "smoke/athenaeum-$VERSION/$1.exe"; } ;;
+            *linux*)
+              # The AppImage starts the editor, or the program its first argument names.
+              appimage="dist/Athenaeum-$VERSION-linux-x86_64.AppImage"
+              program() { if [ "$1" = athenaeum-editor ]; then echo "$appimage"; else echo "$appimage $1"; fi; } ;;
+            *apple*)
+              arch=${TARGET%%-*}
+              tar -xzf "dist/Athenaeum-$VERSION-macos-$arch.app.tar.gz" -C smoke
+              codesign --verify --deep --strict smoke/Athenaeum.app
+              program() { echo "smoke/Athenaeum.app/Contents/MacOS/$1"; } ;;
+          esac
+          for p in athenaeum-editor athenaeum yalain auberean; do
+            # Word-split on purpose: the AppImage's command line is the file and a program's name.
+            run $(program "$p") --version | tee "version-$p.txt"
+            # Yalain and Auberean carry their own versions: each names itself and its build.
+            grep -q "^$p " "version-$p.txt"
+            grep -qx "target: $TARGET" "version-$p.txt"
+          done
+          grep -qx "athenaeum-editor $VERSION" version-athenaeum-editor.txt
+          grep -qx "athenaeum $VERSION" version-athenaeum.txt
+          echo "::notice::the editor's window is not opened here"
+      - name: Keep this target's files (the index is written by the gather job)
+        run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: athenaeum-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  gather:
+    name: gather the release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: athenaeum-*
+          path: dist
+          merge-multiple: true
+      # Scans every file again, and writes MANIFEST.txt, release.json and SHA256SUMS over them.
+      - name: cargo xtask package athenaeum --gather
+        run: cargo xtask package athenaeum --gather dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-athenaeum-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.AppImage
+            dist/SHA256SUMS
+            dist/MANIFEST.txt
+            dist/release.json
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [version, gather]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-athenaeum-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-athenaeum
+          path: notes
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          # The notes first (highlights, then all changes), then how to install.
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          Athenaeum $VERSION, the Asheron's Call 2 world builder: its editor and the \`athenaeum\` command, with Yalain and Auberean to serve and play a world, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+
+          The Dereth Network launcher downloads and updates Athenaeum for you. To run it by hand:
+
+          | system | download | |
+          |---|---|---|
+          | Windows | \`athenaeum-$VERSION-windows-x86_64.zip\` | unzip anywhere; \`athenaeum-editor.exe\` and \`athenaeum.exe\` are inside; no installer |
+          | macOS | \`Athenaeum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Athenaeum.app\` to Applications; the \`athenaeum\` command is \`Athenaeum.app/Contents/MacOS/athenaeum\` |
+          | Linux | \`Athenaeum-$VERSION-linux-x86_64.AppImage\` | make it executable and run it; \`Athenaeum-$VERSION-linux-x86_64.AppImage athenaeum\` is the command |
+
+          **No game data is included**: Athenaeum reads the data files of your own Asheron's Call 2 install and never writes them, and \`yalain world fetch\` downloads the world database a world is built over. README.md, in each download, says how to make a world.
+
+          These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          # Every file gets a display label, computed from its platform; the file names stay as
+          # they are. A file with no label fails the job, so a new target cannot go unlabelled.
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              MANIFEST.txt) label="Release manifest" ;;
+              release.json) label="Release facts (JSON)" ;;
+              "athenaeum-$VERSION-"*)
+                case "${f#"athenaeum-$VERSION-"}" in
+                  windows-x86_64.zip) label="Athenaeum · Windows x64 (zip, no installer)" ;;
+                esac ;;
+              "Athenaeum-$VERSION-"*)
+                case "${f#"Athenaeum-$VERSION-"}" in
+                  macos-aarch64.app.tar.gz) label="Athenaeum · macOS Apple silicon" ;;
+                  macos-x86_64.app.tar.gz) label="Athenaeum · macOS Intel" ;;
+                  linux-x86_64.AppImage) label="Athenaeum · Linux x86-64 (glibc 2.35+)" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
+          PRE=""
+          # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # Never the repository's "Latest" release: that stays the launcher's and the server's,
+          # which players download by hand.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
+            --title "Athenaeum $VERSION" --notes-file ../notes.md \
+            "${assets[@]}"

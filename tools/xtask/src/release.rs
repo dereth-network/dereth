@@ -1,22 +1,26 @@
 //! `cargo xtask release <product> <version> [--push] [--remote <name>]`: cut a release of
 //! Empyrean (`empyrean`), of Dereth (`dereth`: the launcher and the client, one version), of
-//! Lyceum (`lyceum`: the world builder's editor and its command, one version), or of one of the
-//! Dereth Network's two products, its hub (`network-hub`) and its ACE mod (`network-ace`;
-//! [`network`]).
+//! Lyceum (`lyceum`: the world builder's editor and its command, one version), of one of
+//! Asheron's Call 2's three products, Auberean (`auberean`: the client), Yalain (`yalain`: the
+//! server) and Athenaeum (`athenaeum`: the world builder), or of one of the Dereth Network's two
+//! products, its hub (`network-hub`) and its ACE mod (`network-ace`; [`network`]).
 //!
 //! On a clean `main` it sets the version of every crate that carries the product's version
 //! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher; Lyceum: the editor,
-//! the command and the Foundry) to `<version>` and commits that with the lock files (skipped when
-//! the tree already carries it), runs `cargo xtask ci tier0` (`cargo xtask ship` runs it once for
-//! all its releases instead) and packages the host's own target as a smoke test, then makes the
-//! annotated tag `empyrean-v<version>`, `dereth-v<version>` or `lyceum-v<version>`. An Empyrean
-//! release also makes its
+//! the command and the Foundry; Auberean: the client and the headless client; Yalain: every
+//! `yalain-*` crate; Athenaeum: the editor, the command and the Foundry) to `<version>` and commits
+//! that with the lock files (skipped when the tree already carries it), runs `cargo xtask ci tier0`
+//! (`cargo xtask ship` runs it once for all its releases instead), and for Asheron's Call 2's
+//! products `cargo xtask ci tier1 --game auberean` too when its data is found, and packages the
+//! host's own target as a smoke test, then makes the annotated tag `<product>-v<version>`
+//! (`empyrean-v0.3.6`, `auberean-v0.1.0`). An Empyrean release also makes its
 //! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
 //! release, and commits it with the version. A final release turns the Unreleased section of the
-//! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`, `lyceum/CHANGES.md`) into
-//! the release's own, dated, under a new empty Unreleased section, and commits that with the
-//! version: the section is the release notes' highlights ([`notes`]). A Lyceum release with no
-//! highlights is refused before anything changes: its notes are mostly that section. It
+//! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`, `lyceum/CHANGES.md`,
+//! `auberean/CHANGES.md`, ...) into the release's own, dated, under a new empty Unreleased section,
+//! and commits that with the version: the section is the release notes' highlights ([`notes`]). A
+//! Lyceum release, or one of Asheron's Call 2's, with no highlights is refused before anything
+//! changes: its notes are mostly that section. It
 //! prints the two push commands and runs them only with `--push`: the product's release workflow
 //! starts when the tag reaches the public repository, and builds, checks and drafts the release
 //! from there.
@@ -146,11 +150,12 @@ pub fn push_commands(remote: &str, tag: &str) -> [Vec<String>; 2] {
     ]
 }
 
-const USAGE: &str = "usage: cargo xtask release empyrean|dereth|lyceum|network-hub|network-ace \
+const USAGE: &str = "usage: cargo xtask release \
+                     empyrean|dereth|lyceum|auberean|yalain|athenaeum|network-hub|network-ace \
                      <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
 
-/// What the command releases: Empyrean, Dereth or Lyceum, or one of the Dereth Network's
-/// products.
+/// What the command releases: Empyrean, Dereth, Lyceum or one of Asheron's Call 2's products, or
+/// one of the Dereth Network's products.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Releasable {
     Product(Product),
@@ -270,7 +275,11 @@ fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String>
 /// relative to the workspace root.
 fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
     match product {
-        Product::Empyrean | Product::Lyceum => &[("", "Cargo.lock")],
+        Product::Empyrean
+        | Product::Lyceum
+        | Product::Auberean
+        | Product::Yalain
+        | Product::Athenaeum => &[("", "Cargo.lock")],
         Product::Dereth => version::DERETH_LOCKS,
     }
 }
@@ -327,6 +336,13 @@ fn make_upgrade_fixture(
 /// `product`'s highlights file, as the release command reads and writes it.
 fn changes_path(ws: &Path, product: Product) -> std::path::PathBuf {
     ws.join(notes::changes_file(product))
+}
+
+/// Whether a release of `product` is refused without highlights: Lyceum's and Asheron's Call 2's
+/// products', whose notes are mostly that section (a first release's are only it). Dereth's and
+/// Empyrean's say so and go on.
+pub fn needs_highlights(product: Product) -> bool {
+    product == Product::Lyceum || product.is_auberean_game()
 }
 
 /// Whether release `requested` has highlights in `changes` (its highlights file's text): its own
@@ -390,9 +406,10 @@ fn run(
     if product == Product::Empyrean {
         package::declaration::for_release(&ws, requested)?;
     }
-    // A Lyceum release's notes are mostly its highlights, so a release without them is refused
-    // here, before anything changes; Dereth's and Empyrean's say so and go on.
-    if product == Product::Lyceum {
+    // A Lyceum release's notes are mostly its highlights, and so are Asheron's Call 2's products',
+    // so a release without them is refused here, before anything changes; Dereth's and Empyrean's
+    // say so and go on.
+    if needs_highlights(product) {
         let file = notes::changes_file(product);
         let text = std::fs::read_to_string(changes_path(&ws, product))
             .map_err(|e| format!("reading {file}: {e}"))?;
@@ -485,6 +502,9 @@ fn run(
     } else {
         println!("\n=== tier 0 is not run again: `cargo xtask ship` ran it on the commit it ships");
     }
+    if product.is_auberean_game() {
+        tier1_auberean(&head, undo)?;
+    }
     println!("\n=== packaging the host's own target as a smoke test");
     let host = String::from_utf8_lossy(
         &std::process::Command::new("rustc")
@@ -501,6 +521,11 @@ fn run(
         // A macOS host needs MoltenVK for these, named as the package command takes it.
         Product::Dereth => package::dereth::build_packages(&ws, &[host], None, false, None),
         Product::Lyceum => package::lyceum::build_packages(&ws, &[host], None, false, None),
+        Product::Auberean => package::auberean::build_packages(&ws, &[host], None, false, None),
+        Product::Yalain => package::yalain::build_packages(&ws, &[host], None, false),
+        Product::Athenaeum => {
+            package::desktop::build_packages(&package::athenaeum::SPEC, &ws, &[host], None, false)
+        }
     }
     .map_err(|e| format!("packaging failed; no tag was made.{undo}\n{e}"))?;
 
@@ -545,6 +570,31 @@ fn run(
                 ""
             }
         );
+    }
+    Ok(())
+}
+
+/// For a release of one of Asheron's Call 2's products: `cargo xtask ci tier1 --game auberean`
+/// on `head`, when its data (the end-of-retail data files and the capture index) is found; a note
+/// saying it was not run when it is not.
+fn tier1_auberean(head: &str, undo: &str) -> Result<(), String> {
+    use crate::gates::auberean::{shortfall, Data};
+    let missing: Vec<String> = [Data::Installs, Data::Captures]
+        .into_iter()
+        .filter_map(shortfall)
+        .collect();
+    if !missing.is_empty() {
+        println!(
+            "\nnote: `cargo xtask ci tier1 --game auberean` is not run: {}",
+            missing.join("; ")
+        );
+        return Ok(());
+    }
+    println!("\n=== cargo xtask ci tier1 --game auberean on {head}");
+    if crate::tier1(&[], Profile::TestRelease, crate::game::Game::Auberean) != 0 {
+        return Err(format!(
+            "tier 1 of Asheron's Call 2 failed; no tag was made.{undo}"
+        ));
     }
     Ok(())
 }

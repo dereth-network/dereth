@@ -546,7 +546,7 @@ pub fn build_packages(
             facts: &facts,
             version: &version,
             out_dir: &out_dir,
-            stage: &base.join("stage").join(format!("dereth-{}", target.triple)),
+            stage: &launcher_stage(&base, target),
             signer: signer.as_ref(),
             moltenvk: moltenvk_found.as_ref(),
         };
@@ -691,6 +691,65 @@ pub(super) fn crates_of(
     Ok(notice::parse_cargo_tree(&String::from_utf8_lossy(
         &tree.stdout,
     )))
+}
+
+/// The launcher as this package builds it for `target`, with everything that build takes in:
+/// Dereth's client and tool built and staged, Dereth's notices written, and the launcher built
+/// with the Tauri CLI from the same configuration and environment, in the staging folder `stage`.
+/// Auberean's package starts from this, so both packages carry the same launcher
+/// ([`super::auberean`]).
+pub(crate) struct BuiltLauncher {
+    /// What the Tauri CLI made: `dereth.exe` on Windows, `Dereth.app` on macOS, the AppImage on
+    /// Linux.
+    pub bundle: PathBuf,
+    /// The launcher program itself, as built.
+    pub program: PathBuf,
+}
+
+/// The staging folder a target's launcher is built in, under the packages' folder `base`: the
+/// same for Dereth's package and Auberean's, because the launcher's configuration names the files
+/// beside it relative to its own folder, and those names are built into the program.
+pub(crate) fn launcher_stage(base: &Path, target: Target) -> PathBuf {
+    base.join("stage").join(format!("dereth-{}", target.triple))
+}
+
+/// Build the launcher for `target` exactly as [`build_packages`] does, at Dereth's `version`, in
+/// [`launcher_stage`] ([`BuiltLauncher`]).
+pub(crate) fn build_launcher_as_dereth(
+    ws: &Path,
+    target: Target,
+    facts: &BuildFacts,
+    version: &str,
+    stage: &Path,
+    moltenvk: Option<&(PathBuf, PathBuf)>,
+) -> Result<BuiltLauncher, String> {
+    let job = Job {
+        ws,
+        target,
+        facts,
+        version,
+        out_dir: stage,
+        stage,
+        signer: None,
+        moltenvk,
+    };
+    fresh_dir(stage)?;
+    let client = job.build_client()?;
+    let tool = job.build_tool()?;
+    let notices = job.notices()?;
+    let bundle = job.build_launcher(&client, &tool, &notices)?;
+    let program = target_dir()
+        .join("launcher")
+        .join(target.triple)
+        .join("release")
+        .join(format!("dereth{}", target.exe_suffix()));
+    Ok(BuiltLauncher { bundle, program })
+}
+
+/// The build facts of a launcher build, with the repository it updates from: what
+/// [`build_packages`] builds with.
+pub(crate) fn launcher_facts(ws: &Path, allow_dirty: bool) -> Result<BuildFacts, String> {
+    dereth_facts(ws, allow_dirty)
 }
 
 /// One target's build.

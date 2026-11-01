@@ -307,11 +307,43 @@ fn run(args: &[String]) -> Result<(), String> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    // `--version` alone: what this build is.
+    if args.len() == 2 && args[1] == "--version" {
+        print!("{}", version_text());
+        return ExitCode::SUCCESS;
+    }
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("athenaeum: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// What `athenaeum --version` prints: the version, and the commit and target a release build
+/// was made from (`unknown` in a build that did not say).
+fn version_text() -> String {
+    format!(
+        "athenaeum {}\ncommit: {}\ntarget: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("ATHENAEUM_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("ATHENAEUM_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
+#[cfg(test)]
+mod version_tests {
+    //! Behaviour: none (tooling: what `--version` prints, which the release workflow checks)
+    use super::version_text;
+
+    #[test]
+    fn version_names_the_program_its_version_its_commit_and_its_target() {
+        let text = version_text();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[0], concat!("athenaeum ", env!("CARGO_PKG_VERSION")));
+        assert!(lines[1].starts_with("commit: "), "{text}");
+        assert!(lines[2].starts_with("target: "), "{text}");
     }
 }

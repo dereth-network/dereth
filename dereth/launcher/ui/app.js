@@ -54,6 +54,9 @@ const ui = {
   lyPublish: {},           // per Lyceum world: the hosted world chosen to publish it to
   lyDelete: null,          // the Lyceum world whose Delete asks to be confirmed, by its world file
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
+  // Auberean's realm: the account and password as typed, the listed world whose page is open, and
+  // a new Athenaeum world's form.
+  ac2: { account: null, password: "", world: null, draft: null, making: false },
 };
 
 // ----- small helpers ---------------------------------------------------------------------------------
@@ -181,12 +184,12 @@ async function pull() {
   ui.snap = snap;
   // The first start asks which interface the Dereth client plays in, before anything else, while
   // the client's preferences name none.
-  if ((ui.screen === "home" || ui.screen === "first-run") && interfaceAsked()) {
+  if (ui.realm === "dereth" && (ui.screen === "home" || ui.screen === "first-run") && interfaceAsked()) {
     ui.screen = "interface";
     ui.iface = { ...ui.iface, pick: null, fromLibrary: false };
     lastSnap = "";
   }
-  if (ui.screen === "home" && snap.state.dat_sets.length === 0 && !ui.firstRun.dismissed) {
+  if (ui.realm === "dereth" && ui.screen === "home" && snap.state.dat_sets.length === 0 && !ui.firstRun.dismissed) {
     ui.screen = "first-run";
     lastSnap = "";
   }
@@ -205,7 +208,10 @@ async function takeJoin() {
   try {
     const link = await api("take_join");
     if (link) {
-      ui.addServer = { name: link.name, host: link.host, port: String(link.port), emulator: "unknown", ruleset: "", error: null, fromLink: true };
+      // The world goes in its own game's realm: a link that names no game is Dereth's.
+      const game = REALMS[link.game] ? link.game : "dereth";
+      if (game !== ui.realm) await setRealm(game);
+      ui.addServer = { name: link.name, host: link.host, port: String(link.port), emulator: "unknown", ruleset: "", error: null, fromLink: true, game };
       ui.screen = "worlds";
       ui.world = null;
       render();
@@ -347,7 +353,7 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins, "first-run": firstRun, interface: interfacePage };
+  const screens = { "a-world": aubereanWorldPage, server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
@@ -390,7 +396,9 @@ const TOOLS = {
   dereth: { empyrean: ["Empyrean", "assets/emblem/empyrean.webp"], lyceum: ["Lyceum", "assets/emblem/lyceum.webp"] },
   auberean: { empyrean: ["Yalain", "assets/emblem/yalain.webp"], lyceum: ["Athenaeum", "assets/emblem/athenaeum.webp"] },
 };
-const titleOf = (product) => TOOLS[ui.realm][product][0];
+// Asheron's Call 2's programs by their own names, on the pages that name them.
+const PRODUCTS = { dereth: "Dereth", auberean: "Auberean", yalain: "Yalain", athenaeum: "Athenaeum" };
+const titleOf = (product) => TOOLS[ui.realm][product]?.[0] ?? PRODUCTS[product] ?? product;
 const SOFTWARE = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE" };
 // Each program's own emblem, beside its page's title and nowhere else.
 const brand = (product) => `<img class="brand" src="${TOOLS[ui.realm][product][1]}" alt="">`;
@@ -409,7 +417,7 @@ function programName(product) {
   const c = comp(product);
   const title = titleOf(product);
   if (c?.checkout) return `${title}${c.checkout_version ? ` ${vee(c.checkout_version)}` : ""} (Local Build)`;
-  return c?.installed ? `${title} ${vee(c.installed.version)}` : title;
+  return c?.installed?.version ? `${title} ${vee(c.installed.version)}` : title;
 }
 // The ACE world each era's world base is.
 const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)" };
@@ -463,7 +471,8 @@ function programLine(product) {
   if (c.installed) {
     what = esc(programName(product));
     if (c.offer.kind === "update") btns.push(`<button class="btn mini-btn" data-get="${product}" ${busy || c.running ? "disabled" : ""}>Update to ${esc(c.offer.version)}</button>`);
-    btns.push(`<button class="btn mini-btn" data-remove="${product}" ${busy || c.running ? "disabled" : ""} title="Remove the download. Your worlds are kept.">Remove</button>`);
+    // The client that came with the launcher stays; only a download can be removed.
+    if (!c.bundled) btns.push(`<button class="btn mini-btn" data-remove="${product}" ${busy || c.running ? "disabled" : ""} title="Remove the download. Your worlds are kept.">Remove</button>`);
   } else {
     what = c.checking && !c.latest ? `Asking GitHub for the newest ${title}...` : `${title} is not downloaded yet${c.latest_size ? `: ${mb(c.latest_size)}` : ""}.`;
     btns.push(`<button class="btn" data-get="${product}" ${busy ? "disabled" : ""}>Download ${title}${c.latest ? ` ${esc(c.latest)}` : ""}</button>`);
@@ -613,10 +622,11 @@ function outsideText(o) {
   }
 }
 
-// A join link: the site's page for the world, which offers to open it in Dereth.
-function joinLink(name, host, port) {
+// A join link: the site's page for the world, which offers to open it in the launcher. It names
+// the game only for Auberean, so Dereth's links read as they always have.
+function joinLink(name, host, port, game) {
   const enc = (v) => encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-  return `https://dereth.network/join#host=${enc(host)}&port=${port}&name=${enc(name)}`;
+  return `https://dereth.network/join#host=${enc(host)}&port=${port}&name=${enc(name)}${game === "auberean" ? "&game=auberean" : ""}`;
 }
 
 // Where friends connect: this computer's address on its network and on the internet, each with
@@ -767,15 +777,9 @@ function newWorldFields(s) {
 }
 
 // The realm's server or world builder, where the launcher cannot fetch it yet: its page says so.
-function toolNotYet(product, what) {
-  return `<div class="column wide" style="height:100%">
-      <section class="panel grow"><header>${brand(product)}<h1>${titleOf(product).toUpperCase()}: ${what}</h1></header>
-        <p class="muted">${titleOf(product)} is not ready to download yet.</p></section>
-    </div>`;
-}
 
 function serverList() {
-  if (ui.realm !== "dereth") return toolNotYet("empyrean", "HOST A WORLD SERVER");
+  if (ui.realm !== "dereth") return yalainPage();
   const hosts = ui.snap.hosts ?? [];
   const others = ui.snap.local ?? [];
   const pending = ui.serverDraft
@@ -1205,7 +1209,7 @@ function lyceumDeleteRow(w, busy, running) {
 }
 
 function makePage() {
-  if (ui.realm !== "dereth") return toolNotYet("lyceum", "BUILD A WORLD");
+  if (ui.realm !== "dereth") return athenaeumPage();
   const c = comp("lyceum");
   const on = ready("lyceum");
   const worlds = c?.worlds ?? [];
@@ -1392,6 +1396,7 @@ function homeEntries() {
 }
 
 function home() {
+  if (ui.realm !== "dereth") return aubereanHome();
   const entries = homeEntries();
   ui.homeSel = Math.min(ui.homeSel, Math.max(0, entries.length - 1));
   const sel = entries[ui.homeSel];
@@ -1422,9 +1427,11 @@ function home() {
   const runningLine = running.length
     ? `<p class="small good">Running: ${running.map((r) => `${esc(worldBy(r.world_slug)?.name ?? r.world_slug)} / ${esc(r.account)}`).join(", ")}</p>`
     : "";
+  // A launcher from Auberean's package fetches Dereth's client when it is first wanted.
+  const client = !ui.snap.dereth && comp("dereth") ? `<h2>THE CLIENT</h2>${programLine("dereth")}` : "";
   return `<div class="column narrow">
       <section class="panel"><header><h1>PLAY AGAIN</h1></header>
-        <div class="scroll">${list}</div>${runningLine}</section>
+        <div class="scroll">${client}${list}</div>${runningLine}</section>
       <button class="play" data-act="home-play" ${canPlay ? "" : "disabled"}>PLAY</button>
     </div>`;
 }
@@ -1586,6 +1593,7 @@ function worlds() {
 // ----- one world ------------------------------------------------------------------------------------
 
 async function openWorld(slug, notice, preset) {
+  if (worldBy(slug)?.game === "auberean") { ui.ac2.world = slug; ui.ac2.password = ""; ui.screen = "a-world"; checkComponents(false); render(); return; }
   // A world's page plays in Dereth; Auberean is not played from the launcher yet.
   if ((worldBy(slug)?.game ?? "dereth") !== "dereth") {
     toast("Auberean can't be played from the launcher yet.", false);
@@ -1818,6 +1826,7 @@ function library() {
   const d = ui.snap.dereth;
   const dereth = (d
     ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
+    : comp("dereth") ? programLine("dereth")
     : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
     + interfaceRow();
   const setRow = (d) => {
@@ -2293,7 +2302,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-world-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick]");
+  const t = ev.target.closest("[data-ath-open],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2302,6 +2311,7 @@ document.addEventListener("click", async (ev) => {
     setRealm(d.realmPick, portal ? { x: portal.left + portal.width / 2, y: portal.top + portal.height / 2 } : null);
     return;
   }
+  if (d.athOpen) { await act("open_athenaeum", { world: d.athOpen }); return; }
   if (d.unfav) { ev.stopPropagation(); await act("remove_favourite", { id: d.unfav }); return; }
   if (d.worldFav) {
     ev.stopPropagation();
@@ -2317,7 +2327,7 @@ document.addEventListener("click", async (ev) => {
   if (d.go) {
     ui.screen = d.go;
     if (d.go === "home") ui.firstRun.dismissed = ui.firstRun.dismissed || ui.snap.state.dat_sets.length > 0;
-    if (d.go === "server" || d.go === "make") checkComponents(false);
+    if (d.go === "server" || d.go === "make" || (d.go === "home" && ui.realm !== "dereth")) checkComponents(false);
     if (d.go === "server") lastLook = 0;
     render();
     return;
@@ -2413,6 +2423,31 @@ document.addEventListener("click", async (ev) => {
   if (d.iface) { ui.iface.pick = d.iface; render(); return; }
 
   switch (d.act) {
+    case "a-install": await act("choose_auberean_install"); break;
+    case "a-start": await act("start_auberean_world"); break;
+    case "a-stop": await act("stop_auberean_world"); break;
+    case "a-play": {
+      const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
+      await act("play_auberean_local", { account });
+      break;
+    }
+    case "a-world-play": {
+      const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
+      if ((await act("play_auberean_world", { slug: ui.ac2.world, account, password: ui.ac2.password })) !== undefined) ui.ac2.password = "";
+      break;
+    }
+    case "ath-new": ui.ac2.draft = { name: "" }; render(); focusSoon("ath-name"); break;
+    case "ath-cancel": ui.ac2.draft = null; render(); break;
+    case "ath-create": {
+      ui.ac2.making = true;
+      render();
+      if ((await act("new_athenaeum_world", { name: ui.ac2.draft?.name ?? "" })) !== undefined) ui.ac2.draft = null;
+      ui.ac2.making = false;
+      render();
+      break;
+    }
+    case "ath-choose": await act("choose_athenaeum_world"); break;
+    case "ath-folder": await act("open_athenaeum_folder"); break;
     case "srv-new": ui.serverDraft = newServerDraft(); render(); focusSoon("new-name"); break;
     case "srv-settings": { const h = serverBy(ui.serverId); if (h) { ui.serverEdit = { id: h.id, settings: editCopy(h) }; ui.screen = "server-settings"; } render(); break; }
     case "set-close": ui.serverEdit = null; ui.keyDraft = null; ui.screen = "server-page"; render(); break;
@@ -2566,7 +2601,7 @@ async function saveKey() {
 async function addServer() {
   const a = ui.addServer;
   try {
-    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null } });
+    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null, game: a.game ?? REALMS[ui.realm].game } });
     ui.addServer = null;
     await pull();
     await openWorld(slug);
@@ -2595,6 +2630,9 @@ document.addEventListener("input", (ev) => {
     return;
   }
   if (t.id === "plugin-search") { ui.plugin.search = t.value; render(); return; }
+  if (t.id === "a-account") { const was = !(ui.ac2.account ?? "").trim(); ui.ac2.account = t.value; if (was !== !t.value.trim()) render(); return; }
+  if (t.id === "a-password") { ui.ac2.password = t.value; return; }
+  if (t.id === "ath-name" && ui.ac2.draft) { const was = !folderName(ui.ac2.draft.name); ui.ac2.draft.name = t.value; if (was !== !folderName(t.value)) render(); return; }
   if (t.id === "plugin-make-name" || t.id === "plugin-make-github") {
     const m = ui.plugin.make;
     const was = !m.name.trim();
@@ -2872,13 +2910,143 @@ async function watchLibrary() {
   lastSets = sets;
 }
 
+// ----- Auberean's realm ---------------------------------------------------------------------------
+//
+// Asheron's Call 2: the player's own install, which the launcher checks and never copies; the
+// Auberean client and Yalain, each downloaded when asked; a world on this computer, which Play
+// starts and waits for before the client logs in; listed worlds, played with an account and a
+// password; and Athenaeum, the world builder, with the worlds it made or opened.
+
+const ac2 = () => ui.snap.auberean ?? {};
+
+// The install's line: its folder and what the check said, and the button that names another.
+function installLine() {
+  const check = ac2().check;
+  const where = check ? `<span title="${esc(check.dir)}">${esc(check.dir)}</span>` : `<span class="muted">Not chosen yet.</span>`;
+  const said = check ? `<span class="${check.ok ? "good" : "bad"}">${esc(check.summary)}</span>` : "";
+  return `<div class="program-line ${check?.ok ? "" : "first"}">${where}${said}
+      <span class="btns"><button class="btn ${check ? "mini-btn" : ""}" data-act="a-install">${check ? "Change" : "Choose Your Asheron's Call 2 Folder"}</button></span></div>`;
+}
+
+// What the realm's last action said.
+function ac2Said() {
+  const a = ac2();
+  return a.message ? `<p class="small ${a.error ? "bad" : "muted"}">${esc(a.message)}</p>` : "";
+}
+
+// The world on this computer, in a word or two.
+function localState() {
+  const s = ac2().server ?? {};
+  if (s.starting) return stateMark("starting", "Getting ready");
+  if (s.running && !s.ready) return stateMark("starting", "Starting");
+  if (s.running) return stateMark("online", `Running at ${esc(s.address)}`);
+  return stateMark("unknown", "Stopped");
+}
+
+function aubereanHome() {
+  const a = ac2();
+  const s = a.server ?? {};
+  const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
+  const canPlay = !!(a.check?.ok && ready("auberean") && (ready("yalain") || ready("athenaeum")) && account.trim());
+  const playing = a.playing ? `<p class="small good">Auberean is running.</p>` : "";
+  return `<div class="column narrow">
+      <section class="panel"><header><h1>PLAY AUBEREAN</h1></header>
+        <div class="scroll">
+          <h2>YOUR GAME FILES</h2>${installLine()}
+          <h2>THE CLIENT</h2>${programLine("auberean")}
+          <h2>A WORLD ON THIS COMPUTER</h2>
+          <div class="program-line"><span>${localState()}</span>
+            <span class="btns">${s.running ? `<button class="btn mini-btn" data-act="a-stop">Stop</button>` : `<button class="btn mini-btn" data-act="a-start" ${a.check?.ok && (ready("yalain") || ready("athenaeum")) && !s.starting ? "" : "disabled"}>Start</button>`}</span></div>
+          ${ready("yalain") || ready("athenaeum") ? "" : `<p class="muted small">Download Yalain (on its page) to play a world on this computer.</p>`}
+          <div class="form">
+            <label class="lab" for="a-account">ACCOUNT</label><input id="a-account" class="field" autocomplete="off" style="max-width:280px" value="${esc(account)}" placeholder="any name">
+          </div>
+          <p class="muted small">A world on this computer makes the account the first time you log in, and asks for no password. To play a world on the Dereth Network, open it from Worlds.</p>
+          ${ac2Said()}${playing}
+        </div></section>
+      <button class="play" data-act="a-play" ${canPlay ? "" : "disabled"}>PLAY</button>
+    </div>`;
+}
+
+// A listed world of Asheron's Call 2's: its name and address, and an account and password to play
+// it with. The password goes to the client and is kept nowhere.
+function aubereanWorldPage() {
+  const w = worldBy(ui.ac2.world);
+  if (!w) { ui.screen = "worlds"; return worlds(); }
+  const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
+  const canPlay = !!(ac2().check?.ok && ready("auberean") && account.trim() && w.endpoint);
+  return `<div class="column narrow">
+      <section class="panel"><header><button class="btn icon-btn" data-go="worlds" title="Back to the worlds">‹</button><h1>${esc(w.name.toUpperCase())}</h1></header>
+        <div class="scroll">
+          ${w.description ? `<p>${esc(w.description)}</p>` : ""}
+          <p class="small muted">${esc(w.endpoint ? `${w.endpoint.address}:${w.endpoint.port}` : "No address")} · ${stateLabel(w)}</p>
+          <h2>YOUR GAME FILES</h2>${installLine()}
+          <h2>THE CLIENT</h2>${programLine("auberean")}
+          <div class="form">
+            <label class="lab" for="a-account">ACCOUNT</label><input id="a-account" class="field" autocomplete="off" style="max-width:280px" value="${esc(account)}">
+            <label class="lab" for="a-password">PASSWORD</label><input id="a-password" class="field" type="password" autocomplete="off" style="max-width:280px" value="${esc(ui.ac2.password)}">
+          </div>
+          ${ac2Said()}
+        </div></section>
+      <button class="play" data-act="a-world-play" ${canPlay ? "" : "disabled"}>PLAY</button>
+    </div>`;
+}
+
+// Yalain's page: the download, and the world on this computer with its log.
+function yalainPage() {
+  const a = ac2();
+  const s = a.server ?? {};
+  const on = ready("yalain") || ready("athenaeum");
+  const log = (s.log ?? []).map((l) => `<div>${esc(l)}</div>`).join("");
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header>${brand("empyrean")}<h1>YALAIN: A WORLD ON THIS COMPUTER</h1></header>
+        <div class="scroll">${on ? "" : `<p class="muted small">Run an Asheron's Call 2 world on this computer, over your own game files.</p>`}
+          ${programLine("yalain")}
+          <h2>YOUR GAME FILES</h2>${installLine()}
+          <h2>THE WORLD</h2>
+          <div class="program-line"><span>${localState()}</span>
+            <span class="btns">${s.running ? `<button class="btn mini-btn" data-act="a-stop">Stop</button>` : `<button class="btn mini-btn" data-act="a-start" ${a.check?.ok && on && !s.starting ? "" : "disabled"}>Start</button>`}</span></div>
+          <p class="muted small">It is for you alone: it listens on this computer, and makes an account the first time a name logs in. Start gets the world database it plays first, once.</p>
+          ${ac2Said()}
+          ${log ? `<h2>LOG</h2><div class="log" data-log="yalain">${log}</div>` : ""}
+        </div></section>
+    </div>`;
+}
+
+// Athenaeum's page: the download, a new world, and the worlds it made or opened.
+function athenaeumPage() {
+  const a = ac2();
+  const on = ready("athenaeum");
+  const c = comp("athenaeum");
+  const busy = c?.busy || ui.ac2.making;
+  const rows = (a.worlds ?? []).map((w) => `<div class="row"><div class="grow"><div class="name">${esc(worldName(`${w}/world.toml`))}</div><div class="sub">${esc(w)}</div></div>
+      <div class="end"><button class="btn mini-btn" data-ath-open="${esc(w)}" ${on && a.check?.ok ? "" : "disabled"}>Open</button></div></div>`).join("")
+    || `<p class="muted">${on ? "No worlds yet." : "Download Athenaeum to build a world."}</p>`;
+  const d = ui.ac2.draft;
+  const pending = d ? `<section class="panel pending"><header><h1>NEW WORLD</h1></header>
+      <div class="form"><label class="lab" for="ath-name">NAME</label><input id="ath-name" class="field" autocomplete="off" value="${esc(d.name)}"></div>
+      <p class="muted small">It goes in ${esc(a.home ?? "your Documents")}.</p>
+      <div class="btns end" style="margin-top:12px"><button class="btn" data-act="ath-cancel">Cancel</button><button class="btn" data-act="ath-create" ${folderName(d.name) && !busy ? "" : "disabled"}>Start Building</button></div></section>` : "";
+  return `<div class="column wide" style="height:100%">${pending}
+      <section class="panel grow"><header>${brand("lyceum")}<h1>ATHENAEUM: BUILD A WORLD</h1>
+          ${on && !d ? `<button class="btn" data-act="ath-new" ${busy || !a.check?.ok ? "disabled" : ""}>+ New world</button>` : ""}
+          ${on ? `<button class="btn" data-act="ath-choose" ${busy || !a.check?.ok ? "disabled" : ""} title="Open any world, by its folder">Open World</button>` : ""}</header>
+        <div class="scroll">${on ? "" : `<p class="muted small">Place people, creatures and things in Asheron's Call 2's world with Athenaeum, then serve it with Yalain and play it.</p>`}
+          ${programLine("athenaeum")}
+          <h2>YOUR GAME FILES</h2>${installLine()}
+          ${ac2Said()}
+          <div class="h2-row"><h2>YOUR WORLDS</h2>${a.home ? `<button class="btn mini-btn" data-act="ath-folder" title="${esc(a.home)}">Open Folder</button>` : ""}</div>
+          <div class="list">${rows}</div></div>
+      </section>
+    </div>`;
+}
+
 // ----- the realm ------------------------------------------------------------------------------------
 //
 // The launcher has two realms. Dereth's worlds are hosted with Empyrean and built with Lyceum,
-// Auberean's with Yalain and Athenaeum. Started with `--auberean`, the launcher offers both: a
-// portal for each above the rail picks which realm's worlds, tools and paintings the page shows,
-// and its accent, teal for Dereth and violet for Auberean. The golds are both realms'. Without the
-// switch the page is Dereth's alone, and a first start opens in Dereth.
+// Auberean's with Yalain and Athenaeum. A portal for each above the rail picks which realm's
+// worlds, tools and paintings the page shows, and its accent, teal for Dereth and violet for
+// Auberean. The golds are both realms'. A first start opens in Dereth.
 
 const REALMS = {
   dereth: { game: "dereth", name: "DERETH" },
@@ -2890,24 +3058,20 @@ const REALMS = {
 const inRealm = (w) => (w?.game ?? "dereth") === REALMS[ui.realm].game;
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// The first snapshot: the page opens in the realm it last showed, without easing into it. Only a
-// launcher that offers both games wears the network's crest, of both, rather than Dereth's, and
-// shows the portals and both sets of paintings.
+// The first snapshot: the page opens in the realm it last showed, without easing into it, wearing
+// the network's crest, of both games, with the portals and both sets of paintings.
 function openRealm(snap) {
-  const both = !!snap.auberean;
   const saved = snap.state.settings.realm;
-  ui.realm = both && REALMS[saved] ? saved : "dereth";
+  ui.realm = REALMS[saved] ? saved : "dereth";
   const root = document.documentElement;
   root.dataset.realm = ui.realm;
-  document.querySelector(".lockup .emblem").src = `assets/emblem/${both ? "network" : "dereth"}.webp`;
-  if (both) {
-    root.dataset.realms = "";
-    document.getElementById("realm").innerHTML = Object.entries(REALMS).map(([id, r]) =>
-      `<button class="pick" role="radio" aria-checked="${ui.realm === id}" data-realm-pick="${id}" data-realm-of="${id}">
-        <span class="portal"><img class="vortex" src="assets/portal/${id}-vortex.webp" alt=""><img src="assets/portal/${id}-ring.webp" alt=""></span><span>${r.name}</span></button>`).join("");
-  }
+  document.querySelector(".lockup .emblem").src = "assets/emblem/network.webp";
+  root.dataset.realms = "";
+  document.getElementById("realm").innerHTML = Object.entries(REALMS).map(([id, r]) =>
+    `<button class="pick" role="radio" aria-checked="${ui.realm === id}" data-realm-pick="${id}" data-realm-of="${id}">
+      <span class="portal"><img class="vortex" src="assets/portal/${id}-vortex.webp" alt=""><img src="assets/portal/${id}-ring.webp" alt=""></span><span>${r.name}</span></button>`).join("");
   requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("still")));
-  vista(both ? Object.keys(REALMS) : ["dereth"]);
+  vista(Object.keys(REALMS));
 }
 
 // Changing realm: the accent eases over, the rail's tools pass to the other game's and Plugins,
@@ -2927,6 +3091,9 @@ async function setRealm(realm, from) {
   // the realm's server, and Plugins, Dereth's alone, to Play.
   if (ui.screen === "world") ui.screen = "worlds";
   if (["server-page", "server-settings", "local-page"].includes(ui.screen)) ui.screen = "server";
+  // Dereth's first start asks about Dereth's game files and interface; Auberean's realm opens on Play.
+  if (realm !== "dereth" && ["first-run", "interface"].includes(ui.screen)) ui.screen = "home";
+  if (ui.screen === "a-world") ui.screen = "worlds";
   if (realm !== "dereth" && ui.screen === "plugins") ui.screen = "home";
   const main = document.getElementById("main");
   if (still()) { render(); return; }

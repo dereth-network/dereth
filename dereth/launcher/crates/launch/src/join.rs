@@ -1,7 +1,7 @@
 //! A join link: a world's host, port and name in one link a host sends a friend, which opens the
 //! launcher's Add world with the world filled in, for the friend to confirm.
 //!
-//! Two forms carry the same three things:
+//! Two forms carry the same things:
 //!
 //! - **`dereth://join?host=<host>&port=<port>&name=<name>`**, the launcher's own scheme, which the
 //!   system hands the launcher (registered as [`windows_registry`] and [`linux_mimeapps`] say, and
@@ -9,6 +9,12 @@
 //! - **`https://dereth.network/join#host=<host>&port=<port>&name=<name>`**, a page any chat app
 //!   shows as a link: it offers to open the first form, or to get Dereth. The details are after the
 //!   `#`, which a browser never sends, so the site sees none of them.
+//!
+//! Either may also say which game the world runs, `game=dereth` or `game=auberean` (the words the
+//! hub's list uses, [`Game`]); a link that says none is Dereth's, as every link was before. The
+//! world is added to that game's realm. A link written here names the game only for Auberean, so
+//! a Dereth link reads the same to a launcher that knows no games. A game this launcher does not
+//! know is refused, as a bad host is: the world would be added to the wrong game otherwise.
 //!
 //! A link only fills the form: it never connects, logs in or carries an account or a password,
 //! and anything else it holds is ignored. Its host and port are checked as a world added by hand
@@ -25,6 +31,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::state::{custom_host, custom_port, CustomWorldError};
+use crate::world::Game;
 
 /// The launcher's URL scheme.
 pub const SCHEME: &str = "dereth";
@@ -51,6 +58,9 @@ pub struct JoinLink {
     pub port: u16,
     /// The world's name; its host when the link names none.
     pub name: String,
+    /// The game the world runs; Dereth's when the link names none.
+    #[serde(default)]
+    pub game: Game,
 }
 
 /// Why a link is not read.
@@ -60,6 +70,8 @@ pub enum JoinError {
     NotALink,
     /// A join link whose host or port is not one a world can be added with.
     World(CustomWorldError),
+    /// A join link for a game this launcher does not know.
+    Game(String),
 }
 
 impl core::fmt::Display for JoinError {
@@ -67,6 +79,10 @@ impl core::fmt::Display for JoinError {
         match self {
             Self::NotALink => f.write_str("That is not a link to a world."),
             Self::World(e) => write!(f, "The link's world: {e}"),
+            Self::Game(word) => write!(
+                f,
+                "The link is for a game this launcher does not know ({word}). Update the launcher, then try the link again."
+            ),
         }
     }
 }
@@ -160,7 +176,8 @@ fn clean_name(name: &str, host: &str) -> String {
 ///
 /// # Errors
 /// [`JoinError::NotALink`] for anything that is not one, or one over [`MAX_LINK`] bytes;
-/// [`JoinError::World`] for a link whose host or port a world cannot be added with.
+/// [`JoinError::World`] for a link whose host or port a world cannot be added with;
+/// [`JoinError::Game`] for one naming a game this launcher does not know.
 pub fn parse(link: &str) -> Result<JoinLink, JoinError> {
     let link = link.trim();
     if link.len() > MAX_LINK {
@@ -176,30 +193,44 @@ pub fn parse(link: &str) -> Result<JoinLink, JoinError> {
     };
     let host = custom_host(get("host").unwrap_or("")).map_err(JoinError::World)?;
     let port = custom_port(get("port").unwrap_or("")).map_err(JoinError::World)?;
+    let game = match get("game").map(str::trim).filter(|g| !g.is_empty()) {
+        None => Game::Dereth,
+        Some(word) => Game::parse(&word.to_ascii_lowercase()).ok_or_else(|| {
+            JoinError::Game(word.chars().filter(|c| !c.is_control()).take(20).collect())
+        })?,
+    };
     Ok(JoinLink {
         host: host.to_owned(),
         port,
         name: clean_name(get("name").unwrap_or(""), host),
+        game,
     })
 }
 
 impl JoinLink {
     fn details(&self) -> String {
-        format!(
+        let mut details = format!(
             "host={}&port={}&name={}",
             encode(&self.host),
             self.port,
             encode(&self.name)
-        )
+        );
+        // Dereth's links stay as they always were.
+        if self.game != Game::Dereth {
+            details.push_str(&format!("&game={}", self.game.word()));
+        }
+        details
     }
 
-    /// The launcher's own link: `dereth://join?host=...&port=...&name=...`.
+    /// The launcher's own link: `dereth://join?host=...&port=...&name=...`, and `&game=auberean`
+    /// for an Auberean world.
     #[must_use]
     pub fn app_link(&self) -> String {
         format!("{SCHEME}://join?{}", self.details())
     }
 
-    /// The site's page for it: `https://dereth.network/join#host=...&port=...&name=...`.
+    /// The site's page for it: `https://dereth.network/join#host=...&port=...&name=...`, and
+    /// `&game=auberean` for an Auberean world.
     #[must_use]
     pub fn web_link(&self) -> String {
         format!("{WEB_PAGE}#{}", self.details())
@@ -361,7 +392,76 @@ mod tests {
             host: host.into(),
             port,
             name: name.into(),
+            game: Game::Dereth,
         }
+    }
+
+    /// A link that says no game is Dereth's, as every link was before games were named; one that
+    /// says `auberean`, in either form and any case, is Auberean's.
+    #[test]
+    fn a_join_link_names_its_game_and_one_that_names_none_is_dereths() {
+        assert_eq!(
+            parse("dereth://join?host=a.example&port=9000&name=A").map(|l| l.game),
+            Ok(Game::Dereth)
+        );
+        assert_eq!(
+            parse("dereth://join?host=a.example&port=9000&name=A&game=dereth").map(|l| l.game),
+            Ok(Game::Dereth)
+        );
+        for text in [
+            "dereth://join?host=a.example&port=9200&name=A&game=auberean",
+            "dereth://join?game=AUBEREAN&host=a.example&port=9200&name=A",
+            "https://dereth.network/join#host=a.example&port=9200&name=A&game=auberean",
+        ] {
+            assert_eq!(parse(text).map(|l| l.game), Ok(Game::Auberean), "{text}");
+        }
+    }
+
+    /// A game the launcher does not know is refused, as a bad host is, rather than read as
+    /// Dereth's and the world added to the wrong realm.
+    #[test]
+    fn a_join_link_for_an_unknown_game_is_refused() {
+        for game in ["ac3", "dereth2", "auberean%20two"] {
+            let read = parse(&format!(
+                "dereth://join?host=a.example&port=9000&name=A&game={game}"
+            ));
+            assert!(matches!(read, Err(JoinError::Game(_))), "{game}: {read:?}");
+        }
+        let said = parse("dereth://join?host=a.example&port=9000&game=ac3")
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("ac3"), "{said}");
+    }
+
+    /// A link written here names the game only for Auberean, so a Dereth link is the same as
+    /// before; both read back as written.
+    #[test]
+    fn a_link_names_the_game_only_for_auberean_and_round_trips() {
+        let dereth = link("a.example", 9000, "A");
+        assert!(
+            !dereth.app_link().contains("game="),
+            "{}",
+            dereth.app_link()
+        );
+        assert!(
+            !dereth.web_link().contains("game="),
+            "{}",
+            dereth.web_link()
+        );
+        let auberean = JoinLink {
+            game: Game::Auberean,
+            ..link("a.example", 9200, "A")
+        };
+        assert_eq!(
+            auberean.app_link(),
+            "dereth://join?host=a.example&port=9200&name=A&game=auberean"
+        );
+        assert_eq!(
+            auberean.web_link(),
+            "https://dereth.network/join#host=a.example&port=9200&name=A&game=auberean"
+        );
+        assert_eq!(parse(&auberean.app_link()), Ok(auberean.clone()));
+        assert_eq!(parse(&auberean.web_link()), Ok(auberean));
     }
 
     #[test]

@@ -130,6 +130,14 @@ pub struct CustomWorld {
     /// status document, which names one ([`crate::direct`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// The game it runs: Dereth's unless the player added it to Auberean's realm, or a join link
+    /// named Auberean.
+    #[serde(default, skip_serializing_if = "is_dereth_game")]
+    pub game: Game,
+}
+
+fn is_dereth_game(game: &Game) -> bool {
+    *game == Game::Dereth
 }
 
 impl CustomWorld {
@@ -139,6 +147,7 @@ impl CustomWorld {
         let mut w = World::new(self.slug.clone(), self.name.clone());
         w.ruleset.clone_from(&self.ruleset);
         w.emulator = self.emulator;
+        w.game = self.game;
         w.endpoint = Some(Endpoint {
             address: self.host.clone(),
             port: self.port,
@@ -248,8 +257,8 @@ fn yes() -> bool {
     true
 }
 
-/// The realm the launcher's page shows: Dereth's or Auberean's. Only a launcher started with
-/// `--auberean` offers the choice.
+/// The realm the launcher's page shows: Dereth's or Auberean's. Every launcher offers both; a first
+/// run opens in the one its package names ([`crate::defaults`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Realm {
@@ -302,6 +311,25 @@ impl Default for Settings {
     }
 }
 
+/// What the player told the launcher for Auberean's realm: where their own Asheron's Call 2
+/// install is, and the account they play a world on this computer with. Never a password.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AubereanSettings {
+    /// The folder of the player's Asheron's Call 2 install, whose data files the client and a
+    /// world on this computer read ([`crate::auberean::check_install`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<PathBuf>,
+    /// The account name the player last played with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+}
+
+impl AubereanSettings {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// The whole file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LauncherState {
@@ -329,6 +357,9 @@ pub struct LauncherState {
     pub world_prefs: BTreeMap<String, WorldPrefs>,
     #[serde(default)]
     pub settings: Settings,
+    /// Auberean's realm's: the player's install and account.
+    #[serde(default, skip_serializing_if = "AubereanSettings::is_empty")]
+    pub auberean: AubereanSettings,
 }
 
 impl Default for LauncherState {
@@ -344,6 +375,7 @@ impl Default for LauncherState {
             custom_worlds: Vec::new(),
             world_prefs: BTreeMap::new(),
             settings: Settings::default(),
+            auberean: AubereanSettings::default(),
         }
     }
 }
@@ -484,6 +516,17 @@ impl LauncherState {
     ///
     /// # Errors
     /// [`CustomWorldError`] for a missing or malformed host, or a port outside 1..=65535.
+    /// Say which game the world the player added as `slug` runs. False when there is no such world.
+    pub fn set_custom_world_game(&mut self, slug: &str, game: Game) -> bool {
+        match self.custom_worlds.iter_mut().find(|w| w.slug == slug) {
+            Some(w) => {
+                w.game = game;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn add_custom_world(
         &mut self,
         name: &str,
@@ -526,6 +569,7 @@ impl LauncherState {
             ruleset,
             emulator,
             url: None,
+            game: Game::Dereth,
         });
         Ok(slug)
     }
@@ -1021,6 +1065,21 @@ mod tests {
         assert_ne!(s.new_id("eo"), "eor");
     }
 
+    /// The player's Asheron's Call 2 install and account are kept, and a file without them reads as
+    /// it did; nothing of them is written until they are given.
+    #[test]
+    fn the_auberean_install_and_account_round_trip_and_are_written_only_once_given() {
+        let mut s = LauncherState::default();
+        assert!(!serde_json::to_string(&s).unwrap().contains("auberean"));
+        s.auberean.install = Some(PathBuf::from("ac2"));
+        s.auberean.account = Some("player".into());
+        let json = serde_json::to_string(&s).unwrap();
+        let back: LauncherState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.auberean, s.auberean);
+        let older: LauncherState = serde_json::from_str(r#"{"schema":1}"#).unwrap();
+        assert_eq!(older.auberean, AubereanSettings::default());
+    }
+
     /// The rule this file exists to keep.
     #[test]
     fn no_password_field_exists_anywhere_in_the_file() {
@@ -1028,5 +1087,34 @@ mod tests {
         s.upsert_account(account("eulmore", "player"));
         let json = serde_json::to_string(&s).unwrap().to_ascii_lowercase();
         assert!(!json.contains("password"), "{json}");
+    }
+
+    /// A world added to Auberean's realm, by hand or from a join link, is listed there and kept
+    /// as Auberean's; one added as before is Dereth's, and its saved form says no game.
+    #[test]
+    fn an_added_world_keeps_the_game_it_was_added_for() {
+        let mut s = LauncherState::default();
+        let dereth = s
+            .add_custom_world("A", "a.example", "9000", None, Emulator::Unknown)
+            .unwrap();
+        let auberean = s
+            .add_custom_world("B", "b.example", "9200", None, Emulator::Unknown)
+            .unwrap();
+        assert!(s.set_custom_world_game(&auberean, Game::Auberean));
+        assert!(!s.set_custom_world_game("custom-99", Game::Auberean));
+        let json = serde_json::to_string(&s).unwrap();
+        let back: LauncherState = serde_json::from_str(&json).unwrap();
+        let world = |slug: &str| {
+            back.custom_worlds
+                .iter()
+                .find(|w| w.slug == slug)
+                .unwrap()
+                .to_world()
+        };
+        assert_eq!(world(&dereth).game, Game::Dereth);
+        assert_eq!(world(&auberean).game, Game::Auberean);
+        assert!(Realm::Auberean.shows(&world(&auberean)));
+        assert!(!Realm::Dereth.shows(&world(&auberean)));
+        assert_eq!(json.matches("\"game\"").count(), 1, "{json}");
     }
 }
