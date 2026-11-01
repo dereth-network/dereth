@@ -14,6 +14,16 @@
 //! (function keys `F1`-`F24`, matrix elements `M11`-`M44`, numeric format specifiers such as `N0`
 //! or `F6`, and four-digit opcode shorthand such as `F745`).
 //!
+//! ## Asheron's Call 2
+//!
+//! Two opaque keys are not labels: an evidence handle (`AC-EVID-...`, `AC2-EVID-...`) and a port
+//! id, `D2-` and five digits, which an Asheron's Call 2 item carries as a comment of its own to
+//! name the retail function it ports (`?????` until the id is assigned). In the Asheron's Call 2
+//! folders ([`AC2_ROOTS`]) four more rules hold, over every line of code, comment and string, tests
+//! included ([`ac2_line_findings`]): a port anchor is exactly that comment and `not_ported!` names
+//! one such id; no number in the retail program's code range; no private folder of the research
+//! that studied it; and evidence handles only in the behaviour registry.
+//!
 //! ## Exceptions
 //!
 //! `tools/xtask/comment-lint-allowed.txt` lists the findings that are correct as written, one
@@ -623,6 +633,9 @@ pub const RULES: &[&str] = &[
     "private provenance",
     "stale source citation",
     "corrupt punctuation",
+    "port anchor",
+    "retail address",
+    "evidence handle",
 ];
 
 fn provenance_pattern() -> &'static regex::Regex {
@@ -703,7 +716,10 @@ pub fn scan_text(text: &str, whole_literal: bool) -> Vec<(&'static str, usize, u
         "evidence/",
         "SHARED-PROPOSALS",
         "OPEN_QUESTIONS",
-    ] {
+    ]
+    .into_iter()
+    .chain(AC2_PRIVATE)
+    {
         for (s, e) in occurrences(text, needle, false) {
             out.push(("private document", s, e));
         }
@@ -713,10 +729,12 @@ pub fn scan_text(text: &str, whole_literal: bool) -> Vec<(&'static str, usize, u
             out.push(("study method", s, e));
         }
     }
-    // An evidence handle (`AC-EVID-O410-HEIGHT`) is an opaque key into the evidence index, not
-    // prose, and the work-item label inside it is part of the key.
-    let handles: Vec<(usize, usize)> = occurrences(text, "AC-EVID-", false)
+    // An evidence handle (`AC-EVID-O410-HEIGHT`, `AC2-EVID-...`) is an opaque key into the
+    // evidence index, not prose, and the work-item label inside it is part of the key. So is a
+    // port id (`D2-04211`).
+    let mut handles: Vec<(usize, usize)> = ["AC-EVID-", "AC2-EVID-"]
         .into_iter()
+        .flat_map(|h| occurrences(text, h, false))
         .map(|(s, mut e)| {
             while e < b.len() && (is_word(b[e]) || b[e] == b'-') {
                 e += 1;
@@ -724,8 +742,132 @@ pub fn scan_text(text: &str, whole_literal: bool) -> Vec<(&'static str, usize, u
             (s, e)
         })
         .collect();
+    handles.extend(port_ids(text));
     out.retain(|&(_, s, e)| !handles.iter().any(|&(hs, he)| hs <= s && e <= he));
     out.sort_by_key(|&(r, s, _)| (s, r));
+    out
+}
+
+/// The Asheron's Call 2 folders: its core, its client, its server and its world builder.
+pub const AC2_ROOTS: &[&str] = &["core/auberean-", "auberean/", "yalain/", "athenaeum/"];
+
+/// The folders of the research that studied Asheron's Call 2, which no file here may name. Spelled
+/// in pieces so the private leak scan of this file does not read them as citations.
+const AC2_PRIVATE: [&str; 10] = [
+    concat!("knowledge", "2"),
+    concat!("evidence", "2"),
+    concat!("tools", "2"),
+    concat!("client2", "-decompiles"),
+    concat!("references", "2"),
+    concat!("archive", "2"),
+    concat!("re", "build2"),
+    concat!("clients", "2"),
+    concat!("retail-", "pcaps2"),
+    concat!("accpp", "2"),
+];
+
+/// Where the behaviour registry that holds Asheron's Call 2's evidence handles is.
+const AC2_REGISTRY: &str = "auberean/testkit/";
+
+/// Whether a workspace-relative path is in one of the Asheron's Call 2 folders.
+pub fn in_ac2(rel: &str) -> bool {
+    AC2_ROOTS.iter().any(|r| rel.starts_with(r))
+}
+
+/// Whether `s` is a port id: `D2-` and five digits, or `D2-?????` before one is assigned.
+fn is_port_id(s: &str) -> bool {
+    s.strip_prefix("D2-").is_some_and(|rest| {
+        rest.len() == 5 && (rest.bytes().all(|c| c.is_ascii_digit()) || rest == "?????")
+    })
+}
+
+/// The spans of the port ids in `text`.
+fn port_ids(text: &str) -> Vec<(usize, usize)> {
+    let b = text.as_bytes();
+    occurrences(text, "D2-", false)
+        .into_iter()
+        .filter(|&(s, _)| boundary_before(b, s))
+        .filter(|&(s, _)| text.get(s..s + 8).is_some_and(is_port_id))
+        .map(|(s, _)| (s, s + 8))
+        .filter(|&(_, e)| boundary_after(b, e))
+        .collect()
+}
+
+/// The eight-digit hexadecimal numbers on a line inside the retail program's code range
+/// (`0x00400000` to `0x00AFFFFF`): addresses, which the published code never carries.
+fn retail_addresses(line: &str) -> Vec<(usize, usize)> {
+    let b = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 10 <= b.len() {
+        if b[i] == b'0'
+            && (b[i + 1] == b'x' || b[i + 1] == b'X')
+            && (i == 0 || !b[i - 1].is_ascii_alphanumeric())
+        {
+            let len = line[i + 2..]
+                .chars()
+                .take_while(|c| c.is_ascii_hexdigit() || *c == '_')
+                .count();
+            let digits: String = line[i + 2..i + 2 + len]
+                .chars()
+                .filter(|c| *c != '_')
+                .collect();
+            if digits.len() == 8
+                && u32::from_str_radix(&digits, 16)
+                    .is_ok_and(|v| (0x0040_0000..0x00B0_0000).contains(&v))
+            {
+                out.push((i, i + 2 + len));
+            }
+            i += 2 + len;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The Asheron's Call 2 rules over one file's lines (`rel` relative to the workspace): port
+/// anchors well formed, no retail address, evidence handles only in the registry. A `.rs` file's
+/// every line, code included; a manifest's too.
+pub fn ac2_line_findings(rel: &str, text: &str) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let rust = rel.ends_with(".rs");
+    for (n, line) in text.lines().enumerate() {
+        let mut push = |rule: &'static str, matched: &str| {
+            out.push(Finding {
+                path: rel.to_owned(),
+                line: n + 1,
+                rule,
+                matched: matched.to_owned(),
+                context: line.trim().chars().take(160).collect(),
+            });
+        };
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("// D2-") {
+            if !format!("D2-{rest}").split(", ").all(is_port_id) {
+                push("port anchor", t);
+            }
+        } else if t.starts_with("// D2")
+            || t.starts_with("//D2")
+            || t.starts_with(concat!("// ", "port:"))
+        {
+            push("port anchor", t);
+        }
+        if rust && !rel.starts_with("core/auberean-port/") {
+            if let Some(i) = line.find("not_ported!(\"") {
+                let arg: String = line[i + 13..].chars().take_while(|c| *c != '"').collect();
+                if !is_port_id(&arg) {
+                    push("port anchor", &arg);
+                }
+            }
+        }
+        for (a, e) in retail_addresses(line) {
+            push("retail address", &line[a..e]);
+        }
+        if line.contains("AC2-EVID-") && !rel.starts_with(AC2_REGISTRY) {
+            push("evidence handle", "AC2-EVID-");
+        }
+    }
     out
 }
 
@@ -951,6 +1093,11 @@ pub fn scan_workspace(
         if r == SELF_PATH {
             continue;
         }
+        if scope == Scope::Production && in_ac2(r) {
+            if let Ok(text) = std::fs::read_to_string(root.join(r)) {
+                findings.extend(ac2_line_findings(r, &text));
+            }
+        }
         let test_file = is_test_path(r) || test_files.contains(r);
         if scope == Scope::Production && test_file {
             continue;
@@ -1080,6 +1227,71 @@ mod tests {
 
     fn flagged(text: &str) -> bool {
         !scan_text(text, false).is_empty()
+    }
+
+    /// **A port id and an Asheron's Call 2 evidence handle are keys, not labels**; a label beside
+    /// them still is one, and so is a near miss of either.
+    #[test]
+    fn port_ids_and_ac2_handles_are_not_work_item_labels() {
+        assert!(!flagged("// D2-04211"));
+        assert!(!flagged("// D2-04211, D2-17641"));
+        assert!(!flagged("not_ported!(\"D2-?????\")"));
+        // The planted strings are split so the tree carries none of them whole.
+        assert!(!flagged(concat!(
+            "evidence: \"AC2-EVID-WORLD-O",
+            "410-HEIGHT\""
+        )));
+        assert_eq!(
+            rules("// D2-04211 and R6.5b"),
+            [("work-item label", "R6.5b".to_owned())]
+        );
+        assert!(flagged("// D2-4211"), "four digits are no port id");
+        assert!(flagged("// D2"), "a bare prefix is a label");
+    }
+
+    /// **The research's private folders are private documents**, wherever they are named.
+    #[test]
+    fn the_ac2_research_folders_are_private_documents() {
+        for planted in AC2_PRIVATE {
+            let text = format!("// see {planted} for why");
+            assert!(
+                rules(&text).iter().any(|(r, _)| *r == "private document"),
+                "{planted}"
+            );
+        }
+    }
+
+    /// **The Asheron's Call 2 line rules**: a malformed anchor, a stub naming no id, an address in
+    /// the retail code range and a handle outside the registry are each found, on a line of code as
+    /// on a comment; a data id, a well-formed anchor and the registry's own handles are not.
+    #[test]
+    fn the_ac2_line_rules_find_each_planted_breach() {
+        let rel = "core/auberean-world/src/a.rs";
+        let found = |text: &str| -> Vec<&'static str> {
+            ac2_line_findings(rel, text)
+                .into_iter()
+                .map(|f| f.rule)
+                .collect()
+        };
+        assert!(found("// D2-04211\nfn a() {}\nlet id = 0x0600_0003;\n").is_empty());
+        assert_eq!(found("// D2-4211"), ["port anchor"]);
+        assert_eq!(found(concat!("// port: P", "2-00001")), ["port anchor"]);
+        assert_eq!(found("not_ported!(\"later\")"), ["port anchor"]);
+        assert_eq!(
+            found(concat!("let f = 0x004d", "_6880;")),
+            ["retail address"]
+        );
+        assert_eq!(found(concat!("// at 0x004d", "de40")), ["retail address"]);
+        assert!(found("let big = 0x0F00_0000; let small = 0x0040_000;").is_empty());
+        assert_eq!(
+            found("const H: &str = \"AC2-EVID-X\";"),
+            ["evidence handle"]
+        );
+        assert!(
+            ac2_line_findings("auberean/testkit/src/behaviours/x.rs", "\"AC2-EVID-X\"").is_empty()
+        );
+        assert!(in_ac2("core/auberean-dat/src/lib.rs") && in_ac2("yalain/server/src/main.rs"));
+        assert!(!in_ac2("core/dat/src/lib.rs"));
     }
 
     #[test]

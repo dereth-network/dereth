@@ -96,8 +96,9 @@ const NETWORK_MIT_DIRS: &[&str] = &["network/protocol", "network/link", "network
 /// looks for.
 static SERVER_LICENSE: LazyLock<String> = LazyLock::new(|| format!("{}-3.0-only", copyleft()));
 const CLIENT_LICENSE: &str = "MIT";
-/// The MIT folders the licence-leak scan covers.
-const MIT_DIRS: &[&str] = &["core", "dereth", "tools"];
+/// The MIT folders the licence-leak scan covers: the shared crates (Asheron's Call 2's core
+/// among them), the client and the tools, and Asheron's Call 2's client, server and world builder.
+const MIT_DIRS: &[&str] = &["core", "dereth", "tools", "auberean", "yalain", "athenaeum"];
 
 fn copyleft() -> String {
     ["A", "GPL"].concat()
@@ -413,7 +414,7 @@ pub fn check_files(ws: &Path, client_only: bool, f: &mut Findings) {
     }
     if hits.is_empty() {
         f.notes.push(format!(
-            "no {} provenance markers under core/, dereth/, tools/ or the network's MIT crates",
+            "no {} provenance markers under core/, dereth/, tools/, auberean/, yalain/, athenaeum/ or the network's MIT crates",
             copyleft()
         ));
     } else {

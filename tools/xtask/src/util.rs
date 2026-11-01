@@ -209,10 +209,15 @@ pub const CRATE_GROUPS: &[&str] = &[
     "dereth/client/crates",
     "dereth/launcher/crates",
     "empyrean/crates",
+    "auberean/client/crates",
+    "yalain/crates",
     "core",
     "dereth",
     "tools",
     "empyrean",
+    "auberean",
+    "yalain",
+    "athenaeum",
 ];
 
 /// The crates whose directory is not their name without `dereth-`, as `(directory, package)`.
@@ -229,6 +234,9 @@ pub(crate) const NAMED_OTHERWISE: &[(&str, &str)] = &[
 pub fn crate_dir(ws: &Path, krate: &str) -> PathBuf {
     if let Some((dir, _)) = NAMED_OTHERWISE.iter().find(|(_, name)| *name == krate) {
         return ws.join(dir);
+    }
+    if let Some(dir) = ac2_crate_dir(ws, krate) {
+        return dir;
     }
     let (short, groups): (&str, &[&str]) = match krate.strip_prefix("empyrean-") {
         Some(short) => (short, &["empyrean/crates", "empyrean"]),
@@ -250,6 +258,30 @@ pub fn crate_dir(ws: &Path, krate: &str) -> PathBuf {
         .unwrap_or_else(|| ws.join("core").join(short))
 }
 
+/// The directory of one of Asheron's Call 2's crates: its core's (`core/auberean-*`, named like
+/// the package), its client's (`auberean/client/crates/<x>`, `auberean/<x>`), its server's
+/// (`yalain/server` for `yalain`, `yalain/crates/<x>`, `yalain/<x>`) or its world builder's
+/// (`athenaeum/<x>`). `None` for any other name, or one found in none of them.
+fn ac2_crate_dir(ws: &Path, krate: &str) -> Option<PathBuf> {
+    let candidates: Vec<String> = if let Some(short) = krate.strip_prefix("auberean-") {
+        vec![
+            format!("core/{krate}"),
+            format!("auberean/client/crates/{short}"),
+            format!("auberean/{short}"),
+        ]
+    } else if krate == "yalain" {
+        vec!["yalain/server".to_owned()]
+    } else if let Some(short) = krate.strip_prefix("yalain-") {
+        vec![format!("yalain/crates/{short}"), format!("yalain/{short}")]
+    } else {
+        vec![format!("athenaeum/{}", krate.strip_prefix("athenaeum-")?)]
+    };
+    candidates
+        .into_iter()
+        .map(|c| ws.join(c))
+        .find(|d| d.join("Cargo.toml").is_file())
+}
+
 /// The package name of the crate in directory `short` of `group`: the inverse of [`crate_dir`].
 pub fn crate_name(group: &str, short: &str) -> String {
     let dir = format!("{group}/{short}");
@@ -257,6 +289,11 @@ pub fn crate_name(group: &str, short: &str) -> String {
         return (*name).to_owned();
     }
     match (group, short) {
+        ("core", s) if s.starts_with("auberean-") => s.to_owned(),
+        ("auberean" | "auberean/client/crates", s) => format!("auberean-{s}"),
+        ("yalain", "server") => "yalain".to_owned(),
+        ("yalain" | "yalain/crates", s) => format!("yalain-{s}"),
+        ("athenaeum", s) => format!("athenaeum-{s}"),
         ("empyrean" | "empyrean/crates", s) => format!("empyrean-{s}"),
         (_, "xtask") => "xtask".to_owned(),
         (_, s) => format!("dereth-{s}"),

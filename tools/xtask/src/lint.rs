@@ -286,8 +286,9 @@ fn record(
 pub fn lint() -> i32 {
     let ws = workspace_root();
     let mut files = Vec::new();
-    // `dereth/` holds the client's own crates (`dereth/client/crates/`) as well.
-    for group in ["core", "dereth", "tools"] {
+    // `dereth/` holds the client's own crates (`dereth/client/crates/`) as well; Asheron's Call
+    // 2's client, server and world builder are engine code of the same kind.
+    for group in ["core", "dereth", "tools", "auberean", "yalain", "athenaeum"] {
         files.extend(crate::util::rust_sources(&ws.join(group)));
     }
     files.sort();

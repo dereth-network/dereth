@@ -89,6 +89,8 @@ use std::process::Command;
 
 use crate::util::{print_table, workspace_root, Outcome, Report};
 
+mod auberean;
+
 /// `dereth-primitives`' allowed direct production dependencies, with its default features: the
 /// error derive (`thiserror`) and the two portable math libraries `num::math` is built on (`pxfm`,
 /// `libm`). Adding one is a decision about the lowest crate in the workspace, made here in review.
@@ -2247,6 +2249,9 @@ pub fn reports() -> Vec<Report> {
             ),
         ),
     ]
+    .into_iter()
+    .chain(auberean::reports(&ws))
+    .collect()
 }
 
 /// `cargo xtask seams`.

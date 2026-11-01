@@ -17,6 +17,8 @@
 //! unit tests and the 805,347-record cell oracle never executed. See `util.rs`'s
 //! [`crate::util::Outcome`] for why there is no bare `Skip` to return.
 
+pub mod auberean;
+
 use crate::sweep::{self, Out, ShardOpts};
 use crate::util::{
     print_table, retail_data_available, retail_dir_searched, retail_shortfall, run, run_captured,
@@ -668,10 +670,18 @@ pub fn run_gate(gate: &Gate, threads: Threads, profile: Profile, gpu: GpuTier) -
 
 /// The gate names, space-separated, for a usage or an unknown-name message.
 pub fn names() -> String {
-    GATES.iter().map(|g| g.name).collect::<Vec<_>>().join(" ")
+    GATES
+        .iter()
+        .map(|g| g.name)
+        .chain(auberean::tiers().map(|t| t.name))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn gate(name: &str, threads: Threads, profile: Profile) -> i32 {
+    if let Some(t) = auberean::find(name) {
+        return auberean::gate(t, profile);
+    }
     match find(name) {
         Some(g) => print_table(
             &format!("Gate {}", g.label()),
@@ -922,10 +932,11 @@ mod tests {
             tiered.iter().any(|k| k == "dereth-classic-ui"),
             "the manifests were read: {tiered:?}"
         );
-        for krate in tiered
-            .iter()
-            .filter(|k| !NOT_IN_TIER_ONE.contains(&k.as_str()))
-        {
+        // Asheron's Call 2's crates are gated by its own tiers, which tier 1 runs after these
+        // gates; their test holds them to the manifests the same way (`auberean::tests`).
+        for krate in tiered.iter().filter(|k| {
+            !NOT_IN_TIER_ONE.contains(&k.as_str()) && !crate::test_lint::is_ac2_package(k)
+        }) {
             assert!(
                 GATES.iter().any(|g| g.crates.contains(&krate.as_str())),
                 "{krate} declares a retail-dats tier and is in no gate"

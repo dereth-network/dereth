@@ -13,7 +13,12 @@
 //!   specification it proves (`/// Spec: <page>: <claim>`, [`NETWORK_SPEC_PAGES`]);
 //! * **comments**: the rules of `comment-lint`, applied to test code (the part that lint leaves
 //!   out), plus one for `cargo test --test <name>` commands whose target no longer exists;
-//! * **ignores**: an `#[ignore]` says why.
+//! * **ignores**: an `#[ignore]` says why;
+//! * **Asheron's Call 2** ([`ac2_findings`]): its tests (the `auberean-*`, `yalain` and
+//!   `athenaeum-*` packages) name rows of their own registry ([`AC2_REGISTRY_DIR`]); every one of
+//!   them carries a `/// Behaviour:` line or sits in a file that says `//! Behaviour: none (why)`;
+//!   each of that registry's rows is a test that carries the row's id; and its test code neither
+//!   sleeps nor reads the wall clock ([`AC2_TIMING`]) nor names a planning step ([`AC2_PLANNING`]).
 //!
 //! ## Every finding fails
 //!
@@ -44,6 +49,161 @@ const ITEM_NAME: &str = r"(?i)^(?:[ophr]\d+[a-z]?(?:_\d+[a-z]?)*_|(?:astra|fable
 
 /// Where the behaviour registry's rows are, relative to the workspace root.
 const REGISTRY_DIR: &str = "dereth/testkit/src/behaviours";
+
+/// Where Asheron's Call 2's behaviour registry is: its tests' claims, apart from the first game's.
+pub const AC2_REGISTRY_DIR: &str = "auberean/testkit/src/behaviours";
+
+/// The test binary of a server on loopback (the `live` tier): it talks to a server process over
+/// real sockets on the real clock, so the timing rule does not hold for it; its waits only guard
+/// against a hang.
+pub const AC2_LIVE_TARGET: &str = "live";
+
+/// What Asheron's Call 2's test code must not call: its tests never depend on timing.
+pub const AC2_TIMING: &[&str] = &[
+    "thread::sleep",
+    "Instant::now",
+    "SystemTime::now",
+    "std::time::SystemTime",
+];
+
+/// Planning words Asheron's Call 2's test files must not hold.
+pub const AC2_PLANNING: &[&str] = &[
+    "phase 0",
+    "phase 1",
+    "phase 2",
+    "phase 3",
+    "phase 4",
+    "owner reports",
+    "the brief",
+];
+
+/// Whether a package is one of Asheron's Call 2's: its client's and core's (`auberean-*`), its
+/// server's (`yalain`, `yalain-*`) or its world builder's (`athenaeum-*`).
+#[must_use]
+pub fn is_ac2_package(name: &str) -> bool {
+    name.starts_with("auberean-")
+        || name == "yalain"
+        || name.starts_with("yalain-")
+        || name.starts_with("athenaeum-")
+}
+
+/// Whether a file's text says `//! Behaviour: none (<why>)`: `Some(true)` with a reason,
+/// `Some(false)` without one, `None` when it does not say it.
+fn marked_none(text: &str) -> Option<bool> {
+    text.lines().map(str::trim).find_map(|t| {
+        t.strip_prefix("//! Behaviour: none").map(|rest| {
+            let rest = rest.trim();
+            rest.starts_with('(') && rest.ends_with(')') && rest.len() > 2
+        })
+    })
+}
+
+/// The code of a file (comments blanked) that is test code: all of an integration test's, and
+/// from the first `#[cfg(test)]` on in any other.
+fn test_code(text: &str, integration: bool) -> String {
+    let code: String = text
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if integration {
+        code
+    } else {
+        code.find("#[cfg(test)]")
+            .map_or(String::new(), |i| code[i..].to_owned())
+    }
+}
+
+/// The Asheron's Call 2 rules over the inventory: anchors, live and carrying their rows, timing
+/// and planning words.
+fn ac2_findings(ws: &Path, inv: &Inventory, rows: &[Row]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut texts: BTreeMap<String, String> = BTreeMap::new();
+    let mut text_of = |file: &str| -> String {
+        texts
+            .entry(file.to_owned())
+            .or_insert_with(|| std::fs::read_to_string(ws.join(file)).unwrap_or_default())
+            .clone()
+    };
+    for t in inv.tests.iter().filter(|t| is_ac2_package(&t.package)) {
+        let anchored = t.docs.iter().any(|d| behaviour_id(d).is_some());
+        if !anchored {
+            match marked_none(&text_of(&t.file)) {
+                Some(true) => {}
+                Some(false) => out.push(Finding {
+                    path: t.file.clone(),
+                    rule: "no behaviour anchor".into(),
+                    line: 1,
+                    what: "`Behaviour: none` without a reason in parentheses".into(),
+                }),
+                None => out.push(Finding {
+                    path: t.file.clone(),
+                    rule: "no behaviour anchor".into(),
+                    line: t.line,
+                    what: format!(
+                        "{}: no Behaviour line, and its file is not marked none",
+                        t.name
+                    ),
+                }),
+            }
+        }
+    }
+    let live: BTreeMap<String, &testsrc::TestFn> =
+        inv.tests.iter().map(|t| (t.durable(), t)).collect();
+    for r in rows {
+        if let Some(t) = live.get(&r.station) {
+            if !t
+                .docs
+                .iter()
+                .any(|d| behaviour_id(d) == Some(r.id.as_str()))
+            {
+                out.push(Finding {
+                    path: r.file.clone(),
+                    rule: "station does not resolve".into(),
+                    line: r.line,
+                    what: format!("{}: {} does not carry this row's id", r.id, r.station),
+                });
+            }
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for f in inv.files.iter().filter(|f| is_ac2_package(&f.package)) {
+        if !seen.insert(f.file.as_str()) || f.file.starts_with("tools/xtask/") {
+            continue;
+        }
+        let text = text_of(&f.file);
+        let code = test_code(&text, is_integration(&f.target));
+        let timing = if f.target == AC2_LIVE_TARGET {
+            &[][..]
+        } else {
+            AC2_TIMING
+        };
+        for bad in timing {
+            if code.contains(bad) {
+                out.push(Finding {
+                    path: f.file.clone(),
+                    rule: "test depends on timing".into(),
+                    line: 1,
+                    what: (*bad).to_owned(),
+                });
+            }
+        }
+        if is_integration(&f.target) {
+            let lower = text.to_lowercase();
+            for w in AC2_PLANNING {
+                if lower.contains(w) {
+                    out.push(Finding {
+                        path: f.file.clone(),
+                        rule: "planning word".into(),
+                        line: 1,
+                        what: (*w).to_owned(),
+                    });
+                }
+            }
+        }
+    }
+    out
+}
 
 /// The crates whose integration tests prove client behaviour, so that each test module anchors
 /// what it proves to a registry row.
@@ -113,6 +273,7 @@ pub const RULES: &[(&str, &str)] = &[
     ("no behaviour anchor", "anchors"),
     ("no ACE anchor", "anchors"),
     ("ignore without a reason", "ignores"),
+    ("test depends on timing", "names"),
 ];
 
 /// One finding.
@@ -422,10 +583,18 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
         }
     }
 
-    // Anchors: behaviour ids and registry stations.
+    // Anchors: behaviour ids and registry stations. An Asheron's Call 2 test names a row of its
+    // own registry, any other test one of the first game's.
     let rows = registry(ws, &ws.join(REGISTRY_DIR));
+    let ac2_rows = registry(ws, &ws.join(AC2_REGISTRY_DIR));
     let ids: BTreeSet<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    let ac2_ids: BTreeSet<&str> = ac2_rows.iter().map(|r| r.id.as_str()).collect();
     for t in &inv.tests {
+        let ids = if is_ac2_package(&t.package) {
+            &ac2_ids
+        } else {
+            &ids
+        };
         for d in &t.docs {
             if let Some(id) = behaviour_id(d) {
                 if id != "none" && !ids.contains(id) {
@@ -446,6 +615,8 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
         .chain(scenarios(&inv))
         .collect();
     out.extend(check_stations(&rows, &live));
+    out.extend(check_stations(&ac2_rows, &live));
+    out.extend(ac2_findings(ws, &inv, &ac2_rows));
     // Anchors: every network test names the page of the specification it proves.
     for t in &inv.tests {
         if t.package.starts_with(NETWORK_PREFIX) && !names_a_spec_page(ws, &t.docs) {
@@ -602,6 +773,48 @@ pub fn test_lint(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Asheron's Call 2's packages are told by name**, and nothing of the first game's is one.
+    #[test]
+    fn the_ac2_packages_are_told_by_name() {
+        for p in [
+            "auberean-dat",
+            "auberean-headless",
+            "yalain",
+            "yalain-world",
+            "athenaeum-cli",
+        ] {
+            assert!(is_ac2_package(p), "{p}");
+        }
+        for p in [
+            "dereth-dat",
+            "empyrean-world",
+            "lyceum-cli",
+            "xtask",
+            "yalainx",
+        ] {
+            assert!(!is_ac2_package(p), "{p}");
+        }
+    }
+
+    /// **A file is marked none only with a reason**, and test code is an integration test's whole
+    /// file or what follows `#[cfg(test)]`, comments left out.
+    #[test]
+    fn a_none_mark_needs_a_reason_and_test_code_starts_at_the_test_module() {
+        assert_eq!(
+            marked_none("//! Behaviour: none (test support)\n"),
+            Some(true)
+        );
+        assert_eq!(marked_none("//! Behaviour: none\n"), Some(false));
+        assert_eq!(marked_none("//! Something else.\n"), None);
+        let src = "fn a() { Instant::now(); }\n#[cfg(test)]\nmod tests { // thread::sleep\n}\n";
+        assert!(!test_code(src, false).contains("Instant::now"));
+        assert!(
+            !test_code(src, false).contains("thread::sleep"),
+            "a comment is not code"
+        );
+        assert!(test_code(src, true).contains("Instant::now"));
+    }
 
     #[test]
     fn helper_names_reject_private_labels_and_preserve_public_numeric_names() {

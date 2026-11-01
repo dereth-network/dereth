@@ -16,8 +16,11 @@
 //! |---|---|---|
 //! | while working, before each commit | `cargo xtask check` | nothing |
 //! | before pushing or opening a PR | `cargo xtask ci tier0` | nothing: exactly what public CI runs |
-//! | with the retail data | `cargo xtask ci tier1` | the dats and `world.pack` |
+//! | with the retail data | `cargo xtask ci tier1` | the dats and `world.pack`; Asheron's Call 2's data files and capture index |
 //! | on hardware | `cargo xtask ci tier2` | a graphics device and the dats |
+//!
+//! Each covers both games, Asheron's Call and Asheron's Call 2; `--game dereth` or `--game auberean`
+//! limits one to a single game's crates (see [`game`]).
 //!
 //! The expensive comparisons wait until the cheap ones hold: golden images against a renderer built
 //! on unproven float precision produce an unbounded stream of false differences. The single checks
@@ -32,6 +35,7 @@ mod check;
 mod comment_lint;
 mod crate_docs;
 mod deploy;
+mod game;
 mod gates;
 mod line_endings;
 mod lint;
@@ -49,6 +53,7 @@ mod test_lint;
 mod testsrc;
 mod util;
 
+use game::Game;
 use util::{
     print_table, retail_data_available, run, workspace_root, NotRun, Outcome, Profile, Report,
 };
@@ -56,7 +61,7 @@ use util::{
 const USAGE: &str = "\
 usage: cargo xtask <task> [--debug]
 
-When to run what (client and server alike):
+When to run what (client and server alike, both games):
   check                     while working, before each commit: clippy and the tests of the crates
                             changed since the base branch (their dependents linted too), and the
                             fast lints. Needs nothing. --base <ref> (default: research,
@@ -66,10 +71,21 @@ When to run what (client and server alike):
   ci tier1                  with the retail data: every crate's data tiers and the server's
                             real-content tier. Needs the dats (DERETH_TEST_DAT_DIR), world.pack
                             (EMPYREAN_TEST_WORLD_PACK) and ACE's world dump (EMPYREAN_WORLD_SQL, or
-                            `empyrean-import fetch` once). --serial: the unsharded client dat tier
+                            `empyrean-import fetch` once). --serial: the unsharded client dat tier.
+                            Then Asheron's Call 2's: its crates' tests that read nothing and its
+                            data tiers (gates auberean-dat, auberean-script, auberean-corpus,
+                            auberean-live), which need its data files and capture index
+                            (AUBEREAN_TEST_* variables)
   ci tier2                  on hardware: the gpu tier and the retail comparisons. Needs a graphics
                             device and the dats. The client's gpu binary runs sharded
-                            (DERETH_TEST_SHARDS=N); --serial: one process
+                            (DERETH_TEST_SHARDS=N); --serial: one process. Then Asheron's Call
+                            2's (gate auberean-gpu), which has no gpu binary yet
+  ci auberean              the same as `ci tier1 --game auberean`
+  --game dereth|auberean|all
+                            on build, check, ci tier0|tier1|tier2 and gates: one game's crates only.
+                            auberean (Asheron's Call 2): auberean-*, yalain, yalain-* and athenaeum-*;
+                            dereth (Asheron's Call): every other crate. Default all. The rules
+                            below run whatever the filter
 
 Rules (each a row of `check` or `ci tier0`):
   fmt-check                 cargo fmt --all --check
@@ -92,11 +108,13 @@ Rules (each a row of `check` or `ci tier0`):
                             one does
 
 Tests:
-  build | test | clippy     cargo build / test / clippy -D warnings over the whole workspace (clippy
-                            with `retail-dats` on, so the data and device tests are linted too)
+  build [--game G] [ARGS]   cargo build of one game's products and tools, or both (ARGS go to cargo:
+                            `cargo xtask build --game auberean --release`)
+  test | clippy             cargo test / clippy -D warnings over the whole workspace (clippy with
+                            `retail-dats` on, so the data and device tests are linted too)
   gate <name>               one area's whole suite, data and device tiers included (--serial);
                             names: {GATES}
-  gates                     every area's gate, one table
+  gates [--game G]          every area's gate, one table (both games')
   sweep [SUITE...] [--shard-binary PKG:TIER] [--serial] [--shards N] ...
                             run test targets one by one, or one tier binary sharded across
                             processes, with a verdict that cannot read as silence (--help)
@@ -223,7 +241,19 @@ fn main() {
     let profile = Profile::from_args(&args);
     let code = match args.first().map(String::as_str) {
         Some("check") => check::check(&args[1..]),
-        Some("build") => i32::from(!run(&workspace_root(), "cargo", &["build", "--workspace"])),
+        Some("build") => match Game::from_args(&args[1..]) {
+            Ok(game) => {
+                let rest = Game::without_flag(&args[1..]);
+                let mut argv = vec!["build"];
+                argv.extend(game.selection());
+                argv.extend(rest.iter().map(String::as_str));
+                i32::from(!run(&workspace_root(), "cargo", &argv))
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                2
+            }
+        },
         Some("test") => {
             let mut argv = vec!["test", "--workspace"];
             argv.extend_from_slice(profile.cargo_args());
@@ -254,10 +284,13 @@ fn main() {
                 2
             }
         },
-        Some("gates") => print_table(
-            "Gates -- every area's whole suite",
-            &gates::gates(threads(&args), profile, gates::GpuTier::Include),
-        ),
+        Some("gates") => match Game::from_args(&args) {
+            Ok(game) => all_gates(&args, profile, game),
+            Err(e) => {
+                eprintln!("gates: {e}");
+                2
+            }
+        },
         Some("bundle-macos") => bundle::bundle_macos(&args[1..]),
         Some("package") => package::package(&args[1..]),
         Some("publish") => publish::publish(&args[1..]),
@@ -339,58 +372,137 @@ fn cheap_lints() -> Vec<Report> {
     ]
 }
 
+/// One row of tier 0 that runs cargo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Tier0Step {
+    /// `cargo <argv>`, its row named by the label.
+    Cargo(String, Vec<&'static str>),
+    /// The server's unit tier and its time budget ([`server::unit_tier`]).
+    ServerUnits,
+    /// Clippy, naming the crates responsible when it fails: the row's label and `cargo <argv>`.
+    Clippy(String, Vec<&'static str>),
+    /// The documentation check: `cargo <argv>` with [`DOC_FLAGS`], its row named by the label.
+    Doc(String, Vec<&'static str>),
+}
+
+/// Tier 0's cargo rows for `game`, in order. Both games' are the rows tier 0 has always run; one
+/// game's select its crates in each command and leave out the rows that are the other's alone (the
+/// device and the runtime as shipped, and the server, are the first game's).
+fn tier0_steps(game: Game, profile: Profile) -> Vec<Tier0Step> {
+    let with = |verb: &'static str, extra: &[&'static str]| -> Vec<&'static str> {
+        let mut argv = vec![verb];
+        argv.extend(game.selection());
+        argv.extend_from_slice(extra);
+        argv.extend_from_slice(profile.cargo_args());
+        argv
+    };
+    let mut steps = vec![Tier0Step::Cargo(
+        format!("cargo build {}", game.scope()),
+        with("build", &[]),
+    )];
+    if game.dereth() {
+        // The server's tests are a row of their own, timed against its host budget.
+        steps.push(Tier0Step::Cargo(
+            "cargo test (client and shared crates)".to_owned(),
+            with("test", &["--exclude", "empyrean-*"]),
+        ));
+        // A workspace build turns the device's high-fidelity seam on, because the presentation
+        // that asks for it is a member; the client is shipped without it. So the device is also
+        // built and tested on its own, as the shipped client has it.
+        let mut device_alone = vec!["test", "-p", "dereth-render"];
+        device_alone.extend_from_slice(profile.cargo_args());
+        steps.push(Tier0Step::Cargo(
+            "cargo test -p dereth-render (the device as shipped)".to_owned(),
+            device_alone,
+        ));
+        steps.push(Tier0Step::ServerUnits);
+    } else {
+        steps.push(Tier0Step::Cargo(
+            "cargo test (Asheron's Call 2's crates)".to_owned(),
+            with("test", &[]),
+        ));
+    }
+    steps.push(Tier0Step::Clippy(
+        format!(
+            "cargo clippy {} --all-targets --features {}",
+            game.scope(),
+            clippy_features(game)
+        ),
+        clippy_args(game),
+    ));
+    let mut doc = vec!["doc"];
+    doc.extend(game.selection());
+    doc.extend(["--no-deps", "--document-private-items"]);
+    steps.push(Tier0Step::Doc(
+        "xtask doc (rustdoc warnings denied)".to_owned(),
+        doc,
+    ));
+    if game.dereth() {
+        // One workspace doc build merges the features every member asks of the runtime, the test
+        // kit's test support among them, which the client is shipped without. So the runtime is
+        // also documented on its own, with its own features, as the client has it.
+        steps.push(Tier0Step::Doc(
+            "xtask doc -p dereth-client-runtime (the runtime as shipped)".to_owned(),
+            RUNTIME_DOC_ARGS.to_vec(),
+        ));
+    }
+    steps
+}
+
 /// Tier 0: everything that needs no data, client and server alike, each thing once.
 ///
 /// The client's and the server's tests are two rows (the server's run is timed against its
 /// host budget); the build, clippy and the docs cover the whole workspace in one invocation each.
 /// The divergence lists and the message corpus are checked by tests in the `cargo test` rows, so
-/// they are not run again as rows of their own.
-fn tier0(profile: Profile) -> i32 {
+/// they are not run again as rows of their own. `game` limits the cargo rows to one game's crates
+/// ([`tier0_steps`]); the rules read the whole repository whatever it is.
+fn tier0(profile: Profile, game: Game) -> i32 {
     let ws = workspace_root();
-    let mut build = vec!["build", "--workspace"];
-    build.extend_from_slice(profile.cargo_args());
-    let mut test = vec!["test", "--workspace", "--exclude", "empyrean-*"];
-    test.extend_from_slice(profile.cargo_args());
-    // A workspace build turns the device's high-fidelity seam on, because the presentation that
-    // asks for it is a member; the client is shipped without it. So the device is also built and
-    // tested on its own, as the shipped client has it.
-    let mut device_alone = vec!["test", "-p", "dereth-render"];
-    device_alone.extend_from_slice(profile.cargo_args());
-    let mut reports = vec![
-        step("cargo build --workspace", run(&ws, "cargo", &build)),
-        step(
-            "cargo test (client and shared crates)",
-            run(&ws, "cargo", &test),
-        ),
-        step(
-            "cargo test -p dereth-render (the device as shipped)",
-            run(&ws, "cargo", &device_alone),
-        ),
-    ];
-    reports.extend(server::unit_tier(profile));
-    reports.push(clippy_step(&ws));
-    reports.push(step(
-        "xtask doc (rustdoc warnings denied)",
-        doc_gate(&ws, DOC_ARGS),
-    ));
-    // One workspace doc build merges the features every member asks of the runtime, the test
-    // kit's test support among them, which the client is shipped without. So the runtime is also
-    // documented on its own, with its own features, as the client has it.
-    reports.push(step(
-        "xtask doc -p dereth-client-runtime (the runtime as shipped)",
-        doc_gate(&ws, RUNTIME_DOC_ARGS),
-    ));
+    let mut reports = Vec::new();
+    for planned in tier0_steps(game, profile) {
+        match planned {
+            Tier0Step::Cargo(label, argv) => reports.push(step(&label, run(&ws, "cargo", &argv))),
+            Tier0Step::ServerUnits => reports.extend(server::unit_tier(profile)),
+            Tier0Step::Clippy(label, argv) => reports.push(clippy_step(&ws, &label, &argv)),
+            Tier0Step::Doc(label, argv) => reports.push(step(&label, doc_gate(&ws, &argv))),
+        }
+    }
     reports.extend(cheap_lints());
     reports.push(source_rule("separation", || {
         separation::report(&separation::check(&ws, false))
     }));
     reports.push(source_rule("output-hygiene", || output_hygiene::run(&ws)));
-    print_table("CI tier 0 -- no data (before pushing; public CI)", &reports)
+    print_table(
+        &format!(
+            "CI tier 0 -- no data (before pushing; public CI){}",
+            game.title_suffix()
+        ),
+        &reports,
+    )
 }
 
 /// Tier 1: every area's data tier (the gates without their `gpu` binaries) and the server's
-/// real-content tier.
-fn tier1(args: &[String], profile: Profile) -> i32 {
+/// real-content tier, then Asheron's Call 2's crates' tests and data tiers; `game` limits it to one
+/// game. A game whose data is not found reports its rows NO-ORACLE and the run exits non-zero; the
+/// other game's rows run as they would alone.
+fn tier1(args: &[String], profile: Profile, game: Game) -> i32 {
+    let mut reports = Vec::new();
+    if game.dereth() {
+        reports.extend(tier1_first_game(args, profile, game));
+    }
+    if game.auberean() {
+        gates::auberean::announce(game);
+        reports.extend(gates::auberean::tier1_rows(profile));
+    }
+    print_table(
+        &format!("CI tier 1 -- the retail data{}", game.title_suffix()),
+        &reports,
+    )
+}
+
+/// Tier 1's rows for Asheron's Call: what is found, then every gate without its `gpu` binaries,
+/// the server's real-content rows and the importer's real dump.
+fn tier1_first_game(args: &[String], profile: Profile, game: Game) -> Vec<Report> {
     let dats = retail_data_available();
     match &dats {
         Some(dir) => println!("retail dats found at {}", dir.display()),
@@ -405,9 +517,14 @@ fn tier1(args: &[String], profile: Profile) -> i32 {
             println!(
                 "retail dats NOT found; the dat tiers will fail, {} gate harness(es) report \
                  NO-ORACLE ({}) and so do the server's real-content rows, so this run exits \
-                 non-zero. Set DERETH_TEST_DAT_DIR to the directory holding them.",
+                 non-zero. Set DERETH_TEST_DAT_DIR to the directory holding them.{}",
                 owed.len(),
-                owed.join(", ")
+                owed.join(", "),
+                if game == Game::All {
+                    " `--game auberean` runs Asheron's Call 2's tiers alone."
+                } else {
+                    ""
+                }
             );
         }
     }
@@ -436,11 +553,29 @@ fn tier1(args: &[String], profile: Profile) -> i32 {
     let mut reports = gates::gates(threads(args), profile, gates::GpuTier::Exclude);
     reports.extend(server::real_content(profile, dats.as_deref()));
     reports.push(server::real_dump(profile));
-    print_table("CI tier 1 -- the retail data", &reports)
+    reports
 }
 
-/// Tier 2: the `gpu` binaries, then the comparisons against retail.
-fn tier2(args: &[String], profile: Profile) -> i32 {
+/// Tier 2: the `gpu` binaries, then the comparisons against retail; `game` limits it to one game.
+fn tier2(args: &[String], profile: Profile, game: Game) -> i32 {
+    let mut reports = Vec::new();
+    if game.dereth() {
+        reports.extend(tier2_first_game(args, profile));
+    }
+    if game.auberean() {
+        reports.extend(gates::auberean::gpu_rows(profile));
+    }
+    print_table(
+        &format!(
+            "CI tier 2 -- hardware and retail comparisons{}",
+            game.title_suffix()
+        ),
+        &reports,
+    )
+}
+
+/// Tier 2's rows for Asheron's Call: its `gpu` binaries, the corpus check and the comparisons.
+fn tier2_first_game(args: &[String], profile: Profile) -> Vec<Report> {
     let ws = workspace_root();
     let dats = retail_data_available();
     let mut reports: Vec<Report> = gates::gpu_invocations(profile, threads(args))
@@ -472,30 +607,83 @@ fn tier2(args: &[String], profile: Profile) -> i32 {
         Outcome::NotRun(NotRun::NotBuilt),
         "golden images and long physics traces against retail are not built yet",
     ));
-    print_table("CI tier 2 -- hardware and retail comparisons", &reports)
+    reports
+}
+
+/// `cargo xtask gates`: every area's gate, one table; `game` limits it to one game's.
+fn all_gates(args: &[String], profile: Profile, game: Game) -> i32 {
+    let mut reports = Vec::new();
+    if game.dereth() {
+        reports.extend(gates::gates(
+            threads(args),
+            profile,
+            gates::GpuTier::Include,
+        ));
+    }
+    if game.auberean() {
+        reports.extend(gates::auberean::gate_rows(profile));
+    }
+    print_table(
+        &format!("Gates -- every area's whole suite{}", game.title_suffix()),
+        &reports,
+    )
+}
+
+/// A CI tier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CiTier {
+    Zero,
+    One,
+    Two,
+}
+
+/// The usage line of `cargo xtask ci`.
+const CI_USAGE: &str =
+    "usage: cargo xtask ci tier0|tier1|tier2|auberean [--game dereth|auberean|all] [--serial] [--debug]";
+
+/// The tier and the game `cargo xtask ci <args>` asks for. `auberean` is tier 1 for Asheron's
+/// Call 2, so a `--game` beside it may only say the same.
+fn ci_request(args: &[String]) -> Result<(CiTier, Game), String> {
+    let game = Game::given(args)?;
+    let tier = match args.first().map(String::as_str) {
+        Some("tier0") => CiTier::Zero,
+        Some("tier1") => CiTier::One,
+        Some("tier2") => CiTier::Two,
+        Some("auberean") => {
+            return match game {
+                None | Some(Game::Auberean) => Ok((CiTier::One, Game::Auberean)),
+                Some(_) => {
+                    Err("`ci auberean` is `ci tier1 --game auberean`; name no other game".into())
+                }
+            }
+        }
+        _ => return Err("name a tier".into()),
+    };
+    Ok((tier, game.unwrap_or(Game::All)))
 }
 
 fn ci(args: &[String]) -> i32 {
     let profile = Profile::from_args(args);
-    match args.first().map(String::as_str) {
-        Some("tier0") => tier0(profile),
-        Some("tier1") => tier1(args, profile),
-        Some("tier2") => tier2(args, profile),
-        _ => {
-            eprintln!("usage: cargo xtask ci tier0|tier1|tier2 [--serial] [--debug]");
+    match ci_request(args) {
+        Ok((CiTier::Zero, game)) => tier0(profile, game),
+        Ok((CiTier::One, game)) => tier1(args, profile, game),
+        Ok((CiTier::Two, game)) => tier2(args, profile, game),
+        Err(e) => {
+            eprintln!("ci: {e}\n{CI_USAGE}");
             2
         }
     }
 }
 
-/// [`CLIPPY_ARGS`], but naming the crates responsible when it fails.
+/// Clippy over `game`'s crates ([`clippy_args`]), but naming the crates responsible when it fails;
+/// its row is called `label`.
 ///
 /// A workspace-wide gate that just says "clippy failed" makes everyone read the whole log to
 /// find out whether the problem is theirs. This names the crates; whoever owns them decides.
-fn clippy_step(ws: &std::path::Path) -> Report {
-    let (ok, out) = util::run_captured(ws, "cargo", CLIPPY_ARGS);
+fn clippy_step(ws: &std::path::Path, label: &str, argv: &[&str]) -> Report {
+    let (ok, out) = util::run_captured(ws, "cargo", argv);
     if ok {
-        return Report::new(CLIPPY_ROW, Outcome::Pass, String::new());
+        return Report::new(label, Outcome::Pass, String::new());
     }
     print!("{out}");
     // With `-D warnings` a lint becomes an error, so the summary line reads
@@ -514,25 +702,53 @@ fn clippy_step(ws: &std::path::Path) -> Report {
     } else {
         format!("warnings in: {}", crates.join(", "))
     };
-    Report::new(CLIPPY_ROW, Outcome::Fail, detail)
+    Report::new(label, Outcome::Fail, detail)
 }
 
-/// Clippy over every crate and target, every warning an error. `retail-dats` is on, or
-/// `--all-targets` would leave out every test binary that reads the retail dats (each crate's
-/// `dat` and `gpu` tiers) without a word; it only selects targets, so nothing needs the dats.
+/// The features clippy turns on over `game`'s crates: `retail-dats` and, where Asheron's Call 2's
+/// crates are among them, `retail-corpus`, which only they have (cargo refuses a feature no
+/// selected crate has).
+fn clippy_features(game: Game) -> &'static str {
+    if game.auberean() {
+        "retail-dats,retail-corpus"
+    } else {
+        "retail-dats"
+    }
+}
+
+/// [`CLIPPY_ARGS`] over `game`'s crates: the same command for both games, the same lints and
+/// targets over one game's crates.
+fn clippy_args(game: Game) -> Vec<&'static str> {
+    if game == Game::All {
+        return CLIPPY_ARGS.to_vec();
+    }
+    let mut argv = vec!["clippy"];
+    argv.extend(game.selection());
+    argv.extend([
+        "--all-targets",
+        "--features",
+        clippy_features(game),
+        "--",
+        "-D",
+        "warnings",
+    ]);
+    argv
+}
+
+/// Clippy over every crate and target, every warning an error. `retail-dats` and
+/// `retail-corpus` are on, or `--all-targets` would leave out every test binary that reads the
+/// retail dats (each crate's `dat` and `gpu` tiers) or Asheron's Call 2's recorded sessions (its
+/// `corpus` tiers) without a word; they only select targets, so nothing needs the data.
 const CLIPPY_ARGS: &[&str] = &[
     "clippy",
     "--workspace",
     "--all-targets",
     "--features",
-    "retail-dats",
+    "retail-dats,retail-corpus",
     "--",
     "-D",
     "warnings",
 ];
-
-/// The tier row [`CLIPPY_ARGS`] reports as.
-const CLIPPY_ROW: &str = "cargo clippy --workspace --all-targets --features retail-dats";
 
 /// The workspace is rustfmt-clean; this keeps it so.
 const FMT_CHECK: &[&str] = &["fmt", "--all", "--check"];
@@ -611,11 +827,164 @@ mod tests {
     #[test]
     fn clippy_turns_retail_dats_on() {
         let features = CLIPPY_ARGS.iter().position(|a| *a == "--features");
-        assert_eq!(
-            features.and_then(|i| CLIPPY_ARGS.get(i + 1)),
-            Some(&"retail-dats")
-        );
+        assert!(features
+            .and_then(|i| CLIPPY_ARGS.get(i + 1))
+            .is_some_and(|f| f.split(',').any(|f| f == "retail-dats")));
         assert!(CLIPPY_ARGS.contains(&"--all-targets"));
+    }
+
+    /// Tier 0's cargo rows, each as its label and its command.
+    fn tier0_rows(game: Game) -> Vec<(String, String)> {
+        tier0_steps(game, Profile::TestRelease)
+            .into_iter()
+            .map(|s| match s {
+                Tier0Step::Cargo(label, argv) => (label, argv.join(" ")),
+                Tier0Step::ServerUnits => ("server".to_owned(), "the unit tier".to_owned()),
+                Tier0Step::Clippy(label, argv) => (format!("clippy: {label}"), argv.join(" ")),
+                Tier0Step::Doc(label, argv) => (format!("doc: {label}"), argv.join(" ")),
+            })
+            .collect()
+    }
+
+    /// **Tier 0 over both games runs exactly the commands it always ran**, under the labels it
+    /// always had: the filter changes nothing unless it is given.
+    #[test]
+    fn tier0_over_both_games_runs_the_commands_it_always_ran() {
+        let rows = tier0_rows(Game::All);
+        let expected = [
+            (
+                "cargo build --workspace",
+                "build --workspace --profile test-release",
+            ),
+            (
+                "cargo test (client and shared crates)",
+                "test --workspace --exclude empyrean-* --profile test-release",
+            ),
+            (
+                "cargo test -p dereth-render (the device as shipped)",
+                "test -p dereth-render --profile test-release",
+            ),
+            ("server", "the unit tier"),
+            (
+                "clippy: cargo clippy --workspace --all-targets --features retail-dats,retail-corpus",
+                "clippy --workspace --all-targets --features retail-dats,retail-corpus -- -D warnings",
+            ),
+            (
+                "doc: xtask doc (rustdoc warnings denied)",
+                "doc --workspace --no-deps --document-private-items",
+            ),
+            (
+                "doc: xtask doc -p dereth-client-runtime (the runtime as shipped)",
+                "doc -p dereth-client-runtime --no-deps --document-private-items",
+            ),
+        ]
+        .map(|(l, c)| (l.to_owned(), c.to_owned()));
+        assert_eq!(rows, expected);
+        assert_eq!(clippy_args(Game::All), CLIPPY_ARGS);
+        let doc = tier0_steps(Game::All, Profile::TestRelease)
+            .into_iter()
+            .find_map(|s| match s {
+                Tier0Step::Doc(_, argv) => Some(argv),
+                _ => None,
+            });
+        assert_eq!(
+            doc.as_deref(),
+            Some(DOC_ARGS),
+            "the `doc` rule's own command"
+        );
+    }
+
+    /// **Each game's tier 0 selects that game's crates in every cargo row and keeps only its own
+    /// rows**: the first game's leaves out the second's crates and keeps the server, the device
+    /// and the runtime as shipped; the second's names its crates alone and turns on the feature
+    /// only its crates have.
+    #[test]
+    fn each_games_tier0_selects_its_crates_in_every_row() {
+        let ac2 = tier0_rows(Game::Auberean);
+        let ac2_crates = "-p auberean-* -p yalain -p yalain-* -p athenaeum-*";
+        assert_eq!(
+            ac2.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>(),
+            [
+                format!("build {ac2_crates} --profile test-release"),
+                format!("test {ac2_crates} --profile test-release"),
+                format!(
+                    "clippy {ac2_crates} --all-targets --features retail-dats,retail-corpus -- -D warnings"
+                ),
+                format!("doc {ac2_crates} --no-deps --document-private-items"),
+            ]
+        );
+        for (label, command) in &ac2 {
+            assert!(
+                !command.contains("dereth-") && !command.contains("empyrean-"),
+                "{label}: {command}"
+            );
+        }
+
+        let ac1 = tier0_rows(Game::Dereth);
+        let without =
+            "--exclude auberean-* --exclude yalain --exclude yalain-* --exclude athenaeum-*";
+        assert_eq!(
+            ac1.len(),
+            tier0_rows(Game::All).len(),
+            "the same rows as both games'"
+        );
+        for (label, command) in &ac1 {
+            let whole = command.contains("--workspace");
+            assert_eq!(
+                whole,
+                command.contains(without),
+                "{label}: a workspace command leaves the second game out: {command}"
+            );
+            assert!(!command.contains("auberean-* -p"), "{label}: {command}");
+        }
+        assert!(ac1.iter().any(|(l, _)| l == "server"));
+        assert!(ac1
+            .iter()
+            .any(|(_, c)| c.ends_with("--features retail-dats -- -D warnings")));
+        assert!(
+            !ac1.iter().any(|(_, c)| c.contains("retail-corpus")),
+            "no crate of the first game has `retail-corpus`, and cargo refuses a feature none has"
+        );
+    }
+
+    /// **`ci` takes a tier and a game; `ci auberean` is tier 1 for the second game**, and a game
+    /// beside it that says otherwise is refused rather than half-obeyed.
+    #[test]
+    fn ci_takes_a_tier_and_a_game_and_auberean_is_tier1_for_the_second_game() {
+        for (words, want) in [
+            (&["tier0"][..], (CiTier::Zero, Game::All)),
+            (&["tier1"], (CiTier::One, Game::All)),
+            (&["tier2", "--serial"], (CiTier::Two, Game::All)),
+            (
+                &["tier0", "--game", "auberean"],
+                (CiTier::Zero, Game::Auberean),
+            ),
+            (
+                &["tier1", "--serial", "--game", "dereth"],
+                (CiTier::One, Game::Dereth),
+            ),
+            (
+                &["tier2", "--game=auberean", "--debug"],
+                (CiTier::Two, Game::Auberean),
+            ),
+            (&["auberean"], (CiTier::One, Game::Auberean)),
+            (
+                &["auberean", "--game", "auberean"],
+                (CiTier::One, Game::Auberean),
+            ),
+        ] {
+            assert_eq!(ci_request(&argv(words)), Ok(want), "{words:?}");
+        }
+        for bad in [
+            &[][..],
+            &["tier3"],
+            &["--game", "dereth"],
+            &["auberean", "--game", "dereth"],
+            &["auberean", "--game", "all"],
+            &["tier1", "--game", "both"],
+        ] {
+            assert!(ci_request(&argv(bad)).is_err(), "{bad:?}");
+        }
     }
 
     /// **The test tiers run in `test-release` unless `--debug` is given**, from either side of the

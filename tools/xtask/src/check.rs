@@ -9,7 +9,8 @@
 //!   `origin/main` and `main` that exists -- the research branch in the research repository, the
 //!   remote's default branch in a clone of the public one;
 //! * each file belongs to the workspace crate whose directory holds it (`cargo metadata`);
-//! * `-p <crate>` (repeatable) names the crates instead, and nothing else is selected.
+//! * `-p <crate>` (repeatable) names the crates instead, and nothing else is selected;
+//! * `--game dereth|auberean` keeps one game's crates of either selection ([`crate::game`]).
 //!
 //! The changed crates are linted and tested. Their reverse dependents (every workspace crate that
 //! depends on one of them, directly or not) are linted too -- clippy is a type check, so a caller
@@ -21,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
+use crate::game::Game;
 use crate::util::{print_table, run, workspace_root, Outcome, Profile, Report};
 
 /// The branches tried, in order, when neither `--base` nor `$XTASK_BASE` names one.
@@ -81,11 +83,12 @@ fn base_ref(dir: &Path, explicit: Option<&str>) -> Option<String> {
 }
 
 /// The workspace crates: name, directory (normalised), each one's workspace dependencies, and
-/// the crates with a `retail-dats` feature.
+/// the crates with a `retail-dats` or a `retail-corpus` feature.
 struct Workspace {
     dirs: Vec<(String, String)>,
     deps: BTreeMap<String, BTreeSet<String>>,
     retail_dats: BTreeSet<String>,
+    retail_corpus: BTreeSet<String>,
 }
 
 fn workspace(ws: &Path) -> Result<Workspace, String> {
@@ -111,6 +114,7 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
     let mut name_of = BTreeMap::new();
     let mut dirs = Vec::new();
     let mut retail_dats = BTreeSet::new();
+    let mut retail_corpus = BTreeSet::new();
     for p in meta["packages"]
         .as_array()
         .ok_or("cargo metadata: no packages")?
@@ -128,6 +132,9 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
         name_of.insert(id.to_owned(), name.to_owned());
         if p["features"].get("retail-dats").is_some() {
             retail_dats.insert(name.to_owned());
+        }
+        if p["features"].get("retail-corpus").is_some() {
+            retail_corpus.insert(name.to_owned());
         }
         let dir = Path::new(manifest)
             .parent()
@@ -151,6 +158,7 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
         dirs,
         deps,
         retail_dats,
+        retail_corpus,
     })
 }
 
@@ -257,20 +265,43 @@ fn package_args(names: &BTreeSet<String>) -> Vec<&str> {
 
 /// Clippy's arguments for `linted`: every target, with `retail-dats` on when one of them has the
 /// feature (cargo turns it on in each selected crate that has it, and refuses it when none does),
-/// so the tests that read the retail dats are linted too.
-fn clippy_args<'a>(linted: &'a BTreeSet<String>, retail_dats: &BTreeSet<String>) -> Vec<&'a str> {
+/// so the tests that read the retail dats are linted too; likewise `retail-corpus`, the tier switch
+/// of Asheron's Call 2's recorded sessions.
+fn clippy_args<'a>(
+    linted: &'a BTreeSet<String>,
+    retail_dats: &BTreeSet<String>,
+    retail_corpus: &BTreeSet<String>,
+) -> Vec<&'a str> {
     let mut argv = vec!["clippy", "--all-targets", "--no-deps"];
-    if !linted.is_disjoint(retail_dats) {
-        argv.extend(["--features", "retail-dats"]);
+    match (
+        !linted.is_disjoint(retail_dats),
+        !linted.is_disjoint(retail_corpus),
+    ) {
+        (true, true) => argv.extend(["--features", "retail-dats,retail-corpus"]),
+        (true, false) => argv.extend(["--features", "retail-dats"]),
+        (false, true) => argv.extend(["--features", "retail-corpus"]),
+        (false, false) => {}
     }
     argv.extend(package_args(linted));
     argv.extend(["--", "-D", "warnings"]);
     argv
 }
 
+/// The crates of `selected` that `game` covers, and the ones it leaves out.
+fn keep_game(game: Game, selected: BTreeSet<String>) -> (BTreeSet<String>, BTreeSet<String>) {
+    selected.into_iter().partition(|c| game.covers(c))
+}
+
 pub fn check(args: &[String]) -> i32 {
     let ws = workspace_root();
     let profile = Profile::from_args(args);
+    let game = match Game::from_args(args) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("check: {e}");
+            return 2;
+        }
+    };
     let meta = match workspace(&ws) {
         Ok(m) => m,
         Err(e) => {
@@ -328,6 +359,16 @@ pub fn check(args: &[String]) -> i32 {
         let set: BTreeSet<String> = named.into_iter().collect();
         (set.clone(), set)
     };
+    let (tested, left_out) = keep_game(game, tested);
+    let (linted, _) = keep_game(game, linted);
+    if !left_out.is_empty() {
+        println!(
+            "  left out by {} {}: {}",
+            crate::game::FLAG,
+            if game.dereth() { "dereth" } else { "auberean" },
+            left_out.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    }
     if tested.is_empty() {
         println!("  no crate changed: clippy and the tests are not run, the lints are");
     } else {
@@ -340,7 +381,7 @@ pub fn check(args: &[String]) -> i32 {
 
     let mut reports = Vec::new();
     if !linted.is_empty() {
-        let argv = clippy_args(&linted, &meta.retail_dats);
+        let argv = clippy_args(&linted, &meta.retail_dats, &meta.retail_corpus);
         reports.push(step(
             "cargo clippy -D warnings",
             run(&ws, "cargo", &argv),
@@ -379,6 +420,34 @@ mod tests {
 
     fn files(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|p| norm(p)).collect()
+    }
+
+    /// **`--game` keeps one game's crates of a selection and names the rest**; with both games
+    /// nothing is left out.
+    #[test]
+    fn the_game_filter_keeps_one_games_crates_and_names_the_rest() {
+        let selected: BTreeSet<String> = [
+            "dereth-dat",
+            "empyrean-world",
+            "xtask",
+            "auberean-dat",
+            "yalain",
+            "athenaeum-cli",
+        ]
+        .map(str::to_owned)
+        .into_iter()
+        .collect();
+        let names = |s: BTreeSet<String>| s.into_iter().collect::<Vec<_>>();
+        let (kept, out) = keep_game(Game::Auberean, selected.clone());
+        assert_eq!(names(kept), ["athenaeum-cli", "auberean-dat", "yalain"]);
+        assert_eq!(names(out), ["dereth-dat", "empyrean-world", "xtask"]);
+        let (kept, out) = keep_game(Game::Dereth, selected.clone());
+        assert_eq!(names(kept), ["dereth-dat", "empyrean-world", "xtask"]);
+        assert_eq!(names(out), ["athenaeum-cli", "auberean-dat", "yalain"]);
+        // Negative control: the default keeps the selection whole.
+        let (kept, out) = keep_game(Game::All, selected.clone());
+        assert_eq!(kept, selected);
+        assert!(out.is_empty());
     }
 
     /// **A file belongs to the innermost crate that holds it**, a file outside every crate
@@ -460,7 +529,7 @@ mod tests {
         let with = set(&["dereth-client", "dereth-scene"]);
         let linted = set(&["dereth-client", "dereth-primitives"]);
         assert_eq!(
-            clippy_args(&linted, &with),
+            clippy_args(&linted, &with, &set(&[])),
             [
                 "clippy",
                 "--all-targets",
@@ -477,7 +546,10 @@ mod tests {
             ]
         );
         let without = set(&["dereth-primitives"]);
-        assert!(!clippy_args(&without, &with).contains(&"--features"));
+        assert!(!clippy_args(&without, &with, &set(&[])).contains(&"--features"));
+        let corpus = set(&["dereth-client"]);
+        assert!(clippy_args(&linted, &with, &corpus).contains(&"retail-dats,retail-corpus"));
+        assert!(clippy_args(&linted, &set(&[]), &corpus).contains(&"retail-corpus"));
     }
 
     /// `-p` is read wherever it appears, in either spelling.

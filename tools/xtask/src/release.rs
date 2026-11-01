@@ -479,7 +479,7 @@ fn run(
     };
     if tier0 {
         println!("\n=== cargo xtask ci tier0 on {head}");
-        if crate::tier0(Profile::TestRelease) != 0 {
+        if crate::tier0(Profile::TestRelease, crate::game::Game::All) != 0 {
             return Err(format!("tier 0 failed; no tag was made.{undo}"));
         }
     } else {
