@@ -126,7 +126,7 @@ looks again every 10 seconds. The Library's **Show what I'm playing on Discord**
 | settings: `launcher-state.json` (the library, accounts, favorites, recent worlds) | `%APPDATA%\Dereth\launcher` on Windows, `~/Library/Application Support/Dereth/launcher` on macOS, `$XDG_CONFIG_HOME/dereth/launcher` (`~/.config`) on Linux |
 | data: private copies of data files, the web view's cache, the world list | `%LOCALAPPDATA%\Dereth\launcher` on Windows, the settings folder on macOS, `$XDG_DATA_HOME/dereth/launcher` (`~/.local/share`) on Linux |
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
-| passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (Secret Service), one entry per account per world: `dereth:world/<slug>/<account>` |
+| passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (Secret Service), one entry per account per world: `dereth:world/<slug>/<account>`. With no keyring, the secrets the launcher makes for Asheron's Call 2 accounts go in the data folder's `auberean/secrets.json`, readable by you alone; a password you type is not kept |
 
 The launcher writes nothing outside its own `launcher` folders, except the interface in the
 client's preferences.

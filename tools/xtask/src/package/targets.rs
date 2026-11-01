@@ -109,6 +109,7 @@ pub fn plan_dereth(target: Target, host: &Host) -> Result<(), String> {
         target,
         host,
         "the launcher links against that system's web view",
+        DERETH_GLIBC_FLOOR,
     )
 }
 
@@ -135,6 +136,7 @@ pub fn plan_lyceum(target: Target, host: &Host) -> Result<(), String> {
         target,
         host,
         "the editor is built with that system's own linker and libraries",
+        LYCEUM_GLIBC_FLOOR,
     )
 }
 
@@ -176,12 +178,15 @@ pub fn plan_desktop(target: Target, host: &Host) -> Result<(), String> {
         target,
         host,
         "the programs are built with that system's own linker and libraries",
+        DESKTOP_GLIBC_FLOOR,
     )
 }
 
 /// How this host builds `target` natively, or why it cannot: on the target's own operating
-/// system (`why` says what needs it), with the target's standard library installed.
-fn plan_native(target: Target, host: &Host, why: &str) -> Result<(), String> {
+/// system (`why` says what needs it), with the target's standard library installed, and on Linux
+/// with a glibc no newer than the release's `floor`, since a native build links against the
+/// host's own and the release would not run on the systems the floor promises.
+fn plan_native(target: Target, host: &Host, why: &str, floor: (u32, u32)) -> Result<(), String> {
     if host.os != Some(target.os) {
         let os = match target.os {
             Os::Windows => "Windows",
@@ -191,6 +196,13 @@ fn plan_native(target: Target, host: &Host, why: &str) -> Result<(), String> {
         return Err(format!(
             "{} builds on a {os} host only: {why}",
             target.triple
+        ));
+    }
+    if let Some(glibc) = host.glibc.filter(|g| target.os == Os::Linux && *g > floor) {
+        return Err(format!(
+            "{} would link against this host's glibc {}.{}, above the release's {}.{} floor: \
+             build on Ubuntu 22.04, e.g. an `ubuntu:22.04` distrobox",
+            target.triple, glibc.0, glibc.1, floor.0, floor.1
         ));
     }
     if let Some(installed) = &host.installed {
@@ -310,6 +322,16 @@ pub struct Host {
     pub zig: bool,
     /// The installed Rust targets, when rustup could say.
     pub installed: Option<Vec<String>>,
+    /// The glibc a native Linux build links against: the host's own, on Linux, when `getconf`
+    /// could say ([`glibc_of`]).
+    pub glibc: Option<(u32, u32)>,
+}
+
+/// The glibc `getconf GNU_LIBC_VERSION` names (`glibc 2.35`), as its major and minor numbers.
+pub fn glibc_of(getconf: &str) -> Option<(u32, u32)> {
+    let version = getconf.trim().strip_prefix("glibc ")?.trim();
+    let (major, minor, _) = super::headers::parse_glibc(&format!("GLIBC_{version}"))?;
+    Some((major, minor))
 }
 
 /// How this host builds `target`, or why it cannot.

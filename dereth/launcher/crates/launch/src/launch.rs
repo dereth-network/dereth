@@ -99,6 +99,8 @@ pub enum PlanError {
     NoEndpoint,
     /// The Dereth client was given no dat set.
     NoDats,
+    /// The client plays Asheron's Call 2, whose plans are [`crate::auberean`]'s.
+    OtherGame,
 }
 
 impl core::fmt::Display for PlanError {
@@ -106,6 +108,7 @@ impl core::fmt::Display for PlanError {
         match self {
             PlanError::NoEndpoint => write!(f, "this world has no address to connect to"),
             PlanError::NoDats => write!(f, "choose the data files for the Dereth client"),
+            PlanError::OtherGame => write!(f, "Auberean plays Asheron's Call 2's worlds"),
         }
     }
 }
@@ -215,6 +218,7 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                 args.extend([plain("--offer-plugins"), plain(p.display().to_string())]);
             }
         }
+        ClientKind::Auberean => return Err(PlanError::OtherGame),
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
             args.extend([
                 plain("-h"),

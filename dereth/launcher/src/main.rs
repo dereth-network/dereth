@@ -22,6 +22,7 @@ mod host_publication;
 mod host_runtime;
 mod host_service;
 mod host_updates;
+mod host_yalain;
 mod hosts;
 mod join;
 mod local;
@@ -284,9 +285,26 @@ fn has_password(b: State<'_, Shared>, slug: String, username: String) -> bool {
     lock(&b).has_password(&slug, &username)
 }
 
+/// Start the client a choice names: an Asheron's Call 2 world's through Auberean's realm
+/// ([`auberean::launch`]), which asks the world for its friends service first, every other
+/// through the backend.
 #[tauri::command]
-fn launch(b: State<'_, Shared>, choice: Choice) -> LaunchOutcome {
-    lock(&b).launch(choice)
+async fn launch(
+    b: State<'_, Shared>,
+    a: State<'_, auberean::Shared>,
+    c: State<'_, components::Shared>,
+    choice: Choice,
+) -> Cmd<LaunchOutcome> {
+    let ac2 = lock(&b)
+        .world(&choice.world_slug)
+        .is_some_and(|w| w.game == dereth_launch::world::Game::Auberean);
+    if !ac2 {
+        return Ok(lock(&b).launch(choice));
+    }
+    let (a, c, b) = (a.inner().clone(), c.inner().clone(), b.inner().clone());
+    tauri::async_runtime::spawn_blocking(move || auberean::launch(&a, &c, &b, choice))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Ask for a folder and read it. `None` when the player cancels.
@@ -839,9 +857,6 @@ fn main() {
                     &window.state::<local::Shared>(),
                 ) {
                     api.prevent_close();
-                } else {
-                    // The world on this computer is the launcher's to run: it ends with it.
-                    auberean::stop(&window.state::<auberean::Shared>());
                 }
             }
             if matches!(event, tauri::WindowEvent::Resized(_))
@@ -855,10 +870,6 @@ fn main() {
             worlds_shown,
             auberean::set_auberean_install,
             auberean::choose_auberean_install,
-            auberean::start_auberean_world,
-            auberean::stop_auberean_world,
-            auberean::play_auberean_local,
-            auberean::play_auberean_world,
             auberean::probe_auberean_friends,
             auberean::set_auberean_client,
             auberean::open_athenaeum,
@@ -916,6 +927,8 @@ fn main() {
             hosts::rollback_host_update,
             hosts::choose_host_dats,
             hosts::create_host,
+            hosts::create_yalain_host,
+            hosts::save_yalain_host,
             hosts::prepare_host,
             hosts::start_host,
             hosts::stop_host,
@@ -1048,42 +1061,56 @@ mod tests {
         );
     }
 
-    /// In Auberean's realm, Play, the server's page and the world builder's are Auberean's, Yalain's
-    /// and Athenaeum's; a listed world of that game opens its own page; and the first start's
-    /// questions about Dereth's game files and interface are Dereth's realm's alone.
+    /// In Auberean's realm, Play, a world's page, Accounts, the Library and the world servers are
+    /// Dereth's own screens, with Asheron's Call 2's clients, game files and server where they
+    /// differ; the world builder's page is Athenaeum's; and the first start's questions about
+    /// Dereth's game files and interface are Dereth's realm's alone.
     #[test]
-    fn auberean_s_realm_has_its_own_play_server_and_world_builder_pages() {
-        for (function, page) in [
-            ("home", "aubereanHome"),
-            ("serverList", "yalainPage"),
-            ("makePage", "athenaeumPage"),
-        ] {
+    fn auberean_s_realm_plays_on_dereth_s_screens_with_its_own_clients_and_server() {
+        // One Play, one world page, one server list for both realms.
+        for function in ["home", "serverList", "worldPage", "openWorld", "accounts"] {
             let body = page_function(function);
             assert!(
-                body.contains(&format!(r#"if (ui.realm !== "dereth") return {page}();"#)),
-                "{function}: {body}"
+                !body.contains(r#"ui.realm !== "dereth") return"#),
+                "{function}"
             );
         }
-        assert!(page_function("openWorld").contains(r#"worldBy(slug)?.game === "auberean""#));
+        assert!(page_function("makePage")
+            .contains(r#"if (ui.realm !== "dereth") return athenaeumPage();"#));
+        assert!(page_function("library")
+            .contains(r#"if (realmGame() === "auberean") return aubereanLibrary();"#));
+        // Play lists the realm's own combinations, and plays them with the realm's clients.
+        assert!(page_function("homeEntries").contains("inRealm(worldBy(e.world_slug))"));
+        assert!(page_function("home").contains("clientOf(sel.client, game)"));
+        // A world's page: Auberean or the retail client, the install, and a password kept for it.
+        let world = page_function("worldPage");
+        assert!(world.contains("${isAc2 ? ac2Client : "), "{world}");
+        assert!(world.contains("The launcher keeps the password for this world."));
+        assert!(page_function("formChoice").contains("!ac2World(w)"));
+        // The world servers: Yalain's, made and saved as Yalain's.
+        assert!(page_function("serverList").contains("(h.game ?? \"dereth\") === game"));
+        let page = include_str!("../ui/app.js");
+        assert!(page.contains(
+            r#"await api(realmGame() === "auberean" ? "create_yalain_host" : "create_host""#
+        ));
+        assert!(page.contains(
+            r#"serverBy(edit.id)?.game === "auberean" ? "save_yalain_host" : "save_host""#
+        ));
         let pull = page_function("pull");
         assert_eq!(
             pull.matches(r#"ui.realm === "dereth" && "#).count(),
             2,
             "{pull}"
         );
-        // Play starts the chosen client with the account typed; a listed world's page sends the
-        // password typed, which the launcher keeps, and the page forgets it.
-        let page = include_str!("../ui/app.js");
-        assert!(
-            page.contains(r#"await act("play_auberean_local", { account, client: ac2Client() });"#)
-        );
-        assert!(page.contains(
-            r#"password: ui.ac2.password, client: ac2Client() })) !== undefined) ui.ac2.password = "";"#
-        ));
-        // A listed world's page asks whether the world serves its friends service, and both pages
-        // say what it answered.
+        // A world's page asks whether the world serves its friends service, and says what it
+        // answered.
         assert!(page_function("openWorld").contains(r#"api("probe_auberean_friends", { slug })"#));
         assert!(page.contains("Friends and tells across worlds: ${on ? \"on\" : \"off\"}"));
+        // The Library's Discord setting is the same one in both realms.
+        assert_eq!(
+            page.matches("${discordRow()}").count() + page.matches("discordRow();").count(),
+            2
+        );
     }
 
     /// Every command the page calls is one the app registers, and one the demo backend answers, so
@@ -1482,16 +1509,16 @@ mod tests {
                 &name[..name.find('"').unwrap_or(0)]
             })
             .collect();
+        // The server list is both realms' (its heading names the realm's server); the world
+        // builders' pages are each realm's own.
         assert_eq!(
             used,
-            ["empyrean", "lyceum", "empyrean", "lyceum"],
+            ["empyrean", "lyceum", "lyceum"],
             "used once each in each realm"
         );
         assert!(page_function("serverList")
-            .contains(r#"brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER"#));
+            .contains(r#"brand("empyrean")}<h1>${name.toUpperCase()}: HOST A WORLD SERVER"#));
         assert!(page_function("makePage").contains(r#"brand("lyceum")}<h1>LYCEUM: BUILD A WORLD"#));
-        assert!(page_function("yalainPage")
-            .contains(r#"brand("empyrean")}<h1>YALAIN: A WORLD ON THIS COMPUTER"#));
         assert!(page_function("athenaeumPage")
             .contains(r#"brand("lyceum")}<h1>ATHENAEUM: BUILD A WORLD"#));
     }

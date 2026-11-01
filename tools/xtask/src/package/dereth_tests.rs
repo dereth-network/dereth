@@ -622,6 +622,7 @@ fn dereth_builds_natively_and_names_what_is_missing() {
         zigbuild: true,
         zig: true,
         installed: None,
+        glibc: None,
     };
     assert!(targets::plan_dereth(target(WINDOWS), &host(Os::Windows)).is_ok());
     assert!(targets::plan_dereth(target(LINUX), &host(Os::Windows)).is_err());
@@ -633,6 +634,43 @@ fn dereth_builds_natively_and_names_what_is_missing() {
     let e = targets::plan_dereth(target(MAC_X64), &missing).expect_err("not installed");
     assert!(e.contains("rustup target add"), "{e}");
     assert!(targets::find_dereth("aarch64-unknown-linux-gnu").is_err());
+}
+
+/// A Linux host whose glibc is newer than the release's floor is refused while the packages are
+/// planned, before anything is built, and told where to build instead; a server built with zig
+/// links against its own floor, whatever the host has.
+#[test]
+fn a_linux_host_with_a_newer_glibc_is_refused_before_anything_is_built() {
+    let host = |glibc| targets::Host {
+        os: Some(Os::Linux),
+        zigbuild: true,
+        zig: true,
+        installed: None,
+        glibc,
+    };
+    type Plan = fn(Target, &targets::Host) -> Result<(), String>;
+    let plans: [Plan; 3] = [
+        targets::plan_dereth,
+        targets::plan_lyceum,
+        targets::plan_desktop,
+    ];
+    for plan in plans {
+        let e = plan(target(LINUX), &host(Some((2, 39)))).expect_err("too new");
+        assert!(
+            e.contains("glibc 2.39") && e.contains("2.35 floor") && e.contains("`ubuntu:22.04`"),
+            "{e}"
+        );
+        assert!(plan(target(LINUX), &host(Some((2, 35)))).is_ok());
+        assert!(plan(target(LINUX), &host(Some((2, 31)))).is_ok());
+        assert!(
+            plan(target(LINUX), &host(None)).is_ok(),
+            "the header check still holds it"
+        );
+    }
+    assert!(targets::plan(target(LINUX), &host(Some((2, 39)))).is_ok());
+    assert_eq!(targets::glibc_of("glibc 2.39\n"), Some((2, 39)));
+    assert_eq!(targets::glibc_of("glibc 2.35"), Some((2, 35)));
+    assert_eq!(targets::glibc_of("musl libc"), None);
 }
 
 // ---------------------------------------------------------------- version and tag

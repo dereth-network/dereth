@@ -607,6 +607,7 @@ fn the_desktop_products_build_natively() {
         zigbuild: true,
         zig: true,
         installed: None,
+        glibc: None,
     };
     let a = &ONE_PROGRAM;
     assert!(targets::plan_desktop(target(a, WINDOWS), &host(Os::Windows)).is_ok());

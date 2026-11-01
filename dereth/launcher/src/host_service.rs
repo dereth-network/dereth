@@ -233,6 +233,7 @@ mod tests {
             program: dir.join("server"),
             wrapper: dir.join("wrapper"),
             checkout: false,
+            game: dereth_launch::world::Game::Dereth,
         };
         let path = dir.join("host.service");
         host_runtime::write_json(&dir.join("service.json"), &path).unwrap();
@@ -250,6 +251,7 @@ mod tests {
             program: "/tmp/server".into(),
             wrapper: "/home/a b/100%/host".into(),
             checkout: false,
+            game: dereth_launch::world::Game::Dereth,
         };
         let unit = systemd(&d, Path::new("/home/a b/world"));
         assert!(unit.contains("\"/home/a b/100%%/host\" --run-host \"/home/a b/world\""));
@@ -265,6 +267,7 @@ mod tests {
             program: "/tmp/server".into(),
             wrapper: "/Users/A & B/host".into(),
             checkout: false,
+            game: dereth_launch::world::Game::Dereth,
         };
         let plist = launchd(&d, Path::new("/Users/A & B/world"));
         assert!(plist.contains("/Users/A &amp; B/host</string><string>--run-host</string>"));

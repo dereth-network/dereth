@@ -285,10 +285,8 @@
     dir: "C:\\Games\\Asheron's Call 2", ok: true, summary: "Your Asheron's Call 2 files are ready.",
     files: ["portal.dat", "cell_1.dat", "local_English.dat", "highres.dat"].map((name) => ({ name, required: name !== "highres.dat", found: true, problem: null })),
   };
-  const AC2_LOG = ["the level table read", "listening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world, referred as 127.0.0.1)"];
   const auberean = {
-    check: null, playing: [], editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
-    server: { running: false, ready: false, starting: false, address: "127.0.0.1:9200", log: [] },
+    check: null, editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
     worlds: ["C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp"],
     retail: null, client: "auberean", friends: {}, friends_dll: true,
   };
@@ -331,8 +329,21 @@
         websocket: { enabled: false, listen: "0.0.0.0:9443", tls_certificate: "", tls_private_key: "", behind_tls_proxy: false, allowed_origins: [], public_url: "" },
         federation: { enabled: false, slug: "" }, patching: { enabled: true, records_per_minute: 60000, bytes_per_second: 1048576 }, ...settings },
         version: c.installed?.version ?? "0.3.3", checkout: !!c.checkout, status: { phase: "stopped", players: null, started: null }, logs: [], prepared: false, service: false, update: {}, publication: null, folder: `C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\hosts\\${id}`, busy: null, message: null, federation_slug: null, listed: false,
-        plays: { database: "era", pack: "world.pack", dat_overlay: null, content_overlay: null, published: null, network_key: false, base: null, era_bases: [] }, unpublished_changes: null });
+        plays: { database: "era", pack: "world.pack", dat_overlay: null, content_overlay: null, published: null, network_key: false, base: null, era_bases: [] }, unpublished_changes: null, game: "dereth" });
       return id;
+    },
+    // A Yalain world, kept as an Empyrean one: its settings are the hosted world's own.
+    create_yalain_host: ({ settings }) => {
+      const id = handlers.create_host({ settings });
+      const h = hostBy(id);
+      const c = components.find((x) => x.product === "yalain");
+      Object.assign(h, { game: "auberean", version: c.installed?.version ?? "0.1.0", checkout: !!c.checkout, plays: {} });
+      return id;
+    },
+    save_yalain_host: ({ id, settings }) => {
+      const h = hostBy(id);
+      h.settings = { ...h.settings, ...settings };
+      h.message = h.status.phase === "running" ? "Saved. Restart the world to use the new settings." : "Saved.";
     },
     save_host: ({ id, settings }) => {
       const h = hostBy(id);
@@ -362,11 +373,23 @@
     prepare_host: ({ id }) => {
       const h = hostBy(id);
       h.prepared = true;
+      if (h.game === "auberean") { h.message = "The world database is ready."; return; }
       h.plays.base = BASES[h.settings.era];
       h.plays.era_bases = [...h.plays.era_bases.filter((b) => b.era !== h.settings.era), h.plays.base];
       h.message = "The world database is ready.";
     },
-    start_host: ({ id }) => { const h = hostBy(id); h.status = { phase: "running", players: 2, started: Math.floor(Date.now() / 1000) - 3840 }; h.message = null; h.logs.push("Empyrean 0.3.3 starting.", "Loaded 7,421 landblocks.", "World ready: My world on port 9000.", "Login: player Aerbax entered the world.", "Login: player Kazin entered the world."); },
+    start_host: ({ id }) => {
+      const h = hostBy(id);
+      h.message = null;
+      if (h.game === "auberean") {
+        // Yalain counts no players for the launcher.
+        h.status = { phase: "running", players: null, started: Math.floor(Date.now() / 1000) - 1260 };
+        h.logs.push("yalain: start areas and starting skills read areas=5 races=5", "yalain: the level table read levels=150", `yalain: listening on 0.0.0.0:${h.settings.port}/${h.settings.port + 1} (login) and 0.0.0.0:${h.settings.port + 2}/${h.settings.port + 3} (world)`, `yalain::friends: friends service listening on TCP 0.0.0.0:${h.settings.port}`, "yalain_world::login: logged in account=player", "yalain_world::world: in the world");
+        return;
+      }
+      h.status = { phase: "running", players: 2, started: Math.floor(Date.now() / 1000) - 3840 };
+      h.logs.push("Empyrean 0.3.3 starting.", "Loaded 7,421 landblocks.", "World ready: My world on port 9000.", "Login: player Aerbax entered the world.", "Login: player Kazin entered the world.");
+    },
     stop_host: ({ id }) => { const h = hostBy(id); h.status = { phase: "stopped", players: null, started: null }; h.logs.push("Saving characters...", "World saved and stopped."); },
     open_host_config: () => {},
     host_command: ({ id, line }) => {
@@ -423,7 +446,7 @@
       h.unpublished_changes = null;
       h.message = null;
     },
-    open_host_world: () => "eulmore",
+    open_host_world: ({ id }) => (hostBy(id)?.game === "auberean" ? "shardfall" : "eulmore"),
     // `latest`: the demo's check finds nothing newer.
     check_host_update: ({ id, latest }) => {
       const h = hostBy(id);
@@ -472,11 +495,6 @@
     },
     // Auberean's realm: the install, as the backend checks it, and the world on this computer.
     choose_auberean_install: () => { state.auberean = { ...(state.auberean ?? {}), install: "C:\\Games\\Asheron's Call 2" }; auberean.check = AC2_CHECK; auberean.retail = AC2_RETAIL; },
-    start_auberean_world: () => { auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.friends["127.0.0.1:9200"] = true; },
-    stop_auberean_world: () => { auberean.server = { ...auberean.server, running: false, ready: false }; },
-    play_auberean_local: ({ account, client }) => { state.auberean = { ...(state.auberean ?? {}), account, client }; auberean.client = client; auberean.server = { ...auberean.server, running: true, ready: true, log: AC2_LOG }; auberean.friends["127.0.0.1:9200"] = true; auberean.playing.push(client); },
-    play_auberean_world: ({ account, client }) => { state.auberean = { ...(state.auberean ?? {}), account, client }; auberean.client = client; auberean.playing.push(client); },
-    set_auberean_client: ({ client }) => { auberean.client = client; },
     // Shardfall serves its friends service; the others do not.
     probe_auberean_friends: ({ slug }) => { const w = worlds.find((x) => x.slug === slug); if (w?.endpoint) auberean.friends[`${w.endpoint.address}:${w.endpoint.port}`] = slug === "shardfall"; },
     new_athenaeum_world: ({ name }) => { auberean.worlds.unshift(`C:\\Users\\you\\Documents\\Athenaeum\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`); },
@@ -557,6 +575,11 @@
     world_view: ({ slug }) => {
       const w = allWorlds().find((x) => x.slug === slug);
       if (!w) throw "That world is no longer listed.";
+      // An Asheron's Call 2 world is played with that game's clients, which the realm's view says.
+      if (w.game === "auberean") {
+        return { world: w, clients: [], dat_sets: [], classic_sets: [], requires: "modern", default_client: state.world_prefs[slug]?.client ?? null, offers_private_copy: false,
+          accounts: state.accounts.filter((a) => a.world_slug === slug), prefs: state.world_prefs[slug] ?? {}, live: null };
+      }
       const clients = [dereth, platform === "windows" ? state.retail : null].filter(Boolean).map((i) => ({ kind: i.kind, install: i, accepted: accepts(w, i), runnable: true }));
       const last = state.world_prefs[slug]?.client;
       return {
@@ -571,8 +594,11 @@
     },
     has_password: ({ slug, username }) => vault.has(`${slug}/${username}`),
     launch: ({ choice }) => {
-      if (!choice.password && !vault.has(`${choice.world_slug}/${choice.account}`)) return { kind: "need_password", message: `Enter the password for ${choice.account}.` };
-      if (choice.remember) vault.add(`${choice.world_slug}/${choice.account}`);
+      const ac2world = allWorlds().find((x) => x.slug === choice.world_slug)?.game === "auberean";
+      // An Asheron's Call 2 world's secret is kept, or made and kept, whatever was typed.
+      if (!ac2world && !choice.password && !vault.has(`${choice.world_slug}/${choice.account}`)) return { kind: "need_password", message: `Enter the password for ${choice.account}.` };
+      if (choice.remember || ac2world) vault.add(`${choice.world_slug}/${choice.account}`);
+      if (!state.accounts.some((a) => a.world_slug === choice.world_slug && a.username === choice.account)) state.accounts.push({ world_slug: choice.world_slug, username: choice.account, remember: true, created_by_launcher: false });
       state.world_prefs[choice.world_slug] = { account: choice.account, client: choice.client, dat_set_id: choice.dat_set_id, last_played: Date.now() };
       const same = (r) => r.world_slug === choice.world_slug && r.account === choice.account && r.client === choice.client && (r.dat_set_id ?? null) === (choice.dat_set_id ?? null);
       state.recent = [{ world_slug: choice.world_slug, account: choice.account, client: choice.client, dat_set_id: choice.dat_set_id, last_played: Date.now() }, ...state.recent.filter((r) => !same(r))].slice(0, 5);

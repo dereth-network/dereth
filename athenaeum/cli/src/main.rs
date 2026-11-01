@@ -27,6 +27,8 @@
 //! athenaeum types                                   the type table and the id chain
 //! ```
 //!
+//! `athenaeum --help` prints the same ([`USAGE`]).
+//!
 //! A world's base is the release of the world database it names, read from the per-user cache
 //! (`yalain world fetch`), or the folder `--base` gives (`worlds.rs`). `<type>` is a short name (`mesh`, `rgn`, `landblock`...) or a type number (`4000000A`). Build
 //! with `cargo build --profile test-release -p athenaeum-cli` in the workspace.
@@ -46,6 +48,42 @@ use auberean_dat::{DatFile, RecordType};
 
 mod census;
 mod worlds;
+
+/// What `athenaeum --help` prints: every command.
+const USAGE: &str = "\
+athenaeum <command> ...
+
+  new <folder> [--key KEY]               a new world over the world database, with an empty pack
+                                         its edits go into
+  build <world> --dats <install> [--base <folder>] [--out <folder>]
+                                         the world compiled against the install into the
+                                         server's tables, written as text
+  validate <world> [--dats <install>] [--base <folder>]
+                                         the world checked over its base (and, with --dats,
+                                         compiled) without writing anything
+  facts <world> [--base <folder>]        what the world changes, counted, as JSON
+  info <file.dat>                        header, structure and iteration list of one file
+  ls <file.dat> [<type>]                 every record (id, type, size, date), or one type's
+  verify <install> [<type>]              decode every record of an install; per-type rates
+  rates <installs> <install>...          the same for several installs, one TSV row per type
+  failures <install> <type> [<n>]        the first n records of a type that do not decode
+  show <install> <id> [<chars>]          decode one record and print it
+  hex <install> <id> [<from> [<len>]]    a record's bytes
+  census <installs> <out> [<install>...] the census of every install (TSV)
+  types                                  the type table and the id chain
+
+A world's base is the release of the world database it names, from the per-user cache (`yalain
+world fetch`), or the folder --base gives. <type> is a short name (mesh, rgn, landblock...) or a
+type number (4000000A).
+
+athenaeum --version   the version, and the commit and target a release build was made from
+athenaeum --help      this help
+";
+
+/// Whether `args` (the program's, its name first) ask for the help alone.
+fn asks_for_help(args: &[String]) -> bool {
+    args.len() == 2 && matches!(args[1].as_str(), "--help" | "-h" | "help")
+}
 
 fn parse_type(s: &str) -> Option<RecordType> {
     if let Some(t) = TYPES
@@ -282,26 +320,43 @@ fn run(args: &[String]) -> Result<(), String> {
         Some("rates") => rates(&path(2)?, &args[3.min(args.len())..]),
         Some("failures") => {
             let ty = arg(3).and_then(parse_type).ok_or("which type?")?;
-            failures(&path(2)?, ty, arg(4).and_then(|n| n.parse().ok()).unwrap_or(20))
+            failures(
+                &path(2)?,
+                ty,
+                arg(4).and_then(|n| n.parse().ok()).unwrap_or(20),
+            )
         }
         Some("show") => {
             let id = arg(3).and_then(parse_id).ok_or("which id?")?;
-            show(&path(2)?, id, arg(4).and_then(|n| n.parse().ok()).unwrap_or(4000))
+            show(
+                &path(2)?,
+                id,
+                arg(4).and_then(|n| n.parse().ok()).unwrap_or(4000),
+            )
         }
         Some("hex") => {
             let id = arg(3).and_then(parse_id).ok_or("which id?")?;
             let (bytes, _, _) = find(&path(2)?, id)?;
-            let from = arg(4).and_then(|n| usize::from_str_radix(n.trim_start_matches("0x"), 16).ok()).unwrap_or(0);
-            let len = arg(5).and_then(|n| usize::from_str_radix(n.trim_start_matches("0x"), 16).ok()).unwrap_or(bytes.len());
+            let from = arg(4)
+                .and_then(|n| usize::from_str_radix(n.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let len = arg(5)
+                .and_then(|n| usize::from_str_radix(n.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(bytes.len());
             hexdump(&bytes, from, len);
             Ok(())
         }
-        Some("census") => census::run(&path(2)?, &path(3)?, &args[4.min(args.len())..]).map_err(|e| e.to_string()),
+        Some("census") => {
+            census::run(&path(2)?, &path(3)?, &args[4.min(args.len())..]).map_err(|e| e.to_string())
+        }
         Some("types") => {
             types();
             Ok(())
         }
-        _ => Err("usage: athenaeum new|build|validate|facts|info|ls|verify|rates|failures|show|hex|census|types (see the source header)".into()),
+        Some(other) => Err(format!(
+            "unknown command {other}: `athenaeum --help` lists them"
+        )),
+        None => Err("which command? `athenaeum --help` lists them".into()),
     }
 }
 
@@ -310,6 +365,10 @@ fn main() -> ExitCode {
     // `--version` alone: what this build is.
     if args.len() == 2 && args[1] == "--version" {
         print!("{}", version_text());
+        return ExitCode::SUCCESS;
+    }
+    if asks_for_help(&args) {
+        print!("{USAGE}");
         return ExitCode::SUCCESS;
     }
     match run(&args) {
@@ -345,5 +404,42 @@ mod version_tests {
         assert_eq!(lines[0], concat!("athenaeum ", env!("CARGO_PKG_VERSION")));
         assert!(lines[1].starts_with("commit: "), "{text}");
         assert!(lines[2].starts_with("target: "), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod help_tests {
+    //! Behaviour: none (tooling: what `athenaeum --help` prints, which a release carries in place of the source)
+    use super::{asks_for_help, run, USAGE};
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn help_and_h_ask_for_the_help_alone() {
+        for a in ["--help", "-h", "help"] {
+            assert!(asks_for_help(&args(&["athenaeum", a])), "{a}");
+        }
+        assert!(!asks_for_help(&args(&["athenaeum"])));
+        assert!(!asks_for_help(&args(&["athenaeum", "new", "--help"])));
+    }
+
+    /// Each command the help lists is one the command line takes.
+    #[test]
+    fn every_command_the_help_lists_is_one_the_command_line_takes() {
+        let listed: Vec<&str> = USAGE
+            .lines()
+            .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+        assert_eq!(listed.len(), 13, "{listed:?}");
+        for command in listed {
+            if let Err(e) = run(&args(&["athenaeum", command])) {
+                assert!(!e.starts_with("unknown command"), "{command}: {e}");
+            }
+        }
+        let e = run(&args(&["athenaeum", "frobnicate"])).unwrap_err();
+        assert!(e.contains("athenaeum --help"), "{e}");
     }
 }

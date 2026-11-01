@@ -30,10 +30,10 @@ use dereth_launch::plugins::{
 use dereth_launch::serverlist::{ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Realm, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
-use dereth_launch::vault::{target, Vault};
+use dereth_launch::vault::{target, SecretFile, Vault};
 #[cfg(test)]
 use dereth_launch::world::WorldState;
-use dereth_launch::world::{AccountModel, Emulator, StatusMethod, World};
+use dereth_launch::world::{AccountModel, Emulator, Game, StatusMethod, World};
 use serde::{Deserialize, Serialize};
 
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
@@ -468,12 +468,17 @@ pub enum LaunchOutcome {
 }
 
 fn can_run(kind: ClientKind) -> bool {
-    kind == ClientKind::Dereth || RETAIL_HERE
+    kind != ClientKind::Retail || RETAIL_HERE
 }
 
 /// Whether this system can run the retail client at all. It is a Windows program; elsewhere the
 /// launcher offers the Dereth client alone and never takes a folder's `acclient.exe`.
 const RETAIL_HERE: bool = cfg!(windows);
+
+/// The file in the data folder that keeps the secrets the launcher made for Asheron's Call 2
+/// accounts when the system has no secret store to keep them in (a Linux desktop with no keyring):
+/// the player's alone.
+pub const SECRETS_FILE: &str = "auberean/secrets.json";
 
 /// The launcher's state and everything it is doing.
 pub struct Backend {
@@ -498,6 +503,9 @@ pub struct Backend {
     message: Option<Message>,
     vault: Box<dyn Vault + Send>,
     vault_name: &'static str,
+    /// Where an Asheron's Call 2 account's secret the launcher made is kept when the vault cannot
+    /// keep it ([`SECRETS_FILE`]).
+    secrets: SecretFile,
     /// The preferences file the Dereth client reads when the launcher starts it, which names the
     /// interface it starts in ([`interface::preferences_file`]).
     client_preferences: Option<PathBuf>,
@@ -569,6 +577,7 @@ impl Backend {
         // The launcher asks each world how it is itself, with the status ping.
         list.set_asks_worlds(true);
         let plugins = Shelf::open(folders.plugins());
+        let secrets = SecretFile::new(folders.data.join(SECRETS_FILE));
         Self {
             plugins,
             folders,
@@ -585,6 +594,7 @@ impl Backend {
             running: Vec::new(),
             job: None,
             message: None,
+            secrets,
             vault,
             vault_name,
             client_preferences,
@@ -732,7 +742,7 @@ impl Backend {
             .map_err(|e| format!("Could not save the interface to {}: {e}", file.display()))
     }
 
-    fn world(&self, slug: &str) -> Option<World> {
+    pub fn world(&self, slug: &str) -> Option<World> {
         self.all_worlds().find(|w| w.slug == slug)
     }
 
@@ -790,19 +800,12 @@ impl Backend {
     ) -> Result<String, String> {
         dereth_launch::auberean::secret_for(
             self.vault.as_mut(),
+            &mut self.secrets,
             slug,
             account,
             typed,
             &mut crate::auberean::new_secret,
         )
-    }
-
-    /// Keep `account` as the account the player plays Auberean with.
-    pub fn set_auberean_account(&mut self, account: &str) {
-        if self.state.auberean.account.as_deref() != Some(account) {
-            self.state.auberean.account = Some(account.to_owned());
-            self.save();
-        }
     }
 
     /// The address and game port of the world `slug`, as its list row or the player names it.
@@ -1067,6 +1070,23 @@ impl Backend {
             .get(slug)
             .cloned()
             .unwrap_or_default();
+        // An Asheron's Call 2 world is played with that game's clients and the player's own
+        // install, which the realm's view says ([`crate::auberean::View`]); its accounts and what
+        // was played there last are kept as any world's.
+        if world.game == Game::Auberean {
+            return Ok(WorldView {
+                clients: Vec::new(),
+                default_client: prefs.client,
+                dat_sets: Vec::new(),
+                classic_sets: Vec::new(),
+                requires: choices::required_set_for(&world),
+                offers_private_copy: false,
+                accounts: self.state.accounts_for(slug).cloned().collect(),
+                prefs,
+                live: self.live.get(slug).cloned(),
+                world,
+            });
+        }
         let mut options = choices::clients_for(&self.state, &world, self.dereth.as_ref());
         options.retain(|o| can_run(o.kind));
         let default_client = choices::default_client(&options, &world, prefs.client);
@@ -1100,6 +1120,7 @@ impl Backend {
             ClientKind::Retail => self.state.retail.clone().ok_or_else(|| {
                 "There is no retail client yet: choose its folder in the Library.".to_owned()
             }),
+            ClientKind::Auberean => Err("Auberean plays Asheron's Call 2's worlds.".to_owned()),
         }
     }
 
@@ -1254,6 +1275,24 @@ impl Backend {
         } else {
             let _ = self.vault.delete(&key);
         }
+        let choice = Choice {
+            dat_set_id,
+            classic_set_id,
+            ..choice
+        };
+        self.launched(&world, &choice, child, install.multi_instance)
+    }
+
+    /// What follows every launch, of either game's client: the account kept for the world, what
+    /// was played there last, the combination first among the recent ones, and the running game,
+    /// which Discord shows.
+    pub fn launched(
+        &mut self,
+        world: &World,
+        choice: &Choice,
+        child: Child,
+        multi_instance: bool,
+    ) -> LaunchOutcome {
         let existing = self
             .state
             .account(&choice.world_slug, &choice.account)
@@ -1270,8 +1309,8 @@ impl Backend {
             &choice.world_slug,
             WorldPrefs {
                 client: Some(choice.client),
-                dat_set_id: dat_set_id.clone(),
-                classic_set_id: classic_set_id.clone(),
+                dat_set_id: choice.dat_set_id.clone(),
+                classic_set_id: choice.classic_set_id.clone(),
                 account: Some(choice.account.clone()),
                 last_played: Some(now()),
             },
@@ -1280,8 +1319,8 @@ impl Backend {
             world_slug: choice.world_slug.clone(),
             account: choice.account.clone(),
             client: choice.client,
-            dat_set_id: dat_set_id.clone(),
-            classic_set_id,
+            dat_set_id: choice.dat_set_id.clone(),
+            classic_set_id: choice.classic_set_id.clone(),
             last_played: now(),
         });
         self.save();
@@ -1289,11 +1328,11 @@ impl Backend {
             child,
             world_slug: world.slug.clone(),
             account: choice.account.clone(),
-            kind: install.kind,
-            multi_instance: install.multi_instance,
-            dat_set_id,
+            kind: choice.client,
+            multi_instance,
+            dat_set_id: choice.dat_set_id.clone(),
             // The launcher never learns which character is played, so the activity names none.
-            activity: Activity::new(&world, install.kind, None, now()),
+            activity: Activity::new(world, choice.client, None, now()),
         });
         LaunchOutcome::Launched {
             world: world.name.clone(),
@@ -1543,24 +1582,25 @@ impl Backend {
 
     pub fn open_host_world(&mut self, dir: &Path) -> Result<String, String> {
         let definition = crate::host_runtime::read_definition(dir)?;
-        let settings = crate::host_config::Settings::from_config(
-            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
-        )?;
-        let host = if settings.bind == "0.0.0.0" {
-            "127.0.0.1".into()
-        } else {
-            settings.bind
-        };
+        let settings = crate::host_runtime::read_settings(dir, definition.game)?;
+        let host = crate::host_yalain::local_host(&settings.bind);
         let slug = self.add_custom_world(&NewServer {
             name: settings.name,
             host,
             port: settings.port.to_string(),
             ruleset: None,
-            emulator: Emulator::Empyrean,
-            ..NewServer::default()
+            emulator: match definition.game {
+                Game::Dereth => Emulator::Empyrean,
+                Game::Auberean => Emulator::Yalain,
+            },
+            game: definition.game,
         })?;
-        let find = self.read_folder(&settings.dats);
-        self.add_folder(find);
+        // A Yalain world is played over the player's own Asheron's Call 2 install, which the
+        // realm keeps; an Empyrean world's game data goes in the Library.
+        if definition.game == Game::Dereth {
+            let find = self.read_folder(&settings.dats);
+            self.add_folder(find);
+        }
         crate::host_publication::register_player(&self.folders.data, &definition.id, &slug)?;
         Ok(slug)
     }
@@ -1577,10 +1617,17 @@ impl Backend {
             .map(|a| target(slug, &a.username))
             .collect();
         for t in targets {
-            let _ = self.vault.delete(&t);
+            self.forget_secret(&t);
         }
         self.state.remove_custom_world(slug);
         self.save();
+    }
+
+    /// Forget the password kept under `target`: in the vault, and in the launcher's own file,
+    /// where a secret it made is when the vault could not keep it.
+    fn forget_secret(&mut self, target: &str) {
+        let _ = self.vault.delete(target);
+        let _ = self.secrets.delete(target);
     }
 
     /// Forget every account, and every password kept for one.
@@ -1592,21 +1639,21 @@ impl Backend {
             .map(|a| (a.world_slug.clone(), a.username.clone()))
             .collect();
         for (slug, username) in all {
-            let _ = self.vault.delete(&target(&slug, &username));
+            self.forget_secret(&target(&slug, &username));
             self.state.forget_account(&slug, &username);
         }
         self.save();
     }
 
     pub fn forget_account(&mut self, slug: &str, username: &str) {
-        let _ = self.vault.delete(&target(slug, username));
+        self.forget_secret(&target(slug, username));
         self.state.forget_account(slug, username);
         self.save();
     }
 
     pub fn set_remember(&mut self, slug: &str, username: &str, remember: bool) {
         if !remember {
-            let _ = self.vault.delete(&target(slug, username));
+            self.forget_secret(&target(slug, username));
         }
         if let Some(a) = self
             .state
@@ -1847,7 +1894,7 @@ impl Backend {
             .map(|a| target(&a.world_slug, &a.username))
             .collect();
         for t in targets {
-            let _ = self.vault.delete(&t);
+            self.forget_secret(&t);
         }
         for a in &mut self.state.accounts {
             a.remember = false;
@@ -1923,6 +1970,170 @@ mod tests {
             dat_set_id: Some("eor".into()),
             classic_set_id: None,
         }
+    }
+
+    /// A secret store that keeps nothing, as a Linux desktop's with no keyring.
+    #[derive(Debug)]
+    struct NoKeyring;
+
+    impl Vault for NoKeyring {
+        fn get(&self, _: &str) -> Result<Option<String>, dereth_launch::vault::VaultError> {
+            Err(dereth_launch::vault::VaultError("no keyring".into()))
+        }
+        fn set(
+            &mut self,
+            _: &str,
+            _: &str,
+            _: &str,
+        ) -> Result<(), dereth_launch::vault::VaultError> {
+            Err(dereth_launch::vault::VaultError("no keyring".into()))
+        }
+        fn delete(&mut self, _: &str) -> Result<(), dereth_launch::vault::VaultError> {
+            Err(dereth_launch::vault::VaultError("no keyring".into()))
+        }
+        fn list(&self, _: &str) -> Result<Vec<String>, dereth_launch::vault::VaultError> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// With no secret store, the secret the launcher makes for an Asheron's Call 2 account is kept
+    /// in its own data folder: the same at every launch and after the launcher starts again,
+    /// until the account is forgotten.
+    #[test]
+    fn with_no_keyring_an_asheron_s_call_2_secret_is_kept_in_the_data_folder() {
+        let dir = tmp("no-keyring");
+        let open = || {
+            Backend::new(
+                Folders::single(dir.join("state")),
+                Vec::new(),
+                None,
+                Box::new(NoKeyring),
+                "nothing",
+                None,
+            )
+        };
+        let mut b = open();
+        let first = b.auberean_secret("shardfall", "player", None).unwrap();
+        assert_eq!(
+            b.auberean_secret("shardfall", "Player", None),
+            Ok(first.clone())
+        );
+        assert_eq!(
+            open().auberean_secret("shardfall", "player", None),
+            Ok(first.clone()),
+            "the next launcher's"
+        );
+        let file = b.folders.data.join(SECRETS_FILE);
+        assert!(std::fs::read_to_string(&file).unwrap().contains(&first));
+        b.forget_account("shardfall", "player");
+        assert!(!file.exists(), "forgotten with the account");
+        assert_ne!(b.auberean_secret("shardfall", "player", None), Ok(first));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A process that ends at once, standing in for a client the launcher started.
+    fn a_process() -> Child {
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit"]);
+            c
+        } else {
+            Command::new("true")
+        };
+        cmd.spawn().unwrap()
+    }
+
+    /// A Yalain world the launcher hosts goes on the realm's list as Yalain's, of Asheron's Call 2,
+    /// at the address it listens on.
+    #[test]
+    fn a_hosted_yalain_world_is_listed_as_yalain_s() {
+        let (mut b, dir) = backend("yalain-host");
+        let host = dir.join("host-1");
+        std::fs::create_dir_all(&host).unwrap();
+        let definition = crate::host_runtime::Definition {
+            id: "host-1".into(),
+            version: "0.1.0".into(),
+            program: dir.join("yalain.exe"),
+            wrapper: dir.join("dereth-host.exe"),
+            checkout: false,
+            game: Game::Auberean,
+        };
+        crate::host_runtime::write_json(&host.join("host.json"), &definition).unwrap();
+        let settings = crate::host_config::Settings {
+            name: "Dawnsong".into(),
+            dats: dir.join("ac2"),
+            bind: "127.0.0.1".into(),
+            port: 9200,
+            accounts: true,
+            ..crate::host_config::Settings::default()
+        };
+        crate::host_yalain::write(&host, &settings).unwrap();
+        let slug = b.open_host_world(&host).unwrap();
+        let world = b.world(&slug).unwrap();
+        assert_eq!(
+            (world.emulator, world.game),
+            (Emulator::Yalain, Game::Auberean)
+        );
+        assert_eq!(
+            world.endpoint.map(|e| (e.address, e.port)),
+            Some(("127.0.0.1".into(), 9200))
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A launch of an Asheron's Call 2 world is kept as any launch is: the account for the world,
+    /// what was played there last, the combination first on Play, and the running game, which
+    /// Discord shows as that game's.
+    #[test]
+    fn an_asheron_s_call_2_launch_keeps_the_account_the_combination_and_the_running_game() {
+        let (mut b, dir) = backend("ac2-launched");
+        let slug = b
+            .add_custom_world(&NewServer {
+                name: "Dawnsong".into(),
+                host: "127.0.0.1".into(),
+                port: "9200".into(),
+                game: Game::Auberean,
+                ..NewServer::default()
+            })
+            .unwrap();
+        let world = b.world(&slug).unwrap();
+        let view = b.world_view(&slug).unwrap();
+        assert!(
+            view.clients.is_empty() && view.dat_sets.is_empty(),
+            "the realm's own clients"
+        );
+        let choice = Choice {
+            world_slug: slug.clone(),
+            account: "player".into(),
+            password: None,
+            remember: true,
+            client: ClientKind::Retail,
+            dat_set_id: None,
+            classic_set_id: None,
+        };
+        let out = b.launched(&world, &choice, a_process(), true);
+        assert!(matches!(out, LaunchOutcome::Launched { .. }));
+        assert!(b.state.account(&slug, "player").is_some());
+        let recent = &b.state.recent[0];
+        assert_eq!(
+            (
+                recent.world_slug.as_str(),
+                recent.account.as_str(),
+                recent.client
+            ),
+            (slug.as_str(), "player", ClientKind::Retail)
+        );
+        assert_eq!(b.state.world_prefs[&slug].client, Some(ClientKind::Retail));
+        assert_eq!(
+            b.presence().unwrap().state,
+            "Retail client · Asheron's Call 2"
+        );
+        // And the world's page offers that client again, as the backend says.
+        assert_eq!(
+            b.world_view(&slug).unwrap().default_client,
+            Some(ClientKind::Retail)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The list and the worlds' status documents are read over HTTPS only, except from this
@@ -3856,6 +4067,7 @@ mod tests {
                 program: host.join("server"),
                 wrapper: host.join("wrapper"),
                 checkout: false,
+                game: dereth_launch::world::Game::Dereth,
             },
         )
         .unwrap();
@@ -3920,6 +4132,7 @@ mod tests {
                 program: host.join("server"),
                 wrapper: host.join("wrapper"),
                 checkout: false,
+                game: dereth_launch::world::Game::Dereth,
             },
         )
         .unwrap();

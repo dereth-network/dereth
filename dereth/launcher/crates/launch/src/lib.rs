@@ -50,7 +50,7 @@
 //! | [`auberean`] | Auberean's realm: the player's Asheron's Call 2 install and its check, and the command lines of a world on this computer and of the client |
 //! | [`swap`] | putting a downloaded release in place of the running one, where no installer does |
 //! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icons |
-//! | [`vault`] | the seam to the operating system's secret store; passwords live nowhere else |
+//! | [`vault`] | the seam to the operating system's secret store; passwords live nowhere else, and a secret the launcher made goes in a file of its own when there is no store |
 //! | [`registry`] | the signed snapshot, and which source is trusted for which fields |
 //! | [`status`] | Empyrean's public status document |
 //! | [`probe`] | whether any server is up, asked with the server-tracker login |

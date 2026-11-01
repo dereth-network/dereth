@@ -54,6 +54,8 @@ pub enum Emulator {
     /// ClassicACE, a fork of ACE.
     ClassicAce,
     Gdle,
+    /// Yalain, the Asheron's Call 2 server.
+    Yalain,
     /// Not said, or software the launcher does not know by name, which it treats alike. A record
     /// saved as `other` reads as this.
     #[default]
@@ -69,6 +71,7 @@ impl Emulator {
             "classicace" | "classic ace" | "classic-ace" | "classic_ace" => Emulator::ClassicAce,
             // The community list spells it `GDL`.
             "gdle" | "gdl" => Emulator::Gdle,
+            "yalain" => Emulator::Yalain,
             _ => Emulator::Unknown,
         }
     }
@@ -79,6 +82,7 @@ impl Emulator {
             Emulator::Ace => "ACE",
             Emulator::ClassicAce => "ClassicACE",
             Emulator::Gdle => "GDLE",
+            Emulator::Yalain => "Yalain",
             Emulator::Unknown => "Unknown",
         }
     }
@@ -750,6 +754,12 @@ mod tests {
         assert_eq!(w.era_source, None);
         assert_eq!(Emulator::parse("ClassicACE"), Emulator::ClassicAce);
         assert_eq!(Emulator::ClassicAce.label(), "ClassicACE");
+        assert_eq!(Emulator::parse("Yalain"), Emulator::Yalain);
+        assert_eq!(
+            serde_json::to_string(&Emulator::Yalain).unwrap(),
+            "\"yalain\""
+        );
+        assert!(!Emulator::Yalain.requires_end_of_retail_protocol());
         assert_eq!(
             Emulator::parse("Thwarg"),
             Emulator::Unknown,

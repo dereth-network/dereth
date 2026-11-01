@@ -56,7 +56,7 @@ const ui = {
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
   // Auberean's realm: the account and password as typed, the listed world whose page is open, and
   // a new Athenaeum world's form.
-  ac2: { account: null, password: "", world: null, draft: null, making: false, client: null },
+  ac2: { draft: null, making: false },
 };
 
 // ----- small helpers ---------------------------------------------------------------------------------
@@ -64,7 +64,16 @@ const ui = {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const worldBy = (slug) => ui.snap?.worlds.find((w) => w.slug === slug);
 // The two clients: the Dereth client the launcher found beside itself, and the player's retail one.
-const clientOf = (kind) => (kind === "retail" ? ui.snap?.state.retail : kind === "dereth" ? ui.snap?.dereth : null) ?? null;
+// The client of `kind` for a world of `game`: Asheron's Call's retail client or the Dereth client,
+// or for Asheron's Call 2 the retail client in the player's install or Auberean.
+const clientOf = (kind, game = "dereth") => (game === "auberean"
+  ? (kind === "retail" ? ac2Ready("retail") : kind === "auberean" ? ac2Ready("auberean") : false) || null
+  : (kind === "retail" ? ui.snap?.state.retail : kind === "dereth" ? ui.snap?.dereth : null) ?? null);
+// Each game's world server: the program the launcher downloads, and its name.
+const SERVERS = { dereth: { product: "empyrean", name: "Empyrean" }, auberean: { product: "yalain", name: "Yalain" } };
+const serverOf = (game) => SERVERS[game ?? "dereth"];
+// The game of the realm the page is in.
+const realmGame = () => REALMS[ui.realm].game;
 const clients = () => [ui.snap?.dereth, ui.snap?.state.retail].filter(Boolean);
 // The retail client is a Windows program. Elsewhere the page offers the Dereth client alone and
 // never mentions retail.
@@ -114,8 +123,10 @@ function eraLabel(name) {
   return ui.snap?.eras.find((e) => e.name === name)?.label ?? name;
 }
 // The era a world plays, in words: the one it names, else the end of retail; for an Empyrean world
-// that has not said which, "Checking…" while an answer may still come, then "Unknown".
+// that has not said which, "Checking…" while an answer may still come, then "Unknown"; for a world
+// of Asheron's Call 2's, which has no eras, the game.
 function eraText(w) {
+  if (w.game === "auberean") return "Asheron's Call 2";
   if (w.era_state === "checking") return "Checking…";
   if (w.era_state === "unknown") return "Unknown";
   return eraLabel(w.era || "eor");
@@ -353,7 +364,7 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { "a-world": aubereanWorldPage, server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins, "first-run": firstRun, interface: interfacePage };
+  const screens = { server: serverList, "server-page": serverPage, "server-settings": settingsPage, "local-page": localPage, make: makePage, home, worlds, world: worldPage, library, accounts, plugins, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
@@ -505,9 +516,10 @@ function since(started) {
 
 // The Empyrean a world runs: its own copy's version, or this checkout's build.
 function serverVersion(h) {
-  if (!h.checkout) return `Empyrean ${vee(h.version)}`;
-  const v = comp("empyrean")?.checkout_version ?? (/^\d/.test(h.version) ? h.version : null);
-  return `Empyrean${v ? ` ${vee(v)}` : ""} (Local Build)`;
+  const { product, name } = serverOf(h.game);
+  if (!h.checkout) return `${name} ${vee(h.version)}`;
+  const v = comp(product)?.checkout_version ?? (/^\d/.test(h.version) ? h.version : null);
+  return `${name}${v ? ` ${vee(v)}` : ""} (Local Build)`;
 }
 
 // A world in a line: its state, its version, who is on and how long it has been up.
@@ -591,9 +603,10 @@ document.addEventListener("toggle", (ev) => {
 // ----- connecting to a world
 
 // Whether friends elsewhere can reach the world, as far as the launcher can tell from inside.
-function reachText(port) {
+function reachText(port, game) {
   const sh = ui.snap.sharing ?? {};
-  const pair = `UDP ports ${port} and ${port + 1}`;
+  // A Yalain world takes four ports, and its friends service TCP on the first.
+  const pair = game === "auberean" ? `UDP ports ${port} to ${port + 3}, and TCP port ${port},` : `UDP ports ${port} and ${port + 1}`;
   if (sh.router && sh.shared_address) return "Your internet provider shares its address among many homes, so friends elsewhere can't reach this computer.";
   const f = (sh.forwards ?? []).find(([p]) => p === port);
   if (sh.router && f && f[1]) {
@@ -641,25 +654,27 @@ function connectBlock(o) {
   const row = (label, value) => `<div class="share-row"><span class="lab">${label}</span>${value
     ? `<span class="addr">${esc(value)}</span><button class="btn mini-btn" data-copy="${esc(value)}">Copy</button>`
     : `<span class="muted">Not available</span>`}</div>`;
-  const reach = others ? reachText(o.port) : `Only players on this computer can join.${o.kind === "host" ? " Allow other players in Settings to share it." : ""}`;
+  const reach = others ? reachText(o.port, o.game) : `Only players on this computer can join.${o.kind === "host" ? " Allow other players in Settings to share it." : ""}`;
   const out = (sh.outside ?? {})[o.port];
   const found = outsideText(out);
   // What the Dereth Network found outside settles what the router could only suggest.
   const reached = out?.outcome?.kind === "answered" && out.outcome.reached;
   const host = outside ? sh.public : local ? local.split(":")[0] : null;
-  const link = host ? joinLink(o.name, host, o.port) : null;
+  const link = host ? joinLink(o.name, host, o.port, o.game) : null;
   return `${row("LOCAL ADDRESS", local)}${row("PUBLIC ADDRESS", outside)}
     ${reached ? "" : `<p class="small muted reach">${esc(reach)}</p>`}
     <div class="share-row"><span class="lab"></span>
-      ${others ? `<button class="btn mini-btn" data-check-outside="${o.port}" ${out?.checking ? "disabled" : ""} title="The Dereth Network tries this computer at the world's port, as a friend elsewhere would">Check from outside</button>` : ""}
+      ${others && o.game !== "auberean" ? `<button class="btn mini-btn" data-check-outside="${o.port}" ${out?.checking ? "disabled" : ""} title="The Dereth Network tries this computer at the world's port, as a friend elsewhere would">Check from outside</button>` : ""}
       <button class="btn mini-btn" data-copy-link="${esc(link ?? "")}" ${link ? "" : "disabled"} title="${esc(link ?? "")}">Copy link</button></div>
     ${found ? `<p class="small reach ${reached ? "good" : ""}">${esc(found)}</p>` : ""}`;
 }
 
 // ----- the console
 
-// The command line's kinds: a plain command, and the few a host wants most.
+// The command line's kinds: a plain command, and the few a host wants most. Yalain's console takes
+// its own commands typed (`help` lists them).
 const COMMAND_KINDS = [["command", "empyrean>"], ["account", "Add account..."], ["message", "Message everyone..."], ["save", "Save"], ["shutdown", "Shut down in 5 minutes"]];
+const YALAIN_COMMAND_KINDS = [["command", "yalain>"]];
 
 // The world's log, searched, and under it, for a world that takes commands, its command line.
 // `o`: { kind, id, logs, commands, exportable, empty }.
@@ -672,10 +687,10 @@ function consoleBlock(o) {
       ${o.exportable ? `<button class="btn mini-btn" data-srv-export="${esc(o.id)}">Save log</button>` : ""}</div>`;
   if (!o.commands) return tools + log;
   const c = ui.cmd[target] ?? { kind: "command", text: "", account: "", password: "" };
-  const kinds = COMMAND_KINDS.map(([k, l]) => `<option value="${k}" ${c.kind === k ? "selected" : ""}>${esc(l)}</option>`).join("");
+  const kinds = (o.game === "auberean" ? YALAIN_COMMAND_KINDS : COMMAND_KINDS).map(([k, l]) => `<option value="${k}" ${c.kind === k ? "selected" : ""}>${esc(l)}</option>`).join("");
   const id = esc(o.id);
   const fields = {
-    command: `<input id="cmd-${id}" class="field" data-cmd-field="text" data-cmd="${esc(target)}" value="${esc(c.text)}" placeholder="A command, as typed at the world's console" autocomplete="off">`,
+    command: `<input id="cmd-${id}" class="field" data-cmd-field="text" data-cmd="${esc(target)}" value="${esc(c.text)}" placeholder="${o.game === "auberean" ? "A command, as typed at the world's console: help lists them" : "A command, as typed at the world's console"}" autocomplete="off">`,
     account: `<input id="cmd-acct-${id}" class="field" data-cmd-field="account" data-cmd="${esc(target)}" value="${esc(c.account)}" placeholder="Account name" autocomplete="off">
       <input id="cmd-pass-${id}" class="field" type="password" data-cmd-field="password" data-cmd="${esc(target)}" value="${esc(c.password)}" placeholder="Password" autocomplete="new-password">`,
     message: `<input id="cmd-msg-${id}" class="field" data-cmd-field="text" data-cmd="${esc(target)}" value="${esc(c.text)}" placeholder="What everyone playing reads" autocomplete="off">`,
@@ -693,10 +708,14 @@ function consoleBlock(o) {
 
 // The game port a new world takes: the first no other world has. The game uses its port and the
 // one after it.
-function freePorts() {
-  const hosts = ui.snap.hosts ?? [];
-  let port = 9000;
-  while (hosts.some((h) => Math.abs(h.settings.port - port) < 2) || (ui.snap.local ?? []).some((w) => w.port != null && Math.abs(w.port - port) < 2)) port += 2;
+// A Yalain world takes four (its login service two, its world service the two above).
+function freePorts(game = "dereth") {
+  const width = (g) => (g === "auberean" ? 4 : 2);
+  const taken = (ui.snap.hosts ?? []).map((h) => [h.settings.port, width(h.game)])
+    .concat((ui.snap.local ?? []).filter((w) => w.port != null).map((w) => [w.port, 2]));
+  const clash = (port) => taken.some(([at, n]) => port < at + n && at < port + width(game));
+  let port = game === "auberean" ? 9200 : 9000;
+  while (clash(port)) port += 2;
   return { port };
 }
 
@@ -730,22 +749,29 @@ const textField = (id, path, s, extra = "") => `<input id="${id}" class="field" 
 // few words of its own when it has them. A locked box can't be changed, and says why under it.
 const checkRow = (id, label, path, on, { tip, trail, locked, note } = {}) => `<label class="lab" for="${id}"${tipOf(tip)}>${label}</label>
   <div class="pair box"><input type="checkbox" id="${id}" data-srv-field="${path}" ${on ? "checked" : ""}${locked ? " disabled" : ""}${tipOf(tip)}>${trail ? `<label class="trail" for="${id}"${tipOf(tip)}>${trail}</label>` : ""}</div>${note ? `<p class="note muted">${note}</p>` : ""}`;
-// The game port, and the one after it that the world takes too.
-function portTrail(port) {
+// The game port, and the one after it that the world takes too; a Yalain world, the three after.
+function portTrail(port, game) {
   const p = Number(port);
+  if (game === "auberean") return Number.isInteger(p) && p >= 1 && p < 65533 ? `to ${p + 3}` : "";
   return Number.isInteger(p) && p >= 1 && p < 65535 ? `and ${p + 1}` : "";
 }
-const portRow = (id, s) => formRow(id, "PORT", `<div class="pair"${tipOf(TIP_PORT)}><input id="${id}" class="field narrow-field" type="number" min="1" max="65534" data-srv-field="port" value="${esc(s.port)}"${tipOf(TIP_PORT)}><span class="muted small">${esc(portTrail(s.port))}</span></div>`, { tip: TIP_PORT });
+const TIP_PORT_YALAIN = "A Yalain world takes four consecutive ports: its login service two, its world service the two above.";
+const portRow = (id, s, game) => {
+  const tip = game === "auberean" ? TIP_PORT_YALAIN : TIP_PORT;
+  return formRow(id, "PORT", `<div class="pair"${tipOf(tip)}><input id="${id}" class="field narrow-field" type="number" min="1" max="${game === "auberean" ? 65532 : 65534}" data-srv-field="port" value="${esc(s.port)}"${tipOf(tip)}><span class="muted small">${esc(portTrail(s.port, game))}</span></div>`, { tip });
+};
 // Whether a world lets other players in: it listens on more than this computer.
 const othersAllowed = (s) => s.bind !== "127.0.0.1" && s.bind !== "::1";
 
-// A new world plays the Library's default data files and lets other players in.
+// A new world plays the Library's default data files and lets other players in; a Yalain world,
+// the player's Asheron's Call 2 install.
 function newServerDraft() {
-  const dats = defaultDats() ?? librarySets("modern")[0]?.path ?? "";
+  const game = realmGame();
+  const dats = game === "auberean" ? ac2().check?.dir ?? "" : defaultDats() ?? librarySets("modern")[0]?.path ?? "";
   const names = new Set((ui.snap.hosts ?? []).map((h) => h.settings.name));
   let name = "My world";
   for (let n = 2; names.has(name); n += 1) name = `My world ${n}`;
-  return { settings: { name, dats, bind: "0.0.0.0", accounts: true, era: "eor", ...freePorts() } };
+  return { settings: { name, dats, bind: "0.0.0.0", accounts: true, era: "eor", ...freePorts(game) } };
 }
 
 // The game data a world plays: one of the Library's sets of the kind its era is drawn from, as
@@ -766,11 +792,11 @@ function datsField(id, s, locked) {
 
 // What a new world asks: its name, its game data, its port, and two choices, laid out as its
 // Settings lay them out.
-function newWorldFields(s) {
+function newWorldFields(s, game = "dereth") {
   return `<div class="form long-labels">
       ${formRow("new-name", "NAME", `<input id="new-name" class="field" data-srv-field="name" value="${esc(s.name)}">`)}
-      ${formRow("new-dats", "GAME DATA", datsField("new-dats", s))}
-      ${portRow("new-port", s)}
+      ${game === "auberean" ? `<span class="lab">GAME FILES</span>${installLine()}` : formRow("new-dats", "GAME DATA", datsField("new-dats", s))}
+      ${portRow("new-port", s, game)}
       ${checkRow("new-others", "ALLOW OTHER PLAYERS", "others", othersAllowed(s), { tip: TIP_OTHERS })}
       ${checkRow("new-accounts", "AUTOMATICALLY CREATE ACCOUNTS", "accounts", s.accounts, { tip: TIP_ACCOUNTS })}
     </div>`;
@@ -779,20 +805,22 @@ function newWorldFields(s) {
 // The realm's server or world builder, where the launcher cannot fetch it yet: its page says so.
 
 function serverList() {
-  if (ui.realm !== "dereth") return yalainPage();
-  const hosts = ui.snap.hosts ?? [];
-  const others = ui.snap.local ?? [];
+  const game = realmGame();
+  const { product, name } = serverOf(game);
+  const hosts = (ui.snap.hosts ?? []).filter((h) => (h.game ?? "dereth") === game);
+  // The other worlds the launcher finds on this computer are Asheron's Call's servers.
+  const others = game === "dereth" ? ui.snap.local ?? [] : [];
   const pending = ui.serverDraft
-    ? `<section class="panel pending"><header><h1>NEW WORLD</h1></header>${newWorldFields(ui.serverDraft.settings)}
+    ? `<section class="panel pending"><header><h1>NEW WORLD</h1></header>${newWorldFields(ui.serverDraft.settings, game)}
       <div class="btns end" style="margin-top:12px"><button class="btn" data-act="srv-new-cancel">Cancel</button><button class="btn" data-act="srv-create">Make world</button></div></section>`
     : "";
   const rows = hosts.map(serverRow).join("")
-    || `<p class="muted">${ready("empyrean") ? "No world servers." : "Download Empyrean to host a world."}</p>`;
+    || `<p class="muted">${ready(product) ? "No world servers." : `Download ${name} to host a world.`}</p>`;
   const otherRows = others.length ? `<h2>OTHER WORLD SERVERS ON THIS COMPUTER</h2><div class="list">${others.map(localRow).join("")}</div>` : "";
   return `<div class="column wide" style="height:100%">${pending}
-      <section class="panel grow"><header>${brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER</h1>${ready("empyrean") && !ui.serverDraft ? `<button class="btn" data-act="srv-new">+ New world</button>` : ""}</header>
-        <div class="scroll">${ready("empyrean") ? "" : `<p class="muted small">Run a world of your own on this computer, for you and your friends.</p>`}
-          ${programLine("empyrean")}
+      <section class="panel grow"><header>${brand("empyrean")}<h1>${name.toUpperCase()}: HOST A WORLD SERVER</h1>${ready(product) && !ui.serverDraft ? `<button class="btn" data-act="srv-new">+ New world</button>` : ""}</header>
+        <div class="scroll">${ready(product) ? "" : `<p class="muted small">Run a world of your own on this computer, for you and your friends.</p>`}
+          ${programLine(product)}
           <h2>YOUR WORLD SERVERS</h2><div class="list">${rows}</div>${otherRows}</div>
       </section>
     </div>`;
@@ -905,10 +933,13 @@ function serverPage() {
   const note = h.busy ?? h.status.message ?? h.message;
   const running = isRunning(h);
   const offered = u.version && !u.pending;
-  const advanced = `<div class="aligned">${updatesBlock(h)}
+  // What a Yalain world has of Empyrean's: no release updates, Lyceum worlds or hub listing yet.
+  const empyrean = (h.game ?? "dereth") === "dereth";
+  const server = serverOf(h.game).name;
+  const advanced = `<div class="aligned">${empyrean ? updatesBlock(h) : `<div class="share-row"><span>${esc(serverVersion(h))}</span></div>`}
     <div class="share-row"><button class="btn mini-btn" data-srv-folder="${h.id}" title="${esc(h.folder)}">Open world folder</button></div>
     ${serviceRow(h, running)}
-    ${listRow(h)}
+    ${empyrean ? listRow(h) : ""}
     ${deleteRow(h, running)}</div>`;
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><button class="btn icon-btn back" data-go="server" title="Back to your world servers">${CHEVRON_LEFT}</button><h1>${esc(h.settings.name.toUpperCase())}</h1>
@@ -918,10 +949,10 @@ function serverPage() {
           <div class="facts">${bead(dot)}<span>${esc(serverFacts(h))}</span></div>
           ${note ? `<p class="small ${h.status.phase === "failed" ? "bad" : ""}">${esc(note)}</p>` : ""}
           ${h.prepared ? "" : `<p class="small warn">Before its first start the world needs its world database, a one-time download. Get world database fetches it.</p>`}
-          ${offered ? `<p class="small warn">Empyrean ${esc(u.version)} is out. It is under Advanced.</p>` : ""}
-          ${fold(`fold-connect-${h.id}`, "CONNECT", connectBlock({ kind: "host", id: h.id, name: h.settings.name, port: h.settings.port, bind: h.settings.bind }), true)}
-          ${fold(`fold-console-${h.id}`, "CONSOLE", consoleBlock({ kind: "host", id: h.id, logs: h.logs, commands: h.status.phase === "running", exportable: true, empty: "Nothing yet. Empyrean's output shows here while the world runs." }), true)}
-          ${fold(`fold-lyceum-${h.id}`, "LYCEUM", lyceumBlock(h, running), !!h.publication)}
+          ${offered && empyrean ? `<p class="small warn">Empyrean ${esc(u.version)} is out. It is under Advanced.</p>` : ""}
+          ${fold(`fold-connect-${h.id}`, "CONNECT", connectBlock({ kind: "host", id: h.id, name: h.settings.name, port: h.settings.port, bind: h.settings.bind, game: h.game }), true)}
+          ${fold(`fold-console-${h.id}`, "CONSOLE", consoleBlock({ kind: "host", id: h.id, game: h.game, logs: h.logs, commands: h.status.phase === "running", exportable: true, empty: `Nothing yet. ${server}'s output shows here while the world runs.` }), true)}
+          ${empyrean ? fold(`fold-lyceum-${h.id}`, "LYCEUM", lyceumBlock(h, running), !!h.publication) : ""}
           ${fold(`fold-advanced-${h.id}`, "ADVANCED", advanced, !!offered)}
         </div>
       </section>
@@ -1084,6 +1115,27 @@ function settingsPage() {
       ${formRow("set-log", "LOG LEVEL", `<select id="set-log" class="field narrow-select" data-srv-field="log_level">${levels}</select>`)}
     </div>`;
 
+  const yalain = h.game === "auberean";
+  const yalainWorld = `<div class="form long-labels">
+      ${formRow("set-name", "NAME", textField("set-name", "name", s))}
+      <span class="lab">GAME FILES</span><div class="pair"><span class="small" title="${esc(s.dats)}">${esc(s.dats)}</span></div>
+      ${portRow("set-port", s, "auberean")}
+    </div>`;
+  const yalainPlayers = `<div class="form long-labels">
+      ${checkRow("set-others", "ALLOW OTHER PLAYERS", "others", othersAllowed(s), { tip: TIP_OTHERS })}
+      ${checkRow("set-accounts", "AUTOMATICALLY CREATE ACCOUNTS", "accounts", s.accounts, { tip: TIP_ACCOUNTS })}
+    </div>`;
+  const sections = yalain
+    ? `${fold(`set-world-${id}`, "WORLD", yalainWorld, true)}
+          ${fold(`set-players-${id}`, "PLAYERS", yalainPlayers, true)}`
+    : `${fold(`set-world-${id}`, "WORLD", world, true)}
+          ${fold(`set-players-${id}`, "PLAYERS", players, true)}
+          ${fold(`set-systems-${id}`, "ERA SYSTEMS", systems, false)}
+          ${fold(`set-websocket-${id}`, "WEBSOCKET", websocket, false)}
+          ${fold(`set-network-${id}`, "DERETH NETWORK", network, false)}
+          ${fold(`set-lyceum-${id}`, "LYCEUM WORLD", lyceum, locked)}
+          ${fold(`set-advanced-${id}`, "ADVANCED", advanced, false)}
+          <div class="btns" style="margin-top:14px"><button class="btn" data-srv-config="${id}" title="${esc(h.folder)}">Open empyrean.toml</button><span class="muted small">Everything else is in empyrean.toml.</span></div>`;
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><button class="btn icon-btn back" data-act="set-close" title="Back to the world">${CHEVRON_LEFT}</button><h1>SETTINGS</h1>
           <span class="muted small">${esc(h.settings.name)}</span>
@@ -1092,14 +1144,7 @@ function settingsPage() {
         <div class="scroll">
           ${running ? `<p class="small warn">The world reads its settings when it starts: changes take effect at its next start.</p>` : ""}
           ${h.message?.startsWith("Saved") || h.busy ? `<p class="small">${esc(h.busy ?? h.message)}</p>` : ""}
-          ${fold(`set-world-${id}`, "WORLD", world, true)}
-          ${fold(`set-players-${id}`, "PLAYERS", players, true)}
-          ${fold(`set-systems-${id}`, "ERA SYSTEMS", systems, false)}
-          ${fold(`set-websocket-${id}`, "WEBSOCKET", websocket, false)}
-          ${fold(`set-network-${id}`, "DERETH NETWORK", network, false)}
-          ${fold(`set-lyceum-${id}`, "LYCEUM WORLD", lyceum, locked)}
-          ${fold(`set-advanced-${id}`, "ADVANCED", advanced, false)}
-          <div class="btns" style="margin-top:14px"><button class="btn" data-srv-config="${id}" title="${esc(h.folder)}">Open empyrean.toml</button><span class="muted small">Everything else is in empyrean.toml.</span></div>
+          ${sections}
         </div>
       </section>
     </div>`;
@@ -1396,11 +1441,12 @@ function homeEntries() {
 }
 
 function home() {
-  if (ui.realm !== "dereth") return aubereanHome();
   const entries = homeEntries();
+  const game = realmGame();
   ui.homeSel = Math.min(ui.homeSel, Math.max(0, entries.length - 1));
   const sel = entries[ui.homeSel];
-  const canPlay = !!(sel && sel.account && sel.client && clientOf(sel.client) && worldBy(sel.world_slug)?.endpoint);
+  const canPlay = !!(sel && sel.account && sel.client && clientOf(sel.client, game) && worldBy(sel.world_slug)?.endpoint
+    && (game !== "auberean" || ac2().check?.ok));
   const running = ui.snap.running;
 
   let list;
@@ -1410,7 +1456,7 @@ function home() {
   } else {
     list = `<div class="list">` + entries.map((e, i) => {
       const w = worldBy(e.world_slug);
-      const era = w ? eraFact(w) : "era unknown";
+      const era = !w ? "era unknown" : w.game === "auberean" ? "Asheron's Call 2" : eraFact(w);
       const end = !w ? "not listed" : w.state === "offline" ? "offline" : w.players != null ? `${w.players} online` : "players unknown";
       const pin = e.fav
         ? `<span class="star" title="Favorite">★</span><button class="btn icon-btn" data-unfav="${esc(e.fav.id)}" title="Remove from favorites">✕</button>`
@@ -1427,8 +1473,11 @@ function home() {
   const runningLine = running.length
     ? `<p class="small good">Running: ${running.map((r) => `${esc(worldBy(r.world_slug)?.name ?? r.world_slug)} / ${esc(r.account)}`).join(", ")}</p>`
     : "";
-  // A launcher from Auberean's package fetches Dereth's client when it is first wanted.
-  const client = !ui.snap.dereth && comp("dereth") ? `<h2>THE CLIENT</h2>${programLine("dereth")}` : "";
+  // A launcher from Auberean's package fetches Dereth's client when it is first wanted, and one from
+  // Dereth's Auberean; Asheron's Call 2 plays over the player's own install, chosen here first.
+  const client = game === "auberean"
+    ? `${ac2().check?.ok ? "" : `<h2>YOUR GAME FILES</h2>${installLine()}`}${ready("auberean") ? "" : `<h2>THE CLIENT</h2>${programLine("auberean")}`}`
+    : !ui.snap.dereth && comp("dereth") ? `<h2>THE CLIENT</h2>${programLine("dereth")}` : "";
   return `<div class="column narrow">
       <section class="panel"><header><h1>PLAY AGAIN</h1></header>
         <div class="scroll">${client}${list}</div>${runningLine}</section>
@@ -1490,7 +1539,8 @@ function worldDetail(w) {
   const boxes = named
     ? ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" ${on[f.name] ? "checked" : ""} disabled>${esc(f.label)}</label>`).join("")
     : "";
-  const said = w.era_state === "checking" ? "Checking which era this world plays."
+  const said = w.game === "auberean" ? ""
+    : w.era_state === "checking" ? "Checking which era this world plays."
     : w.era_state === "unknown" ? "This world has not said its era."
     : w.era_state === "assumed" ? "Assumed: the list doesn't say."
     : !named ? `This world does not name its era: it plays ${eraText(w)}.`
@@ -1514,8 +1564,8 @@ function worldDetail(w) {
         </div>
         <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
         ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}</div>` : ""}
-        <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}</span></div>
-        <p class="small muted">${esc(said)}</p>
+        <div class="era-line"><b>${w.game === "auberean" ? "GAME" : "ERA"}</b><span>${esc(eraText(w))}</span></div>
+        ${said ? `<p class="small muted">${esc(said)}</p>` : ""}
         ${boxes ? `<div class="features">${boxes}</div>` : ""}
       </div></td></tr>`;
 }
@@ -1593,13 +1643,11 @@ function worlds() {
 // ----- one world ------------------------------------------------------------------------------------
 
 async function openWorld(slug, notice, preset) {
-  if (worldBy(slug)?.game === "auberean") { ui.ac2.world = slug; ui.ac2.password = ""; ui.screen = "a-world"; checkComponents(false); api("probe_auberean_friends", { slug }).catch(() => {}); render(); return; }
-  // A world's page plays in Dereth; Auberean is not played from the launcher yet.
-  if ((worldBy(slug)?.game ?? "dereth") !== "dereth") {
-    toast("Auberean can't be played from the launcher yet.", false);
-    return;
-  }
-  api("probe_world", { slug }).catch(() => {});
+  const game = worldBy(slug)?.game ?? "dereth";
+  // An Asheron's Call 2 world is asked whether it serves its friends service; an Asheron's Call
+  // world whether it is up.
+  if (game === "auberean") { checkComponents(false); api("probe_auberean_friends", { slug }).catch(() => {}); }
+  else api("probe_world", { slug }).catch(() => {});
   let view;
   try {
     view = await api("world_view", { slug });
@@ -1610,10 +1658,10 @@ async function openWorld(slug, notice, preset) {
   const p = view.prefs;
   const known = view.accounts.map((a) => a.username);
   const account = preset?.account ?? (known.find((a) => a.toLowerCase() === (p.account ?? "").toLowerCase()) || known[0] || "");
-  const offered = (k) => view.clients.some((c) => c.kind === k);
+  const offered = (k) => (game === "auberean" ? ["auberean", "retail"].includes(k) && !!clientOf(k, game) : view.clients.some((c) => c.kind === k));
   const validSet = (id) => view.dat_sets.some((s) => s.id === id);
   const validClassic = (id) => view.classic_sets.some((s) => s.id === id);
-  const client = [preset?.client, p.client, view.default_client].find((k) => k && offered(k)) ?? view.clients[0]?.kind ?? null;
+  const client = [preset?.client, p.client, view.default_client].find((k) => k && offered(k)) ?? (game === "auberean" ? "auberean" : view.clients[0]?.kind ?? null);
   // Each kind starts on what was played here last, else its own default, else (for the Modern
   // kind, where a world's own copy may be the only one) the first there is.
   const fallback = view.dat_sets.find((s) => s.origin.kind === "shared") ?? view.dat_sets[0];
@@ -1651,11 +1699,15 @@ async function recallPassword() {
   w.form.remembered = await api("has_password", { slug: w.view.world.slug, username: w.form.account });
 }
 
+// Whether the world on the page is Asheron's Call 2's: played with its own clients and the player's
+// install, and with a secret the launcher keeps or makes, so no password needs typing.
+const ac2World = (w) => (worldBy(w.view.world.slug) ?? w.view.world).game === "auberean";
+
 function formChoice() {
   const w = ui.world;
   const f = w.form;
   if (!f.account.trim() || !f.client) return null;
-  if (!f.password && !f.remembered) return null;
+  if (!f.password && !f.remembered && !ac2World(w)) return null;
   return {
     world_slug: w.view.world.slug,
     account: f.account.trim(),
@@ -1689,6 +1741,7 @@ function hasRequiredSet() {
 function worldCanPlay() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
+  if (ac2World(w)) return !!formChoice() && !!world.endpoint && !!ac2().check?.ok && !!clientOf(w.form.client, "auberean");
   return !!formChoice() && !!world.endpoint && hasRequiredSet();
 }
 function worldNotice() {
@@ -1715,7 +1768,9 @@ function worldPage() {
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   const f = w.form;
 
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraFact(world), emulatorLabel(world)].filter(Boolean);
+  const isAc2 = world.game === "auberean";
+  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, isAc2 ? "Asheron's Call 2" : eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
+  const address = world.endpoint ? `${world.endpoint.address}:${world.endpoint.port}` : "";
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -1726,7 +1781,13 @@ function worldPage() {
         <button class="btn" data-act="add-account">+ Add account</button></div>`;
   const note = worldNotice();
 
-  // The client: the Dereth client or the retail one, as two buttons.
+  // The client: the Dereth client or the retail one, as two buttons; for Asheron's Call 2, Auberean
+  // or the retail client in the player's install.
+  const ac2Btn = (kind) => {
+    const ok = clientOf(kind, "auberean");
+    const why = ok ? "" : kind === "retail" ? "Your Asheron's Call 2 folder has no AC2client.exe of September 2013" : "Download Auberean first";
+    return `<button class="btn seg ${f.client === kind ? "on" : ""}" data-client="${kind}" ${ok || kind === "auberean" ? "" : "disabled"} title="${esc(why)}">${kind === "retail" ? "RETAIL" : "AUBEREAN"}</button>`;
+  };
   const clientBtn = (kind) => {
     const c = w.view.clients.find((x) => x.kind === kind);
     const why = !c ? (kind === "retail" ? "No retail client yet: add one in the Library" : "The Dereth client was not found")
@@ -1766,24 +1827,32 @@ function worldPage() {
        <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
        <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
+  // Asheron's Call 2: the client, the install, and the password the launcher keeps for the world.
+  const ac2Client = `<label class="lab">CLIENT</label><div class="pair">${ac2Btn("auberean")}${ac2().retail ? ac2Btn("retail") : ""}</div>
+      ${f.client === "auberean" && !ready("auberean") ? `<span></span>${programLine("auberean")}` : ""}
+      ${f.client === "retail" && !ac2().friends_dll ? `<span></span><p class="note muted">This launcher has no friends library, so the retail client plays without friends.</p>` : ""}
+      <label class="lab">GAME FILES</label>${installLine()}`;
+  const ac2Password = `<div class="pair"><input id="password" class="field" type="password" autocomplete="off"
+                placeholder="${f.remembered && !f.password ? "kept" : "made for a new account"}" value="${esc(f.password)}"></div>
+            <span></span><p class="note muted">The launcher keeps the password for this world. Leave it empty to use the kept one.</p>`;
 
   return `<div class="column wide">
       <section class="panel"><header><button class="btn icon-btn back" data-go="worlds" title="Back to worlds">${CHEVRON_LEFT}</button><h1>${esc(world.name.toUpperCase())}</h1>
           ${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
           ${custom ? `<button class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
         <div class="scroll">
-          <div class="facts">${bead(world.state)}<span>${esc(facts.join("  ·  "))}</span></div>
+          <div class="facts">${bead(world.state)}<span>${esc(facts.join("  ·  "))}</span>${isAc2 && address ? friendsLine(address) : ""}</div>
           ${world.era_state === "assumed" ? `<p class="muted small">Assumed: the list doesn't say.</p>` : ""}
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
           <div class="form" style="margin-top:14px">
             <label class="lab" for="${f.adding ? "acct-name" : "account"}">ACCOUNT</label>${accountField}
             <label class="lab" for="password">PASSWORD</label>
-            <div class="pair"><input id="password" class="field" type="password" autocomplete="off"
+            ${isAc2 ? ac2Password : `<div class="pair"><input id="password" class="field" type="password" autocomplete="off"
                 placeholder="${f.remembered && !f.password ? "saved" : ""}" value="${esc(f.password)}">
-              <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>
+              <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>`}
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
-            <label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}
-            ${dataRow}
+            ${isAc2 ? ac2Client : `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}
+            ${dataRow}`}
           </div>
         </div>
       </section>
@@ -1809,7 +1878,40 @@ async function play(choice) {
 
 // ----- the library ---------------------------------------------------------------------------------
 
+// What a game the launcher started shows on Discord, on unless the player turns it off: one
+// setting, in both realms' Library.
+function discordRow() {
+  const s = ui.snap.state;
+  return `<div class="row static"><div class="grow">
+      <label class="check"><input type="checkbox" id="discord-presence" ${s.settings.discord_presence !== false ? "checked" : ""}>Show what I'm playing on Discord</label>
+      <div class="sub">While a game the launcher started is running, Discord on this computer shows its world, its client and its era.</div></div></div>`;
+}
+
+// Auberean's Library, as Dereth's: the retail client in the player's install (on Windows), the
+// Auberean client, the game files, and the same Discord setting.
+function aubereanLibrary() {
+  const a = ac2();
+  const r = a.retail;
+  const retail = r
+    ? `<div class="row static"><div class="grow"><div class="name">AC2client ${r.september_2013 ? "00.00.00.0930 (30 September 2013)" : '<span class="muted small">(unknown build)</span>'}</div>
+        <div class="sub">${esc(r.exe)}${r.september_2013 ? "" : ` <span class="warn">— not the client these game files are for</span>`}</div>
+        <div class="sub">${a.friends_dll ? "Plays with friends on worlds that serve them." : "This launcher has no friends library: it plays without friends."}</div></div></div>`
+    : `<div class="row static"><div class="grow"><div class="sub">No retail client: your Asheron's Call 2 folder has no AC2client.exe.</div></div></div>`;
+  const files = (a.check?.files ?? []).map((f) => `<div class="row static"><div class="grow"><div class="name">${esc(f.name)}${f.required ? "" : ' <span class="muted small">optional</span>'}</div>
+      <div class="sub ${f.problem ? "bad" : f.found ? "" : "muted"}">${esc(f.problem ?? (f.found ? "Ready." : "Not there."))}</div></div></div>`).join("");
+  return `<div class="column wide" style="height:100%">
+      <section class="panel grow"><header><h1>LIBRARY</h1></header>
+        <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
+          <h2>AUBEREAN CLIENT</h2><div class="list">${programLine("auberean")}</div>
+          <h2>GAME FILES</h2><p class="muted small">Your own Asheron's Call 2 install: portal.dat, cell_1.dat and local_English.dat, with highres.dat when it has it.</p>
+          ${installLine()}<div class="list">${files}</div>
+          <h2>DISCORD</h2><div class="list">${discordRow()}</div></div>
+      </section>
+    </div>`;
+}
+
 function library() {
+  if (realmGame() === "auberean") return aubereanLibrary();
   const s = ui.snap.state;
   const r = s.retail;
   let retail;
@@ -1844,10 +1946,7 @@ function library() {
     || `<p class="muted">No Modern data files yet. Add a folder that holds the client_*.dat files.</p>`;
   const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
     || `<p class="muted">No Classic data files yet. Add a folder that holds portal.dat and cell.dat.</p>`;
-  // What a game the launcher started shows on Discord, on unless the player turns it off.
-  const discord = `<div class="row static"><div class="grow">
-      <label class="check"><input type="checkbox" id="discord-presence" ${s.settings.discord_presence !== false ? "checked" : ""}>Show what I'm playing on Discord</label>
-      <div class="sub">While a game the launcher started is running, Discord on this computer shows its world, its client and its era.</div></div></div>`;
+  const discord = discordRow();
 
   let pending = "";
   if (ui.addFind) {
@@ -1904,14 +2003,15 @@ function findSummary(f, purpose) {
 
 function accounts() {
   const s = ui.snap.state;
-  const rows = s.accounts.map((a, i) => {
+  const mine = s.accounts.map((a, i) => [a, i]).filter(([a]) => inRealm(worldBy(a.world_slug) ?? { game: "dereth" }));
+  const rows = mine.map(([a, i]) => {
     return `<div class="row static"><div class="grow"><div class="name">${esc(worldBy(a.world_slug)?.name ?? a.world_slug)} · ${esc(a.username)}</div></div>
         <button class="btn" data-forget-account="${i}" title="Forget this account">Forget</button></div>`;
   }).join("") || `<p class="muted">No accounts yet. They are added the first time you sign in to a world.</p>`;
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><h1>ACCOUNTS</h1></header>
         <div class="scroll"><div class="list">${rows}</div></div>
-        <div class="btns end" style="margin-top:12px"><button class="btn" data-act="forget-all-accounts" ${s.accounts.length ? "" : "disabled"}>Forget all accounts</button></div>
+        <div class="btns end" style="margin-top:12px"><button class="btn" data-act="forget-all-accounts" ${mine.length ? "" : "disabled"}>Forget all accounts</button></div>
       </section>
     </div>`;
 }
@@ -2424,25 +2524,6 @@ document.addEventListener("click", async (ev) => {
 
   switch (d.act) {
     case "a-install": await act("choose_auberean_install"); break;
-    case "a-start": await act("start_auberean_world"); break;
-    case "a-stop": await act("stop_auberean_world"); break;
-    case "a-play": {
-      const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-      await act("play_auberean_local", { account, client: ac2Client() });
-      break;
-    }
-    case "a-world-play": {
-      const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-      if ((await act("play_auberean_world", { slug: ui.ac2.world, account, password: ui.ac2.password, client: ac2Client() })) !== undefined) ui.ac2.password = "";
-      break;
-    }
-    case "a-client-auberean":
-    case "a-client-retail": {
-      ui.ac2.client = d.act === "a-client-retail" ? "retail" : "auberean";
-      render();
-      await act("set_auberean_client", { client: ui.ac2.client });
-      break;
-    }
     case "ath-new": ui.ac2.draft = { name: "" }; render(); focusSoon("ath-name"); break;
     case "ath-cancel": ui.ac2.draft = null; render(); break;
     case "ath-create": {
@@ -2481,7 +2562,7 @@ document.addEventListener("click", async (ev) => {
     case "srv-new-cancel": ui.serverDraft = null; render(); break;
     case "srv-create": {
       try {
-        const id = await api("create_host", { settings: ui.serverDraft.settings });
+        const id = await api(realmGame() === "auberean" ? "create_yalain_host" : "create_host", { settings: ui.serverDraft.settings });
         ui.serverDraft = null;
         ui.serverId = id;
         ui.screen = "server-page";
@@ -2493,7 +2574,7 @@ document.addEventListener("click", async (ev) => {
     case "srv-save": {
       const edit = ui.serverEdit;
       if (!edit) break;
-      await act("save_host", { id: edit.id, settings: cleanSettings(edit.settings) });
+      await act(serverBy(edit.id)?.game === "auberean" ? "save_yalain_host" : "save_host", { id: edit.id, settings: cleanSettings(edit.settings) });
       const said = serverBy(edit.id)?.message;
       // What stopped the save, said where the person is looking; the changes stay to be fixed.
       if (!said?.startsWith("Saved")) { if (said) toast(said, true); break; }
@@ -2637,8 +2718,6 @@ document.addEventListener("input", (ev) => {
     return;
   }
   if (t.id === "plugin-search") { ui.plugin.search = t.value; render(); return; }
-  if (t.id === "a-account") { const was = !(ui.ac2.account ?? "").trim(); ui.ac2.account = t.value; if (was !== !t.value.trim()) render(); return; }
-  if (t.id === "a-password") { ui.ac2.password = t.value; return; }
   if (t.id === "ath-name" && ui.ac2.draft) { const was = !folderName(ui.ac2.draft.name); ui.ac2.draft.name = t.value; if (was !== !folderName(t.value)) render(); return; }
   if (t.id === "plugin-make-name" || t.id === "plugin-make-github") {
     const m = ui.plugin.make;
@@ -2935,29 +3014,10 @@ function installLine() {
       <span class="btns"><button class="btn ${check ? "mini-btn" : ""}" data-act="a-install">${check ? "Change" : "Choose Your Asheron's Call 2 Folder"}</button></span></div>`;
 }
 
-// The client the player plays with: Auberean, or the retail client in their install (on Windows).
-function ac2Client() {
-  const chosen = ui.ac2.client ?? ac2().client ?? "auberean";
-  return chosen === "retail" && ac2().retail ? "retail" : "auberean";
-}
-
-// Whether the chosen client can be started.
-function ac2ClientReady() {
-  return ac2Client() === "retail" ? !!ac2().retail?.september_2013 : ready("auberean");
-}
-
-// The client: Auberean's download line, and where the install has the retail client, a choice of
-// the two.
-function ac2ClientLine() {
-  const retail = ac2().retail;
-  if (!retail) return programLine("auberean");
-  const chosen = ac2Client();
-  const seg = (kind, label) => `<button class="btn seg ${chosen === kind ? "on" : ""}" data-act="a-client-${kind}">${label}</button>`;
-  const line = chosen === "auberean"
-    ? programLine("auberean")
-    : `<div class="program-line"><span title="${esc(retail.exe)}">${esc(retail.exe)}</span>${retail.september_2013 ? "" : `<span class="bad">Not the September 2013 client these files are for.</span>`}</div>
-       ${ac2().friends_dll ? "" : `<p class="muted small">This launcher has no friends library, so the retail client plays without friends.</p>`}`;
-  return `<div class="pair">${seg("auberean", "AUBEREAN")}${seg("retail", "RETAIL")}</div>${line}`;
+// Whether the client of `kind` can start an Asheron's Call 2 world: Auberean downloaded, or the
+// retail client of September 2013 in the player's install (on Windows).
+function ac2Ready(kind) {
+  return kind === "retail" ? !!ac2().retail?.september_2013 : ready("auberean");
 }
 
 // What the last probe found of the friends service of the world at `address`, if it was asked.
@@ -2971,90 +3031,6 @@ function friendsLine(address) {
 function ac2Said() {
   const a = ac2();
   return a.message ? `<p class="small ${a.error ? "bad" : "muted"}">${esc(a.message)}</p>` : "";
-}
-
-// The world on this computer, in a word or two.
-function localState() {
-  const s = ac2().server ?? {};
-  if (s.starting) return stateMark("starting", "Getting ready");
-  if (s.running && !s.ready) return stateMark("starting", "Starting");
-  if (s.running) return stateMark("online", `Running at ${esc(s.address)}`);
-  return stateMark("unknown", "Stopped");
-}
-
-function aubereanHome() {
-  const a = ac2();
-  const s = a.server ?? {};
-  const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-  const canPlay = !!(a.check?.ok && ac2ClientReady() && (ready("yalain") || ready("athenaeum")) && account.trim());
-  // What the launcher started and is still running: Auberean, the retail client, or both.
-  const running = ["auberean", "retail"].filter((k) => (a.playing ?? []).includes(k)).map((k) => (k === "retail" ? "the retail client" : "Auberean"));
-  const playing = running.length ? `<p class="small good">${esc(running.join(" and ").replace(/^t/, "T"))} ${running.length > 1 ? "are" : "is"} running.</p>` : "";
-  return `<div class="column narrow">
-      <section class="panel"><header><h1>PLAY AUBEREAN</h1></header>
-        <div class="scroll">
-          <h2>YOUR GAME FILES</h2>${installLine()}
-          <h2>THE CLIENT</h2>${ac2ClientLine()}
-          <h2>A WORLD ON THIS COMPUTER</h2>
-          <div class="program-line"><span>${localState()}</span>${s.running && s.ready ? friendsLine(s.address) : ""}
-            <span class="btns">${s.running ? `<button class="btn mini-btn" data-act="a-stop">Stop</button>` : `<button class="btn mini-btn" data-act="a-start" ${a.check?.ok && (ready("yalain") || ready("athenaeum")) && !s.starting ? "" : "disabled"}>Start</button>`}</span></div>
-          ${ready("yalain") || ready("athenaeum") ? "" : `<p class="muted small">Download Yalain (on its page) to play a world on this computer.</p>`}
-          <div class="form">
-            <label class="lab" for="a-account">ACCOUNT</label><input id="a-account" class="field" autocomplete="off" style="max-width:280px" value="${esc(account)}" placeholder="any name">
-          </div>
-          <p class="muted small">A world on this computer makes the account the first time you log in, and asks for no password. To play a world on the Dereth Network, open it from Worlds.</p>
-          ${ac2Said()}${playing}
-        </div></section>
-      <button class="play" data-act="a-play" ${canPlay ? "" : "disabled"}>PLAY</button>
-    </div>`;
-}
-
-// A listed world of Asheron's Call 2's: its name and address, and an account and password to play
-// it with. The password goes to the client and is kept nowhere.
-function aubereanWorldPage() {
-  const w = worldBy(ui.ac2.world);
-  if (!w) { ui.screen = "worlds"; return worlds(); }
-  const account = ui.ac2.account ?? ui.snap.state.auberean?.account ?? "";
-  const canPlay = !!(ac2().check?.ok && ac2ClientReady() && account.trim() && w.endpoint);
-  const address = w.endpoint ? `${w.endpoint.address}:${w.endpoint.port}` : "";
-  return `<div class="column narrow">
-      <section class="panel"><header><button class="btn icon-btn" data-go="worlds" title="Back to the worlds">‹</button><h1>${esc(w.name.toUpperCase())}</h1></header>
-        <div class="scroll">
-          ${w.description ? `<p>${esc(w.description)}</p>` : ""}
-          <p class="small muted">${esc(address || "No address")} · ${stateLabel(w)}</p>
-          ${address ? `<p>${friendsLine(address)}</p>` : ""}
-          <h2>YOUR GAME FILES</h2>${installLine()}
-          <h2>THE CLIENT</h2>${ac2ClientLine()}
-          <div class="form">
-            <label class="lab" for="a-account">ACCOUNT</label><input id="a-account" class="field" autocomplete="off" style="max-width:280px" value="${esc(account)}">
-            <label class="lab" for="a-password">PASSWORD</label><input id="a-password" class="field" type="password" autocomplete="off" style="max-width:280px" value="${esc(ui.ac2.password)}" placeholder="the one kept">
-          </div>
-          <p class="muted small">The launcher keeps your password for this world. Leave it empty to use the kept one; a new account gets one made for it.</p>
-          ${ac2Said()}
-        </div></section>
-      <button class="play" data-act="a-world-play" ${canPlay ? "" : "disabled"}>PLAY</button>
-    </div>`;
-}
-
-// Yalain's page: the download, and the world on this computer with its log.
-function yalainPage() {
-  const a = ac2();
-  const s = a.server ?? {};
-  const on = ready("yalain") || ready("athenaeum");
-  const log = (s.log ?? []).map((l) => `<div>${esc(l)}</div>`).join("");
-  return `<div class="column wide" style="height:100%">
-      <section class="panel grow"><header>${brand("empyrean")}<h1>YALAIN: A WORLD ON THIS COMPUTER</h1></header>
-        <div class="scroll">${on ? "" : `<p class="muted small">Run an Asheron's Call 2 world on this computer, over your own game files.</p>`}
-          ${programLine("yalain")}
-          <h2>YOUR GAME FILES</h2>${installLine()}
-          <h2>THE WORLD</h2>
-          <div class="program-line"><span>${localState()}</span>
-            <span class="btns">${s.running ? `<button class="btn mini-btn" data-act="a-stop">Stop</button>` : `<button class="btn mini-btn" data-act="a-start" ${a.check?.ok && on && !s.starting ? "" : "disabled"}>Start</button>`}</span></div>
-          <p class="muted small">It is for you alone: it listens on this computer, and makes an account the first time a name logs in. Start gets the world database it plays first, once.</p>
-          ${ac2Said()}
-          ${log ? `<h2>LOG</h2><div class="log" data-log="yalain">${log}</div>` : ""}
-        </div></section>
-    </div>`;
 }
 
 // Athenaeum's page: the download, a new world, and the worlds it made or opened.
@@ -3137,7 +3113,6 @@ async function setRealm(realm, from) {
   if (["server-page", "server-settings", "local-page"].includes(ui.screen)) ui.screen = "server";
   // Dereth's first start asks about Dereth's game files and interface; Auberean's realm opens on Play.
   if (realm !== "dereth" && ["first-run", "interface"].includes(ui.screen)) ui.screen = "home";
-  if (ui.screen === "a-world") ui.screen = "worlds";
   if (realm !== "dereth" && ui.screen === "plugins") ui.screen = "home";
   const main = document.getElementById("main");
   if (still()) { render(); return; }
@@ -3235,7 +3210,8 @@ function turnPainting(from) {
 // ----- start --------------------------------------------------------------------------------------
 
 // In the browser demo, `#world=eulmore`, `#worlds`, `#worlds=add`, `#worlds=<slug>` (that row
-// open), `#ac2=retail`, `#ac2=playing`, `#ac2=<slug>`, `#library`, `#library=add`,
+// open), `#ac2=home|playing|accounts|library|server|servers|settings|<slug>` (Auberean's realm),
+// `#library`, `#library=add`,
 // `#accounts`, `#first-run`, `#first-run=guide` and `#interface` (the first start's question) open that
 // screen directly, for looking at designs.
 async function demoJump() {
@@ -3301,12 +3277,27 @@ async function demoJump() {
   }
   else if (what === "world") await openWorld(arg || "eulmore");
   else if (what === "ac2") {
-    // `#ac2=retail`: Auberean's Play with an install holding the retail client, the world on this
-    // computer running and the retail client chosen; `#ac2=playing` with both clients started;
-    // `#ac2=<slug>` an Asheron's Call 2 world's page.
+    // In Auberean's realm, with an install holding the retail client: `#ac2=home` Play with a world
+    // played before, `#ac2=playing` with both clients running, `#ac2=server` a Yalain world's page,
+    // `#ac2=library`, `#ac2=accounts`, and `#ac2=<slug>` an Asheron's Call 2 world's page.
     await api("choose_auberean_install", {});
-    if (arg === "playing") { for (const client of ["retail", "auberean"]) await api("play_auberean_local", { account: "player", client }); }
-    if (arg === "retail" || arg === "playing") { await api("start_auberean_world", {}); ui.ac2.client = "retail"; ui.screen = "home"; }
+    await api("check_components", { force: false });
+    await api("get_component", { product: "auberean" });
+    await api("get_component", { product: "yalain" });
+    if (["home", "playing", "accounts"].includes(arg)) {
+      await api("launch", { choice: { world_slug: "shardfall", account: "player", password: null, remember: true, client: "retail", dat_set_id: null, classic_set_id: null } });
+      if (arg === "playing") await api("launch", { choice: { world_slug: "duskmere", account: "alt1", password: null, remember: true, client: "auberean", dat_set_id: null, classic_set_id: null } });
+      ui.screen = arg === "accounts" ? "accounts" : "home";
+    } else if (["server", "servers", "settings"].includes(arg)) {
+      // A Yalain world running; `#ac2=servers` the list, `#ac2=settings` its settings.
+      await pull();
+      const id = await api("create_yalain_host", { settings: newServerDraft().settings });
+      await api("prepare_host", { id });
+      await api("start_host", { id });
+      await pull();
+      ui.serverId = id;
+      ui.screen = { server: "server-page", servers: "server", settings: "server-settings" }[arg];
+    } else if (arg === "library") ui.screen = "library";
     else await openWorld(arg || "shardfall");
     await pull();
   }

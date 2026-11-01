@@ -1226,11 +1226,6 @@ pub fn program_of(shared: &Shared, product: Product) -> Option<PathBuf> {
     program(&lock(shared), product)
 }
 
-/// Whether `product` is busy downloading.
-pub fn busy(shared: &Shared, product: Product) -> bool {
-    entry(&mut lock(shared), product).view.busy
-}
-
 /// The `lyceum` command beside the editor in use.
 fn lyceum_command(store: &Store) -> Result<PathBuf, String> {
     let editor = program(store, Product::Lyceum).ok_or("Download Lyceum first.")?;
@@ -1575,16 +1570,18 @@ pub struct Server {
 /// # Errors
 /// There is none yet.
 pub fn server(shared: &Shared) -> Result<Server, String> {
+    server_of(shared, Product::Empyrean)
+}
+
+/// The server of `product` (Empyrean, or Yalain) a new world is made with: this checkout's build
+/// in a development build that has one, else the download.
+///
+/// # Errors
+/// There is none yet.
+pub fn server_of(shared: &Shared, product: Product) -> Result<Server, String> {
     let store = lock(shared);
-    if let Some(program) = newest_build(&store.builds, Product::Empyrean.program()) {
-        let version = command(&program)
-            .arg("--release-facts")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-            .and_then(|v| v["version"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| "checkout".to_owned());
+    if let Some(program) = newest_build(&store.builds, product.program()) {
+        let version = program_version(product, &program).unwrap_or_else(|| "checkout".to_owned());
         return Ok(Server {
             program,
             version,
@@ -1594,14 +1591,14 @@ pub fn server(shared: &Shared) -> Result<Server, String> {
     store
         .entries
         .iter()
-        .find(|e| e.view.product == Product::Empyrean)
+        .find(|e| e.view.product == product)
         .and_then(|e| e.view.installed.as_ref())
         .map(|i| Server {
             program: i.executable.clone(),
             version: i.version.clone(),
             checkout: false,
         })
-        .ok_or_else(|| "Download Empyrean first.".to_owned())
+        .ok_or_else(|| format!("Download {} first.", product.title()))
 }
 
 #[tauri::command]

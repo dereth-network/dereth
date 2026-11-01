@@ -18,6 +18,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Web: the front page is now the launcher.
 - Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean, run a world with Yalain, and build with Athenaeum.
 - Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, run a world with Yalain, and build with Athenaeum.
+- Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, host worlds with Yalain, and build with Athenaeum.
 - The launcher is now Dereth Network, with its own icon.
 
 ## 0.4.9 (2026-11-01)

@@ -460,6 +460,7 @@ mod tests {
                 program: temp.path().join("missing-server"),
                 wrapper: temp.path().join("wrapper"),
                 checkout: false,
+                game: dereth_launch::world::Game::Dereth,
             },
         )
         .unwrap();

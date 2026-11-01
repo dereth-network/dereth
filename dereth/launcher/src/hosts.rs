@@ -1,8 +1,11 @@
 //! The servers a player runs: each in a folder of its own, `hosts/<id>` in the launcher's data
-//! folder, with its configuration, databases, log and its own copy of the server it runs.
+//! folder, with its configuration, databases, log and its own copy of the server it runs. A world
+//! is Empyrean's, of Asheron's Call, or Yalain's, of Asheron's Call 2 ([`crate::host_yalain`]): the
+//! two are made, listed, started, stopped and deleted alike, and each realm's page lists its own.
 
 use crate::host_config::Settings;
 use crate::host_runtime::{self, Definition, Status};
+use dereth_launch::world::Game;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -29,6 +32,8 @@ impl Drop for CreationGuard {
 #[derive(Serialize)]
 pub struct View {
     pub id: String,
+    /// The game the world is of: Empyrean's, or Yalain's.
+    pub game: Game,
     pub settings: Settings,
     pub version: String,
     /// The server runs this checkout's build.
@@ -117,8 +122,9 @@ pub fn views(shared: &Shared) -> Vec<View> {
         let Ok(definition) = host_runtime::read_definition(&dir) else {
             continue;
         };
+        // A Yalain world keeps no empyrean.toml: nothing below reads it for one.
         let text = std::fs::read_to_string(dir.join("empyrean.toml")).unwrap_or_default();
-        let settings = Settings::from_config(&text).unwrap_or_default();
+        let settings = host_runtime::read_settings(&dir, definition.game).unwrap_or_default();
         let logs = std::fs::read(dir.join("log.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -138,12 +144,13 @@ pub fn views(shared: &Shared) -> Vec<View> {
             busy: store.busy.get(&definition.id).cloned(),
             message: store.messages.get(&definition.id).cloned(),
             id: definition.id,
+            game: definition.game,
             settings,
             version: definition.version,
             checkout: definition.checkout,
             status: host_runtime::status(&dir),
             logs,
-            prepared: crate::host_publication::prepared(&dir),
+            prepared: prepared(&dir, definition.game),
             service: crate::host_service::installed(&dir),
             update: crate::host_updates::view(&dir),
             publication,
@@ -212,6 +219,14 @@ pub async fn choose_host_dats(app: tauri::AppHandle) -> Result<Option<PathBuf>, 
         .map(|f| f.into_path().map_err(|e| e.to_string()))
         .transpose()
 }
+/// Whether the world in `dir` has the world database it needs before its first start.
+fn prepared(dir: &Path, game: Game) -> bool {
+    match game {
+        Game::Dereth => crate::host_publication::prepared(dir),
+        Game::Auberean => crate::host_yalain::prepared(dir),
+    }
+}
+
 #[tauri::command]
 pub async fn create_host(
     shared: State<'_, Shared>,
@@ -234,8 +249,38 @@ pub async fn create_host(
     })
     .ok_or("No port is free on this computer for the world's status.")?;
     let server = crate::components::server(&components)?;
+    let write = move |program: &Path, dir: &Path| {
+        validate_config(program, dir, &settings.update_config("")?)
+    };
+    create(shared.inner(), server, Game::Dereth, write).await
+}
+
+/// Make a Yalain world with `settings`, as an Empyrean world is made: a folder of its own, its own
+/// copy of Yalain, its settings.
+#[tauri::command]
+pub async fn create_yalain_host(
+    shared: State<'_, Shared>,
+    components: State<'_, crate::components::Shared>,
+    settings: Settings,
+) -> Result<String, String> {
+    crate::host_yalain::validate(&settings)?;
+    let server =
+        crate::components::server_of(&components, dereth_launch::components::Product::Yalain)?;
+    let write = move |_: &Path, dir: &Path| crate::host_yalain::write(dir, &settings);
+    create(shared.inner(), server, Game::Auberean, write).await
+}
+
+/// Make a world of `game` run by `server`: its folder, its copy of the server, the supervisor
+/// that runs it, its settings (`write`, given the server's program and the folder), and its
+/// definition. The world's identity.
+async fn create(
+    shared: &Shared,
+    server: crate::components::Server,
+    game: Game,
+    write: impl FnOnce(&Path, &Path) -> Result<(), String> + Send + 'static,
+) -> Result<String, String> {
     let root = {
-        let mut store = lock(&shared);
+        let mut store = lock(shared);
         if store.closing || store.creating {
             return Err("The launcher is busy. Try again in a moment.".into());
         }
@@ -243,7 +288,7 @@ pub async fn create_host(
         store.creating = true;
         root
     };
-    let _creating = CreationGuard(shared.inner().clone());
+    let _creating = CreationGuard(shared.clone());
     let id = format!(
         "host-{:x}",
         std::time::SystemTime::now()
@@ -286,7 +331,7 @@ pub async fn create_host(
             &wrapper,
         )
         .map_err(|e| e.to_string())?;
-        validate_config(&program, &dir, &settings.update_config("")?)?;
+        write(&program, &dir)?;
         host_runtime::write_json(
             &dir.join("host.json"),
             &Definition {
@@ -295,6 +340,7 @@ pub async fn create_host(
                 program,
                 wrapper,
                 checkout: server.checkout,
+                game,
             },
         )
     })
@@ -338,6 +384,15 @@ fn finish(shared: &Shared, id: &str, result: Result<(), String>, message: &str) 
 pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String> {
     let shared = shared.inner().clone();
     let dir = begin(&shared, &id, "Downloading the world database...")?;
+    let game = host_runtime::read_definition(&dir).map_or(Game::Dereth, |d| d.game);
+    if game == Game::Auberean {
+        std::thread::spawn(move || {
+            let result = host_runtime::read_definition(&dir)
+                .and_then(|d| crate::host_yalain::fetch(&d.program, &dir));
+            finish(&shared, &id, result, "The world database is ready.");
+        });
+        return Ok(());
+    }
     if crate::host_publication::prepared(&dir) {
         finish(&shared, &id, Ok(()), "The world database is ready.");
         return Ok(());
@@ -406,19 +461,35 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
     Ok(())
 }
 #[tauri::command]
-pub fn start_host(shared: State<'_, Shared>, id: String) -> Result<(), String> {
+pub fn start_host(
+    shared: State<'_, Shared>,
+    sharing: State<'_, crate::share::Shared>,
+    id: String,
+) -> Result<(), String> {
     let mut store = lock(&shared);
     let dir = host_dir(&store.root, &id)?;
     if store.closing || store.busy.contains_key(&id) || host_runtime::active(&dir) {
         return Err("This world is busy or already running.".into());
     }
-    if !crate::host_publication::prepared(&dir) {
+    let definition = host_runtime::read_definition(&dir)?;
+    if !prepared(&dir, definition.game) {
         return Err("Get the world database first.".into());
+    }
+    // A Yalain world others may join is told the address they reach it at.
+    if definition.game == Game::Auberean {
+        let settings = crate::host_yalain::read(&dir)?;
+        let here = crate::share::view(&sharing);
+        let address = crate::host_yalain::advertised(
+            &settings.bind,
+            here.lan,
+            here.public,
+            here.shared_address,
+        )?;
+        crate::host_yalain::keep_advertised(&dir, address)?;
     }
     if crate::host_service::installed(&dir) {
         return crate::host_service::start(&dir);
     }
-    let definition = host_runtime::read_definition(&dir)?;
     let _ = std::fs::remove_file(dir.join("stop.request"));
     let child = crate::components::command(&definition.wrapper)
         .arg("--run-host")
@@ -477,6 +548,31 @@ pub async fn save_host(
     );
     Ok(())
 }
+/// Save a Yalain world's settings. A running world takes them at its next start.
+#[tauri::command]
+pub async fn save_yalain_host(
+    shared: State<'_, Shared>,
+    id: String,
+    settings: Settings,
+) -> Result<(), String> {
+    crate::host_yalain::validate(&settings)?;
+    let shared = shared.inner().clone();
+    let dir = begin(&shared, &id, "Saving the settings...")?;
+    let result = crate::host_yalain::write(&dir, &settings);
+    let running = host_runtime::active(&dir);
+    finish(
+        &shared,
+        &id,
+        result,
+        if running {
+            "Saved. Restart the world to use the new settings."
+        } else {
+            "Saved."
+        },
+    );
+    Ok(())
+}
+
 /// Keep the world's Dereth Network key, pasted from the network's registration, in its folder,
 /// and name that file in its configuration ([`crate::host_config::save_network_key`]). A paste
 /// that is not a key is refused in plain words. The key is never logged or put in a message.
@@ -597,7 +693,8 @@ pub async fn set_host_service(
     )?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         if enabled {
-            if !crate::host_publication::prepared(&dir) {
+            let game = host_runtime::read_definition(&dir)?.game;
+            if !prepared(&dir, game) {
                 return Err("Get the world database first.".into());
             }
             if host_runtime::read_definition(&dir)?.checkout {
@@ -726,7 +823,18 @@ pub fn confirm_close(
 
 /// Look for an update for one server. What it found, or why it could not look, is the update's
 /// own message; the server's line is left alone.
+/// Whether the world `id` is an Empyrean world: the only kind the launcher updates from a release
+/// (a Yalain world runs the Yalain it was made with).
+fn updatable(shared: &Shared, id: &str) -> bool {
+    dir_of(shared, id)
+        .and_then(|dir| host_runtime::read_definition(&dir))
+        .is_ok_and(|d| d.game == Game::Dereth)
+}
+
 fn check_update(shared: &Shared, id: &str) -> Result<(), String> {
+    if !updatable(shared, id) {
+        return Ok(());
+    }
     let dir = begin(shared, id, "Checking for updates...")?;
     let result = crate::host_updates::check(&dir);
     finish(shared, id, Ok(()), "");
@@ -771,6 +879,9 @@ pub async fn approve_host_update(
     version: String,
 ) -> Result<(), String> {
     let shared = shared.inner().clone();
+    if !updatable(&shared, &id) {
+        return Err("A Yalain world is not updated from Empyrean's releases.".into());
+    }
     let dir = begin(&shared, &id, &format!("Downloading Empyrean {version}..."))?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         crate::host_updates::stage(&dir, Some(&version))

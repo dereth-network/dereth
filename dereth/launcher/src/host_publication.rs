@@ -808,6 +808,7 @@ mod tests {
                 program: dir.join("runtime/server"),
                 wrapper: dir.join("wrapper"),
                 checkout: false,
+                game: dereth_launch::world::Game::Dereth,
             },
         )
         .unwrap();

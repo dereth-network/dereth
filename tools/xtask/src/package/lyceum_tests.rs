@@ -608,6 +608,7 @@ fn lyceum_builds_natively_and_names_what_is_missing() {
         zigbuild: true,
         zig: true,
         installed: None,
+        glibc: None,
     };
     assert!(targets::plan_lyceum(target(WINDOWS), &host(Os::Windows)).is_ok());
     let e = targets::plan_lyceum(target(LINUX), &host(Os::Windows)).expect_err("cross");

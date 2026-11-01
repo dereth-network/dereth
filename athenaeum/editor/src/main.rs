@@ -30,7 +30,8 @@
 //! default the world's `build/shots`. A script (`script.rs`) plays editor steps as frames pass.
 //!
 //! `athenaeum-editor --version` prints the version, and the commit and target a release build was
-//! made from. A release build is a windowed program on Windows, with no console of its own.
+//! made from, and `--help` every option ([`USAGE`]). A release build is a windowed program on
+//! Windows, with no console of its own.
 //!
 //! **Must never** write a base database or an install: it writes only the world's pack, its build
 //! folder and its screenshots.
@@ -71,14 +72,47 @@ struct Options {
     verbose: bool,
 }
 
+/// What `athenaeum-editor --help` prints: every option.
+const USAGE: &str = "\
+athenaeum-editor <world> --dats <install> [options]
+
+  <world>               a world's folder, or its world.toml (`athenaeum new <folder>` makes one)
+  --dats DIR            the Asheron's Call 2 install the world is drawn from and built against
+  --base DIR            the world database the world is over (default: the release the world
+                        names, from the per-user cache)
+  --pack NAME           the pack edits go into (default: the world's last)
+  --at XXYY[:X,Y]       start over landblock XXYY (hex), at X,Y in it (default 80,80)
+  --size WxH            the window's size (default 1600x900)
+  --scale S             the panels' scale (default 1)
+  --yalain EXE          the Yalain that plays the world (default: the one beside this program)
+  --server-dats DIR     the install Yalain reads (default: --dats; give a copy no client runs
+                        from when the retail client plays)
+  --port P              Yalain's login port; the world's is two above (default 9300)
+  --client EXE          Auberean, to play the world with (default: the one beside this program)
+  --client-dats DIR     the install Auberean reads (default: --server-dats)
+  --retail EXE          the retail client, run from its own folder, to play the world with
+  --client-arg ARG      one more argument for whichever client starts (again for more)
+  --script FILE         editor steps, played as frames pass
+  --shots DIR           where screenshots go, F12's and a script's (default: the world's
+                        build/shots)
+  --verbose             log at the debug level
+  --version             the version, and the commit and target a release build was made from
+  --help                this help (also -h)
+";
+
 fn options() -> Result<Options, String> {
+    options_from(std::env::args().skip(1))
+}
+
+/// The options these arguments give; `Err("")` for `--help`.
+fn options_from(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut o = Options {
         size: (1600, 900),
         scale: 1.0,
         ..Options::default()
     };
     o.programs.port = 9300;
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or(format!("{a} needs a value"));
         match a.as_str() {
@@ -124,7 +158,7 @@ fn options() -> Result<Options, String> {
             "--script" => o.script = Some(PathBuf::from(value()?)),
             "--shots" => o.shots = Some(PathBuf::from(value()?)),
             "--verbose" => o.verbose = true,
-            "-h" | "--help" => return Err("see the usage at the top of src/main.rs".into()),
+            "-h" | "--help" => return Err(String::new()),
             other if !other.starts_with("--") && o.world.as_os_str().is_empty() => {
                 o.world = PathBuf::from(other);
             }
@@ -554,6 +588,10 @@ fn main() -> ExitCode {
     }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.is_empty() => {
+            print!("{USAGE}");
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("athenaeum-editor: {e}");
             ExitCode::FAILURE
@@ -588,5 +626,39 @@ mod version_tests {
         );
         assert!(lines[1].starts_with("commit: "), "{text}");
         assert!(lines[2].starts_with("target: "), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod help_tests {
+    //! Behaviour: none (tooling: what `--help` prints, which a release carries in place of the source)
+    use super::{options_from, USAGE};
+
+    #[test]
+    fn help_and_h_ask_for_the_help() {
+        for a in ["--help", "-h"] {
+            let asked = options_from([a.to_owned()]).err();
+            assert_eq!(asked.as_deref(), Some(""), "{a}");
+        }
+        // A client's argument is the client's, even when it is `--help`.
+        let passed = options_from(["--client-arg", "--help"].map(str::to_owned)).err();
+        assert_ne!(passed.as_deref(), Some(""));
+    }
+
+    /// Each option the help lists is one the command line takes; `--version` and `--help` are
+    /// answered before the options are read.
+    #[test]
+    fn every_option_the_help_lists_is_one_the_command_line_takes() {
+        let listed: Vec<&str> = USAGE
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .filter(|w| w.starts_with("--") && !["--version", "--help"].contains(w))
+            .collect();
+        assert_eq!(listed.len(), 16, "{listed:?}");
+        for o in listed {
+            if let Err(e) = options_from([o.to_owned()]) {
+                assert!(!e.starts_with("unknown option"), "{o}: {e}");
+            }
+        }
     }
 }

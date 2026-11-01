@@ -606,6 +606,7 @@ fn host(os: Os, tools: bool) -> Host {
         zigbuild: tools,
         zig: tools,
         installed: None,
+        glibc: None,
     }
 }
 

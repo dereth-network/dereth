@@ -301,7 +301,22 @@ fn host() -> Host {
             || succeeds("python3", &["-m", "ziglang", "version"])
             || succeeds("python", &["-m", "ziglang", "version"]),
         installed,
+        glibc: host_glibc(),
     }
+}
+
+/// The glibc this host's programs link against, on Linux; none elsewhere, or when `getconf`
+/// cannot say.
+fn host_glibc() -> Option<(u32, u32)> {
+    if Os::host() != Some(Os::Linux) {
+        return None;
+    }
+    let out = Command::new("getconf")
+        .arg("GNU_LIBC_VERSION")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    targets::glibc_of(&String::from_utf8_lossy(&out.stdout))
 }
 
 /// The host's own target triple (`rustc -vV`).

@@ -92,6 +92,7 @@ fn a_host_that_cannot_build_the_library_is_told_to_pass_one() {
         zigbuild: false,
         zig: false,
         installed: installed.map(|i| i.iter().map(|s| (*s).to_owned()).collect()),
+        glibc: None,
     };
     assert_eq!(
         friends_dll::refusal(None, &host(Os::Windows, Some(&[friends_dll::TRIPLE]))),

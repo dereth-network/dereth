@@ -423,13 +423,16 @@ fn base64url(bytes: &[u8]) -> String {
 /// clients. A world makes an account the first time it logs in, and from then on admits only the
 /// secret it was made with, so the secret is kept with the player's other passwords ([`Vault`]):
 /// the one the player typed, which is kept from then on; else the one kept; else a new one
-/// (`fresh`), which is kept before it is used.
+/// (`fresh`), which is kept before it is used. A new one the store cannot keep (a system with no
+/// secret store) is kept in `spare` instead, the launcher's own file ([`vault::SecretFile`]), and
+/// found there at the next launch; a typed one never is, as no typed password is.
 ///
 /// # Errors
 /// In words for a person, when a new secret cannot be made or kept: one not kept would lock the
 /// account out at the next launch.
 pub fn secret_for(
     vault: &mut dyn Vault,
+    spare: &mut dyn Vault,
     slug: &str,
     account: &str,
     typed: Option<&str>,
@@ -441,13 +444,16 @@ pub fn secret_for(
         let _ = vault.set(&key, account, typed);
         return Ok(typed.to_owned());
     }
-    if let Some(kept) = vault.get(&key).ok().flatten().filter(|k| !k.is_empty()) {
+    let kept = |v: &dyn Vault| v.get(&key).ok().flatten().filter(|k| !k.is_empty());
+    if let Some(kept) = kept(vault).or_else(|| kept(spare)) {
         return Ok(kept);
     }
     let secret = fresh()?;
-    vault
-        .set(&key, account, &secret)
-        .map_err(|e| format!("The account's secret could not be kept: {e}"))?;
+    if let Err(e) = vault.set(&key, account, &secret) {
+        spare
+            .set(&key, account, &secret)
+            .map_err(|f| format!("The account's secret could not be kept: {e} {f}"))?;
+    }
     Ok(secret)
 }
 
@@ -655,13 +661,15 @@ pub fn retail_plan(
     }
 }
 
-/// The friends library a launcher in the folder `here` carries: beside its program, or in a macOS
-/// bundle's resources.
+/// The friends library a launcher in the folder `here` carries: beside its program, in a macOS
+/// bundle's resources, or in a Linux package's (an AppImage's `usr/lib/Dereth`, its program in
+/// `usr/bin`).
 #[must_use]
 pub fn friends_dll_beside(here: &Path) -> Option<PathBuf> {
     [
         here.join(FRIENDS_DLL),
         here.join("../Resources").join(FRIENDS_DLL),
+        here.join("../lib/Dereth").join(FRIENDS_DLL),
     ]
     .into_iter()
     .find(|p| p.is_file())
@@ -1019,13 +1027,20 @@ mod tests {
     #[test]
     fn two_launches_for_the_same_world_and_account_pass_the_same_secret() {
         let mut vault = crate::vault::MemoryVault::default();
+        let mut spare = crate::vault::MemoryVault::default();
         let mut made = 0;
         let mut fresh = || {
             made += 1;
             Ok(format!("made-{made}"))
         };
-        let first = secret_for(&mut vault, LOCAL_SLUG, "Player", None, &mut fresh).unwrap();
-        let second = secret_for(&mut vault, LOCAL_SLUG, "player", None, &mut fresh).unwrap();
+        let first = secret_for(
+            &mut vault, &mut spare, LOCAL_SLUG, "Player", None, &mut fresh,
+        )
+        .unwrap();
+        let second = secret_for(
+            &mut vault, &mut spare, LOCAL_SLUG, "player", None, &mut fresh,
+        )
+        .unwrap();
         assert_eq!(first, second);
         assert_eq!(first, "made-1");
         let launch = |secret: &str| {
@@ -1042,21 +1057,39 @@ mod tests {
         };
         assert_eq!(launch(&first), launch(&second));
         // Another account, or the same name on another world, has its own.
-        let other = secret_for(&mut vault, LOCAL_SLUG, "someone", None, &mut fresh).unwrap();
-        let elsewhere = secret_for(&mut vault, "dawnsong", "player", None, &mut fresh).unwrap();
+        let other = secret_for(
+            &mut vault, &mut spare, LOCAL_SLUG, "someone", None, &mut fresh,
+        )
+        .unwrap();
+        let elsewhere = secret_for(
+            &mut vault, &mut spare, "dawnsong", "player", None, &mut fresh,
+        )
+        .unwrap();
         assert_eq!((other.as_str(), elsewhere.as_str()), ("made-2", "made-3"));
         // A secret the player types is used and kept from then on.
         let typed = secret_for(
             &mut vault,
+            &mut spare,
             "dawnsong",
             "player",
             Some("hunter2"),
             &mut fresh,
         );
         assert_eq!(typed.as_deref(), Ok("hunter2"));
-        let again = secret_for(&mut vault, "dawnsong", "player", Some(""), &mut fresh);
+        let again = secret_for(
+            &mut vault,
+            &mut spare,
+            "dawnsong",
+            "player",
+            Some(""),
+            &mut fresh,
+        );
         assert_eq!(again.as_deref(), Ok("hunter2"));
         assert_eq!(made, 3);
+        assert!(
+            spare.list("").unwrap().is_empty(),
+            "the store kept them all"
+        );
     }
 
     /// A store that keeps nothing.
@@ -1081,9 +1114,17 @@ mod tests {
     #[test]
     fn a_secret_that_cannot_be_kept_is_not_used_but_a_typed_one_is() {
         let mut fresh = || Ok("made".to_owned());
-        let made = secret_for(&mut Broken, LOCAL_SLUG, "player", None, &mut fresh);
+        let made = secret_for(
+            &mut Broken,
+            &mut Broken,
+            LOCAL_SLUG,
+            "player",
+            None,
+            &mut fresh,
+        );
         assert!(made.unwrap_err().contains("could not be kept"));
         let typed = secret_for(
+            &mut Broken,
             &mut Broken,
             "dawnsong",
             "player",
@@ -1091,6 +1132,59 @@ mod tests {
             &mut fresh,
         );
         assert_eq!(typed.as_deref(), Ok("hunter2"));
+    }
+
+    /// With no secret store (a Linux desktop with no keyring), the secret the launcher makes is
+    /// kept in its own file, and every later launch passes it; a typed one is not written there.
+    #[test]
+    fn with_no_secret_store_a_new_secret_is_kept_in_the_launchers_file_and_reused() {
+        let mut spare = crate::vault::MemoryVault::default();
+        let mut made = 0;
+        let mut fresh = || {
+            made += 1;
+            Ok(format!("made-{made}"))
+        };
+        let first = secret_for(
+            &mut Broken,
+            &mut spare,
+            LOCAL_SLUG,
+            "player",
+            None,
+            &mut fresh,
+        );
+        let second = secret_for(
+            &mut Broken,
+            &mut spare,
+            LOCAL_SLUG,
+            "Player",
+            None,
+            &mut fresh,
+        );
+        assert_eq!(first.as_deref(), Ok("made-1"));
+        assert_eq!(second, first);
+        let key = vault::target(LOCAL_SLUG, "player");
+        assert_eq!(spare.get(&key).unwrap().as_deref(), Some("made-1"));
+        let typed = secret_for(
+            &mut Broken,
+            &mut spare,
+            "dawnsong",
+            "player",
+            Some("hunter2"),
+            &mut fresh,
+        );
+        assert_eq!(typed.as_deref(), Ok("hunter2"));
+        assert_eq!(
+            spare.get(&vault::target("dawnsong", "player")).unwrap(),
+            None
+        );
+        // A store that has one wins over the file.
+        let mut store = crate::vault::MemoryVault::default();
+        store.set(&key, "player", "kept").unwrap();
+        let kept = secret_for(
+            &mut store, &mut spare, LOCAL_SLUG, "player", None, &mut fresh,
+        );
+        assert_eq!(kept.as_deref(), Ok("kept"));
+        assert_eq!(made, 1);
     }
 
     #[test]
@@ -1239,6 +1333,21 @@ mod tests {
         assert!(friends_dll_beside(&macos).is_some_and(|p| p.is_file()));
         std::fs::write(macos.join(FRIENDS_DLL), b"dll").unwrap();
         assert_eq!(friends_dll_beside(&macos), Some(macos.join(FRIENDS_DLL)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A Linux package (the AppImage) has the launcher in `usr/bin` and its resources in
+    /// `usr/lib/Dereth`.
+    #[test]
+    fn the_library_is_found_in_a_linux_packages_resources() {
+        let d = tmp("ac2-dll-linux");
+        let (bin, lib) = (d.join("usr/bin"), d.join("usr/lib/Dereth"));
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&lib).unwrap();
+        assert_eq!(friends_dll_beside(&bin), None);
+        std::fs::write(lib.join(FRIENDS_DLL), b"dll").unwrap();
+        let found = friends_dll_beside(&bin).expect("found");
+        assert!(found.is_file() && found.ends_with(Path::new("Dereth").join(FRIENDS_DLL)));
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -5,6 +5,7 @@
 //! file a line, so a world running in the background takes them as one the launcher started does.
 
 use crate::host_config::Settings;
+use dereth_launch::world::Game;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -24,6 +25,24 @@ pub struct Definition {
     /// never updated from a release and never runs in the background.
     #[serde(default)]
     pub checkout: bool,
+    /// The game the world is of: Empyrean's (Asheron's Call), or Yalain's (Asheron's Call 2,
+    /// [`crate::host_yalain`]).
+    #[serde(default)]
+    pub game: Game,
+}
+
+/// A world's settings, wherever its server keeps them: Empyrean's `empyrean.toml`, or Yalain's
+/// `yalain.json`.
+///
+/// # Errors
+/// When they are not there or do not read.
+pub fn read_settings(dir: &Path, game: Game) -> Result<Settings, String> {
+    match game {
+        Game::Dereth => Settings::from_config(
+            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
+        ),
+        Game::Auberean => crate::host_yalain::read(dir),
+    }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Status {
@@ -179,6 +198,8 @@ const LOG_KEPT_BYTES: u64 = 8 * 1024 * 1024;
 struct Lines {
     recent: VecDeque<String>,
     file: Option<LogFile>,
+    /// A Yalain world's log has said where it listens, however many lines followed it.
+    up: bool,
 }
 
 struct LogFile {
@@ -253,6 +274,7 @@ fn push_log(log: &Log, line: &str) {
     if lines.recent.len() == 300 {
         lines.recent.pop_front();
     }
+    lines.up |= crate::host_yalain::is_up(&line);
     lines.recent.push_back(line);
 }
 fn save_log(dir: &Path, log: &Log) -> Result<(), String> {
@@ -347,18 +369,32 @@ impl Drop for Parent {
     }
 }
 
+/// What the server's console is given to stop: Empyrean's `exit`, and Yalain's `stop-now`, which
+/// saves everyone in the world and exits at once (its `shutdown` counts two minutes down for the
+/// players). Neither is killed: what players did since the last save would be lost.
+fn stop_word(game: Game) -> &'static [u8] {
+    match game {
+        Game::Auberean => b"stop-now\n",
+        Game::Dereth => b"exit\n",
+    }
+}
+
 /// Runs without a web view. Stop asks the server to save and exit; it never kills it.
 pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), String> {
     let parent = Parent::new(parent);
     let definition = read_definition(dir)?;
-    let settings = Settings::from_config(
-        &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
-    )?;
-    settings.validate()?;
-    crate::host_config::validate_managed(
-        &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
-        dir,
-    )?;
+    let yalain = definition.game == Game::Auberean;
+    let settings = read_settings(dir, definition.game)?;
+    if yalain {
+        crate::host_yalain::validate(&settings)?;
+    } else {
+        settings.validate()?;
+        crate::host_config::validate_managed(
+            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
+            dir,
+        )?;
+    }
+    let server = if yalain { "Yalain" } else { "Empyrean" };
     let guard = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -368,7 +404,13 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     guard
         .try_lock()
         .map_err(|_| "This world is already running.")?;
-    crate::host_updates::apply_pending(dir).inspect_err(|error| {
+    // Updates of the server's release are Empyrean's alone.
+    let pending = if yalain {
+        Ok(())
+    } else {
+        crate::host_updates::apply_pending(dir)
+    };
+    pending.inspect_err(|error| {
         let _ = write_json(
             &dir.join("status.json"),
             &Status {
@@ -387,21 +429,22 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     let log: Log = Arc::new(Mutex::new(Lines {
         recent: VecDeque::new(),
         file: LogFile::open(dir.join(LOG_FILE), LOG_KEPT_BYTES).ok(),
+        up: false,
     }));
+    let args: Vec<std::ffi::OsString> = if yalain {
+        crate::host_yalain::args(dir, &settings)
+    } else {
+        vec!["--config".into(), dir.join("empyrean.toml").into()]
+    };
     let mut child = crate::components::command(&definition.program)
-        .args([
-            "--config",
-            dir.join("empyrean.toml")
-                .to_str()
-                .ok_or("Invalid configuration path")?,
-        ])
+        .args(args)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            let message = format!("Could not start Empyrean: {e}");
+            let message = format!("Could not start {server}: {e}");
             state.phase = "failed".into();
             state.pid = None;
             state.message = Some(message.clone());
@@ -430,7 +473,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
             Ok(Some(exit)) => break exit,
             Ok(None) => {}
             Err(error) => {
-                state.message = Some(format!("Could not check Empyrean's process: {error}"))
+                state.message = Some(format!("Could not check {server}'s process: {error}"))
             }
         }
         if !stopping {
@@ -447,7 +490,8 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
             && (stop.load(Ordering::SeqCst) || !parent.alive() || dir.join("stop.request").exists())
         {
             if let Some(mut stdin) = stdin.take() {
-                if let Err(error) = stdin.write_all(b"exit\n").and_then(|()| stdin.flush()) {
+                let word = stop_word(definition.game);
+                if let Err(error) = stdin.write_all(word).and_then(|()| stdin.flush()) {
                     push_log(&log, &format!("Could not request shutdown: {error}"));
                 }
             }
@@ -460,7 +504,20 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
             if stopping {
                 crate::host_service::stopping_progress();
             }
-            if !stopping {
+            if !stopping && yalain {
+                // Up once its log has said where it listens (the world database's notes may
+                // follow by the thousand); it counts no players for the launcher.
+                let up = log
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .up;
+                if up {
+                    state.phase = "running".into();
+                    state.message = None;
+                } else if started.elapsed() > Duration::from_secs(300) {
+                    state.message = Some("Waiting for the world to start. Check its log.".into());
+                }
+            } else if !stopping {
                 if let Some(players) = health(&settings) {
                     state.phase = "running".into();
                     state.players = Some(players);
@@ -482,18 +539,15 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     state.players = None;
     state.started = None;
     let _ = take_commands(dir);
-    state.phase = if result.success() {
-        "stopped"
-    } else {
-        "failed"
-    }
-    .into();
-    state.message = if result.success() {
+    // A Yalain world stopped by the launcher ends when it is told to: that is a clean stop.
+    let clean = result.success() || (yalain && stopping);
+    state.phase = if clean { "stopped" } else { "failed" }.into();
+    state.message = if clean {
         None
     } else {
-        Some(format!("Empyrean exited with {result}. Check the logs."))
+        Some(format!("{server} exited with {result}. Check the logs."))
     };
-    let update_result = if result.success() {
+    let update_result = if result.success() && !yalain {
         crate::host_updates::apply_pending(dir)
     } else {
         Ok(())
@@ -505,7 +559,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     let _ = std::fs::remove_file(dir.join("stop.request"));
     save_log(dir, &log)?;
     write_json(&dir.join("status.json"), &state)?;
-    if result.success() {
+    if clean {
         update_result
     } else {
         Err(state.message.unwrap_or_default())
@@ -527,6 +581,7 @@ mod tests {
                 program: dir.join("missing-server"),
                 wrapper: dir.join("wrapper"),
                 checkout: false,
+                game: dereth_launch::world::Game::Dereth,
             },
         )
         .unwrap();
@@ -548,6 +603,12 @@ mod tests {
             .unwrap()
             .starts_with("Could not start Empyrean:"));
         assert!(state.pid.is_none());
+    }
+    /// A world is asked to save and stop through its console, in its server's own word.
+    #[test]
+    fn a_stopping_world_is_asked_to_save_and_exit_in_its_servers_own_word() {
+        assert_eq!(stop_word(Game::Auberean), b"stop-now\n");
+        assert_eq!(stop_word(Game::Dereth), b"exit\n");
     }
     #[test]
     fn console_commands_wait_in_order_for_a_running_world_and_hide_passwords_in_the_log() {
@@ -605,6 +666,29 @@ b"
         assert_eq!(lines.front().unwrap(), "line 101");
         assert_eq!(lines.back().unwrap(), "[credential details hidden]");
     }
+    /// A Yalain world is up once its log has said where it listens, even when the world
+    /// database's notes push that line out of the lines the page keeps.
+    #[test]
+    fn a_yalain_world_is_up_once_its_log_said_so_however_many_lines_followed() {
+        let log: Log = Arc::new(Mutex::new(Lines {
+            recent: VecDeque::new(),
+            file: None,
+            up: false,
+        }));
+        push_log(&log, "the level table read");
+        assert!(!log.lock().unwrap().up);
+        push_log(
+            &log,
+            "listening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world)",
+        );
+        for i in 0..1000 {
+            push_log(&log, &format!("not handled yet what=a camp (c-{i})"));
+        }
+        let lines = log.lock().unwrap();
+        assert!(lines.up);
+        assert!(!lines.recent.iter().any(|l| l.contains("listening on")));
+    }
+
     #[test]
     fn the_log_file_keeps_every_line_and_begins_again_once_it_is_large() {
         let temp = tempfile::tempdir().unwrap();
@@ -612,6 +696,7 @@ b"
         let log: Log = Arc::new(Mutex::new(Lines {
             recent: VecDeque::new(),
             file: Some(LogFile::open(path.clone(), 40).unwrap()),
+            up: false,
         }));
         let text = (0..6)
             .map(|i| format!("line {i} of six\n"))

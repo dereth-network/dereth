@@ -23,8 +23,11 @@ use crate::world::END_OF_RETAIL_NET_VERSION;
 pub enum ClientKind {
     /// The rebuild. Takes its dats from any folder, runs any number of copies.
     Dereth,
-    /// A retail `acclient.exe`.
+    /// A retail `acclient.exe`; for a world of Asheron's Call 2, that game's retail client
+    /// (`crate::auberean::find_retail`).
     Retail,
+    /// Auberean, the Asheron's Call 2 client the launcher downloads.
+    Auberean,
 }
 
 /// How sure the launcher is about a build.
@@ -189,11 +192,12 @@ impl Installation {
         let family = match self.kind {
             ClientKind::Dereth => "Dereth client",
             ClientKind::Retail => "acclient",
+            ClientKind::Auberean => "Auberean",
         };
         match (&self.version, &self.build_date) {
             (Some(v), Some(d)) => format!("{family} {v} ({})", long_date(d)),
             (Some(v), None) => format!("{family} {v}"),
-            _ if self.kind == ClientKind::Dereth => family.to_owned(),
+            _ if self.kind != ClientKind::Retail => family.to_owned(),
             _ => format!("{family} (unknown build)"),
         }
     }
@@ -325,6 +329,16 @@ fn identify_exe(
     inst.own_dats = dats;
 
     match kind {
+        ClientKind::Auberean => {
+            // Asheron's Call 2's rebuild runs any number of copies; it speaks no Asheron's Call
+            // protocol.
+            inst.client_id = inst
+                .version
+                .as_deref()
+                .map_or("auberean".into(), |v| format!("auberean-{v}"));
+            inst.multi_instance = true;
+            inst.identified_by = IdentifiedBy::ExeSha256;
+        }
         ClientKind::Dereth => {
             // The rebuild speaks the end-of-retail protocol and runs any number of copies. Its
             // version, when the executable carries one, names it.

@@ -82,9 +82,13 @@ pub struct Activity {
 
 impl Activity {
     /// The activity of a game of `client` started at `start` on `world`, played by `character`
-    /// when the launcher knows who. Never the account: that is half of a login.
+    /// when the launcher knows who. Never the account: that is half of a login. A world of
+    /// Asheron's Call 2 has no era of Asheron's Call's, and says the game instead.
     pub fn new(world: &World, client: ClientKind, character: Option<&str>, start: u64) -> Self {
-        let era = crate::eras::label(world.era.as_deref());
+        let era = match world.game {
+            crate::world::Game::Dereth => crate::eras::label(world.era.as_deref()),
+            crate::world::Game::Auberean => "Asheron's Call 2".to_owned(),
+        };
         let state = character
             .map(str::trim)
             .filter(|c| !c.is_empty())
@@ -105,6 +109,7 @@ pub fn client_label(client: ClientKind) -> &'static str {
     match client {
         ClientKind::Dereth => "Dereth",
         ClientKind::Retail => "Retail client",
+        ClientKind::Auberean => "Auberean",
     }
 }
 
@@ -318,6 +323,16 @@ mod tests {
             a.state, "Dereth · dark-majesty",
             "an era this build does not know, in the world's own word"
         );
+    }
+
+    #[test]
+    fn a_world_of_asheron_s_call_2_shows_its_client_and_the_game_and_no_era() {
+        let mut w = world("Dawnsong", None);
+        w.game = crate::world::Game::Auberean;
+        let a = Activity::new(&w, ClientKind::Auberean, None, 5);
+        assert_eq!(a.state, "Auberean · Asheron's Call 2");
+        let a = Activity::new(&w, ClientKind::Retail, None, 5);
+        assert_eq!(a.state, "Retail client · Asheron's Call 2");
     }
 
     #[test]
