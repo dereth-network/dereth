@@ -249,6 +249,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-client-contract"
+version = "0.0.0"
+dependencies = [
+ "auberean-primitives",
+]
+
+[[package]]
+name = "auberean-client-model"
+version = "0.0.0"
+dependencies = [
+ "auberean-primitives",
+ "auberean-protocol",
+]
+
+[[package]]
 name = "auberean-client-net"
 version = "0.0.0"
 dependencies = [
@@ -259,6 +274,40 @@ dependencies = [
  "dereth-primitives",
  "dereth-transport",
  "yalain-net",
+]
+
+[[package]]
+name = "auberean-client-runtime"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-client-contract",
+ "auberean-client-model",
+ "auberean-client-net",
+ "auberean-dat",
+ "auberean-glue",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-script",
+ "auberean-testkit",
+ "auberean-text",
+ "auberean-world",
+ "dereth-primitives",
+]
+
+[[package]]
+name = "auberean-client-sdk"
+version = "0.0.0"
+dependencies = [
+ "auberean-client-contract",
+ "auberean-client-model",
+ "auberean-client-net",
+ "auberean-client-runtime",
+ "auberean-dat",
+ "auberean-protocol",
+ "auberean-script",
+ "auberean-text",
 ]
 
 [[package]]
@@ -283,6 +332,15 @@ dependencies = [
  "auberean-testkit",
  "auberean-text",
  "dereth-primitives",
+]
+
+[[package]]
+name = "auberean-headless"
+version = "0.0.0"
+dependencies = [
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-testkit",
 ]
 
 [[package]]

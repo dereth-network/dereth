@@ -22,6 +22,59 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.double.a-server-double-takes-the-client-into-the-world",
+        says: "Played the servers' side of a game login, the client sends its data versions when \
+               asked, enters the world with the character picked from the list, follows the referral \
+               to the world server, takes the player's creation and private updates in order, says \
+               the scene is drawn once the player's object is here, reports its position while the \
+               player runs, and on logging off leaves the world and keeps the login connection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-DOUBLE"),
+        station: "auberean-headless::cpu::world_entry::a_server_double_takes_the_client_through_login_character_list_and_world_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.looking-at-the-selection",
+        says: "Selecting an object turns the player to look at it, and the client tells the server \
+               what the player looks at with each selection; with the option to look at the \
+               selection off, the client tells the server once that the player looks at nothing, \
+               and nothing more while it looks at nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOOK-AT"),
+        station: "auberean-headless::cpu::world_entry::a_selection_is_looked_at_and_with_the_option_off_nothing_is_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.say-hands-the-line-and-its-words",
+        says: "A line typed into the chat box is a command's line (one that is no command gets \
+               the say command first, a command's marks are cut); its words split at spaces with \
+               a quoted run kept whole, the first naming the command, which is handed the words \
+               and the rest of the line after the command word.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-SAY"),
+        station: "auberean-client-runtime::cpu::requests::a_typed_line_splits_into_words_with_quoted_runs_kept_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.a-refused-entry-logs-off-no-character-and-may-ask-again",
+        says: "An entry the server refuses is seen with its reason; the client logs off with no \
+               character, stays at the character list on its login connection, and a second entry \
+               goes into the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-REFUSED-ENTRY"),
+        station: "auberean-headless::cpu::world_entry::a_refused_entry_logs_off_no_character_and_a_second_entry_goes_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.closing-says-goodbye-on-every-connection",
+        says: "Closing in the world says goodbye on every connection at once with no log-off \
+               first, and nothing more is sent after it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-CLOSE-GOODBYE"),
+        station: "auberean-headless::cpu::world_entry::closing_in_the_world_says_goodbye_on_every_connection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.logon.the-login-carries-version-ticket-account-and-key-blob",
         says: "The game login carries the version 1802, a ticket login with flags 1, the time, the \
                account as typed, a session-key blob (its twelve-byte header, then 64 bytes) and the \
@@ -29,6 +82,27 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGON"),
         station: "auberean-client-net::cpu::logon::the_login_carries_version_ticket_account_and_key_blob",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.position.a-report-packs-heading-motion-flags-and-stamps",
+        says: "A position report carries the heading in its top byte (256 steps to a full turn), the \
+               asked motion as one byte each for sideways, forward and up (127 for none), the jump \
+               flag with the jump's velocity, the moving flag while the player moves or turns, and \
+               the body's instance and teleport stamps.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-PACK"),
+        station: "auberean-client-runtime::cpu::reports::a_report_packs_heading_motion_flags_and_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.position.reports-on-change-jump-and-every-fifth-of-a-second",
+        says: "The client reports the player's position at once when the asked motion changes or \
+               the player jumps; while the player moves or turns it reports again on the first frame \
+               more than a fifth of a second after the last report; standing still it sends nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION"),
+        station: "auberean-client-runtime::cpu::reports::reports_go_on_a_change_a_jump_and_every_fifth_of_a_second_while_moving",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -44,6 +118,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.replay.every-2017-game-login-replays-through-the-client",
+        says: "Every recorded January 2017 game login, its servers played from the recording, \
+               replays through the client to its end: the login connection held until the server \
+               lets it go, every world login the recorded client made made again by following the \
+               referrals, and the player of every world entry made and held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-REPLAY"),
+        station: "auberean-headless::corpus::sessions::every_recorded_2017_game_login_replays_through_the_client",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "session.replay.what-the-client-sends-equals-the-recorded-client",
+        says: "Through every recorded 2017 game login, what the client sends of its own accord \
+               equals the recorded client's: its data versions byte for byte, its entries into the \
+               world and its log-offs, its scene-drawn reports, its position reports' cadence and \
+               flags, every blob's ordering type, and the stamps of its data versions, entries and \
+               log-offs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-SENDS"),
+        station: "auberean-headless::corpus::sessions::what_the_client_sends_on_its_own_equals_the_recorded_client",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "session.send.every-message-stamped-from-its-counter",
         says: "Each message the client sends carries the ordering type and stamp of its counter: \
                the game-events queue's are ordered, stamped from a counter counted up before each \
@@ -53,6 +150,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-BLOB-STAMPS"),
         station: "auberean-client-net::cpu::session::every_message_is_stamped_from_its_counter_and_the_sequence_starts_at_zero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.the-game-clock-moves-forward-to-the-servers-time-sync",
+        says: "The server's clock in a packet's time-sync header sets the game clock when it is \
+               ahead of it; the game clock then runs on with the client's own, and is never set \
+               back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-TIME-SYNC"),
+        station: "auberean-client-runtime::cpu::clock::the_game_clock_moves_forward_to_the_servers_time_sync",
         tier: Tier::Cpu,
     },
 ];

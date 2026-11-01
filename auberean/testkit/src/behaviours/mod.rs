@@ -134,6 +134,7 @@ pub mod collision;
 pub mod data;
 pub mod detection;
 pub mod missile;
+pub mod model;
 pub mod motion;
 pub mod parts;
 pub mod pathfind;
@@ -143,6 +144,7 @@ pub mod session;
 pub mod shape;
 pub mod text;
 pub mod transition;
+pub mod ui;
 pub mod world;
 
 /// Every subject, in name order. A new subject adds its `mod` line above and its entry here.
@@ -166,6 +168,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "missile",
         rows: missile::ROWS,
+    },
+    Subject {
+        name: "model",
+        rows: model::ROWS,
     },
     Subject {
         name: "motion",
@@ -202,6 +208,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "transition",
         rows: transition::ROWS,
+    },
+    Subject {
+        name: "ui",
+        rows: ui::ROWS,
     },
     Subject {
         name: "world",

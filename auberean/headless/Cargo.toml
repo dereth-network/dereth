@@ -1,0 +1,37 @@
+[package]
+name = "auberean-headless"
+description = "The client with no window: logs in to a server on loopback, enters the world and plays a script of actions, on the SDK alone."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[[bin]]
+name = "auberean-headless"
+path = "src/main.rs"
+
+[features]
+# Tier switch: selects the `corpus` test binary, which replays every recorded 2017 game login
+# through the client against a server double.
+retail-corpus = []
+
+[dependencies]
+auberean-client-sdk = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-testkit = { workspace = true, features = ["double", "captures"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "corpus"
+path = "tests/corpus/main.rs"
+required-features = ["retail-corpus"]

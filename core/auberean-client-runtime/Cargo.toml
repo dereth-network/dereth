@@ -1,0 +1,47 @@
+[package]
+name = "auberean-client-runtime"
+description = "The client without a window: the session, the model, the scripts with the model's natives, the player's body and its reports, and what the client says on its own."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+auberean-client-contract.workspace = true
+auberean-client-net.workspace = true
+auberean-client-model.workspace = true
+auberean-protocol.workspace = true
+auberean-primitives.workspace = true
+auberean-script.workspace = true
+auberean-glue.workspace = true
+auberean-physics.workspace = true
+auberean-dat.workspace = true
+auberean-assets.workspace = true
+auberean-text.workspace = true
+# The visual descriptions in the client's own form: the objects' own, and those scripts hold.
+auberean-world.workspace = true
+# The transcendental functions, the same bits on every host.
+dereth-primitives.workspace = true
+
+[features]
+# Tier switch: selects the `corpus` test binary, which runs every recorded server-to-client
+# script call against the model the recorded messages build.
+retail-corpus = ["auberean-testkit/captures"]
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "corpus"
+path = "tests/corpus/main.rs"
+required-features = ["retail-corpus"]

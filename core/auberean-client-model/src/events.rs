@@ -1,0 +1,709 @@
+//! The event queue: the order received messages take effect in, and which wait.
+//!
+//! Every message from the game's servers passes here before it touches the model. What decides
+//! its fate is its blob id (the ordering type in the top byte, an ordering stamp) and, for a
+//! message about an object, the object's instance and visual stamps.
+//!
+//! **Entering the world.** Messages flagged as out of the world (the login connection's) are never
+//! held. Otherwise: before the client asks to enter the world, nothing is held; while it is
+//! entering, everything but the player's creation and a character refusal waits for the player's
+//! creation; once in the world, everything but object creations waits while the player's object
+//! does not exist yet.
+//!
+//! **Order.** A private message (ordering type 1, the player's own stream) takes effect only after
+//! the one stamped before it: the first one accepted is stamped 0 or 1, an older or repeated stamp
+//! is dropped, and twenty held messages blocked for five minutes give up on the gap. A visual
+//! message (type 2) is about an object and is ordered by the visual stamp it carries against that
+//! object's: the object's creation sets the start, an older stamp is dropped, a newer one waits for
+//! the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
+//! dropped.
+//!
+//! **Objects not here yet.** A message about an object the client does not have, or about a newer
+//! incarnation of it (a higher instance stamp), waits in that object's queue; one about an older
+//! incarnation is dropped. An object's creation flushes its queue. An object created as a part of
+//! another waits for its parent the same way. A queue nothing has been added to for 25 seconds is
+//! given up: the client asks the server to send the object again and drops the queue (the player's
+//! is kept). A visual queue blocked for 20 seconds is given up the same way.
+
+use std::collections::{BTreeMap, BinaryHeap, HashMap, VecDeque};
+
+use auberean_protocol::physics::CreateObject;
+use auberean_protocol::types::ObjectStamp;
+use auberean_protocol::ServerMessage;
+
+/// One received message and its blob id.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Item {
+    pub blob_id: u64,
+    pub message: ServerMessage,
+}
+
+/// The blob id's ordering type: private, visual or unordered (the low five bits of the top byte).
+#[must_use]
+pub fn ordering_type(blob_id: u64) -> u8 {
+    #[allow(clippy::cast_possible_truncation)]
+    let t = ((blob_id >> 56) & 0x1F) as u8;
+    t
+}
+
+/// The blob id's ordering stamp.
+#[must_use]
+pub fn ordering_stamp(blob_id: u64) -> u16 {
+    #[allow(clippy::cast_possible_truncation)]
+    let s = (blob_id >> 32) as u16;
+    s
+}
+
+/// Whether the blob id says the message is out of the world (the login connection's).
+#[must_use]
+pub fn out_of_world(blob_id: u64) -> bool {
+    blob_id & 0x2000_0000_0000_0000 != 0
+}
+
+/// Whether the blob id carries the cell flag (a message about a cell's objects to everyone in it).
+#[must_use]
+pub fn cell_flag(blob_id: u64) -> bool {
+    blob_id & 0x4000_0000_0000_0000 != 0
+}
+
+/// Message types the entering rule lets through.
+const PLAYER_OBJECT: u32 = 0x10060;
+const CHARACTER_REFUSED: u32 = 0x10056;
+const CREATE_OBJECT: u32 = 0x10058;
+
+/// How long an object's queue may wait for its creation after its last message, seconds.
+pub const OBJECT_QUEUE_PATIENCE: f64 = 25.0;
+/// How long a visual queue may stay blocked, seconds.
+pub const VISUAL_QUEUE_PATIENCE: f64 = 20.0;
+/// How long the private stream may stay blocked with twenty messages held, seconds.
+pub const PRIVATE_STREAM_PATIENCE: f64 = 300.0;
+
+/// Where the client is in entering the world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorldState {
+    NotInWorld,
+    Entering,
+    InWorld,
+}
+
+/// `a` is newer than `b` on a 16-bit stamp circle: the difference is less than half the circle.
+#[must_use]
+pub fn newer(a: u16, b: u16) -> bool {
+    a != b && a.wrapping_sub(b) < 0x8000
+}
+
+/// The object a message is about: the sender of an object event, the object of a visual quality
+/// or of a call to an object, or the object of a removal.
+#[must_use]
+pub fn subject(m: &ServerMessage) -> Option<ObjectStamp> {
+    use ServerMessage as S;
+    Some(match m {
+        S::PlayBehavior(e) => e.sender,
+        S::StopBehavior(e) | S::DoMode(e) | S::MotionInterpChange(e) | S::EndLayer(e) => e.sender,
+        S::StopFx(e) | S::GlobalModifier(e) | S::SetMode(e) | S::DoFxScript(e) => e.sender,
+        S::MoveSlider(e) => e.sender,
+        S::MoveTo(e) => e.sender,
+        S::Parent(e) => e.sender,
+        S::HoverHeight(e) | S::VelocityScale(e) | S::AccelerationScale(e) | S::JumpScale(e) => {
+            e.sender
+        }
+        S::LookAt(e) => e.sender,
+        S::Push(e) => e.sender,
+        S::PushToward(e) => e.sender,
+        S::LetGoBehavior(e) => e.sender,
+        S::UpdateVisualDesc(e) => e.sender,
+        S::DoFx(e) => e.sender,
+        S::DoTargetedFx(e) => e.sender,
+        S::TerrainChange(e) => e.sender,
+        S::ClearTerrainChanges(e) | S::StopAllBehaviors(e) | S::StopMoveCancelsBehaviors(e) => {
+            e.sender
+        }
+        S::DoStory(e) => e.sender,
+        S::InitializeMissile(e) => e.sender,
+        S::ObjectLeaves(e) => e.sender,
+        S::DeParent(e) => e.sender,
+        S::TurnHead(e) => e.sender,
+        S::Position(p) | S::PositionCell(p) => p.sender,
+        S::ForgetObject(o) | S::Contain(o) => o.0,
+        S::CellObjectCall(c) | S::VisualObjectCall(c) => c.object,
+        S::UpdateIntVisual(q) | S::UpdateBoolVisual(q) => q.object,
+        S::UpdateFloatVisual(q) => q.object,
+        S::UpdateStringVisual(q) => q.object,
+        S::UpdateDataIdVisual(q) => q.object,
+        S::UpdateInstanceIdVisual(q) | S::UpdateLongIntVisual(q) => q.object,
+        S::UpdatePositionVisual(q) => q.object,
+        S::UpdateTimestampVisual(q) => q.object,
+        S::UpdateStringInfoVisual(q) => q.object,
+        _ => return None,
+    })
+}
+
+/// The private stream's order keeper.
+#[derive(Debug, Default)]
+struct PrivateStream {
+    started: bool,
+    last: u32,
+    held: BTreeMap<u32, Item>,
+    blocked_since: Option<f64>,
+}
+
+impl PrivateStream {
+    /// Take a message; what may now take effect goes to `out`, in order.
+    // D2-14307, D2-14306, D2-14303, D2-05618, D2-05630
+    fn add(
+        &mut self,
+        stamp: u32,
+        item: Item,
+        now: f64,
+        out: &mut VecDeque<Item>,
+        dropped: &mut u32,
+    ) {
+        if self.started && stamp <= self.last {
+            *dropped += 1;
+            return;
+        }
+        self.started = true;
+        if stamp == self.last || stamp == self.last + 1 {
+            self.last = stamp;
+            out.push_back(item);
+            self.flush(out);
+            return;
+        }
+        if self.held.contains_key(&stamp) {
+            *dropped += 1;
+            return;
+        }
+        let was_empty = self.held.is_empty();
+        self.held.insert(stamp, item);
+        if was_empty {
+            self.blocked_since = Some(now);
+        }
+        if self.held.len() > 19
+            && self
+                .blocked_since
+                .is_some_and(|t| now - t > PRIVATE_STREAM_PATIENCE)
+        {
+            // Give up on the gap: the next held message goes on as if the gap had arrived.
+            self.last += 1;
+            if let Some((&first, _)) = self.held.iter().next() {
+                self.last = self.last.max(first.saturating_sub(1));
+            }
+            self.flush(out);
+        }
+    }
+
+    fn flush(&mut self, out: &mut VecDeque<Item>) {
+        while let Some((&s, _)) = self.held.iter().next() {
+            if s == self.last || s == self.last + 1 {
+                if let Some(item) = self.held.remove(&s) {
+                    self.last = s;
+                    out.push_back(item);
+                }
+            } else {
+                break;
+            }
+        }
+        if self.held.is_empty() {
+            self.blocked_since = None;
+        }
+    }
+}
+
+/// An object's visual messages, ordered by their visual stamps; made empty at stamp 0 and never
+/// blocked, and dropped with whatever it still holds.
+// D2-05755, D2-05759
+#[derive(Debug, Default)]
+struct VisualQueue {
+    current: u16,
+    /// Held messages by stamp, smallest first (ties in arrival order).
+    held: BinaryHeap<core::cmp::Reverse<(u16, u64)>>,
+    items: HashMap<u64, Item>,
+    seq: u64,
+    blocked_since: Option<f64>,
+}
+
+impl VisualQueue {
+    // D2-05756
+    fn push(&mut self, stamp: u16, item: Item) {
+        self.seq += 1;
+        self.held.push(core::cmp::Reverse((stamp, self.seq)));
+        self.items.insert(self.seq, item);
+    }
+
+    /// The next message whose stamp follows the current one; older ones are dropped.
+    // D2-05757
+    fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Item> {
+        loop {
+            let Some(core::cmp::Reverse((stamp, seq))) = self.held.peek().copied() else {
+                self.blocked_since = None;
+                return None;
+            };
+            let want = self.current.wrapping_add(1);
+            if stamp == want {
+                self.held.pop();
+                self.current = stamp;
+                self.blocked_since = None;
+                return self.items.remove(&seq);
+            }
+            if newer(stamp, want) {
+                if self.blocked_since.is_none() {
+                    self.blocked_since = Some(now);
+                }
+                return None;
+            }
+            self.held.pop();
+            self.items.remove(&seq);
+            *dropped += 1;
+        }
+    }
+
+    /// The object was (re)created at a visual stamp: nothing at or before it is waited for.
+    // D2-05749
+    fn created_at(&mut self, stamp: u16) {
+        if newer(stamp, self.current) {
+            self.current = stamp;
+        }
+    }
+
+    // D2-05748
+    fn heavily_blocked(&self, now: f64) -> bool {
+        self.blocked_since
+            .is_some_and(|t| now - t > VISUAL_QUEUE_PATIENCE)
+    }
+
+    // D2-05758
+    fn discard_all(&mut self) {
+        self.held.clear();
+        self.items.clear();
+        self.blocked_since = None;
+    }
+}
+
+/// The client's book on one object.
+#[derive(Debug, Default)]
+struct Bookie {
+    instance_stamp: u16,
+    visual: VisualQueue,
+}
+
+/// Messages waiting for an object's creation.
+#[derive(Debug, Default)]
+struct Waiting {
+    last_push: f64,
+    wants_force: bool,
+    items: Vec<Item>,
+}
+
+/// Counts for logs and tests.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueStats {
+    /// Messages held while entering the world.
+    pub held_entering: u32,
+    /// Messages that waited for an object.
+    pub waited: u32,
+    /// Messages dropped: older stamps, older incarnations, unknown ordering types.
+    pub dropped: u32,
+    /// Objects the client asked the server to send again.
+    pub force_creates: u32,
+    /// Object queues given up.
+    pub queues_given_up: u32,
+}
+
+/// The event queue.
+#[derive(Debug)]
+pub struct EventQueue {
+    state: WorldState,
+    held: VecDeque<Item>,
+    waiting: BTreeMap<u64, Waiting>,
+    bookies: HashMap<u64, Bookie>,
+    player: Option<u64>,
+    private: PrivateStream,
+    ready: VecDeque<Item>,
+    force: Vec<u64>,
+    /// Objects the server had the client forget: they go at the next upkeep, so what came with
+    /// the forgetting still finds them.
+    destroying: Vec<u64>,
+    destroyed: Vec<u64>,
+    /// Objects to be destroyed at a time unless that is called off, by when.
+    to_destroy: HashMap<u64, f64>,
+    stats: QueueStats,
+}
+
+/// How long an object asked to be destroyed stays: a quarter second for a temporary object (its
+/// id's top byte `0x13`), else 25 seconds.
+// D2-16951, D2-16947
+#[must_use]
+pub fn destruction_delay(id: u64) -> f64 {
+    if id >> 56 == 0x13 {
+        0.25
+    } else {
+        25.0
+    }
+}
+
+impl Default for EventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EventQueue {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            state: WorldState::NotInWorld,
+            held: VecDeque::new(),
+            waiting: BTreeMap::new(),
+            bookies: HashMap::new(),
+            player: None,
+            private: PrivateStream::default(),
+            ready: VecDeque::new(),
+            force: Vec::new(),
+            destroying: Vec::new(),
+            destroyed: Vec::new(),
+            to_destroy: HashMap::new(),
+            stats: QueueStats::default(),
+        }
+    }
+
+    /// An object the client has, to be destroyed after [`destruction_delay`] from `now` (a later
+    /// ask moves the time); an object it does not have is ignored.
+    // D2-05705, D2-05702
+    pub fn add_object_to_be_destroyed(&mut self, id: u64, now: f64) {
+        if id != 0 && self.bookies.contains_key(&id) {
+            self.to_destroy.insert(id, now + destruction_delay(id));
+        }
+    }
+
+    /// Call off an object's destruction.
+    // D2-05672, D2-05669
+    pub fn remove_object_to_be_destroyed(&mut self, id: u64) {
+        if id != 0 {
+            self.to_destroy.remove(&id);
+        }
+    }
+
+    /// Whether an object is to be destroyed, and when.
+    #[must_use]
+    pub fn to_be_destroyed(&self, id: u64) -> Option<f64> {
+        self.to_destroy.get(&id).copied()
+    }
+
+    #[must_use]
+    pub fn stats(&self) -> QueueStats {
+        self.stats
+    }
+
+    #[must_use]
+    pub fn state(&self) -> WorldState {
+        self.state
+    }
+
+    /// The player's id, once its creation has taken effect.
+    #[must_use]
+    pub fn player(&self) -> Option<u64> {
+        self.player
+    }
+
+    /// Whether the client holds an object.
+    #[must_use]
+    pub fn has_object(&self, id: u64) -> bool {
+        self.bookies.contains_key(&id)
+    }
+
+    /// Objects with messages waiting for their creation.
+    #[must_use]
+    pub fn waiting_objects(&self) -> usize {
+        self.waiting.len()
+    }
+
+    /// The client asked to enter the world.
+    pub fn start_entering(&mut self) {
+        self.state = WorldState::Entering;
+    }
+
+    /// The client left the world: every queue and book goes.
+    // D2-05730
+    pub fn leave_world(&mut self) {
+        self.state = WorldState::NotInWorld;
+        self.held.clear();
+        self.waiting.clear();
+        self.bookies.clear();
+        self.to_destroy.clear();
+        self.player = None;
+        self.private = PrivateStream::default();
+    }
+
+    /// A message as it came off its queue.
+    // D2-03949, D2-03943, D2-03946
+    pub fn receive(&mut self, now: f64, item: Item) {
+        let t = item.message.message_type();
+        if !out_of_world(item.blob_id) {
+            match self.state {
+                WorldState::NotInWorld => {}
+                WorldState::Entering => {
+                    if t != PLAYER_OBJECT && t != CHARACTER_REFUSED {
+                        self.stats.held_entering += 1;
+                        self.held.push_back(item);
+                        return;
+                    }
+                }
+                WorldState::InWorld => {
+                    if let Some(p) = self.player.filter(|p| !self.bookies.contains_key(p)) {
+                        if t != CREATE_OBJECT {
+                            self.wait_for(p, item, now);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        self.process(now, item);
+    }
+
+    fn process(&mut self, now: f64, item: Item) {
+        match ordering_type(item.blob_id) {
+            1 => {
+                let Some(p) = self.player.filter(|p| self.bookies.contains_key(p)) else {
+                    match self.player {
+                        Some(p) => self.wait_for(p, item, now),
+                        None => self.ready.push_back(item),
+                    }
+                    return;
+                };
+                let _ = p;
+                let stamp = u32::from(ordering_stamp(item.blob_id));
+                let mut out = VecDeque::new();
+                self.private
+                    .add(stamp, item, now, &mut out, &mut self.stats.dropped);
+                for i in out {
+                    self.post(now, i);
+                }
+            }
+            2 => self.visual(now, item),
+            3 => self.post(now, item),
+            _ => self.stats.dropped += 1,
+        }
+    }
+
+    /// A visual message: wait for its object, then for the stamps before its own.
+    // D2-03936, D2-05639, D2-05628
+    fn visual(&mut self, now: f64, item: Item) {
+        let Some(s) = subject(&item.message) else {
+            self.post(now, item);
+            return;
+        };
+        if !self.object_or_wait(s, &item, now) {
+            return;
+        }
+        let Some(b) = self.bookies.get_mut(&s.id) else {
+            return;
+        };
+        b.visual.push(s.other_stamp, item);
+        self.flush_visual(s.id, now);
+    }
+
+    fn flush_visual(&mut self, id: u64, now: f64) {
+        loop {
+            let Some(b) = self.bookies.get_mut(&id) else {
+                return;
+            };
+            let Some(next) = b.visual.next(now, &mut self.stats.dropped) else {
+                break;
+            };
+            self.post(now, next);
+        }
+    }
+
+    /// Whether the object a message is about is here, in the incarnation the message is about;
+    /// if not, the message waits for it (or is dropped, for an older incarnation).
+    // D2-05742
+    fn object_or_wait(&mut self, s: ObjectStamp, item: &Item, now: f64) -> bool {
+        match self.bookies.get(&s.id) {
+            None => {
+                self.wait_for(s.id, item.clone(), now);
+                false
+            }
+            Some(b) if b.instance_stamp != s.instance_stamp => {
+                if newer(s.instance_stamp, b.instance_stamp) {
+                    self.wait_for(s.id, item.clone(), now);
+                } else {
+                    self.stats.dropped += 1;
+                }
+                false
+            }
+            Some(_) => true,
+        }
+    }
+
+    // D2-05741, D2-05717
+    fn wait_for(&mut self, id: u64, item: Item, now: f64) {
+        let w = self.waiting.entry(id).or_default();
+        if !cell_flag(item.blob_id) {
+            w.wants_force = true;
+        }
+        w.last_push = now;
+        w.items.push(item);
+        self.stats.waited += 1;
+    }
+
+    /// A message takes effect: object creations and removals keep the books first.
+    fn post(&mut self, now: f64, item: Item) {
+        match &item.message {
+            ServerMessage::PlayerObject(p) => {
+                // D2-03957, D2-03948
+                self.player = Some(p.id);
+                self.state = WorldState::InWorld;
+                self.ready.push_back(item);
+                let held: Vec<Item> = self.held.drain(..).collect();
+                for i in held {
+                    self.process(now, i);
+                }
+            }
+            ServerMessage::CreateObject(c) => {
+                let c = c.clone();
+                self.create(now, item, &c);
+            }
+            ServerMessage::ForgetObject(o) => {
+                // D2-05744, D2-05706
+                let s = o.0;
+                if Some(s.id) == self.player {
+                    return;
+                }
+                if !self.object_or_wait(s, &item, now) {
+                    return;
+                }
+                if !self.destroying.contains(&s.id) {
+                    self.destroying.push(s.id);
+                }
+                self.ready.push_back(item);
+            }
+            m => {
+                if let Some(s) = subject(m) {
+                    if !self.object_or_wait(s, &item, now) {
+                        return;
+                    }
+                }
+                self.ready.push_back(item);
+            }
+        }
+    }
+
+    // D2-05743, D2-05629
+    fn create(&mut self, now: f64, item: Item, c: &CreateObject) {
+        let parent = c.physics.parent;
+        if c.physics.bits & auberean_protocol::types::PhysicsDesc::PARENT != 0 && parent.parent != 0
+        {
+            let s = ObjectStamp {
+                id: parent.parent,
+                instance_stamp: parent.stamp,
+                other_stamp: 0,
+            };
+            if !self.object_or_wait(s, &item, now) {
+                return;
+            }
+        }
+        let stamp = c.physics.instance_stamp;
+        let visual = c.physics.visual_ordering_stamp;
+        if let Some(b) = self.bookies.get_mut(&c.id) {
+            if b.instance_stamp == stamp {
+                b.visual.created_at(visual);
+                self.ready.push_back(item);
+                self.flush_visual(c.id, now);
+                return;
+            }
+            if !newer(stamp, b.instance_stamp) {
+                self.stats.dropped += 1;
+                return;
+            }
+        }
+        let mut b = Bookie {
+            instance_stamp: stamp,
+            visual: VisualQueue::default(),
+        };
+        b.visual.created_at(visual);
+        self.bookies.insert(c.id, b);
+        self.ready.push_back(item);
+        // The object is here: what waited for it goes again, in order.
+        if let Some(w) = self.waiting.remove(&c.id) {
+            for i in w.items {
+                self.receive(now, i);
+            }
+        }
+        self.flush_visual(c.id, now);
+    }
+
+    /// The next message to take effect.
+    pub fn pop(&mut self) -> Option<Item> {
+        self.ready.pop_front()
+    }
+
+    /// The upkeep before a frame's messages: give up on queues that waited too long (the objects
+    /// the client asks the server to send again come out of [`Self::take_force_creates`]), then
+    /// let go of the objects forgotten since the last upkeep, and of whatever waited for them
+    /// (they come out of [`Self::take_destroyed`]).
+    // D2-05739, D2-05723
+    pub fn use_time(&mut self, now: f64) {
+        // Objects whose time to be destroyed came go with the forgotten ones, earliest first.
+        let mut due: Vec<(f64, u64)> = self
+            .to_destroy
+            .iter()
+            .filter(|(_, t)| **t <= now)
+            .map(|(id, t)| (*t, *id))
+            .collect();
+        due.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        // D2-05662
+        for (_, id) in due {
+            self.to_destroy.remove(&id);
+            if self.bookies.contains_key(&id) && !self.destroying.contains(&id) {
+                self.destroying.push(id);
+            }
+        }
+        let expired: Vec<u64> = self
+            .waiting
+            .iter()
+            .filter(|(_, w)| !w.items.is_empty() && now - w.last_push > OBJECT_QUEUE_PATIENCE)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in expired {
+            if self.waiting.get(&id).is_some_and(|w| w.wants_force) {
+                self.force.push(id);
+                self.stats.force_creates += 1;
+            }
+            if Some(id) != self.player {
+                self.waiting.remove(&id);
+                self.stats.queues_given_up += 1;
+            }
+        }
+        let blocked: Vec<u64> = self
+            .bookies
+            .iter()
+            .filter(|(_, b)| b.visual.heavily_blocked(now))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in blocked {
+            self.force.push(id);
+            self.stats.force_creates += 1;
+            if let Some(b) = self.bookies.get_mut(&id) {
+                b.visual.discard_all();
+            }
+        }
+        // D2-05726, D2-05725
+        for id in std::mem::take(&mut self.destroying) {
+            self.bookies.remove(&id);
+            self.waiting.remove(&id);
+            self.to_destroy.remove(&id);
+            self.destroyed.push(id);
+        }
+    }
+
+    /// Objects let go of at the last upkeep, for the model to forget.
+    pub fn take_destroyed(&mut self) -> Vec<u64> {
+        core::mem::take(&mut self.destroyed)
+    }
+
+    /// Objects the client asks the server to send again.
+    pub fn take_force_creates(&mut self) -> Vec<u64> {
+        core::mem::take(&mut self.force)
+    }
+}

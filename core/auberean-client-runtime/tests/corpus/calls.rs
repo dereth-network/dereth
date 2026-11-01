@@ -1,0 +1,562 @@
+//! Every server-to-client script call recorded in 2013 and 2017, run against the model the
+//! recorded messages build, with no transport: one client per capture (one run of the retail
+//! client), fed the capture's server messages in their order and its entries into the world.
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use auberean_client_contract::Action;
+use auberean_client_net::LocalTime;
+use auberean_client_runtime::data::{DataFiles, ENGLISH};
+use auberean_client_runtime::{
+    link_scripts, CallResult, CallTally, Client, ClientData, ClientSettings,
+};
+use auberean_dat::locate::{install_dats, DatName};
+use auberean_dat::testing::require_target_install;
+use auberean_dat::DatFile;
+use auberean_protocol::{ClientMessage, ServerMessage};
+use auberean_testkit::captures;
+
+/// The client's entering the world, which the event queue's holding rule turns on.
+pub(crate) const PLAY_CHARACTER: u32 = 0x1002B;
+
+/// The server's script-call carriers: to the player, to an object in a cell, to an object by its
+/// visual, and the alternate form to the player.
+const CALLS: [u32; 4] = [0x10066, 0x10067, 0x100C4, 0x100CA];
+
+pub(crate) fn data() -> Option<ClientData> {
+    let dir = require_target_install();
+    let found = install_dats(&dir).ok()?;
+    let (_, p) = found.iter().find(|(n, _)| *n == DatName::Portal)?;
+    let portal = Arc::new(DatFile::open(p).ok()?);
+    let (_, l) = found
+        .iter()
+        .find(|(n, _)| *n == DatName::Local("English".into()))?;
+    let english = Arc::new(DatFile::open(l).ok()?);
+    let program = link_scripts(&portal).expect("the library links");
+    Some(ClientData {
+        files: DataFiles {
+            files: vec![Arc::clone(&portal), english],
+            language: ENGLISH,
+        },
+        scripts: Some((portal, Arc::new(program))),
+    })
+}
+
+pub(crate) fn client(data: &ClientData) -> Client {
+    let settings = ClientSettings {
+        login_server: SocketAddr::from(([127, 0, 0, 1], 9000)),
+        account: Vec::new(),
+        ticket: Vec::new(),
+        timestamp: 0,
+        session_key: [0; 64],
+        script_sends: false,
+    };
+    Client::new(settings, data.clone())
+}
+
+/// Every server-to-client script call recorded in 2013 and 2017 runs against the model once the
+/// event queue lets it through: to its end, or stopped cleanly at a native not written yet
+/// (counted by native), or, in a capture that began after its player was created, not run (no
+/// instance to run it on). The machine itself never fails.
+///
+/// Behaviour: script.model.every-recorded-server-call-runs-against-the-model
+#[test]
+fn every_recorded_server_call_runs_against_the_model_or_stops_at_a_named_native() {
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut tally = CallTally::default();
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut fed = 0u64;
+    let mut frame = f64::NEG_INFINITY;
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            tally_into(&mut tally, &c.calls);
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        // Each recorded instant is a frame: the world's upkeep runs before its messages.
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        if let Ok(msg) = ServerMessage::decode(&m.raw) {
+            fed += u64::from(CALLS.contains(&m.message_type));
+            c.take_message(m.blob_id, msg);
+        }
+    })
+    .expect("the index reads");
+    tally_into(&mut tally, &c.calls);
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    eprintln!(
+        "{fed} calls recorded; {} not taken out of the event queue (waiting for an object or a stamp that never came); {} calls: {} to the end, {} stopped at a native not written yet, {} not run (no player), {} null reference, {} refused, {} ended otherwise; stopped otherwise: {:?}",
+        fed - tally.calls,
+        tally.calls,
+        tally.completed,
+        tally.not_ported.values().sum::<u64>(),
+        tally.no_receiver,
+        tally.null_reference,
+        tally.refused,
+        tally.ended,
+        tally.stopped
+    );
+    let mut stops: Vec<_> = tally.not_ported.iter().collect();
+    stops.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for (native, n) in stops.iter().take(30) {
+        eprintln!("  {n:>7}  {}", lib.native_name(**native));
+    }
+    assert_eq!(fed, 757_726);
+    assert_eq!(tally.null_reference, 0);
+    // Every call with a player to run on runs to its end: none stops at a native not written.
+    assert!(tally.completed >= 741_475, "{} to the end", tally.completed);
+    let not_ported: u64 = tally.not_ported.values().sum();
+    assert_eq!(not_ported, 0, "{not_ported} stopped at a native");
+    assert!(
+        tally.stopped.is_empty(),
+        "the machine itself failed: {:?}",
+        tally.stopped
+    );
+}
+
+/// Every quality the 2013 and 2017 servers set on an object here is told to the object's scripts
+/// once it is set (its kind and number), and the scripts take it to its end: at least 251,000
+/// changes. The objects' scripts keep their bodies' collision state in step with the quality words
+/// that hold its masks: at least 4,600 bodies' collision states set.
+///
+/// Behaviour: script.model.every-recorded-quality-change-is-told-to-the-objects-scripts
+#[test]
+fn every_recorded_quality_change_is_told_to_the_objects_scripts() {
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut tally = CallTally::default();
+    let (mut capture, mut bodies) = (-1, 0u64);
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    let done = |c: &Client, tally: &mut CallTally, bodies: &mut u64| {
+        tally_into(tally, &c.stat_changes);
+        *bodies += c.scripts.as_ref().map_or(0, |s| {
+            s.host
+                .bodies
+                .values()
+                .filter(|b| b.collision.bits != 0)
+                .count() as u64
+        });
+    };
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            done(&c, &mut tally, &mut bodies);
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        if let Ok(msg) = ServerMessage::decode(&m.raw) {
+            c.take_message(m.blob_id, msg);
+        }
+    })
+    .expect("the index reads");
+    done(&c, &mut tally, &mut bodies);
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    eprintln!(
+        "{} quality changes told: {} to the end, {} stopped at a native not written yet, {} null reference, {} refused, {} ended otherwise; stopped otherwise: {:?}; {bodies} bodies' collision states set",
+        tally.calls,
+        tally.completed,
+        tally.not_ported.values().sum::<u64>(),
+        tally.null_reference,
+        tally.refused,
+        tally.ended,
+        tally.stopped
+    );
+    for (native, n) in &tally.not_ported {
+        eprintln!("  {n:>7}  {}", lib.native_name(*native));
+    }
+    assert!(tally.completed >= 251_000, "{tally:?}");
+    assert!(tally.not_ported.is_empty(), "{tally:?}");
+    assert!(tally.stopped.is_empty(), "{tally:?}");
+    assert_eq!(tally.null_reference, 0, "{tally:?}");
+    assert!(bodies >= 4_600, "{bodies}");
+}
+
+/// Every object the 2013 and 2017 servers made, placed, took out of the world or destroyed has
+/// its scripts told, and they take it to its end: each object made (its instance made then), each
+/// one placed in the world with no parent, each one in the world contained, leaving or carried
+/// (then told it is out), each one the server destroyed. A capture that began after its player was
+/// created has no player for the scripts to find (a corpse placed asks whether the player had its
+/// creature selected): its lives are counted apart. At least 125,000 objects made, 81,000 placed,
+/// 30,000 taken out of the world and 34,000 destroyed.
+///
+/// Behaviour: script.model.every-recorded-objects-life-is-told-to-its-scripts
+#[test]
+fn every_recorded_objects_life_is_told_to_its_scripts() {
+    use auberean_client_runtime::lifecycle::function as f;
+    use std::collections::BTreeMap;
+    /// The player's creation.
+    const PLAYER_OBJECT: u32 = 0x10060;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let (mut tally, mut without) = (CallTally::default(), CallTally::default());
+    let mut told = BTreeMap::<u32, u64>::new();
+    let (mut capture, mut with_player) = (-1, false);
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    let done = |c: &Client,
+                with_player: bool,
+                tally: &mut CallTally,
+                without: &mut CallTally,
+                told: &mut BTreeMap<u32, u64>| {
+        if with_player {
+            tally_into(tally, &c.lives);
+            for (k, v) in &c.life.told {
+                *told.entry(*k).or_default() += v;
+            }
+        } else {
+            tally_into(without, &c.lives);
+        }
+    };
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            done(&c, with_player, &mut tally, &mut without, &mut told);
+            capture = m.capture;
+            with_player = false;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        with_player |= m.message_type == PLAYER_OBJECT;
+        if let Ok(msg) = ServerMessage::decode(&m.raw) {
+            c.take_message(m.blob_id, msg);
+        }
+    })
+    .expect("the index reads");
+    done(&c, with_player, &mut tally, &mut without, &mut told);
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    let n = |k: u32| told.get(&k).copied().unwrap_or(0);
+    eprintln!(
+        "{} lives told in captures with their player ({} made, {} into the world, {} out of it, {} after it, {} destroyed): {} to the end, {} stopped at a native not written yet, {} null reference, {} refused, {} ended otherwise; stopped otherwise: {:?}; without a player: {} told, {} to the end, {} null reference",
+        tally.calls,
+        n(f::HANDLE_CREATION),
+        n(f::HANDLE_ENTER_WORLD),
+        n(f::HANDLE_LEAVE_WORLD),
+        n(f::HANDLE_POST_LEAVE_WORLD),
+        n(f::HANDLE_DESTRUCTION),
+        tally.completed,
+        tally.not_ported.values().sum::<u64>(),
+        tally.null_reference,
+        tally.refused,
+        tally.ended,
+        tally.stopped,
+        without.calls,
+        without.completed,
+        without.null_reference,
+    );
+    for (native, k) in &tally.not_ported {
+        eprintln!("  {k:>7}  {}", lib.native_name(*native));
+    }
+    assert!(tally.not_ported.is_empty(), "{tally:?}");
+    assert!(without.not_ported.is_empty(), "{without:?}");
+    assert!(tally.stopped.is_empty(), "{tally:?}");
+    assert_eq!(tally.null_reference, 0, "{tally:?}");
+    assert_eq!(tally.completed, tally.calls, "{tally:?}");
+    assert_eq!(n(f::HANDLE_LEAVE_WORLD), n(f::HANDLE_POST_LEAVE_WORLD));
+    assert!(n(f::HANDLE_CREATION) >= 125_000, "{told:?}");
+    assert!(n(f::HANDLE_ENTER_WORLD) >= 81_000, "{told:?}");
+    assert!(n(f::HANDLE_LEAVE_WORLD) >= 30_000, "{told:?}");
+    assert!(n(f::HANDLE_DESTRUCTION) >= 34_000, "{told:?}");
+}
+
+fn tally_into(into: &mut CallTally, from: &CallTally) {
+    into.calls += from.calls;
+    into.completed += from.completed;
+    into.ended += from.ended;
+    into.refused += from.refused;
+    into.null_reference += from.null_reference;
+    into.no_receiver += from.no_receiver;
+    for (k, v) in &from.not_ported {
+        *into.not_ported.entry(*k).or_default() += v;
+    }
+    for (k, v) in &from.stopped {
+        *into.stopped.entry(k.clone()).or_default() += v;
+    }
+}
+
+/// How a story hook's calls went, by call.
+#[derive(Default, Debug)]
+struct HookTally {
+    asked: u64,
+    completed: u64,
+    not_ported: std::collections::BTreeMap<u32, u64>,
+    other: std::collections::BTreeMap<String, u64>,
+}
+
+impl HookTally {
+    fn add(&mut self, r: &CallResult) {
+        self.asked += 1;
+        match r {
+            CallResult::Completed => self.completed += 1,
+            CallResult::NotPorted(n) => *self.not_ported.entry(*n).or_default() += 1,
+            r => *self.other.entry(format!("{r:?}")).or_default() += 1,
+        }
+    }
+}
+
+/// A story hook's kinds: a hit, the missiles made, one fired.
+const HIT: u32 = 1;
+const CREATE_MISSILES: u32 = 2;
+const FIRE_MISSILE: u32 = 3;
+/// A story's bit for a basic attack (its skill not shown).
+const BASIC_ATTACK: u32 = 0x20;
+
+/// Every story the 2013 and 2017 servers told, its hooks run as the attacker's body plays them,
+/// in order: each hook asks the attacker's scripts for the effects and behaviors it shows; a
+/// hit's damage is shown by the target's scripts (the combat lines into the chat, the floating
+/// text to the panels); a hit on the player by a skill asks the attacker's scripts whether the
+/// skill harms; a hook that makes missiles asks the attacker's body's scripts for the missile of
+/// every hook that fires one, and a hook that fires one asks for its own. Every call runs to its
+/// end: at least 1,558,000 hooks' effects, 795,000 hits' damage (183,000 combat lines, 736,000
+/// floating texts), 59,000 questions of harm (43,000 harmful) and 327,000 missiles, each made from
+/// a record, aimed at an object and passing through physics types the property list names.
+///
+/// Behaviour: script.model.every-recorded-story-hook-runs-against-the-scripts
+#[test]
+fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
+    use auberean_client_runtime::combat::{Damage, DO_3D_DAMAGE};
+    use auberean_script::native_object::NativeObject;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let (mut effects, mut damage, mut harm, mut missile) = (
+        HookTally::default(),
+        HookTally::default(),
+        HookTally::default(),
+        HookTally::default(),
+    );
+    // What the missiles were: made from a record, held before firing, thrown, a copy of the
+    // weapon, aimed at an object, passing through something, of physics types the property list
+    // names (their own, and those they pass through when placed).
+    let (mut made_from, mut held, mut thrown, mut cloned, mut aimed, mut passing) =
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    let mut typed = 0u64;
+    let (mut stories, mut hooks, mut missiles, mut no_attacker) = (0u64, 0u64, 0u64, 0u64);
+    let (mut shown_fx, mut lines, mut floating, mut harmful) = (0u64, 0u64, 0u64, 0u64);
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        let story = match &msg {
+            ServerMessage::DoStory(e) => Some((e.sender.id, e.action.clone())),
+            _ => None,
+        };
+        c.take_message(m.blob_id, msg);
+        let Some((body, story)) = story else {
+            return;
+        };
+        if c.model.player_object().is_none() {
+            return;
+        }
+        stories += 1;
+        if c.model.object(body).is_none() {
+            no_attacker += 1;
+            return;
+        }
+        let (lines_before, notices_before) = (c.shown.len(), c.notices.len());
+        for h in &story.hooks {
+            hooks += 1;
+            let kind = h.bits & 0xF;
+            let [result, _, attack_hook, target_health, attacker_health, target_pk, attacker_pk] =
+                h.numbers;
+            #[allow(clippy::cast_sign_loss)]
+            let (result, attack_hook) = (result as u32, attack_hook as u32);
+            if let Some((r, fx)) = c.hit_effects(body, story.skill, attack_hook, result) {
+                effects.add(&r);
+                shown_fx += u64::from(fx.attacker_fx | fx.target_fx | fx.weapon_fx != 0);
+            }
+            if kind != HIT {
+                missiles += 1;
+                let fired: Vec<_> = match kind {
+                    CREATE_MISSILES => story
+                        .hooks
+                        .iter()
+                        .filter(|f| f.bits & 0xF == FIRE_MISSILE)
+                        .collect(),
+                    FIRE_MISSILE => vec![h],
+                    _ => Vec::new(),
+                };
+                for f in fired {
+                    #[allow(clippy::cast_sign_loss)]
+                    let hook = f.numbers[2] as u32;
+                    if let Some((r, m)) =
+                        c.missile_info(body, story.skill, hook, story.attacker, f.target)
+                    {
+                        missile.add(&r);
+                        made_from += u64::from(m.entity != 0);
+                        held += u64::from(m.holding_location != 0);
+                        thrown += u64::from(m.thrown);
+                        cloned += u64::from(m.clone);
+                        aimed += u64::from(m.targeting.bits & 1 != 0);
+                        passing += u64::from(m.collision.bits != 0);
+                        typed += u64::from(
+                            m.collision.physics_type.mask != 0
+                                && m.collision.placement_physics.mask != 0,
+                        );
+                    }
+                }
+                continue;
+            }
+            let shown = Damage {
+                attacker: story.attacker,
+                target: h.target,
+                skill: if story.bits & BASIC_ATTACK != 0 {
+                    0
+                } else {
+                    story.skill
+                },
+                result,
+                target_health,
+                attacker_health,
+                target_pk,
+                attacker_pk,
+            };
+            if let Some(r) = c.show_damage(&shown) {
+                damage.add(&r);
+            }
+            if Some(h.target) == c.model.player && story.skill != 0 {
+                if let Some((r, yes)) = c.is_skill_harmful(body, story.skill) {
+                    harm.add(&r);
+                    harmful += u64::from(yes);
+                }
+            }
+        }
+        lines += (c.shown.len() - lines_before) as u64;
+        floating += c.notices[notices_before..]
+            .iter()
+            .filter(|n| {
+                n.native == DO_3D_DAMAGE
+                    && n.objects
+                        .iter()
+                        .flatten()
+                        .any(|o| matches!(o, NativeObject::DamageText(_)))
+            })
+            .count() as u64;
+        c.shown.clear();
+        c.notices.clear();
+    })
+    .expect("the index reads");
+    let lib = &data.scripts.as_ref().expect("the scripts").1.library;
+    eprintln!(
+        "{stories} stories with a player here ({no_attacker} without their body), {hooks} hooks ({missiles} of missiles); {shown_fx} hits with an effect; {lines} combat lines, {floating} floating texts; {harmful} harmful"
+    );
+    eprintln!(
+        "missiles: {made_from} made from a record, {held} held, {thrown} thrown, {cloned} copies of the weapon, {aimed} aimed at an object, {passing} passing through something, {typed} with physics types"
+    );
+    for (what, t) in [
+        ("effects", &effects),
+        ("damage", &damage),
+        ("harm", &harm),
+        ("missiles", &missile),
+    ] {
+        eprintln!(
+            "{what}: {} asked, {} to the end, other {:?}",
+            t.asked, t.completed, t.other
+        );
+        for (n, k) in &t.not_ported {
+            eprintln!("  {k:>7}  {}", lib.native_name(*n));
+        }
+    }
+    for t in [&effects, &damage, &harm, &missile] {
+        assert!(t.not_ported.is_empty(), "{t:?}");
+        assert!(t.other.is_empty(), "{t:?}");
+    }
+    assert!(stories >= 852_000, "{stories} stories");
+    assert!(effects.completed >= 1_558_000, "{effects:?}");
+    assert!(damage.completed >= 795_000, "{damage:?}");
+    assert!(harm.completed >= 59_000, "{harm:?}");
+    assert!(missile.completed >= 327_000, "{missile:?}");
+    // What the hits showed: effects, the combat lines, the floating texts, the skills that harm.
+    assert!(shown_fx >= 512_000, "{shown_fx}");
+    assert!(lines >= 183_000, "{lines}");
+    assert!(floating >= 736_000, "{floating}");
+    assert!(harmful >= 43_000, "{harmful}");
+    // What the missiles were.
+    for (what, n, floor) in [
+        ("made from a record", made_from, 327_000),
+        ("held before firing", held, 266_000),
+        ("thrown", thrown, 37_000),
+        ("copies of the weapon", cloned, 36_000),
+        ("aimed at an object", aimed, 327_000),
+        ("passing through something", passing, 327_000),
+        ("with physics types", typed, 327_000),
+    ] {
+        assert!(n >= floor, "{n} missiles {what}");
+    }
+}

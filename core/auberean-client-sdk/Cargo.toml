@@ -1,0 +1,25 @@
+[package]
+name = "auberean-client-sdk"
+description = "One dependency for whatever builds on the client: the runtime, the contract's actions and the core they use."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+auberean-client-contract.workspace = true
+auberean-client-runtime.workspace = true
+auberean-client-net.workspace = true
+auberean-client-model.workspace = true
+auberean-protocol.workspace = true
+auberean-dat.workspace = true
+auberean-script.workspace = true
+auberean-text.workspace = true
+
+[features]
+# The data files on disk, for native front ends.
+fs = ["auberean-dat/fs"]
+
+[lints]
+workspace = true

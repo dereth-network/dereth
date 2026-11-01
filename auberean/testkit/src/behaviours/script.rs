@@ -2,7 +2,7 @@
 //! and call arguments), the instruction set, the reference table, natives and script calls across
 //! the connection.
 
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -45,6 +45,78 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-SEND"),
         station: "auberean-glue::corpus::sends::every_relaunch_client_call_is_packed_again_by_its_sending_function",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.a-killing-blow-is-shown-by-the-players-scripts",
+        says: "A killing blow the server tells the player of is shown by the player's scripts as \
+               one line of the kind 8: the killing blow's string with the defender's name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-KILLING-BLOW"),
+        station: "auberean-client-runtime::corpus::chat::a_killing_blow_is_shown_by_the_players_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.a-saying-is-written-by-the-scripts-without-the-gender-mark",
+        says: "A saying near the player reaches the chat windows as the player's scripts write \
+               it: the speaker's name from its description without the gender mark the server \
+               sends with it, \"says,\" and the words in quotes, as a line of the spoken kind.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-SCRIPT-LINES"),
+        station: "auberean-client-runtime::corpus::chat::a_saying_is_written_by_the_scripts_without_the_gender_mark",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.a-typed-line-is-said-and-a-say-command-says-the-rest-of-its-line",
+        says: "A line typed (from the chat panel or as the line-typed action) is carried out by \
+               the player's command line: a line that is no command is said whole, one word or \
+               more, and /say says the rest of its line with the command cut off; each goes to \
+               the server as one saying carrying those words, none answered with the say \
+               command's usage line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-TYPED-LINE"),
+        station: "auberean-client-runtime::corpus::chat::a_typed_line_is_said_and_a_say_command_says_the_rest_of_its_line",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.an-alias-in-a-line-is-said-as-what-it-stands-for",
+        says: "An alias made with /alias and typed after a ; is said as what it stands for, \
+               expanded in turn (an alias already being expanded stays as typed), the search \
+               going on after each expansion; the line kept among the lines typed is the line \
+               as typed; a predefined alias cannot be made; a line a toolbar slot holds is \
+               said when the slot is used, as if typed; an alias removed is said as typed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-ALIASES"),
+        station: "auberean-client-runtime::corpus::chat::an_alias_in_a_line_is_said_as_what_it_stands_for_and_a_slots_line_as_if_typed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.every-recorded-saying-and-tell-is-written-with-the-words-and-a-bare-name",
+        says: "Every saying and tell the 2005, 2013 and 2017 captures recorded, taken through the player's scripts, reaches the chat windows as a line of the spoken or the tell kind holding the words as said and the speaker's name without its marks; no line shows a name's mark.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-REPLAY"),
+        station: "auberean-client-runtime::corpus::chat::every_recorded_saying_and_tell_is_written_with_the_words_and_a_bare_name",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.the-loc-alias-says-the-players-map-coordinates",
+        says: "The predefined alias ;loc is said as the player's map coordinates, north or south \
+               to a tenth then east or west, and /loc shows the place line with the same \
+               coordinates; typed where a recorded client last reported its player, it says what \
+               that client wrote into a channel.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LOC-ALIAS"),
+        station: "auberean-client-runtime::corpus::chat::the_loc_alias_says_the_players_map_coordinates_as_the_recorded_clients_wrote_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.the-servers-lines-of-text-are-shown-by-the-players-scripts",
+        says: "Every line of text the servers sent a player in the world is given to the player's \
+               scripts, which show it in the chat windows as the line the server wrote, of the kind \
+               it named; with no player in the world it shows nowhere.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHAT-SERVER-TEXT"),
+        station: "auberean-client-runtime::corpus::chat::the_servers_lines_of_text_are_shown_by_the_players_scripts",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -427,6 +499,246 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "script.looks.a-description-packs-again-as-it-was-sent",
+        says: "A visual description a server sent reads into the client's own form and packs again \
+               to the same bytes: the fields marked present are those that differ from an empty \
+               description's, the tables in the order sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOKS-PACK"),
+        station: "auberean-client-runtime::corpus::effects::every_sent_description_packs_again_as_it_was_sent",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.looks.an-objects-own-description-is-read-changed-and-taken-as-its-scripts-ask",
+        says: "An object's own description answers what the server sent; a change the scripts add \
+               or take out is answered at once and taken by the body only when they ask, and a \
+               description the server sends replaces a change not taken; started again it extends \
+               the object's physics record; a body has a motion interpreter when its description's \
+               total names a motion description.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOKS-OWN"),
+        station: "auberean-client-runtime::corpus::effects::an_objects_own_description_is_read_changed_and_taken_as_its_scripts_ask",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.a-quality-is-answered-by-the-description-then-the-object-then-its-record",
+        says: "An object's quality is answered by its description, for a quality the description holds and has marked set; else by the object's own table of that kind; else by its qualities record, the record's description first and then its tables. Times, texts, positions, packages and 64-bit numbers are never the description's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-ASK"),
+        station: "auberean-client-runtime::cpu::repository::a_quality_is_answered_by_the_description_then_the_object_then_its_record",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-quality-removed-leaves-the-record-answering",
+        says: "Removing a quality takes it out of the object's description when the description has it set (its mark cleared), else out of the object's own table; the record keeps its value, which answers again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-REMOVE"),
+        station: "auberean-client-runtime::cpu::repository::a_quality_removed_leaves_the_record_answering",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-quality-set-goes-to-the-description-when-it-holds-it",
+        says: "Setting a quality the object's description holds sets it there and marks it set; any other is set in the object's own table of its kind. The record is never written.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-SET"),
+        station: "auberean-client-runtime::cpu::repository::a_quality_set_goes_to_the_description_when_it_holds_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-rider-is-refused-attacks-and-emotes-by-its-scripts",
+        says: "While the player rides a mount (its private flag 2002 set), its scripts refuse an \
+               attack and every emote (the emote menu's, a typed prefab emote, a typed custom emote) \
+               with the client's own lines, sending nothing; no server sent those lines.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-RIDER-REFUSED"),
+        station: "auberean-client-runtime::corpus::interface::a_rider_is_refused_attacks_and_emotes_by_its_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.a-sleeping-call-goes-on-when-its-time-comes",
+        says: "A call that sleeps waits: nothing more of it happens before its delay has passed \
+               on the client's clock, and at the first upkeep after that it goes on from after the sleep \
+               to its end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SLEEP"),
+        station: "auberean-client-runtime::corpus::chat::a_sleeping_call_goes_on_at_the_first_upkeep_after_its_time",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.an-adjusted-quality-adds-to-its-own-value-or-its-records",
+        says: "Adjusting a whole number, a 64-bit number or a float adds to the object's own value; with none of its own, the record's value plus the change becomes the object's own (the change alone when the record has none); without a record nothing changes. The truncating forms hold the result between their ends, the change alone excepted.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-ADJUST"),
+        station: "auberean-client-runtime::cpu::repository::an_adjusted_quality_adds_to_its_own_value_or_its_records",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-examined-effect-line-brings-the-effects-own-lines",
+        says: "Every profile the recorded sessions' scripts handed the examination window with \
+               effect lines comes with each effect line's own lines, made by the player's scripts \
+               into a profile whose request about nothing asks for the line's tabs; nearly every \
+               effect line has some, and each shows on the line's tabs or the first tab.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-EFFECT-LINES"),
+        station: "auberean-client-runtime::corpus::profiles::an_examined_effect_line_brings_the_effects_own_lines",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.an-item-put-down-leaves-the-pack-for-the-world",
+        says: "An item of the player's pack is held and out of the world; when the server clears \
+               its container (a quality its description holds) it is no longer held, and once a \
+               position places it, it stands in the world among the player's surroundings.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CONTAINER-QUALITY"),
+        station: "auberean-client-runtime::cpu::updates::an_item_put_down_leaves_the_pack_for_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-opened-container-shows-what-its-scripts-were-told-it-holds",
+        says: "After every recorded opening of a container, its scripts list what the server's answer told them it holds: nearly every opened container shows items (one opened empty shows none), and every container the client was sent items in shows them but one in a hundred. An object's instance the scripts made by asking for it by id is the one every later call on that object reaches.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPENED-CONTAINER"),
+        station: "auberean-client-runtime::corpus::inventory::an_opened_container_shows_what_its_scripts_were_told_it_holds",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.an-overflowing-adjustment-takes-the-end-it-ran-past",
+        says: "An adjustment whose sum moved against its change (it overflowed) takes the end it ran past: the greatest for a positive change, the least for a negative one; then the result is held to both ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-TRUNCATE"),
+        station: "auberean-client-runtime::cpu::repository::an_overflowing_adjustment_takes_the_end_it_ran_past",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.every-recorded-objects-life-is-told-to-its-scripts",
+        says: "Every object the recorded servers made has its scripts told it was made (its instance made then), then placed in the world when it has a place and no parent; an object placed later by a position is told then; one in the world that is contained, leaves, is carried by another or goes is told it left the world and then that it is out of it; one the server destroys is told before it goes. Every one of these calls runs to its end in the captures that hold their player's creation.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OBJECT-LIFE"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_objects_life_is_told_to_its_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.every-recorded-players-story-acts-build",
+        says: "Every recorded player's act list, asked of its scripts as the quest window's story \
+               page asks for it when the player arrives and each time the scripts say the story \
+               changed, builds to its end: the acts in order of their numbers, each act's scenes in \
+               order of theirs and all of that act, and every act the scripts said changed among \
+               them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STORY-ACTS"),
+        station: "auberean-client-runtime::corpus::acts::every_recorded_players_story_acts_build",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.every-recorded-quality-change-is-told-to-the-objects-scripts",
+        says: "Every quality the 2013 and 2017 servers set on an object here, whoever holds it, is then told to the object's scripts (its kind and its number), which take it to its end (251,546 changes); the objects' scripts keep their bodies' collision state in step with the quality words that hold its masks (4,671 bodies' states set).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STAT-CHANGED"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_quality_change_is_told_to_the_objects_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.every-recorded-server-call-runs-against-the-model",
+        says: "Every server-to-client script call recorded in 2013 and 2017, fed with the rest of \
+               its capture's server messages through the client's event queue, runs against the \
+               model those messages build once the queue lets it through: to its end, or stopped at \
+               a named native not written yet, never failing the machine.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MODEL-NATIVES"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_server_call_runs_against_the_model_or_stops_at_a_named_native",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.every-recorded-story-hook-runs-against-the-scripts",
+        says: "Every combat story the 2013 and 2017 servers told, its hooks run in order as the attacker's body plays them, asks the attacker's scripts what each hook shows (the effects on the attacker, the target and the weapon, the target's and the weapon's behaviors), the target's scripts to show each hit's damage (the combat lines and the floating text over the target), the attacker's whether the skill of a hit on the player harms, and the body's scripts for the missile each firing hook makes (its record, where it waits, its flight, its aim and what it passes through); every call runs to its end (of 852,166 stories: 1,558,873 hooks' effects, 795,493 hits' damage with 183,052 combat lines and 736,361 floating texts, 59,085 questions of harm, 327,650 missiles, each made from a record, aimed at an object and passing through physics types the property list names).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STORY-HITS"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.selecting-sends-what-the-recorded-client-sent",
+        says: "Every selection the recorded 2013 and 2017 players sent is sent again with the same bytes: by the player's scripts on their own when a server's call had them select or a corpse placed in the world took the selection from its creature (at least 3,400), else by the interface's selection made again at that moment, the recorded server's messages before it taken: at least 63,450 of 63,531 the same, at most 30 differing and 15 made with nothing sent (the replay places a corpse as its message arrives, the client once its parts have loaded, so a few selections and the uses, attacks and examinations of the selection after them fall the other way). Made again, these send the same request at least so many times: starting an attack 4,000 of 4,053; attacking with a toolbar slot's skill 40,700 of 40,783; using an item 21,850 of 21,948; the windows' places and opacities 17,400 of 17,415 and the game options 1,000 of 1,010, as the interface keeps them; a shortcut put in a slot 980 of 982; making a recipe 1,050 of 1,059 and adding its ingredients 560 of 566; coins put in the money bag 420 of 835; an item offered in trade 330 of 333; a pet's mode 275 of 279; the pets' attack 940 of 948 and return 440 of 447 and a pet renamed 12 of 12; a trade opened 100 of 101, accepted with what it holds 165 of 170, declined 2 of 2, an item taken back 3 of 3, and closed 26 of 26 with the scripts' own; the story's scenes done 115 of 119; a shop left 29 of 29, its next and previous pages 16 of 16 and 5 of 5, a store entered from a catalog 11 of 11 and a catalog left 7 of 7; a container melted into money 3,380 of 3,384, emptied into the pack 155 of 159 and closed 2,250 of 2,253; an attack stopped 1,130 of 1,139; a craft skill raised 85 of 89; the chat options sent, set as the chat options' window sets them, 18 of 19; a purchase from a shop, its question answered yes, 20 of 21; an item moved within a container 1,550 of 1,555 and into another 950 of 957; following what is selected, typed, 1,680 of 1,688; a line said, typed, 135 of 138; an emote, typed or (the away emote) from the friends window's status menu, 200 of 204; a tell, typed as a reply, a tell again or a new tell, 60 of 61; an item worn 38 of 39. Examining is the scripts' own on a selection and the examination window's when it opens, closes or changes its tabs (the classic window or the tabbed one as the player's options say): 106,450 of 106,582 the same, at most 100 differing; the next target the scripts pick in a fight 6,500 of 6,717. The calls the recorded client sent at one moment are made in the order it made them, a selection before the examination it asked for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SELECTION-SENDS"),
+        station: "auberean-client-runtime::corpus::interface::selecting_what_the_recorded_player_selected_sends_what_the_recorded_client_sent",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-crafting-page-reads-every-recorded-players-craft-skills",
+        says: "For every recorded player in the world, the crafting page's questions run to their \
+               end: the craft skills (each also asked on its own, the same skill), each one's \
+               level and whether it may be raised, its recipes (each of that craft skill) and their \
+               categories' names, and the experience the player may spend on craft skills.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-CRAFT-SKILLS"),
+        station: "auberean-client-runtime::corpus::craft::the_crafting_page_reads_every_recorded_players_craft_skills",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-ingredient-panel-reads-every-recorded-recipe",
+        says: "Before each ingredient a recorded client put in a slot, the recipe opened as the \
+               crafting page opens one (the scripts then open the ingredient panel on it) and read \
+               at the spinner value it was sent with, as the ingredient panel reads it, runs to its \
+               end: the slot is one the recipe takes there, and nearly every ingredient is an item \
+               the scripts say fits that slot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-RECIPES"),
+        station: "auberean-client-runtime::corpus::recipes::the_ingredient_panel_reads_every_recorded_recipe",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-journal-holds-the-quests-the-server-sent",
+        says: "Through every recorded capture whose server changed a quest, the journal's list, a copy of the list the player's scripts keep asked for through the interface, holds at each log-off and at the end what the server sent: the session start's records, each update copied over its quest's record or added before the first record given earlier, removals taken out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-QUEST-JOURNAL"),
+        station: "auberean-client-runtime::corpus::quests::the_journal_holds_every_quest_the_server_gave_newest_given_first",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-pack-the-scripts-list-is-what-the-player-holds",
+        says: "At every recorded log-off and at the end of each capture, the player's pack as its scripts list it through the interface is there in nearly every look and holds what the recorded messages have the player hold, but for items whose container the recordings never sent (under one in twenty); what it wears likewise; every listed item the client was sent has its name (the object's description, its own qualities, else its qualities record's description and table). The pack is listed whole and in order, its four segments (the main pack, then three bags) each a window of the list following the one before; most packs hold more than 42 items, up to 78.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-INVENTORY"),
+        station: "auberean-client-runtime::corpus::inventory::the_pack_the_scripts_list_is_what_the_player_holds",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-servers-updates-go-to-the-description-first",
+        says: "The server's update of a quality the object's description holds (an item's container, its quantity, the scale, the icon, a yes-or-no flag) goes to the description, which answers for it first; the object's own qualities are left as they were. An update of a quality the description does not hold is the object's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-QUALITY-UPDATES"),
+        station: "auberean-client-runtime::cpu::updates::the_servers_updates_go_to_the_description_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.the-skill-window-reads-every-recorded-players-panels",
+        says: "For every recorded player in the world, the skill window's questions run to their end: the root panel of each kind of skill its race has (named through the enumerations' names), each root panel's name, icon and nodes from the skill panel manager, and each skill's state through the player's interface functions.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SKILL-PANELS"),
+        station: "auberean-client-runtime::corpus::skills::the_skill_window_reads_every_recorded_players_panels",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-skill-windows-root-panels-are-known-when-the-player-arrives",
+        says: "When the player arrives in the world the client asks the scripts what the skill window \
+               shows, the race's root panels among it, once for that player and whatever the scripts \
+               said before, as the skill window asks for the root panels when the play screen's \
+               panels are made: its tabs open their panels from the first time it shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SKILL-ROOTS"),
+        station: "auberean-client-runtime::corpus::skills::the_skill_windows_root_panels_are_known_when_the_player_arrives",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.what-the-recorded-player-selected-may-be-selected",
+        says: "Each object the recorded 2013 and 2017 players selected is, at that moment, one the client's qualities say may be selected: the object's description answers when it holds the flag, else its own qualities, else its qualities record, whose own description is asked before its tables (50,735 of 51,013 selections; 56 the qualities refuse, each after the server said so in an update, 222 of objects the client did not know).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SELECTABLE"),
+        station: "auberean-client-runtime::corpus::interface::what_the_recorded_player_selected_may_be_selected",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.natives.a-chat-windows-filter-gains-and-loses-kinds",
         says: "A chat window's filter gains kinds of text or'ed in (a window with none gets \
                them) and loses kinds cleared from it; taking out of a window with no filter leaves \
@@ -457,11 +769,50 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.every-notice-is-read-with-the-words-its-call-sites-push",
+        says: "Every notice the library's scripts send to the panels is one the client reads, with as \
+               many words as each of its call sites pushes; the first names the object whose panels \
+               hear it, except the interface's own three (portal space, its scene, opening the \
+               examination panel), which every panel hears and whose words are all the notice's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NOTICES"),
+        station: "auberean-client-runtime::corpus::interface::every_notice_is_read_with_the_words_its_call_sites_push",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.natives.examination-profile-keeps-the-asked-tabs-lines",
         says: "An examination profile adds a line (a number, a float, a yes or no, a string reference, a picture, an icon, indents, a break, a time left, a 64-bit number, an effect) by noting its tabs in the profile's tab word and keeping it, at the end, only when it shows on a tab the profile's request asks for or on the first tab; a new profile answers a request about nothing with no lines; it packs as the request, the lines by kind and the tab word; two profiles are equal when their requests, tab words and every line are; a null profile crashes the context.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-EXAM-PROFILE"),
         station: "auberean-glue::cpu::examination::a_profile_keeps_the_lines_of_the_tabs_asked_and_notes_every_tab",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.examination-request-packs-by-kind",
+        says: "An examination request packs its kind and its admin word, then what its kind \
+               carries: the object and the tabs asked for (an object), the object, the combat \
+               mode, the skill level and the tabs (an attackable target), the enumerated datum or \
+               the data id (the kinds that name one), nothing for a request about nothing, which \
+               is what a new request is, asking for the default tabs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-EXAM-REQUEST"),
+        station: "auberean-client-runtime::cpu::requests::an_examination_request_packs_what_its_kind_carries",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.files-scripts-write",
+        says: "A file a script writes starts with the byte-order mark and holds 16-bit units; each line feed is written after a carriage return and a line that does not end in one gets both; writing to a file that is not open opens it to add to it, which keeps what it holds unless that does not start with the mark; opening to read needs the file; closing answers whether it was open.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILES"),
+        station: "auberean-client-runtime::cpu::files::a_file_is_marked_and_its_lines_end_in_a_carriage_return_and_a_line_feed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.selection-packs-its-numbers-by-type",
+        says: "A selection packs its type, then, only for the type that carries them, its current health, the damage taken from other players, its maximum health, its current vigor, the vigor lost to other players and its maximum vigor; a new selection is all zeros.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECTION-INFO"),
+        station: "auberean-client-runtime::cpu::requests::a_selection_packs_its_numbers_only_for_the_type_that_carries_them",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -481,6 +832,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-CHAT-SETTERS"),
         station: "auberean-glue::cpu::options::the_chat_settings_are_set_over_a_new_players",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-stand-ins-left-to-a-host-are-the-ones-the-client-binds",
+        says: "The shared natives leave to a host's own model exactly the natives the client binds from its model, and the client binds no other over one of their stand-ins (the panel notices aside).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-HOST-STANDINS"),
+        station: "auberean-client-runtime::cpu::natives::the_stand_ins_left_to_a_host_are_the_natives_the_client_binds_from_its_model",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -510,6 +869,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-PROFILE"),
         station: "auberean-script::corpus::options::every_captured_options_profile_and_shortcut_reads_as_the_engine_holds_it_and_packs_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.replay.server-calls-run-against-the-model",
+        says: "Through every recorded 2017 game login replayed through the client, the server's \
+               calls into the client's scripts run against the model to their end or stop at a \
+               named native not written yet, never failing the machine.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-REPLAY-CALLS"),
+        station: "auberean-headless::corpus::sessions::the_servers_calls_run_against_the_model",
         tier: Tier::Corpus,
     },
 ];

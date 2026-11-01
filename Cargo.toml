@@ -61,6 +61,10 @@ members = [
     # The Asheron's Call 2 client SDK: the session, the model, the actions, the runtime and the
     # facade over them, as Dereth's `core/client-*` are.
     "core/auberean-client-net",
+    "core/auberean-client-model",
+    "core/auberean-client-contract",
+    "core/auberean-client-runtime",
+    "core/auberean-client-sdk",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -149,6 +153,7 @@ members = [
     # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
+    "auberean/headless",
     "auberean/testkit",
     # yalain/: Yalain, the Asheron's Call 2 server (MIT): its sessions, its store, its content pack
     # and the game (yalain/crates/), the `yalain` executable and its test kit. It shares Auberean's
@@ -246,7 +251,11 @@ xtask = { path = "tools/xtask" }
 # builder).
 auberean-animation = { path = "core/auberean-animation" }
 auberean-assets = { path = "core/auberean-assets" }
+auberean-client-contract = { path = "core/auberean-client-contract" }
+auberean-client-model = { path = "core/auberean-client-model" }
 auberean-client-net = { path = "core/auberean-client-net" }
+auberean-client-runtime = { path = "core/auberean-client-runtime" }
+auberean-client-sdk = { path = "core/auberean-client-sdk" }
 auberean-dat = { path = "core/auberean-dat" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-physics = { path = "core/auberean-physics" }

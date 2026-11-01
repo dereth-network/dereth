@@ -1,0 +1,20 @@
+[package]
+name = "auberean-client-model"
+description = "The client's model of the game: the event queue's order and holding rules, the character list, the player, the objects and their qualities, the inventory."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-protocol.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
