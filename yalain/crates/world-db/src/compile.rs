@@ -21,7 +21,7 @@ use yalain_content::quests::{
     Need as TableNeed, Place as StepPlace, QuestDef, QuestTable, Step as TableStep,
     Trigger as TableTrigger, Update as TableUpdate,
 };
-use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, StoreTable};
+use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
 use yalain_content::{
     describe, facts, Camp as TableCamp, ContentObject, ContentPack, FactIds, Kind, LootProfile,
@@ -75,6 +75,11 @@ pub trait Install {
     fn profile_name(&self, value: u32) -> Option<String>;
     /// A store template's sales.
     fn store_sales(&self, store: u32) -> Option<Vec<InstallSale>>;
+    /// Who each of a store template's sales is for, by ordinal (none listed: every sale is for
+    /// everyone), and whether the store hides the sales a player may not have.
+    fn store_gates(&self, _store: u32) -> (Vec<(u32, SaleGate)>, bool) {
+        (Vec::new(), false)
+    }
     /// A quest's definition: the state named, else the one defining the quest id.
     fn quest_definition(&self, state: Option<u32>, id: u32) -> Option<QuestDefinition>;
     /// A template's name to read a table by, when the install's text is at hand.
@@ -686,6 +691,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     );
                     continue;
                 };
+                let (gates, hides) = install.store_gates(s.store);
+                if hides && !t.stores.hiding.contains(&s.store) {
+                    t.stores.hiding.push(s.store);
+                }
                 t.stores.sales.push(TableSale {
                     store: s.store,
                     ordinal: s.ordinal,
@@ -696,6 +705,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     icon: s.icon.clone(),
                     name,
                     placed: prov_text(&s.prov),
+                    gate: gates
+                        .into_iter()
+                        .find(|(o, _)| *o == s.ordinal)
+                        .map(|(_, g)| g)
+                        .unwrap_or_default(),
                 });
             }
             Row::Quest(q) => {

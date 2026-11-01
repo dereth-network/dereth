@@ -4,7 +4,9 @@
 //! does; else it says what it says when used ([`crate::talk`]): a storekeeper its greeting, if its
 //! row gives one, and it opens its store: the store's first page
 //! of sales (seven to a page), each sale with its product, icon, name, price and currency, stack
-//! size and place in the store, and a stock id the client buys it by.
+//! size and place in the store, and a stock id the client buys it by. A sale for some players only
+//! (a race, a least level, quests at a status) is left off the page of a player who may not have
+//! it where its store hides such sales, else shown restricted; buying it finds no sale.
 //!
 //! **Paging** answers with the next or the previous page. **Leaving** is not answered (the client
 //! closes the store itself).
@@ -157,7 +159,7 @@ pub fn talk<S: Store>(
     let Some(k) = keeper else {
         return;
     };
-    let view = page(s, id, k.store, 0, function::ENTER_STORE);
+    let view = page(s, world, id, k.store, 0, function::ENTER_STORE);
     progress::private(net, world, &view);
     if let Some(p) = s.players.get_mut(&world) {
         p.shopping = Some((id, k.store, 0));
@@ -165,33 +167,44 @@ pub fn talk<S: Store>(
     crate::market::follow(s, world, id, clock);
 }
 
+/// A list of references.
+fn refs(items: Vec<Item>) -> NativeObject {
+    NativeObject::Sequence {
+        item: auberean_script::library::Elem::Ref,
+        items,
+    }
+}
+
 /// A page of a store's sales, as the call `f` (entering or updating) sends it.
 #[must_use]
-pub fn page<S: Store>(s: &Server<S>, keeper: u64, store: u32, pos: u32, f: u32) -> ServerMessage {
+pub fn page<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    keeper: u64,
+    store: u32,
+    pos: u32,
+    f: u32,
+) -> ServerMessage {
     let sales = s.stores.sales_of(store);
     let size = u32::try_from(sales.len()).unwrap_or(0);
     let mut b = Builder::new();
     let view = b.reserve(package::STORE_VIEW);
-    let shown: Vec<&&Sale> = sales
+    // The page's sales the player may have; the others hidden where the store hides them, else
+    // shown restricted. The store's size counts them all (2017: a store of four showing two).
+    let shown: Vec<(&Sale, bool)> = sales
         .iter()
         .skip(pos as usize)
         .take(PAGE as usize)
+        .map(|sale| (*sale, may_have(s, world, sale)))
+        .filter(|(_, ok)| *ok || !s.stores.hides(store))
         .collect();
-    let list = b.next_id();
-    let first = list + 1;
-    // Each sale is its profile, then its icon and its name.
-    let refs: Vec<Item> = (0..shown.len())
-        .map(|i| Item::Ref(first + 3 * u32::try_from(i).unwrap_or(0)))
-        .collect();
-    b.native(
-        REF_LIST,
-        NativeObject::Sequence {
-            item: auberean_script::library::Elem::Ref,
-            items: refs,
-        },
-    );
-    for sale in shown {
+    // The list first, its references once the sales are in: a sale is its profile, its icon when
+    // it has layers, and its name (2017: 400 of 400 sales with layers, 110 of 110 without).
+    let list = b.native(REF_LIST, refs(Vec::new()));
+    let mut profiles = Vec::with_capacity(shown.len());
+    for (sale, ok) in shown {
         let profile = b.reserve(package::SALE_PROFILE);
+        profiles.push(Item::Ref(profile));
         let icon = (!sale.icon.is_empty()).then(|| {
             let mut bytes = u32::try_from(sale.icon.len())
                 .unwrap_or(0)
@@ -210,8 +223,24 @@ pub fn page<S: Store>(s: &Server<S>, keeper: u64, store: u32, pos: u32, f: u32) 
                 },
             )
         });
+        // A sale without layers names its product's icon instead (110 of 110 in 2017).
+        let picture = match icon {
+            None => s
+                .catalog
+                .get(sale.product)
+                .and_then(|t| t.props.word("Icon"))
+                .map_or(Slot::Int(0), |d| Slot::Tagged(0x04, d)),
+            Some(_) => Slot::Int(0),
+        };
         let name = b.native(TEXT, NativeObject::TextInfo(progress::text(sale.name)));
         let stock = stock_id(sale);
+        // A stack of one goes as the whole number it starts as, a larger one as the value set
+        // (510 of 510).
+        let stack = if sale.stack == 1 {
+            Slot::Int(1)
+        } else {
+            Slot::Tagged(0x04, sale.stack)
+        };
         #[allow(clippy::cast_possible_truncation)]
         b.fill(
             profile,
@@ -220,16 +249,17 @@ pub fn page<S: Store>(s: &Server<S>, keeper: u64, store: u32, pos: u32, f: u32) 
                 Slot::Ref(icon),
                 Slot::Tagged(0x84, stock as u32),
                 Slot::Tagged(tag::HIGH, (stock >> 32) as u32),
-                Slot::Int(0),
+                picture,
                 Slot::Ref(Some(name)),
                 Slot::Tagged(0x04, sale.cost.to_bits()),
                 Slot::Tagged(0x04, sale.currency),
-                Slot::Int(sale.stack),
+                stack,
                 Slot::Tagged(0x04, sale.ordinal),
-                Slot::Int(0),
+                Slot::Int(u32::from(!ok)),
             ],
         );
     }
+    b.replace_native(list, refs(profiles));
     b.fill(
         view,
         &[
@@ -240,6 +270,18 @@ pub fn page<S: Store>(s: &Server<S>, keeper: u64, store: u32, pos: u32, f: u32) 
         ],
     );
     session::call(f, &[Arg::Object(b.graph()), Arg::LongInt(keeper)]).expect("a store view packs")
+}
+
+/// Whether a player may have a sale: of its race, of its level, holding its quests at their status.
+fn may_have<S: Store>(s: &Server<S>, world: ConnId, sale: &Sale) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let held = &p.play.quests;
+    sale.gate
+        .admits(p.race, crate::examine::level_of(&p.qualities), &|q| {
+            held.iter().find(|h| h.quest == q).map(|h| h.status)
+        })
 }
 
 /// The client turns the store's page.
@@ -258,7 +300,7 @@ pub fn turn_page<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     } else {
         pos.saturating_sub(PAGE)
     };
-    let m = page(s, keeper, store, pos, function::UPDATE_STORE);
+    let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
     if let Some(p) = s.players.get_mut(&world) {
         p.shopping = Some((keeper, store, pos));
@@ -316,7 +358,7 @@ pub fn purchase<S: Store>(
         .stores
         .sales_of(store)
         .into_iter()
-        .find(|x| stock_id(x) == stock)
+        .find(|x| stock_id(x) == stock && may_have(s, world, x))
         .cloned()
     else {
         let m =
@@ -359,7 +401,7 @@ pub fn purchase<S: Store>(
         }
         let m = session::call(function::REQUEST_DONE, &[Arg::Int(error::NO_ROOM)]).expect("packs");
         progress::private(net, world, &m);
-        let m = page(s, keeper, store, pos, function::UPDATE_STORE);
+        let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
         progress::private(net, world, &m);
         return;
     }
@@ -378,7 +420,7 @@ pub fn purchase<S: Store>(
         opened.encode(),
     );
     crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
-    let m = page(s, keeper, store, pos, function::UPDATE_STORE);
+    let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
     let closed = open(s, 0);
     net.send(

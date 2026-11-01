@@ -548,7 +548,7 @@ fn a_hard_day() -> Vec<ServerMessage> {
 /// A visit to people: a quest given, a store opened and a sale bought.
 fn a_visit() -> Vec<ServerMessage> {
     use yalain_content::quests::{QuestDef, QuestTable, Step, Trigger, Update};
-    use yalain_content::stores::{Keeper, Sale, StoreTable};
+    use yalain_content::stores::{Keeper, Sale, SaleGate, StoreTable};
     use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind};
     let person = |id: u64, template: u32| ContentObject {
         object: Some(id),
@@ -596,7 +596,9 @@ fn a_visit() -> Vec<ServerMessage> {
             icon: vec![(1000, 0x4100_4552, 0xFFFF_FFFF)],
             name: (0x01A2_D809, 0x2500_23D3),
             placed: "authored for a test".into(),
+            gate: SaleGate::default(),
         }],
+        hiding: Vec::new(),
     };
     h.server.quests = QuestTable {
         quests: vec![QuestDef {

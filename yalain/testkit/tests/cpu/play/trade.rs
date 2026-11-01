@@ -4,7 +4,7 @@
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::quests::{QuestDef, QuestTable, Step, Trigger, Update};
-use yalain_content::stores::{Keeper, Sale, StoreTable};
+use yalain_content::stores::{Keeper, Sale, SaleGate, StoreTable};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_catalog, Harness, TEST_ITEM};
@@ -118,7 +118,9 @@ fn shop() -> Harness {
             icon: vec![(1000, 0x4100_4552, 0xFFFF_FFFF)],
             name: (0x01A2_D809, 0x2500_23D3),
             placed: "authored for a test".into(),
+            gate: SaleGate::default(),
         }],
+        hiding: Vec::new(),
     };
     h
 }
@@ -144,6 +146,286 @@ fn a_storekeeper_used_greets_the_player_and_opens_its_store() {
         "{f:x?}"
     );
     assert!(at(ENTER_STORE).is_some());
+}
+
+/// A store whose second sale has no icon layers: every sale's references point at its own icon
+/// and name, the one without layers has no icon object and names its product's icon instead; a
+/// stack of one goes as a whole number, a larger one as a value set.
+/// Behaviour: server.store.sale-without-icon-layers
+#[test]
+fn a_sale_without_icon_layers_keeps_every_sales_references_on_its_own_objects() {
+    const PLAIN: u32 = 0x4700_06C3;
+    const PICTURE: u32 = 0x4100_66DB;
+    let mut h = shop();
+    let mut props = yalain_content::Props::default();
+    props.set("Icon", yalain_content::Prop::Word(PICTURE));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(PLAIN, 0x200, props));
+    let first = h.server.stores.sales[0].clone();
+    let sale = |ordinal: u32, product: u32, icon: Vec<(u32, u32, u32)>, name: u32| Sale {
+        ordinal,
+        product,
+        icon,
+        name: (name, 0x2500_23D3),
+        ..first.clone()
+    };
+    h.server.stores.sales = vec![
+        sale(
+            0,
+            TEST_ITEM,
+            vec![(1000, 0x4100_4552, 0xFFFF_FFFF)],
+            0x0000_0A00,
+        ),
+        sale(1, PLAIN, Vec::new(), 0x0000_0A01),
+        sale(
+            2,
+            TEST_ITEM,
+            vec![(1000, 0x4100_4553, 0xFFFF_FFFF)],
+            0x0000_0A02,
+        ),
+    ];
+    h.server.stores.sales[1].stack = 1_000_000;
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(KEEPER, me)]),
+    );
+    h.run(10);
+    let calls = calls_of(&h, b, from);
+    let view = &calls
+        .iter()
+        .find(|(f, _)| *f == ENTER_STORE)
+        .expect("the store opens")
+        .1[0];
+    let Some(calls::Node::Script { slots, .. }) = view.root() else {
+        panic!("a store view");
+    };
+    let Some(calls::Node::Native { bytes, .. }) = view.entry(slots[0].1) else {
+        panic!("the list of sales");
+    };
+    let word = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().expect("4"));
+    assert_eq!(word(0), 3, "three sales listed");
+    for (i, want) in [
+        (TEST_ITEM, Some(0x4100_4552_u32), 0x0A00, 0),
+        (PLAIN, None, 0x0A01, PICTURE),
+        (TEST_ITEM, Some(0x4100_4553), 0x0A02, 0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (product, picture, name, icon_did) = want;
+        let Some(calls::Node::Script { slots: p, .. }) = view.entry(word(i + 1)) else {
+            panic!("sale {i} is a profile");
+        };
+        assert_eq!(p[0].1, product, "sale {i}: its product");
+        match (picture, view.entry(p[1].1)) {
+            (
+                Some(pic),
+                Some(calls::Node::Native {
+                    ty: 0x2E,
+                    bytes: icon,
+                }),
+            ) => {
+                assert_eq!(&icon[8..12], &pic.to_le_bytes(), "sale {i}: its own icon");
+            }
+            (None, None) => assert_eq!(p[1].1, 0xFFFF_FFFF, "sale {i}: no icon"),
+            (_, other) => panic!("sale {i}: icon {other:?}"),
+        }
+        assert_eq!(
+            p[4].1, icon_did,
+            "sale {i}: the product's icon in place of layers"
+        );
+        // A stack of one as a whole number, a larger one as a value set.
+        let stack = if i == 1 { (0x04, 1_000_000) } else { (0x02, 1) };
+        assert_eq!(p[8], stack, "sale {i}: its stack");
+        let Some(calls::Node::TextInfo(t)) = view.entry(p[5].1) else {
+            panic!("sale {i}: a name");
+        };
+        assert_eq!(t.string_id, name, "sale {i}: its own name");
+    }
+}
+
+/// A store's view: its size and each listed sale's slots.
+fn listed(view: &Value) -> (u32, Vec<Vec<(u8, u32)>>) {
+    let Some(calls::Node::Script { slots, .. }) = view.root() else {
+        panic!("a store view");
+    };
+    let Some(calls::Node::Native { bytes, .. }) = view.entry(slots[0].1) else {
+        panic!("the list of sales");
+    };
+    let word = |i: usize| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().expect("4"));
+    let sales = (1..=word(0) as usize)
+        .map(|i| match view.entry(word(i)) {
+            Some(calls::Node::Script { slots, .. }) => slots.clone(),
+            other => panic!("a sale profile, not {other:?}"),
+        })
+        .collect();
+    (slots[2].1, sales)
+}
+
+/// A store of five: a sale for anyone, one for Lugians, one for players who finished a quest, one
+/// for anyone, one from level 50; the player a human of a low level.
+const GATED_QUEST: u32 = 0x8000_0342;
+fn gated_shop(hides: bool) -> Harness {
+    let mut h = shop();
+    let first = h.server.stores.sales[0].clone();
+    let gates = [
+        SaleGate::default(),
+        SaleGate {
+            race: 2,
+            ..SaleGate::default()
+        },
+        SaleGate {
+            quests: vec![(GATED_QUEST, 0x3000_0000)],
+            ..SaleGate::default()
+        },
+        SaleGate::default(),
+        SaleGate {
+            level: 50,
+            ..SaleGate::default()
+        },
+    ];
+    h.server.stores.sales = gates
+        .into_iter()
+        .zip(0..)
+        .map(|(gate, ordinal)| Sale {
+            ordinal,
+            gate,
+            ..first.clone()
+        })
+        .collect();
+    if hides {
+        h.server.stores.hiding = vec![STORE];
+    }
+    h
+}
+
+fn enter_gated(h: &mut Harness) -> (usize, u64, Value) {
+    let (b, me) = h.player_in_world("one", "Elara");
+    for p in h.server.players.values_mut() {
+        p.race = 1;
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(KEEPER, me)]),
+    );
+    h.run(10);
+    let view = calls_of(h, b, from)
+        .into_iter()
+        .find(|(f, _)| *f == ENTER_STORE)
+        .expect("the store opens")
+        .1
+        .remove(0);
+    (b, me, view)
+}
+
+/// A store that hides what a player may not have leaves off its page the sales of another race
+/// and of a quest the player has not finished (under way is not enough), still counting them in
+/// its size; once the quest is finished, its sale is listed.
+/// Behaviour: server.store.sales-for-others-hidden
+#[test]
+fn a_store_that_hides_sales_for_others_leaves_them_off_the_page_but_counts_them() {
+    let mut h = gated_shop(true);
+    let (b, _, view) = enter_gated(&mut h);
+    let (size, sales) = listed(&view);
+    assert_eq!(size, 5, "every sale counted");
+    let ordinals: Vec<u32> = sales.iter().map(|p| p[9].1).collect();
+    assert_eq!(
+        ordinals,
+        [0, 3],
+        "the race's, the quest's and the level's sales left off"
+    );
+    let page = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(yalain_world::store::function::PREV_SALES, &[]),
+        );
+        h.run(10);
+        let view = calls_of(h, b, from)
+            .into_iter()
+            .find(|(f, _)| *f == UPDATE_STORE)
+            .expect("the page again")
+            .1
+            .remove(0);
+        listed(&view).1.iter().map(|p| p[9].1).collect::<Vec<u32>>()
+    };
+    let hold = |h: &mut Harness, status: u32| {
+        for p in h.server.players.values_mut() {
+            p.play.quests = vec![yalain_world::state::QuestState {
+                quest: GATED_QUEST,
+                status,
+                phase: 0,
+                started: 0,
+                updated: 0,
+            }];
+        }
+    };
+    hold(&mut h, 0x1000_0000);
+    assert_eq!(page(&mut h), [0, 3], "the quest under way is not enough");
+    hold(&mut h, 0x3000_0000);
+    assert_eq!(page(&mut h), [0, 2, 3], "the finished quest's sale listed");
+}
+
+/// A store that does not hide them shows the sales a player may not have restricted, and buying
+/// one finds no sale and takes nothing.
+/// Behaviour: server.store.sales-for-others-restricted
+#[test]
+fn a_store_shows_sales_for_others_restricted_and_will_not_sell_them() {
+    let mut h = gated_shop(false);
+    let (b, me, view) = enter_gated(&mut h);
+    let (size, sales) = listed(&view);
+    assert_eq!(size, 5);
+    let restricted: Vec<u32> = sales.iter().map(|p| p[10].1).collect();
+    assert_eq!(
+        restricted,
+        [0, 1, 1, 0, 1],
+        "the race's, the quest's and the level's sales restricted"
+    );
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, 50);
+    }
+    let from = h.bots[b].inbox.len();
+    let stock = yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8 | 1;
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(stock),
+            Slot::Ref(None),
+            Slot::Long(me),
+            Slot::Int(1),
+            Slot::Long(KEEPER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+    );
+    h.run(10);
+    let done: Vec<u32> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == REQUEST_DONE)
+        .filter_map(|(_, v)| match v.first() {
+            Some(Value::Int(e)) => Some(*e),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(done, [45001], "no such sale");
+    let paid = h
+        .world_messages(b, from)
+        .iter()
+        .any(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == 3100));
+    assert!(!paid, "nothing paid");
 }
 
 /// Buying a sale with enough money: the money goes down by its price, and the item is made in the

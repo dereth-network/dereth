@@ -95,6 +95,25 @@ fn pinned() -> &'static Compiled {
     P.get_or_init(|| compile_at(&dir))
 }
 
+/// The install a compile reads, with its text.
+fn dat_install() -> DatInstall<'static> {
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let open = |n: &DatName| {
+        DatFile::open(&found.iter().find(|(m, _)| m == n).expect("a data file").1).expect("opens")
+    };
+    let portal = open(&DatName::Portal);
+    let local = open(&DatName::Local("English".into()));
+    let ctx = Context::from_portal(&portal).expect("context");
+    let states = portal
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    DatInstall::new(Box::new(move |id| portal.read(id).ok()), ctx, states)
+        .expect("install")
+        .with_text(Box::new(move |id| local.read(id).ok()))
+}
+
 /// A database checked, merged and compiled against the install.
 fn compile_at(root: &Path) -> Compiled {
     {
@@ -107,22 +126,7 @@ fn compile_at(root: &Path) -> Compiled {
         );
         let db = rows::read(&files).expect("read");
         let merged = merge::merge(&db).expect("merge");
-        let dir = require_install(TARGET);
-        let found = install_dats(&dir).expect("the install");
-        let open = |n: &DatName| {
-            DatFile::open(&found.iter().find(|(m, _)| m == n).expect("a data file").1)
-                .expect("opens")
-        };
-        let portal = open(&DatName::Portal);
-        let local = open(&DatName::Local("English".into()));
-        let ctx = Context::from_portal(&portal).expect("context");
-        let states = portal
-            .entries_in(0x6F00_0000, 0x6FFF_FFFF)
-            .map(|e| e.id)
-            .collect();
-        let install = DatInstall::new(Box::new(|id| portal.read(id).ok()), ctx, states)
-            .expect("install")
-            .with_text(Box::new(|id| local.read(id).ok()));
+        let install = dat_install();
         let tables = compile(&merged, &install)
             .unwrap_or_else(|p| panic!("{}", yalain_world_db::report(&p)));
         Compiled { merged, tables }
@@ -212,6 +216,49 @@ fn what_the_rows_leave_out_is_read_from_the_install() {
         "{unnamed} of {} people have no name to read",
         people.len()
     );
+}
+
+/// Who a store's sales are for comes from the install: the honey shop and the fur trader hide
+/// what a player may not have, the sealed orders do not; the honey shop's last two sales need a
+/// quest finished, each of the fur trader's glasses its race, each sealed order its quest under
+/// way. The pinned release's stores that hide them are the honey shop and the mercenaries'.
+/// Behaviour: server.store.sales-for-others-from-the-install
+#[test]
+fn who_a_stores_sales_are_for_is_read_from_the_install() {
+    use yalain_world_db::compile::Install as _;
+    let install = dat_install();
+    let gates = |store: u32| install.store_gates(store);
+    let (honey, hides) = gates(0x6F00_16EC);
+    assert!(hides);
+    let quest = |q: u32, st: u32| yalain_content::stores::SaleGate {
+        quests: vec![(q, st)],
+        ..Default::default()
+    };
+    assert_eq!(
+        honey,
+        [
+            (2, quest(0x8000_0342, 0x3000_0000)),
+            (3, quest(0x8000_0342, 0x3000_0000))
+        ]
+    );
+    let (furs, hides) = gates(0x6F00_16ED);
+    assert!(hides);
+    let races: Vec<(u32, u32)> = furs.iter().map(|(o, g)| (*o, g.race)).collect();
+    assert_eq!(races, [(0, 2), (1, 4), (2, 1), (3, 16)]);
+    let (orders, hides) = gates(0x6F00_16EB);
+    assert!(!hides);
+    assert_eq!(orders.len(), 4);
+    assert!(orders
+        .iter()
+        .all(|(_, g)| g.quests.len() == 1 && g.quests[0].1 == 0x1000_0000));
+    assert_eq!(
+        gates(0x6F00_16F6),
+        (Vec::new(), false),
+        "a weapon shop sells to all"
+    );
+    let mut hiding = pinned().tables.stores.hiding.clone();
+    hiding.sort_unstable();
+    assert_eq!(hiding, [0x6F00_16EC, 0x6F00_16EE]);
 }
 
 /// The compiled world, served: a new character starts in the training hall copy the database

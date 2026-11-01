@@ -28,13 +28,14 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 17] = [
+pub const RULES: [&str; 18] = [
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
     "camp-profile-species",
     "keeper-store",
     "store-sales",
+    "store-sales-unseen",
     "quest-definition",
     "quest-setup-static",
     "quest-death-effect",

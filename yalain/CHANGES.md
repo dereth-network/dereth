@@ -86,3 +86,4 @@ what they see, not how it was done.
 - Cartomancers send you where a surveyor's map leads when you hand it to them.
 - Moving off while walking to a portal, person or corpse now cancels the use.
 - Forges and road signs now say they can't be used.
+- Every store opens, and stores hide or mark the sales you can't buy.

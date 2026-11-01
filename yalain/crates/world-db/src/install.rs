@@ -1,5 +1,5 @@
 //! The install a compile reads, from its records: templates and their qualities, the property
-//! list, the generator profiles' names, store templates' sales and quests' definitions (saved
+//! list, the generator profiles' names, store templates' sales (and who each is for) and quests' definitions (saved
 //! states, read with the script library's names for their fields, and whether the quest's package
 //! sets it up to be done once), and optionally the language file's text for the tables' reading
 //! labels.
@@ -16,6 +16,7 @@ use auberean_script::library::{Library, RECORD};
 use auberean_script::native_object::{Item, NativeObject};
 use auberean_script::opcode::{length, low_byte, signed};
 use auberean_script::value::FunctionId;
+use yalain_content::stores::SaleGate;
 use yalain_content::{FactIds, Props, FACT_NAMES};
 
 use crate::compile::{Install, InstallSale, QuestDefinition};
@@ -186,6 +187,40 @@ impl Install for DatInstall<'_> {
             });
         }
         Some(out)
+    }
+
+    fn store_gates(&self, store: u32) -> (Vec<(u32, SaleGate)>, bool) {
+        let read = || -> Option<(Vec<(u32, SaleGate)>, bool)> {
+            let g = self.graph(store)?;
+            let nav = Nav::new(&self.lib, &g);
+            let root = nav.object(g.root()?)?;
+            // The store's first flag: it hides the sales a player may not have.
+            let hides = nav.field(root, "m_uiFlags").is_some_and(|f| f & 1 != 0);
+            let mut out = Vec::new();
+            for item in nav.items(nav.field(root, "m_sales")?)? {
+                let o = nav.object(item.reference()?)?;
+                let quests = nav
+                    .field(o, "m_requiredQuests")
+                    .and_then(|h| nav.entries(h))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|(k, v)| match (k, v) {
+                        (Item::Word(q), Item::Word(st)) => Some((q, st)),
+                        _ => None,
+                    })
+                    .collect();
+                let gate = SaleGate {
+                    race: nav.field(o, "m_race").unwrap_or(0),
+                    level: nav.field(o, "m_uiLevel").unwrap_or(0),
+                    quests,
+                };
+                if gate != SaleGate::default() {
+                    out.push((nav.field(o, "m_uiOrdinal")?, gate));
+                }
+            }
+            Some((out, hides))
+        };
+        read().unwrap_or_default()
     }
 
     fn quest_definition(&self, state: Option<u32>, id: u32) -> Option<QuestDefinition> {

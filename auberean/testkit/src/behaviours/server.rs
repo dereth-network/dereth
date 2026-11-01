@@ -4754,6 +4754,45 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.store.sale-without-icon-layers",
+        says: "A store page lists each sale as its profile, its icon when it has layers, and its \
+               name; a sale without layers has no icon and names its product's icon instead, and \
+               every sale's references point at its own objects.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-ICONLESS"),
+        station: "yalain-testkit::cpu::play::trade::a_sale_without_icon_layers_keeps_every_sales_references_on_its_own_objects",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.sales-for-others-from-the-install",
+        says: "Who each of a store's sales is for (a race, a least level, quests at a status) and \
+               whether the store hides the sales a player may not have are read from the install's \
+               store listing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-GATED-INSTALL"),
+        station: "yalain-testkit::corpus::world_db::who_a_stores_sales_are_for_is_read_from_the_install",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.store.sales-for-others-hidden",
+        says: "A store that hides what a player may not have leaves off its page the sales of \
+               another race, a higher level or a quest the player does not hold at its status, and \
+               still counts them in its size.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-GATED"),
+        station: "yalain-testkit::cpu::play::trade::a_store_that_hides_sales_for_others_leaves_them_off_the_page_but_counts_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.sales-for-others-restricted",
+        says: "A store that does not hide them shows the sales a player may not have restricted, \
+               and buying one finds no sale and takes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-GATED-SHOWN"),
+        station: "yalain-testkit::cpu::play::trade::a_store_shows_sales_for_others_restricted_and_will_not_sell_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.vendor-left-past-eight-meters",
         says: "A shopper who walks more than eight meters from a vendor is told it left the store's \
                catalog, and the store is no longer sent again.",
