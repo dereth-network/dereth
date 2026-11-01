@@ -50,6 +50,7 @@ members = [
     "core/auberean-primitives",
     "core/auberean-dat",
     "core/auberean-assets",
+    "core/auberean-text",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -233,6 +234,7 @@ auberean-assets = { path = "core/auberean-assets" }
 auberean-dat = { path = "core/auberean-dat" }
 auberean-primitives = { path = "core/auberean-primitives" }
 auberean-testkit = { path = "auberean/testkit" }
+auberean-text = { path = "core/auberean-text" }
 
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
