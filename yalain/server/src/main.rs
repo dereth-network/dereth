@@ -400,6 +400,7 @@ struct Play {
     talk: yalain_content::TalkTable,
     story: yalain_content::StoryTable,
     locks: yalain_content::LockTable,
+    places_named: std::collections::BTreeMap<u32, yalain_content::Place>,
     brokers: std::collections::BTreeMap<u32, yalain_world::market::Broker>,
     walk_in: std::collections::HashSet<u32>,
     persons: std::collections::HashSet<u32>,
@@ -490,6 +491,7 @@ fn run<S: Store>(
     server.names = names;
     server.story = play.story;
     server.locks = play.locks;
+    server.places_named = play.places_named;
     server.brokers = play.brokers;
     server.walk_in_packages = play.walk_in;
     server.person_packages = play.persons;
@@ -680,6 +682,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
         crafting,
         story,
         locks,
+        places_named,
         weapons: listed_weapons,
         weapon_rules,
         ..
@@ -912,6 +915,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             talk,
             story,
             locks,
+            places_named,
             brokers,
             walk_in,
             persons,
@@ -952,6 +956,7 @@ fn reload_world(
         talk: p.talk,
         story: p.story,
         locks: p.locks,
+        places_named: p.places_named,
         effects: p.effects,
         crafting: p.craft,
         weapons: p.weapons,

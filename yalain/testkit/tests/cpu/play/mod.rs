@@ -28,6 +28,7 @@ mod follow;
 mod gives;
 mod interactions;
 mod items;
+mod map_trips;
 mod maps;
 mod market;
 mod mining;

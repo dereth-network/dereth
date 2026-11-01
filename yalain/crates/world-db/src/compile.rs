@@ -104,6 +104,9 @@ pub struct Tables {
     /// What a row says of a weapon beyond its template (the share of creatures given two, its
     /// stance), by the weapon's name.
     pub weapon_rules: BTreeMap<String, yalain_content::WeaponRule>,
+    /// The places templates name: where a person who sends players by a map sends the holder of
+    /// a map of that template.
+    pub places_named: BTreeMap<u32, TablePlace>,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -313,6 +316,11 @@ impl Ctx<'_> {
             self.problem(l, format!("to: no place {to}"));
             return None;
         };
+        self.place_row(pl)
+    }
+
+    /// Where a place row stands.
+    fn place_row(&mut self, pl: &Located) -> Option<TablePlace> {
         let Row::Place(p) = &pl.row else { return None };
         let Some(cell) = p.cell else {
             self.problem(pl, "cell: a place names its cell");
@@ -856,7 +864,23 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
-            Row::Place(_) | Row::Talk(_) | Row::Route(_) | Row::Remove(_) => {}
+            Row::Place(p) => {
+                if p.named_by.is_empty() {
+                    continue;
+                }
+                let Some(at) = cx.place_row(l) else {
+                    continue;
+                };
+                for &template in &p.named_by {
+                    if t.places_named.insert(template, at).is_some() {
+                        cx.problem(
+                            l,
+                            format!("named_by: {template:08X} is named by another place too"),
+                        );
+                    }
+                }
+            }
+            Row::Talk(_) | Row::Route(_) | Row::Remove(_) => {}
         }
     }
     for (l, scene) in door_scenes {

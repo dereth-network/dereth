@@ -652,6 +652,43 @@ fn a_step_can_be_moved_by_an_item_given_to_a_person() {
 }
 
 #[test]
+fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.places_named.is_empty(), "no place names a template");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\nnamed_by = [0x47000C2A, 0x47000C31]",
+    );
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"refuse-map\"",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let inn = t.places_named.get(&0x4700_0C2A).expect("named");
+    assert_eq!((inn.cell, inn.origin), (0x77B8_0003, [1.18, 53.42, 183.82]));
+    assert_eq!(t.places_named.get(&0x4700_0C31), Some(inn));
+    assert_eq!(t.talk.lines[0].role, Some(Role::RefuseMap));
+    // A template two places name is a problem.
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "prov = { from = \"authored\" }",
+        "prov = { from = \"authored\" }\n\n[[place]]\nkey = \"cellar\"\ncell = 0x77B80003\nat = [2.0, 50.0, 183.8]\nnamed_by = [0x47000C31]\nprov = { from = \"authored\" }",
+    );
+    let p = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        p.iter()
+            .any(|p| p.to_string().contains("47000C31 is named by another place")),
+        "{p:?}"
+    );
+}
+
+#[test]
 fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(!t.quests.quests[0].once, "left out: given again");

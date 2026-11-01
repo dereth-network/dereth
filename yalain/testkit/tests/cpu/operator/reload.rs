@@ -81,6 +81,7 @@ fn tables_of(h: &Harness) -> WorldTables {
         talk: s.talk.clone(),
         story: s.story.clone(),
         locks: s.locks.clone(),
+        places_named: s.places_named.clone(),
         effects: s.effect_table.clone(),
         crafting: s.crafting.clone(),
         weapons: s.creature_weapons.clone(),

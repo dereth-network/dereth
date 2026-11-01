@@ -81,3 +81,4 @@ what they see, not how it was done.
 - Failed quests wait before they can be taken again, and some quests need a level or fail when you die.
 - Characters on the Dereth Network appear in its directory.
 - Items can be given to people and shrines, so quest hand-ins and the Hero Shrine work.
+- Cartomancers send you where a surveyor's map leads when you hand it to them.

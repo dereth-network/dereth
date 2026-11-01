@@ -95,6 +95,17 @@ pub fn summoned_by(effect: &str) -> Option<u32> {
     Some(first + u32::try_from(n).ok()?)
 }
 
+/// The region a map's summoning effect names (`Linvak`, `Omishan`, `Osteth`): the land it is a map
+/// of.
+#[must_use]
+pub fn region(props: &yalain_content::Props) -> Option<&str> {
+    ["Usage_Effect1", "Usage_Effect2"].iter().find_map(|k| {
+        let rest = props.text(k)?.strip_prefix("Eff_SummonMine_")?;
+        let (_, region) = rest.split_once('_')?;
+        Some(region)
+    })
+}
+
 /// A place in world meters: across and up from the world's corner.
 #[must_use]
 pub fn global(cell: u32, x: f32, y: f32) -> (f32, f32) {

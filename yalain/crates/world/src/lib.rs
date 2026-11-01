@@ -71,6 +71,7 @@ pub mod inventory;
 pub mod item_use;
 pub mod levels;
 pub mod login;
+pub mod map_trips;
 pub mod market;
 pub mod mining;
 pub mod missiles;
@@ -324,6 +325,9 @@ pub struct Server<S: Store> {
     pub plants: plants::Plants,
     /// The locked doors and their keys, and the doors' states.
     pub locks: yalain_content::LockTable,
+    /// The places templates name: where a person who sends players by their maps sends the
+    /// holder of a map of the template.
+    pub places_named: std::collections::BTreeMap<u32, yalain_content::Place>,
     pub doors: usable::doors::Doors,
     /// The chests' states.
     pub chests: usable::chests::Chests,
@@ -442,6 +446,9 @@ pub enum Timer {
     HandedBack {
         world: ConnId,
         asked: Box<inventory::Move>,
+        /// Where the giver is sent as the item is back (a map handed to a person who sends
+        /// players where their maps lead).
+        to: Option<yalain_store::StoredPosition>,
     },
     /// A give's quest step, due after its wait.
     GiveStep {
@@ -578,6 +585,7 @@ impl<S: Store> Server<S> {
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
             locks: yalain_content::LockTable::default(),
+            places_named: std::collections::BTreeMap::new(),
             doors: usable::doors::Doors::default(),
             chests: usable::chests::Chests::default(),
             mounts: mounts::Mounts::default(),
@@ -698,7 +706,9 @@ impl<S: Store> Server<S> {
                     inventory::picked_up(self, net, world, item, clock);
                 }
                 Timer::Handed { world } => gives::handed(self, net, world, clock),
-                Timer::HandedBack { world, asked } => gives::back(self, net, world, &asked),
+                Timer::HandedBack { world, asked, to } => {
+                    gives::back_and_away(self, net, world, &asked, to, clock);
+                }
                 Timer::GiveStep { world, step } => {
                     gives::step_due(self, net, world, &step, clock);
                 }

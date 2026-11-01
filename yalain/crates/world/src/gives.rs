@@ -37,7 +37,7 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::quests::{Step, Trigger};
 use yalain_net::{BlobKind, ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::inventory::{move_done, q, Move};
 use crate::{presence, progress, Clock, Server, Timer};
@@ -339,7 +339,15 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     };
     let trigger = Trigger::Give(template, target_template);
     let Some(step) = crate::quests::step_for(s, world, trigger, clock.unix) else {
-        refused(s, net, world, i, &m, object, clock);
+        match crate::map_trips::sends(s, i, template) {
+            crate::map_trips::Sends::To(to) => {
+                crate::map_trips::send(s, net, world, i, &m, to, clock);
+            }
+            crate::map_trips::Sends::Refuses => {
+                crate::map_trips::refuse(s, net, world, i, &m, clock);
+            }
+            crate::map_trips::Sends::Not => refused(s, net, world, i, &m, object, clock),
+        }
         return;
     };
     if step.effects.contains(&HERO_TRANSFORMATION) {
@@ -358,7 +366,7 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     );
     // Steps that kept nothing hand the item back.
     if !kept {
-        hand_back(s, net, world, i, &m, object, clock);
+        hand_back(s, net, world, i, &m, object, None, clock);
     }
 }
 
@@ -377,22 +385,24 @@ fn refused<S: Store>(
         let speaker = crate::talk::content_speaker(s, i);
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }
-    hand_back(s, net, world, i, m, object, clock);
+    hand_back(s, net, world, i, m, object, None, clock);
 }
 
 /// The person hands the item back: an object at once; a person plays its handing-over and the
-/// item is back when it is through.
-fn hand_back<S: Store>(
+/// item is back when it is through. With a place, the giver is sent there as the item is back.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn hand_back<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     i: usize,
     m: &Move,
     object: bool,
+    to: Option<StoredPosition>,
     clock: Clock,
 ) {
     if object {
-        back(s, net, world, m);
+        back_and_away(s, net, world, m, to, clock);
         return;
     }
     let look = s.things.get(m.item).map_or(0, |t| t.description.look);
@@ -410,22 +420,40 @@ fn hand_back<S: Store>(
         Timer::HandedBack {
             world,
             asked: Box::new(m.clone()),
+            to,
         },
     );
 }
 
+/// The item is back in the giver's pack, and the giver sent where the person sends it, if
+/// anywhere.
+pub fn back_and_away<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    m: &Move,
+    to: Option<StoredPosition>,
+    clock: Clock,
+) {
+    if back(s, net, world, m) {
+        if let Some(to) = to {
+            crate::places::sent_away(s, net, world, to, clock);
+        }
+    }
+}
+
 /// The item is back in the giver's pack, where it was: the move from the person told, and its
-/// container told as the person's, then none, then the player's.
-pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: &Move) {
+/// container told as the person's, then none, then the player's. Returns whether it was.
+pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: &Move) -> bool {
     let Some(p) = s.players.get(&world) else {
-        return;
+        return false;
     };
     let me = p.character;
     let Some(slot) = p.play.items.iter().find(|h| h.id == m.item).map(|h| h.slot) else {
-        return;
+        return false;
     };
     let Some(t) = s.things.get(m.item) else {
-        return;
+        return false;
     };
     let (template, look) = (t.template, t.description.look);
     let back = Move {
@@ -461,6 +489,7 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
         });
         presence::to_thing_knowers(s, net, m.item, BlobKind::VISUAL, &held);
     }
+    true
 }
 
 /// The person keeps an item given: it leaves the giver's pack (a part of a stack leaves the rest,

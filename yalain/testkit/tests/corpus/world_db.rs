@@ -70,11 +70,35 @@ struct Compiled {
     tables: Tables,
 }
 
+/// The pinned release in the per-user cache, if it is there.
+fn pinned_database() -> Option<PathBuf> {
+    cache_dir_for(Host::current(), |n| std::env::var_os(n))
+        .map(|c| c.join(PINNED_TAG))
+        .filter(|d| d.join("world.toml").is_file())
+}
+
 /// The database, checked, merged and compiled against the install, once.
 fn compiled() -> &'static Compiled {
     static C: OnceLock<Compiled> = OnceLock::new();
-    C.get_or_init(|| {
-        let files = load(&database());
+    C.get_or_init(|| compile_at(&database()))
+}
+
+/// The pinned release compiled, once (the database itself when it is the pinned release).
+fn pinned() -> &'static Compiled {
+    static P: OnceLock<Compiled> = OnceLock::new();
+    let dir = pinned_database().unwrap_or_else(|| {
+        panic!("no pinned release: fetch it ({PINNED_TAG}) with `yalain world fetch`")
+    });
+    if dir == database() {
+        return compiled();
+    }
+    P.get_or_init(|| compile_at(&dir))
+}
+
+/// A database checked, merged and compiled against the install.
+fn compile_at(root: &Path) -> Compiled {
+    {
+        let files = load(root);
         let problems = check::check(&files);
         assert!(
             problems.is_empty(),
@@ -102,7 +126,7 @@ fn compiled() -> &'static Compiled {
         let tables = compile(&merged, &install)
             .unwrap_or_else(|p| panic!("{}", yalain_world_db::report(&p)));
         Compiled { merged, tables }
-    })
+    }
 }
 
 /// Every row of the database compiles against the install: each template, store listing,
@@ -394,6 +418,22 @@ fn a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say(
         !calls.iter().any(|(f, _)| *f == 0x8213_0024),
         "not given again: {calls:08X?}"
     );
+}
+
+/// A world whose rows name no place for the surveyor's maps (the pinned release) sends no one
+/// anywhere by a map: no place it holds is named by a map's template, so a cartomancer hands every
+/// map back.
+/// Behaviour: server.gives.maps-without-rows
+#[test]
+fn a_world_naming_no_place_for_the_maps_sends_no_one_by_a_map() {
+    let t = &pinned().tables;
+    let maps = |x: &u32| {
+        (0x4700_0C23..=0x4700_0C81).contains(x)
+            || (0x4700_1A77..=0x4700_1AD5).contains(x)
+            || *x == 0x4700_1425
+    };
+    let named: Vec<&u32> = t.places_named.keys().filter(|x| maps(x)).collect();
+    assert!(named.is_empty(), "maps named: {named:08X?}");
 }
 
 /// The compiled world on a harness, with a character in it.

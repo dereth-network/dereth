@@ -2135,6 +2135,52 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.map-named-by-the-persons-line",
+        says: "A person whose table names no land sends players only with the maps its lines name (the \
+               miller's starter map); another map is handed back with its line for a map it does not take.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAP-NAMED"),
+        station: "yalain-testkit::cpu::play::map_trips::a_person_with_no_land_sends_players_only_with_the_maps_its_lines_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.map-of-another-land",
+        says: "A cartomancer given a map of another land hands it back with its own line for such a map \
+               and sends no one; an item that is no map gets its refusal of a give.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAP-OTHER-LAND"),
+        station: "yalain-testkit::cpu::play::map_trips::a_map_of_another_land_is_handed_back_with_the_persons_line_for_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.map-sends-the-giver",
+        says: "A cartomancer given a map of its own land says its line and hands the map back; as the \
+               map is back, 1.30 s later, the giver goes into portal space and comes out at the place \
+               the world names for the map. The map is kept; no portal is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAP-TRIP"),
+        station: "yalain-testkit::cpu::play::map_trips::a_cartomancer_given_a_map_of_its_land_sends_the_giver_where_it_leads",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.map-with-no-place",
+        says: "A map whose place the world does not hold is refused as one of another land: handed back, \
+               no one sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAP-NO-PLACE"),
+        station: "yalain-testkit::cpu::play::map_trips::a_map_whose_place_the_world_does_not_hold_sends_no_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.maps-without-rows",
+        says: "A world whose rows name no place for the surveyor's maps (the pinned release) sends no \
+               one anywhere by a map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAPS-NO-ROWS"),
+        station: "yalain-testkit::corpus::world_db::a_world_naming_no_place_for_the_maps_sends_no_one_by_a_map",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.no-step-hands-back",
         says: "An item no step wants is answered as given, the person says its refusal of a give and \
                hands it back: a person plays its handing-over and the item is back 1.30 s later, an \

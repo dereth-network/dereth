@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 16] = [
+pub const RULES: [&str; 17] = [
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
@@ -45,6 +45,7 @@ pub const RULES: [&str; 16] = [
     "hoard-key-table",
     "hoard-key-text",
     "hoard-teleport-place",
+    "map-marked-place",
 ];
 
 /// An evidence handle: capital letters, digits and hyphens, in parts joined by hyphens (the

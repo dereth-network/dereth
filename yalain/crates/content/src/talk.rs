@@ -89,7 +89,10 @@ pub enum Role {
     Idle,
     Combat,
     Death,
+    /// What a person who sends players where their maps lead says as it does.
     Teleport,
+    /// What such a person says of a map it does not send anyone with.
+    RefuseMap,
 }
 
 /// How a line reaches the player.
@@ -132,7 +135,7 @@ pub enum TalkUpdate {
     Fail,
 }
 
-const ROLES: [(Role, &str); 15] = [
+const ROLES: [(Role, &str); 16] = [
     (Role::Offer, "offer"),
     (Role::Remind, "remind"),
     (Role::Advance, "advance"),
@@ -148,6 +151,7 @@ const ROLES: [(Role, &str); 15] = [
     (Role::Combat, "combat"),
     (Role::Death, "death"),
     (Role::Teleport, "teleport"),
+    (Role::RefuseMap, "refuse-map"),
 ];
 const HOWS: [(How, &str); 4] = [
     (How::Tell, "tell"),

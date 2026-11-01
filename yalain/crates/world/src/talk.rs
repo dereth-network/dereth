@@ -13,6 +13,9 @@
 //! **Given an item it has no use for.** A person says its refusal of a give (else another line it
 //! says at a give naming no quest) as it hands the item back.
 //!
+//! **Given a map.** A person who sends players where their maps lead says its line for that as it
+//! hands the map back, and its own line for a map it does not take.
+//!
 //! **Used, with nothing for the player.** A storekeeper greets as its store row says; anyone
 //! else (a storekeeper without a greeting too) says a reminder of one of its quests the player has
 //! under way, else one of the lines it says when used (refusals, its own words at a use), picked
@@ -351,6 +354,29 @@ pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> 
         .filter(|l| matches!(l.role, None | Some(Role::Use | Role::Remind)))
         .collect();
     pick(s, &others)
+}
+
+/// A person's line of a role said at a give, picked at random (heard ones first): of those naming
+/// no item or the item given, else of them all.
+pub fn at_give_as<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    role: Role,
+    item: u32,
+) -> Option<Line> {
+    let lines: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| l.when == When::Give && l.role == Some(role))
+        .cloned()
+        .collect();
+    let fits: Vec<Line> = lines
+        .iter()
+        .filter(|l| l.item.is_none_or(|i| i == item))
+        .cloned()
+        .collect();
+    pick(s, if fits.is_empty() { &lines } else { &fits })
 }
 
 /// Whether using an object of a template is talking to it: it says something when used.

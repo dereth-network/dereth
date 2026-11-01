@@ -41,6 +41,8 @@ pub struct WorldTables {
     pub story: StoryTable,
     /// The locked doors and their keys.
     pub locks: LockTable,
+    /// The places templates name (the maps' places).
+    pub places_named: std::collections::BTreeMap<u32, yalain_content::Place>,
     pub effects: EffectTable,
     pub crafting: Crafting,
     /// The templates of the weapons creatures wield, by the names their templates give them.
@@ -60,6 +62,7 @@ pub mod table {
     pub const TALK: &str = "talk";
     pub const STORY: &str = "story";
     pub const LOCKS: &str = "locks";
+    pub const PLACES_NAMED: &str = "places named";
     pub const EFFECTS: &str = "effects";
     pub const CRAFTING: &str = "crafting";
     pub const WEAPONS: &str = "creature weapons";
@@ -153,6 +156,10 @@ impl<S: Store> Server<S> {
         let changed = t.locks != self.locks;
         r.note(table::LOCKS, changed, true);
         self.locks = t.locks;
+
+        let changed = t.places_named != self.places_named;
+        r.note(table::PLACES_NAMED, changed, true);
+        self.places_named = t.places_named;
 
         let mut effects = self.effect_table.clone();
         effects.effects.extend(t.effects.effects);
