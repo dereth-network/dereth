@@ -56,6 +56,7 @@ auberean-physics.workspace = true
 auberean-world.workspace = true
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-dat = { workspace = true, features = ["test-support"] }
+auberean-friends.workspace = true
 auberean-script.workspace = true
 auberean-testkit = { workspace = true, features = ["captures"] }
 yalain-store = { workspace = true, features = ["sqlite"] }

@@ -58,6 +58,42 @@ pub fn conceal(plain: &[u8]) -> Vec<u8> {
     b
 }
 
+/// A narrow string as a message carries it: a 16-bit count of its characters (`0xFFFF`, then a
+/// 32-bit count, for a longer one), its bytes scrambled, then padding to four bytes from the start
+/// of the count. No terminator.
+// D2-00247, D2-00246
+#[must_use]
+pub fn pack(plain: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(plain.len() + 8);
+    match u16::try_from(plain.len()) {
+        Ok(n) if n != u16::MAX => out.extend_from_slice(&n.to_le_bytes()),
+        _ => {
+            out.extend_from_slice(&u16::MAX.to_le_bytes());
+            out.extend_from_slice(&u32::try_from(plain.len()).unwrap_or(u32::MAX).to_le_bytes());
+        }
+    }
+    out.extend_from_slice(&conceal(plain));
+    while !out.len().is_multiple_of(4) {
+        out.push(0);
+    }
+    out
+}
+
+/// The plain bytes of a string packed as [`pack`] writes it; whatever follows the string (its
+/// padding, which a sender need not zero) is not read. `None` when the count runs past the end.
+#[must_use]
+pub fn unpack(packed: &[u8]) -> Option<Vec<u8>> {
+    let (n, rest) = match packed {
+        [0xFF, 0xFF, a, b, c, d, rest @ ..] => (
+            usize::try_from(u32::from_le_bytes([*a, *b, *c, *d])).ok()?,
+            rest,
+        ),
+        [lo, hi, rest @ ..] => (usize::from(u16::from_le_bytes([*lo, *hi])), rest),
+        _ => return None,
+    };
+    rest.get(..n).map(reveal)
+}
+
 /// A stored narrow string's text. The game's narrow strings are ASCII; any other byte is kept as
 /// the Latin-1 character of the same value.
 #[must_use]
@@ -95,6 +131,19 @@ mod tests {
         let plain = reveal(&stored);
         assert_eq!(plain[4], 0xBA);
         assert_ne!(&plain[..4], &[0x21, 0x43, 0x65, 0x87]);
+    }
+
+    #[test]
+    fn a_packed_string_is_its_count_its_scrambled_bytes_and_padding_to_four() {
+        for n in 0..12 {
+            let text: Vec<u8> = (b'a'..).take(n).collect();
+            let packed = pack(&text);
+            assert_eq!(packed.len(), (2 + n).div_ceil(4) * 4, "length {n}");
+            assert_eq!(packed[..2], u16::try_from(n).expect("short").to_le_bytes());
+            assert_eq!(packed[2..2 + n], conceal(&text));
+            assert_eq!(unpack(&packed).as_deref(), Some(&text[..]), "length {n}");
+        }
+        assert_eq!(unpack(&[5, 0, 1, 2]), None, "a count past the end");
     }
 
     #[test]

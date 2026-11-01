@@ -91,7 +91,11 @@ impl Bot {
 
     /// Log in with an account and ticket.
     pub fn log_in(&mut self, account: &str, ticket: &[u8], now: LocalTime) {
-        let body = build_login(account, ticket, 1_485_419_089);
+        self.log_in_with(build_login(account, ticket, 1_485_419_089), now);
+    }
+
+    /// Log in with a login body written elsewhere (another client's, byte for byte).
+    pub fn log_in_with(&mut self, body: Vec<u8>, now: LocalTime) {
         let packet = standalone(0, 0, PacketFlags::LOGIN_REQUEST, body);
         self.out.push((self.server, packet.clone()));
         self.login_packet = Some((packet, now, 1));

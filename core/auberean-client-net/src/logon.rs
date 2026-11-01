@@ -2,8 +2,9 @@
 //!
 //! It is the shared transport's login body with this game's strings scrambled: the version
 //! string; the length of what follows; the way the client authenticates (a ticket), a flags word
-//! and the time; the account; a counted session-key blob; a counted ticket (a 16-bit length and
-//! its bytes). Strings pad to four bytes from the start of the body.
+//! and the time; the account; a counted session-key blob; a counted ticket, itself a string (a
+//! 16-bit count, the bytes scrambled, padding to four). Strings pad to four bytes from the start
+//! of the body.
 //!
 //! The session-key blob is a key-exchange blob of the operating system's cryptography service: a
 //! twelve-byte header naming a simple blob of a stream-cipher key exchanged by public key, then the
@@ -40,13 +41,11 @@ pub struct Logon {
 
 impl Logon {
     /// The authenticator: a ticket login with the account and the session key.
+    // D2-01700
     #[must_use]
     pub fn authenticator(&self) -> ConnectionAuthenticator {
         let mut crypto = KEY_BLOB_HEADER.to_vec();
         crypto.extend_from_slice(&self.session_key);
-        let n = u16::try_from(self.ticket.len()).unwrap_or(u16::MAX);
-        let mut ticket = n.to_le_bytes().to_vec();
-        ticket.extend_from_slice(&self.ticket[..usize::from(n)]);
         ConnectionAuthenticator {
             auth_type: NetAuthType::GlsTicket,
             auth_flags: FLAGS,
@@ -54,7 +53,7 @@ impl Logon {
             account: scramble::conceal(&self.account),
             account_to_logon_as: None,
             crypto_data: crypto,
-            extra_data: ticket,
+            extra_data: scramble::pack(&self.ticket),
         }
     }
 

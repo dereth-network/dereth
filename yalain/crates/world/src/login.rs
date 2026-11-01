@@ -153,6 +153,10 @@ pub fn account_for_command<S: Store>(
 /// then on with that ticket only (an account made with none takes the first ticket it logs in
 /// with); on a world of listed accounts only an account made beforehand, with its own ticket. The
 /// friends service checks its tickets by the same rule.
+///
+/// The ticket is the plain secret, however the client carried it: the game login's is read back to
+/// its text, the friends ticket's is its decoded secret. This is the one place a secret is checked
+/// or kept.
 pub fn admits<S: Store>(
     policy: AccountPolicy,
     store: &mut S,

@@ -90,7 +90,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "session.logon.the-login-carries-version-ticket-account-and-key-blob",
         says: "The game login carries the version 1802, a ticket login with flags 1, the time, the \
                account as typed, a session-key blob (its twelve-byte header, then 64 bytes) and the \
-               ticket after its 16-bit length, every string scrambled.",
+               ticket in its counted blob as a string (its 16-bit count, the bytes, padding to \
+               four), every string scrambled.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGON"),
         station: "auberean-client-net::cpu::logon::the_login_carries_version_ticket_account_and_key_blob",

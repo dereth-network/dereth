@@ -3,8 +3,13 @@
 //!
 //! The layout is the shared transport's login body with the game's scrambled strings: the
 //! version string; the length of what follows; the authentication type, flags and a timestamp;
-//! the account string; a counted session-key blob; a counted ticket (a 16-bit length, then its
-//! bytes). Strings pad to four bytes from the start of the body.
+//! the account string; a counted session-key blob; a counted ticket. Strings pad to four bytes
+//! from the start of the body.
+//!
+//! The ticket is the text the client was started with (its ticket option), carried as any string
+//! is: a 16-bit count, the bytes scrambled, padding to four bytes, no terminator, all inside the
+//! counted blob. It is read back to the plain text, so a login and the friends ticket present the
+//! same secret.
 
 use auberean_primitives::scramble;
 
@@ -24,7 +29,8 @@ pub struct GameLogin {
     pub account: String,
     /// The session key, encrypted to a key no server holds: kept, never read.
     pub session_key: Vec<u8>,
-    /// The ticket: the credential the client was started with.
+    /// The ticket: the credential the client was started with, as plain text (empty when the
+    /// login carries none).
     pub ticket: Vec<u8>,
 }
 
@@ -77,11 +83,10 @@ pub fn parse_login(body: &[u8]) -> Option<GameLogin> {
     let account = c.string()?;
     let session_key = c.counted()?.to_vec();
     let extra = c.counted()?;
-    let ticket = match extra {
-        [lo, hi, rest @ ..] if usize::from(u16::from_le_bytes([*lo, *hi])) == rest.len() => {
-            rest.to_vec()
-        }
-        other => other.to_vec(),
+    let ticket = if extra.is_empty() {
+        Vec::new()
+    } else {
+        scramble::unpack(extra)?
     };
     Some(GameLogin {
         version,
@@ -104,7 +109,7 @@ fn push_string(out: &mut Vec<u8>, plain: &[u8]) {
 }
 
 /// A login body as the September 2013 client writes it, for test clients: the account and
-/// ticket given, a session-key blob of the right form whose key is zeros.
+/// ticket (plain text) given, a session-key blob of the right form whose key is zeros.
 #[must_use]
 pub fn build_login(account: &str, ticket: &[u8], timestamp: u32) -> Vec<u8> {
     let mut body = Vec::new();
@@ -119,10 +124,9 @@ pub fn build_login(account: &str, ticket: &[u8], timestamp: u32) -> Vec<u8> {
     key[..12].copy_from_slice(&[1, 2, 0, 0, 1, 0x68, 0, 0, 0, 0xA4, 0, 0]);
     body.extend_from_slice(&76u32.to_le_bytes());
     body.extend_from_slice(&key);
-    let tn = u16::try_from(ticket.len()).unwrap_or(u16::MAX);
-    body.extend_from_slice(&(u32::from(tn) + 2).to_le_bytes());
-    body.extend_from_slice(&tn.to_le_bytes());
-    body.extend_from_slice(&ticket[..usize::from(tn)]);
+    let ticket = scramble::pack(ticket);
+    body.extend_from_slice(&u32::try_from(ticket.len()).unwrap_or(0).to_le_bytes());
+    body.extend_from_slice(&ticket);
     let rest = u32::try_from(body.len() - len_at - 4).unwrap_or(0);
     body[len_at..len_at + 4].copy_from_slice(&rest.to_le_bytes());
     body

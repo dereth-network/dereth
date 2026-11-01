@@ -28,6 +28,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.accounts.one-secret-in-every-form",
+        says: "One account's secret is admitted from the September 2013 client's game login, our \
+               client's game login and the friends ticket alike, whichever presented it first, \
+               and a wrong secret is refused in each form.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-ONE-SECRET"),
+        station: "yalain-testkit::cpu::entry::tickets::one_account_is_admitted_from_every_form_of_its_secret_and_a_wrong_one_from_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.accounts.open-made-at-first-login-then-need-their-ticket",
         says: "A server with open accounts makes an account the first time its name logs in, with \
                that ticket, and from then on refuses a login to it with any other ticket before \
@@ -36,6 +46,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-OPEN"),
         station: "yalain-testkit::cpu::entry::character_select::an_open_account_is_made_at_its_first_login_and_needs_that_ticket_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.the-retail-login-presents-the-plain-secret",
+        says: "The September 2013 client's game login carries the secret it was given as a \
+               string in the ticket's blob (a 16-bit count, the bytes scrambled, padding to four \
+               that is not read), and is admitted to an account kept with that secret as plain \
+               text; a wrong secret is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-RETAIL-TICKET"),
+        station: "yalain-testkit::cpu::entry::tickets::the_retail_login_is_admitted_with_the_plain_secret_it_was_given",
         tier: Tier::Cpu,
     },
     behaviour! {
