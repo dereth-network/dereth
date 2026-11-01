@@ -22,6 +22,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use auberean_assets::common::Color32;
 use auberean_assets::entity::Entity;
 use auberean_assets::visual::{Appearance, IconLayer, VisualDesc as StoredVisual};
 use auberean_assets::Database;
@@ -701,11 +702,498 @@ fn native_apply_to_body(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+// ---------------------------------------------------------------------------------------------
+// The descriptions, icons and appearance tables scripts hold
+// ---------------------------------------------------------------------------------------------
+
+/// An icon description, as a native type, and a table of appearance tables' values.
+const ICON_DESC: u32 = 0x2E;
+const APP_INFO_HASH: u32 = 0x0F;
+/// An applied appearance value (an appearance key and its strength), as a native type.
+const APPLIED_KEY: u32 = 0x10;
+/// A vector, as a native type.
+const VECTOR: u32 = 0x70;
+
+/// An icon description a script holds: its layers, each a number, a picture and a color, in
+/// order (a new one has none).
+#[must_use]
+pub fn icon_of(o: &NativeObject) -> Vec<IconLayer> {
+    let NativeObject::Packed { bytes, .. } = o else {
+        return Vec::new();
+    };
+    let w: Vec<u32> = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    let n = w.first().copied().unwrap_or(0) as usize;
+    w.get(1..)
+        .unwrap_or(&[])
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .take(n)
+        .map(|l| IconLayer {
+            layer: l[0],
+            picture: DataId(l[1]),
+            shift_color: Color32(l[2]),
+        })
+        .collect()
+}
+
+/// An icon description holding `layers`, in its packed form: the count, then each layer.
+#[must_use]
+pub fn icon_native(layers: &[IconLayer]) -> NativeObject {
+    let mut bytes = u32::try_from(layers.len())
+        .unwrap_or(0)
+        .to_le_bytes()
+        .to_vec();
+    for l in layers {
+        bytes.extend(l.layer.to_le_bytes());
+        bytes.extend(l.picture.0.to_le_bytes());
+        bytes.extend(l.shift_color.0.to_le_bytes());
+    }
+    NativeObject::Packed {
+        ty: ICON_DESC,
+        bytes,
+    }
+}
+
+/// A table of appearance tables' values a script holds (a new one is empty).
+#[must_use]
+pub fn appearance_of(o: &NativeObject) -> Keyed<Keyed<f32>> {
+    let NativeObject::Packed { bytes, .. } = o else {
+        return Keyed::default();
+    };
+    let mut r = Reader::new(bytes);
+    let Ok(t) = Table::<Table<f32>>::read(&mut r) else {
+        return Keyed::default();
+    };
+    Keyed::stored(
+        buckets_of(t.size_class),
+        t.entries.iter().map(|(k, v)| (*k, keyed(v))).collect(),
+    )
+}
+
+/// A table of appearance tables' values, in its packed form.
+#[must_use]
+pub fn appearance_native(tables: &Keyed<Keyed<f32>>) -> NativeObject {
+    let t = Table {
+        size_class: size_class_of(tables.buckets),
+        entries: tables.entries.iter().map(|(k, v)| (*k, table(v))).collect(),
+    };
+    let mut w = Writer::default();
+    t.write(&mut w);
+    NativeObject::Packed {
+        ty: APP_INFO_HASH,
+        bytes: w.finish(),
+    }
+}
+
+/// The description a script holds as the receiver (`fp[-1]`), with its reference; `None` for the
+/// null reference.
+fn receiver_look(c: &mut Call<'_>) -> Result<Option<(u32, Look)>, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(None);
+    }
+    let native = c.native;
+    let o = c.vm.heap.native(r).map_err(|e| Stop::Native {
+        native,
+        what: format!("{e:?}"),
+    })?;
+    let look = ScriptLook::of(o).ok_or_else(|| Stop::Native {
+        native,
+        what: format!("{r:#x} is not a visual description"),
+    })?;
+    Ok(Some((r, look)))
+}
+
+/// Keep `look` in the description a script holds at `r`.
+fn put_look(c: &mut Call<'_>, r: u32, look: Look) -> Result<(), Stop> {
+    *c.vm.heap.native_mut(r)? = ScriptLook::native(look);
+    Ok(())
+}
+
+/// The object an out argument (`fp[k]`, a reference to a slot) holds.
+fn out_object(c: &mut Call<'_>, k: i64) -> Result<u32, Stop> {
+    let out = c.cx.at(k)?;
+    let prog = Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if target == NULL {
+        return Err(Stop::NullReference);
+    }
+    Ok(target)
+}
+
+/// Run `f` over the data files' records (none when the host has no data files).
+fn with_records<T>(c: &mut Call<'_>, f: impl FnOnce(&dyn LookRecords) -> T) -> Result<T, Stop> {
+    let h = host(c)?;
+    Ok(match database(h) {
+        Some(db) => f(&Records(db)),
+        None => f(&NoRecords),
+    })
+}
+
+/// Empty the description: as a new one.
+// D2-09022
+fn native_clear(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, _)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    put_look(c, r, Look::default())?;
+    Ok(Status::Success)
+}
+
+/// Whether the description adds nothing, into `fp[-2]`.
+// D2-09028
+fn native_adds_nothing(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((_, look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    c.write(-2, u32::from(look.adds_nothing()), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Its scale, a new vector, into `fp[-2]`.
+// D2-09031
+fn native_scale(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((_, look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let v = look.scale;
+    let r = c.vm.heap.add_native(
+        VECTOR,
+        NativeObject::Vector([v.x.to_bits(), v.y.to_bits(), v.z.to_bits()]),
+    );
+    c.write(-2, r, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// Set its scale to the vector `fp[-2]`.
+// D2-09023
+fn native_set_scale(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let v = c.arg(0)?;
+    let NativeObject::Vector(w) = c.vm.heap.native(v)? else {
+        return Err(c.fail("the scale is not a vector"));
+    };
+    look.scale = Vec3::new(
+        f32::from_bits(w[0]),
+        f32::from_bits(w[1]),
+        f32::from_bits(w[2]),
+    );
+    put_look(c, r, look)?;
+    Ok(Status::Success)
+}
+
+/// Put the description `fp[-2]` in this one's place; whether it took, into `fp[-3]`.
+// D2-09030
+fn native_replace(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let other = look_arg(c, 0)?;
+    let ok = look.replace(&other.to_desc()).is_ok();
+    put_look(c, r, look)?;
+    c.write(-3, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Add the description `fp[-2]` to this one; whether it took, into `fp[-3]`.
+// D2-09026
+fn native_add(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let other = look_arg(c, 0)?;
+    let ok = look.apply_additive(&other.to_desc()).is_ok();
+    put_look(c, r, look)?;
+    c.write(-3, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Take the description `fp[-2]` out of this one; whether it could, into `fp[-3]`.
+// D2-09027
+fn native_take_out(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let other = look_arg(c, 0)?.to_desc();
+    let ok = with_records(c, |records| look.apply_subtractive(records, &other))?;
+    put_look(c, r, look)?;
+    c.write(-3, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Its icon (its chain's, with its own changes' icon atoms laid over) into the icon description
+/// an out argument (`fp[-2]`) holds; whether it has a layer, into `fp[-3]`.
+// D2-09032
+fn native_total_icon(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((_, look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let target = out_object(c, -2)?;
+    let desc = look.to_desc();
+    let icon = with_records(c, |records| Look::total_icon_of(records, &desc))?;
+    *c.vm.heap.native_mut(target)? = icon_native(&icon);
+    c.write(-3, u32::from(!icon.is_empty()), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The stored description `fp[-2]` names, as the client copies one into its own, into the
+/// description an out argument (`fp[-3]`) holds; whether there is one, into `fp[-4]` (the
+/// description is left as it was when there is none).
+// D2-09033
+fn native_from_record(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = DataId(c.cx.at(-2)?);
+    let target = out_object(c, -3)?;
+    let look = with_records(c, |records| Look::local_of_record(records, id))?;
+    let found = look.is_some();
+    if let Some(look) = look {
+        put_look(c, target, look)?;
+    }
+    c.write(-4, u32::from(found), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The appearance tables' values of group `fp[-2]` into the table an out argument (`fp[-3]`)
+/// holds; whether the description has the group, into `fp[-4]` (the table is left as it was
+/// when it has not).
+// D2-09034
+fn native_group_appearance(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((_, look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let group = c.cx.at(-2)?;
+    let target = out_object(c, -3)?;
+    let tables = look.appearance_of(group).cloned();
+    let found = tables.is_some();
+    if let Some(t) = tables {
+        *c.vm.heap.native_mut(target)? = appearance_native(&t);
+    }
+    c.write(-4, u32::from(found), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Add the appearance tables' values `fp[-3]` to group `fp[-2]`; whether every table took, into
+/// `fp[-4]`.
+// D2-09024
+fn native_add_group_appearance(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let group = c.cx.at(-2)?;
+    let t = c.cx.at(-3)?;
+    if t == NULL {
+        return Err(Stop::NullReference);
+    }
+    let tables = appearance_of(c.vm.heap.native(t)?);
+    let ok = with_records(c, |records| {
+        look.add_appearance_tables(records, group, &tables)
+    })?;
+    put_look(c, r, look)?;
+    c.write(-4, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Whether the icon description has no layer, into `fp[-2]`.
+// D2-08606
+fn native_icon_empty(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let empty = icon_of(c.vm.heap.native(r)?).is_empty();
+    c.write(-2, u32::from(empty), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Whether the icon description can be drawn, into `fp[-2]`.
+// D2-08607
+fn native_icon_drawable(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let valid = auberean_world::look::icon_is_valid(&icon_of(c.vm.heap.native(r)?));
+    c.write(-2, u32::from(valid), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// How many appearance tables the table holds, into `fp[-2]`.
+// D2-09203
+fn native_appearance_count(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let n = appearance_of(c.vm.heap.native(r)?).len();
+    c.write(-2, u32::try_from(n).unwrap_or(u32::MAX), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// An applied appearance value a script holds: its key and its strength (a new one has both 0).
+#[must_use]
+pub fn applied_key_of(o: &NativeObject) -> (u32, f32) {
+    let NativeObject::Packed { bytes, .. } = o else {
+        return (0, 0.0);
+    };
+    let w = |i: usize| {
+        bytes
+            .get(i * 4..i * 4 + 4)
+            .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    (w(0), f32::from_bits(w(1)))
+}
+
+/// An applied appearance value of key `key` and strength `strength`, in its packed form.
+#[must_use]
+pub fn applied_key_native(key: u32, strength: f32) -> NativeObject {
+    let mut bytes = key.to_le_bytes().to_vec();
+    bytes.extend(strength.to_bits().to_le_bytes());
+    NativeObject::Packed {
+        ty: APPLIED_KEY,
+        bytes,
+    }
+}
+
+/// The applied appearance value an argument (`fp[k]`) holds; a null one stops the run.
+fn applied_key_arg(c: &mut Call<'_>, k: i64) -> Result<(u32, f32), Stop> {
+    let r = c.cx.at(k)?;
+    if r == NULL {
+        return Err(Stop::NullReference);
+    }
+    Ok(applied_key_of(c.vm.heap.native(r)?))
+}
+
+/// The applied appearance value's key (`word` 0) or strength (`word` 1), into `fp[-2]`.
+fn applied_key_word(c: &mut Call<'_>, word: usize) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let (key, strength) = applied_key_of(c.vm.heap.native(r)?);
+    let v = if word == 0 { key } else { strength.to_bits() };
+    c.write(-2, v, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Set the applied appearance value's key (`word` 0) or strength (`word` 1) to `fp[-2]`.
+fn set_applied_key_word(c: &mut Call<'_>, word: usize) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let v = c.cx.at(-2)?;
+    let (mut key, mut strength) = applied_key_of(c.vm.heap.native(r)?);
+    if word == 0 {
+        key = v;
+    } else {
+        strength = f32::from_bits(v);
+    }
+    *c.vm.heap.native_mut(r)? = applied_key_native(key, strength);
+    Ok(Status::Success)
+}
+
+/// The applied appearance value's key, into `fp[-2]`.
+// D2-18959
+fn native_applied_key(c: &mut Call<'_>) -> Result<Status, Stop> {
+    applied_key_word(c, 0)
+}
+
+/// Set the applied appearance value's key to `fp[-2]`.
+// D2-01370
+fn native_set_applied_key(c: &mut Call<'_>) -> Result<Status, Stop> {
+    set_applied_key_word(c, 0)
+}
+
+/// The applied appearance value's strength, into `fp[-2]`.
+// D2-08505
+fn native_applied_strength(c: &mut Call<'_>) -> Result<Status, Stop> {
+    applied_key_word(c, 1)
+}
+
+/// Set the applied appearance value's strength to `fp[-2]`.
+// D2-08413
+fn native_set_applied_strength(c: &mut Call<'_>) -> Result<Status, Stop> {
+    set_applied_key_word(c, 1)
+}
+
+/// Give group `fp[-2]` the applied appearance value `fp[-4]` of appearance table `fp[-3]`;
+/// whether it took, into `fp[-5]`.
+// D2-09025
+fn native_add_appearance_key(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let group = c.cx.at(-2)?;
+    let apr = c.cx.at(-3)?;
+    let (key, scalar) = applied_key_arg(c, -4)?;
+    let value = auberean_assets::fx::AppearanceKey { key, scalar };
+    let ok = with_records(c, |records| {
+        look.add_appearance_key(records, group, apr, value)
+    })?;
+    put_look(c, r, look)?;
+    c.write(-5, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Take the key of the applied appearance value `fp[-4]` of appearance table `fp[-3]` off group
+/// `fp[-2]`; whether it could, into `fp[-5]`.
+// D2-09029
+fn native_remove_appearance_key(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, mut look)) = receiver_look(c)? else {
+        return Ok(Status::Crash);
+    };
+    let group = c.cx.at(-2)?;
+    let apr = c.cx.at(-3)?;
+    let (key, _) = applied_key_arg(c, -4)?;
+    let ok = with_records(c, |records| {
+        look.remove_appearance_key(records, group, apr, key)
+    })?;
+    put_look(c, r, look)?;
+    c.write(-5, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 pub(crate) fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     [
+        (NativeId::new(VISUAL_DESC, 0x01), native_clear as NativeFn),
+        (NativeId::new(VISUAL_DESC, 0x02), native_adds_nothing),
+        (NativeId::new(VISUAL_DESC, 0x03), native_add_appearance_key),
+        (
+            NativeId::new(VISUAL_DESC, 0x04),
+            native_remove_appearance_key,
+        ),
+        (NativeId::new(VISUAL_DESC, 0x05), native_replace),
+        (NativeId::new(VISUAL_DESC, 0x06), native_add),
+        (NativeId::new(VISUAL_DESC, 0x07), native_take_out),
+        (NativeId::new(VISUAL_DESC, 0x08), native_scale),
+        (NativeId::new(VISUAL_DESC, 0x09), native_set_scale),
+        (NativeId::new(VISUAL_DESC, 0x0A), native_group_appearance),
+        (
+            NativeId::new(VISUAL_DESC, 0x0B),
+            native_add_group_appearance,
+        ),
+        (NativeId::new(VISUAL_DESC, 0x0C), native_total_icon),
+        (NativeId::new(VISUAL_DESC, 0x0D), native_from_record),
+        (NativeId::new(ICON_DESC, 0x01), native_icon_empty),
+        (NativeId::new(ICON_DESC, 0x02), native_icon_drawable),
+        (NativeId::new(APP_INFO_HASH, 0x01), native_appearance_count),
+        (NativeId::new(APPLIED_KEY, 0x01), native_applied_key),
+        (NativeId::new(APPLIED_KEY, 0x02), native_set_applied_key),
+        (NativeId::new(APPLIED_KEY, 0x03), native_applied_strength),
+        (
+            NativeId::new(APPLIED_KEY, 0x04),
+            native_set_applied_strength,
+        ),
         (
             NativeId::new(PHYSICS_OBJECT, 0x59),
-            native_get_local_visual_desc as NativeFn,
+            native_get_local_visual_desc,
         ),
         (NativeId::new(PHYSICS_OBJECT, 0x5C), native_init_visual_desc),
         (NativeId::new(PHYSICS_OBJECT, 0x5D), native_apply_additive),

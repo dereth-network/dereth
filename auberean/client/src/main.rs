@@ -412,6 +412,7 @@ struct App<'w> {
     world: &'w WorldData,
     present: Option<present::Presenter>,
     script: Option<script::Script>,
+    marks: script::Marks,
     shots: PathBuf,
     shot_next: Option<PathBuf>,
     shot_count: u32,
@@ -521,6 +522,9 @@ impl App<'_> {
             }
             if asked.shot.is_some() {
                 self.shot_next = asked.shot;
+            }
+            if let Some(m) = &asked.mark {
+                self.marks.print(m, self.shell.client.as_ref());
             }
             if asked.quit {
                 self.shell.event(&Event::Close);
@@ -743,6 +747,7 @@ fn run() -> Result<(), String> {
         world: &world,
         present: None,
         script,
+        marks: script::Marks::default(),
         shots,
         shot_next: None,
         shot_count: 0,
@@ -768,12 +773,16 @@ fn no_window(
     seconds: f64,
 ) -> Result<(), String> {
     let mut printed = 0.0;
+    let mut marks = script::Marks::default();
     loop {
         let now = shell.host.now();
         if let Some(s) = &mut script {
             let asked = s.step(now, shell.phase(), &shell.scene.status);
             for e in &asked.events {
                 shell.event(e);
+            }
+            if let Some(m) = &asked.mark {
+                marks.print(m, shell.client.as_ref());
             }
             if asked.quit {
                 shell.event(&Event::Close);

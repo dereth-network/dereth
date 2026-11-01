@@ -200,7 +200,9 @@ pub fn run(
             Ok(s) => s,
             Err(e) => {
                 if ex.vm.stopped_at.is_none() {
-                    ex.vm.stopped_at = Some(ex.cx.ip.saturating_sub(1));
+                    let at = ex.cx.ip.saturating_sub(1);
+                    ex.vm.stopped_at = Some(at);
+                    *ex.vm.stops.entry((e.stopped(), at)).or_default() += 1;
                 }
                 return Err(e);
             }

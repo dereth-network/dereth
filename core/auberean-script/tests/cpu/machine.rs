@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use auberean_script::context::Context;
-use auberean_script::native::{Binding, Call, NativeTable, Status, Stop};
+use auberean_script::native::{Binding, Call, NativeTable, Status, Stop, Stopped};
 use auberean_script::opcode::op;
 use auberean_script::value::{tag, FunctionId, NativeId};
 use auberean_script::{Program, Vm};
@@ -396,6 +396,45 @@ fn a_native_not_written_yet_stops_the_run_naming_it() {
             port: "a port id"
         })
     );
+}
+
+/// Behaviour: script.interp.stops-counted
+#[test]
+fn the_machine_counts_every_stop_by_what_stopped_it_and_where() {
+    let body = vec![
+        i(op::ENTER, 0),
+        w(op::LOAD_THIS),
+        w(op::CALL_NATIVE),
+        (TOOLS << 16) | 1,
+        w(op::LEAVE),
+    ];
+    let mut t = NativeTable::new();
+    t.bind(NativeId::new(TOOLS, 1), Binding::NotPorted("a port id"));
+    let p = thing(&[body], t, 2);
+    let mut vm = Vm::new(Arc::clone(&p));
+    vm.budget = 100_000;
+    let mut host = TestHost::default();
+    let this = vm.new_object(&mut host, THING, &p).unwrap();
+    for _ in 0..2 {
+        let mut cx = Context::new(usize::MAX, 0);
+        cx.push(0, tag::INT).unwrap();
+        cx.push(this, tag::REFERENCE).unwrap();
+        let r = vm.call(
+            &mut host,
+            &mut cx,
+            THING,
+            FunctionId::new(THING, 1).direct(),
+        );
+        assert!(matches!(r, Err(Stop::NotPorted { .. })), "{r:?}");
+        vm.stopped_at = None;
+    }
+    let stops: Vec<_> = vm.stops.iter().collect();
+    assert_eq!(stops.len(), 1, "{stops:?}");
+    let ((what, at), n) = stops[0];
+    assert_eq!(*what, Stopped::NotPorted(NativeId::new(TOOLS, 1).0));
+    assert_eq!(*n, 2);
+    // The stop is placed in the function's own code (it starts at word 3).
+    assert!((3..8).contains(at), "{at}");
 }
 
 /// Behaviour: script.interp.step-budget

@@ -453,6 +453,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.interp.stops-counted",
+        says: "The machine counts every run that stops short by what stopped it (a native not                written yet, the null reference, another stop) and the code it stopped in, for a                host to report what the scripts still lack.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STOPS-COUNTED"),
+        station: "auberean-script::cpu::machine::the_machine_counts_every_stop_by_what_stopped_it_and_where",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.interp.string-literals",
         says: "Every use of a string literal names the same shared string object.",
         since: RETAIL,
@@ -509,6 +517,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.looks.a-held-description-answers-as-its-own-form",
+        says: "A visual description a script holds answers as the client's own form: its icon is                the one the inventory draws its object with (and whether it has a layer), the                icon's check says whether it can be drawn, its scale is its own, the appearance                values it gives a part group read back and add to another description as they                were; one value held on its own reads back, is given to an empty description and                taken off again; cleared, it adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOKS-HELD"),
+        station: "auberean-client-runtime::corpus::effects::a_held_description_answers_its_icon_scale_and_appearance_as_its_own_form",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.looks.an-objects-own-description-is-read-changed-and-taken-as-its-scripts-ask",
         says: "An object's own description answers what the server sent; a change the scripts add \
                or take out is answered at once and taken by the body only when they ask, and a \
@@ -562,6 +578,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-SLEEP"),
         station: "auberean-client-runtime::corpus::chat::a_sleeping_call_goes_on_at_the_first_upkeep_after_its_time",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.a-trade-partners-offer-is-shown-as-an-item",
+        says: "An item a trade's partner offers, once the client has been sent it (still in the partner's pack), shows in the trade window with its name and icon, as the player's own items do; it is never shown as an item the client has not been sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-TRADE-OFFER-SHOWN"),
+        station: "auberean-client-runtime::corpus::inventory::a_trade_partners_offer_is_shown_with_its_name_and_icon",
         tier: Tier::Corpus,
     },
     behaviour! {

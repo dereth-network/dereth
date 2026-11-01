@@ -82,6 +82,29 @@ pub enum Stop {
     Host(String),
 }
 
+/// What stopped a run, as the machine's record of stops ([`crate::vm::Vm::stops`]) keeps it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Stopped {
+    /// A native not written yet, by id.
+    NotPorted(u32),
+    /// The null reference used as an object.
+    NullReference,
+    /// Another stop, by its description.
+    Other(String),
+}
+
+impl Stop {
+    /// What stopped the run, for the record of stops.
+    #[must_use]
+    pub fn stopped(&self) -> Stopped {
+        match self {
+            Self::NotPorted { native, .. } => Stopped::NotPorted(*native),
+            Self::NullReference => Stopped::NullReference,
+            e => Stopped::Other(e.to_string()),
+        }
+    }
+}
+
 impl From<HeapError> for Stop {
     fn from(e: HeapError) -> Self {
         match e {

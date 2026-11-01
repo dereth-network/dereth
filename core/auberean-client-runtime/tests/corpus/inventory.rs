@@ -371,3 +371,120 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
     assert!(t.held_by_sender >= 1_000, "{t:?}");
     assert_eq!(t.let_go, t.taken - t.unknown_item, "{t:?}");
 }
+
+/// The server's call that tells a trade's two sides of an offer.
+const BE_OFFERED: u32 = 0x8215_0044;
+
+/// What the trade window found of the partner's offers.
+#[derive(Default, Debug)]
+struct Offers {
+    captures: u64,
+    /// The partner's offers, those the client was sent, those shown with their name and icon.
+    offered: u64,
+    sent: u64,
+    shown: u64,
+    /// Offers sent but not shown, and a few of them.
+    hidden: u64,
+    hiddens: Vec<(i64, u64)>,
+}
+
+/// Every item a recorded trade's partner offered, once the client has been sent it (still in the
+/// partner's pack), is shown in the trade window with its name and icon, as the player's own items
+/// are: never as an item the client has not been sent.
+///
+/// Behaviour: script.model.a-trade-partners-offer-is-shown-as-an-item
+#[test]
+fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
+    use auberean_client_runtime::store::trade;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut traded = std::collections::BTreeSet::new();
+    captures::messages(
+        &index,
+        &[captures::carrier::TO_PLAYER],
+        &[2013, 2017],
+        |m| {
+            if m.script_call().is_some_and(|s| s.function == BE_OFFERED) {
+                traded.insert(m.capture);
+            }
+        },
+    )
+    .expect("the index reads");
+    let types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .chain([PLAY_CHARACTER])
+        .collect();
+    let mut t = Offers::default();
+    for capture in traded {
+        t.captures += 1;
+        let mut c = client(&data);
+        let mut frame = f64::NEG_INFINITY;
+        // The partner's offers standing, and whether each was found sent yet.
+        let mut offers: std::collections::BTreeMap<u64, bool> = std::collections::BTreeMap::new();
+        captures::capture_by_id_in_time_order(&index, &types, capture, |m| {
+            if m.time > frame {
+                frame = m.time;
+                c.set_time(LocalTime(m.time));
+                c.upkeep();
+            }
+            if !m.to_client {
+                if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                    c.act(Action::PlayCharacter {
+                        character: p.character,
+                    });
+                }
+                return;
+            }
+            let Ok(msg) = ServerMessage::decode(&m.raw) else {
+                return;
+            };
+            c.take_message(m.blob_id, msg);
+            let player = c.model.player.unwrap_or(0);
+            for n in std::mem::take(&mut c.notices) {
+                let long = |at: usize| {
+                    let w = |i: usize| u64::from(n.words.get(i).copied().unwrap_or(0));
+                    w(at) << 32 | w(at + 1)
+                };
+                match n.native {
+                    trade::OFFERED if long(0) != player => {
+                        t.offered += 1;
+                        offers.insert(long(2), false);
+                    }
+                    trade::REVOKED => {
+                        offers.remove(&long(2));
+                    }
+                    trade::RESET | trade::CLOSED => offers.clear(),
+                    _ => {}
+                }
+            }
+            if offers.values().all(|found| *found) {
+                return;
+            }
+            c.refresh_inventory();
+            for (item, found) in &mut offers {
+                if *found || c.model.object(*item).is_none() {
+                    continue;
+                }
+                *found = true;
+                t.sent += 1;
+                let shown = c
+                    .inventory()
+                    .items
+                    .get(item)
+                    .is_some_and(|f| f.icon != 0 && !f.name.is_empty());
+                if shown {
+                    t.shown += 1;
+                } else {
+                    t.hidden += 1;
+                    if t.hiddens.len() < 5 {
+                        t.hiddens.push((capture, *item));
+                    }
+                }
+            }
+        })
+        .expect("the index reads");
+    }
+    eprintln!("{t:?}");
+    assert!(t.sent >= 100, "{t:?}");
+    assert_eq!(t.hidden, 0, "{t:?}");
+}

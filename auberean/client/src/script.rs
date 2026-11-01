@@ -18,6 +18,8 @@
 //! mouse DX DY           mouse motion, in counts
 //! wheel NOTCHES
 //! shot NAME             save the window's picture as NAME.png in the screenshot folder
+//! mark NAME             print where the player's scripts stopped short since the last mark
+//!                       (a native not written yet, the null reference, another stop), counted
 //! goto BLOCK X Y SECS   run toward a place (block in hex, meters in it), steering with the turn
 //!                       keys, until within 3 m or the seconds are up
 //! quit
@@ -44,6 +46,7 @@ enum Step {
     Mouse(f32, f32),
     Wheel(f32),
     Shot(String),
+    Mark(String),
     Goto(f32, f32, f64),
     Quit,
 }
@@ -66,7 +69,52 @@ pub struct Script {
 pub struct Asked {
     pub events: Vec<Event>,
     pub shot: Option<PathBuf>,
+    /// A mark's name: the host prints the scripts' stops since the last.
+    pub mark: Option<String>,
     pub quit: bool,
+}
+
+/// The player's scripts' stops as the last mark left them, so a mark prints what its stretch
+/// added.
+#[derive(Debug, Default)]
+pub struct Marks(std::collections::BTreeMap<(String, String), u64>);
+
+impl Marks {
+    /// Print under `name` where the client's scripts stopped short since the last mark: what
+    /// stopped them, the function they stopped in, how many times.
+    pub fn print(&mut self, name: &str, client: Option<&auberean_client_sdk::Client>) {
+        use auberean_client_sdk::script::native::Stopped;
+        let mut now = std::collections::BTreeMap::new();
+        for s in client
+            .map(auberean_client_sdk::Client::script_stops)
+            .unwrap_or_default()
+        {
+            let what = match (&s.what, &s.native) {
+                (Stopped::NotPorted(n), Some(native)) => format!("native {n:#010x} {native}"),
+                (Stopped::NotPorted(n), None) => format!("native {n:#010x}"),
+                (Stopped::NullReference, _) => "the null reference".to_owned(),
+                (Stopped::Other(o), _) => o.clone(),
+            };
+            let at = format!("{} at {:08X}", s.function, s.offset);
+            *now.entry((what, at)).or_insert(0) += s.count;
+        }
+        let mut added: Vec<_> = now
+            .iter()
+            .filter_map(|(k, n)| {
+                let was = self.0.get(k).copied().unwrap_or(0);
+                (*n > was).then(|| (n - was, k))
+            })
+            .collect();
+        added.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
+        println!(
+            "mark {name}: {} stop(s)",
+            added.iter().map(|a| a.0).sum::<u64>()
+        );
+        for (n, (what, function)) in added {
+            println!("  {n:6} {what} in {function}");
+        }
+        self.0 = now;
+    }
 }
 
 fn parse(text: &str) -> Result<Vec<Step>, String> {
@@ -122,6 +170,7 @@ fn parse(text: &str) -> Result<Vec<Step>, String> {
             #[allow(clippy::cast_possible_truncation)]
             "wheel" => Step::Wheel(num(w.get(1))? as f32),
             "shot" => Step::Shot((*w.get(1).ok_or_else(bad)?).to_owned()),
+            "mark" => Step::Mark(w[1..].join(" ")),
             "goto" => {
                 let b = w
                     .get(1)
@@ -248,6 +297,11 @@ impl Script {
                 Step::Wheel(n) => a.events.push(Event::Wheel { notches: n }),
                 Step::Shot(name) => {
                     a.shot = Some(self.shots.join(format!("{name}.png")));
+                    self.at += 1;
+                    return a;
+                }
+                Step::Mark(name) => {
+                    a.mark = Some(name);
                     self.at += 1;
                     return a;
                 }

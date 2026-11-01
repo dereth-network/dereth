@@ -54,6 +54,16 @@ pub mod function {
     pub const PLAY_SCENES_DONE: u32 = 0x00B4_0090;
 }
 
+/// The scripts' notices to the trade window that change what is offered: an item offered (who,
+/// high and low; the item, high and low; how many), taken back (who; the item), every offer
+/// emptied, the trade closed.
+pub mod trade {
+    pub const CLOSED: u32 = 0x0090 << 16 | 0x0003;
+    pub const RESET: u32 = 0x0090 << 16 | 0x0006;
+    pub const OFFERED: u32 = 0x0090 << 16 | 0x0008;
+    pub const REVOKED: u32 = 0x0090 << 16 | 0x0009;
+}
+
 /// The scripts' notices that show a shop or the player's consignments, or change their sales;
 /// those after which how many the player may buy changes.
 pub mod notice {

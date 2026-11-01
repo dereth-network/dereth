@@ -727,7 +727,9 @@ impl Scripts {
 
     /// The character left the world: every instance goes.
     pub fn reset(&mut self) {
+        let stops = std::mem::take(&mut self.vm.stops);
         self.vm = Vm::new(Arc::clone(&self.host.program));
+        self.vm.stops = stops;
         self.processes.clear();
         self.host.links.clear();
         self.host.instances.clear();

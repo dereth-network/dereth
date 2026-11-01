@@ -372,9 +372,10 @@ impl Scripts {
     }
 
     /// Everything the inventory panels show: the player's pack in its segments and what it wears,
-    /// the containers in `open`, and each item in them.
+    /// the containers in `open`, and each item in them and in `also` (items shown outside a
+    /// container: those a trade's partner offers, still in the partner's pack).
     // D2-00488, D2-01125, D2-00554, D2-01112, D2-01493
-    pub fn inventory(&mut self, open: &BTreeSet<u64>) -> Inventory {
+    pub fn inventory(&mut self, open: &BTreeSet<u64>, also: &BTreeSet<u64>) -> Inventory {
         let Some(player) = self
             .host
             .model
@@ -417,6 +418,10 @@ impl Scripts {
         inv.selection = self.call_on_long(player, function::SELECTION).unwrap_or(0);
         inv.worn = self.worn(player);
         shown.extend(inv.worn.iter().map(|(_, id)| *id));
+        shown.extend(
+            also.iter()
+                .filter(|id| self.host.model.object(**id).is_some()),
+        );
         for id in shown {
             if let std::collections::btree_map::Entry::Vacant(e) = inv.items.entry(id) {
                 if let Some(f) = self.item(player, id) {

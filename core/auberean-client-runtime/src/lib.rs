@@ -191,6 +191,18 @@ impl CallTally {
     }
 }
 
+/// A place the scripts stopped short, named for a report: what stopped them, the native by its
+/// name when a native not written yet did, the function they stopped in and the code offset
+/// there, and how many times.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptStop {
+    pub what: auberean_script::native::Stopped,
+    pub native: Option<String>,
+    pub function: String,
+    pub offset: u32,
+    pub count: u64,
+}
+
 /// The client.
 #[derive(Debug)]
 pub struct Client {
@@ -295,6 +307,9 @@ pub struct Client {
     inventory_stale: bool,
     inventory_seen: (u32, u32),
     open_containers: std::collections::BTreeSet<u64>,
+    /// The items offered in a trade, as the scripts told the trade window (each side's, the
+    /// partner's still in the partner's pack): the window shows them as the inventory's items.
+    trade_items: std::collections::BTreeSet<u64>,
     /// The friends service's layer, when the player was started with one.
     friends: Option<friends::Friends>,
     /// The login was given its secret directly: a friends service that cannot be reached does not
@@ -391,6 +406,7 @@ impl Client {
             inventory_stale: false,
             inventory_seen: (0, 0),
             open_containers: std::collections::BTreeSet::new(),
+            trade_items: std::collections::BTreeSet::new(),
             friends: None,
             login_secret_given,
         }
@@ -1022,7 +1038,8 @@ impl Client {
             return;
         }
         let open = self.open_containers.clone();
-        let Some(mut inv) = self.with_scripts(|s| s.inventory(&open)) else {
+        let trade = self.trade_items.clone();
+        let Some(mut inv) = self.with_scripts(|s| s.inventory(&open, &trade)) else {
             return;
         };
         self.inventory_stale = false;
@@ -1043,7 +1060,8 @@ impl Client {
             .containers
             .values()
             .flat_map(|c| c.segments.iter().flat_map(|s| s.items.iter()))
-            .chain(inv.worn.iter().map(|(_, id)| id));
+            .chain(inv.worn.iter().map(|(_, id)| id))
+            .chain(self.trade_items.iter());
         let mut listed = listed;
         listed.any(|id| self.model.object(*id).is_some() != inv.items.contains_key(id))
             || inv
@@ -1073,6 +1091,33 @@ impl Client {
                     }
                 }
             }
+        }
+    }
+
+    /// The scripts' notices to the trade window: an item offered (by either side) is shown with
+    /// the inventory's items until it is taken back or the offers go (emptied, or the trade
+    /// closed).
+    fn trade_noticed(
+        stale: &mut bool,
+        items: &mut std::collections::BTreeSet<u64>,
+        notices: &[host::PanelNotice],
+    ) {
+        let long = |n: &host::PanelNotice, at: usize| {
+            let w = |i: usize| u64::from(n.words.get(i).copied().unwrap_or(0));
+            w(at) << 32 | w(at + 1)
+        };
+        for n in notices {
+            match n.native {
+                store::trade::OFFERED => {
+                    items.insert(long(n, 2));
+                }
+                store::trade::REVOKED => {
+                    items.remove(&long(n, 2));
+                }
+                store::trade::RESET | store::trade::CLOSED => items.clear(),
+                _ => continue,
+            }
+            *stale = true;
         }
     }
 
@@ -1503,6 +1548,7 @@ impl Client {
             &mut self.open_containers,
             &noticed,
         );
+        Self::trade_noticed(&mut self.inventory_stale, &mut self.trade_items, &noticed);
         self.notices.extend(noticed);
         for (id, add) in std::mem::take(&mut scripts.host.destruction) {
             if add {
@@ -1834,6 +1880,33 @@ impl Client {
     /// no scripts run.
     pub fn handle_collision(&mut self, object: u64, profile: Vec<u8>) -> Option<CallResult> {
         self.with_scripts(|s| s.handle_collision(object, profile))
+    }
+
+    /// Every place the scripts stopped short since they were loaded (a native not written yet,
+    /// the null reference used, another stop), named and counted; empty when no scripts run.
+    #[must_use]
+    pub fn script_stops(&self) -> Vec<ScriptStop> {
+        use auberean_script::native::Stopped;
+        let Some(s) = &self.scripts else {
+            return Vec::new();
+        };
+        let lib = &s.host.program.library;
+        s.vm.stops
+            .iter()
+            .map(|((what, at), count)| {
+                let offset = u32::try_from(at * 4).unwrap_or(u32::MAX);
+                ScriptStop {
+                    native: match what {
+                        Stopped::NotPorted(n) => Some(lib.native_name(*n)),
+                        _ => None,
+                    },
+                    function: lib.function_at(offset).to_owned(),
+                    offset,
+                    what: what.clone(),
+                    count: *count,
+                }
+            })
+            .collect()
     }
 
     /// Ask the player's scripts through the interface for an instance id (the selection, the

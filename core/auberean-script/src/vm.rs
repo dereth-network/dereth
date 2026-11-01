@@ -9,6 +9,7 @@
 //! Every run draws on [`Vm::budget`], one step per instruction: a run that uses it up stops with
 //! [`Stop::Budget`] instead of hanging.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::context::Context;
@@ -17,7 +18,7 @@ use crate::heap::{Heap, Object, Target};
 use crate::interp;
 use crate::library::STATE_BASE;
 use crate::link::Program;
-use crate::native::{Host, Status, Stop};
+use crate::native::{Host, Status, Stop, Stopped};
 use crate::native_object::NativeObject;
 use crate::value::{tag, FunctionId, NULL};
 
@@ -51,6 +52,10 @@ pub struct Vm {
     /// Where the innermost run that stopped last was (a word index into the code); the caller
     /// clears it.
     pub stopped_at: Option<usize>,
+    /// Every run that stopped short since the machine was made, counted by what stopped it and
+    /// the code word it stopped at (the innermost run's): what the scripts still lack, for a host
+    /// to report.
+    pub stops: BTreeMap<(Stopped, usize), u64>,
 }
 
 impl Vm {
@@ -69,6 +74,7 @@ impl Vm {
             held: Vec::new(),
             running_process: NO_PROCESS,
             stopped_at: None,
+            stops: BTreeMap::new(),
         }
     }
 
