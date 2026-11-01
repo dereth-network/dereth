@@ -9,6 +9,101 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "data.action-map.every-record-decodes",
+        says: "The action map reads as its string table, the pairs of actions that \
+               toggle each other, what each action does with each set of modifiers, and \
+               each action's name and description, no key repeated in any list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ACTION-MAP"),
+        station: "auberean-assets::dat::game::ui::every_action_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.anim-map.every-record-decodes",
+        says: "Every animation map reads as its id and a table from an animation key to an \
+               animation record.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ANIM-MAP"),
+        station: "auberean-assets::dat::look::animation::every_animation_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.animation.every-record-decodes",
+        says: "Every animation reads as its id, the kind of animator and what that kind stores: \
+               keyframed bone tracks with their effect, hook and impulse events, a blend along \
+               sliders, a body's animation, a head turn, a random pick, a switch, or bone angles.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ANIMATION"),
+        station: "auberean-assets::dat::look::animation::every_animation_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.appearance.every-record-decodes",
+        says: "Every appearance table reads as its base appearances and, per appearance key, what \
+               each strength step changes: material modifiers, opacity, meshes, part groups, \
+               effects and icon layers.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-APPEARANCE"),
+        station: "auberean-assets::dat::look::visual::every_appearance_table_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.behavior-table.every-record-decodes",
+        says: "Every behavior table reads as its mode-change blend times, the animations each \
+               element, mode and behavior play, the mode changes with their behaviors and \
+               effects, the layers, the modes, the behaviors, and the initial behaviors and mode.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-BEHAVIOR-TABLE"),
+        station: "auberean-assets::dat::look::animation::every_behavior_table_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.block-map.every-record-decodes",
+        says: "Every block map reads as a height, a width and one byte per cell.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-BLOCK-MAP"),
+        station: "auberean-assets::dat::world::region::every_block_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.camera-fx.every-record-decodes",
+        says: "Every camera effect reads as a 64-bit word saying which settings follow, then those \
+               settings: shake, the camera modes, intensity, period, ramps, blur, flash and distance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-CAMERA-FX"),
+        station: "auberean-assets::dat::look::fx::every_camera_effect_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.cell-mesh.every-record-decodes",
+        says: "Every cell's geometry reads as a mesh, then the cell's own inside test as a tree of \
+               splitting planes, its doorways (a side, a polygon and a bounding sphere each) and an \
+               info record id.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-CELL-MESH"),
+        station: "auberean-assets::dat::look::mesh::every_cell_mesh_decodes_exactly_with_its_tree_and_portals",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.cell.every-record-decodes",
+        says: "Every interior cell reads as its frame, flags, mesh, doorways, the cells it sees \
+               and shares, and its entities and properties when flagged, with nothing left over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-CELL"),
+        station: "auberean-assets::dat::world::landblock::every_interior_cell_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.character-template.every-record-decodes",
+        says: "The character template reads as every behavior with its flags, every slider with \
+               its controller, every mode with its combat flag, the default element and mode, and \
+               the sliders the player controls.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-CHARACTER-TEMPLATE"),
+        station: "auberean-assets::dat::look::animation::the_character_template_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.container.every-file-walks-soundly",
         says: "Every data file of the end-of-retail set is a sound container: its directory is \
                ordered with all leaves at one depth, and every block is either in a record or on \
@@ -42,6 +137,757 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DAT-LOOKUP"),
         station: "auberean-dat::dat::container::a_tree_descent_finds_every_record_the_walk_found",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.database.data-graph",
+        says: "A record that loads goes into an installed data graph as a node with an edge to each \
+               record it needs; a cell file's record, or one of 24 types \
+               (the region's parts, id and enum maps, categories and others), does not; a category \
+               record links to the categories' enum map only when filled in directly.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-DATA-GRAPH"),
+        station: "auberean-assets::cpu::graph::a_loaded_record_is_a_node_with_an_edge_to_each_record_it_needs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.database.enum-map-extends-its-base",
+        says: "An enum map lists its own names by value and then its base map's, and a name or \
+               value missing from it is looked for in its base map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENUM-MAP-BASE"),
+        station: "auberean-assets::dat::game::database::an_enum_map_holds_its_own_names_then_its_base_maps",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.database.free-list-keeps-released-records",
+        says: "A record nobody holds any more stays loaded on its type's free list, so asking for \
+               it again finds it in memory; the list keeps at most the type's greatest number, the \
+               oldest freed going first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-FREE-LIST"),
+        station: "auberean-assets::cpu::cache::a_record_nobody_holds_stays_loaded_until_the_free_list_overflows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.database.free-records-go-after-thirty-seconds",
+        says: "Past its type's ideal number of free records, the oldest one goes once it was freed \
+               more than thirty seconds before, one each time the caches are given time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-FREE-TIME"),
+        station: "auberean-assets::cpu::cache::past_the_ideal_number_the_oldest_free_record_goes_thirty_seconds_after_it_was_freed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.database.no-saving",
+        says: "The client's database never saves a record and never says it reads only in the \
+               foreground; its caches have no last words. A category record's names compare without \
+               case.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-NO-SAVING"),
+        station: "auberean-assets::cpu::graph::the_database_saves_nothing_and_a_category_name_ignores_case",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.database.no-word-filter-at-end-of-retail",
+        says: "The end-of-retail files hold no word filter and the master id map names none, so \
+               every name check the client makes against the filter answers that there is no \
+               filter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-NO-WORD-FILTER"),
+        station: "auberean-assets::dat::game::database::the_end_of_retail_files_name_no_word_filter",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.database.not-keeping-free-records",
+        says: "A cache told not to keep free records throws away the ones it has and every record \
+               whose last holder lets go, as it does a record kept off the free list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-KEEP-FREE"),
+        station: "auberean-assets::cpu::cache::a_cache_told_not_to_keep_free_records_throws_them_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.database.property-list-by-enumeration",
+        says: "The property list is the record its enumeration value names through the master id \
+               map the portal file's header points at, and the language's rules are found the same \
+               way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-DB-ENUM"),
+        station: "auberean-assets::dat::game::database::the_property_list_is_the_record_its_enumeration_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.database.property-names-type-and-group-names-tools-only",
+        says: "Every property's name maps back to it, letters in any case; the value types' and \
+               groups' names are in enum maps only the tools' half of the enum mapping names, \
+               which no client file holds, so the game can name neither.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-DB-NAMES"),
+        station: "auberean-assets::dat::game::database::property_names_resolve_but_value_type_and_group_names_are_not_in_the_files",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.day-desc.every-record-decodes",
+        says: "Every day of the sky reads as a version stored before the id, its times of day with \
+               their fog, light and rain, and its sky objects with their arcs and lens flares.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-DAY-DESC"),
+        station: "auberean-assets::dat::world::region::every_day_of_the_sky_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.detail-map.every-record-decodes",
+        says: "Every detail map reads as a block map and rows, each a value, a picture, a rectangle \
+               and the map notes it shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-DETAIL-MAP"),
+        station: "auberean-assets::dat::world::region::every_detail_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.encoded-wave.every-record-decodes",
+        says: "Every encoded sound in a language file reads as a byte count and that many bytes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENCODED-WAVE"),
+        station: "auberean-assets::dat::game::sound::every_encoded_wave_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.encounter-desc.every-record-decodes",
+        says: "The region's encounters read as a version stored before the id, a block map, and \
+               rows of encounters with their exceptions by terrain and by water.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENCOUNTER-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_encounter_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.entity.derived-holds-its-parents-properties",
+        says: "An entity whose object is another entity holds that entity's properties (and so its \
+               ancestors') beneath its own: a property it stores itself wins, every other comes \
+               from the chain, and it shows as the visual description at the chain's end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENTITY-CHAIN"),
+        station: "auberean-assets::dat::game::property::a_derived_entity_holds_its_parents_properties_beneath_its_own",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.entity.every-record-decodes",
+        says: "Every standalone entity reads as a flags word and the fields it flags, its own id \
+               among them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENTITY"),
+        station: "auberean-assets::dat::world::entity::every_entity_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.enum-map.every-record-decodes",
+        says: "Every enum map reads as its id, its base map and a list of values with their names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENUM-MAP"),
+        station: "auberean-assets::dat::game::strings::every_enum_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.file-id-table.every-record-decodes",
+        says: "The file-id table reads as a list of record types, each with its name and its \
+               records' ids and source names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FILE-ID-TABLE"),
+        station: "auberean-assets::dat::game::tables::the_file_id_table_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.fog-desc.every-record-decodes",
+        says: "The region's fog reads as a version stored before the id, four fog maps, an optional \
+               default and every fog kind, whose fog and light carry blend multipliers only for the \
+               channels that add.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FOG-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_fog_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.font.every-record-decodes",
+        says: "Every font, in the portal and language files, reads as its sizes, its \
+               glyphs and one strip of pixels, a byte a pixel when antialiased and a \
+               bit a pixel otherwise.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FONT"),
+        station: "auberean-assets::dat::game::ui::every_font_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.fx-script.every-record-decodes",
+        says: "Every effect script reads as its timed effect triggers, its timed impulses and jumps, \
+               and its period.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FX-SCRIPT"),
+        station: "auberean-assets::dat::look::fx::every_effect_script_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.fx-table.every-record-decodes",
+        says: "Every effect table reads as, per effect, the effects it plays with their variants per \
+               terrain, each effect a 64-bit word of the parts it stores, then the tables it extends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FX-TABLE"),
+        station: "auberean-assets::dat::look::fx::every_effect_table_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.game-time.every-record-decodes",
+        says: "The calendar reads as the time and year it starts from, the lengths of the day and \
+               year, the year's name, the parts of the day, the days of the week and the seasons.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-GAME-TIME"),
+        station: "auberean-assets::dat::world::region::every_calendar_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.id-map.every-record-decodes",
+        says: "Every id map reads as four tables: numbers to record ids and to names, for the game \
+               and again for the tools.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ID-MAP"),
+        station: "auberean-assets::dat::game::tables::every_id_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.iteration-list.every-record-decodes",
+        says: "Every data file's version list reads as a count and its values and runs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ITERATION-LIST"),
+        station: "auberean-assets::dat::game::tables::every_iteration_list_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.iteration-list.not-pairs",
+        says: "The client's own reader for the iteration list's type wants a count, then that many \
+               pairs of words, with no id; every file's iteration list counts versions instead (in \
+               single values and runs), so none of them reads that way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-FILE-DATA"),
+        station: "auberean-assets::dat::game::tables::no_iteration_list_reads_as_the_clients_pairs",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.key-map.an-older-plain-map-gains-reply-on-r",
+        says: "The plain key map is read with one update: a file older than version 1 gains R as \
+               the reply key when R is free in it, and the client then writes the file again; a \
+               file of version 1, or one binding R, gains nothing. After a preprocessor header the \
+               version is read from the header's node.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEY-MAP-VERSION"),
+        station: "auberean-assets::cpu::keymap::an_older_plain_map_gains_reply_on_r_when_r_is_free",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.key-map.every-record-decodes",
+        says: "Every key map reads as a name, an identity and a list of bindings, each \
+               an action, an input and a name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-KEY-MAP"),
+        station: "auberean-assets::dat::game::ui::every_key_map_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.key-map.every-record-reads-back-through-its-file",
+        says: "Every key map of the data, written as the client writes a key map's file and read \
+               back as it reads one, keeps its name, its identity and every binding in order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEY-MAP-ROUND-TRIP"),
+        station: "auberean-assets::dat::game::keymap::every_key_map_reads_back_through_the_file_the_client_writes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.key-map.file-reads-as-the-client-reads-it",
+        says: "A key map's file is an optional version, the name, an identity of eleven whole \
+               numbers, then bindings of exactly two names, an action the input actions \
+               enumeration knows and an input of the client's names; other nodes are skipped and \
+               of two bindings of one input the first is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEY-MAP-FILE-READ"),
+        station: "auberean-assets::cpu::keymap::a_key_map_file_keeps_known_bindings_the_first_of_an_input_winning",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.key-map.records-write-back-to-their-bytes",
+        says: "Every key map and the action map, read and written back, give their records' \
+               bytes; the action map's lists go in key order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-KEY-MAP-PACK"),
+        station: "auberean-assets::dat::game::keymap::every_key_map_and_the_action_map_write_back_to_their_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.key-map.written-as-the-client-saves-one",
+        says: "A key map is saved as version 1, its name, its identity's eleven parts in decimal \
+               and a binding a line, each line after a blank one, with Windows line ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEY-MAP-FILE-WRITE"),
+        station: "auberean-assets::cpu::keymap::a_key_map_is_written_as_the_client_saves_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.landblock-info.every-record-decodes",
+        says: "Every landblock's placed objects read as flags before the id, the cell count, the \
+               light record, an entity group, properties and the cells seen from outside.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LANDBLOCK-INFO"),
+        station: "auberean-assets::dat::world::landblock::every_landblock_info_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.landblock.every-record-decodes",
+        says: "Every landblock reads as 17 by 17 height bytes and 17 by 17 vertex words.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LANDBLOCK"),
+        station: "auberean-assets::dat::world::landblock::every_landblock_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.landscape.every-record-decodes",
+        says: "The landscape constants read as the land cell size, cells per landblock side, vertex \
+               intervals per cell, object and sky heights, road width, the vertex word's six field \
+               widths and 256 heights.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LANDSCAPE"),
+        station: "auberean-assets::dat::world::region::every_landscape_constants_record_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.layout.every-record-decodes",
+        says: "Every interface layout, in every language file, reads as a tree of \
+               elements whose states carry attributes, media, transitions and child \
+               elements.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LAYOUT"),
+        station: "auberean-assets::dat::game::ui::every_layout_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.layout.every-record-packs-back-to-its-bytes",
+        says: "Every interface layout of every language file, read and written back, gives its \
+               record's bytes, and the size it says it takes is that many.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LAYOUT-PACK"),
+        station: "auberean-assets::dat::game::ui::every_layout_packs_back_to_its_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.light-info.every-record-decodes",
+        says: "Every landblock's light record reads as its lights with the cells each reaches, a \
+               table of the lights reaching each cell, and the sunlight when it is on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LIGHT-INFO"),
+        station: "auberean-assets::dat::world::landblock::every_light_info_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.map-notes.every-record-decodes",
+        says: "Every set of map notes reads as a string table and its labels, each a text token, an \
+               icon and a position on the map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MAP-NOTES"),
+        station: "auberean-assets::dat::world::region::every_set_of_map_notes_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.material-instance.every-record-decodes",
+        says: "Every material instance reads as the material it draws with, its kind and the \
+               modifiers applied to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MATERIAL-INSTANCE"),
+        station: "auberean-assets::dat::look::material::every_material_instance_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.material-modifier.every-record-decodes",
+        says: "Every material modifier reads as a list of named parameters, each with a data type, \
+               its data and its fields.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MATERIAL-MODIFIER"),
+        station: "auberean-assets::dat::look::material::every_material_modifier_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.material.every-record-decodes",
+        says: "Every material reads as its parameters and its layers, each layer with its texture \
+               stages, coordinate animations, blend, depth and lighting state, colors and shaders.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MATERIAL"),
+        station: "auberean-assets::dat::look::material::every_material_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.mesh.every-record-decodes",
+        says: "Every mesh reads as its kind, materials, vertices, bounding sphere and levels of \
+               detail, then its polygons with a collision tree over them when there are any, then \
+               its physics polygons and, when flagged, the physics tree over them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MESH"),
+        station: "auberean-assets::dat::look::mesh::every_mesh_decodes_exactly_with_its_polygons_and_trees",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.motion-desc.every-record-decodes",
+        says: "Every motion description reads as which motion set each element and mode uses, \
+               the sets of motion values per terrain and modifier, and the sea-floor and water \
+               multipliers.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MOTION-DESC"),
+        station: "auberean-assets::dat::look::animation::every_motion_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.music-info.every-record-decodes",
+        says: "Every music setting reads as five words: flags, priority, fade distance, kind and \
+               the music it plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MUSIC-INFO"),
+        station: "auberean-assets::dat::game::sound::every_music_info_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.music.every-record-decodes",
+        says: "Every piece of music reads as the music file's bytes, its kind and the \
+               records it uses.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-MUSIC"),
+        station: "auberean-assets::dat::game::sound::every_piece_of_music_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.particles.every-record-decodes",
+        says: "Every particle system reads as its limits and timing, its emitters with their \
+               waveforms and keyframes, and the material it draws with.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PARTICLES"),
+        station: "auberean-assets::dat::look::fx::every_particle_system_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.physics-material.every-record-decodes",
+        says: "Every physics material reads as a property collection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PHYSICS-MATERIAL"),
+        station: "auberean-assets::dat::game::property::every_physics_material_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.picture.every-record-decodes",
+        says: "Every picture, in the portal, high-resolution and language files, reads as a \
+               category word, a size, a pixel format and its bytes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PICTURE"),
+        station: "auberean-assets::dat::look::picture::every_picture_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.property-collection.find-add-update",
+        says: "A collection finds a property through the group the property list puts it in, \
+               refuses to add one it already finds, makes the group when adding to a missing one, \
+               and updates a stored property by taking the other's value when it is of the stored \
+               type.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-COLLECTION"),
+        station: "auberean-assets::cpu::property::a_collection_finds_adds_and_updates_through_the_listed_group",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property-collection.optional-properties",
+        says: "Optional properties are every property the list puts in a group, each with a new \
+               value, kept apart from the stored ones, and they become the stored ones only in a \
+               group that stores none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-OPTIONAL"),
+        station: "auberean-assets::cpu::property::optional_properties_come_from_the_list_and_become_required_only_into_an_empty_group",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property-desc.every-record-decodes",
+        says: "The region's mapped properties read as a version and, per property, a block map and \
+               a property value for each value of the map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PROPERTY-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_property_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.property-list.every-record-decodes",
+        says: "The property list reads as the property names and a descriptor per property, whose \
+               first word is the value type every property of that id is read by.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PROPERTY-LIST"),
+        station: "auberean-assets::dat::game::property::the_property_list_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.property-value.answers-only-for-its-type",
+        says: "A property value answers a question, or takes another value's contents, only for \
+               its own type; asked for another it answers nothing and stays as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-SLOTS"),
+        station: "auberean-assets::cpu::property::a_value_answers_only_a_question_about_its_own_type",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property-value.as-text",
+        says: "A property writes as True or False, %d (a 64-bit value's low half), %.3g, three or \
+               four %.3f numbers (a color red, green, blue, alpha), the string, a name, or <file \
+               unset>, <PackageID unset>, <string table unset>:<token unset>.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-TEXT"),
+        station: "auberean-assets::cpu::property::a_value_writes_as_the_game_writes_it_for_output",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property-value.compare-within-a-tolerance",
+        says: "Vectors, colors, waveforms and positions compare equal within two ten-thousandths a \
+               component; floats, integers, strings and ids compare exactly; values of different \
+               types never compare equal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-COMPARE"),
+        station: "auberean-assets::cpu::property::vectors_and_waveforms_compare_within_two_ten_thousandths_and_floats_exactly",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property-value.new-values",
+        says: "A new property value is false, zero, the zero vector, white, the empty string, no \
+               file, a waveform of no shape with amplitude and frequency 1, an empty reference, or \
+               no package; a package, string, file, enum or reference with nothing in it holds no \
+               valid data.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-NEW"),
+        station: "auberean-assets::cpu::property::a_new_value_is_false_zero_white_empty_or_unset_by_its_type",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.property.found-through-its-listed-group",
+        says: "A record's property is found through the group the property list puts it in: one \
+               stored under another group is never seen by a lookup (fewer than one stored property \
+               in a hundred is).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PROPERTY-LOOKUP"),
+        station: "auberean-assets::dat::game::property::a_stored_property_is_found_only_in_the_group_its_list_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.property.string-reference-token-then-table",
+        says: "A string reference stored as a property value names its token first and its string \
+               table second: the second word of every one in the data files is a string table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-PROPERTY-STRING-REF"),
+        station: "auberean-assets::dat::game::property::a_stored_string_reference_names_its_token_and_then_its_table",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.qualities.every-record-decodes",
+        says: "Every object's default qualities read as flags before the id, then the object's \
+               description and the tables of typed values the flags name, in a fixed order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-QUALITIES"),
+        station: "auberean-assets::dat::game::script::every_qualities_record_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.quality-filter.every-record-decodes",
+        says: "Every quality filter reads as a table of quality ids to a 32-bit value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-QUALITY-FILTER"),
+        station: "auberean-assets::dat::game::script::every_quality_filter_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.records.encode-to-their-own-bytes",
+        says: "Every property list, physics material, entity, enum map, id map, string table, \
+               string state, landblock's placed objects, light record and interior cell, read and \
+               written again, gives back exactly the bytes it was read from.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-ENCODE"),
+        station: "auberean-assets::dat::game::encode::every_record_with_a_writer_writes_back_to_its_own_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.region.every-record-decodes",
+        says: "The region reads as its number, its name, its maps, the landscape constants it uses, \
+               its size in landblocks, and eleven lists of the descriptions it draws on with the \
+               index each is known by.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-REGION"),
+        station: "auberean-assets::dat::world::region::every_region_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.scene-desc.every-record-decodes",
+        says: "The region's scenery reads as a version stored before the id and, per kind of \
+               scenery, an index, a sound and the scenes it chooses among with their frequencies.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SCENE-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_scenery_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.scene.every-record-decodes",
+        says: "Every scene reads as a version before its id, a rotate flag, an optional decoration \
+               group, and the objects it scatters at each level of detail.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SCENE"),
+        station: "auberean-assets::dat::look::visual::every_scene_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.script-library.every-record-decodes",
+        says: "The script library reads as a magic word, a version and typed sections, every \
+               section consumed to its declared size: code, literals, links, packages and their \
+               functions, dispatch tables, the server's callable functions and the debugging names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SCRIPT-LIBRARY"),
+        station: "auberean-assets::dat::game::script::the_script_library_decodes_exactly_section_by_section",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.script-state.every-record-decodes",
+        says: "Every saved script state reads as a sized object graph and its package id.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SCRIPT-STATE"),
+        station: "auberean-assets::dat::game::script::every_saved_script_state_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.setup.every-record-decodes",
+        says: "Every setup reads as its flags, meshes, skeleton, poses, holding and connection \
+               points, collision cylinders and spheres, sizes, bounding spheres, detail distances, \
+               shadow kind and physics bounds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SETUP"),
+        station: "auberean-assets::dat::look::setup::every_setup_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.sky-desc.every-record-decodes",
+        says: "The region's sky reads as a version stored before the id, four tick intervals, the \
+               calendar it follows and the days it chooses among.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SKY-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_sky_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.sound-desc.every-record-decodes",
+        says: "The region's ambient sounds read as a version and, per kind of place, a sound \
+               environment with the sounds that play now and then and the ones that play \
+               continuously.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SOUND-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_sound_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.sound-environment.every-record-decodes",
+        says: "Every sound environment reads as a mask and one word for each reverb \
+               setting the mask names, in a fixed order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SOUND-ENVIRONMENT"),
+        station: "auberean-assets::dat::game::sound::every_sound_environment_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.sound-info.every-record-decodes",
+        says: "Every sound setting reads as six words: flags, a pitch range, priority, fade \
+               distance and the sound it plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SOUND-INFO"),
+        station: "auberean-assets::dat::game::sound::every_sound_info_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.string-reference.same",
+        says: "Two string references are the same when their token, table and literal flag are, \
+               and then their literal, or as many variables by key, each the same as the other's \
+               of its key (a later variable of a key replacing an earlier one).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-REF-SAME"),
+        station: "auberean-assets::cpu::property::two_references_are_the_same_by_token_table_and_variables_by_key",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.string-state.every-record-decodes",
+        says: "Every language's string state reads as how it writes numbers, which \
+               counts take the singular, the letters of generated names and its \
+               input-method settings, without its own id.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-STRING-STATE"),
+        station: "auberean-assets::dat::game::strings::every_string_state_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.string-state.settings",
+        says: "A string state's twenty settings are the top gore level and blood color, whether the \
+               input method is on, its look (bytes where the input method takes a byte), another \
+               input method's setting and whether text wraps at spaces.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-STATE-SETTINGS"),
+        station: "auberean-assets::cpu::strings::a_string_states_settings_are_gore_blood_and_the_input_methods_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.string-table.copy-and-sub-ids",
+        says: "A new or emptied string table has its number settings unset; a copy drops its entries' \
+               empty string slots and keeps the first entry of a token; a table needs the private \
+               tables its entries name loaded with it, unless string data is asked for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-TABLE-COPY"),
+        station: "auberean-assets::cpu::strings::a_copied_table_drops_empty_slots_and_names_its_private_tables",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.string-table.every-record-decodes",
+        says: "Every string table, in every language file, reads as its number format and its \
+               tokens' strings, with the strings unscrambled.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-STRING-TABLE"),
+        station: "auberean-assets::dat::game::strings::every_string_table_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.string-table.every-record-packs-to-its-size",
+        says: "Every string table of every language packs to as many bytes as it holds, and every \
+               entry storing its variables' names is an item name's, whose names are worth storing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-TABLE-PACK"),
+        station: "auberean-assets::dat::game::strings::every_string_table_packs_to_its_own_size_and_stores_names_only_for_item_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.string-table.names-worth-packing",
+        says: "A string table entry's variable names are stored only when two or more of them are \
+               PRE, NAME, MID or POST, the names a generated item's name is put together from; \
+               otherwise they are dropped when it is written.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-TABLE-NAMES"),
+        station: "auberean-assets::cpu::strings::variable_names_are_stored_only_for_an_item_name_and_the_size_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.surface-desc.every-record-decodes",
+        says: "The region's ground surfaces read as a version stored before the id, the far terrain \
+               and cloud textures, and every surface and road with its material groups by slope.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-SURFACE-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_surface_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.terrain-desc.every-record-decodes",
+        says: "The region's terrain reads as a version, an optional default terrain and every \
+               terrain kind, each with a name, a surface, an index, a hard-edge angle and the \
+               scenery it grows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-TERRAIN-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_terrain_description_decodes_exactly",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -99,12 +945,40 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.texture.every-record-decodes",
+        says: "Every texture reads as a kind word and the list of its pictures, one per level of \
+               detail.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-TEXTURE"),
+        station: "auberean-assets::dat::look::picture::every_texture_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.types.every-record-has-a-type",
         says: "Every record of the end-of-retail set has a type, derived from its id, and \
                lives in the file its type says.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DAT-TYPES"),
         station: "auberean-dat::dat::types::every_record_of_the_target_install_has_a_type_in_the_file_it_lives_in",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.ui-scene.every-record-decodes",
+        says: "Every scene shown inside the interface reads as a list of placed \
+               entities, a fog color, whether there is fog, and the fog's near and far \
+               distances.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-UI-SCENE"),
+        station: "auberean-assets::dat::game::ui::every_ui_scene_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.valid-modes.every-record-decodes",
+        says: "Every valid-modes record reads as a counted list of mode ids, with no id of its own \
+               before it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-VALID-MODES"),
+        station: "auberean-assets::dat::look::animation::every_valid_modes_list_decodes_exactly",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -117,5 +991,43 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DAT-ID-STAMP"),
         station: "auberean-dat::cpu::stamp::a_stamp_is_its_id_and_minor_as_text_and_packs_as_that_text",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.visual-desc.every-record-a-look-names-is-there",
+        says: "Every record a visual description, appearance table or effect table names, gathered \
+               as the client gathers what a loaded record needs, is in the data files but one: an \
+               appearance table names a material modifier that no file holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-LOOK-NAMED"),
+        station: "auberean-assets::dat::look::visual::every_record_a_look_names_is_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.visual-desc.every-record-decodes",
+        says: "Every visual description reads as a flags word and the fields it flags, its own id \
+               among them: parent, motion and behavior tables, scale, icon and part groups.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-VISUAL-DESC"),
+        station: "auberean-assets::dat::look::visual::every_visual_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.water-desc.every-record-decodes",
+        says: "The region's water reads as a version stored before the id, height and kind maps, an \
+               optional default and every water kind with its materials, color and fog and light by \
+               depth.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-WATER-DESC"),
+        station: "auberean-assets::dat::world::region::every_region_water_description_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.wave.every-record-decodes",
+        says: "Every sound reads as a format block and its sample data, the block's size taken \
+               from the record.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAT-WAVE"),
+        station: "auberean-assets::dat::game::sound::every_wave_decodes_exactly",
+        tier: Tier::Dat,
     },
 ];

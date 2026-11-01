@@ -1,0 +1,32 @@
+[package]
+name = "auberean-assets"
+description = "One decoder per Asheron's Call 2 record type, each held to exact consumption."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch: selects the `dat` test binary, whose tests decode the retail installs.
+retail-dats = ["auberean-dat/retail-dats"]
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-dat.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
