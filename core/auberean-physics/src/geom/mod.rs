@@ -21,7 +21,7 @@ pub mod ray;
 pub mod shape;
 
 pub use bbox::{BBox, BoxOps};
-pub use plane::{side_of, Plane, PlaneOps, Polygon, Side};
+pub use plane::{polygon_trace_ray, side_of, Plane, PlaneOps, Polygon, Side};
 pub use ray::Ray;
 pub use shape::{Cone, CylSphere, CylinderOps, PlaneCone, Sphere, SphereOps};
 

@@ -359,3 +359,55 @@ fn a_body_takes_the_profile_its_objects_qualities_give() {
     b.body.apply_profile(&profile_of(&made(0x1234), |_| None));
     assert!(!b.body.does_edge_slide() && b.body.ignores_collisions());
 }
+
+/// A body put in the world's table as its look's shape (one that does not move) is solid at its
+/// whole scale, its look's times its own (the scale its qualities give), not at its look's alone:
+/// it reaches half again as far when its own scale is 1.5.
+///
+/// Behaviour: desktop.others.a-still-body-is-solid-at-its-whole-scale
+#[test]
+fn a_still_body_is_solid_at_its_whole_scale() {
+    use auberean_physics::object::Shape;
+    use auberean_physics::world::WorldObject;
+    use dereth_primitives::shape::CylSphere;
+    let land = world();
+    let mut table = World::new();
+    let look = dereth_primitives::Vec3::new(1.1, 1.1, 1.1);
+    let shape = std::sync::Arc::new(Shape {
+        trees: Vec::new(),
+        cylinders: vec![CylSphere {
+            low_pt: dereth_primitives::Vec3::ZERO,
+            radius: 0.5,
+            height: 2.0,
+        }],
+        spheres: Vec::new(),
+        physics_box: auberean_physics::geom::BBox::default(),
+        scale: look,
+        containment_radius: 0.5,
+        render_box: auberean_physics::geom::BBox::default(),
+        properties: Vec::new(),
+    });
+    let at = position_of(&place(70.0, 20.0, 0.0, 0.0, 0.0, 1));
+    let alone = table.insert(
+        &land,
+        8,
+        &WorldObject {
+            shape: std::sync::Arc::clone(&shape),
+            position: at,
+            is_static: true,
+            passable: false,
+        },
+    );
+    let mut b = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    b.body.look_scale = look;
+    b.body.set_scale(1.5);
+    let k = b.stand_in_table(&mut table, &land, shape);
+    let (whole, by_look) = (
+        table.reach(k).expect("in the table"),
+        table.reach(alone).expect("in the table"),
+    );
+    assert!(
+        (whole / by_look - 1.5).abs() < 1e-5,
+        "{whole} against {by_look} at its look's scale"
+    );
+}

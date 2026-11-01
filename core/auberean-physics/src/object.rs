@@ -35,6 +35,19 @@ fn v3(v: auberean_primitives::Vec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
 }
 
+/// The line from `from` to `to` (in the landblock frame of `at`) taken into `at`'s own frame and
+/// divided by `scale` (an axis of scale 0 left as it is).
+fn unscaled_line(at: &Frame, scale: Vec3, from: Vec3, to: Vec3) -> (Vec3, Vec3) {
+    let unscale = |v: Vec3| {
+        let k = |a: f32, b: f32| if b == 0.0 { a } else { a / b };
+        Vec3::new(k(v.x, scale.x), k(v.y, scale.y), k(v.z, scale.z))
+    };
+    (
+        unscale(crate::geom::point_to_local(at, from)),
+        unscale(crate::geom::point_to_local(at, to)),
+    )
+}
+
 /// An object's collision shape, in its own frame.
 #[derive(Clone, Debug)]
 pub struct Shape {
@@ -220,26 +233,10 @@ impl Shape {
     #[must_use]
     pub fn check_ray(&self, at: &dereth_primitives::Frame, from: Vec3, to: Vec3) -> Option<f32> {
         use crate::geom::{CylinderOps, Ray, SphereOps};
-        let s = self.scale;
-        let unscale = |v: Vec3| {
-            let k = |a: f32, b: f32| if b == 0.0 { a } else { a / b };
-            Vec3::new(k(v.x, s.x), k(v.y, s.y), k(v.z, s.z))
-        };
-        let a = unscale(crate::geom::point_to_local(at, from));
-        let b = unscale(crate::geom::point_to_local(at, to));
         if self.spheres.is_empty() && self.cylinders.is_empty() {
-            let mut best: Option<f32> = None;
-            for tree in &self.trees {
-                for poly in &tree.polygons {
-                    if let Some(t) = crate::land::segment_polygon(a, b, &poly.vertices) {
-                        if best.is_none_or(|x| t < x) {
-                            best = Some(t);
-                        }
-                    }
-                }
-            }
-            return best;
+            return self.check_trees(at, self.scale, from, to);
         }
+        let (a, b) = unscaled_line(at, self.scale, from, to);
         let ray = Ray::segment(a, b);
         let mut best = 1.0_f32;
         let mut hit = false;
@@ -259,6 +256,31 @@ impl Shape {
             }
         }
         hit.then_some(best)
+    }
+
+    /// Where the line from `from` to `to` (both in the landblock frame of `at`) first meets the
+    /// polygons of this shape's physics trees standing at `at` at `scale`, as a fraction of the
+    /// way along it; none when it meets none.
+    #[must_use]
+    pub fn check_trees(
+        &self,
+        at: &dereth_primitives::Frame,
+        scale: Vec3,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<f32> {
+        let (a, b) = unscaled_line(at, scale, from, to);
+        let mut best: Option<f32> = None;
+        for tree in &self.trees {
+            for poly in &tree.polygons {
+                if let Some(t) = crate::land::segment_polygon(a, b, &poly.vertices) {
+                    if best.is_none_or(|x| t < x) {
+                        best = Some(t);
+                    }
+                }
+            }
+        }
+        best
     }
 
     /// The box around what it draws, scaled.

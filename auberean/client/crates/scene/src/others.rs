@@ -213,6 +213,23 @@ impl OtherBody {
         self.away.is_none()
     }
 
+    /// Puts the body in the world's table as `shape` (its look's), standing where the body
+    /// stands and solid at the body's whole scale: its look's times its own.
+    pub fn stand_in_table(&self, world: &mut World, land: &Land, shape: Arc<Shape>) -> BodyKey {
+        let k = world.insert(
+            land,
+            self.id,
+            &WorldObject {
+                shape,
+                position: self.body.position,
+                is_static: true,
+                passable: false,
+            },
+        );
+        world.set_scale(k, self.body.total_scale(None));
+        k
+    }
+
     /// The body leaves the world, to enter it again at `p`.
     // D2-06057, D2-06161
     pub fn leave_visibility(&mut self, p: Position) {
@@ -480,8 +497,8 @@ impl Others {
                 continue;
             };
             if b.shape.is_some() {
-                let s = b.scale;
-                table.note_still(*id, ob.body.position, ob.body.height(), pv(s));
+                let s = ob.body.total_scale(None);
+                table.note_still(*id, ob.body.position, ob.body.height(), s);
             } else {
                 table.note(
                     *id,
@@ -793,16 +810,7 @@ impl Others {
             // In the world's table: as a body that moves, or as a shape put where it stands.
             match (&b.shape, b.key) {
                 (Some(shape), None) => {
-                    let k = world.insert(
-                        land,
-                        id,
-                        &WorldObject {
-                            shape: Arc::clone(shape),
-                            position: ob.body.position,
-                            is_static: true,
-                            passable: false,
-                        },
-                    );
+                    let k = ob.stand_in_table(world, land, Arc::clone(shape));
                     world.set_ethereality(k, solid);
                     world.set_size(k, ob.body.radius(), ob.body.height());
                     apply_description(records, world, k, o_desc);

@@ -37,7 +37,7 @@ pub(crate) use array::relative;
 pub use array::{BonePoint, PartArray};
 pub use group::PartGroup;
 pub use part::{PartMesh, PhysicsPart};
-pub use tree::trace_ray;
+pub use tree::{trace_ray, trace_ray_from_root};
 
 /// The owner a part array and its parts have before they are given one.
 pub const NO_OWNER: u64 = 0;

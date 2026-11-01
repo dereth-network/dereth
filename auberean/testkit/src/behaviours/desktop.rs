@@ -18,6 +18,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-held-object-takes-the-profile-its-qualities-give",
+        says: "An object another holds takes the profile its own qualities give when its body is \
+               made, as every object's body does: whether it slides along edges and ignores \
+               collisions, and its own scale (drawn at its look's times it, and its holder's).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-HELD"),
+        station: "auberean-scene::corpus::combat::a_held_object_takes_the_profile_its_qualities_give",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.an-object-is-in-the-world-while-its-body-stands-there",
         says: "With the scene placing the bodies, an object's scripts are told it entered the \
                world when its body did (an object with no body, when its place's cell is \
@@ -574,6 +584,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-OBJECTS-INCARNATIONS"),
         station: "auberean-shell::dat::session::a_creation_again_puts_the_body_and_a_new_incarnation_replaces_it",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.others.a-still-body-is-solid-at-its-whole-scale",
+        says: "An object that does not move is solid in the world at its whole scale, its look's \
+               times its own (the scale its qualities give), as it is drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-SCALE"),
+        station: "auberean-scene::cpu::others::a_still_body_is_solid_at_its_whole_scale",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.others.another-body-follows-its-reports-at-an-even-pace",

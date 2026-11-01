@@ -30,6 +30,12 @@ pub trait PlaneOps {
     /// How far `p` is from the plane, summed the way the client sums it (z, then y, then x, then
     /// the offset) in wide precision.
     fn dist_wide(&self, p: Vec3) -> f64;
+
+    /// Where the line from `a` to `b` crosses the plane, from either side: the point, and how much
+    /// of the line is left beyond it (one less the fraction of the way to it, kept wide). None
+    /// when the line runs within 0.0002 of parallel to the plane, or crosses it only before `a`
+    /// or after `b`.
+    fn line_crossing(&self, a: Vec3, b: Vec3) -> Option<(Vec3, f64)>;
 }
 
 impl PlaneOps for Plane {
@@ -75,6 +81,50 @@ impl PlaneOps for Plane {
             + f64::from(n.x) * f64::from(p.x)
             + f64::from(self.d)
     }
+
+    /// Worked in wide precision as the client works it: the line's own offsets are narrowed
+    /// first, the fraction is kept wide, and each corner of the point is the narrowed or wide
+    /// product the client adds the start to. A fraction that is not a number counts as crossing.
+    // D2-13131
+    fn line_crossing(&self, a: Vec3, b: Vec3) -> Option<(Vec3, f64)> {
+        let w = f64::from;
+        let n = self.normal;
+        let (dx, dy, dz) = (b.x - a.x, b.y - a.y, b.z - a.z);
+        let along = (w(dz) * w(n.z) + w(dy) * w(n.y)) + w(dx) * w(n.x);
+        if along.abs() < w(EPS) {
+            return None;
+        }
+        let t = (-w(self.d) - ((w(a.x) * w(n.x) + w(n.z) * w(a.z)) + w(n.y) * w(a.y))) / along;
+        if t < 0.0 || t > 1.0 {
+            return None;
+        }
+        let narrow = |v: f64| {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                v as f32
+            }
+        };
+        let at = Vec3::new(
+            narrow(w(dx) * t + w(a.x)),
+            narrow(w(narrow(t * w(dy))) + w(a.y)),
+            narrow(w(narrow(w(dz) * t)) + w(a.z)),
+        );
+        Some((at, 1.0 - t))
+    }
+}
+
+/// Where `ray` first meets polygon `poly` (its corners and plane in the ray's frame), from either
+/// face, as a fraction of its length: where the ray crosses the polygon's plane, that point lying
+/// inside every edge.
+// D2-04189
+#[must_use]
+pub fn polygon_trace_ray(poly: &dereth_physics::geom::Polygon, ray: &super::Ray) -> Option<f32> {
+    let (at, left) = poly.plane.line_crossing(ray.point, ray.end_point())?;
+    if !poly.point_in_polygon(at) {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Some((1.0 - left) as f32)
 }
 
 /// The side a point `d` from a plane is on, within 0.0002 counting as in it.

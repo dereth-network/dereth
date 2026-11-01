@@ -37,6 +37,17 @@ pub fn trace_ray(tree: &BspTree, ray: &Ray, fraction: &mut f32, normal: &mut Vec
     node_trace_ray(tree, 0, ray, fraction, normal)
 }
 
+/// [`trace_ray`] without the bounding sphere first: the ray goes straight to the root's plane, as
+/// a room traces its own walls. False, with the fraction untouched, for an empty tree.
+pub fn trace_ray_from_root(
+    tree: &BspTree,
+    ray: &Ray,
+    fraction: &mut f32,
+    normal: &mut Vec3,
+) -> bool {
+    tree.root().is_some() && node_trace_ray(tree, 0, ray, fraction, normal)
+}
+
 /// One node's part of [`trace_ray`]: a leaf is met at its start when it is solid; a node's plane
 /// sends the ray to one side or cuts it.
 // D2-04147, D2-04159

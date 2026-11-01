@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
 use auberean_assets::animation::MotionParams;
+use auberean_client_sdk::model::Object;
 use auberean_client_sdk::protocol::types::VisualDesc as WireVisual;
 use auberean_draw::body::BodyDrawer;
 use auberean_draw::scene::ObjectBatch;
@@ -126,24 +127,29 @@ pub(crate) fn bone_position(
 }
 
 impl HeldObjects {
-    /// The held object `id`, made (or put together again when its look changed) from `visual`,
-    /// standing at `at` until it is taken up.
+    /// Held object `o`, made (or put together again when its look changed) from its visual
+    /// description, standing at `at` until it is taken up. Its body takes the profile its
+    /// qualities give when it is made, as every object's does.
     pub(crate) fn ensure(
         &mut self,
         records: &WorldRecords,
         anims: &CachedRecords<'_>,
-        id: u64,
-        visual: &WireVisual,
+        o: &Object,
         at: Position,
     ) -> &mut Held {
-        let h = self.held.entry(id).or_insert_with(|| Held {
-            visual: None,
-            dress: None,
-            figure: None,
-            body: held_body(id, at, 1.0),
-            scale: Vec3::new(1.0, 1.0, 1.0),
-            holder: None,
-            effects: None,
+        let (id, visual) = (o.id, &o.visual);
+        let h = self.held.entry(id).or_insert_with(|| {
+            let mut body = held_body(id, at, 1.0);
+            crate::profile::init_physics(records, o, &mut body);
+            Held {
+                visual: None,
+                dress: None,
+                figure: None,
+                body,
+                scale: Vec3::new(1.0, 1.0, 1.0),
+                holder: None,
+                effects: None,
+            }
         });
         if h.visual.as_ref() != Some(visual) {
             h.visual = Some(visual.clone());

@@ -59,11 +59,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "detection.sight.a-line-of-sight-goes-out-through-a-doorway-onto-the-land",
+        says: "A line of sight leaving a room through a doorway out goes on over the land from the \
+               doorway, where what stands outside stops it in the land cell it stands over; when \
+               the line's start lies over another land cell than the doorway does, the land traces \
+               the line again from its start.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-OUT"),
+        station: "auberean-physics::cpu::detections::rooms::a_line_of_sight_goes_out_through_a_doorway_onto_the_land",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.a-line-of-sight-goes-through-doorways-into-the-rooms-beyond",
+        says: "A line of sight inside goes on through a room's doorway into the room beyond, \
+               never back through the doorway it came in by, and the room it ends in is its final \
+               cell; each room's own walls (the solid side of its physics tree) and what stands in \
+               it stop it. Tracing doorways only it stops at the first doorway; tracing doorways \
+               into rooms it goes on through them and no wall counts; told not to go through \
+               doorways it stays in its first room.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-DOORWAYS"),
+        station: "auberean-physics::cpu::detections::rooms::a_line_of_sight_goes_through_doorways_into_the_rooms_beyond",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "detection.sight.objects-and-walls-stop-a-line-of-sight",
-        says: "A line of sight from a loaded cell stops at the walls of an interior cell and the \
-               cells it sees, at the ground, and at an object standing across it unless it is of \
-               a kind the line passes through or the line names it as passed through, or the \
-               line traces the surroundings only; stopped, it ends where it was stopped.",
+        says: "A line of sight from a loaded cell stops at the solid side of an interior cell's \
+               walls, at the ground, and at an object standing across it unless it is of a kind \
+               the line passes through or the line names it as passed through, or the line traces \
+               the surroundings only; stopped, it ends where it was stopped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS"),
         station: "auberean-physics::cpu::detections::objects_and_walls_stop_a_line_of_sight",

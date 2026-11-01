@@ -671,7 +671,7 @@ fn watches_are_counted_and_the_first_and_last_tell() {
     assert!(world.watch_count(cell, WATCHER) >= 1);
 }
 
-/// A cell with one wall: the plane `y = 5` from -5 to 5 across and up, facing `-y`.
+/// A cell with one wall: the plane `y = 5` from -5 to 5 across and up, facing `-y`, solid behind.
 fn walled_cell(land: &Land) -> CellId {
     let id = CellId(0x4040_0100);
     let wall = Polygon::new(vec![
@@ -680,18 +680,30 @@ fn walled_cell(land: &Land) -> CellId {
         Vec3::new(5.0, 5.0, 5.0),
         Vec3::new(-5.0, 5.0, 5.0),
     ]);
+    let leaf = |index: i32, solid: bool, polys: Vec<u32>| BspNode {
+        sphere: Sphere::new(Vec3::ZERO, 20.0),
+        splitting_plane: Plane::default(),
+        pos_child: None,
+        neg_child: None,
+        kind: BspNodeKind::Leaf {
+            leaf_index: index,
+            solid,
+        },
+        in_polys: polys,
+    };
     let tree = BspTree {
-        nodes: vec![BspNode {
-            sphere: Sphere::new(Vec3::ZERO, 20.0),
-            splitting_plane: Plane::default(),
-            pos_child: None,
-            neg_child: None,
-            kind: BspNodeKind::Leaf {
-                leaf_index: 0,
-                solid: false,
+        nodes: vec![
+            BspNode {
+                sphere: Sphere::new(Vec3::ZERO, 20.0),
+                splitting_plane: wall.plane,
+                pos_child: Some(1),
+                neg_child: Some(2),
+                kind: BspNodeKind::Node,
+                in_polys: Vec::new(),
             },
-            in_polys: vec![0],
-        }],
+            leaf(0, false, vec![0]),
+            leaf(1, true, Vec::new()),
+        ],
         polygons: vec![wall.clone()],
     };
     land.insert_cell(EnvCellGeometry {
@@ -1033,4 +1045,318 @@ fn a_bodys_updates_check_its_spheres_against_the_world() {
     w.update_in(&land, &mut world, &mut NoObjects, &NoGameObjects, 0.1);
     assert!(detected(&w), "within reach");
     assert!(w.is_misc_active());
+}
+
+mod rooms {
+    //! Lines of sight inside: a room's own walls (the solid side of its physics tree), what stands in
+    //! it, and its doorways into the room beyond or out onto the land.
+    //! Fixture: made-up rooms of the flat 160 m block at height 10 of the objects tests: a room with a
+    //! doorway north into a second room, and rooms with a doorway east out onto the land; the objects
+    //! tests' upright posts, 1 m across.
+
+    use std::sync::Arc;
+
+    use auberean_physics::cells::OUTDOORS;
+    use auberean_physics::ethereal::SightLine;
+    use auberean_physics::geom::Ray;
+    use auberean_physics::land::Land;
+    use auberean_physics::world::{self as table, WorldObject};
+    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Polygon, Sphere};
+    use dereth_physics::source::{CellPortal, EnvCellGeometry};
+    use dereth_primitives::shape::Plane;
+    use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+
+    use crate::objects::{at as standing, land, post};
+
+    /// The room the lines start in.
+    const NEAR: CellId = CellId(0x4040_0100);
+    /// The room beyond its doorway.
+    const FAR: CellId = CellId(0x4040_0101);
+    /// A room whose doorway out lies over the land cell its middle does.
+    const SHED: CellId = CellId(0x4040_0102);
+    /// A room whose doorway out lies over another land cell than its middle does.
+    const HUT: CellId = CellId(0x4040_0103);
+    const POST: u64 = 0x7000_0001;
+
+    fn leaf(index: i32, solid: bool) -> BspNode {
+        BspNode {
+            sphere: Sphere::new(Vec3::ZERO, 100.0),
+            splitting_plane: Plane::default(),
+            pos_child: None,
+            neg_child: None,
+            kind: BspNodeKind::Leaf {
+                leaf_index: index,
+                solid,
+            },
+            in_polys: Vec::new(),
+        }
+    }
+
+    /// A tree open on the front of the plane `normal · p + d = 0` and solid behind it.
+    fn solid_behind(normal: Vec3, d: f32) -> BspTree {
+        BspTree {
+            nodes: vec![
+                BspNode {
+                    sphere: Sphere::new(Vec3::ZERO, 100.0),
+                    splitting_plane: Plane { normal, d },
+                    pos_child: Some(1),
+                    neg_child: Some(2),
+                    kind: BspNodeKind::Node,
+                    in_polys: Vec::new(),
+                },
+                leaf(0, false),
+                leaf(1, true),
+            ],
+            polygons: Vec::new(),
+        }
+    }
+
+    /// A tree open everywhere.
+    fn open() -> BspTree {
+        BspTree {
+            nodes: vec![leaf(0, false)],
+            polygons: Vec::new(),
+        }
+    }
+
+    /// A doorway 2 m across and 2 m high around `middle`, in the plane `y = middle.y` (`across_y`)
+    /// or `x = middle.x`, leading to `other` by its doorway `back`.
+    fn doorway(middle: Vec3, across_y: bool, other: u32, back: i32) -> CellPortal {
+        let (m, k) = (middle, 1.0);
+        let corners = if across_y {
+            vec![
+                Vec3::new(m.x - k, m.y, m.z - k),
+                Vec3::new(m.x + k, m.y, m.z - k),
+                Vec3::new(m.x + k, m.y, m.z + k),
+                Vec3::new(m.x - k, m.y, m.z + k),
+            ]
+        } else {
+            vec![
+                Vec3::new(m.x, m.y - k, m.z - k),
+                Vec3::new(m.x, m.y + k, m.z - k),
+                Vec3::new(m.x, m.y + k, m.z + k),
+                Vec3::new(m.x, m.y - k, m.z + k),
+            ]
+        };
+        CellPortal {
+            other_cell_id: other,
+            portal: Polygon::new(corners),
+            portal_side: false,
+            other_portal_id: back,
+            exact_match: false,
+        }
+    }
+
+    /// Room `id`, its frame the landblock's, with physics tree `tree` and doorways `portals`.
+    fn room(land: &Land, id: CellId, tree: BspTree, portals: Vec<CellPortal>) {
+        land.insert_cell(EnvCellGeometry {
+            id,
+            frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
+            portals,
+            physics_polygons: Vec::new(),
+            physics_bsp: Some(Arc::new(tree)),
+            cell_bsp: None,
+            stab_list: Vec::new(),
+            seen_outside: false,
+            static_objects: Vec::new(),
+        });
+    }
+
+    /// The near room (its own north wall at `y = 15`, a doorway north at `y = 5`) and the far room
+    /// beyond it (its north wall at `y = 12`).
+    fn two_rooms(land: &Land) {
+        let door = Vec3::new(0.0, 5.0, 0.0);
+        room(
+            land,
+            NEAR,
+            solid_behind(Vec3::new(0.0, -1.0, 0.0), 15.0),
+            vec![doorway(door, true, FAR.0, 0)],
+        );
+        room(
+            land,
+            FAR,
+            solid_behind(Vec3::new(0.0, -1.0, 0.0), 12.0),
+            vec![doorway(door, true, NEAR.0, 0)],
+        );
+    }
+
+    /// A line of sight from `from` to `to` in `cell`, tracing `intersect`.
+    fn sight(cell: CellId, from: Vec3, to: Vec3, intersect: u32) -> SightLine {
+        let mut los = SightLine::default();
+        los.set_ray(Ray::segment(from, to), cell.0);
+        los.set_intersect_type(intersect);
+        los
+    }
+
+    fn traced(world: &table::World, land: &Land, mut los: SightLine) -> SightLine {
+        assert!(world.los_check(land, &mut los), "a loaded first cell");
+        los
+    }
+
+    /// A line of sight goes on through a room's doorway into the room beyond, and that room's own wall
+    /// stops it there, facing back; a shorter one ends in the far room, whole. Through no doorway, the
+    /// near room's own wall stops it. Tracing doorways only, it stops at the doorway in the near
+    /// room; tracing doorways into rooms, it goes on into the far room and ends there, whole (no wall
+    /// counts). A line told not to go through doorways ends at the near room's own wall. Something
+    /// standing in the far room stops it before the wall.
+    ///
+    /// Behaviour: detection.sight.a-line-of-sight-goes-through-doorways-into-the-rooms-beyond
+    #[test]
+    fn a_line_of_sight_goes_through_doorways_into_the_rooms_beyond() {
+        let land = land();
+        two_rooms(&land);
+        let mut world = table::World::new();
+        let (from, to) = (Vec3::ZERO, Vec3::new(0.0, 20.0, 0.0));
+
+        let los = traced(&world, &land, sight(NEAR, from, to, 0));
+        assert_eq!(los.trace_result, 1, "stopped");
+        assert_eq!(los.final_cell, FAR.0, "in the far room");
+        assert!(
+            (los.end_point().y - 12.0).abs() < 1e-3,
+            "{:?}",
+            los.end_point()
+        );
+        assert!(
+            (los.impact_normal.y + 1.0).abs() < 1e-6,
+            "facing back: {:?}",
+            los.impact_normal
+        );
+
+        let los = traced(
+            &world,
+            &land,
+            sight(NEAR, from, Vec3::new(0.0, 10.0, 0.0), 0),
+        );
+        assert_eq!(
+            (los.trace_result, los.final_cell),
+            (0, FAR.0),
+            "whole, beyond"
+        );
+        assert!((los.end_point().y - 10.0).abs() < 1e-3);
+
+        let beside = traced(
+            &world,
+            &land,
+            sight(NEAR, Vec3::new(3.0, 0.0, 0.0), Vec3::new(3.0, 20.0, 0.0), 0),
+        );
+        assert_eq!((beside.trace_result, beside.final_cell), (1, NEAR.0));
+        assert!((beside.end_point().y - 15.0).abs() < 1e-3, "the near wall");
+
+        let doors = traced(&world, &land, sight(NEAR, from, to, 3));
+        assert_eq!((doors.trace_result, doors.final_cell), (1, NEAR.0));
+        assert_eq!(doors.portal_index, 0);
+        assert!((doors.end_point().y - 5.0).abs() < 1e-3, "at the doorway");
+        assert!((doors.impact_normal.y.abs() - 1.0).abs() < 1e-6);
+
+        let rooms = traced(&world, &land, sight(NEAR, from, to, 4));
+        assert_eq!((rooms.trace_result, rooms.final_cell), (0, FAR.0));
+        assert!((rooms.end_point().y - 20.0).abs() < 1e-3);
+
+        let mut stay = sight(NEAR, from, to, 0);
+        stay.traverse_portals = false;
+        let stay = traced(&world, &land, stay);
+        assert_eq!((stay.trace_result, stay.final_cell), (1, NEAR.0));
+        assert!((stay.end_point().y - 15.0).abs() < 1e-3);
+
+        world.insert(
+            &land,
+            POST,
+            &WorldObject {
+                shape: post(),
+                position: Position::new(FAR, Frame::new(Vec3::new(0.0, 8.0, -1.0), Quat::IDENTITY)),
+                is_static: true,
+                passable: false,
+            },
+        );
+        let los = traced(&world, &land, sight(NEAR, from, to, 0));
+        assert_eq!((los.trace_result, los.final_cell), (1, FAR.0));
+        assert!(
+            (los.end_point().y - 7.5).abs() < 0.01,
+            "at the post: {:?}",
+            los.end_point()
+        );
+        assert_eq!(los.impact_normal, Vec3::ZERO, "an object faces nowhere");
+    }
+
+    /// A line of sight leaving a room through a doorway out goes on over the land from the doorway,
+    /// and a post standing outside stops it, in the land cell it stands over. When the line's start
+    /// lies over another land cell than the doorway does, the land traces the line again from its
+    /// start, so a post standing between the start and the doorway stops it too.
+    ///
+    /// Behaviour: detection.sight.a-line-of-sight-goes-out-through-a-doorway-onto-the-land
+    #[test]
+    fn a_line_of_sight_goes_out_through_a_doorway_onto_the_land() {
+        let land = land();
+        room(
+            &land,
+            SHED,
+            open(),
+            vec![doorway(Vec3::new(55.0, 50.0, 11.0), false, OUTDOORS, -1)],
+        );
+        room(
+            &land,
+            HUT,
+            open(),
+            vec![doorway(Vec3::new(61.0, 50.0, 11.0), false, OUTDOORS, -1)],
+        );
+        let mut world = table::World::new();
+        let shed = (Vec3::new(50.0, 50.0, 11.0), Vec3::new(70.0, 50.0, 11.0));
+
+        let los = traced(&world, &land, sight(SHED, shed.0, shed.1, 0));
+        assert_eq!(los.trace_result, 0, "clear: {los:?}");
+        assert_eq!(
+            los.final_cell,
+            standing(70.0, 50.0).cell.0,
+            "ends over the land"
+        );
+
+        world.insert(
+            &land,
+            POST,
+            &WorldObject {
+                shape: post(),
+                position: standing(60.0, 50.0),
+                is_static: true,
+                passable: false,
+            },
+        );
+        let los = traced(&world, &land, sight(SHED, shed.0, shed.1, 0));
+        assert_eq!(los.trace_result, 1, "stopped outside");
+        assert_eq!(los.final_cell, standing(59.5, 50.0).cell.0);
+        assert!(
+            (los.end_point().x - 59.5).abs() < 0.01,
+            "{:?}",
+            los.end_point()
+        );
+
+        // The hut's doorway at x = 61 lies over the next land cell east; its start does not.
+        let before = sight(
+            HUT,
+            Vec3::new(56.0, 50.0, 11.0),
+            Vec3::new(58.0, 50.0, 11.0),
+            0,
+        );
+        let before = traced(&world, &land, before);
+        assert_eq!(
+            (before.trace_result, before.final_cell),
+            (0, HUT.0),
+            "short of the doorway"
+        );
+        let los = sight(
+            HUT,
+            Vec3::new(56.0, 50.0, 11.0),
+            Vec3::new(75.0, 50.0, 11.0),
+            0,
+        );
+        let los = traced(&world, &land, los);
+        assert_eq!(
+            los.trace_result, 1,
+            "stopped by the post behind the doorway: {los:?}"
+        );
+        assert!(
+            (los.end_point().x - 59.5).abs() < 0.01,
+            "{:?}",
+            los.end_point()
+        );
+    }
 }

@@ -2208,9 +2208,7 @@ impl<'w> Scene<'w> {
                 },
             };
             let at = holder_body.position;
-            let h = self
-                .held
-                .ensure(&self.world.records, &self.anims, id, &o.visual, at);
+            let h = self.held.ensure(&self.world.records, &self.anims, o, at);
             if h.holder == Some((holder, location)) && holder_body.look_up_in_children(id) {
                 continue;
             }

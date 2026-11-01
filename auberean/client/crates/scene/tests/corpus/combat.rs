@@ -768,3 +768,38 @@ fn the_players_own_new_description_dresses_its_figure() {
     assert!(as_said, "drawn as its description says");
     assert!(changed, "no longer as at first");
 }
+
+/// What a body holds takes the profile its own qualities give when it is made, as every object's
+/// body does: in a recorded session each held item slides along edges, ignores collisions and is
+/// scaled as its qualities say.
+///
+/// Behaviour: desktop.bodies.a-held-object-takes-the-profile-its-qualities-give
+#[test]
+fn a_held_object_takes_the_profile_its_qualities_give() {
+    use auberean_physics::body::flags;
+    let (c, scene, _) = played("1e177f6bfede2082:3", 40.0);
+    let (world, _) = data();
+    let mut held = 0;
+    for o in c.model.objects().filter(|o| o.parent.is_some()) {
+        let Some(b) = scene.body(o.id) else {
+            continue;
+        };
+        let p = auberean_scene::profile::profile_of(o, |id| world.records.get(id));
+        let id = o.id;
+        assert_eq!(
+            b.does_edge_slide(),
+            p.state & flags::EDGE_SLIDE != 0,
+            "{id:#x}: {:#x}",
+            p.state
+        );
+        assert_eq!(
+            b.ignores_collisions(),
+            p.state & flags::IGNORE_COLLISIONS != 0,
+            "{id:#x}: {:#x}",
+            p.state
+        );
+        assert!((b.object_scale.z - p.scale).abs() < 1e-6, "{id:#x}");
+        held += 1;
+    }
+    assert!(held >= 1, "a held item");
+}
