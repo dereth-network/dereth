@@ -377,6 +377,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-interface"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-primitives",
+ "auberean-scene",
+ "auberean-shell",
+ "auberean-testkit",
+ "auberean-ui",
+ "auberean-ui-game",
+ "auberean-world",
+ "dereth-primitives",
+ "tracing",
+]
+
+[[package]]
 name = "auberean-physics"
 version = "0.0.0"
 dependencies = [
@@ -489,6 +508,19 @@ dependencies = [
  "auberean-text",
  "dereth-primitives",
  "dereth-render-cpu",
+]
+
+[[package]]
+name = "auberean-ui-game"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-testkit",
+ "auberean-text",
+ "auberean-ui",
+ "dereth-primitives",
 ]
 
 [[package]]

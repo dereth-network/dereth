@@ -158,6 +158,8 @@ members = [
     "auberean/client/crates/scene",
     "auberean/client/crates/shell",
     "auberean/client/crates/ui",
+    "auberean/client/crates/ui-game",
+    "auberean/client/crates/interface",
     "auberean/viewer",
     "auberean/headless",
     "auberean/testkit",
@@ -269,6 +271,8 @@ auberean-gpu = { path = "auberean/client/crates/gpu" }
 auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }
+auberean-ui-game = { path = "auberean/client/crates/ui-game" }
+auberean-interface = { path = "auberean/client/crates/interface" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }

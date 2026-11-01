@@ -357,6 +357,100 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-click-in-the-world-selects-what-lies-under-it",
+        says: "A click on a body standing in the world lands on the field over the world, and the \
+               body under the pointer, found by the triangles drawn, is selected through the \
+               player's scripts at the next tick; a click on empty ground selects nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-WORLD"),
+        station: "auberean-interface::dat::screens::a_click_in_the_world_selects_what_lies_under_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.every-panel-is-drawn-in-front-of-the-world",
+        says: "In the world every panel is drawn in front of the world, which fills the window \
+               behind every element: a panel's own viewport puts nothing behind the world. The \
+               panels deeper than the viewport (the chat window, the status bar) lie over the \
+               world and under the viewport's scene, the paper doll's figure; the shallower ones \
+               (the toolbar, the inventory's own window) over the figure.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-IN-FRONT-OF-THE-WORLD"),
+        station: "auberean-interface::dat::screens::every_panel_is_drawn_in_front_of_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-left-button-runs-forward-in-mouse-look-over-the-world",
+        says: "In mouse look the left button runs the body forward while held, though the field \
+               over the world takes the press: the world's controls see the button too, and the \
+               body stops when it is let go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-MOUSE-LOOK"),
+        station: "auberean-interface::dat::screens::the_left_button_runs_forward_in_mouse_look_over_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-play-screen-follows-the-player-and-takes-war-and-chat",
+        says: "In the world the status bar shows the player's health and vigor from its qualities, \
+               the war button asks the player's scripts to attack while the buttons wait on their \
+               word, and Enter starts a chat line that takes the keys typed (the body never moves) \
+               and ends it, the entry emptied and the line handed to the player's command line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLAY-PANELS"),
+        station: "auberean-interface::dat::screens::the_play_screen_follows_the_player_and_takes_war_and_chat",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-play-screen-runs-on-the-frameworks",
+        says: "In the world the play screen runs on the frameworks: E shows the examination \
+               window; the skills button shows the skills window and its tooltip turns to Hide; \
+               F12 hides the toolbar and shows it again; the middle button turns mouse look on and \
+               off, the camera following and the crosshair showing; the up arrow still runs the \
+               body forward.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLAY-FRAMEWORKS"),
+        station: "auberean-interface::dat::screens::the_play_screen_runs_on_the_frameworks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-screens-before-the-world-fill-the-window-at-1024-by-768",
+        says: "The screens before the world are laid out on a 1024 by 768 screen whatever the \
+               window's size (the client sets its display to 1024 by 768 for them), and their \
+               picture fills the window: a click lands on the button drawn under it. The pointer \
+               shows the data's default cursor. Credits shows the credits, which an interface key \
+               ends; Options the key map, the client's maps by action in the game's order, whose \
+               Back returns to the list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREGAME-1024"),
+        station: "auberean-interface::dat::screens::the_screens_before_the_world_fill_the_window_at_1024_by_768",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-screens-take-a-player-from-the-list-into-the-world",
+        says: "The game opens on its pictures; a press goes on to connecting, which logs in and, \
+               the characters listed, brings up the character list. There Create opens the avatar \
+               hall; the figure a ray through the pointer meets in the hall's scene is the avatar \
+               chosen, which opens the appearance, whose slider buttons move a choice a stop; Next \
+               the name; Enter there asks the \
+               server for the character with the player's entity, the race's start area, class \
+               and implement and all thirteen physique values, and once it is made enters the \
+               world with it, where the play screen's panels come up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SCREENS-FLOW"),
+        station: "auberean-interface::dat::screens::the_screens_take_a_player_from_the_list_into_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.what-a-body-holds-is-picked-and-selected-as-itself",
+        says: "What a body holds (a wielded bow) is drawn with its holder and a click on it \
+               selects it as itself, its name and marks shown where it is drawn; a double press \
+               on an item the player holds selects it without using it; the selection keys do \
+               not find it, as it has no place of its own in the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-HELD"),
+        station: "auberean-interface::dat::screens::what_a_body_holds_is_picked_and_selected_as_itself",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.keys.a-key-let-go-ends-what-its-press-began",
         says: "A key let go ends the action its press began, whatever modifier was let go in \
                between: a key pressed with Shift ends its Shift action even after Shift is let \

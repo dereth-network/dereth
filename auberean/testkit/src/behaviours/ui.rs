@@ -8,6 +8,27 @@ use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "ui.book.a-book-shows-its-pages-and-turns-them",
+        says: "A book the scripts open shows its title and its first page, each page laid out a \
+               whole number of the text's pages and the count at most a thousand; the slider's \
+               arrow turns a page, and a press on the picture turns to the next page and closes \
+               the book after the last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-BOOK"),
+        station: "auberean-ui-game::dat::play::book::a_book_shows_its_pages_and_turns_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.book.a-books-text-splits-into-pages-and-headings",
+        says: "A book's text splits at each <BR> into a page; a heading between <H> and </H> goes \
+               beside its page with the line after it dropped, a page without one has a lone line \
+               there, and what follows the last <BR> is no page.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-BOOK-PAGES"),
+        station: "auberean-ui-game::dat::play::book::a_books_text_splits_into_pages_and_headings",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.button.a-button-shows-its-normal-state-before-the-pointer-touches-it",
         says: "A button its layout names by reference, whose own first state is the plain one, is in its normal state and draws its picture as soon as it is made: the ghosted, highlighted or rollover flags its template sets bring its state up to date.",
         since: RETAIL,
@@ -32,6 +53,239 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-BUTTON-CLICK"),
         station: "auberean-ui::cpu::pointer::a_release_on_the_button_clicks",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.camera.mouse-look-first-person-and-the-arrows",
+        says: "Mouse look comes on while its key is held and its letting go switches it over; its \
+               switch turns it on and off; the crosshair shows only in mouse look; the left button \
+               runs forward while mouse look is wanted; the first person key switches first person; \
+               the arrows ask to turn and move at 1 and 0, and nothing while a text element or a list \
+               has the keyboard.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CAMERA"),
+        station: "auberean-ui-game::dat::play::standing::mouse_look_first_person_and_the_arrows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.charselect.an-empty-list-leaves-enter-and-delete-ghosted",
+        says: "With no character on the account, creation, the controls and the credits are \
+               offered once the list arrives, but Enter and Delete stay ghosted: no row is \
+               selected to light them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT-EMPTY"),
+        station: "auberean-ui-game::dat::screens::pregame::an_empty_list_leaves_enter_and_delete_ghosted",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.charselect.create-options-and-credits-wait-and-go-on",
+        says: "The character list's Create, Options and Credits each put please wait up, ghost \
+               the buttons and ask for their screen: creation's hall, the key map, the credits.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT-SCREENS"),
+        station: "auberean-ui-game::dat::screens::pregame::create_options_and_credits_wait_and_go_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.charselect.delete-asks-first",
+        says: "The character list's Delete asks first, naming the character, the buttons ghosted \
+               while it waits; yes deletes that character, no lights the buttons that never wait \
+               and shows the list again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT-DELETE"),
+        station: "auberean-ui-game::dat::screens::pregame::delete_asks_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.charselect.the-buttons-follow-the-selected-character",
+        says: "The character list's buttons stay ghosted until the characters arrive; then a \
+               living character can be entered or deleted, a deleted one only restored, and \
+               creation is offered while slots remain; Enter puts please wait up, ghosts the \
+               buttons and asks for the world and the play screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT"),
+        station: "auberean-ui-game::dat::screens::pregame::the_buttons_follow_the_selected_character",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.charselect.the-carousel-turns-to-the-selected-row",
+        says: "Character select's carousel has an arm per slot, the selected row's at the front: \
+               the list comes back on its row at once, another row selected turns it an arm's \
+               step at a time, a second and a half each, the shorter way round, and a press on a \
+               character's figure selects its row.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT-CAROUSEL"),
+        station: "auberean-ui-game::dat::screens::pregame::the_carousel_turns_to_the_selected_row",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.each-window-shows-the-kinds-its-filter-holds-in-their-colors",
+        says: "The chat panel makes four windows, the first shown and the others hidden; once the chat options are read the first entry holds the prompt and a devoted window's entry its channel's name; each window shows the kinds of text its filter holds, each line whole in its kind's color; an error line also stands in the line of messages at the screen's top for the six seconds its row says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-WINDOWS"),
+        station: "auberean-ui-game::dat::play::chat::each_window_shows_the_kinds_its_filter_holds_in_their_colors",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.the-buttons-and-keys-show-the-other-windows-and-a-devoted-window-speaks-on-its-channel",
+        says: "The first window's buttons and the windows' keys show and hide the other windows; a line for a hidden window changes its button's look, and a kind marked to pop up shows the window; a line typed in a devoted window goes as its channel's command.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-DEVOTED"),
+        station: "auberean-ui-game::dat::play::chat::the_buttons_and_keys_show_the_other_windows_and_a_devoted_window_speaks_on_its_channel",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.the-entry-is-labelled-with-the-chat-strings",
+        says: "The chat's strings are written as the client writes them: the assisted tell is the command's mark, \"tell\", the name and a comma; the reply command's names start with \"reply\".",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-STRINGS"),
+        station: "auberean-ui-game::dat::play::chat::the_entry_is_labelled_with_the_chat_strings",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.the-entry-takes-a-line-and-hands-it-to-the-command-line",
+        says: "Enter starts typing (the prompt goes) and hands the line typed to the player's command line, the entry emptied; / and ; start a command and an alias with their mark; Escape stops typing at the next tick, the text kept; the arrows ask for the lines typed, with Ctrl the tells sent and with Shift the tells answered, only while typing, and what comes back fills the entry.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-ENTRY"),
+        station: "auberean-ui-game::dat::play::chat::the_entry_takes_a_line_and_hands_it_to_the_command_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.the-entry-types-in-the-chat-entrys-color",
+        says: "What is typed in a chat window's entry is drawn in the chat entry's font and color \
+               from the chat options (a new player's: white), not in the entry's own red, the \
+               error lines' color; a window devoted to a channel types in that channel's color.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-ENTRY-COLOR"),
+        station: "auberean-ui-game::dat::play::chat::the_entry_types_in_the_chat_entrys_color",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.chat.the-lock-holds-the-log-and-the-slider-fades-the-window",
+        says: "The lock button locks the log against new lines until pressed again; the options button shows the opacity slider, which fades the whole window and keeps the opacity with the player's options when let go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-LOCK"),
+        station: "auberean-ui-game::dat::play::chat::the_lock_holds_the_log_and_the_slider_fades_the_window",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-crafting-page-goes-from-craft-skills-to-categories-to-recipes",
+        says: "The crafting tab shows the craft skills, each its name (disabled while its use \
+               earns less than the usual experience) and rating (buffed when its level stands \
+               above its own); a craft skill's forward button selects it and shows it at the head \
+               with its display and a row per category of its recipes in order of their numbers; \
+               a category's forward button shows its recipes that are shown (one not yet usable \
+               again disabled); the examination's request for a recipe marks its row; a recipe \
+               pressed twice is opened; the raise button raises the craft skill; the back button \
+               goes up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CRAFT-PAGE"),
+        station: "auberean-ui-game::dat::play::craft::the_crafting_page_goes_from_craft_skills_to_categories_to_recipes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-ingredient-panel-takes-items-and-makes-the-recipe",
+        says: "The scripts open the ingredient panel on a recipe: its name, cost, a slot per \
+               ingredient it takes at its last spinner value. An item dropped on a slot is asked to \
+               go in, and shows there once the scripts say it went; fill-in puts the first fitting \
+               item in each empty slot that fills itself in; turning the spinner asks for the \
+               recipe there and brings its slots; the craft button asks to make the recipe from the \
+               items in the slots, and with no charges left the panel closes when it is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INGREDIENTS"),
+        station: "auberean-ui-game::dat::play::ingredients::the_ingredient_panel_takes_items_and_makes_the_recipe",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.creation.the-appearance-shows-the-avatars-rows-and-shapes-it",
+        says: "The appearance shows the chosen avatar's rows (a kind its race lacks gone), each \
+               labelled, its slider and buttons' tooltips naming it, at the avatar's stop; a \
+               page's button shows its rows and frames the head on the head's page; a slider sets \
+               the avatar's value; Randomize asks for a page's or every page's; dragging over the \
+               figure turns the view; Back goes to the hall; Next puts the name's panel up, \
+               Cancel takes it down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREATION-APPEARANCE"),
+        station: "auberean-ui-game::dat::screens::pregame::the_appearance_shows_the_avatars_rows_and_shapes_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.creation.the-hall-describes-the-avatar-under-the-pointer-and-a-press-chooses-it",
+        says: "Over an avatar in creation's hall, the description names its race and sex and the \
+               tooltip says a press chooses it; a press chooses it and, its leaving behavior \
+               done, please wait goes up and its appearance comes next; Cancel goes back to the \
+               list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREATION-HALL"),
+        station: "auberean-ui-game::dat::screens::pregame::the_hall_describes_the_avatar_under_the_pointer_and_a_press_chooses_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.creation.the-name-is-asked-with-cancel-and-enter",
+        says: "The name is asked with Cancel and Enter, the buttons the player's client shows; \
+               the entry shows its hint and takes no keys until pressed, its hint goes then, it \
+               takes only a name's letters and at most sixteen; Enter asks for the character, the \
+               server's refusal shows under the name and lights the buttons, and made, it enters \
+               the world with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAME-BUTTONS"),
+        station: "auberean-ui-game::dat::screens::pregame::the_name_is_asked_with_cancel_and_enter",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.credits.the-text-scrolls-up-and-the-credits-end-by-themselves",
+        says: "The credits scroll their text up from under the screen's foot until the last line \
+               has gone over its top (about four minutes: the field's duration for a screen and a \
+               line's worth of scrolling), then close by themselves, please wait up and the \
+               character list next; an interface key closes them at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREDITS"),
+        station: "auberean-ui-game::dat::screens::pregame::the_text_scrolls_up_and_the_credits_end_by_themselves",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.datapatch.connecting-says-how-it-goes-and-the-list-leads-on",
+        says: "The connecting screen connects when it comes up and says so at its foot, writes \
+               the connection's progress there, leads to the disconnected screen with the reason \
+               when the connection fails, follows the data downloaded on its meter, and once the \
+               account's characters are listed goes on to the character list, or into the world \
+               as the character the client was started with.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DATAPATCH"),
+        station: "auberean-ui-game::dat::screens::pregame::connecting_says_how_it_goes_and_the_list_leads_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.a-timed-question-counts-down-and-answers-no",
+        says: "A timed question says how many of its fifteen seconds are left, counting down each second, and answers itself no once they have run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DIALOG-TIMED"),
+        station: "auberean-ui-game::dat::play::dialogs::a_timed_question_counts_down_and_answers_no",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.one-dialog-is-up-at-a-time-and-the-rest-wait-their-turn",
+        says: "One dialog is up at a time: another waits its turn, one asked for first goes up at once and the one it displaced waits at the head of the line; a dialog closed by its number leaves the line, and when the one up closes the next goes up. Every dialog of the world keeps mouse look off from being asked for until it goes. A question's yes answers yes and its other button no; a message's and death's button answer them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DIALOG-QUEUE"),
+        station: "auberean-ui-game::dat::play::dialogs::one_dialog_is_up_at_a_time_and_the_rest_wait_their_turn",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.the-answers-reach-the-panel-that-asked",
+        says: "A dialog's answer reaches every panel and the one that asked acts on it: death's dialog brings the player back, a question of the player's scripts answered yes is answered with what it carried, the journal's question whether to give a quest up answered yes gives it up. Mouse look waits while a dialog of the world is up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DIALOG-ANSWERS"),
+        station: "auberean-ui-game::dat::play::dialogs::the_answers_reach_the_panel_that_asked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.disconnected.the-reason-shows-and-quit-leaves",
+        says: "The disconnected screen shows why the session ended, and its button leaves the \
+               game.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DISCONNECTED"),
+        station: "auberean-ui-game::dat::screens::pregame::the_reason_shows_and_quit_leaves",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.drag.an-item-dragged-is-taken-by-a-container-or-comes-back",
@@ -207,6 +461,31 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.examination.an-effect-line-lays-out-the-effects-own-lines",
+        says: "An effect line of a profile lays out the effect's own lines in its place, the \
+               effects among them left out, as the window's other lines are laid out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-EFFECT-LINES"),
+        station: "auberean-ui-game::dat::play::examination::an_effect_line_lays_out_the_effects_own_lines",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.examination.the-tabbed-window-asks-for-the-tab-pressed",
+        says: "The player's options can make the examination window the tabbed one: it asks to examine with the first tab and shows its tab buttons, each active when asked for, inactive when the profile has lines for it, else disabled; pressing a tab that is not disabled (Ctrl adds or takes it away) asks to examine with that tab's tabs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-EXAMINATION-TABS"),
+        station: "auberean-ui-game::dat::play::examination::the_tabbed_window_asks_for_the_tab_pressed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.examination.the-window-lays-out-a-profile-line-by-line",
+        says: "The examination window, shown, comes to the front of the toolbar's windows (depth 10; another shown after it pushes it back one, to between 11 and 18) and asks to examine with its tabs (every tab: it starts as the classic window) and, hidden, to stop; it shows a waiting row until the profile comes, then lays the profile's lines on the tabs asked for out in one row: text from the left, wrapping to an indented new line when it does not fit, a break to a new line at the left, each indent 16 pixels in, pictures as wide as they are, the row as tall as its lines.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-EXAMINATION-LAYOUT"),
+        station: "auberean-ui-game::dat::play::examination::the_examination_window_lays_out_a_profile_line_by_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.flow.a-screen-asked-for-comes-up-at-the-next-tick",
         says: "A screen asked for comes up at the next tick of the clock: the screen up is hidden and \
                closed, the new one made, given the text it was asked with, and shown.",
@@ -214,6 +493,29 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-FLOW"),
         station: "auberean-ui::cpu::framework::a_screen_asked_for_comes_up_at_the_next_tick",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.flow.each-refusal-reason-leads-to-its-screen",
+        says: "Each reason the server gives for refusing a character leads to its screen: a deleted \
+               character and the failed entries back to the character list, a refused login, a \
+               crash, a log-off, the account's troubles, a full server and a booted character to the \
+               disconnected screen, any other reason to none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-REFUSAL-SCREENS"),
+        station: "auberean-ui-game::cpu::flow::each_refusal_reason_leads_to_its_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.flow.the-game-flow-starts-on-the-intro-and-follows-the-servers-reasons",
+        says: "The game's flow starts on the opening screen with the data's default cursor; a reason \
+               the server gives for refusing or ending a character leads to the character list or the \
+               disconnected screen with the reason's message, or the server's own words; a lost \
+               connection asks for the disconnected screen unless it is up or asked for; the \
+               screenshot key, let go, takes a screenshot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-GAME-FLOW"),
+        station: "auberean-ui-game::dat::play::standing::the_game_flow_starts_on_the_intro_and_follows_the_servers_reasons",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.frame.a-panel-shows-only-while-its-parents-do",
@@ -233,6 +535,179 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-KEPT-PLACES"),
         station: "auberean-ui::cpu::framework::kept_places_come_back",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.gameplay.the-layout-file-keeps-the-windows-places",
+        says: "The windows' and chat windows' places are written a line each as a tag, X, Y, W and H, \
+               and a line read back gives its window that size, then that place; a line naming no \
+               kept window is passed over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LAYOUT-FILE"),
+        station: "auberean-ui-game::dat::play::standing::the_layout_file_keeps_the_windows_places",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.gameplay.the-log-out-key-ends-the-session-at-the-next-tick",
+        says: "The log-out key ends the session at the next tick of the clock, once: a please-wait \
+               dialog, the panels gone, the character logged off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-END-SESSION"),
+        station: "auberean-ui-game::dat::play::standing::the_log_out_key_ends_the_session_at_the_next_tick",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.gameplay.the-panels-keys-show-and-hide-them",
+        says: "The toolbar windows' keys show and hide their windows; the toolbar's key hides the \
+               toolbar, its shortcut bar and its windows and shows them again; the status bar's and \
+               the radar's keys theirs; the key for the whole interface hides every panel and shows \
+               them again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-GAMEPLAY-KEYS"),
+        station: "auberean-ui-game::dat::play::standing::the_panels_keys_show_and_hide_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.hud.the-toolbar-sits-on-the-bottom-edge",
+        says: "The play screen makes no panel until the player is in the world; then its status bar, \
+               toolbar with the shortcut bar, chat window and radar show, the toolbar on the screen's \
+               foot covering 38 pixels of it, its dismount and consignment buttons hidden, the seven \
+               toolbar windows made and hidden, the mouse look crosshair hidden.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TOOLBAR"),
+        station: "auberean-ui-game::dat::play::standing::the_toolbar_sits_on_the_bottom_edge",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.hud.vitals-read-current-over-greatest-and-focus-is-a-heros",
+        says: "The vitals read current over greatest for health and vigor; anyone but a hero sees \
+               the focus bar's ornament in its place, without numbers.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-VITALS"),
+        station: "auberean-ui-game::dat::play::standing::vitals_read_current_over_greatest_and_focus_is_a_heros",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.intro.the-pictures-pass-and-a-key-or-a-press-goes-on",
+        says: "The game opens on its pictures, three of them four seconds each, then goes on to \
+               connecting; a key pressed or a press let go goes on at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INTRO"),
+        station: "auberean-ui-game::dat::screens::pregame::the_pictures_pass_and_a_key_or_a_press_goes_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.a-dragged-item-shows-its-icon-once-on-a-larger-screen",
+        says: "On a screen larger than the layouts', an item dragged out of the pack is shown once, in its cell's size with its corner at the pointer; its icon is not repeated beside it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DRAG-AREA-ITEM"),
+        station: "auberean-ui-game::dat::play::inventory::a_dragged_item_shows_its_icon_once_on_a_larger_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.an-item-dropped-in-the-world-goes-to-what-lies-there",
+        says: "An item of the pack dragged over the world and let go asks what lies under the \
+               pointer there; once the world answers it is moved to what was found: to no object \
+               when the ground or the player itself lay there (put down), else into that object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-WORLD-DROP"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_dropped_in_the_world_goes_to_what_lies_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.an-item-dropped-on-a-cell-moves-there",
+        says: "An item pressed in the pack is selected; dragged onto another cell of its pack it is \
+               moved to that slot, no further than just past the last item (a slot sooner once it \
+               has left its own); a stack asks the stack splitter first, which shows the item's \
+               name and the whole stack, refuses more than that saying the most, and moves the \
+               amount given.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-DROP"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_dropped_on_a_cell_moves_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.an-item-given-as-the-pack-is-sent-shows-once",
+        says: "An item given as the pack is sent again shows once: the contents laid out from the scripts' answers after the frame's notices already hold it, so its own notice adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-GIFT-ONCE"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_given_as_the_pack_is_sent_shows_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.an-opened-container-shows-its-contents",
+        says: "When the scripts say a container opened for the player, its window shows its \
+               contents; take-all asks to take everything; the close button closes it for the \
+               player and hides it; when the scripts say it closed, it hides.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-EXTERNAL-CONTAINER"),
+        station: "auberean-ui-game::dat::play::inventory::an_opened_container_shows_its_contents",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-pack-shows-its-items-in-their-slots",
+        says: "The inventory window shows by its key; its main pack's first cells hold the items \
+               the scripts list for it, each with its icon (its look's layers laid together when it                has them) and its name as the tooltip, its icon \
+               carrying the item, the pack and the slot; the four packs start each after the one \
+               before; a tab shows its pack, the close button hides the window.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY"),
+        station: "auberean-ui-game::dat::play::inventory::the_pack_shows_its_items_in_their_slots",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-paper-doll-finds-the-part-under-the-pointer",
+        says: "A search of the paper doll's figure runs straight along its scene's view from the \
+               pointer (taken from the viewport's corner) and answers with the figure met first \
+               and the kind its mesh names there: the head's mesh, the torso's, nothing beside \
+               the figure.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-PICK"),
+        station: "auberean-interface::dat::screens::the_paper_doll_finds_the_part_under_the_pointer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-paper-doll-shows-and-wears-items",
+        says: "The paper doll shows a worn item in its place's slot and its wear on the meter \
+               beside it (the meters of empty places hidden); an item from the pack dropped on a \
+               slot is worn there; the money bag shows the money the scripts say the player has.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL"),
+        station: "auberean-ui-game::dat::play::inventory::the_paper_doll_shows_and_wears_items",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-paper-doll-shows-the-player-seen-straight-on",
+        says: "The paper doll shows the player's figure as the player looks, still in its first \
+               pose, seen straight on by its scene's camera: the camera sees the figure's drawn \
+               height (less for the races drawn shorter) and the figure stands half that height \
+               below it, its feet at the viewport's foot; hidden with the inventory.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-FIGURE"),
+        station: "auberean-interface::dat::screens::the_paper_doll_shows_the_player_seen_straight_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-scripts-notices-keep-the-pack-current",
+        says: "The scripts' notices about the pack put an added item in the cell of its slot, \
+               leave a removed item's cell empty at the end, and show an item pending while a \
+               request about it is under way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-NOTICES"),
+        station: "auberean-ui-game::dat::play::inventory::the_scripts_notices_keep_the_pack_current",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.keyboard.the-key-map-shows-each-actions-keys-and-rebinds-them",
+        says: "The key map shows each action that has a name, its name and its two keys (a key \
+               held with Ctrl or Shift written with it); a key cell pressed waits for a key: one \
+               the game keeps for an action without a name is refused, one bound to another \
+               action asks first and moves; Apply hands the client the maps; a preset asks and \
+               puts its maps in place; Back with changes asks, then please wait and the character \
+               list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-KEYBOARD"),
+        station: "auberean-ui-game::dat::screens::pregame::the_key_map_shows_each_actions_keys_and_rebinds_them",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.layout.a-screen-finds-its-layout-by-number",
@@ -315,6 +790,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.map.a-click-zooms-in-and-a-right-click-goes-back-out",
+        says: "A click on the world map shows the closer map of the 128 land cells around the \
+               place clicked; an edge's button moves it nine cells (three with Shift) each time it \
+               hears the press, three times for a click; a right click goes back to the world map \
+               at the next tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP-DETAIL"),
+        station: "auberean-ui-game::dat::play::map::a_click_zooms_in_and_a_right_click_goes_back_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.map.markers-come-and-go-by-kind",
+        says: "A marker put on the map shows with its words and map coordinates in its tooltip; \
+               another of its kind too near one already there is not put; a kind keeps its latest \
+               ten; a marker is taken off by its object, a kind cleared at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP-MARKERS"),
+        station: "auberean-ui-game::dat::play::map::markers_come_and_go_by_kind",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.map.the-regions-overviews-open-from-their-buttons",
+        says: "A region's button on the world map opens its overview map in that region's state; \
+               its close button takes it down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP-OVERVIEWS"),
+        station: "auberean-ui-game::dat::play::map::the_regions_overviews_open_from_their_buttons",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.map.the-world-map-fits-the-regions-picture-and-marks-the-player",
+        says: "The map opens on the world map: the region's picture fitted inside its frame, the \
+               player's mark where the player stands, the player's map coordinates and the game's \
+               date written.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MAP"),
+        station: "auberean-ui-game::dat::play::map::the_world_map_fits_the_regions_picture_and_marks_the_player",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.media.a-pause-holds-the-list-and-a-jump-plays-it-again",
         says: "A pause holds a state's media list until its rolled length is over, then starts \
                over; a jump plays the list again from the item it names.",
@@ -390,6 +905,132 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.names.a-name-moves-off-another-the-shortest-way",
+        says: "Two boxes overlap when they share a texel; a name's box lying over another is moved off it the shortest way still allowed (left and up stopping two texels short, as the client measures them) and may not then go straight back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-PLACING"),
+        station: "auberean-ui-game::dat::play::names::a_name_moves_off_another_the_shortest_way",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.an-arrow-points-to-a-selection-off-the-screen",
+        says: "When no corner of the selection's box is on the screen, the corner marks hide and an arrow on the screen's edge points the way to it (behind the camera: at the foot, pointing down); a selection beyond the greatest selection distance (400 meters) is no longer selected.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-OFFSCREEN"),
+        station: "auberean-ui-game::dat::play::names::an_arrow_points_to_a_selection_off_the_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.damage-text-rises-over-the-struck-object-and-goes",
+        says: "A hit's damage text stands over the struck object's box in the color the scripts \
+               gave it and rises three of its own heights over its duration, then goes; texts at \
+               once are moved off each other as names are.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DAMAGE-TEXT"),
+        station: "auberean-ui-game::dat::play::names::damage_text_rises_over_the_struck_object_and_goes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.names-over-heads-stand-clear-of-each-other",
+        says: "The names' key shows a name over every object on the radar within the radar's range, each moved off the names already placed; a press on a name selects its object; the key again hides them, the player's option kept each time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-HEADS"),
+        station: "auberean-ui-game::dat::play::names::names_over_heads_stand_clear_of_each_other",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.placed-after-the-world-the-marks-take-its-camera",
+        says: "Placed after the world's update, the names' clock only asks for a placing: the marks stay where the last camera put them until the placing is made with this frame's camera, once for each time the clock asked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-FRAME-ORDER"),
+        station: "auberean-ui-game::dat::play::names::placed_after_the_world_the_marks_take_its_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.the-selection-is-named-and-marked-over-its-box",
+        says: "The selection's name stands centered over the box it fills on the screen in its radar color, its health and vigor meters under the name once the scripts send its vitals, and four marks stand off the box's corners, each turned on from the last by a quarter, a half and three quarters more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-SELECTION"),
+        station: "auberean-ui-game::dat::play::names::the_selection_is_named_and_marked_over_its_box",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.apply-asks-first-then-sets-every-chat-option-and-the-filters-last",
+        says: "The chat page's Apply asks first, then sets every chat option section by section (the \n \
+               devoted channels, each kind's font size, color and popup flag), then each window's \n \
+               filter as its boxes say (the administrators' and the log's kept as they were); the \n \
+               options are read again and sent to the server to keep.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-APPLY"),
+        station: "auberean-ui-game::dat::play::chat::apply_asks_first_then_sets_every_chat_option_and_the_filters_last",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.hidden-with-changes-the-window-asks-to-apply-them",
+        says: "The options window hidden with an option changed and not applied asks whether to apply it; no puts back what was applied.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CONFIRM"),
+        station: "auberean-ui-game::dat::play::options::hidden_with_changes_the_window_asks_to_apply_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.leave-world-and-quit-ask-first",
+        says: "The options window's Leave World and Quit ask first, the commands ghosted while a question is up; yes to leaving ends the session at the next tick; yes to quitting sends the options to keep and ends the game.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-COMMANDS"),
+        station: "auberean-ui-game::dat::play::options::leave_world_and_quit_ask_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.recall-and-default-ask-first-and-put-back-the-applied-or-the-defaults",
+        says: "The chat page's Recall and Default each ask first: Recall puts back what was applied, \n \
+               Default puts a new player's chat options in and applies them; the options window \n \
+               hidden with a chat option changed asks whether to apply it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-RECALL"),
+        station: "auberean-ui-game::dat::play::chat::recall_and_default_ask_first_and_put_back_the_applied_or_the_defaults",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-bars-rows-set-by-hand-are-kept-at-once",
+        says: "The shortcut bar resized by hand tells the options window its rows: they are set and the options sent at once, no other panel told, and the character page shows them applied.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-ROWS"),
+        station: "auberean-ui-game::dat::play::options::the_bars_rows_set_by_hand_are_kept_at_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-character-page-shows-the-players-options-and-applies-the-changed-ones",
+        says: "The character page shows the player's options as the client read them (melting without a question as its opposite, the radar's filters from its mask, the bar's rows, others' damage range) with Apply and Recall ghosted until one changes; Apply sets the changed options in the page's order, tells the other panels and sends the options to the server.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS"),
+        station: "auberean-ui-game::dat::play::options::the_character_page_shows_the_players_options_and_applies_the_changed_ones",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-chat-page-lists-each-kind-with-a-new-players-options-as-defaults",
+        says: "The chat page has a section for every kind of text but the administrators': its font \n \
+               size, font color, the four windows' boxes and its popup box (the chat entry only \n \
+               size and color, with no large size); the devoted windows' channels are named from \n \
+               the kinds' list by place, so the general, trade and region channels show under the \n \
+               player-killer, general and trade channels' names. A new player's chat options are \n \
+               the defaults and the page shows the player's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-PAGE"),
+        station: "auberean-ui-game::dat::play::chat::the_chat_page_lists_each_kind_with_a_new_players_options_as_defaults",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-client-page-shows-the-preferences-the-client-lists",
+        says: "The client page, opened, asks the client to list its eight sections' preferences; a \
+               listing the client gives fills the section it names with a row for each preference, \
+               and the same listing is taken in once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-CLIENT-LISTING"),
+        station: "auberean-ui-game::dat::play::options::the_client_page_shows_the_preferences_the_client_lists",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.panel.opening-a-tab-closes-the-others",
         says: "A panel's tabs each make their page beside them and show it only while open; pressing a \
                closed tab opens it and closes the one that was open; a closed tab rolls over under \
@@ -398,6 +1039,28 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-PANEL-TABS"),
         station: "auberean-ui::cpu::framework::opening_a_tab_closes_the_others",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.pet.the-modes-turn-in-order-and-names-lose-their-owner",
+        says: "A pet's mode turns through the nine modes in order and back round (one not among \
+               them goes to the first going on and the last going back); a pet's name loses its \
+               owner's part in parentheses.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET-MODES"),
+        station: "auberean-ui-game::dat::play::pet::the_modes_turn_in_order_and_names_lose_their_owner",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.pet.the-pet-panel-lists-pets-and-commands-them",
+        says: "With the player's option on, a pet the scripts add shows in its row and the panel \
+               with its commands lit; the next-mode button shows the next mode at once and asks \
+               for it within five seconds and again every five until the pet takes it; attack \
+               commands the pets at the selection; a pet under attack shows unsafe until five \
+               seconds after; with no pets the panel hides.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET"),
+        station: "auberean-ui-game::dat::play::pet::the_pet_panel_lists_pets_and_commands_them",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.pointer.mouse-invisible-elements-let-the-pointer-through",
@@ -409,6 +1072,67 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.quests.the-journal-keeps-quests-under-way-and-finished",
+        says: "The quest journal reads the player's quests at the session's start: those under way on one page and those completed, failed or cancelled on the other, newest given first; a quest that changes becomes the open one (its text row, and a cancel row when it may be given up) and moves to the page of its status; while the window is hidden its button shows that something changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUEST-JOURNAL"),
+        station: "auberean-ui-game::dat::play::examination::the_journal_keeps_quests_under_way_and_finished",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.quests.the-quest-button-keeps-its-look-as-it-opens-the-window",
+        says: "The quest window's button opens it and stays on the toolbar: shown, the window \
+               puts its button in its unchanged look, the picture it shows when nothing changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUEST-BUTTON"),
+        station: "auberean-ui-game::dat::play::examination::the_quest_button_keeps_its_look_as_it_opens_the_window",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.quests.the-story-page-lists-the-acts-and-opens-the-one-changed",
+        says: "The story page lays out the visible acts, in order, each with its scenes' icons \
+               (the hidden ones left out), completed when the scene may be played again, else not; \
+               an act the scripts say changed while the page is not shown marks the window's \
+               button, is open with its scenes' rows and its name marked; pressing an act's row \
+               opens or closes it, and a completed scene's row pressed twice plays it again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-STORY-PAGE"),
+        station: "auberean-ui-game::dat::play::examination::the_story_page_lists_the_acts_and_opens_the_one_changed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.the-blip-under-the-pointer-names-and-selects-its-object",
+        says: "The blip within four pixels of the pointer names its object in the radar's tooltip (none, an empty one), and a press on the radar selects that object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RADAR-TOOLTIP"),
+        station: "auberean-ui-game::dat::play::radar::the_blip_under_the_pointer_names_and_selects_its_object",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.the-dial-turns-and-the-blips-show-what-is-around",
+        says: "The radar's dial stands on the radar's corner turned counterclockwise by the player's heading; each object the scripts put on the radar within its range (50 meters inside, 75 outside) is a blip of its shape at its place from the player, the way the player faces up, scaled from the range to the radar's radius; the selection's blip is bracketed; nothing beyond the range is drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RADAR-BLIPS"),
+        station: "auberean-ui-game::dat::play::radar::the_dial_turns_and_the_blips_show_what_is_around",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.the-groove-level-adds-up-what-is-in-range",
+        says: "The objects around with a groove level add theirs while within the radar's range; the sum is the music's groove level, told when it changes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RADAR-GROOVE"),
+        station: "auberean-ui-game::dat::play::radar::the_groove_level_adds_up_what_is_in_range",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.the-place-line-reads-inside-or-the-map-coordinates",
+        says: "The radar's place line reads Inside in an interior cell and outdoors the cell's map coordinates, north or south then east or west to a tenth; the coordinates' button closes and opens it, its tooltip saying which, the option kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RADAR-PLACE"),
+        station: "auberean-ui-game::dat::play::radar::the_place_line_reads_inside_or_the_map_coordinates",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.scrollbar.dragging-the-widget-scrolls-its-list",
         says: "Dragging a scroll bar's widget moves the bar to the widget's share of the way, and its list \
                takes that share of its hidden rows, kept on a row's edge.",
@@ -416,6 +1140,78 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-SCROLLBAR-DRAG"),
         station: "auberean-ui::cpu::lists::dragging_the_widget_scrolls_its_list",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.selection.a-press-on-the-world-selects-what-lies-under-it",
+        says: "The selection's field lies over the whole screen behind every panel; a left press on it asks the world what lies under the pointer and at the next tick after the answer selects it (nothing, when nothing was there); an object that may not be selected is passed over unless the player's kind may select anything; a double press also uses it, unless the player holds it; a right press on an object asks for the examination panel.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-PRESS"),
+        station: "auberean-ui-game::dat::play::selection::a_press_on_the_world_selects_what_lies_under_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.selection.the-selection-keys-pick-by-kind-and-distance",
+        says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; what a body holds is never found, having no place of its own; the player's own key selects it and then the last selection; the last attacker's key selects the last to attack the player; Escape selects nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-KEYS"),
+        station: "auberean-ui-game::dat::play::selection::the_selection_keys_pick_by_kind_and_distance",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.selection.the-targeting-notice-shows-the-usage-cursor",
+        says: "The scripts' targeting notice shows the selection field's usage cursor over the world while an item waits for its target, and puts the cursor back after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECTION-CURSOR"),
+        station: "auberean-ui-game::dat::play::selection::the_targeting_notice_shows_the_usage_cursor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shop.a-catalog-lists-its-shops-and-enters-one",
+        says: "A catalog the scripts show lists its header and a row per shop with its name and \
+               how many things it sells; a shop pressed twice is entered; the consignments button \
+               asks for the player's consignments; close leaves the catalog.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHOP-CATALOG"),
+        station: "auberean-ui-game::dat::play::shop::a_catalog_lists_its_shops_and_enters_one",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shop.a-shop-shows-its-sales-and-buys-them",
+        says: "A shop the scripts show lists a row per sale with what is left (no end, sold out, \
+               restricted); a sale pressed is selected; purchase buys one when only one may be \
+               bought, asks how many when more may, and tells the player when none may; the \
+               purchase question is answered; close leaves the shop.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHOP"),
+        station: "auberean-ui-game::dat::play::shop::a_shop_shows_its_sales_and_buys_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shop.consignments-are-collected-put-up-and-restocked",
+        says: "The player's consignments show a row each and an empty row; a sold one is \
+               collected for its coins; an item dropped on a consignment of its kind asks how \
+               many and whether to restock it at its cost; the new-sale window takes an item, how \
+               many and a price, and puts it up after its question.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CONSIGNMENTS"),
+        station: "auberean-ui-game::dat::play::shop::consignments_are_collected_put_up_and_restocked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.a-moved-slot-shows-its-icon-where-it-went",
+        says: "A slot dragged onto another shows its skill's icon and tooltip there, and the slot it left shows none, once the player's scripts hold the moved shortcuts; onto a slot holding another skill it replaces that one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-MOVED"),
+        station: "auberean-ui-game::dat::play::bar::a_moved_slot_shows_its_icon_where_it_went",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.a-slot-keeps-its-icon-while-pressed-and-dragged",
+        says: "A slot pressed keeps its icon, and the copy dragged with the pointer shows the same icon.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-PRESSED"),
+        station: "auberean-ui-game::dat::play::bar::a_slot_keeps_its_icon_while_pressed_and_dragged",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.shortcuts.an-item-on-the-bar-is-named-and-shown-as-the-pack-shows-it",
@@ -426,6 +1222,48 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "ui.shortcuts.an-item-slot-shows-the-icon-its-look-makes",
+        says: "An item dragged from the pack onto an empty slot is put there; once the player's scripts hold it, the slot shows the icon the item's look makes (its layers laid together), the item's name as its tooltip, and its number.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-ITEM-ICON"),
+        station: "auberean-ui-game::dat::play::bar::an_item_slot_shows_the_icon_its_look_makes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.dragging-moves-and-clears-shortcuts",
+        says: "A slot dragged onto another moves its shortcut there and empties its own; one dragged off the bar is emptied; a skill the player no longer has trained is taken off the bar when the scripts say the skill changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-DRAG"),
+        station: "auberean-ui-game::dat::play::bar::dragging_moves_and_clears_shortcuts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.keys-and-clicks-use-slots-and-sets-move-the-view",
+        says: "A slot's key and a left click on it use the slot; a right click examines what it holds; Ctrl with a digit shows that set, whose slots the keys then use; the next and previous set keys move the view; the attack key asks to attack.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-USE"),
+        station: "auberean-ui-game::dat::play::bar::keys_and_clicks_use_slots_and_sets_move_the_view",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.the-attack-buttons-follow-the-scripts-notice",
+        says: "The war button asks the player's scripts to start attacking and the buttons go on \
+               showing the state the player is in; the scripts' notice of the attack state ghosts the \
+               button for that state.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-ATTACK-NOTICE"),
+        station: "auberean-ui-game::dat::play::standing::the_attack_buttons_follow_the_scripts_notice",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shortcuts.the-slots-show-the-scripts-icons-and-numbers",
+        says: "The shortcut bar holds ten sets of ten slots for one row; a slot holding a skill shows the icon and tooltip the player's scripts give for the slot, and its number in its corner while slots are numbered; an empty slot shows neither and cannot be dragged; a skill the player cannot use with what it carries is shadowed; the set's number shows by the arrows and the scripts are told the set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SHORTCUT-SLOTS"),
+        station: "auberean-ui-game::dat::play::bar::the_slots_show_the_scripts_icons_and_numbers",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.shortcuts.the-toolbar-from-the-scripts-names-and-shows-each-slot",
         says: "Each time a recorded session's options came again, the toolbar asked of the player's scripts holds the player's shortcuts slot for slot; every skill slot gets the skill's name and an icon, every empty slot the same empty slot's tooltip and no icon; every skill a slot holds is trained; the height is 1 to 5 rows.",
         since: RETAIL,
@@ -434,12 +1272,123 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "ui.skills.a-panel-is-laid-out-as-a-tree-and-a-skill-trained-through-its-question",
+        says: "The skill panel the examination asks for is laid out as a tree, each node at its place hung from its parent: a trained skill shows its level (marked when a buff moves it) and whether it may be raised, an untrained one whether it may be trained; the root buttons follow the race's root panels. Pressing a node asks the examination for it; the examination's skill selects it and the foot shows what training costs against the skill credits; training a skill whose training cannot be undone asks first, and yes trains it. A node opening a panel loads it, and the back node returns to the panel left.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SKILL-TREE"),
+        station: "auberean-ui-game::dat::play::skills::a_panel_is_laid_out_as_a_tree_and_a_skill_trained_through_its_question",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.skills.the-trees-scroll-bar-shows-no-thumb-while-the-whole-tree-shows",
+        says: "While the whole skill tree is in view its scroll bar is disabled and shows only its \
+               track and arrows, no thumb, from the moment the window first shows: the tree finds \
+               the scroll bar it names as the window is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TREE-SCROLLBAR"),
+        station: "auberean-ui-game::dat::play::skills::the_trees_scroll_bar_shows_no_thumb_while_the_whole_tree_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.a-fellows-row-follows-its-notices-and-keys-select-fellows",
+        says: "A fellow's row's bars follow its notices; the keys for the first nine fellows \
+               select them by place in the list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FELLOWS-ROW"),
+        station: "auberean-ui-game::dat::play::social::a_fellows_row_follows_its_notices_and_keys_select_fellows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.a-fellowship-lists-its-fellows-the-leader-first",
+        says: "A fellowship described puts the page in its fellowship state with its name and a \
+               row per fellow, the leader moved to the top and each row named with its place; the \
+               leader's buttons are ghosted for a player who does not lead; the small panel gets \
+               its rows too; each fellow but the player is put on the map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FELLOWS"),
+        station: "auberean-ui-game::dat::play::social::a_fellowship_lists_its_fellows_the_leader_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.a-place-offered-in-a-fellowship-is-asked-about",
+        says: "Someone offering the player a place in a fellowship is asked about with the \
+               leader's and the fellowship's names; yes takes the place, no turns it down with its \
+               reason.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FELLOWSHIP-OFFER"),
+        station: "auberean-ui-game::dat::play::social::a_place_offered_in_a_fellowship_is_asked_about",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.breaking-and-swearing-ask-first",
+        says: "Breaking with the player's patron asks first and, answered yes, breaks and shows \
+               the player again; an oath offered is asked about and answered; Swear, lit when the \
+               player has no patron and another player is selected, offers the player's oath.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-ALLEGIANCE-OATH"),
+        station: "auberean-ui-game::dat::play::social::breaking_and_swearing_ask_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.the-allegiance-page-shows-a-member-its-patron-and-vassals",
+        says: "The allegiance page asks for the player's profile as its tab opens; a profile shows \
+               the allegiance's name, size and monarch, the member with its patron, each vassal \
+               and the message of the day; a vassal's Down asks for that vassal's profile; a \
+               profile with no member says the player has no allegiance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-ALLEGIANCE"),
+        station: "auberean-ui-game::dat::play::social::the_allegiance_page_shows_a_member_its_patron_and_vassals",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.the-fellowship-page-asks-for-a-new-fellowship",
+        says: "With no fellowship the page offers to make one: the looting menu holds the five \
+               ways with the second chosen; Create asks for a fellowship with the name entered, \
+               the experience setting as the experience button is not lit, and the way chosen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FELLOWSHIP"),
+        station: "auberean-ui-game::dat::play::social::the_fellowship_page_asks_for_a_new_fellowship",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.the-friends-page-lists-friends-by-state",
+        says: "The chat service's friends are listed online (lit by their state) and offline under \
+               their headings; a friend's row selected lights Remove, another player selected \
+               lights Add, and each asks the chat service; the state menu sets the player's state \
+               with its emote.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FRIENDS"),
+        station: "auberean-ui-game::dat::play::social::the_friends_page_lists_friends_by_state",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.statusbar.the-effects-from-the-scripts-are-the-players-effects",
         says: "Each time a recorded session's scripts said an effect on the player changed, the effects the player's scripts list for the effects panel each have a number, a name and an icon, no number twice, and each was among the player's effects when the session started or was added by the server since, and was not taken off since.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-EFFECT-LIST"),
         station: "auberean-client-runtime::corpus::effects::the_effects_from_the_scripts_are_the_effects_the_server_gave_the_player",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "ui.statusbar.vitals-indicators-and-effects-follow-the-scripts",
+        says: "The status bar shows the vitals the player's scripts say as current over greatest, a hero's focus with its numbers; a click on a bar hides its numbers and its tooltip says a click shows them; the conflict and vitae indicators follow the scripts; each effect the scripts list shows as an icon with its name, gone once no longer listed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-STATUSBAR"),
+        station: "auberean-ui-game::dat::play::bar::vitals_indicators_and_effects_follow_the_scripts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.story.the-storys-scenes-play-over-the-screen",
+        says: "The scripts' scenes put the story over the screen; once its background has faded \
+               in the world hides and the playable scenes' steps play, each picture in the frame \
+               whose turn it is with its music, voice and subtitle, for its own time or five \
+               seconds; after the last the world shows and the scripts hear which scenes were \
+               played. Escape cuts a story short; a portal's scene waits for the player to \
+               arrive.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-STORY"),
+        station: "auberean-ui-game::dat::play::story::the_storys_scenes_play_over_the_screen",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.text.strings-take-the-elements-numbered-font-colors",
@@ -481,6 +1430,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.toolbar.a-windows-button-shows-and-hides-it-and-its-tooltip-says-which",
+        says: "A toolbar window's button shows its window and, pressed again, hides it; its tooltip \
+               is the window's string with Show or Hide as the window is; the window's close button \
+               hides it; a window does not hide another.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TOOLBAR-WINDOWS"),
+        station: "auberean-ui-game::dat::play::standing::a_windows_button_shows_and_hides_it_and_its_tooltip_says_which",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.toolbar.the-windows-keep-their-width-on-a-larger-screen",
+        says: "On a screen larger than the layout's the toolbar windows keep their width: the map, \
+               skills, quests and social windows reach down to the screen's foot, no taller than a \
+               thousand pixels; the options and inventory windows stand in the foot's corners; the \
+               examination window stays where the layout puts it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TOOLBAR-WINDOW-SIZES"),
+        station: "auberean-ui-game::dat::play::standing::the_windows_keep_their_width_on_a_larger_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.toolbar.the-wings-follow-the-mount-and-the-sales",
+        says: "The scripts' notices that the player is mounted and has a sale waiting show the \
+               dismount and consignment buttons and set their wings' states, the consignment button's \
+               alert sounding; pressed, the buttons ask to dismount and to show the sales; the \
+               notices' opposite hides them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TOOLBAR-WINGS"),
+        station: "auberean-ui-game::dat::play::standing::the_wings_follow_the_mount_and_the_sales",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.tooltip.a-tooltip-shows-once-the-pointer-rests-and-goes-when-it-leaves",
         says: "Once the pointer has rested a quarter of a second on an element that shows tooltips, \
                its tooltip template comes up in front of everything with the element's tip text, \
@@ -490,6 +1471,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-TOOLTIP"),
         station: "auberean-ui::cpu::text::a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.trade.the-trade-window-offers-accepts-and-closes",
+        says: "A trade the partner asks for puts up a question naming them, and yes opens it; the \
+               window shows the partner's name; an item dragged from the pack onto the player's \
+               list is offered (a stack asks how many); each side's offers show; accept is asked \
+               and ghosted, and a side's acceptance shows until cleared; closed by the partner, \
+               the window says so for its delay, then hides.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TRADE"),
+        station: "auberean-ui-game::dat::play::trade::the_trade_window_offers_accepts_and_closes",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.tree.a-nodes-lines-run-from-its-side-to-each-childs",

@@ -1,0 +1,43 @@
+[package]
+name = "auberean-interface"
+description = "The game's own interface in the shell: the retail screens and panels opened as the session moves, fed from the client's model, the player's input to them first, and what they ask for carried out as the client's actions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary (the shell with this
+# interface against a server double, in the September 2013 install's records).
+retail-dats = []
+
+[dependencies]
+# The scenes the screens show: the world's records, looks and character generation's choices.
+auberean-assets.workspace = true
+auberean-scene.workspace = true
+auberean-world.workspace = true
+# The graphics preferences and the overall graphics quality.
+auberean-draw.workspace = true
+auberean-primitives.workspace = true
+auberean-shell.workspace = true
+auberean-ui.workspace = true
+auberean-ui-game.workspace = true
+# The client: its model (the character list, the player and its qualities) and its actions.
+auberean-client-sdk.workspace = true
+# Float-to-integer conversion, the same on every host.
+dereth-primitives.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+auberean-testkit = { workspace = true, features = ["double"] }
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
