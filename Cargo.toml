@@ -52,6 +52,7 @@ members = [
     "core/auberean-dat",
     "core/auberean-assets",
     "core/auberean-script",
+    "core/auberean-glue",
     "core/auberean-text",
     "core/auberean-protocol",
     "core/auberean-world",
@@ -239,6 +240,7 @@ xtask = { path = "tools/xtask" }
 auberean-animation = { path = "core/auberean-animation" }
 auberean-assets = { path = "core/auberean-assets" }
 auberean-dat = { path = "core/auberean-dat" }
+auberean-glue = { path = "core/auberean-glue" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }

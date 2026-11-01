@@ -258,6 +258,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-glue"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-port",
+ "auberean-primitives",
+ "auberean-script",
+ "auberean-testkit",
+ "auberean-text",
+ "dereth-primitives",
+]
+
+[[package]]
 name = "auberean-physics"
 version = "0.0.0"
 dependencies = [
