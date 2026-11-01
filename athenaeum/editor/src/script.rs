@@ -12,14 +12,22 @@
 //! set ITEM FIELD VALUE...            set a field, the rest of the line its TOML value
 //! delete ITEM | putback ITEM | undo | redo | save | check   (check: build against the install)
 //! find WORDS                         open the template finder on a name
-//! serve | play | play-retail | stop  Yalain and a client
+//! character NAME RACE SEX START [hero]  write a playtest character's recipe and choose it
+//!                                    (START: camera, selection, left, or place KEY)
+//! as NAME | reset NAME               choose the character Play plays as; make it anew next play
+//! characters                         open or close the Characters window
+//! live | play | play-retail | stop   the editor's own Yalain, and a client in it (serve: live)
+//! restart                            start Yalain again, the character where it stands
 //! shot FILE                          save the window's picture
 //! quit
 //! ```
 //!
-//! An item is written as the panels name it, with `_` for its space (`object_person-1@77B8`).
+//! An item is written as the panels name it, with `_` for its space (`object_person-1@77B8`), and
+//! a character's name with `_` for each of its spaces.
 
 use std::path::{Path, PathBuf};
+
+use crate::characters::{Recipe, Start, RACES, SEXES};
 
 /// One step.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +50,11 @@ pub enum Step {
     Serve,
     Play(bool),
     Stop,
+    Restart,
+    Character(Recipe),
+    As(String),
+    Reset(String),
+    Characters,
     Shot(PathBuf),
     Quit,
 }
@@ -56,6 +69,35 @@ fn lb(s: &str) -> Result<u16, String> {
 
 fn num(s: &str) -> Result<f32, String> {
     s.parse().map_err(|e| format!("{s}: {e}"))
+}
+
+fn name(s: &str) -> String {
+    s.replace('_', " ")
+}
+
+/// A `character` line's recipe: its name, race, sex and start, and `hero` after them.
+fn recipe(w: &[&str]) -> Result<Recipe, String> {
+    let [n, race, sex, rest @ ..] = w else {
+        return Err("character NAME RACE SEX START [hero]".into());
+    };
+    let pick = |table: &[(&str, u32)], v: &str| {
+        table
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(v))
+            .map(|(_, x)| *x)
+            .ok_or_else(|| format!("{v}: not one of {table:?}"))
+    };
+    let mut r = Recipe::new(&name(n));
+    r.race = pick(&RACES, race)?;
+    r.sex = pick(&SEXES, sex)?;
+    let (start, rest) = match rest {
+        ["place", key, rest @ ..] => (format!("place {key}"), rest),
+        [start, rest @ ..] => ((*start).to_string(), rest),
+        [] => ("camera".to_string(), rest),
+    };
+    r.start = Start::parse(&start)?;
+    r.hero = rest == ["hero"];
+    Ok(r)
 }
 
 /// Read a script's text.
@@ -109,10 +151,15 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ["save"] => Step::Save,
             ["check"] => Step::Check,
             ["find", w @ ..] => Step::Find(w.join(" ")),
-            ["serve"] => Step::Serve,
+            ["serve" | "live"] => Step::Serve,
             ["play"] => Step::Play(false),
             ["play-retail"] => Step::Play(true),
             ["stop"] => Step::Stop,
+            ["restart"] => Step::Restart,
+            ["character", rest @ ..] => Step::Character(recipe(rest).map_err(bad)?),
+            ["as", n] => Step::As(name(n)),
+            ["reset", n] => Step::Reset(name(n)),
+            ["characters"] => Step::Characters,
             ["shot", f] => Step::Shot(dir.join(f)),
             ["quit"] => Step::Quit,
             _ => return Err(bad(format!("not a step: {line}"))),

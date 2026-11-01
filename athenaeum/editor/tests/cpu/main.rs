@@ -1,9 +1,10 @@
-//! Behaviour: none (checks the world builder's editor without a window: where things fall on the screen, its scripts, and how it starts Yalain)
+//! Behaviour: none (checks the world builder's editor without a window: where things fall on the screen, its scripts, its playtest characters, and how it starts and talks to Yalain)
+
+mod play;
 
 use std::path::Path;
 
 use athenaeum_editor::app::{badge, kind_word, parse_id};
-use athenaeum_editor::live::{self, Programs};
 use athenaeum_editor::script::{parse, Step};
 use athenaeum_editor::view::{global, hit_ground, local, View};
 use dereth_builder::camera::FlyCamera;
@@ -131,38 +132,6 @@ fn a_script_reads_its_steps_and_runs_them_up_to_each_wait_or_shot() {
         Some(&Step::Shot(Path::new("shots").join("a.png")))
     );
     assert_eq!(s.due(2.6), [Step::Save, Step::Quit]);
-}
-
-#[test]
-fn yalain_is_started_on_the_world_over_its_base_keeping_nothing() {
-    let p = Programs {
-        port: 9300,
-        ..Programs::default()
-    };
-    let entry = live::Entry {
-        cell: 0x77B8_0005,
-        at: [6.0, 86.0, 183.0],
-        heading: 90.0,
-    };
-    let a = live::server_args(
-        &p,
-        Path::new("w"),
-        Some(Path::new("db")),
-        Path::new("install"),
-        entry,
-    );
-    let at = |flag: &str| a.iter().position(|x| x == flag).map(|i| a[i + 1].as_str());
-    assert_eq!(at("--world-db"), Some("w"));
-    assert_eq!(at("--world-base"), Some("db"));
-    assert_eq!(at("--dats"), Some("install"));
-    assert_eq!(at("--bind"), Some("127.0.0.1"));
-    assert_eq!(at("--login-port"), Some("9300"));
-    assert_eq!(at("--world-port"), Some("9302"));
-    assert_eq!(at("--add-character"), Some("builder:Builder:1:4096"));
-    assert_eq!(at("--place"), Some("builder:Builder:77B80005:6:86:183:90"));
-    assert!(a.iter().any(|x| x == "--memory"));
-    let no_base = live::server_args(&p, Path::new("w"), None, Path::new("install"), entry);
-    assert!(!no_base.iter().any(|x| x == "--world-base"));
 }
 
 #[test]

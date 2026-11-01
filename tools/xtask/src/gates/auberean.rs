@@ -6,7 +6,7 @@
 //! | `auberean-dat` | the installs | every crate's `dat` binary but the script machine's: the container, the decoders over every record, the world, bodies that move and animate, our client on our server, the desktop shell against a server double, the interface, a world builder's world over the world database |
 //! | `auberean-script` | the installs | the script machine's `dat` binaries: the September 2013 library, its saved states, its code run with every native |
 //! | `auberean-corpus` | the installs and the capture index | every `corpus` binary: every recorded message and script call, bodies and looks against the recordings, the recorded logins replayed through the client and against the server |
-//! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback |
+//! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback; the world builder's: its playtest with the server and our client as programs (it builds them first) |
 //! | `auberean-network` | the installs and the first game's data files | the test kit's `network` binary: the Dereth Network end to end, the hub, a first-game world and two of this game's worlds as programs, with both games' clients; it builds those programs first |
 //! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw |
 //!
@@ -98,8 +98,11 @@ pub const TIERS: &[Tier] = &[
         name: "auberean-live",
         title: "Asheron's Call 2 on loopback",
         reads: &[Data::Installs],
-        builds: &[],
-        runs: &[("yalain", "live", "live")],
+        builds: &["yalain", "auberean-client"],
+        runs: &[
+            ("yalain", "live", "live"),
+            ("athenaeum-editor", "live", "live"),
+        ],
     },
     Tier {
         name: "auberean-network",

@@ -29,12 +29,15 @@
 //! client's `--dev-script`, say). Screenshots (F12, and a script's) go to `--shots`, by
 //! default the world's `build/shots`. A script (`script.rs`) plays editor steps as frames pass.
 //!
+//! A world whose base is not in the per-user cache yet has it fetched first, by the Yalain the
+//! editor plays with (`yalain world fetch`), as the server would need it too.
+//!
 //! `athenaeum-editor --version` prints the version, and the commit and target a release build was
 //! made from, and `--help` every option ([`USAGE`]). A release build is a windowed program on
 //! Windows, with no console of its own.
 //!
-//! **Must never** write a base database or an install: it writes only the world's pack, its build
-//! folder and its screenshots.
+//! **Must never** write a base database or an install: it writes only the world's pack, its
+//! recipes, its build folder, its playtest folder and its screenshots.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -87,7 +90,8 @@ athenaeum-editor <world> --dats <install> [options]
   --yalain EXE          the Yalain that plays the world (default: the one beside this program)
   --server-dats DIR     the install Yalain reads (default: --dats; give a copy no client runs
                         from when the retail client plays)
-  --port P              Yalain's login port; the world's is two above (default 9300)
+  --port P              the first login port tried for Yalain, the first free one taken; the
+                        world's is two above (default 9300)
   --client EXE          Auberean, to play the world with (default: the one beside this program)
   --client-dats DIR     the install Auberean reads (default: --server-dats)
   --retail EXE          the retail client, run from its own folder, to play the world with
@@ -266,7 +270,16 @@ impl App<'_> {
                 Step::Find(text) => e.find(&text),
                 Step::Serve => e.serve(),
                 Step::Play(retail) => e.play(retail),
-                Step::Stop => e.live.stop_all(),
+                Step::Stop => e.stop_playing(),
+                Step::Restart => e.restart(),
+                Step::Character(r) => {
+                    if let Err(err) = e.keep_character(&r) {
+                        e.status = err;
+                    }
+                }
+                Step::As(name) => e.character = name,
+                Step::Reset(name) => e.reset_character(&name),
+                Step::Characters => e.characters_open = !e.characters_open,
                 Step::Shot(p) => self.shot_next = Some(p),
                 Step::Quit => self.quit = true,
             }
@@ -496,6 +509,48 @@ fn start_camera(o: &Options, session: &Session, scene: &mut scene::Scene<'_>) ->
     FlyCamera::new(Vec3::new(g[0], g[1] - 30.0, ground + 16.0), 0.0, -0.42)
 }
 
+/// Fetch the release of the world database a world lies over into the per-user cache when it is
+/// not there, with the Yalain the editor plays with, as `yalain world fetch` does.
+fn fetch_base(world_dir: &Path, yalain: Option<&Path>) -> Result<(), String> {
+    let Ok(text) = std::fs::read_to_string(world_dir.join("world.toml")) else {
+        return Ok(());
+    };
+    let mut files = yalain_world_db::Files::new();
+    files.insert("world.toml".into(), text);
+    let Some(base) = yalain_world_db::rows::read_partly(&files)
+        .0
+        .and_then(|db| db.world.base)
+    else {
+        return Ok(());
+    };
+    let tag = base
+        .version
+        .unwrap_or_else(|| yalain_world_db::release::PINNED_TAG.to_string());
+    if world::release_dir(&tag).is_some_and(|d| d.join("world.toml").is_file()) {
+        return Ok(());
+    }
+    let Some(yalain) = yalain else {
+        return Ok(());
+    };
+    tracing::info!(tag, "fetching the world database the world lies over");
+    let mut fetch = std::process::Command::new(yalain);
+    fetch
+        .args(["world", "fetch", "--version", &tag])
+        .stdin(std::process::Stdio::null());
+    athenaeum_editor::stop::windowless(&mut fetch);
+    let out = fetch
+        .output()
+        .map_err(|e| format!("{}: {e}", yalain.display()))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the world database {tag} could not be fetched: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
 fn run() -> Result<(), String> {
     let o = options()?;
     tracing_subscriber::fmt()
@@ -522,6 +577,9 @@ fn run() -> Result<(), String> {
         .map(std::path::absolute)
         .transpose()
         .map_err(|e| e.to_string())?;
+    if base.is_none() {
+        fetch_base(&world_dir, o.programs.yalain.as_deref())?;
+    }
     let opened = world::open(&world_dir, base.as_deref())?;
     let base_dir = opened.base_dir.clone();
     tracing::info!(

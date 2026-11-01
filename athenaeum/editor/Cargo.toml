@@ -9,6 +9,11 @@ publish.workspace = true
 # One test target per tier, listed at the bottom; a stray tests/*.rs cannot become another.
 autotests = false
 
+[features]
+# Tier switch only: no code is gated on it. It selects the `live` test binary, which plays a world
+# on Yalain and Auberean as programs, with the end-of-retail install and the world database.
+live = []
+
 [build-dependencies]
 # Links the application icon (`assets/athenaeum.ico`) into the executable, where Explorer and the
 # task bar read it before any of our code runs.
@@ -43,15 +48,38 @@ wgpu = "30"
 pollster.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 png.workspace = true
+# The playtest characters' recipes.
+toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 
-[lints]
-workspace = true
+# NOT `[lints] workspace = true`: the workspace forbids unsafe code, and `forbid` cannot be lifted
+# by an inner `#[allow]`. Stopping the server as its operator does takes four kernel32 calls on
+# Windows (Ctrl-Break to its process group), so the crate denies unsafe code and allows it in that
+# one module (`src/stop.rs`), as `dereth-console` and `dereth-clipboard` do. The rest is the
+# workspace's.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["fs", "test-support"] }
+# The program the stop's test asks to stop: this test binary run again, hearing the ask as the
+# server does.
+ctrlc = { workspace = true, features = ["termination"] }
 
 [[test]]
 name = "cpu"
 path = "tests/cpu/main.rs"
+
+[[test]]
+name = "live"
+path = "tests/live/main.rs"
+required-features = ["live"]

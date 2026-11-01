@@ -12,3 +12,4 @@ see, not how it was done.
 - New worlds over the world database: `athenaeum new`, `build`, `validate` and `facts`.
 - New editor: place, move, turn and remove people, objects, camps and places, then play them.
 - Each download carries Yalain and Auberean, so a world can be served and played from the editor.
+- New Live and playtest characters: play the world as you edit it.

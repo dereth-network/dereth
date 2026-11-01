@@ -10,7 +10,8 @@
 //!
 //! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
 //! or a place, and its template) and the button that places it at the next click on the ground;
-//! the moment of the day; and play (Yalain serving the world, a client in it). On the left, the
+//! the moment of the day; and play ([`play`]: the playtest character, Characters, Live, Play,
+//! Restart). On the left, the
 //! rows near the camera, each with the letter of where it came from (C recorded sessions, D the
 //! data files, R a rule, A a person), and the database's rows the world takes away. On the right,
 //! the selected row: where it came from and what it was, its fields, which are changed there.
@@ -29,9 +30,12 @@ use yalain_world_db::compile::{rotation_heading, Install};
 use yalain_world_db::rows::{ObjectKind, Prov, Row, Source};
 use yalain_world_db::{layer, Problem};
 
+use crate::characters::Recipe;
 use crate::live::{self, Live, Programs};
 use crate::scene::{Scene, Standing};
 use crate::view::{self, View};
+
+pub mod play;
 
 /// How far from the camera rows are drawn as bodies and listed, meters.
 pub const NEAR: f32 = 160.0;
@@ -166,6 +170,19 @@ pub struct Editor<'w> {
     build: Option<(u64, Vec<Problem>, Vec<Problem>, String)>,
     /// How many problems the list showed last frame.
     problems_seen: usize,
+    /// The world's playtest characters, the one Play plays as, and recipes that do not read.
+    pub recipes: Vec<Recipe>,
+    pub character: String,
+    recipe_problems: Vec<String>,
+    /// Whether the Characters window is open, and the name typed for a new character.
+    pub characters_open: bool,
+    new_name: String,
+    /// The world's revision last published to the editor's own Yalain.
+    published: u64,
+    /// Whether a change the server takes only when it starts again starts it again at once.
+    pub restart_changes: bool,
+    /// The changed tables that wait for Restart, when it does not start again at once.
+    waiting: Vec<String>,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -280,7 +297,7 @@ impl<'w> Editor<'w> {
         camera: FlyCamera,
         programs: Programs,
     ) -> Self {
-        Self {
+        let mut e = Self {
             session,
             install,
             scene,
@@ -314,7 +331,17 @@ impl<'w> Editor<'w> {
             finding: None,
             build: None,
             problems_seen: 0,
-        }
+            recipes: Vec::new(),
+            character: play::FIRST.to_string(),
+            recipe_problems: Vec::new(),
+            characters_open: false,
+            new_name: String::new(),
+            published: 0,
+            restart_changes: true,
+            waiting: Vec::new(),
+        };
+        e.read_characters();
+        e
     }
 
     /// The camera's view of the window.
@@ -482,26 +509,10 @@ impl<'w> Editor<'w> {
         }
     }
 
-    /// Save the world; when Yalain serves it, start it again on what was saved.
+    /// Save the world. (The editor's own Yalain has every change already, saved or not.)
     pub fn save(&mut self) {
         match self.session.save() {
-            Ok(written) => {
-                self.status = format!("saved {} files", written.len());
-                if self.live.serving() {
-                    let entry = self.entry_point();
-                    let base = self.base_dir();
-                    let run = self.run_dir();
-                    let world = self.session.dir().to_path_buf();
-                    if let Err(e) =
-                        self.live
-                            .reload(&self.programs, &world, base.as_deref(), &run, entry)
-                    {
-                        self.status = e;
-                    } else {
-                        self.status.push_str("; Yalain started again on them");
-                    }
-                }
-            }
+            Ok(written) => self.status = format!("saved {} files", written.len()),
             Err(e) => self.status = e,
         }
     }
@@ -631,17 +642,6 @@ impl<'w> Editor<'w> {
         }
     }
 
-    /// The base's folder, as Yalain is told it.
-    fn base_dir(&self) -> Option<PathBuf> {
-        self.base.clone()
-    }
-
-    /// The folder Yalain runs in: the world's build folder's `live`.
-    #[must_use]
-    pub fn run_dir(&self) -> PathBuf {
-        self.session.dir().join("build").join("live")
-    }
-
     /// Where a player enters: on the ground under the camera, facing as it faces.
     pub fn entry_point(&mut self) -> live::Entry {
         let p = self.camera.position;
@@ -652,35 +652,6 @@ impl<'w> Editor<'w> {
             cell: yalain_world_db::compile::outdoor_cell(lb, at[0], at[1]),
             at: [at[0], at[1], z + 0.5],
             heading: v.heading(),
-        }
-    }
-
-    /// Start Yalain on the world as saved.
-    pub fn serve(&mut self) {
-        if self.session.unsaved() {
-            self.status = "save first: Yalain serves the world as saved".into();
-            return;
-        }
-        let entry = self.entry_point();
-        let (base, run) = (self.base_dir(), self.run_dir());
-        let world = self.session.dir().to_path_buf();
-        match self
-            .live
-            .serve(&self.programs, &world, base.as_deref(), &run, entry)
-        {
-            Ok(()) => self.status.clone_from(&self.live.said),
-            Err(e) => self.status = e,
-        }
-    }
-
-    /// Start a client into Yalain (starting Yalain first when it is not serving).
-    pub fn play(&mut self, retail: bool) {
-        if !self.live.serving() {
-            self.serve();
-        }
-        if self.live.serving() {
-            self.live.play_when_ready(retail);
-            self.status = "a client starts once Yalain listens".into();
         }
     }
 
@@ -987,11 +958,7 @@ impl<'w> Editor<'w> {
     /// The panels.
     #[allow(clippy::too_many_lines)] // the editor's chrome, panel by panel
     pub fn panels(&mut self, ui: &mut egui::Ui) {
-        match self.live.tick(&self.programs) {
-            Ok(true) => self.status.clone_from(&self.live.said),
-            Ok(false) => {}
-            Err(e) => self.status = e,
-        }
+        self.live_frame();
         let serving = self.live.serving();
         egui::Panel::top(egui::Id::new("top")).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -1075,29 +1042,7 @@ impl<'w> Editor<'w> {
                 ui.label("Time");
                 ui.add(egui::Slider::new(&mut self.scene.time_of_day, 0.0..=1.0).show_value(false));
                 ui.separator();
-                if serving {
-                    if ui.button("Stop").clicked() {
-                        self.live.stop_all();
-                        self.status = "Yalain stopped".into();
-                    }
-                } else if ui
-                    .button("Serve")
-                    .on_hover_text("Yalain serves the world as saved, on this machine")
-                    .clicked()
-                {
-                    self.serve();
-                }
-                if self.programs.client.is_some()
-                    && ui
-                        .button("Play")
-                        .on_hover_text("our client, standing where the camera is")
-                        .clicked()
-                {
-                    self.play(false);
-                }
-                if self.programs.retail.is_some() && ui.button("Play retail").clicked() {
-                    self.play(true);
-                }
+                self.play_bar(ui);
             });
         });
         egui::Panel::bottom(egui::Id::new("status")).show(ui, |ui| self.status_panel(ui, serving));
@@ -1111,6 +1056,7 @@ impl<'w> Editor<'w> {
             .show(ui, |ui| self.inspector(ui));
         let ctx = ui.ctx().clone();
         self.finder(&ctx);
+        self.characters_window(&ctx);
     }
 
     fn status_panel(&mut self, ui: &mut egui::Ui, serving: bool) {
@@ -1194,6 +1140,9 @@ impl<'w> Editor<'w> {
                     egui::RichText::new(&self.live.said)
                         .color(egui::Color32::from_rgb(140, 220, 140)),
                 );
+                if self.status == self.live.said {
+                    return;
+                }
                 ui.separator();
             }
             ui.label(&self.status);
