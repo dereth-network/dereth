@@ -152,6 +152,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.inside.carried-lights-join-the-lights-a-draw-keeps-by-their-weight",
+        says: "The lights objects carry join the lights a draw keeps when they reach it, all sorted                by their weight where the draw stands, strongest first; a draw none reaches keeps                its own in their order. The device and lit particles take a carried light at its                place in the draw's block with its color times its intensity as it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CARRIED-LIGHTS-KEPT"),
+        station: "auberean-world::cpu::inside::carried_lights_join_the_lights_a_draw_keeps_by_their_weight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.inside.the-halls-light-and-a-cells-lit-vertices",
         says: "Inside there is no sun overhead: a block's interior ambient light and linear interior \
                fog come from its information, its point and sky lights from its light record; a \

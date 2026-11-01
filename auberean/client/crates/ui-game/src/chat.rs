@@ -1068,6 +1068,9 @@ pub struct ChatUi {
     asked: Vec<Request>,
     reload_chat: Option<u64>,
     reload_options: Option<u64>,
+    /// The lines that came after the scripts said the options changed, before the windows read
+    /// them again: each window takes them by what it shows once it has.
+    held: Vec<(u32, String)>,
 }
 
 impl ChatUi {
@@ -1092,6 +1095,7 @@ impl ChatUi {
             asked: Vec::new(),
             reload_chat: None,
             reload_options: None,
+            held: Vec::new(),
         };
         me.init(ui);
         me
@@ -1607,14 +1611,24 @@ impl Child for ChatUi {
 
     /// The lines the game shows, to the panel and each window; the options read again where
     /// they wait; then what the windows heard.
+    ///
+    /// The scripts change the player's options and write lines in one go (as a character enters:
+    /// its options, then the lines about the services it could not reach), and the windows read
+    /// the options as the scripts left them: a line that comes while the options wait to be read
+    /// again is held until they have been, and each window then takes it by what it shows.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
         for (kind, text) in view.lines {
             self.display_string_info(*kind, text);
-            for w in &mut self.windows {
-                w.display_string_info(*kind, text);
-            }
+            self.held.push((*kind, text.clone()));
         }
         self.reload(ui, view);
+        if self.reload_chat.is_none() && self.reload_options.is_none() {
+            for (kind, text) in std::mem::take(&mut self.held) {
+                for w in &mut self.windows {
+                    w.display_string_info(kind, &text);
+                }
+            }
+        }
         for i in 0..self.windows.len() {
             for m in crate::camera::take(ui, self.windows[i].frame) {
                 self.window_heard(ui, i, &m, out);

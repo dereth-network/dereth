@@ -467,6 +467,7 @@ pub fn decal_batches(
                 cull: Cull::Never,
                 mesh: 0,
                 casts_volume: false,
+                kept_by: None,
             });
         }
     }

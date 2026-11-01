@@ -215,6 +215,11 @@ impl HeldObjects {
         }
     }
 
+    /// The effects held object `id` plays, when it plays any.
+    pub(crate) fn effects_of(&self, id: u64) -> Option<&crate::fx::BodyFx> {
+        self.held.get(&id)?.effects.as_ref()
+    }
+
     /// Held object `id`'s own descriptions, when it keeps them.
     pub(crate) fn dress(&self, id: u64) -> Option<&ObjectLook> {
         self.held.get(&id)?.dress.as_ref()

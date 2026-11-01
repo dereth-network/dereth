@@ -301,6 +301,50 @@ pub struct PlacedLight {
     pub light: CarriedLight,
 }
 
+impl PlacedLight {
+    /// The light as it stands at `now`, as the frame's lights take it: a point light in its
+    /// object's cell, at its place in that cell's block (`home` the block whose frame its place is
+    /// in, blocks `block_length` long); its range taken now and its intensity taken now times how
+    /// much of it shows (rolling `dice` for any noise), its specular color times that too; its most
+    /// range and most intensity (times how much shows) from its waveforms' bounds, for how far and
+    /// how strongly it may light what is near it.
+    // D2-06524, D2-13333, D2-13324, D2-13325
+    #[must_use]
+    pub fn standing(
+        &self,
+        home: (i32, i32),
+        block_length: f32,
+        now: f64,
+        dice: &Random,
+    ) -> auberean_world::inside::Light {
+        let c = &self.light;
+        let cell_block = (
+            i32::try_from(self.cell >> 24).unwrap_or(0),
+            i32::try_from((self.cell >> 16) & 0xFF).unwrap_or(0),
+        );
+        #[allow(clippy::cast_precision_loss)] // a few blocks apart
+        let origin = Vec3::new(
+            self.origin.x - (cell_block.0 - home.0) as f32 * block_length,
+            self.origin.y - (cell_block.1 - home.1) as f32 * block_length,
+            self.origin.z,
+        );
+        let o = self.opacity;
+        let s = c.light.specular;
+        auberean_world::inside::Light {
+            cell: self.cell,
+            origin,
+            kind: auberean_world::inside::LightKind::Point,
+            intensity: auberean_world::wave::value(&c.intensity, now, dice) * o,
+            range: auberean_world::wave::value(&c.range, now, dice).max(0.0002),
+            specular: Color::new(s.r * o, s.g * o, s.b * o, s.a),
+            flicker: None,
+            most_intensity: Some(c.intensity.upper_bound().unwrap_or(1.0) * o),
+            most_range: c.range.upper_bound().unwrap_or(0.0),
+            ..c.light.clone()
+        }
+    }
+}
+
 impl CarriedLight {
     /// How much of it shows `now` for an object at opacity `opacity`: all of it while it lives as
     /// long as its object, or fades in no time; else it fades in over its fade time (at most its
@@ -489,7 +533,7 @@ impl ObjectEffects {
                     self.repulse_fx(systems, &r, at);
                 }
                 if let Some((true, l)) = &node.light {
-                    self.light_fx(l, node.bone_offset, at.now);
+                    self.light_fx(systems, l, node.bone_offset, at.now);
                 }
                 continue;
             }
@@ -527,9 +571,19 @@ impl ObjectEffects {
     }
 
     /// Place the light an effect names on the object at the effect's offset (none: its origin),
-    /// made at `now` from the light properties of its entity.
+    /// made at `now` from the light properties of its entity; none while the light source effects
+    /// preference is off.
     // D2-06902, D2-06665
-    fn light_fx(&mut self, l: &auberean_assets::fx::EffectLight, offset: Option<Vec3>, now: f64) {
+    fn light_fx(
+        &mut self,
+        systems: &ParticleSystems,
+        l: &auberean_assets::fx::EffectLight,
+        offset: Option<Vec3>,
+        now: f64,
+    ) {
+        if !systems.light_sources() {
+            return;
+        }
         let props = l.entity.properties.clone().unwrap_or_default();
         let (light, range, intensity) =
             auberean_world::inside::Light::of_properties(0, Vec3::ZERO, &props);
@@ -550,10 +604,25 @@ impl ObjectEffects {
     /// have faded.
     // D2-06524
     pub fn lights(&mut self, place: &Mat4, cell: u32, now: f64, opacity: f32) -> Vec<PlacedLight> {
+        self.let_go_of_spent_lights(now);
+        self.lights_now(place, cell, now, opacity)
+    }
+
+    /// The lights its effects placed on the object whose lifespan has run out by `now` are let go
+    /// of.
+    // D2-06524
+    pub fn let_go_of_spent_lights(&mut self, now: f64) {
         self.lights
             .retain(|l| l.lifespan == 0.0 || f64::from(l.lifespan) + l.created > now);
+    }
+
+    /// The lights its effects placed on the object, as [`Self::lights`] gives them, leaving out
+    /// those spent rather than letting go of them.
+    #[must_use]
+    pub fn lights_now(&self, place: &Mat4, cell: u32, now: f64, opacity: f32) -> Vec<PlacedLight> {
         self.lights
             .iter()
+            .filter(|l| l.lifespan == 0.0 || f64::from(l.lifespan) + l.created > now)
             .map(|l| {
                 let mut light = l.clone();
                 light.light.kind = auberean_world::inside::LightKind::Point;
@@ -729,7 +798,7 @@ impl ObjectEffects {
                 }
             }
             if let Some((true, l)) = &node.light {
-                self.light_fx(l, node.bone_offset, at.now);
+                self.light_fx(systems, l, node.bone_offset, at.now);
             }
             state.end = calc_duration(records, &node, looping, script).map(|d| at.now + d);
         }

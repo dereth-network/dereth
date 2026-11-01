@@ -120,6 +120,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.effects.a-placed-light-stands-in-its-own-cells-block",
+        says: "A light an effect placed is taken by the frame's lights as a point light in its                object's cell at its place in that cell's own block, its range as it stands and its                intensity and specular color times how much of it shows; how far and how strongly it                may light anything come from its waveforms' bounds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHT-STANDING"),
+        station: "auberean-draw::cpu::lights::a_placed_light_stands_in_its_own_cells_block",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.an-appearances-effects-play-in-place-of-its-tables",
         says: "The effects an object's appearance lists for an effect id (each appearance atom's \
                effects for every id it names, gathered in order of their first ids, an atom of \
@@ -155,6 +163,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.carried-lights-light-what-stands-near-them-outdoors",
+        says: "Outdoors the lights objects carry light the objects and bodies near them beside the                sun: the town's torches at night leave the frame brighter in many places and darker                in none, and a human standing by one takes it and throws its shadow from it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHTS-OUTDOORS"),
+        station: "auberean-gpu::gpu::shadows::carried_lights_light_what_stands_near_them_outdoors",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.effects.no-lights-while-the-light-source-effects-preference-is-off",
+        says: "With the light source effects preference off the effects place no lights at all, so                the objects made then light nothing and lay no pool; turned on, it gives lights only                to what is made after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-EFFECT-LIGHTS-PREFERENCE"),
+        station: "auberean-draw::dat::effects::no_lights_while_the_light_source_effects_preference_is_off",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.placed-objects-torches-light-the-land",
         says: "The objects placed with the world place the lights their startup effects name, as \
                point lights at the effects' offsets: the town's torches are orange lights of range \
@@ -172,6 +196,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FRAME-ORDER"),
         station: "auberean-draw::dat::effects::the_arcane_fires_flames_are_drawn_after_the_water",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.inside.a-carried-light-lights-what-stands-near-it-and-throws-shadows-away",
+        says: "Inside, a light an object carries joins the lights the rooms and objects within its                reach keep (sorted by their weight where each stands), shining its color times its                intensity, and they go back to their own once it is gone; a body beside it takes it                too and throws its shadow away from it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHTS"),
+        station: "auberean-draw::dat::inside::a_carried_light_lights_what_stands_near_it_and_throws_shadows_away",
         tier: Tier::Dat,
     },
     behaviour! {

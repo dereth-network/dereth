@@ -108,7 +108,7 @@ fn played_in_frames(
         types.push(CLIENT_POSITION);
     }
     let mut c = client(data);
-    let mut scene = Scene::new(world);
+    let mut scene = Scene::new(world, &auberean_draw::quality::Graphics::first_run());
     let intent = Intent::default();
     let mut next = f64::NEG_INFINITY;
     let mut entered: Option<f64> = None;

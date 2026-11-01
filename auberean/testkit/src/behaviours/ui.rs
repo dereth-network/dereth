@@ -160,6 +160,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.the-lines-written-with-the-options-show-by-those-options",
+        says: "As a character enters, its scripts set its options and write the lines about what it could not reach in one go; the windows take those lines by the options the scripts left, whether the client read them before the frame or only at the next: the first window shows the errors and the standard lines, and the errors stand in the line of messages at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-ENTRY-LINES"),
+        station: "auberean-ui-game::dat::play::chat::the_lines_written_with_the_options_show_by_those_options",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.the-lock-holds-the-log-and-the-slider-fades-the-window",
         says: "The lock button locks the log against new lines until pressed again; the options button shows the opacity slider, which fades the whole window and keeps the opacity with the player's options when let go.",
         since: RETAIL,

@@ -438,15 +438,29 @@ fn inside(id: u32) -> bool {
     id & 0xFFFF >= 0x100
 }
 
-/// Of the lights objects carry with them (`carried`: an effect's light goes with its object), those
-/// that reach a draw in cell `cell` (its full id) at `at` in its block's frame, reaching `radius`
-/// about it: a point light only on the same side (inside or out) as the draw, a sky light only for
-/// a draw inside, a directional light always; each within its most range and the radius, its place
-/// taken across the blocks between their cells. By their place in `carried`, in its order.
+/// Where the frame of the block of cell `from` (a full id) stands in the frame of the block of
+/// cell `to`.
+#[must_use]
+pub fn block_offset(to: u32, from: u32) -> Vec3 {
+    let block = |id: u32| (f64::from(id >> 24), f64::from((id >> 16) & 0xFF));
+    let ((fx, fy), (tx, ty)) = (block(to), block(from));
+    #[allow(clippy::cast_possible_truncation)] // a few blocks apart
+    Vec3::new(
+        ((tx - fx) * f64::from(BLOCK_SIDE)) as f32,
+        ((ty - fy) * f64::from(BLOCK_SIDE)) as f32,
+        0.0,
+    )
+}
+
+/// Of the lights objects carry with them (`carried`: an effect's light goes with its object, its
+/// place in its own cell's block), those that reach a draw in cell `cell` (its full id) at `at` in
+/// its block's frame, reaching `radius` about it: a point light only on the same side (inside or
+/// out) as the draw, a sky light only for a draw inside, a directional light always; each within
+/// its most range and the radius, its place taken across the blocks between their cells. By their
+/// place in `carried`, in its order.
 // D2-10619
 #[must_use]
 pub fn carried_in_reach(carried: &[Light], cell: u32, at: Vec3, radius: f32) -> Vec<usize> {
-    let block = |id: u32| (f64::from(id >> 24), f64::from((id >> 16) & 0xFF));
     carried
         .iter()
         .enumerate()
@@ -456,16 +470,148 @@ pub fn carried_in_reach(carried: &[Light], cell: u32, at: Vec3, radius: f32) -> 
             LightKind::Directional => true,
         })
         .filter(|(_, l)| {
-            let ((fx, fy), (tx, ty)) = (block(cell), block(l.cell));
-            #[allow(clippy::cast_possible_truncation)] // a few blocks apart
-            let off = Vec3::new(
-                ((tx - fx) * f64::from(BLOCK_SIDE)) as f32,
-                ((ty - fy) * f64::from(BLOCK_SIDE)) as f32,
-                0.0,
-            );
-            length(sub(add(l.origin, off), at)) < l.most_range + radius
+            length(sub(add(l.origin, block_offset(cell, l.cell)), at)) < l.most_range + radius
         })
         .map(|(k, _)| k)
+        .collect()
+}
+
+/// Whether any of `carried` reaches a draw in cell `cell` at `at` reaching `radius` about it (see
+/// [`carried_in_reach`]).
+#[must_use]
+pub fn any_carried_in_reach(carried: &[Light], cell: u32, at: Vec3, radius: f32) -> bool {
+    carried.iter().any(|l| {
+        let side = match l.kind {
+            LightKind::Point => inside(l.cell) == inside(cell),
+            LightKind::Sky => inside(cell),
+            LightKind::Directional => true,
+        };
+        side && length(sub(add(l.origin, block_offset(cell, l.cell)), at)) < l.most_range + radius
+    })
+}
+
+/// A light a draw keeps: one of its block's (by its place in the block's lights) or one an
+/// object carries (by its place in the frame's carried lights).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kept {
+    Block(usize),
+    Carried(usize),
+}
+
+/// The lights a draw keeps once the lights objects carry are taken in: `kept`, the lights of the
+/// block (`lights`) it keeps (see [`SceneLights::keep`]), then those of `carried` that reach it (see
+/// [`carried_in_reach`]: the draw in cell `cell` at `at` in its block's frame, reaching `radius`);
+/// when any does, all of them sorted by their weight at the draw, strongest first (the original's
+/// sort, see [`SceneLights::keep`]). A draw no carried light reaches keeps what it kept.
+// D2-10630, D2-10619, D2-10628
+#[must_use]
+pub fn keep_carried(
+    lights: Option<&BlockLights>,
+    kept: &[usize],
+    carried: &[Light],
+    cell: u32,
+    at: Vec3,
+    radius: f32,
+    outside: &Outside,
+) -> Vec<Kept> {
+    let mut all: Vec<Kept> = kept.iter().map(|&k| Kept::Block(k)).collect();
+    let reach = carried_in_reach(carried, cell, at, radius);
+    if reach.is_empty() {
+        return all;
+    }
+    all.extend(reach.into_iter().map(Kept::Carried));
+    let weight = |k: &Kept| match *k {
+        Kept::Block(i) => lights.map_or(0.0, |b| {
+            let l = &b.lights[i];
+            BlockLights::weight_of(l, length(sub(l.origin, at)), outside)
+        }),
+        Kept::Carried(i) => {
+            let l = &carried[i];
+            let d = length(sub(add(l.origin, block_offset(cell, l.cell)), at));
+            BlockLights::weight_of(l, d, outside)
+        }
+    };
+    let w: Vec<(Kept, f32)> = all.iter().map(|k| (*k, weight(k))).collect();
+    let at_of = |k: &Kept| w.iter().find(|(x, _)| x == k).map_or(0.0, |(_, v)| *v);
+    original_sort(&mut all, |a, b| at_of(b) < at_of(a));
+    all
+}
+
+/// A light an object carries as the device takes it for a draw in cell `cell`: its place in the
+/// draw's block's frame, its color times its intensity, its specular color, its range.
+fn carried_device(l: &Light, cell: u32) -> DeviceLight {
+    DeviceLight {
+        origin: add(l.origin, block_offset(cell, l.cell)),
+        diffuse: Color::new(
+            l.color.r * l.intensity,
+            l.color.g * l.intensity,
+            l.color.b * l.intensity,
+            1.0,
+        ),
+        specular: l.specular,
+        range: l.range,
+        flicker: None,
+    }
+}
+
+/// The first `points` of the lights `kept` (see [`keep_carried`]) that are not directional, as the
+/// device takes them for a draw in cell `cell` (see [`BlockLights::device_lights`]; a carried light
+/// shines its color times its intensity as it stands).
+// D2-13334, D2-10630
+#[must_use]
+pub fn device_lights_kept(
+    lights: Option<&BlockLights>,
+    kept: &[Kept],
+    carried: &[Light],
+    cell: u32,
+    outside: &Outside,
+    points: usize,
+) -> Vec<DeviceLight> {
+    kept.iter()
+        .filter_map(|k| match *k {
+            Kept::Block(i) => {
+                let b = lights?;
+                let l = &b.lights[i];
+                (l.kind != LightKind::Directional).then(|| b.device_light(i, l, outside))
+            }
+            Kept::Carried(i) => {
+                let l = &carried[i];
+                (l.kind != LightKind::Directional).then(|| carried_device(l, cell))
+            }
+        })
+        .take(points)
+        .collect()
+}
+
+/// The lights `kept` about a particle system (see [`keep_carried`]) as its lit particles take
+/// them, the first [`PARTICLE_LIGHTS`] (see [`BlockLights::particle_lights`]): a carried light its
+/// color times its intensity as it stands, fading over its range.
+// D2-13332, D2-10631
+#[must_use]
+pub fn particle_lights_kept(
+    lights: Option<&BlockLights>,
+    kept: &[Kept],
+    carried: &[Light],
+    cell: u32,
+) -> Vec<ParticleLight> {
+    kept.iter()
+        .take(PARTICLE_LIGHTS)
+        .filter_map(|k| match *k {
+            Kept::Block(i) => {
+                let b = lights?;
+                let l = &b.lights[i];
+                (!l.sky()).then(|| b.particle_light(i, l))
+            }
+            Kept::Carried(i) => {
+                let d = carried_device(&carried[i], cell);
+                Some(ParticleLight {
+                    origin: d.origin,
+                    color: d.diffuse,
+                    range: (carried[i].kind == LightKind::Point).then_some(d.range),
+                    flicker: None,
+                })
+            }
+        })
         .collect()
 }
 
@@ -823,14 +969,19 @@ impl BlockLights {
             .map(|&k| (k, &self.lights[k]))
             .filter(|(_, l)| l.kind != LightKind::Directional)
             .take(points)
-            .map(|(k, l)| DeviceLight {
-                origin: l.origin,
-                diffuse: Self::shine(l, outside),
-                specular: if l.sky() { outside.sun } else { l.specular },
-                range: l.range,
-                flicker: self.flicker(k, l, if l.sky() { outside.sky() } else { l.color }),
-            })
+            .map(|(k, l)| self.device_light(k, l, outside))
             .collect()
+    }
+
+    /// Light `k` (`l`) as the device takes it (see [`Self::device_lights`]).
+    fn device_light(&self, k: usize, l: &Light, outside: &Outside) -> DeviceLight {
+        DeviceLight {
+            origin: l.origin,
+            diffuse: Self::shine(l, outside),
+            specular: if l.sky() { outside.sun } else { l.specular },
+            range: l.range,
+            flicker: self.flicker(k, l, if l.sky() { outside.sky() } else { l.color }),
+        }
     }
 
     /// The lights `kept` about a particle system inside (see [`SceneLights::keep`]) as its lit
@@ -845,18 +996,23 @@ impl BlockLights {
             .take(PARTICLE_LIGHTS)
             .map(|&k| (k, &self.lights[k]))
             .filter(|(_, l)| !l.sky())
-            .map(|(k, l)| ParticleLight {
-                origin: l.origin,
-                color: Color::new(
-                    l.color.r * l.intensity,
-                    l.color.g * l.intensity,
-                    l.color.b * l.intensity,
-                    1.0,
-                ),
-                range: (l.kind == LightKind::Point).then_some(l.range),
-                flicker: self.flicker(k, l, l.color),
-            })
+            .map(|(k, l)| self.particle_light(k, l))
             .collect()
+    }
+
+    /// Light `k` (`l`) as a lit particle takes it (see [`Self::particle_lights`]).
+    fn particle_light(&self, k: usize, l: &Light) -> ParticleLight {
+        ParticleLight {
+            origin: l.origin,
+            color: Color::new(
+                l.color.r * l.intensity,
+                l.color.g * l.intensity,
+                l.color.b * l.intensity,
+                1.0,
+            ),
+            range: (l.kind == LightKind::Point).then_some(l.range),
+            flicker: self.flicker(k, l, l.color),
+        }
     }
 
     /// How strongly light `l` lights a draw `d` from it, held to `0..=1`: how far within its range
@@ -866,6 +1022,14 @@ impl BlockLights {
     // D2-13333
     #[must_use]
     pub fn weight(&self, l: &Light, d: f32, outside: &Outside) -> f32 {
+        Self::weight_of(l, d, outside)
+    }
+
+    /// How strongly light `l` lights a draw `d` from it (see [`Self::weight`]): the same for a
+    /// block's light and one an object carries.
+    // D2-13333
+    #[must_use]
+    pub fn weight_of(l: &Light, d: f32, outside: &Outside) -> f32 {
         let mean = |c: Color| (c.r + c.g + c.b) * 0.333_333_34;
         let (c, k) = match l.kind {
             LightKind::Directional => return 1.0,

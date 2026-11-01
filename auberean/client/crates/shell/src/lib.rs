@@ -193,15 +193,14 @@ impl<'w, H: Host> Shell<'w, H> {
             .map(|t| Settings::read(&t))
             .unwrap_or_default();
         let random = auberean_primitives::random::Random::new();
-        let mut scene = Scene::new(world);
+        // The graphics preferences kept, else a fresh install's: the interface's options start
+        // from them and the world is drawn by them from its first frame.
+        let graphics = settings.starting_graphics();
+        let mut scene = Scene::new(world, &graphics);
         scene.set_random(&random);
         interface.set_random(&random);
         scene.camera = auberean_scene::CameraControl::new(settings.camera);
-        // The graphics preferences kept, else a fresh install's: the interface's options start
-        // from them and the world is drawn by them.
-        let graphics = settings.starting_graphics();
         interface.set_graphics(&graphics);
-        scene.init_preferences(&graphics);
         // The key maps: the base map, then the player's from their files (the data's Defaults where
         // a file does not load).
         let keys = keys::Keys::start(

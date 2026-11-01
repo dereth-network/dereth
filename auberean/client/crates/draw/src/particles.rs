@@ -1711,6 +1711,7 @@ impl ParticleSet {
                     cull: crate::scene::Cull::Never,
                     mesh: 0,
                     casts_volume: false,
+                    kept_by: None,
                 });
             }
         };

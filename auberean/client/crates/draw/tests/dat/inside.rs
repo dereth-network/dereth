@@ -91,7 +91,7 @@ fn a_lit_particle_inside_is_lit_by_the_lights_kept_where_its_system_stands() {
         ambient: Color::new(0.0, 0.0, 0.0, 1.0),
     };
     let at = Vec3::new(9.834_682, 390.168_06, -43.18);
-    let lights = builder.particle_lights((0x02, 0x98), at, &outside);
+    let lights = builder.particle_lights((0x02, 0x98), at, &outside, &[]);
     assert!(
         !lights.is_empty() && lights.len() <= 5,
         "{} lights about the mist",
@@ -248,5 +248,109 @@ fn a_flickering_light_lights_its_draws_as_it_stands_at_the_moment() {
         lit_by(&once)[0],
         lit_by(&twice)[0],
         "a fresh roll each frame"
+    );
+}
+
+/// Inside, a light an object carries lights what stands near it with the lights each keeps: a
+/// torch held up in the hall over an object joins that object's point lights (the strongest first,
+/// as it keeps them), shining its color times its intensity; nothing beyond its reach takes it, and
+/// the draws go back to their own lights once it is gone; a body beside it takes it too, and throws
+/// its shadow away from it.
+///
+/// Behaviour: draw.inside.a-carried-light-lights-what-stands-near-it-and-throws-shadows-away
+#[test]
+fn a_carried_light_lights_what_stands_near_it_and_throws_shadows_away() {
+    use auberean_world::inside::Light;
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut builder = SceneBuilder::new(&i.records, &region);
+    let spot = Spot {
+        block: (0x02, 0x98),
+        position: Vec3::new(101.0, 247.5, -44.9),
+        heading: 180.0,
+        pitch: 0.0,
+        time_of_day: 0.5,
+        day: None,
+    };
+    let outside = Outside {
+        sun: Color::new(0.5, 0.5, 0.5, 1.0),
+        brightness: 1.0,
+        direction: Vec3::new(0.0, 0.0, -1.0),
+        ambient: Color::new(0.0, 0.0, 0.0, 1.0),
+    };
+    let mut batches = builder.interior(&spot, (0x02, 0x98), 0x0120, &outside);
+    let before: Vec<_> = batches.iter().map(|b| b.points).collect();
+    // A torch held 1.5 m over an object standing in one of the rooms.
+    let object = batches
+        .iter()
+        .find_map(|b| b.kept_by.filter(|k| k.key.1 != 0 && k.radius < 2.0))
+        .expect("an object keeps its lights");
+    let mut torch = Light::of_properties(object.cell, Vec3::ZERO, &Default::default()).0;
+    torch.origin = Vec3::new(object.at.x, object.at.y, object.at.z + 1.5);
+    torch.color = Color::new(1.0, 0.5, 0.0, 1.0);
+    torch.intensity = 1.0;
+    torch.range = 8.0;
+    torch.most_range = 8.0;
+    torch.most_intensity = Some(1.0);
+    let orange = Color::new(1.0, 0.5, 0.0, 1.0);
+    let lit_by_torch = |b: &ObjectBatch| {
+        b.points.lights[..b.points.count]
+            .iter()
+            .any(|l| l.diffuse == orange)
+    };
+    builder.light_carried(&spot, &mut batches, std::slice::from_ref(&torch), &outside);
+    let object_lit = batches
+        .iter()
+        .filter(|b| b.kept_by.is_some_and(|k| k.key == object.key))
+        .any(lit_by_torch);
+    assert!(object_lit, "the object below it takes it");
+    let far = batches
+        .iter()
+        .filter(|b| {
+            b.kept_by.is_some_and(|k| {
+                let d = auberean_world::math::length(auberean_world::math::sub(k.at, torch.origin));
+                d > 8.0 + k.radius + 1.0
+            })
+        })
+        .all(|b| !lit_by_torch(b));
+    assert!(far, "nothing out of its reach takes it");
+    builder.light_carried(&spot, &mut batches, &[], &outside);
+    let after: Vec<_> = batches.iter().map(|b| b.points).collect();
+    assert_eq!(after, before, "their own lights again once it is gone");
+    // A body 1 m west of the torch, standing on the floor below it: lit by the torch, its shadow
+    // falling west, away from it.
+    let mut body: Vec<ObjectBatch> = batches
+        .iter()
+        .find(|b| b.kept_by.is_some_and(|k| k.key.1 != 0 && k.radius < 1.5))
+        .cloned()
+        .into_iter()
+        .collect();
+    let feet = Vec3::new(torch.origin.x - 1.0, torch.origin.y, object.at.z);
+    for b in &mut body {
+        b.transform = Mat4::translation(feet);
+        b.kept_by = None;
+    }
+    let alone = builder.light_inside(
+        &spot,
+        (0x02, 0x98),
+        &mut body,
+        feet,
+        object.cell,
+        &outside,
+        &[],
+    );
+    let way = builder.light_inside(
+        &spot,
+        (0x02, 0x98),
+        &mut body,
+        feet,
+        object.cell,
+        &outside,
+        std::slice::from_ref(&torch),
+    );
+    assert!(body.iter().all(lit_by_torch), "the body takes the torch");
+    assert!(
+        way.x < -0.2 && way.x < alone.x - 0.2,
+        "its shadow turns west, away from the torch: {way:?}, {alone:?} without it"
     );
 }

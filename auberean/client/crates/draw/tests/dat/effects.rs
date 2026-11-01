@@ -815,3 +815,47 @@ fn placed_objects_torches_light_the_land() {
     println!("{} lights, {pools} pools", lights.len());
     assert!(pools >= 5, "{pools} pools");
 }
+
+/// With the light source effects preference off, the effects place no lights at all: the town's
+/// torches made then carry none (so they light nothing and lay no pool), and turning the preference
+/// on gives lights only to what is made after.
+///
+/// Behaviour: draw.effects.no-lights-while-the-light-source-effects-preference-is-off
+#[test]
+fn no_lights_while_the_light_source_effects_preference_is_off() {
+    use auberean_draw::effects::PlacedEffects;
+    use auberean_draw::scene::{SceneBuilder, Spot};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let spot = Spot {
+        block: (0x6F, 0xA9),
+        position: Vec3::new(96.0, 96.0, 100.0),
+        heading: 0.0,
+        pitch: 0.0,
+        time_of_day: 0.05,
+        day: None,
+    };
+    let frame = builder.frame(&spot, 60.0);
+    let systems = ParticleSystems::default();
+    assert!(systems.light_sources(), "on unless set off");
+    systems.set_light_sources(false);
+    let mut placed = PlacedEffects::default();
+    placed.sync(&systems, r, &frame.placed, 0.0);
+    assert!(placed.len() >= 5, "{} objects play effects", placed.len());
+    assert!(
+        placed.lights(spot.block, 160.0, 1.0).is_empty(),
+        "no lights"
+    );
+    systems.set_light_sources(true);
+    assert!(
+        placed.lights(spot.block, 160.0, 2.0).is_empty(),
+        "none for what was made while off"
+    );
+    let mut again = PlacedEffects::default();
+    again.sync(&systems, r, &frame.placed, 2.0);
+    assert!(
+        again.lights(spot.block, 160.0, 3.0).len() >= 5,
+        "made after"
+    );
+}

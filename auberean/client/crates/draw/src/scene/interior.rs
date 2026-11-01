@@ -5,12 +5,16 @@ use std::sync::Arc;
 
 use auberean_world::color::Color;
 use auberean_world::inside::{
-    BlockLights, CellVertex, LightKind, Outside, ParticleLight, SceneLights, DRAW_LIGHTS,
+    any_carried_in_reach, block_offset, device_lights_kept, keep_carried, particle_lights_kept,
+    BlockLights, CellVertex, Kept, Light, LightKind, Outside, ParticleLight, SceneLights,
+    DRAW_LIGHTS,
 };
 use auberean_world::math::Mat4;
 use auberean_world::place::{entity_parts, Part};
 
-use super::{placed_box, Counts, Cull, Frame, ObjectBatch, PointLights, SceneBuilder, Spot};
+use super::{
+    placed_box, Counts, Cull, Frame, KeptBy, ObjectBatch, PointLights, SceneBuilder, Spot,
+};
 use crate::cull::{Beyond, Doorway, Room, Rooms};
 use crate::effects::PlacedLook;
 use crate::material::variant_for;
@@ -25,6 +29,9 @@ pub const LIT_IN_VERTICES: u32 = 0x4000_0000;
 /// An object standing in a cell, for its lights: its key (its cell and one more than its place in
 /// the cell's list), where it stands, and how far about that its lights reach.
 type ObjectReach = ((u32, u32), Vec3, f32);
+
+/// A block and its interior light, read once for a frame's draws.
+type BlockLit = ((i32, i32), Option<Arc<BlockLights>>);
 
 /// A cell's switch: it is open to the sky.
 const CELL_SKY: u32 = 0x10;
@@ -163,7 +170,7 @@ impl SceneBuilder<'_> {
 
     /// How far about an object made of `parts` the lights that light it may stand: the largest
     /// half side of the box about its parts.
-    fn object_reach(&mut self, parts: &[Part]) -> f32 {
+    pub(crate) fn object_reach(&mut self, parts: &[Part]) -> f32 {
         let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
         for p in parts {
@@ -579,6 +586,14 @@ impl SceneBuilder<'_> {
                         b.layer.switches |= LIT_IN_VERTICES;
                         b.points =
                             PointLights::inside(&l.device_lights(&kept, outside, points), &place);
+                        b.kept_by = Some(KeptBy {
+                            key: (*id, 0),
+                            block,
+                            cell: *id,
+                            at,
+                            radius,
+                            took_carried: false,
+                        });
                     }
                 }
             }
@@ -603,33 +618,268 @@ impl SceneBuilder<'_> {
                     let points = usize::try_from(points).unwrap_or(0);
                     b.points =
                         PointLights::inside(&l.device_lights(&kept, outside, points), &place);
+                    b.kept_by = Some(KeptBy {
+                        key: *key,
+                        block,
+                        cell: key.0,
+                        at: *at,
+                        radius: *radius,
+                        took_carried: false,
+                    });
                 }
             }
             out.extend(batches);
         }
         out
     }
+
+    /// The draws standing somewhere (`batches`, those that keep their lights where they stand, see
+    /// [`ObjectBatch::kept_by`]) lit again for this frame with the lights objects carry
+    /// (`carried`, each at its place in its own cell's block): a draw a carried light reaches
+    /// takes it among the lights it keeps, sorted by their weight where it stands, as many point
+    /// lights as each layer's program takes of them (outdoors, beside the sun); the others keep
+    /// only their own (outdoors, the sun). `spot` is the frame's place, `outside` the day outside.
+    /// Draws the frame before lit with carried lights are put back when none is carried now.
+    // D2-10630, D2-10619, D2-10628
+    pub fn light_carried(
+        &mut self,
+        spot: &Spot,
+        batches: &mut [ObjectBatch],
+        carried: &[Light],
+        outside: &Outside,
+    ) {
+        if carried.is_empty() && !self.carried_lit {
+            return;
+        }
+        self.carried_lit = !carried.is_empty();
+        let block_len = self.region.land.grid().block_length();
+        let mut blocks: Vec<BlockLit> = Vec::new();
+        for b in batches.iter_mut() {
+            let Some(mut kb) = b.kept_by else {
+                continue;
+            };
+            // A draw no carried light reaches keeps its lights as they are, unless they were taken
+            // last time.
+            let reached = any_carried_in_reach(carried, kb.cell, kb.at, kb.radius);
+            if !reached && !kb.took_carried {
+                continue;
+            }
+            kb.took_carried = reached;
+            b.kept_by = Some(kb);
+            let inside = kb.cell & 0xFFFF >= 0x100;
+            let lights = match blocks.iter().find(|(k, _)| *k == kb.block) {
+                _ if !inside => None,
+                Some((_, l)) => l.clone(),
+                None => {
+                    let l = self.block_lights(kb.block);
+                    blocks.push((kb.block, l.clone()));
+                    l
+                }
+            };
+            let own = self.kept_lights.get(&kb.key).cloned().unwrap_or_default();
+            let kept = keep_carried(
+                lights.as_deref(),
+                &own,
+                carried,
+                kb.cell,
+                kb.at,
+                kb.radius,
+                outside,
+            );
+            #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
+            let place = Mat4::translation(Vec3::new(
+                (kb.block.0 - spot.block.0) as f32 * block_len,
+                (kb.block.1 - spot.block.1) as f32 * block_len,
+                0.0,
+            ));
+            let (points, sun) = if inside {
+                (
+                    program_points(b, device_count(lights.as_deref(), &kept, carried)),
+                    false,
+                )
+            } else {
+                outdoor_points(b, device_count(None, &kept, carried))
+            };
+            let device =
+                device_lights_kept(lights.as_deref(), &kept, carried, kb.cell, outside, points);
+            b.points = if sun {
+                PointLights::outdoors(&device, &place)
+            } else {
+                PointLights::inside(&device, &place)
+            };
+        }
+    }
+
+    /// Where an object standing outdoors in block `block` keeps its lights (see [`KeptBy`]): only
+    /// the lights objects carry reach it there (no light is kept outdoors), from its place and
+    /// the largest half side of its box.
+    pub(crate) fn outdoor_kept_by(&mut self, block: (i32, i32), part: &Part) -> KeptBy {
+        #[allow(clippy::cast_sign_loss)]
+        let cell = ((block.0 as u32) << 24) | ((block.1 as u32 & 0xFF) << 16) | 1;
+        KeptBy {
+            key: (cell, 0),
+            block,
+            cell,
+            at: part.transform.point(Vec3::ZERO),
+            radius: self.object_reach(std::slice::from_ref(part)),
+            took_carried: false,
+        }
+    }
+
+    /// Light `batches`, one body standing outdoors at `at` in cell `cell` (both in the frame of
+    /// `spot`'s block), with the lights objects carry that reach it (`carried`), by the sun and by
+    /// them, as many point lights as each layer's program with the sun takes. Returns the way they
+    /// throw its shadow (see [`shadow_direction`]), or none when none reaches it and the sun
+    /// throws it.
+    // D2-10630, D2-10619
+    #[allow(clippy::too_many_arguments)]
+    pub fn light_outdoors(
+        &mut self,
+        spot: &Spot,
+        batches: &mut [ObjectBatch],
+        at: Vec3,
+        cell: u32,
+        outside: &Outside,
+        carried: &[Light],
+    ) -> Option<Vec3> {
+        if carried.is_empty() {
+            return None;
+        }
+        let radius = reach_of(batches)?;
+        #[allow(clippy::cast_sign_loss)]
+        let cell =
+            ((spot.block.0 as u32) << 24) | ((spot.block.1 as u32 & 0xFF) << 16) | (cell & 0xFFFF);
+        let kept = keep_carried(None, &[], carried, cell, at, radius, outside);
+        if kept.is_empty() {
+            return None;
+        }
+        let device = device_count(None, &kept, carried);
+        for b in batches.iter_mut() {
+            let (points, sun) = outdoor_points(b, device);
+            let lights = device_lights_kept(None, &kept, carried, cell, outside, points);
+            b.points = if sun {
+                PointLights::outdoors(&lights, &Mat4::IDENTITY)
+            } else {
+                PointLights::inside(&lights, &Mat4::IDENTITY)
+            };
+        }
+        let throws: Vec<ShadowLight> = kept
+            .iter()
+            .filter_map(|k| match *k {
+                Kept::Carried(i) => Some(shadow_light(&carried[i], cell, at, outside)),
+                Kept::Block(_) => None,
+            })
+            .collect();
+        Some(shadow_direction(
+            &throws,
+            at,
+            false,
+            Vec3::new(0.0, 0.0, 1.0),
+            outside.direction,
+        ))
+    }
+}
+
+/// How many point lights the program of draw `b`'s layer takes outdoors with `device` of them
+/// beside the sun, and whether the sun lights it too: the program made for the sun and that many
+/// (or the nearest it has, see [`variant_for`]); one made for point lights alone (a layer lit per
+/// pixel by one light) is lit by its point lights in place of the sun. With none, the sun alone.
+fn outdoor_points(b: &ObjectBatch, device: usize) -> (usize, bool) {
+    if device == 0 {
+        return (0, true);
+    }
+    let variants = &b.layer.light_variants;
+    variant_for(
+        variants,
+        1,
+        u32::try_from(device.min(DRAW_LIGHTS)).unwrap_or(0),
+    )
+    .map(|k| variants[k])
+    .map_or((0, true), |v| (usize::try_from(v.1).unwrap_or(0), v.0 == 1))
+}
+
+/// How many of the lights `kept` are not directional: those the device takes as point lights.
+fn device_count(lights: Option<&BlockLights>, kept: &[Kept], carried: &[Light]) -> usize {
+    kept.iter()
+        .filter(|k| match **k {
+            Kept::Block(i) => lights.is_some_and(|l| l.lights[i].kind != LightKind::Directional),
+            Kept::Carried(i) => carried[i].kind != LightKind::Directional,
+        })
+        .count()
+}
+
+/// How many point lights the program of draw `b`'s layer takes with `device` of them (no
+/// directional light inside).
+fn program_points(b: &ObjectBatch, device: usize) -> usize {
+    let variants = &b.layer.light_variants;
+    let points = variant_for(
+        variants,
+        0,
+        u32::try_from(device.min(DRAW_LIGHTS)).unwrap_or(0),
+    )
+    .map_or(0, |k| variants[k].1);
+    usize::try_from(points).unwrap_or(0)
+}
+
+/// Light `l` as the shadow of an object at `at` in cell `cell` (its block's frame) sees it, its
+/// weight there.
+fn shadow_light(l: &Light, cell: u32, at: Vec3, outside: &Outside) -> ShadowLight {
+    let origin = auberean_world::math::add(l.origin, block_offset(cell, l.cell));
+    let d = auberean_world::math::length(auberean_world::math::sub(origin, at));
+    ShadowLight {
+        kind: match l.kind {
+            LightKind::Point => ShadowLightKind::Point,
+            LightKind::Directional => ShadowLightKind::Directional,
+            LightKind::Sky => ShadowLightKind::Sky,
+        },
+        origin,
+        inside: l.cell & 0xFFFF >= 0x100,
+        direction: l.direction,
+        weight: BlockLights::weight_of(l, d, outside),
+    }
+}
+
+/// The largest half side of the box about `batches` in the frame's world; none for draws with no
+/// vertex.
+fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
+    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    for b in batches {
+        for v in b.vertices.iter() {
+            let w = b
+                .transform
+                .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
+            lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
+            hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
+        }
+    }
+    (lo.x <= hi.x).then(|| 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z))
 }
 
 impl SceneBuilder<'_> {
-    /// Light `batches`, one body (the player's or one the server makes) standing at `at`, both in
-    /// the frame of `spot`'s block, inside block `block`, as an object inside is lit: by the lights
-    /// it keeps where it stands, reaching the largest half side of its box, as the frame's first
-    /// draw keeps them (bodies move, so nothing is kept from frame to frame), in place of the sun.
-    /// Returns the way the lights it keeps throw its shadow (the sun's way when the block has no
-    /// lights, or the body has no draw).
+    /// Light `batches`, one body (the player's or one the server makes) standing at `at` in cell
+    /// `cell`, both in the frame of `spot`'s block, inside block `block`, as an object inside is
+    /// lit: by the lights it keeps where it stands, reaching the largest half side of its box, as the
+    /// frame's first draw keeps them (bodies move, so nothing is kept from frame to frame), with the
+    /// lights objects carry that reach it (`carried`, see [`Self::light_carried`]), in place of the
+    /// sun. Returns the way the lights it keeps throw its shadow (the sun's way when it keeps none,
+    /// or the body has no draw).
     // D2-10629, D2-10630
+    #[allow(clippy::too_many_arguments)]
     pub fn light_inside(
         &mut self,
         spot: &Spot,
         block: (i32, i32),
         batches: &mut [ObjectBatch],
         at: Vec3,
+        cell: u32,
         outside: &Outside,
+        carried: &[Light],
     ) -> Vec3 {
-        let Some(l) = self.block_lights(block) else {
+        let l = self.block_lights(block);
+        if l.is_none() && carried.is_empty() {
             return outside.direction;
-        };
+        }
         let block_len = self.region.land.grid().block_length();
         #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
         let (dx, dy) = (
@@ -637,54 +887,32 @@ impl SceneBuilder<'_> {
             (block.1 - spot.block.1) as f32 * block_len,
         );
         let place = Mat4::translation(Vec3::new(dx, dy, 0.0));
-        let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-        let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
-        for b in batches.iter() {
-            for v in b.vertices.iter() {
-                let w = b
-                    .transform
-                    .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
-                lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
-                hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
-            }
-        }
-        if lo.x > hi.x {
+        let Some(radius) = reach_of(batches) else {
             return outside.direction;
-        }
-        let radius = 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z);
+        };
         let here = Vec3::new(at.x - dx, at.y - dy, at.z);
-        let kept = l.scene().keep(&l, here, radius, outside);
-        let device = kept
-            .iter()
-            .filter(|&&k| l.lights[k].kind != LightKind::Directional)
-            .count();
+        #[allow(clippy::cast_sign_loss)]
+        let cell = ((block.0 as u32) << 24) | ((block.1 as u32 & 0xFF) << 16) | (cell & 0xFFFF);
+        let own = l
+            .as_deref()
+            .map(|l| l.scene().keep(l, here, radius, outside))
+            .unwrap_or_default();
+        let kept = keep_carried(l.as_deref(), &own, carried, cell, here, radius, outside);
+        let device = device_count(l.as_deref(), &kept, carried);
         for b in batches.iter_mut() {
-            let variants = &b.layer.light_variants;
-            let points = variant_for(
-                variants,
-                0,
-                u32::try_from(device.min(DRAW_LIGHTS)).unwrap_or(0),
-            )
-            .map_or(0, |k| variants[k].1);
-            let points = usize::try_from(points).unwrap_or(0);
-            b.points = PointLights::inside(&l.device_lights(&kept, outside, points), &place);
+            let points = program_points(b, device);
+            b.points = PointLights::inside(
+                &device_lights_kept(l.as_deref(), &kept, carried, cell, outside, points),
+                &place,
+            );
         }
         let throws: Vec<ShadowLight> = kept
             .iter()
-            .map(|&k| {
-                let light = &l.lights[k];
-                let d = auberean_world::math::length(auberean_world::math::sub(light.origin, here));
-                ShadowLight {
-                    kind: match light.kind {
-                        LightKind::Point => ShadowLightKind::Point,
-                        LightKind::Directional => ShadowLightKind::Directional,
-                        LightKind::Sky => ShadowLightKind::Sky,
-                    },
-                    origin: light.origin,
-                    inside: light.cell & 0xFFFF >= 0x100,
-                    direction: light.direction,
-                    weight: l.weight(light, d, outside),
-                }
+            .filter_map(|k| match *k {
+                Kept::Block(i) => l
+                    .as_deref()
+                    .map(|b| shadow_light(&b.lights[i], cell, here, outside)),
+                Kept::Carried(i) => Some(shadow_light(&carried[i], cell, here, outside)),
             })
             .collect();
         shadow_direction(
@@ -700,17 +928,25 @@ impl SceneBuilder<'_> {
     /// block's frame: those kept where it stands, reaching no farther than the place itself, as
     /// the frame's first draw keeps them, in their order; no sun inside. A block with no lights
     /// gives none (its lit particles are black).
+    ///
+    /// The lights objects carry (`carried`, see [`Self::light_carried`]) that reach the place join
+    /// them.
     // D2-10631
     pub fn particle_lights(
         &mut self,
         block: (i32, i32),
         at: Vec3,
         outside: &Outside,
+        carried: &[Light],
     ) -> Vec<ParticleLight> {
-        let Some(l) = self.block_lights(block) else {
-            return Vec::new();
-        };
-        let kept = l.scene().keep(&l, at, 0.0, outside);
-        l.particle_lights(&kept)
+        let l = self.block_lights(block);
+        let own = l
+            .as_deref()
+            .map(|l| l.scene().keep(l, at, 0.0, outside))
+            .unwrap_or_default();
+        #[allow(clippy::cast_sign_loss)]
+        let cell = ((block.0 as u32) << 24) | ((block.1 as u32 & 0xFF) << 16) | 0x100;
+        let kept = keep_carried(l.as_deref(), &own, carried, cell, at, 0.0, outside);
+        particle_lights_kept(l.as_deref(), &kept, carried, cell)
     }
 }

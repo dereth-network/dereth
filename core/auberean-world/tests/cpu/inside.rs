@@ -229,3 +229,91 @@ fn a_cells_record_lights_are_baked_as_they_stand_at_that_moment() {
     let plain = lights.cell_vertices(cell, &Mat4::IDENTITY, &floor, &[], &night, 4);
     assert!(near(plain[0].color[0], 0.2 / 1.1));
 }
+
+/// The lights objects carry join the lights a draw keeps when they reach it: the block's lights it
+/// keeps, then the carried lights in reach, all sorted by their weight where the draw stands
+/// (strongest first); a draw no carried light reaches keeps its own in their order. The device takes
+/// a carried light at its place in the draw's block (across a block's edge too) with its color
+/// times its intensity as it stands, and lit particles take it the same way.
+///
+/// Behaviour: world.inside.carried-lights-join-the-lights-a-draw-keeps-by-their-weight
+#[test]
+fn carried_lights_join_the_lights_a_draw_keeps_by_their_weight() {
+    use auberean_world::inside::{
+        device_lights_kept, keep_carried, particle_lights_kept, Kept, Outside,
+    };
+    let cell = 0x0298_0120;
+    let at = Vec3::new(100.0, 100.0, 0.0);
+    let night = Outside {
+        sun: Color::new(0.0, 0.0, 0.0, 1.0),
+        brightness: 0.0,
+        direction: Vec3::new(0.0, 0.0, -1.0),
+        ambient: Color::new(0.0, 0.0, 0.0, 1.0),
+    };
+    // The block's: a dim light 4 m off and one 2 m off, both of range 10.
+    let dim = |mut l: Light| {
+        l.intensity = 0.2;
+        l.most_intensity = Some(0.2);
+        l
+    };
+    let lights = BlockLights {
+        lights: vec![
+            dim(light(
+                cell,
+                Vec3::new(104.0, 100.0, 0.0),
+                LightKind::Point,
+                10.0,
+            )),
+            light(cell, Vec3::new(102.0, 100.0, 0.0), LightKind::Point, 10.0),
+        ],
+        ..BlockLights::default()
+    };
+    let own = [1, 0];
+    // A torch carried 1 m off, orange; another in the next room's block 30 m off; one outdoors.
+    let torch = |cell: u32, at: Vec3| {
+        let mut l = light(cell, at, LightKind::Point, 8.0);
+        l.color = Color::new(1.0, 0.5, 0.0, 1.0);
+        l.intensity = 0.5;
+        l.most_intensity = Some(0.5);
+        l
+    };
+    let carried = [
+        torch(cell, Vec3::new(100.0, 101.0, 0.0)),
+        torch(cell, Vec3::new(130.0, 100.0, 0.0)),
+        torch(0x0298_0021, Vec3::new(100.0, 99.0, 0.0)),
+    ];
+    let kept = keep_carried(Some(&lights), &own, &carried, cell, at, 0.5, &night);
+    // Weights: the near block light (10 - 2) / 10 = 0.8; the torch (8 - 1) / 8 * 0.5 * 0.5 =
+    // 0.219; the dim one (10 - 4) / 10 * 0.2 = 0.12.
+    assert_eq!(kept, [Kept::Block(1), Kept::Carried(0), Kept::Block(0)]);
+    assert_eq!(
+        keep_carried(Some(&lights), &own, &carried[1..], cell, at, 0.5, &night),
+        [Kept::Block(1), Kept::Block(0)],
+        "none in reach: its own, in their order"
+    );
+    let device = device_lights_kept(Some(&lights), &kept, &carried, cell, &night, 4);
+    assert_eq!(device.len(), 3);
+    assert_eq!(device[1].origin, Vec3::new(100.0, 101.0, 0.0));
+    assert_eq!(device[1].diffuse, Color::new(0.5, 0.25, 0.0, 1.0));
+    assert_eq!(device[1].range, 8.0);
+    assert_eq!(
+        device_lights_kept(Some(&lights), &kept, &carried, cell, &night, 2).len(),
+        2,
+        "as many as the program takes"
+    );
+    // A torch carried in the block west, by the edge, lights a draw by this block's west edge.
+    let west = [torch(0x0198_0120, Vec3::new(158.0, 50.0, 0.0))];
+    let edge = Vec3::new(1.0, 50.0, 0.0);
+    let k = keep_carried(None, &[], &west, cell, edge, 0.5, &night);
+    assert_eq!(k, [Kept::Carried(0)]);
+    let d = device_lights_kept(None, &k, &west, cell, &night, 4);
+    assert_eq!(
+        d[0].origin,
+        Vec3::new(-2.0, 50.0, 0.0),
+        "in the draw's block"
+    );
+    let p = particle_lights_kept(None, &k, &west, cell);
+    assert_eq!(p[0].origin, Vec3::new(-2.0, 50.0, 0.0));
+    assert_eq!(p[0].color, Color::new(0.5, 0.25, 0.0, 1.0));
+    assert_eq!(p[0].range, Some(8.0));
+}

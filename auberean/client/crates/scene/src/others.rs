@@ -990,6 +990,29 @@ impl Others {
         }
     }
 
+    /// The lights the effects of the bodies in the world within the detailed blocks around the
+    /// viewer (block `block`) placed on them, as they stand `now` with each body where it is
+    /// drawn (`alpha` of the way between its last two ticks): each with the block its place is in.
+    pub(crate) fn effect_lights(
+        &self,
+        block: (i32, i32),
+        alpha: f32,
+        now: f64,
+    ) -> Vec<(auberean_draw::effects::PlacedLight, (i32, i32))> {
+        let mut out = Vec::new();
+        for b in self.bodies.values() {
+            let (Some(fx), Some(ob)) = (&b.effects, &b.body) else {
+                continue;
+            };
+            if !ob.in_world() || !in_detail(ob.body.position.cell.0, block) {
+                continue;
+            }
+            let (at, heading) = ob.drawn(alpha);
+            out.extend(fx.lights(at, heading, ob.body.position.cell.0, now));
+        }
+        out
+    }
+
     /// Every other body, by object.
     pub(crate) fn bodies(&self) -> impl Iterator<Item = (u64, &Body)> {
         self.bodies

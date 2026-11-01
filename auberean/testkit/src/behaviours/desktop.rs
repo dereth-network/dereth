@@ -629,6 +629,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.scene.the-bodies-effects-place-lights-among-the-frames",
+        says: "The lights the bodies' own effects place join the frame's lights with those of the                objects placed with the world: a light played on another human stands with it at its                effect's offset for as long as the effect says (as long as the human, or a few                seconds); with light source effects off, no effect places one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCENE-BODY-EFFECT-LIGHTS"),
+        station: "auberean-shell::dat::session::the_bodies_effects_place_lights_among_the_frames",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.settings.a-fresh-install-starts-at-the-quality-the-configuration-offers",
         says: "With no preferences kept the client starts at overall quality 4, as the \
                configuration program the original runs first offers on any machine that draws \
@@ -731,6 +739,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-NEAR-WINDOW"),
         station: "auberean-shell::dat::session::the_land_kept_is_the_near_window_about_the_player",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-world-is-drawn-by-the-kept-preferences-from-the-first-frame",
+        says: "The graphics preferences the player kept draw the world from its first frame, as \
+               the client reads them when it starts: the world is made with the kept dynamic \
+               shadows and light source effects; a fresh install's draw volumetric shadows and \
+               place the effects' lights.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PREFERENCES-AT-START"),
+        station: "auberean-shell::dat::session::the_world_is_drawn_by_the_kept_preferences_from_the_first_frame",
         tier: Tier::Dat,
     },
     behaviour! {

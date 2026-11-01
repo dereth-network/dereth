@@ -269,6 +269,8 @@ pub struct Scene<'w> {
     decal_layers: HashMap<u32, Vec<auberean_draw::material::DrawLayer>>,
     /// The light source effects preference: the lights effects place, and their pools on the land.
     light_effects: bool,
+    /// The lights the objects' effects carried in the last frame drawn, as they stood.
+    carried: Vec<auberean_world::inside::Light>,
     land: Land,
     trees: Trees,
     /// The blocks whose interior cells were loaded.
@@ -788,9 +790,11 @@ pub(crate) fn velocity_scale(p: &auberean_client_sdk::protocol::types::PhysicsDe
 }
 
 impl<'w> Scene<'w> {
+    /// The scene of `world`, drawn by the graphics preferences `graphics` from its first frame, as
+    /// the client reads them when it starts (see [`Self::init_preferences`]).
     #[must_use]
-    pub fn new(world: &'w WorldData) -> Self {
-        Self {
+    pub fn new(world: &'w WorldData, graphics: &auberean_draw::quality::Graphics) -> Self {
+        let mut scene = Self {
             world,
             anims: CachedRecords::new(&world.records),
             builder: SceneBuilder::new(&world.records, &world.region),
@@ -800,6 +804,7 @@ impl<'w> Scene<'w> {
             decals: auberean_draw::decal::DecalManager::default(),
             decal_layers: HashMap::new(),
             light_effects: true,
+            carried: Vec::new(),
             land: Land::new(),
             trees: Trees::default(),
             blocks: HashSet::new(),
@@ -848,7 +853,9 @@ impl<'w> Scene<'w> {
             stories: BTreeMap::new(),
             temporaries: temporaries::Temporaries::default(),
             states: BTreeMap::new(),
-        }
+        };
+        scene.init_preferences(graphics);
+        scene
     }
 
     /// Whether portal space is drawn at all this moment.
@@ -946,7 +953,8 @@ impl<'w> Scene<'w> {
     /// The graphics preferences the world is drawn by, as the client takes them when it starts and
     /// whenever the player applies them: the landscape's ([`Landscape::of`]), and the model
     /// detail, the water's reflections, the landscape's object and cloud shadows, the dynamic
-    /// objects' shadows and the light coronas for the rest of the world's drawing. The world is drawn again by them at once.
+    /// objects' shadows, the light coronas and the lights effects place (and their pools) for the
+    /// rest of the world's drawing. The world is drawn again by them at once.
     // D2-10656
     pub fn init_preferences(&mut self, graphics: &auberean_draw::quality::Graphics) {
         use auberean_draw::quality::key;
@@ -968,7 +976,28 @@ impl<'w> Scene<'w> {
             .map_or(auberean_draw::volume::setting::VOLUMETRIC, |v| v as u32);
         self.object_shadows = shadows;
         self.light_effects = on(key::LIGHT_SOURCE_EFFECTS);
+        self.systems.set_light_sources(self.light_effects);
         self.built = None;
+    }
+
+    /// The lights the objects' effects carried in the last frame drawn, as they stood there (each
+    /// at its place in its own cell's block): those of the objects placed with the world, the
+    /// bodies, what they hold and what the client made.
+    #[must_use]
+    pub fn carried_lights(&self) -> &[auberean_world::inside::Light] {
+        &self.carried
+    }
+
+    /// The dynamic objects' shadows the world is drawn with (`auberean_draw::volume::setting`).
+    #[must_use]
+    pub const fn object_shadows(&self) -> u32 {
+        self.object_shadows
+    }
+
+    /// Whether the effects place the lights they name, and those lights lay their pools.
+    #[must_use]
+    pub fn light_source_effects(&self) -> bool {
+        self.light_effects && self.systems.light_sources()
     }
 
     /// The world's land, as physics has loaded it.
@@ -2583,11 +2612,56 @@ impl<'w> Scene<'w> {
             &mut built.frame.objects,
             &mut noted,
         );
-        // Inside, each body is lit by the lights it keeps where it stands, not by the sun; one
-        // standing outdoors, seen through a doorway out, is lit as the land it stands on. The
-        // lights it keeps throw its shadow; outdoors the sun does.
+        // The lights the objects' effects carry, as they stand now (the placed objects', the
+        // bodies', what they hold and what the client made), each at its place in its own cell's
+        // block: they light what is near them as the lights the cells keep do. They are gathered
+        // anew every frame.
+        // D2-10579
+        let block_len = self.world.region.land.grid().block_length();
+        let mut placed_lights: Vec<(auberean_draw::effects::PlacedLight, (i32, i32))> = self
+            .placed_effects
+            .lights((bx, by), block_len, now)
+            .into_iter()
+            .map(|l| (l, (bx, by)))
+            .collect();
+        if let Some(fx) = p.effects.as_ref() {
+            let me = figures::global(pos.cell.0, dv(origin));
+            placed_lights.extend(fx.lights(me, body_heading, pos.cell.0, now));
+        }
+        placed_lights.extend(self.others.effect_lights((bx, by), alpha, now));
+        for (id, at, _) in &placed {
+            if let Some(fx) = self.held.effects_of(*id) {
+                let g = figures::global(at.cell.0, dv(at.frame.origin));
+                let h = auberean_physics::geom::frame_heading(&at.frame).degrees();
+                placed_lights.extend(fx.lights(g, h, at.cell.0, now));
+            }
+        }
+        for (id, at, _) in &made {
+            if let Some(fx) = self.temporaries.get(*id).and_then(|t| t.effects.as_ref()) {
+                let g = figures::global(at.cell.0, dv(at.frame.origin));
+                let h = auberean_physics::geom::frame_heading(&at.frame).degrees();
+                placed_lights.extend(fx.lights(g, h, at.cell.0, now));
+            }
+        }
+        let carried: Vec<auberean_world::inside::Light> = placed_lights
+            .iter()
+            .map(|(l, home)| l.standing(*home, block_len, now, &self.anims.dice))
+            .collect();
+        self.carried.clone_from(&carried);
+        // Inside, each body is lit by the lights it keeps where it stands and the carried lights
+        // that reach it, not by the sun; one standing outdoors, seen through a doorway out, is lit
+        // as the land it stands on. The lights it keeps throw its shadow; outdoors the carried
+        // lights reaching it do, else the sun. The cells and what stands in them take the carried
+        // lights that reach them too.
         let mut throws: HashMap<u64, auberean_primitives::Vec3> = HashMap::new();
         if let Some(outside) = built.outside {
+            let world_objects = built.world_objects;
+            self.builder.light_carried(
+                &spot,
+                &mut built.frame.objects[..world_objects],
+                &carried,
+                &outside,
+            );
             let looks_out = built.frame.outside.is_some();
             for (id, range, at, _) in &noted {
                 let Some(batches) = built.frame.objects.get_mut(range.clone()) else {
@@ -2604,10 +2678,45 @@ impl<'w> Scene<'w> {
                     }
                     continue;
                 }
-                let toward = self
-                    .builder
-                    .light_inside(&spot, (bx, by), batches, *at, &outside);
+                let toward = self.builder.light_inside(
+                    &spot,
+                    (bx, by),
+                    batches,
+                    *at,
+                    cell.unwrap_or(view),
+                    &outside,
+                    &carried,
+                );
                 throws.insert(*id, toward);
+            }
+        } else {
+            // Outdoors no light is kept but those objects carry: what they reach (the objects
+            // placed with the world, the bodies) is lit by the sun and by them.
+            let outside = auberean_world::inside::Outside::of(&built.frame.light);
+            let world_objects = built.world_objects;
+            self.builder.light_carried(
+                &spot,
+                &mut built.frame.objects[..world_objects],
+                &carried,
+                &outside,
+            );
+            if !carried.is_empty() {
+                for (id, range, at, _) in &noted {
+                    let Some(batches) = built.frame.objects.get_mut(range.clone()) else {
+                        continue;
+                    };
+                    let cell = if *id == p.id {
+                        pos.cell.0
+                    } else {
+                        self.others.body(*id).map_or(cell, |b| b.position.cell.0)
+                    };
+                    if let Some(toward) = self
+                        .builder
+                        .light_outdoors(&spot, batches, *at, cell, &outside, &carried)
+                    {
+                        throws.insert(*id, toward);
+                    }
+                }
             }
         }
         let casting = Casting {
@@ -2625,22 +2734,20 @@ impl<'w> Scene<'w> {
             &casting,
             &mut self.volumes,
         );
-        // The decals laid before move on; the lights the placed objects' effects place lay their
-        // pools on the land, and at the simple setting the bodies their discs, each drawn once.
+        // The decals laid before move on; the lights the objects' effects carry lay their pools on
+        // the land, and at the simple setting the bodies their discs, each drawn once.
         self.decals.think(now);
         if self.light_effects && !is_interior(view) {
-            let block_len = self.world.region.land.grid().block_length();
-            let lights = self.placed_effects.lights((bx, by), block_len, now);
             let frame_block = (bx, by);
             let builder = &self.builder;
             let material =
                 auberean_draw::decal::pool_material(&self.world.records, spot.time_of_day);
             let ground = |at: auberean_primitives::Vec3| builder.ground_square(frame_block, at);
             light_pools(
-                &lights,
+                &carried,
+                frame_block,
                 material,
                 &ground,
-                &self.anims.dice,
                 now,
                 &mut self.decals,
             );
@@ -2797,11 +2904,13 @@ impl<'w> Scene<'w> {
                 }
             }
         }
-        // Inside, lit particles take the lights kept where each system stands instead.
+        // Inside, lit particles take the lights kept where each system stands instead, and the
+        // carried lights that reach it.
         if let Some(outside) = built.outside {
             let builder = &mut self.builder;
+            let carried = &carried;
             self.systems.light_queued(now, |home, at| {
-                Some(builder.particle_lights(home, at, &outside))
+                Some(builder.particle_lights(home, at, &outside, carried))
             });
         }
         built.frame.objects.extend(self.systems.batches(
@@ -3007,15 +3116,16 @@ fn disc_shadows<'b>(
     }
 }
 
-/// The pools of light the point lights standing outdoors (`lights`, in the frame's block) lay on
-/// the land below them with `material`, each drawn once: the ground's height found under each, its
-/// range and intensity taken at `now` (rolling `dice` for any noise).
+/// The pools of light the point lights standing outdoors (`lights`, each at its place in its own
+/// cell's block, its range and intensity as they stand now, the intensity times how much of it
+/// shows) lay on the land below them with `material`, each drawn once: the ground's height found
+/// under each (in the frame of block `frame`).
 // D2-11035
 fn light_pools(
-    lights: &[auberean_draw::effects::PlacedLight],
+    lights: &[auberean_world::inside::Light],
+    frame: (i32, i32),
     material: u32,
     ground: &dyn Fn(auberean_primitives::Vec3) -> Option<[auberean_draw::decal::Corner; 6]>,
-    dice: &auberean_primitives::random::Random,
     now: f64,
     decals: &mut auberean_draw::decal::DecalManager,
 ) {
@@ -3023,31 +3133,30 @@ fn light_pools(
     if material == 0 {
         return;
     }
+    #[allow(clippy::cast_sign_loss)]
+    let frame_cell = ((frame.0 as u32) << 24) | ((frame.1 as u32 & 0xFF) << 16) | 1;
     for l in lights {
-        if l.cell == 0 || is_interior(l.cell) {
+        if l.cell == 0 || is_interior(l.cell) || l.kind != auberean_world::inside::LightKind::Point
+        {
             continue;
         }
-        let Some(square) = ground(l.origin) else {
-            continue;
-        };
-        let Some(height) = ground_height(&square, l.origin.x, l.origin.y) else {
-            continue;
-        };
-        let range = auberean_world::wave::value(&l.light.range, now, dice);
-        let intensity = auberean_world::wave::value(&l.light.intensity, now, dice);
-        let Some(desc) = point_light_pool(
-            material,
+        let origin = auberean_world::math::add(
             l.origin,
-            height,
-            range,
-            intensity,
-            l.light.light.color,
-            l.opacity,
-        ) else {
+            auberean_world::inside::block_offset(frame_cell, l.cell),
+        );
+        let Some(square) = ground(origin) else {
+            continue;
+        };
+        let Some(height) = ground_height(&square, origin.x, origin.y) else {
+            continue;
+        };
+        let Some(desc) =
+            point_light_pool(material, origin, height, l.range, l.intensity, l.color, 1.0)
+        else {
             continue;
         };
         let triangles =
-            auberean_draw::decal::landscape_decal(l.origin, &desc, square_side_of(&square), ground);
+            auberean_draw::decal::landscape_decal(origin, &desc, square_side_of(&square), ground);
         decals.create(l.cell, &desc, now, triangles, true);
     }
 }

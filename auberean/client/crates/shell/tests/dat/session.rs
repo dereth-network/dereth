@@ -264,6 +264,8 @@ struct DoubleHost {
     time: f64,
     double: ServerDouble,
     inbox: VecDeque<(SocketAddr, Vec<u8>)>,
+    /// The settings the player kept, if any.
+    kept: Option<String>,
 }
 
 fn me() -> SocketAddr {
@@ -293,7 +295,7 @@ impl Host for DoubleHost {
     fn hold_pointer(&mut self, _held: bool) {}
     fn set_title(&mut self, _title: &str) {}
     fn load_settings(&self) -> Option<String> {
-        None
+        self.kept.clone()
     }
     fn save_settings(&mut self, _text: &str) {}
 }
@@ -323,8 +325,49 @@ fn shell_with(
         time: 0.0,
         double,
         inbox: VecDeque::new(),
+        kept: None,
     };
     Shell::new(host, world, data.clone(), interface)
+}
+
+/// The graphics preferences the player kept draw the world from the shell's first frame, as the
+/// client reads them when it starts: simple shadows and no light source effects kept, the world is
+/// made with them, with nothing drawn yet; a fresh install's draw volumetric shadows and place the
+/// effects' lights.
+///
+/// Behaviour: desktop.shell.the-world-is-drawn-by-the-kept-preferences-from-the-first-frame
+#[test]
+fn the_world_is_drawn_by_the_kept_preferences_from_the_first_frame() {
+    let (world, data) = data();
+    let made = |kept: Option<&str>| {
+        let double = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+        let login = DevLogin::new(double.login_addr(), "tester".into(), "t".into(), None);
+        let host = DoubleHost {
+            time: 0.0,
+            double,
+            inbox: VecDeque::new(),
+            kept: kept.map(str::to_owned),
+        };
+        Shell::new(host, world, data.clone(), Box::new(login))
+    };
+    let s = made(Some(
+        "[Graphics]
+OverallGraphicsQuality=0
+DynamicObjectShadows=1
+LightSourceEffects=0
+",
+    ));
+    assert_eq!(
+        s.scene.object_shadows(),
+        auberean_draw::volume::setting::SIMPLE
+    );
+    assert!(!s.scene.light_source_effects());
+    let fresh = made(None);
+    assert_eq!(
+        fresh.scene.object_shadows(),
+        auberean_draw::volume::setting::VOLUMETRIC
+    );
+    assert!(fresh.scene.light_source_effects());
 }
 
 fn reports(shell: &Shell<'_, DoubleHost>) -> Vec<(f64, Vec3, u32)> {
@@ -1292,6 +1335,119 @@ fn effects_played_on_objects_play_their_camera_part() {
     assert!(
         later > early && later > 0.2 && later <= 1.0,
         "laid over the world, growing: {early} then {later}"
+    );
+}
+
+/// The lights the bodies' own effects place are the frame's lights with those of the objects placed
+/// with the world: an orange light played on another human in the hall stands with it, at its place
+/// (its effect names no offset), as long as the human; a white light played on the player goes after its
+/// two seconds. With light source effects off, no effect places a light.
+///
+/// Behaviour: desktop.scene.the-bodies-effects-place-lights-among-the-frames
+#[test]
+fn the_bodies_effects_place_lights_among_the_frames() {
+    // Of the effects every body's table takes from the common one.
+    const ORANGE: u32 = 0x4100_0574;
+    const WHITE: u32 = 0x8100_026C;
+    const OTHER: u64 = 0x8130_1B05_CC00_0042;
+    let other_at = Vec3 {
+        x: 62.0,
+        y: 240.0,
+        z: -44.6,
+    };
+    let other = CreateObject {
+        id: OTHER,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: other_at,
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_with(HALL_CELL, HALL_AT, Quat::IDENTITY, &[other]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    let before = s.scene.carried_lights().len();
+    let colored = |s: &Shell<'_, DoubleHost>, g: f32| {
+        s.scene
+            .carried_lights()
+            .iter()
+            .filter(|l| (l.color.g - g).abs() < 0.01 && l.color.r > 0.99)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    s.scene.do_fx(OTHER, ORANGE, 1.0);
+    for _ in 0..3 {
+        step(&mut s);
+    }
+    let orange = colored(&s, 0.498);
+    assert_eq!(orange.len(), 1, "{:?}", s.scene.carried_lights());
+    let l = &orange[0];
+    assert_eq!(l.cell, HALL_CELL);
+    assert!(l.range > 0.0 && l.intensity > 0.0, "{l:?}");
+    assert!(
+        (l.origin.x - other_at.x).abs() < 0.05
+            && (l.origin.y - other_at.y).abs() < 0.05
+            && (l.origin.z - other_at.z).abs() < 0.05,
+        "at the human: {:?}",
+        l.origin
+    );
+    s.scene.do_fx(PLAYER, WHITE, 1.0);
+    for _ in 0..3 {
+        step(&mut s);
+    }
+    assert_eq!(
+        s.scene.carried_lights().len(),
+        before + 2,
+        "the player's too"
+    );
+    let started = s.host.time;
+    while s.host.time < started + 2.2 {
+        step(&mut s);
+    }
+    assert_eq!(
+        s.scene.carried_lights().len(),
+        before + 1,
+        "the player's gone after its two seconds"
+    );
+    assert_eq!(colored(&s, 0.498).len(), 1, "the human's stays");
+
+    let mut g = auberean_draw::quality::Graphics::first_run();
+    assert!(g.set(auberean_draw::quality::key::LIGHT_SOURCE_EFFECTS, 0.0));
+    s.scene.init_preferences(&g);
+    s.scene.do_fx(PLAYER, WHITE, 1.0);
+    for _ in 0..3 {
+        step(&mut s);
+    }
+    assert_eq!(
+        s.scene.carried_lights().len(),
+        before + 1,
+        "none placed with the preference off"
     );
 }
 

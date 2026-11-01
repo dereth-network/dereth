@@ -237,3 +237,110 @@ fn a_torchs_pool_brightens_the_land() {
     assert!(brighter > 300, "{brighter} pixels brighter");
     assert_eq!(darker, 0);
 }
+
+/// Outdoors, the lights objects carry light the objects near them beside the sun: the town's
+/// torches at night, their lights taken in by the objects placed about them, leave the frame
+/// brighter in many places and darker in none, and a human standing by a torch is brighter with it.
+///
+/// Behaviour: draw.effects.carried-lights-light-what-stands-near-them-outdoors
+#[test]
+fn carried_lights_light_what_stands_near_them_outdoors() {
+    use auberean_draw::effects::PlacedEffects;
+    use auberean_draw::scene::Frame;
+    use auberean_draw::systems::ParticleSystems;
+    use auberean_world::inside::Outside;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let spot = Spot {
+        block: (0x6F, 0xA9),
+        position: Vec3::new(72.0, 70.0, 91.0),
+        heading: 40.0,
+        pitch: -20.0,
+        time_of_day: 0.05,
+        day: None,
+    };
+    let plain = builder.frame(&spot, 60.0);
+    let systems = ParticleSystems::default();
+    let mut placed = PlacedEffects::default();
+    placed.sync(&systems, r, &plain.placed, 0.0);
+    let dice = auberean_primitives::random::Random::new();
+    let carried: Vec<_> = placed
+        .lights(spot.block, 160.0, 1.0)
+        .iter()
+        .map(|l| l.standing(spot.block, 160.0, 1.0, &dice))
+        .collect();
+    assert!(carried.len() >= 5, "{} torches", carried.len());
+    let outside = Outside::of(&plain.light);
+    let mut lit = plain.clone();
+    builder.light_carried(&spot, &mut lit.objects, &carried, &outside);
+    let taken = lit.objects.iter().filter(|b| b.points.count > 0).count();
+    assert!(taken > 0, "objects near the torches take them");
+    // A human standing a meter east of one of the town's torches, seen from 4 m south of it, lit
+    // by the torch and not.
+    let torch = carried
+        .iter()
+        .find(|l| l.most_range > 0.0 && l.cell >> 16 == 0x6FA9)
+        .expect("a torch of the block reaching anything")
+        .clone();
+    let (x, y) = (torch.origin.x + 1.0, torch.origin.y);
+    let square = builder
+        .ground_square(spot.block, Vec3::new(x, y, 0.0))
+        .expect("the ground by the torch");
+    let z = auberean_draw::decal::ground_height(&square, x, y).expect("its height");
+    let feet = Vec3::new(x, y, z);
+    let close = Spot {
+        position: Vec3::new(x, y - 4.0, z + 1.7),
+        heading: 0.0,
+        pitch: -10.0,
+        ..spot
+    };
+    let mut scene = builder.frame(&close, 60.0);
+    let one = std::slice::from_ref(&torch);
+    builder.light_carried(&close, &mut scene.objects, one, &outside);
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, DataId(0x1F00_0023)).expect("the human male");
+    let poses = figure.pose(&recs);
+    let place = Mat4::from_parts(feet, Quat::IDENTITY, Vec3::new(1.0, 1.0, 1.0));
+    let body = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let mut by_torch = body.clone();
+    let way = builder.light_outdoors(&close, &mut by_torch, feet, torch.cell, &outside, one);
+    assert!(way.is_some(), "the torch throws its shadow");
+    assert!(
+        by_torch.iter().any(|b| b.points.count > 0),
+        "the human takes it"
+    );
+    let with_body = |batches: Vec<auberean_draw::scene::ObjectBatch>| -> Frame {
+        let mut f = scene.clone();
+        f.objects.extend(batches);
+        f
+    };
+    let (unlit, beside) = (with_body(body), with_body(by_torch));
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let [dark, bright, alone, by] = checked(&mut device, |d| {
+        [&plain, &lit, &unlit, &beside]
+            .map(|f| d.render(f, 480, 360, &mut load).expect("read back"))
+    });
+    let sum = |p: &[u8]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    let count = |a: &[u8], b: &[u8]| {
+        let (mut brighter, mut darker) = (0, 0);
+        for (x, y) in a.chunks(4).zip(b.chunks(4)) {
+            let (x, y) = (sum(x), sum(y));
+            if x > y + 6 {
+                brighter += 1;
+            }
+            if y > x + 6 {
+                darker += 1;
+            }
+        }
+        (brighter, darker)
+    };
+    let (brighter, darker) = count(&bright.rgba, &dark.rgba);
+    println!("the objects: {brighter} pixels brighter, {darker} darker");
+    assert!(brighter > 100, "{brighter} pixels brighter");
+    assert_eq!(darker, 0);
+    let (brighter, darker) = count(&by.rgba, &alone.rgba);
+    println!("the human: {brighter} pixels brighter, {darker} darker");
+    assert!(brighter > 50, "{brighter} pixels brighter");
+}

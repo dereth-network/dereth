@@ -127,6 +127,7 @@ impl BodyFx {
             }
         }
         self.fx.use_time(records, now);
+        self.fx.let_go_of_spent_lights(now);
         self.fx.think(systems, home, &place, scale, light, now);
         let asked = self.fx.take_appearance();
         let (total, changes) = lay_appearance(anims, dress?, &asked)?;
@@ -139,6 +140,26 @@ impl BodyFx {
                 .object_end(systems, records, home, &place, scale, now);
         }
         Some(total)
+    }
+
+    /// The lights its effects placed on the body, as they stand `now` with the body at `at` (on
+    /// the one grid) facing `heading` in cell `cell`; none before it has stood anywhere.
+    pub(crate) fn lights(
+        &self,
+        at: Vec3,
+        heading: f32,
+        cell: u32,
+        now: f64,
+    ) -> Vec<(auberean_draw::effects::PlacedLight, (i32, i32))> {
+        let Some(home) = self.home else {
+            return Vec::new();
+        };
+        let place = place_in(at, heading, home);
+        self.fx
+            .lights_now(&place, cell, now, 1.0)
+            .into_iter()
+            .map(|l| (l, home))
+            .collect()
     }
 
     /// The effects of object `id` once its look became `look` (the effects it had, `old`): made

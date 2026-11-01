@@ -305,6 +305,75 @@ fn each_window_shows_the_kinds_its_filter_holds_in_their_colors() {
     assert!(chat(&p).messages(&ui).is_empty(), "gone after six");
 }
 
+/// As a character enters, its scripts set its options and write the lines about what it could not
+/// reach in one go: the options' notice and the lines come together. The windows take those lines
+/// by the options the scripts left, their first: the first window shows the errors and the
+/// standard lines, whether the client read the options before the frame or reads them only at the
+/// next; the errors stand in the line of messages at once.
+///
+/// Behaviour: ui.chat.the-lines-written-with-the-options-show-by-those-options
+#[test]
+fn the_lines_written_with_the_options_show_by_those_options() {
+    let entering = vec![
+        (
+            t::ERROR,
+            "Cannot connect to GUN server. It may be down, or you did not connect through the \
+             launcher.\n"
+                .to_owned(),
+        ),
+        (
+            t::ERROR,
+            "Your character could not be logged into the authorization server.\n".to_owned(),
+        ),
+        (t::STANDARD, "Trade channel entered.\n".to_owned()),
+    ];
+    let options = Notice {
+        native: auberean_ui_game::gameplay::notice::RELOAD_OPTIONS,
+        ..Notice::default()
+    };
+    let want = [
+        "Cannot connect to GUN server. It may be down, or you did not connect through the \
+         launcher.",
+        "Your character could not be logged into the authorization server.",
+        "Trade channel entered.",
+        "",
+    ];
+
+    // The client read the options as the scripts left them before the frame.
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.tick(&mut ui, &mut p, &entering, std::slice::from_ref(&options));
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert_eq!(chat(&p).windows()[0].lines(&ui), want, "read before");
+    assert_eq!(
+        chat(&p).messages(&ui),
+        &want[..2],
+        "the errors in the line of messages"
+    );
+
+    // The client reads them only at the next frame: the lines wait for it.
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.settings.revision = 0;
+    f.tick(&mut ui, &mut p, &[], &[]);
+    f.tick(&mut ui, &mut p, &entering, std::slice::from_ref(&options));
+    assert!(
+        chat(&p).windows()[0].lines(&ui).concat().is_empty(),
+        "nothing before the options are read"
+    );
+    f.settings.revision = 1;
+    f.tick(&mut ui, &mut p, &[], &[]);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert_eq!(chat(&p).windows()[0].lines(&ui), want, "read after");
+    assert_eq!(
+        chat(&p).windows()[1].lines(&ui).concat(),
+        "",
+        "the second window shows the general channel alone"
+    );
+}
+
 /// Enter starts typing in the first window (its prompt goes); the keys typed go into the entry;
 /// Enter hands the line to the player's command line and stops typing, the entry empty. `/`
 /// starts a command and `;` an alias, the entry holding the mark. Escape stops typing at the next

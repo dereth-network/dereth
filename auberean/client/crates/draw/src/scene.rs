@@ -100,7 +100,8 @@ pub struct ObjectBatch {
     pub layer: DrawLayer,
     /// The draw's tint (white, or the sky object's color and opacity).
     pub tint: Color,
-    /// Inside, the point lights the draw is lit by in place of the sun.
+    /// Inside, the point lights the draw is lit by in place of the sun; outdoors, those it is lit
+    /// by beside the sun (the lights objects carry).
     pub points: PointLights,
     /// The kind its mesh names itself (a head, a torso, an arm...), which a pick on a figure
     /// answers with; 0 for a draw of no mesh.
@@ -119,6 +120,24 @@ pub struct ObjectBatch {
     /// Its object casts a volume of shadow and is drawn after the volumes have darkened the
     /// frame, so its own shadow never falls on it.
     pub casts_volume: bool,
+    /// Where a cell, or an object standing in one or outdoors, keeps its lights: the lights
+    /// objects carry are taken in with them each frame ([`SceneBuilder::light_carried`]).
+    pub kept_by: Option<KeptBy>,
+}
+
+/// Where a draw keeps its lights: its key among the draws (inside, its cell, and for an object one
+/// more than its place in the cell's list, 0 for the cell's own mesh), its block, the cell it stands
+/// in (a full id; outdoors, any of its block's land cells), where it stands in its block's frame
+/// and how far about that its lights reach.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeptBy {
+    pub key: (u32, u32),
+    pub block: (i32, i32),
+    pub cell: u32,
+    pub at: Vec3,
+    pub radius: f32,
+    /// It took carried lights the last time it was lit with them.
+    pub took_carried: bool,
 }
 
 /// What decides whether a draw is drawn in a frame seen from inside, as the walk through the
@@ -183,10 +202,17 @@ impl PointLights {
     /// The lights of a draw inside, at most four, placed in the frame's world by `place`.
     #[must_use]
     pub fn inside(lights: &[auberean_world::inside::DeviceLight], place: &Mat4) -> Self {
-        let mut out = Self {
+        Self {
             inside: true,
-            ..Self::NONE
-        };
+            ..Self::outdoors(lights, place)
+        }
+    }
+
+    /// The point lights of a draw outdoors, lit by the sun and by them (the lights objects carry
+    /// that reach it), at most four, placed in the frame's world by `place`.
+    #[must_use]
+    pub fn outdoors(lights: &[auberean_world::inside::DeviceLight], place: &Mat4) -> Self {
+        let mut out = Self::NONE;
         for (slot, l) in out.lights.iter_mut().zip(lights) {
             *slot = auberean_world::inside::DeviceLight {
                 origin: place.point(l.origin),
@@ -414,6 +440,8 @@ pub struct SceneBuilder<'a> {
     /// By cell id and 0 for a cell, by cell id and one more than its place in the cell's list for
     /// an object standing in it.
     pub(crate) kept_lights: HashMap<(u32, u32), Vec<usize>>,
+    /// The draws inside were lit with lights objects carry in the last frame that had any.
+    pub(crate) carried_lit: bool,
     /// Each placed object's look when it plays startup effects, with its scale.
     effect_looks: HashMap<u32, Option<(Arc<Look>, Vec3)>>,
     /// The detailed blocks' ground the last frame outdoors was built on, by block: what decals
@@ -504,6 +532,7 @@ impl<'a> SceneBuilder<'a> {
             ground: HashMap::new(),
             lit_cells: HashMap::new(),
             kept_lights: HashMap::new(),
+            carried_lit: false,
             effect_looks: HashMap::new(),
             cell_looks: HashMap::new(),
             sky_parts: HashMap::new(),
@@ -682,6 +711,7 @@ impl<'a> SceneBuilder<'a> {
                 cull: Cull::Never,
                 mesh: part.mesh.0,
                 casts_volume: false,
+                kept_by: None,
             });
         }
     }
@@ -791,6 +821,7 @@ impl<'a> SceneBuilder<'a> {
                     cull,
                     mesh: part.mesh.0,
                     casts_volume: false,
+                    kept_by: None,
                 });
             }
         }
@@ -1029,6 +1060,7 @@ impl<'a> SceneBuilder<'a> {
             // The block's objects and its scenery cast shadows; the interiors seen from outside
             // do not.
             casters.extend(parts.iter().map(|p| (p.clone(), place)));
+            let outdoors = parts.len();
             for &low in &info.outside_visible {
                 #[allow(clippy::cast_sign_loss)]
                 let id = ((bx as u32) << 24) | ((by as u32) << 16) | (low & 0xFFFF);
@@ -1068,10 +1100,18 @@ impl<'a> SceneBuilder<'a> {
                     parts.extend(p);
                 }
             }
-            for part in &parts {
+            for (k, part) in parts.iter().enumerate() {
                 let at = part.transform.then(&place).point(Vec3::ZERO);
                 let d = auberean_world::math::length(auberean_world::math::sub(at, spot.position));
+                let first = objects.len();
                 objects.extend(self.part_batches(part, &place, d, Color::WHITE, &mut counts));
+                // What stands outdoors takes the lights objects carry that reach it, each frame.
+                if k < outdoors {
+                    let kept_by = self.outdoor_kept_by((bx, by), part);
+                    for b in &mut objects[first..] {
+                        b.kept_by = Some(kept_by);
+                    }
+                }
             }
         }
 
@@ -1413,6 +1453,7 @@ impl<'a> SceneBuilder<'a> {
                 cull: Cull::Never,
                 mesh: 0,
                 casts_volume: false,
+                kept_by: None,
             })
             .collect()
     }

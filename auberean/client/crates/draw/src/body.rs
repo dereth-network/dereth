@@ -222,6 +222,7 @@ impl BodyDrawer {
                             cull: crate::scene::Cull::Never,
                             mesh: mesh_id.0,
                             casts_volume: false,
+                            kept_by: None,
                         });
                     }
                 }

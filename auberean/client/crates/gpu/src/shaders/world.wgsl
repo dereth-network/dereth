@@ -72,8 +72,9 @@ struct DrawUniforms {
     // each of the first three stages' coordinate transform, two rows each:
     // u' = (a, b, c) . (u, v, 1), v' = (d, e, f) . (u, v, 1)
     uv_rows: array<vec4<f32>, 6>,
-    // inside, the draw's point lights in place of the sun (how many: stage.y; inside: stage.z):
-    // each its place (w: 10 / range squared), its diffuse color and its specular color
+    // the draw's point lights (how many: stage.y), inside in place of the sun (inside: stage.z),
+    // outdoors beside it: each its place (w: 10 / range squared), its diffuse color and its
+    // specular color
     pt_origin: array<vec4<f32>, 4>,
     pt_diffuse: array<vec4<f32>, 4>,
     pt_specular: array<vec4<f32>, 4>,
@@ -578,9 +579,10 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         }
     } else if (draw.program.x == 1u) {
         // Normal-mapped: color 0 carries the sun's direction in the surface's own frame, packed
-        // into 0..1 (alpha: the light's attenuation, 1 for the sun); color 1 the ambient (the
-        // other lights' share, none here, times the layer's diffuse, plus the ambient), its alpha
-        // the specular intensity times the sun's specular red.
+        // into 0..1 (alpha: the light's attenuation, 1 for the sun); color 1 the other lights'
+        // share (the point lights beside the sun: the lights objects carry), times the layer's
+        // diffuse, plus the ambient, its alpha the sun's specular intensity times its specular
+        // red plus each point light's times its own.
         let n = transform_normal(v.normal, draw.model);
         let tu = transform_normal(v.tangent_u, draw.model);
         let tv = transform_normal(v.tangent_v, draw.model);
@@ -588,15 +590,36 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         c0 = vec4<f32>((l + vec3<f32>(1.0)) * 0.5, 1.0);
         o.half_vector = tex_half_vector(world, frame.to_sun.xyz, 1.0, n, tu, tv);
         let f = dir_light_diffuse_specular(n, draw.params.x);
-        c1 = apply_ambient(vec4<f32>(0.0, 0.0, 0.0, f.y * frame.sun_specular.r));
+        var other = vec3<f32>(0.0);
+        var spec = f.y * frame.sun_specular.r;
+        let count = min(draw.stage.y, 4u);
+        for (var k = 0u; k < count; k = k + 1u) {
+            let r = pt_light(k, world, n, draw.params.x);
+            other = other + r.x * draw.pt_diffuse[k].rgb;
+            spec = spec + r.y * r.z * draw.pt_specular[k].r;
+        }
+        var c11 = vec3<f32>(1.0);
+        if ((sw & MATERIAL_DIFFUSE) != 0u) {
+            c11 = draw.diffuse.rgb;
+        }
+        c1 = apply_ambient(vec4<f32>(other * c11, spec));
     } else if ((sw & DYNAMIC_LIGHTING) != 0u) {
-        // Lit: black, plus the sun's share, times the layer's diffuse, plus the ambient.
+        // Lit: black, plus the sun's share and each point light's beside it (the lights objects
+        // carry), times the layer's diffuse, plus the ambient; the specular from the sun and each
+        // of them, times the layer's specular color.
         c0 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
         let n = transform_normal(v.normal, draw.model);
         let f = dir_light_diffuse_specular(n, draw.params.x);
         c0 = vec4<f32>(c0.rgb + f.x * frame.sun_color.rgb, c0.a);
+        var spec = f.y * frame.sun_specular.rgb;
+        let count = min(draw.stage.y, 4u);
+        for (var k = 0u; k < count; k = k + 1u) {
+            let r = pt_light(k, world, n, draw.params.x);
+            c0 = vec4<f32>(c0.rgb + r.x * draw.pt_diffuse[k].rgb, c0.a);
+            spec = spec + r.y * r.z * draw.pt_specular[k].rgb;
+        }
         if ((sw & SPECULAR) != 0u) {
-            c1 = vec4<f32>(f.y * frame.sun_specular.rgb * draw.specular.rgb, 0.0);
+            c1 = vec4<f32>(spec * draw.specular.rgb, 0.0);
         }
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c0 = modulate_material_diffuse(c0);

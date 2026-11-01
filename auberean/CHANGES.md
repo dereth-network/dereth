@@ -18,6 +18,7 @@ not how it was done.
 - The landscape and frill draw distances change how far the world is drawn.
 - Alt+Enter switches between full screen and a window, and the choice is kept.
 - Logging in while your character is still in the world says so, instead of waiting forever.
+- Messages sent as you enter the world show in the chat window.
 - Smoother movement for you, the camera and everyone around you.
 - Jumping plays its animation: a crouch before a standing jump, then the leap.
 - You turn to face what you attack.
@@ -32,7 +33,7 @@ not how it was done.
 - Fires burn in their own colors, and flames, sparks and mist show over water.
 - Mist parts around people walking through it, and flowing or shimmering surfaces move.
 - Polished metal and stone catch the light with a proper shine.
-- People and creatures cast shadows, and torches light the ground around them at night.
+- People and creatures cast shadows, and torches and spells light the people and things around them.
 - The sun, moon and clouds move smoothly, and the sun throws a lens flare.
 - Cloud shadows and water ripples move.
 - Trees, rocks and grass stay out of buildings and ruins that keep their ground clear.

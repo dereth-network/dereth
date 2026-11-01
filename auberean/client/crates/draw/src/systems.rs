@@ -68,6 +68,8 @@ struct Inner {
     block_length: f32,
     /// The client's random numbers, which every system rolls.
     dice: Random,
+    /// The light source effects preference is off: the effects place no lights.
+    no_lights: bool,
 }
 
 /// A push (or pull) an object carries on the particles about it: how hard it pushes at its
@@ -292,6 +294,18 @@ impl ParticleSystems {
     #[must_use]
     pub fn dice(&self) -> Random {
         self.lock().dice.clone()
+    }
+
+    /// Whether the effects played from now on place the lights they name: the light source effects
+    /// preference (on unless set off). Lights placed before stay.
+    pub fn set_light_sources(&self, on: bool) {
+        self.lock().no_lights = !on;
+    }
+
+    /// Whether the effects place the lights they name.
+    #[must_use]
+    pub fn light_sources(&self) -> bool {
+        !self.lock().no_lights
     }
 
     /// A system of record `record` for an owner standing at `place` in block `home`'s frame with

@@ -2039,6 +2039,11 @@ impl Renderer {
                         if let (true, false, Some((count, darken))) =
                             (shadows, volume_draws.is_empty(), &this.volume_pipelines)
                         {
+                            // The reference the darkening compares with, set first under its
+                            // pipeline (the only one that reads it, so the only one the device
+                            // is told it under), before the counting draws.
+                            pass.set_pipeline(darken);
+                            pass.set_stencil_reference(0);
                             pass.set_pipeline(count);
                             pass.set_bind_group(0, groups[Env::Own as usize], &[]);
                             pass.set_bind_group(2, &white_group, &[]);
@@ -2049,7 +2054,6 @@ impl Renderer {
                                 pass.draw_indexed(0..*n, 0, 0..1);
                             }
                             pass.set_pipeline(darken);
-                            pass.set_stencil_reference(0);
                             pass.set_bind_group(1, &darkening, &[]);
                             pass.draw(0..3, 0..1);
                         }
