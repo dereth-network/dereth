@@ -155,6 +155,7 @@ members = [
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
+    "auberean/client/crates/scene",
     "auberean/viewer",
     "auberean/headless",
     "auberean/testkit",
@@ -263,6 +264,7 @@ auberean-dat = { path = "core/auberean-dat" }
 auberean-draw = { path = "auberean/client/crates/draw" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
+auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }

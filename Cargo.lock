@@ -411,6 +411,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-scene"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-testkit",
+ "auberean-world",
+ "dereth-physics",
+ "dereth-primitives",
+ "tracing",
+]
+
+[[package]]
 name = "auberean-script"
 version = "0.0.0"
 dependencies = [

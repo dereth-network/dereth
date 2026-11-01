@@ -132,6 +132,7 @@ pub struct Subject {
 pub mod animation;
 pub mod collision;
 pub mod data;
+pub mod desktop;
 pub mod detection;
 pub mod draw;
 pub mod missile;
@@ -161,6 +162,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "data",
         rows: data::ROWS,
+    },
+    Subject {
+        name: "desktop",
+        rows: desktop::ROWS,
     },
     Subject {
         name: "detection",

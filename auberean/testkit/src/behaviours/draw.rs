@@ -695,6 +695,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.view.a-scenes-camera-takes-the-properties-of-its-camera-group",
+        says: "An interface scene's camera stands where its entity does, looking along the \
+               entity's +y, and takes the properties of its camera group, each of its own kind: \
+               seen straight on (orthographic), its field of view, the height it sees straight \
+               on, near and far; with none it sees in perspective, 65 degrees high, from 0.1 to \
+               2000 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SCENE-CAMERA"),
+        station: "auberean-scene::cpu::view::a_scenes_camera_takes_the_properties_of_its_camera_group",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.volume.a-bodys-shadow-darkens-the-ground-and-not-the-body",
         says: "At the volumetric quality a body's volumes of shadow darken what they enclose: \
                counted in the stencil where the sight to the nearest surface passes through them \

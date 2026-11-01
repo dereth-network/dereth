@@ -1,0 +1,191 @@
+//! The effects a body plays: its look's startup effects from the first time it stands somewhere
+//! after it is put together, and every effect asked of it since (by the server, its scripts, its
+//! animations or a story), played or stopped where it stands then, in the order asked; effects
+//! whose time has passed stop; the particle systems they keep go with the body.
+
+use auberean_animation::body::Body as Figure;
+use auberean_animation::CachedRecords;
+use auberean_draw::effects::{AppearanceFx, FxSpot, FxWho, ObjectEffects, Rig};
+use auberean_draw::systems::ParticleSystems;
+use auberean_primitives::Vec3;
+use auberean_world::look::{Look, ObjectLook};
+use auberean_world::math::Mat4;
+use auberean_world::records::WorldRecords;
+
+use crate::others::{block_of_global, place_in};
+
+/// Where on a body its figure holds things and has its bones, as it stands now, and the water's
+/// height where the body stands.
+struct FigureRig<'a, 'r> {
+    figure: Option<&'a Figure>,
+    anims: &'a CachedRecords<'r>,
+    water: Option<f32>,
+}
+
+impl Rig for FigureRig<'_, '_> {
+    /// The holding location's own transform (with its scale), not its bone's.
+    fn holding_location(&self, kind: u32) -> Option<Mat4> {
+        let (_, location, _) = self.figure?.holding_location(self.anims, kind)?;
+        let t = location.transform;
+        Some(Mat4::from_parts(t.offset, t.rotation, t.scale))
+    }
+    fn bone(&self, kind: u32) -> Option<Mat4> {
+        self.figure?.bone_type_matrix(self.anims, kind)
+    }
+    fn water_height(&self) -> Option<f32> {
+        self.water
+    }
+}
+
+/// One body's effects, and those asked of it not yet played: an effect and its strength, or none
+/// to stop it.
+pub(crate) struct BodyFx {
+    pub fx: ObjectEffects,
+    /// The block whose frame its systems stand in, once it has stood somewhere.
+    pub home: Option<(i32, i32)>,
+    pub asked: Vec<(u32, Option<f32>)>,
+}
+
+impl BodyFx {
+    /// The effects of a body of look `look`, or none when its look carries no effects; their
+    /// random choices roll the client's one generator.
+    pub(crate) fn of_look(look: &Look) -> Option<Self> {
+        ObjectEffects::of_look(look).map(|fx| Self {
+            fx,
+            home: None,
+            asked: Vec::new(),
+        })
+    }
+
+    /// The effects of object `id`'s body of look `look`.
+    pub(crate) fn of(look: &Look, _id: u64) -> Option<Self> {
+        Self::of_look(look)
+    }
+
+    /// The body stands at `at` (on the one grid) facing `heading` with `scale` at the client's time
+    /// `now`, the water of its cell (when it has some) at height `water`: its startup effects begin
+    /// the first time; the effects asked are played (set going on `figure`'s holding locations and
+    /// bones, their scripts on `figure`) or stopped; the effects have their time (strengths ramp,
+    /// those whose end has come stop); its systems are queued to be drawn lit by `light`. The
+    /// appearances its effects laid over the object or took off it change its own descriptions
+    /// (`dress`, none for an object whose look is a stored record's); when any did, `figure` is
+    /// brought up to date with the total they give, the rest of its startup effects play again
+    /// once for each change, and the total is handed back for the rest of the body.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn think(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        at: Vec3,
+        heading: f32,
+        scale: Vec3,
+        light: auberean_world::color::Color,
+        now: f64,
+        who: FxWho,
+        water: Option<f32>,
+        mut figure: Option<&mut Figure>,
+        dress: Option<&mut ObjectLook>,
+    ) -> Option<Look> {
+        let home = match self.home {
+            Some(h) => h,
+            None => {
+                let h = block_of_global(at);
+                self.home = Some(h);
+                self.fx
+                    .start(systems, records, h, &place_in(at, heading, h), scale, now);
+                h
+            }
+        };
+        let place = place_in(at, heading, home);
+        let spot = FxSpot {
+            home,
+            place,
+            scale,
+            now,
+        };
+        for (effect, play) in std::mem::take(&mut self.asked) {
+            match play {
+                Some(intensity) => {
+                    let rig = FigureRig {
+                        figure: figure.as_deref(),
+                        anims,
+                        water,
+                    };
+                    let (_, scripts) = self
+                        .fx
+                        .do_fx(systems, records, effect, intensity, &spot, who, &rig);
+                    if let Some(f) = figure.as_deref_mut() {
+                        for s in scripts {
+                            f.do_fx_script(anims, s);
+                        }
+                    }
+                }
+                None => {
+                    self.fx.stop_fx(records, effect, false);
+                }
+            }
+        }
+        self.fx.use_time(records, now);
+        self.fx.think(systems, home, &place, scale, light, now);
+        let asked = self.fx.take_appearance();
+        let (total, changes) = lay_appearance(anims, dress?, &asked)?;
+        tracing::debug!(?asked, changes, "the effects changed a body's look");
+        if let Some(f) = figure {
+            f.compare_and_modify(anims, &total);
+        }
+        for _ in 0..changes {
+            self.fx
+                .object_end(systems, records, home, &place, scale, now);
+        }
+        Some(total)
+    }
+
+    /// The effects of object `id` once its look became `look` (the effects it had, `old`): made
+    /// again from the look, the effects that were playing (not those it began with) and those
+    /// asked of it not yet played asked again, in that order.
+    // D2-06548
+    pub(crate) fn again(old: Option<Self>, look: &Look, id: u64) -> Option<Self> {
+        let mut new = Self::of(look, id)?;
+        if let Some(old) = old {
+            new.asked.extend(
+                old.fx
+                    .current_fx()
+                    .into_iter()
+                    .map(|(effect, strength)| (effect, Some(strength))),
+            );
+            new.asked.extend(old.asked);
+        }
+        Some(new)
+    }
+}
+
+/// The appearances an object's effects laid over it or took off it (`asked`, in order) applied to
+/// its own descriptions: a value laid over the whole object, which changes them when it takes; a
+/// key taken off, which always does. The total they then give and how many times they changed,
+/// when they did and the total has groups to draw.
+// D2-05863, D2-06148
+fn lay_appearance(
+    anims: &CachedRecords<'_>,
+    dress: &mut ObjectLook,
+    asked: &[AppearanceFx],
+) -> Option<(Look, usize)> {
+    let mut changes = 0;
+    for a in asked {
+        match *a {
+            AppearanceFx::Apply { table, key } => {
+                changes += usize::from(dress.do_appearance_fx(anims, table, key));
+            }
+            AppearanceFx::Remove { table, key } => {
+                dress.remove_appearance_fx(anims, table, key);
+                changes += 1;
+            }
+        }
+    }
+    if changes == 0 {
+        return None;
+    }
+    let total = dress.total(anims).ok()?;
+    total.root?;
+    Some((total, changes))
+}

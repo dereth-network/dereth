@@ -1,0 +1,583 @@
+//! The scenes the interface shows in its viewports: an interface scene's placed objects and its
+//! light, the figures a screen stands in it (each with its look, its place and its mode), seen by a
+//! camera; and the figure under the pointer.
+//!
+//! An interface scene keeps what the screen had drawn underneath (only depth is cleared). With no
+//! light of its own it is lit by a dim ambient light and a sun from over the viewer's shoulder;
+//! with lights, the sun is off. The figures animate in their mode. A pick casts a ray from the
+//! camera through the pointer and takes the nearest figure whose drawn triangles it meets.
+
+use std::collections::BTreeMap;
+
+use auberean_animation::body::Body as Figure;
+use auberean_animation::look::{Desc, Look};
+use auberean_animation::CachedRecords;
+use auberean_assets::entity::Entity;
+use auberean_assets::property::{PropertyCollection, PropertyValue};
+use auberean_assets::ui::UiScene;
+use auberean_draw::body::BodyDrawer;
+use auberean_draw::scene::{Camera, Frame, ObjectBatch, SceneBuilder};
+use auberean_primitives::{Quat, Vec3};
+use auberean_world::color::Color;
+use auberean_world::math::{self, Mat4};
+use auberean_world::place::{entity_parts, Part};
+use auberean_world::records::WorldRecords;
+use auberean_world::sky::DayLight;
+use dereth_primitives::num::math as fm;
+
+/// The entity kinds of an interface scene: a camera, a light.
+pub const CAMERA_KIND: u32 = 0x4000_0005;
+pub const LIGHT_KIND: u32 = 0x4000_0006;
+/// The group a camera's properties are kept in.
+pub const CAMERA_GROUP: u32 = 0x4000_000A;
+/// A camera's properties: seen without perspective, vertical field of view (degrees), the height
+/// seen without perspective, near and far distances.
+pub const ORTHOGRAPHIC: u32 = 0x4000_001E;
+pub const FOV: u32 = 0x4000_001F;
+pub const VERTICAL_SCALE: u32 = 0x4000_0020;
+pub const NEAR: u32 = 0x4000_0021;
+pub const FAR: u32 = 0x4000_0022;
+/// A light's properties: its diffuse color and intensity.
+const LIGHT_COLOR: u32 = 0x4000_0008;
+const LIGHT_INTENSITY: u32 = 0x4000_0009;
+
+/// Where a viewport's camera stands and looks, and how it sees: through a perspective of its field
+/// of view, or straight on (orthographic), `vertical_scale` metres from the picture's foot to its
+/// top.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewCamera {
+    pub position: Vec3,
+    /// Degrees clockwise from north (+y).
+    pub heading: f32,
+    /// Degrees above level.
+    pub pitch: f32,
+    pub fov_y: f32,
+    pub near: f32,
+    pub far: f32,
+    pub orthographic: bool,
+    pub vertical_scale: f32,
+}
+
+impl Default for ViewCamera {
+    /// At the origin looking north, in perspective: 65° high, from 0.1 to 2000 m; a height of 1 m
+    /// when seen straight on.
+    // D2-10517, D2-10499
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            heading: 0.0,
+            pitch: 0.0,
+            fov_y: 65.0,
+            near: 0.1,
+            far: 2000.0,
+            orthographic: false,
+            vertical_scale: 1.0,
+        }
+    }
+}
+
+impl ViewCamera {
+    /// A camera at `eye` looking at `target`, z up.
+    #[must_use]
+    pub fn looking(eye: Vec3, target: Vec3, fov_y: f32) -> Self {
+        let d = math::sub(target, eye);
+        let flat = (d.x * d.x + d.y * d.y).sqrt();
+        Self {
+            position: eye,
+            heading: fm::atan2f(d.x, d.y).to_degrees().rem_euclid(360.0),
+            pitch: fm::atan2f(d.z, flat).to_degrees(),
+            fov_y,
+            ..Self::default()
+        }
+    }
+
+    /// Stands at `frame`'s place, looking along its +y.
+    // D2-10501, D2-10520
+    pub fn set_frame(&mut self, frame: &auberean_primitives::Frame) {
+        let d = forward_of(frame.rotation);
+        let at = Self::looking(frame.origin, math::add(frame.origin, d), self.fov_y);
+        self.position = at.position;
+        self.heading = at.heading;
+        self.pitch = at.pitch;
+    }
+
+    /// Takes one of its properties; false for another property, or a value of another kind.
+    // D2-10512
+    pub fn apply_property(&mut self, id: u32, value: &PropertyValue) -> bool {
+        match (id, value) {
+            (ORTHOGRAPHIC, PropertyValue::Bool(b)) => self.orthographic = *b,
+            (FOV, PropertyValue::Float(v)) => self.set_fov(*v),
+            (VERTICAL_SCALE, PropertyValue::Float(v)) => self.set_vertical_scale(*v),
+            (NEAR, PropertyValue::Float(v)) => self.near = *v,
+            (FAR, PropertyValue::Float(v)) => self.far = *v,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Takes every property of its group in a collection; false when one was not taken.
+    // D2-10518
+    pub fn apply_properties(&mut self, c: &PropertyCollection) -> bool {
+        let mut all = true;
+        for g in c.groups.iter().filter(|g| g.group == CAMERA_GROUP) {
+            for p in &g.properties {
+                if !self.apply_property(p.id, &p.value) {
+                    all = false;
+                }
+            }
+        }
+        all
+    }
+
+    /// Its vertical field of view, degrees.
+    // D2-10514
+    pub const fn set_fov(&mut self, fov: f32) {
+        self.fov_y = fov;
+    }
+
+    /// The height it sees when seen straight on.
+    // D2-10515
+    pub const fn set_vertical_scale(&mut self, scale: f32) {
+        self.vertical_scale = scale;
+    }
+
+    /// The camera the frame is drawn through: straight on, or in perspective.
+    // D2-10593
+    #[must_use]
+    pub fn drawn(&self) -> Camera {
+        Camera {
+            position: self.position,
+            heading: self.heading,
+            pitch: self.pitch,
+            fov_y: self.fov_y,
+            near: self.near,
+            far: self.far,
+            orthographic: self.orthographic.then_some(self.vertical_scale),
+        }
+    }
+
+    fn axes(&self) -> (Vec3, Vec3, Vec3) {
+        let (h, p) = (self.heading.to_radians(), self.pitch.to_radians());
+        let f = Vec3::new(
+            fm::sinf(h) * fm::cosf(p),
+            fm::cosf(h) * fm::cosf(p),
+            fm::sinf(p),
+        );
+        let r = math::normalize(math::cross(f, Vec3::new(0.0, 0.0, 1.0)));
+        let u = math::cross(r, f);
+        (f, r, u)
+    }
+}
+
+/// How a viewport's scene is lit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViewLight {
+    /// As the scene's own lights light it (or the default light when it has none).
+    Scene,
+    /// One light along the camera's view, tipped down by half: the appearance page's.
+    Camera,
+}
+
+/// A figure a screen stands in its scene.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewFigure {
+    /// Its description: the look it is put together with.
+    pub look: Desc,
+    pub origin: Vec3,
+    /// Degrees clockwise from north.
+    pub heading: f32,
+    /// The mode it stands in (0: its table's first).
+    pub mode: u32,
+    /// It stands still in its first pose instead of animating.
+    pub still: bool,
+}
+
+/// One viewport's scene, as a screen asks for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewScene {
+    /// The viewport, window pixels: left, top, right, bottom.
+    pub rect: [f32; 4],
+    /// The interface scene record its placed objects and lights come from (0: none).
+    pub scene: u32,
+    pub camera: ViewCamera,
+    pub light: ViewLight,
+    pub figures: Vec<ViewFigure>,
+    /// A pick asked at the pointer (window pixels).
+    pub pick: Option<(f32, f32)>,
+}
+
+/// A viewport's frame: where it goes in the window, and what it shows.
+#[derive(Debug)]
+pub struct ViewFrame {
+    pub rect: [f32; 4],
+    pub frame: Frame,
+}
+
+struct Kept {
+    figure: ViewFigure,
+    body: Option<Figure>,
+    scale: Vec3,
+}
+
+struct KeptScene {
+    scene: u32,
+    parts: Vec<Part>,
+    lights: Vec<(Vec3, Color, f32)>,
+    figures: Vec<Kept>,
+}
+
+/// What a pick on a viewport's scene met: the figure under the pointer, and the kind its mesh
+/// names itself there (a head, a torso, a leg...).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ViewHit {
+    pub figure: usize,
+    pub mesh_type: u32,
+}
+
+/// The interface's scenes as they were last asked for, their figures put together and animated.
+#[derive(Default)]
+pub struct Views {
+    kept: BTreeMap<usize, KeptScene>,
+    /// What each scene's last pick met (scene index, what it met).
+    pub picked: Vec<(usize, Option<ViewHit>)>,
+}
+
+impl std::fmt::Debug for Views {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Views")
+            .field("scenes", &self.kept.len())
+            .finish_non_exhaustive()
+    }
+}
+
+fn float_of(e: &Entity, id: u32) -> Option<f32> {
+    e.properties.as_ref()?.iter().find_map(|p| match p.value {
+        PropertyValue::Float(v) if p.id == id => Some(v),
+        _ => None,
+    })
+}
+
+fn color_of(e: &Entity, id: u32) -> Option<Color> {
+    e.properties.as_ref()?.iter().find_map(|p| match p.value {
+        PropertyValue::Integer(v) if p.id == id => Some(Color::from_argb(v.cast_unsigned())),
+        _ => None,
+    })
+}
+
+fn forward_of(q: Quat) -> Vec3 {
+    Mat4::from_parts(Vec3::ZERO, q, Vec3::new(1.0, 1.0, 1.0)).direction(Vec3::new(0.0, 1.0, 0.0))
+}
+
+/// A scene's camera by name: the entity's place, looking along its frame's +y, seen as its
+/// properties say (in perspective, 65° high, from 0.1 to 2000 m, when it sets none).
+// D2-10469, D2-10451, D2-10496, D2-10480
+#[must_use]
+pub fn scene_camera(scene: &UiScene, name: &str) -> Option<ViewCamera> {
+    let e = scene
+        .entities
+        .iter()
+        .find(|e| e.kind == Some(CAMERA_KIND) && e.name.as_deref() == Some(name))?;
+    let mut c = ViewCamera::default();
+    c.set_frame(&e.offset.map(|o| o.frame).unwrap_or_default());
+    if let Some(p) = &e.properties {
+        c.apply_properties(p);
+    }
+    Some(c)
+}
+
+/// The box around what a figure put together from `desc` draws, in its own frame: its parts'
+/// meshes as they were read (no pose), times the figure's scale. `None` when the description puts
+/// nothing together.
+// D2-06121, D2-06120
+#[must_use]
+pub fn figure_box(records: &WorldRecords, desc: &Desc) -> Option<(Vec3, Vec3)> {
+    let look = Look::of(records, desc).ok()?;
+    let mut group = auberean_physics::parts::PartGroup::default();
+    if !group.init_look(records, &look) {
+        return None;
+    }
+    group.cache_default_render_box();
+    let b = group.array.default_render_bounds;
+    if b.min.x > b.max.x || b.min.z > b.max.z {
+        return None;
+    }
+    let s = look.scale;
+    Some((
+        Vec3::new(b.min.x * s.x, b.min.y * s.y, b.min.z * s.z),
+        Vec3::new(b.max.x * s.x, b.max.y * s.y, b.max.z * s.z),
+    ))
+}
+
+/// The light of a scene with no lights of its own: ambient 0.1 and a white sun at half strength
+/// travelling along (0.3, -0.9, -1.0).
+// D2-10472
+#[must_use]
+pub fn default_light() -> DayLight {
+    DayLight {
+        ambient_brightness: 0.1,
+        ambient_color: Color::WHITE,
+        direct_brightness: 0.5,
+        direct_color: Color::WHITE,
+        light_direction: math::normalize(Vec3::new(0.3, -0.9, -1.0)),
+        fog_min: 0.0,
+        fog_max: 0.0,
+        ..DayLight::DEFAULT
+    }
+}
+
+impl Views {
+    fn keep(&mut self, records: &WorldRecords, i: usize, scene: u32) -> &mut KeptScene {
+        let fresh = self.kept.get(&i).is_none_or(|k| k.scene != scene);
+        if fresh {
+            let mut parts = Vec::new();
+            let mut lights = Vec::new();
+            if let Some(s) = (scene != 0)
+                .then(|| records.get::<UiScene>(scene))
+                .flatten()
+            {
+                for e in &s.entities {
+                    if e.kind == Some(LIGHT_KIND) {
+                        let at = e.offset.map(|o| o.frame.origin).unwrap_or(Vec3::ZERO);
+                        let color = color_of(e, LIGHT_COLOR).unwrap_or(Color::WHITE);
+                        let k = float_of(e, LIGHT_INTENSITY).unwrap_or(0.5);
+                        lights.push((at, color, k));
+                    } else {
+                        parts.extend(entity_parts(records, e));
+                    }
+                }
+            }
+            self.kept.insert(
+                i,
+                KeptScene {
+                    scene,
+                    parts,
+                    lights,
+                    figures: Vec::new(),
+                },
+            );
+        }
+        self.kept.get_mut(&i).expect("kept above")
+    }
+
+    /// Each scene's frame, its figures put together (again when their look or place changed) and
+    /// animated over `dt` seconds; each asked pick is answered in [`Views::picked`].
+    // D2-10447, D2-10472, D2-10455, D2-10612
+    #[allow(clippy::too_many_arguments)]
+    pub fn frames(
+        &mut self,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        builder: &mut SceneBuilder<'_>,
+        drawer: &mut BodyDrawer,
+        scenes: &[ViewScene],
+        dt: f32,
+    ) -> Vec<ViewFrame> {
+        self.kept.retain(|i, _| *i < scenes.len());
+        let mut picked = Vec::new();
+        let mut out = Vec::new();
+        for (i, v) in scenes.iter().enumerate() {
+            let kept = self.keep(records, i, v.scene);
+            kept.figures.truncate(v.figures.len());
+            for (k, f) in v.figures.iter().enumerate() {
+                let same = kept.figures.get(k).is_some_and(|x| x.figure == *f);
+                if same {
+                    continue;
+                }
+                let look = Look::of(anims, &f.look).ok();
+                let scale = look.as_ref().map_or(Vec3::new(1.0, 1.0, 1.0), |l| l.scale);
+                let mut body = look.and_then(|l| Figure::from_look(anims, &l));
+                if let Some(b) = &mut body {
+                    if f.mode != 0
+                        && b.table
+                            .as_ref()
+                            .is_some_and(|t| t.combos.iter().any(|(c, _)| c.mode == f.mode))
+                    {
+                        b.mode = f.mode;
+                    }
+                }
+                let kept_figure = Kept {
+                    figure: f.clone(),
+                    body,
+                    scale,
+                };
+                if k < kept.figures.len() {
+                    kept.figures[k] = kept_figure;
+                } else {
+                    kept.figures.push(kept_figure);
+                }
+            }
+            let mut bodies: Vec<(usize, Vec<ObjectBatch>)> = Vec::new();
+            for (k, f) in kept.figures.iter_mut().enumerate() {
+                let Some(b) = &mut f.body else { continue };
+                if !f.figure.still {
+                    b.advance(anims, dt);
+                }
+                let rot = auberean_physics::body::heading_rotation(f.figure.heading);
+                let place = Mat4::from_parts(
+                    f.figure.origin,
+                    Quat {
+                        w: rot.w,
+                        x: rot.x,
+                        y: rot.y,
+                        z: rot.z,
+                    },
+                    f.scale,
+                );
+                let poses = b.pose(anims);
+                bodies.push((k, drawer.batches(records, b, &poses, &place)));
+            }
+            if let Some(p) = v.pick {
+                let hit = pick(&v.camera, v.rect, p, &bodies);
+                picked.push((i, hit));
+            }
+            let light = match v.light {
+                ViewLight::Camera => {
+                    let (f, _, _) = v.camera.axes();
+                    DayLight {
+                        ambient_brightness: 0.1,
+                        ambient_color: Color::WHITE,
+                        direct_brightness: 0.6,
+                        direct_color: Color::WHITE,
+                        light_direction: math::normalize(math::add(f, Vec3::new(0.0, 0.0, -0.5))),
+                        fog_min: 0.0,
+                        fog_max: 0.0,
+                        ..DayLight::DEFAULT
+                    }
+                }
+                ViewLight::Scene => scene_light(&kept.lights, &v.camera),
+            };
+            let camera = v.camera.drawn();
+            let batches = bodies.into_iter().flat_map(|(_, b)| b).collect();
+            let frame = builder.parts_frame(&kept.parts, batches, camera, light);
+            out.push(ViewFrame {
+                rect: v.rect,
+                frame,
+            });
+        }
+        self.picked = picked;
+        out
+    }
+}
+
+/// A scene lit by its own lights, as one light can stand for them: the brightest's color along
+/// its way to the camera's view, the others as ambient; with none, the default light.
+fn scene_light(lights: &[(Vec3, Color, f32)], camera: &ViewCamera) -> DayLight {
+    let Some((at, color, k)) = lights.iter().copied().max_by(|a, b| a.2.total_cmp(&b.2)) else {
+        return default_light();
+    };
+    let (f, _, _) = camera.axes();
+    let target = math::add(camera.position, math::scale(f, 3.0));
+    let rest: f32 = lights.iter().map(|l| l.2).sum::<f32>() - k;
+    // The other lights' colors, by their strength, light everything a little.
+    let mut tint = [0.0_f32; 3];
+    for (_, c, w) in lights.iter().filter(|l| l.0 != at) {
+        tint[0] += c.r * w;
+        tint[1] += c.g * w;
+        tint[2] += c.b * w;
+    }
+    let ambient_color = if rest > 0.0 {
+        Color {
+            r: tint[0] / rest,
+            g: tint[1] / rest,
+            b: tint[2] / rest,
+            a: 1.0,
+        }
+    } else {
+        Color::WHITE
+    };
+    DayLight {
+        ambient_brightness: (0.25 * rest).min(1.0),
+        ambient_color,
+        direct_brightness: k.min(1.5),
+        direct_color: color,
+        light_direction: math::normalize(math::sub(target, at)),
+        fog_min: 0.0,
+        fog_max: 0.0,
+        ..DayLight::DEFAULT
+    }
+}
+
+/// The figure a ray from the camera through the pointer meets first, by its drawn triangles, and
+/// the kind of the mesh it meets there. The pointer is taken in pixels against the viewport's
+/// size: a panel that wants the viewport's own pixels takes its corner off first.
+// D2-10455, D2-10586, D2-10612, D2-06650
+#[must_use]
+pub fn pick(
+    camera: &ViewCamera,
+    rect: [f32; 4],
+    pointer: (f32, f32),
+    bodies: &[(usize, Vec<ObjectBatch>)],
+) -> Option<ViewHit> {
+    let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let cx = (2.0 * pointer.0 - 1.0) / w - 1.0;
+    let cy = 1.0 - (2.0 * pointer.1 + 1.0) / h;
+    let (f, r, u) = camera.axes();
+    let (from, dir) = if camera.orthographic {
+        // Straight on: every ray runs along the view, from the near plane at the pointer.
+        let half = camera.vertical_scale * 0.5;
+        let across = math::add(math::scale(r, cx * half * w / h), math::scale(u, cy * half));
+        let from = math::add(
+            camera.position,
+            math::add(across, math::scale(f, camera.near)),
+        );
+        (from, f)
+    } else {
+        let t = fm::tanf((camera.fov_y * 0.5).to_radians());
+        let dir = math::normalize(math::add(
+            f,
+            math::add(math::scale(r, cx * t * w / h), math::scale(u, cy * t)),
+        ));
+        (camera.position, dir)
+    };
+    let mut best: Option<(f32, ViewHit)> = None;
+    for (k, batches) in bodies {
+        for b in batches {
+            let at = |i: u16| {
+                let v = b.vertices.get(usize::from(i))?.position;
+                Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
+            };
+            for tri in b.indices.as_chunks::<3>().0 {
+                let (Some(a), Some(bb), Some(c)) = (at(tri[0]), at(tri[1]), at(tri[2])) else {
+                    continue;
+                };
+                if let Some(d) = ray_triangle(from, dir, a, bb, c) {
+                    if best.is_none_or(|(bd, _)| d < bd) {
+                        let hit = ViewHit {
+                            figure: *k,
+                            mesh_type: b.mesh_type,
+                        };
+                        best = Some((d, hit));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, hit)| hit)
+}
+
+/// How far along a ray it meets a triangle (either side), if it does.
+pub(crate) fn ray_triangle(from: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let e1 = math::sub(b, a);
+    let e2 = math::sub(c, a);
+    let p = math::cross(dir, e2);
+    let det = math::dot(e1, p);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = math::sub(from, a);
+    let u = math::dot(s, p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = math::cross(s, e1);
+    let v = math::dot(dir, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let d = math::dot(e2, q) * inv;
+    (d > 0.0).then_some(d)
+}
