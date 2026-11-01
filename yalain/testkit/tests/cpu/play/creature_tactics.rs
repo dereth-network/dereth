@@ -184,17 +184,11 @@ fn a_creature_takes_its_weapons_stance_as_it_goes_after_a_player() {
 const AXE: u32 = 0x4700_1EEC;
 const SHIELD: u32 = 0x4700_1F60;
 
-/// A creature wields its weapons as objects of their own: none sent while it is at peace; as it
-/// goes after a player, each made hanging from it (the axe at its first place, the shield at its
-/// second hand's), held by it, then its stance; as it gives up, each let go of (the shield first),
-/// the monster's mode and peace; going after the player again, each attached again; as it leaves
-/// the world, they go with it.
-/// Behaviour: server.creatures.weapon-objects
-#[test]
-fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
-    let mut h = Harness::new();
+/// A camp of one creature with an axe and a shield, and a player 30 m off, out of its sight:
+/// the player's bot, its character, its place, the creature and its two weapons.
+fn axe_and_shield(h: &mut Harness) -> (usize, u64, yalain_store::StoredPosition, u64, Vec<u64>) {
     camp(
-        &mut h,
+        h,
         creature(
             20.0,
             &[
@@ -212,7 +206,6 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
             .insert(test_template(t, 0x10D9, Props::default()));
         h.server.creature_weapons.insert(name.into(), t);
     }
-    // The player stands out of its sight first.
     let (b, me) = h.player_in_world("one", "Elara");
     let home = h
         .server
@@ -221,15 +214,10 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
         .find(|p| p.character == me)
         .map(|p| p.position)
         .expect("in the world");
-    let far = |h: &mut Harness, by: f32| {
-        if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
-            p.position.origin[0] = home.origin[0] - by;
-        }
-    };
-    far(&mut h, 30.0);
-    drawn(&mut h, b);
-    hardy(&mut h, me);
-    let id = the_creature(&h, b);
+    stand_off(h, me, home, 30.0);
+    drawn(h, b);
+    hardy(h, me);
+    let id = the_creature(h, b);
     let held: Vec<u64> = h
         .server
         .things
@@ -237,6 +225,27 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
         .and_then(|t| t.creature.as_ref())
         .map(|c| c.weapons.clone())
         .expect("a creature");
+    (b, me, home, id, held)
+}
+
+/// The player stands `by` meters west of its place.
+fn stand_off(h: &mut Harness, me: u64, home: yalain_store::StoredPosition, by: f32) {
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        p.position.origin[0] = home.origin[0] - by;
+    }
+}
+
+/// A creature wields its weapons as objects of their own: none sent while it is at peace; as it
+/// goes after a player, each made hanging from it (the axe at its first place, the shield at its
+/// second hand's), held by it, then its stance; as it gives up, each let go of (the shield first),
+/// the monster's mode and peace; going after the player again, each attached again; as it leaves
+/// the world, they go with it.
+/// Behaviour: server.creatures.weapon-objects
+#[test]
+fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
+    let mut h = Harness::new();
+    let (b, me, home, id, held) = axe_and_shield(&mut h);
+    let far = |h: &mut Harness, by: f32| stand_off(h, me, home, by);
     assert_eq!(held.len(), 2, "an axe and a shield");
     let made = |h: &Harness, w: u64| {
         h.world_messages(b, 0).iter().find_map(|m| match m {
@@ -334,6 +343,75 @@ fn a_creature_draws_its_weapons_as_objects_hung_from_it() {
             .iter()
             .any(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == *w)));
         assert!(h.server.things.get(*w).is_none());
+    }
+}
+
+/// A creature taking its weapons up again tells a client that knew them, weapon by weapon: no one
+/// holds or wields it, then the creature wields and holds it, then it is attached; each update a
+/// visual one of the weapon's own, one stamp after another.
+/// Behaviour: server.creatures.weapon-taken-up-again
+#[test]
+fn a_creature_taking_its_weapons_up_again_wields_and_holds_each_before_attaching_it() {
+    let mut h = Harness::new();
+    let (b, me, home, id, held) = axe_and_shield(&mut h);
+    stand_off(&mut h, me, home, 0.0);
+    assert!(
+        h.run_until(200, |h| mode_of(h, id) == Some(Mode::Chasing)),
+        "it goes after the player"
+    );
+    stand_off(&mut h, me, home, 60.0);
+    assert!(
+        h.run_until(200, |h| mode_of(h, id) == Some(Mode::Returning)),
+        "it gives up"
+    );
+    h.run(4);
+    stand_off(&mut h, me, home, 0.0);
+    let from = h.bots[b].inbox.len();
+    assert!(
+        h.run_until(800, |h| mode_of(h, id) == Some(Mode::Chasing)),
+        "it goes after the player again"
+    );
+    h.run(4);
+    let about: Vec<(u64, String, u16)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInstanceIdVisual(q) if held.contains(&q.object.id) => {
+                let who = match q.value {
+                    0 => "none",
+                    v if v == id => "it",
+                    _ => "other",
+                };
+                Some((
+                    q.object.id,
+                    format!("{}={who}", q.quality),
+                    q.object.other_stamp,
+                ))
+            }
+            ServerMessage::Parent(e) if held.contains(&e.sender.id) => {
+                Some((e.sender.id, "attached".into(), 0))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut want = Vec::new();
+    for w in &held {
+        for step in ["261=none", "258=none", "261=it", "258=it", "attached"] {
+            want.push((*w, step.to_string()));
+        }
+    }
+    let got: Vec<(u64, String)> = about.iter().map(|(w, s, _)| (*w, s.clone())).collect();
+    assert_eq!(got, want, "weapon by weapon");
+    for w in &held {
+        let stamps: Vec<u16> = about
+            .iter()
+            .filter(|(x, s, _)| x == w && s != "attached")
+            .map(|(_, _, n)| *n)
+            .collect();
+        assert!(
+            stamps.windows(2).all(|p| p[1] == p[0].wrapping_add(1)),
+            "one stamp after another: {stamps:?}"
+        );
     }
 }
 

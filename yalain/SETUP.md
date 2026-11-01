@@ -147,7 +147,8 @@ friends service listening on TCP 127.0.0.1:9000
 
 On its first start the server creates `yalain.sqlite` in the working directory. It keeps the
 accounts, the characters, their friends and ignore lists, and the Dereth Network's settings and
-blocks. Back it up by copying it while the server is stopped.
+blocks. While the server runs, `yalain.sqlite-wal` and `yalain.sqlite-shm` sit beside it: they are
+part of the database (section 3.5 says how to back it up).
 
 By default the server listens on 127.0.0.1, so only this machine can reach it. Section 4 opens it
 to others.
@@ -170,6 +171,8 @@ to others.
 | `--listed-accounts` | admit only accounts made with `--add-account` (section 5) |
 | `--add-account <name>:<ticket>` | make an account with that ticket, then carry on (section 5) |
 | `--secret-cost <n>` | the bcrypt cost tickets are kept at, 4 to 31 (default 8; section 5) |
+| `--save-interval <s>` | save each character in the world every that many seconds, 1 or more (default 300; section 3.3) |
+| `--shutdown-interval <s>` | how long `shutdown` counts down, 0 to 99999 seconds (default 120; section 3.3) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
 | `--hub`, `--hub-slug`, `--hub-key-file`, `--federation` | the Dereth Network (section 8) |
@@ -195,18 +198,31 @@ run a world.
 
 ### 3.3 Stopping
 
-Type `shutdown` at the console (section 6). Every player in the world is told the world is
-shutting down, two minutes ahead and then every thirty seconds; twenty seconds after the last
-line, the server stops. With `--hub`, the hub shows the world in maintenance during the countdown,
-and offline once it stops.
+Type `shutdown` at the console (section 6), or `shutdown <message>` to show every player in the
+world your message first. Every player in the world is told the world is shutting down, two minutes
+ahead and then every thirty seconds; twenty seconds after the last line, the server stops. With
+`--hub`, the hub shows the world in maintenance during the countdown, and offline once it stops.
+
+The countdown is two minutes unless you give another length, with `--shutdown-interval <s>` or the
+console's `set-shutdown-interval <s>` (0 to 99999 seconds). A longer countdown shows its first
+line at once, then a line at two hours, one hour, 45, 30, 15, 10 and 5 minutes before (those still
+ahead), and from two minutes on as above. `cancel-shutdown` stops a countdown and tells the
+players the world is no longer shutting down. `stop-now` (with a message if you like) shows the
+players the last line and stops the server at once.
 
 Ctrl-C, and on Linux and macOS SIGTERM and SIGHUP (on Windows, Ctrl-Break too), stop the server
 at once, without the countdown. `--seconds` stops it when its time is up.
 
 However the server stops, it first saves every character still in the world, as if its player had
-left, and logs how many. A character is also saved whenever it leaves the world, and when some
-things change (its equipment, what it crafts, among others). Closing the console window on Windows
-ends the server before it can save; stop it with Ctrl-C instead.
+left, and logs how many. Closing the console window on Windows ends the server before it can save;
+stop it with Ctrl-C instead.
+
+**Saves while the server runs.** Every character in the world is saved every five minutes
+(`--save-interval <s>` sets another interval), as well as when it leaves the world and when some
+things change (its equipment, what it crafts, among others); a save at one of those puts the next
+one five minutes after it. So a crash loses at most the last few minutes of play. When many
+characters come due at once, they are saved one at a time over the next moments, not all at once.
+`save-world` at the console saves everyone in the world now.
 
 ### 3.4 Running as a service
 
@@ -240,6 +256,30 @@ WantedBy=multi-user.target
 
 Then `systemctl daemon-reload`, `systemctl enable --now yalain`, and read the log with
 `journalctl -u yalain`.
+
+---
+
+### 3.5 Backups
+
+Everything that changes as people play is in `yalain.sqlite` (or your `--data` file).
+
+- **Server stopped:** copy `yalain.sqlite`, with `yalain.sqlite-wal` and `yalain.sqlite-shm` if
+  they are beside it.
+- **Server running:** use SQLite's online backup, which gives a whole copy while the server writes:
+  ```
+  sqlite3 yalain.sqlite ".backup 'yalain-backup.sqlite'"
+  ```
+  Copying the files while the server runs can give a copy that does not open.
+
+**Automatic backups.** When a new release of the server changes the database's layout, it first
+copies the file beside itself, as `yalain.sqlite.backup-v<from>-v<to>-<UTC time>`, and logs it. If
+the copy fails (a full disk, no permission to write the folder), nothing is changed and the server
+stops with the reason. Only the newest three of these copies are kept. The first start of this
+release makes one (`...backup-v0-v1-...`) of a database an earlier Yalain kept.
+
+To go back to a copy, stop the server, delete `yalain.sqlite-wal` and `yalain.sqlite-shm`, and copy
+the backup over `yalain.sqlite`. Play since the copy is lost. A database a newer release has
+upgraded is refused by an older one, which names the versions.
 
 ---
 
@@ -329,7 +369,11 @@ command, in any case. Answers appear in the log (section 7).
 | Command | What it does |
 | --- | --- |
 | `reload` | compile the world database again and take what can change while players are in the world |
-| `shutdown` | count down two minutes, telling every player in the world, then stop (section 3.3) |
+| `shutdown` or `shutdown <message>` | count down (two minutes unless set otherwise), telling every player in the world, then stop (section 3.3) |
+| `cancel-shutdown` | stop the countdown, and tell the players |
+| `set-shutdown-interval <s>` | how long the next `shutdown` counts down, 0 to 99999 seconds |
+| `stop-now` or `stop-now <message>` | stop the server at once, saving everyone in the world |
+| `save-world` | save every character in the world now; the world goes on |
 | `hero <name>` | make a character a hero |
 | `hero <name> off` | make it no longer one |
 | `dn`, `dn block ...`, `dn unblock ...`, `dn help` | the Dereth Network (section 8.3) |
@@ -526,5 +570,7 @@ On an open world (section 5), the first login with a new name makes the account.
 | `Dereth Network: the hub refused the link (the world's federation is not on at the hub)` | Verify the world, or turn its federation on at the hub (section 8.2). |
 | `the hub could not be reached: ...` | The hub is down, or the machine cannot reach it. The world plays on and tries again a minute later. |
 | `the world database did not compile; the world is unchanged: ...` | After `reload`: fix what it names and `reload` again. |
+| `yalain: <file>: the backup before upgrading the schema ... failed, so nothing was upgraded: ...` | Free disk space or let the server write the database's folder, then start it again (section 3.5). |
+| `yalain: <file>: the database is at schema version <n>, newer than this Yalain's ...` | A newer release upgraded the database. Run that release, or put back a backup (section 3.5). |
 | `yalain world: yalain-world-<tag>.zip does not match: expected SHA-256 ...` | The archive is not the release this build expects. Nothing was cached. Download it again; with `--version`, check `--sha256`. |
 | `yalain world: could not reach ...` | No connection to GitHub. Try again, or fetch by hand (section 2.1). |

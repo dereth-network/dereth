@@ -1282,6 +1282,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.weapon-taken-up-again",
+        says: "A creature taking its weapons up again tells a client that knew them, weapon by \
+               weapon, that no one holds or wields it, that the creature wields and holds it, and \
+               then that it is attached.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-WEAPONS-AGAIN"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creature_taking_its_weapons_up_again_wields_and_holds_each_before_attaching_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.data.landblock-brings-its-information",
         says: "A landblock sent to a client that asked for it brings its landblock information \
                right after it, unasked, from the same file.",
@@ -1432,6 +1442,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RESURRECT"),
         station: "yalain-testkit::cpu::play::dying::a_dead_player_is_resurrected_with_three_quarters_of_its_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.resurrection-look",
+        says: "A resurrected player is set standing at once as it goes, not played into it, then \
+               shows the resurrection's glow and the arrival's effect, for everyone who sees it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RESURRECTION-LOOK"),
+        station: "yalain-testkit::cpu::play::dying::a_resurrected_player_is_set_standing_then_glows_as_it_goes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3200,6 +3219,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.characters-saved-every-five-minutes",
+        says: "Every character in the world is kept again once its last save is five minutes old \
+               (the operator may give another interval), on the world's clock, as Empyrean saves \
+               each player every 300 seconds; a save at an event counts, so the next comes five \
+               minutes after it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERIODIC-SAVE"),
+        station: "yalain-testkit::cpu::operator::saves::a_character_in_the_world_is_kept_every_five_minutes_on_the_world_clock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.reload-from-the-console",
         says: "Typing reload at a running server's console compiles its world database again: one \
                that does not compile leaves the world as it was and says so; one that does is \
@@ -3241,6 +3271,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.operator.saves-spread-one-a-tick",
+        says: "Characters whose periodic saves come due together are kept one a tick of the \
+               world, the longest unsaved first, so no tick stalls on the database; save-world \
+               keeps everyone in the world at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERIODIC-SAVE-SPREAD"),
+        station: "yalain-testkit::cpu::operator::saves::characters_due_together_are_kept_one_a_tick_at_the_operators_interval",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.shutdown-cancelled",
+        says: "A shutdown's countdown cancelled tells every player in the world the world is no \
+               longer shutting down; no more lines come, the world goes on, and a later shutdown \
+               counts down afresh.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHUTDOWN-CANCEL"),
+        station: "yalain-testkit::cpu::operator::shutdown::a_cancelled_shutdown_tells_every_player_and_the_world_goes_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.shutdown-counts-down-two-minutes",
         says: "Shutting the world down tells every player in it, two minutes before and then every \
                thirty seconds, how long is left, ends with the world shutting down now, and stops \
@@ -3248,6 +3298,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SHUTDOWN-COUNTDOWN"),
         station: "yalain-testkit::cpu::operator::shutdown::a_shutdown_counts_down_two_minutes_to_every_player_then_stops",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.shutdown-message-and-interval",
+        says: "A shutdown shows the operator's message first, then counts down the operator's \
+               interval: its first line at once, a line at each of Empyrean's marks still ahead \
+               (an hour, 30, 15, 10 and 5 minutes and so on), and the 2017 lines from two \
+               minutes on.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHUTDOWN-INTERVAL"),
+        station: "yalain-testkit::cpu::operator::shutdown::a_shutdown_shows_the_operators_message_and_counts_down_the_operators_interval",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.stop-now",
+        says: "Stopping now shows every player in the world the operator's message and the \
+               countdown's last line, and the server stops at once, a countdown running or not.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHUTDOWN-STOP-NOW"),
+        station: "yalain-testkit::cpu::operator::shutdown::stopping_now_shows_the_last_line_and_lets_the_server_stop_at_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5017,6 +5087,37 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KEEP-WIELDED"),
         station: "yalain-testkit::cpu::entry::keeping::a_bow_wielded_at_logoff_is_in_hand_again_at_the_next_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.database-backed-up-before-a-schema-upgrade",
+        says: "Before its schema is upgraded, a database file that holds anything is copied \
+               beside itself as it was, named for the versions and the time, and the newest \
+               three copies are kept, as Empyrean backs up before a migration; a file a newer \
+               Yalain kept is refused and left as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-BACKUPS"),
+        station: "yalain-store::cpu::persistence::a_database_is_backed_up_as_it_was_before_its_schema_is_upgraded",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.database-foreign-keys-hold",
+        says: "The database keeps no character without its account and no saved state or list \
+               without its character, as Empyrean enforces its foreign keys; a purge goes, its \
+               rows first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-FOREIGN-KEYS"),
+        station: "yalain-store::cpu::persistence::no_character_is_kept_without_its_account_nor_its_state_without_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.database-write-ahead-log",
+        says: "The database is kept with a write-ahead log, as Empyrean keeps its own: a save is \
+               in the file once made, readable by another connection while the server runs, and \
+               there after a crash.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-WAL"),
+        station: "yalain-store::cpu::persistence::the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash",
         tier: Tier::Cpu,
     },
     behaviour! {

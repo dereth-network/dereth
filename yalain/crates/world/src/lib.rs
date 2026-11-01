@@ -45,6 +45,8 @@
 //!   their interaction tables name (a hoard's key on its stockpile).
 //! - [`walkers`]: placed people walking their routes.
 //! - [`reload`]: the world database taken again while the server runs.
+//! - [`saves`], [`shutdown`]: every character in the world kept every few minutes; the world shut
+//!   down, its countdown, cancelled or cut short.
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
 
 pub mod ai;
@@ -97,6 +99,7 @@ pub mod reload;
 pub mod requests;
 pub mod rng;
 pub mod rules;
+pub mod saves;
 pub mod scenes;
 pub mod session;
 pub mod shutdown;
@@ -169,6 +172,11 @@ pub struct ServerConfig {
     /// The bcrypt cost account secrets are kept at ([`login::SECRET_COST`] unless the operator
     /// gives another).
     pub secret_cost: u32,
+    /// Seconds between a character's saves while it is in the world ([`saves::SAVE_SECONDS`]
+    /// unless the operator gives another).
+    pub save_seconds: u32,
+    /// Seconds a shutdown counts down ([`shutdown::LEAD`] unless the operator gives another).
+    pub shutdown_seconds: u32,
 }
 
 impl Default for ServerConfig {
@@ -183,6 +191,8 @@ impl Default for ServerConfig {
             echo_positions: true,
             seed: 0x5EED_00A2,
             secret_cost: login::SECRET_COST,
+            save_seconds: saves::SAVE_SECONDS,
+            shutdown_seconds: shutdown::LEAD,
         }
     }
 }
@@ -227,6 +237,8 @@ pub struct Server<S: Store> {
     pub players: HashMap<ConnId, Player>,
     /// Whether the world is shutting down.
     pub shutdown: shutdown::Shutdown,
+    /// When each character in the world was last kept.
+    pub saves: saves::Saves,
     /// What is to happen later, by when.
     pub timers: Vec<(LocalTime, Timer)>,
     /// The last context number a behavior or movement order carried.
@@ -541,6 +553,7 @@ impl<S: Store> Server<S> {
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
+            saves: saves::Saves::default(),
             timers: Vec::new(),
             next_context: 0,
             visuals: HashMap::new(),
@@ -633,6 +646,7 @@ impl<S: Store> Server<S> {
 
     /// Handle every event the network has, then whatever is due.
     pub fn pump(&mut self, net: &mut ServerNet, clock: Clock) {
+        self.saves.now = clock.local;
         while let Some(ev) = net.poll_event() {
             self.handle(net, ev, clock);
         }
@@ -765,6 +779,7 @@ impl<S: Store> Server<S> {
             self.last_step = Some(clock.local);
             spawn::step(self, net, clock);
         }
+        saves::tick(self, clock);
         fellowship::tick(self, net, clock.local);
         trade::look(self, net, clock);
         market::look(self, net, clock);

@@ -13,11 +13,13 @@ what they see, not how it was done.
 - New `reload` console command, to take database edits without a restart.
 - Worlds can be listed on a Dereth Network hub with `--hub`.
 - New `--federation` option links the world to the Dereth Network; the console gains `dn` blocks.
-- New `shutdown` console command warns players for two minutes, then stops the server.
+- New `shutdown` console command warns players, then stops the server; it can be cancelled.
 - New `--banned-names` option; character names are capitalized as in 2017.
 - New `--game-time` and `--hold-clock` options set the time of day and keep it there.
 - Clients get missing game data from the server.
 - Stopping the server, Ctrl-C and service stops included, saves everyone in the world first.
+- Characters in the world are saved every five minutes, not only when they leave.
+- The database is backed up before a new release changes its layout.
 - Open worlds check an account's password after its first login.
 - Passwords are stored as bcrypt hashes; older ones are converted at the next login.
 - Five wrong passwords from one address lock it out for a minute.

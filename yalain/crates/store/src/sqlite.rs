@@ -1,8 +1,27 @@
 //! The store in an embedded SQLite file.
+//!
+//! The file is kept as Empyrean keeps its databases: with a write-ahead log (`-wal` and `-shm`
+//! files beside it while it is open) and `synchronous = NORMAL`, which loses no committed save
+//! when the server crashes, and with its foreign keys enforced, so no character's rows outlive it
+//! (as the SQLite built in has always enforced them; set here so that holds of any build).
+//!
+//! **The schema's versions.** The file records how many of the schema's migrations it has had
+//! (`PRAGMA user_version`; a file kept before versions reads 0). Opening it:
+//!
+//! 1. refuses a file a newer Yalain wrote (a version above this build's), touching nothing;
+//! 2. with a migration to run on a file that holds anything, first copies the file beside itself
+//!    with SQLite's online backup, as `<file>.backup-v<from>-v<to>-<UTC timestamp>`, as Empyrean
+//!    does; a copy that fails stops the open before anything is migrated (and leaves no partial
+//!    copy);
+//! 3. runs each migration in a transaction of its own, recording the new version in it;
+//! 4. keeps the newest [`KEEP_BACKUPS`] backups of the file and removes older ones.
+//!
+//! The one migration so far makes the tables: a file kept before versions gains those it lacks
+//! (the Dereth Network's, the friends service's), empty.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Row};
 
 use crate::{
     physique_bytes, physique_from, position_bytes, position_from, Account, Character, Listed,
@@ -61,6 +80,18 @@ CREATE TABLE IF NOT EXISTS network_list (
 );
 ";
 
+/// The schema's migrations, in order: a file at version `n` has had the first `n`.
+const MIGRATIONS: &[&str] = &[SCHEMA];
+
+/// The schema version this build keeps its files at.
+pub const SCHEMA_VERSION: i64 = 1;
+
+/// How many backups of a file are kept (the newest), as Empyrean keeps.
+pub const KEEP_BACKUPS: usize = 3;
+
+/// What follows a file's name in its backups' names.
+const BACKUP_MARKER: &str = ".backup-";
+
 const CHARACTER_COLUMNS: &str =
     "id, account, name, race, sex, class, implement, start_area, entity_did, physique, look, created_at, deleted_at, last_played";
 
@@ -96,12 +127,22 @@ fn character(r: &Row<'_>) -> rusqlite::Result<Character> {
 }
 
 impl SqliteStore {
-    /// Open (or make) the store in a file.
+    /// Open (or make) the store in a file, its schema brought up to date (after a backup when
+    /// there is something to migrate; see the module's documentation).
     ///
     /// # Errors
-    /// The file cannot be opened or its tables made.
+    /// The file cannot be opened, a newer Yalain wrote it, its backup failed, or a migration
+    /// failed (that migration is rolled back).
     pub fn open(path: &Path) -> StoreResult<Self> {
-        Self::with(Connection::open(path).map_err(err)?)
+        let db = Connection::open(path).map_err(err)?;
+        db.pragma_update(None, "foreign_keys", "ON").map_err(err)?;
+        db.pragma_update(None, "journal_mode", "WAL").map_err(err)?;
+        db.pragma_update(None, "synchronous", "NORMAL")
+            .map_err(err)?;
+        db.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(err)?;
+        upgrade(&db, Some(path))?;
+        Ok(Self { db })
     }
 
     /// A store in memory, gone when dropped.
@@ -109,13 +150,166 @@ impl SqliteStore {
     /// # Errors
     /// The tables cannot be made.
     pub fn open_in_memory() -> StoreResult<Self> {
-        Self::with(Connection::open_in_memory().map_err(err)?)
-    }
-
-    fn with(db: Connection) -> StoreResult<Self> {
-        db.execute_batch(SCHEMA).map_err(err)?;
+        let db = Connection::open_in_memory().map_err(err)?;
+        db.pragma_update(None, "foreign_keys", "ON").map_err(err)?;
+        upgrade(&db, None)?;
         Ok(Self { db })
     }
+}
+
+/// The schema version a file records.
+fn version(db: &Connection) -> StoreResult<i64> {
+    db.pragma_query_value(None, "user_version", |r| r.get(0))
+        .map_err(err)
+}
+
+/// Bring the file to [`SCHEMA_VERSION`], as the module's documentation says. `file` is `None` for
+/// a database in memory, which is never backed up.
+fn upgrade(db: &Connection, file: Option<&Path>) -> StoreResult<()> {
+    let from = version(db)?;
+    if from > SCHEMA_VERSION {
+        let newest = file.and_then(|f| backups(f).pop());
+        return Err(StoreError(format!(
+            "the database is at schema version {from}, newer than this Yalain's \
+             ({SCHEMA_VERSION}): a newer Yalain kept it; run that, or put back a backup kept \
+             before its upgrade{}",
+            newest.map_or(String::new(), |b| format!(" (the newest: {})", b.display()))
+        )));
+    }
+    if from == SCHEMA_VERSION {
+        return Ok(());
+    }
+    let holds_anything: i64 = db
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    let backup = match file {
+        Some(file) if holds_anything > 0 => Some(back_up(db, file, from)?),
+        _ => None,
+    };
+    let applied = usize::try_from(from).unwrap_or(0);
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(applied) {
+        db.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
+        let to = i64::try_from(i + 1).unwrap_or(i64::MAX);
+        let done = db
+            .execute_batch(sql)
+            .and_then(|()| db.pragma_update(None, "user_version", to));
+        match done {
+            Ok(()) => db.execute_batch("COMMIT").map_err(err)?,
+            Err(e) => {
+                let _ = db.execute_batch("ROLLBACK");
+                return Err(err(e));
+            }
+        }
+    }
+    if let (Some(file), Some(_)) = (file, backup) {
+        let all = backups(file);
+        for old in &all[..all.len().saturating_sub(KEEP_BACKUPS)] {
+            let _ = std::fs::remove_file(old);
+        }
+    }
+    Ok(())
+}
+
+/// Copy the file beside itself with SQLite's online backup before migrating it from `from`; a
+/// copy that fails leaves nothing behind.
+fn back_up(db: &Connection, file: &Path, from: i64) -> StoreResult<PathBuf> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let target = backup_path(
+        file,
+        &format!("v{from}-v{SCHEMA_VERSION}-{}", utc_stamp(now)),
+    );
+    db.backup(DatabaseName::Main, &target, None).map_err(|e| {
+        let _ = std::fs::remove_file(&target);
+        StoreError(format!(
+            "the backup before upgrading the schema from version {from} to {SCHEMA_VERSION} \
+             ({}) failed, so nothing was upgraded: {e}",
+            target.display()
+        ))
+    })?;
+    Ok(target)
+}
+
+/// Where a backup of `file` named for `label` goes: beside it, and not the name of anything
+/// already there (a second backup in the same second gets `.2`, `.3` ...).
+fn backup_path(file: &Path, label: &str) -> PathBuf {
+    let dir = file.parent().unwrap_or_else(|| Path::new(""));
+    let base = format!("{}{BACKUP_MARKER}{label}", file_name(file));
+    let mut candidate = dir.join(&base);
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = dir.join(format!("{base}.{n}"));
+        n += 1;
+    }
+    candidate
+}
+
+fn file_name(file: &Path) -> String {
+    file.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The backups of `file` beside it, oldest first: by their timestamp, then their same-second
+/// number.
+#[must_use]
+pub fn backups(file: &Path) -> Vec<PathBuf> {
+    let dir = file.parent().unwrap_or_else(|| Path::new(""));
+    let prefix = format!("{}{BACKUP_MARKER}", file_name(file));
+    let read = if dir.as_os_str().is_empty() {
+        std::fs::read_dir(".")
+    } else {
+        std::fs::read_dir(dir)
+    };
+    let Ok(entries) = read else {
+        return Vec::new();
+    };
+    let mut found: Vec<((String, u32), PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let rest = name.strip_prefix(&prefix)?;
+            let last = rest.rsplit('-').next()?;
+            let (stamp, n) = match last.split_once('.') {
+                Some((s, n)) => (s, n.parse().ok()?),
+                None => (last, 1),
+            };
+            let ok = stamp.len() == 16
+                && stamp.as_bytes()[8] == b'T'
+                && stamp.ends_with('Z')
+                && stamp[..8].bytes().all(|b| b.is_ascii_digit())
+                && stamp[9..15].bytes().all(|b| b.is_ascii_digit());
+            ok.then(|| ((stamp.to_owned(), n), dir.join(&name)))
+        })
+        .collect();
+    found.sort();
+    found.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Seconds since 1970 as a UTC timestamp to the second: `YYYYMMDDTHHMMSSZ`.
+fn utc_stamp(unix: i64) -> String {
+    let (days, secs) = (unix.div_euclid(86_400), unix.rem_euclid(86_400));
+    // Days since 1970 to a civil date (the proleptic Gregorian calendar).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
 }
 
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]

@@ -13,6 +13,9 @@
 //! - **Put away.** As it gives up, each weapon is let go of (the second first), and it is at peace;
 //!   its weapons are not taken out of the world. Its death changes nothing; as it leaves the world
 //!   its weapons go with it.
+//! - **Taken up again.** Going after a player again, a client that knew a weapon is told, weapon by
+//!   weapon, that no one holds it, that the creature wields and holds it again, and then that it
+//!   is attached (2017: 720 of 761 weapons taken up again).
 //! - **Where they hang.** A weapon or a shield at its kind's first place; of two weapons, the
 //!   second at its kind's second place. The places are the template's when it names them, else
 //!   its kind's (2017: one-handed weapons 1, the second `0x40000006`; handblades 1 and `0x11`;
@@ -247,7 +250,8 @@ pub fn seen_with<S: Store>(s: &Server<S>, creature: u64) -> Vec<(u64, ServerMess
 
 /// A creature draws its weapons as it goes after a player: each client that sees it and does not
 /// know a weapon gets it made hung; then every client that sees it gets the slider and the
-/// creature's combat mode `stance`; one that knew a weapon is told it is attached again after them.
+/// creature's combat mode `stance`; one that knew a weapon is told it is held and attached again
+/// after them.
 pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, stance: u32) {
     let weapons = weapons_of(s, creature);
     let watchers: Vec<(yalain_net::ConnId, Vec<bool>)> = s
@@ -271,7 +275,21 @@ pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, sta
         bump(s, creature);
     }
     let made: Vec<Option<ServerMessage>> = weapons.iter().map(|w| hung(s, *w)).collect();
-    let attach: Vec<ServerMessage> = weapons.iter().filter_map(|w| attach(s, *w)).collect();
+    let attach: Vec<Vec<Vec<u8>>> = weapons
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            if !watchers.iter().any(|(_, known)| known[i]) {
+                return Vec::new();
+            }
+            let mut ms: Vec<Vec<u8>> = held_again(s, creature, *w)
+                .iter()
+                .map(ServerMessage::encode)
+                .collect();
+            ms.extend(attach(s, *w).map(|m| m.encode()));
+            ms
+        })
+        .collect();
     let slide = (!weapons.is_empty()).then(|| slider(s, creature).encode());
     let then = ServerMessage::DoMode(ObjectEvent {
         sender: crate::inventory::visual(s, creature),
@@ -300,17 +318,43 @@ pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, sta
             BlobKind::VISUAL,
             then.clone(),
         );
-        for (i, m) in attach.iter().enumerate() {
+        for (i, ms) in attach.iter().enumerate() {
             if known.get(i).copied().unwrap_or(false) {
-                net.send(
-                    conn,
-                    auberean_protocol::queue::EVENT,
-                    BlobKind::VISUAL,
-                    m.encode(),
-                );
+                for m in ms {
+                    net.send(
+                        conn,
+                        auberean_protocol::queue::EVENT,
+                        BlobKind::VISUAL,
+                        m.clone(),
+                    );
+                }
             }
         }
     }
+}
+
+/// A weapon taken up again: held by no one and wielded by no one, then wielded and held by its
+/// creature, each a visual update of its own.
+fn held_again<S: Store>(s: &mut Server<S>, creature: u64, item: u64) -> Vec<ServerMessage> {
+    use crate::equip::q::{CONTAINER, EQUIPPER};
+    if s.things.get(item).and_then(|t| t.wielded).is_none() {
+        return Vec::new();
+    }
+    [
+        (EQUIPPER, 0),
+        (CONTAINER, 0),
+        (EQUIPPER, creature),
+        (CONTAINER, creature),
+    ]
+    .into_iter()
+    .map(|(quality, value)| {
+        ServerMessage::UpdateInstanceIdVisual(auberean_protocol::quality::VisualQuality {
+            object: crate::inventory::visual(s, item),
+            quality,
+            value,
+        })
+    })
+    .collect()
 }
 
 /// Count one more attaching or letting go of a creature's weapons.

@@ -33,6 +33,9 @@
 //!   --add-account N:T     make account N with ticket T, then carry on
 //!   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8); a
 //!                         secret kept at another cost is kept again at this one at its next login
+//!   --save-interval S     keep each character in the world every S seconds, 1 or more (default
+//!                         300); it is kept as it leaves, and at some events, besides
+//!   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -82,8 +85,9 @@
 //!
 //! While it runs, lines typed into its standard input are the operator's commands (the `console`
 //! module): `reload` compiles the world database again and takes what can change without a
-//! restart; `shutdown` tells every player in the world the world is shutting down, counts down two
-//! minutes and stops.
+//! restart; `shutdown [message]` tells every player in the world the world is shutting down,
+//! counts down (two minutes, or `--shutdown-interval`) and stops; `cancel-shutdown`,
+//! `set-shutdown-interval`, `stop-now` and `save-world` are as Empyrean's console has them.
 //!
 //! A line a player says that is `@dn` or begins with `@dn ` is the Dereth Network's command: heard
 //! by nobody, and answered by the friends service in the player's chat window.
@@ -138,6 +142,10 @@ struct Options {
     add_accounts: Vec<(String, String)>,
     /// The bcrypt cost of account secrets (`--secret-cost`).
     secret_cost: u32,
+    /// Seconds between a character's saves (`--save-interval`).
+    save_seconds: u32,
+    /// Seconds a shutdown counts down (`--shutdown-interval`).
+    shutdown_seconds: u32,
     add_characters: Vec<(String, String, u32, u32)>,
     places: Vec<(String, String, StoredPosition)>,
     money: Vec<(String, String, i32)>,
@@ -176,6 +184,8 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         banned_names: None,
         add_accounts: Vec::new(),
         secret_cost: yalain_world::login::SECRET_COST,
+        save_seconds: yalain_world::saves::SAVE_SECONDS,
+        shutdown_seconds: yalain_world::shutdown::LEAD,
         add_characters: Vec::new(),
         places: Vec::new(),
         money: Vec::new(),
@@ -225,6 +235,24 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     return Err("--secret-cost takes 4 to 31".into());
                 }
                 o.secret_cost = n;
+            }
+            "--save-interval" => {
+                let n: u32 = value()?
+                    .parse()
+                    .map_err(|e| format!("--save-interval: {e}"))?;
+                if n == 0 {
+                    return Err("--save-interval takes seconds, 1 or more".into());
+                }
+                o.save_seconds = n;
+            }
+            "--shutdown-interval" => {
+                let n: u32 = value()?
+                    .parse()
+                    .map_err(|e| format!("--shutdown-interval: {e}"))?;
+                if n > yalain_world::shutdown::MAX_SECONDS {
+                    return Err("--shutdown-interval takes 0 to 99999 seconds".into());
+                }
+                o.shutdown_seconds = n;
             }
             "--add-character" => {
                 let v = value()?;
@@ -457,6 +485,8 @@ fn run<S: Store>(
         echo_positions: o.echo,
         seed,
         secret_cost: o.secret_cost,
+        save_seconds: o.save_seconds,
+        shutdown_seconds: o.shutdown_seconds,
         ..ServerConfig::default()
     };
     let advertise = if o.referral {
@@ -550,7 +580,8 @@ fn run<S: Store>(
     )?;
     let typed = console::lines();
     let mut reloading: Option<console::Job<(PathBuf, WorldTables)>> = None;
-    let mut shutting = false;
+    // The console's commands that act on the world, run at the loop's next clock.
+    let mut pending: Vec<console::Command> = Vec::new();
     let interrupt = stop::Interrupt::install();
     loop {
         if o.seconds
@@ -566,7 +597,22 @@ fn run<S: Store>(
             match console::parse(&line) {
                 None => {}
                 Some(console::Command::Help) => tracing::info!("{}", console::HELP),
-                Some(console::Command::Shutdown) => shutting = true,
+                Some(
+                    c @ (console::Command::Shutdown(_)
+                    | console::Command::CancelShutdown
+                    | console::Command::StopNow(_)
+                    | console::Command::SaveWorld),
+                ) => pending.push(c),
+                Some(console::Command::SetShutdownInterval(None)) => {
+                    tracing::info!("set-shutdown-interval takes seconds, 0 to 99999");
+                }
+                Some(console::Command::SetShutdownInterval(Some(n))) => {
+                    tracing::info!(
+                        "the shutdown interval is {n} seconds (it was {})",
+                        server.cfg.shutdown_seconds
+                    );
+                    server.cfg.shutdown_seconds = n;
+                }
                 Some(console::Command::Reload) if reloading.is_some() => {
                     tracing::info!("a reload is already running");
                 }
@@ -624,8 +670,8 @@ fn run<S: Store>(
             local: now,
             unix: unix_now(),
         };
-        if std::mem::take(&mut shutting) {
-            yalain_world::shutdown::begin(&mut server, &mut net, clock);
+        for c in pending.drain(..) {
+            world_command(&mut server, &mut net, clock, c);
         }
         server.pump(&mut net, clock);
         if let Some(r) = &mut reporter {
@@ -673,6 +719,37 @@ fn run<S: Store>(
         tracing::info!("not handled yet: {what} x{n}");
     }
     Ok(())
+}
+
+/// Run a console command that acts on the world.
+fn world_command<S: Store>(
+    server: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    c: console::Command,
+) {
+    use yalain_world::shutdown;
+    match c {
+        console::Command::Shutdown(message) => {
+            if !shutdown::begin(server, net, clock, message.as_deref()) {
+                tracing::info!("a shutdown is already in progress");
+            }
+        }
+        console::Command::CancelShutdown => {
+            if !shutdown::cancel(server, net) {
+                tracing::info!("no shutdown is counting down");
+            }
+        }
+        console::Command::StopNow(message) => {
+            tracing::info!("stopping now");
+            shutdown::stop_now(server, net, clock, message.as_deref());
+        }
+        console::Command::SaveWorld => {
+            let n = yalain_world::saves::save_world(server, clock);
+            tracing::info!("saved: {n} characters in the world kept");
+        }
+        _ => {}
+    }
 }
 
 /// Compile the world database (a folder, or `pinned`) against the install: its folder and tables.
@@ -1016,7 +1093,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             return std::process::ExitCode::FAILURE;
         }
@@ -1099,8 +1176,20 @@ fn main() -> std::process::ExitCode {
             play,
         )
     } else {
+        let before = yalain_store::backups(&o.data);
         match SqliteStore::open(&o.data) {
-            Ok(store) => run(&o, names, store, rules, start, content, play),
+            Ok(store) => {
+                for b in yalain_store::backups(&o.data) {
+                    if !before.contains(&b) {
+                        tracing::info!(
+                            "{} was backed up to {} before its schema was upgraded",
+                            o.data.display(),
+                            b.display()
+                        );
+                    }
+                }
+                run(&o, names, store, rules, start, content, play)
+            }
             Err(e) => Err(format!("{}: {e}", o.data.display())),
         }
     };

@@ -249,6 +249,39 @@ fn a_dead_player_is_resurrected_with_three_quarters_of_its_health() {
     );
 }
 
+/// As it goes, a resurrected player is set standing at once, never played into it: the mode set
+/// to peace, the resurrection's glow, then the arrival's effect as it goes into portal space.
+/// Behaviour: server.death.resurrection-look
+#[test]
+fn a_resurrected_player_is_set_standing_then_glows_as_it_goes() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    h.run(3);
+    let look: Vec<(&str, u32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some(("set", e.action.0)),
+            ServerMessage::DoMode(e) if e.sender.id == me => Some(("played", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me => Some(("effect", e.action.fx)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        look,
+        vec![
+            ("set", 0x4000_0001),
+            ("effect", 0x4100_000F),
+            ("effect", 0x4100_0010)
+        ]
+    );
+}
+
 /// Back from a resurrection, a player with more than ten focus has ten: sent after its health
 /// and vigor, before it is told it is alive; one with ten or less keeps it, and nothing is sent.
 /// Behaviour: server.focus.resurrection

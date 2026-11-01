@@ -538,8 +538,10 @@ pub fn enter<S: Store>(
     );
 }
 
-/// Keep what a character is in the world.
+/// Keep what a character is in the world. Its next periodic save is counted from now
+/// ([`crate::saves`]).
 fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
+    s.saves.kept(p.character);
     let mut play = p.play.clone();
     play.last_used = p.last_used.iter().map(|(k, t)| (*k, *t)).collect();
     play.last_used.sort_by_key(|(k, _)| *k);

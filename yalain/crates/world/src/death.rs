@@ -1157,7 +1157,9 @@ pub fn player_corpse<S: Store>(
 }
 
 /// A dead player's client asks to be resurrected (only once its corpse is made): protected (see
-/// `effects`), at peace, the resurrection's effect, into portal space; a second and a half later it is back at the
+/// `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
+/// resurrections, played 0), the resurrection's effect and, into portal space, the arrival's (219 of
+/// 227, in that order 216); a second and a half later it is back at the
 /// lifestone it is bound to (or, never bound, the nearest lifestone the world has, else where it
 /// fell), with 5 vitae less and three quarters of its health and vigor.
 pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
@@ -1176,7 +1178,7 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         return;
     };
     let id = p.character;
-    let peace = ServerMessage::DoMode(ObjectEvent {
+    let peace = ServerMessage::SetMode(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Word(crate::combat::mode::PEACE),
     });

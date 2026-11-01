@@ -54,7 +54,7 @@ fn a_shutdown_counts_down_two_minutes_to_every_player_then_stops() {
     let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
     let begun = h.now.0;
     let clock = h.clock();
-    shutdown::begin(&mut h.server, &mut h.net, clock);
+    shutdown::begin(&mut h.server, &mut h.net, clock, None);
     // Each second, where each inbox stood.
     let mut at: [Vec<(usize, f64)>; 2] = [Vec::new(), Vec::new()];
     let mut done_at = None;
@@ -122,4 +122,214 @@ fn stopping_the_server_keeps_every_character_still_in_the_world() {
     for id in [elara, tamsin] {
         assert_eq!(kept_level(&mut h, id), Some(7), "kept at the stop");
     }
+}
+
+/// What a player was shown as notices since `from`: for each, when it was sent (seconds after the
+/// countdown began, from the inbox's length each second: what the world sends at a step reaches
+/// the client at the next), and its text: the operator's literal, or the countdown's string and
+/// its variables' values.
+fn shown(h: &Harness, b: usize, from: usize, at: &[(usize, f64)]) -> Vec<(f64, Shown)> {
+    let mut out = Vec::new();
+    for (i, r) in h.bots[b].inbox.iter().enumerate().skip(from) {
+        let Some(ServerMessage::Notice(n)) = r.message() else {
+            continue;
+        };
+        let when = at
+            .iter()
+            .find(|(upto, _)| i < *upto)
+            .map_or(f64::NAN, |(_, t)| *t - 1.0);
+        let text = match &n.text.literal {
+            Some(l) => Shown::Literal(n.kind, l.text()),
+            None => {
+                assert_eq!(n.kind, shutdown::KIND, "the countdown's kind");
+                assert_eq!(n.text.table_id, shutdown::TABLE);
+                Shown::Line(
+                    n.text.string_id,
+                    n.text
+                        .variables
+                        .iter()
+                        .map(|v| match v.value {
+                            VariableValue::Word(w) => w,
+                            _ => u32::MAX,
+                        })
+                        .collect(),
+                )
+            }
+        };
+        out.push((when, text));
+    }
+    out
+}
+
+/// A notice shown: a literal (its kind and text), or one of the countdown's lines.
+#[derive(Debug, Clone, PartialEq)]
+enum Shown {
+    Literal(u32, String),
+    Line(u32, Vec<u32>),
+}
+
+/// Step a second at a time for `seconds`, noting where the inbox of each bot stood each second,
+/// and when (seconds after `begun`) the server was first done.
+fn watch(
+    h: &mut Harness,
+    bots: &[usize],
+    begun: f64,
+    seconds: f64,
+) -> (Vec<Vec<(usize, f64)>>, Option<f64>) {
+    let mut at = vec![Vec::new(); bots.len()];
+    let mut done_at = None;
+    while h.now.0 - begun < seconds {
+        let tick = (h.now.0 - begun).round();
+        h.step_by(1.0);
+        for (i, b) in bots.iter().enumerate() {
+            at[i].push((h.bots[*b].inbox.len(), tick));
+        }
+        if done_at.is_none() && h.server.shutdown == Shutdown::Done {
+            done_at = Some(tick);
+        }
+    }
+    (at, done_at)
+}
+
+/// A shutdown the operator gave ten minutes and a message: each player is shown the message first,
+/// then "10 minutes" at once, "5 minutes" at Empyrean's mark, and the 2017 lines from two minutes
+/// on, thirty seconds apart; the server is done twenty seconds after the last.
+/// Behaviour: server.operator.shutdown-message-and-interval
+#[test]
+fn a_shutdown_shows_the_operators_message_and_counts_down_the_operators_interval() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Tamsin");
+    h.run(5);
+    h.server.cfg.shutdown_seconds = 600;
+    let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+    let begun = h.now.0;
+    let clock = h.clock();
+    assert!(shutdown::begin(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        Some("  Back in ten.  ")
+    ));
+    assert!(
+        !shutdown::begin(&mut h.server, &mut h.net, clock, None),
+        "one countdown at a time"
+    );
+    let (at, done) = watch(&mut h, &[a, b], begun, 640.0);
+    let want = vec![
+        (0.0, Shown::Literal(256, "Back in ten.\n".into())),
+        (0.0, Shown::Line(shutdown::MINUTES, vec![10])),
+        (300.0, Shown::Line(shutdown::MINUTES, vec![5])),
+        (480.0, Shown::Line(shutdown::MINUTES, vec![2])),
+        (
+            510.0,
+            Shown::Line(shutdown::MINUTES_AND_SECONDS, vec![1, 30]),
+        ),
+        (540.0, Shown::Line(shutdown::MINUTES, vec![1])),
+        (570.0, Shown::Line(shutdown::SECONDS, vec![30])),
+        (600.0, Shown::Line(shutdown::NOW, vec![])),
+    ];
+    for (i, bot) in [a, b].into_iter().enumerate() {
+        assert_eq!(
+            shown(&h, bot, from[i], &at[i]),
+            want,
+            "what player {i} was shown, and when"
+        );
+    }
+    assert_eq!(done, Some(620.0), "done twenty seconds after the last line");
+}
+
+/// A countdown cancelled after two lines: every player in the world is told the world is no
+/// longer shutting down, no more lines come, the world goes on, and a later shutdown counts down
+/// afresh. Cancelling with no countdown running does nothing.
+/// Behaviour: server.operator.shutdown-cancelled
+#[test]
+fn a_cancelled_shutdown_tells_every_player_and_the_world_goes_on() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Tamsin");
+    h.run(5);
+    assert!(
+        !shutdown::cancel(&mut h.server, &mut h.net),
+        "nothing to cancel"
+    );
+    let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+    let begun = h.now.0;
+    let clock = h.clock();
+    shutdown::begin(&mut h.server, &mut h.net, clock, None);
+    let (mut at, _) = watch(&mut h, &[a, b], begun, 40.0);
+    assert!(shutdown::cancel(&mut h.server, &mut h.net));
+    assert_eq!(h.server.shutdown, Shutdown::No);
+    let (later, done) = watch(&mut h, &[a, b], begun, 300.0);
+    assert_eq!(done, None, "the server goes on");
+    let cancelled = Shown::Literal(256, format!("{}\n", shutdown::CANCELLED));
+    for (i, bot) in [a, b].into_iter().enumerate() {
+        at[i].extend(later[i].iter().copied());
+        let got: Vec<Shown> = shown(&h, bot, from[i], &at[i])
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                Shown::Line(shutdown::MINUTES, vec![2]),
+                Shown::Line(shutdown::MINUTES_AND_SECONDS, vec![1, 30]),
+                cancelled.clone(),
+            ],
+            "two lines, then the cancel, then nothing"
+        );
+    }
+    let again = h.bots[a].inbox.len();
+    let clock = h.clock();
+    assert!(shutdown::begin(&mut h.server, &mut h.net, clock, None));
+    h.run(3);
+    let first: Vec<Shown> = shown(&h, a, again, &[])
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect();
+    assert_eq!(
+        first,
+        vec![Shown::Line(shutdown::MINUTES, vec![2])],
+        "a later shutdown counts down afresh"
+    );
+}
+
+/// Stopping now, in the middle of a countdown: every player is shown the operator's message and
+/// the last line, and the server may stop at once, not twenty seconds on; no line of the
+/// countdown comes after.
+/// Behaviour: server.operator.stop-now
+#[test]
+fn stopping_now_shows_the_last_line_and_lets_the_server_stop_at_once() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(5);
+    let clock = h.clock();
+    shutdown::begin(&mut h.server, &mut h.net, clock, None);
+    h.run(3);
+    let from = h.bots[a].inbox.len();
+    let clock = h.clock();
+    assert!(shutdown::stop_now(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        Some("Restarting.")
+    ));
+    assert_eq!(h.server.shutdown, Shutdown::Done, "the server may stop now");
+    assert!(
+        !shutdown::stop_now(&mut h.server, &mut h.net, clock, None),
+        "once"
+    );
+    let begun = h.now.0;
+    let (at, _) = watch(&mut h, &[a], begun, 60.0);
+    assert_eq!(
+        shown(&h, a, from, &at[0])
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect::<Vec<_>>(),
+        vec![
+            Shown::Literal(256, "Restarting.\n".into()),
+            Shown::Line(shutdown::NOW, vec![]),
+        ]
+    );
+    assert_eq!(h.server.shutdown, Shutdown::Done);
 }

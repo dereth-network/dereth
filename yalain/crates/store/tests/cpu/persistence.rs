@@ -2,7 +2,8 @@
 //! folder, removed at the end.
 
 use yalain_store::{
-    Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition, WorldState,
+    backups, Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition,
+    WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
 };
 
 fn character(id: u64, account: u64, name: &str) -> Character {
@@ -27,8 +28,16 @@ fn character(id: u64, account: u64, name: &str) -> Character {
 struct TempFile(std::path::PathBuf);
 
 impl Drop for TempFile {
+    // The file, its write-ahead log and index, and its backups.
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        for b in backups(&self.0) {
+            let _ = std::fs::remove_file(b);
+        }
+        for suffix in ["-wal", "-shm", ""] {
+            let mut name = self.0.as_os_str().to_owned();
+            name.push(suffix);
+            let _ = std::fs::remove_file(std::path::PathBuf::from(name));
+        }
     }
 }
 
@@ -455,4 +464,188 @@ fn a_save_or_purge_that_fails_part_way_leaves_the_one_before_it_whole() {
         "still kept"
     );
     assert!(s.character(n).expect("reads").is_some(), "still there");
+}
+
+/// A temporary file of its own, with nothing of a run before at its place.
+fn temp(name: &str) -> TempFile {
+    let file = TempFile(
+        std::env::temp_dir().join(format!("yalain-store-{name}-{}.sqlite", std::process::id())),
+    );
+    drop(TempFile(file.0.clone()));
+    file
+}
+
+/// What a database file holds, read with a connection of its own: its schema version, whether it
+/// has the friends lists' table, and its characters' ids.
+fn holds(path: &std::path::Path) -> (i64, bool, Vec<i64>) {
+    let db = rusqlite::Connection::open(path).expect("opens");
+    let version = db
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .expect("version");
+    let lists = db
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'network_list'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .expect("reads")
+        > 0;
+    let mut st = db
+        .prepare("SELECT id FROM character ORDER BY id")
+        .expect("reads");
+    let ids = st
+        .query_map([], |r| r.get(0))
+        .expect("reads")
+        .map(|r| r.expect("an id"))
+        .collect();
+    (version, lists, ids)
+}
+
+/// A database kept before the schema had versions is copied beside itself, whole and as it was,
+/// before its schema is upgraded, as Empyrean backs up a database before a migration; one already
+/// at this version, and a new one, are not copied.
+/// Behaviour: server.world.database-backed-up-before-a-schema-upgrade
+#[test]
+fn a_database_is_backed_up_as_it_was_before_its_schema_is_upgraded() {
+    let file = temp("backup");
+    earlier_store(&file.0);
+    drop(SqliteStore::open(&file.0).expect("an earlier file opens"));
+    let kept = backups(&file.0);
+    assert_eq!(kept.len(), 1, "one backup: {kept:?}");
+    let name = kept[0]
+        .file_name()
+        .expect("named")
+        .to_string_lossy()
+        .into_owned();
+    let stem = file
+        .0
+        .file_name()
+        .expect("named")
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        name.starts_with(&format!("{stem}.backup-v0-v{SCHEMA_VERSION}-")),
+        "named for the file and the versions: {name}"
+    );
+    assert_eq!(
+        holds(&kept[0]),
+        (0, false, vec![7]),
+        "the backup is the file as it was: no version, no friends lists, its character"
+    );
+    assert_eq!(
+        holds(&file.0),
+        (SCHEMA_VERSION, true, vec![7]),
+        "the file upgraded"
+    );
+    drop(SqliteStore::open(&file.0).expect("opens again"));
+    assert_eq!(
+        backups(&file.0).len(),
+        1,
+        "nothing to upgrade, nothing copied"
+    );
+
+    let new = temp("backup-new");
+    drop(SqliteStore::open(&new.0).expect("a new file opens"));
+    assert!(backups(&new.0).is_empty(), "a new file has nothing to keep");
+    assert_eq!(holds(&new.0).0, SCHEMA_VERSION);
+}
+
+/// Only the newest three backups of a file are kept: a fourth upgrade removes the oldest.
+/// Behaviour: server.world.database-backed-up-before-a-schema-upgrade
+#[test]
+fn only_the_newest_three_backups_of_a_database_are_kept() {
+    let file = temp("backup-three");
+    earlier_store(&file.0);
+    let mut made = Vec::new();
+    for _ in 0..4 {
+        drop(SqliteStore::open(&file.0).expect("opens"));
+        let all = backups(&file.0);
+        made.push(all.last().expect("a backup").clone());
+        rusqlite::Connection::open(&file.0)
+            .expect("opens")
+            .pragma_update(None, "user_version", 0)
+            .expect("as before versions");
+    }
+    assert_eq!(KEEP_BACKUPS, 3);
+    assert_eq!(
+        backups(&file.0),
+        made[1..],
+        "the newest three, the oldest removed"
+    );
+}
+
+/// A database a newer Yalain kept (a schema version above this build's) is refused, naming its
+/// version, and left as it was, with no backup made.
+/// Behaviour: server.world.database-backed-up-before-a-schema-upgrade
+#[test]
+fn a_database_a_newer_yalain_kept_is_refused_and_left_as_it_was() {
+    let file = temp("newer");
+    drop(SqliteStore::open(&file.0).expect("opens"));
+    let newer = SCHEMA_VERSION + 1;
+    rusqlite::Connection::open(&file.0)
+        .expect("opens")
+        .pragma_update(None, "user_version", newer)
+        .expect("as a newer Yalain keeps it");
+    let before = std::fs::read(&file.0).expect("reads");
+    let e = SqliteStore::open(&file.0).expect_err("refused");
+    assert!(e.0.contains(&format!("version {newer}")), "{e}");
+    assert_eq!(std::fs::read(&file.0).expect("reads"), before, "untouched");
+    assert!(backups(&file.0).is_empty());
+}
+
+/// The foreign keys hold, as Empyrean has them: no character without its account, no saved state
+/// or list without its character; a purge goes, its rows first.
+/// Behaviour: server.world.database-foreign-keys-hold
+#[test]
+fn no_character_is_kept_without_its_account_nor_its_state_without_it() {
+    let file = temp("keys");
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let a = s.create_account("Tester", None, 100).expect("made");
+    assert!(
+        s.insert_character(&character(8, a.id + 1, "Nobody"))
+            .is_err(),
+        "no character without its account"
+    );
+    assert!(
+        s.set_world_state(98, &world()).is_err(),
+        "no state without its character"
+    );
+    assert!(
+        s.set_listed(98, NetworkList::Friends, "Cara", true)
+            .is_err(),
+        "no list without its character"
+    );
+    assert!(s.set_network_on(98, true).is_err());
+    s.insert_character(&character(7, a.id, "Babyfare"))
+        .expect("kept");
+    s.set_world_state(7, &world()).expect("saved");
+    s.set_listed(7, NetworkList::Friends, "Cara", true)
+        .expect("listed");
+    s.set_network_on(7, true).expect("on");
+    s.purge_character(7).expect("a purge goes, its rows first");
+    assert_eq!(s.character(7).expect("reads"), None);
+}
+
+/// The database is kept with a write-ahead log, as Empyrean keeps its own: a save is in the file
+/// once made, read by another connection while the server holds it open, and is there after the
+/// server stops without closing it (a crash).
+/// Behaviour: server.world.database-write-ahead-log
+#[test]
+fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
+    let file = temp("wal");
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let a = s.create_account("Tester", None, 100).expect("made");
+    s.insert_character(&character(5, a.id, "Babyfare"))
+        .expect("kept");
+    s.set_world_state(5, &world()).expect("saved");
+    let other = rusqlite::Connection::open(&file.0).expect("a second connection");
+    let mode: String = other
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .expect("reads");
+    assert_eq!(mode, "wal");
+    drop(other);
+    // The server stops without closing the database: nothing is checkpointed.
+    std::mem::forget(s);
+    let mut again = SqliteStore::open(&file.0).expect("opens after the crash");
+    assert_eq!(again.world_state(5).expect("reads"), Some(world()));
 }

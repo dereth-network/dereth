@@ -8,6 +8,14 @@
 //! the text's variables, not written into it. The world goes on twenty seconds after the last line
 //! (2017's last messages came 20 to 27 seconds after it), then the server stops.
 //!
+//! The operator's console, as Empyrean's: the countdown's length is the operator's
+//! ([`crate::ServerConfig::shutdown_seconds`], two minutes unless given another, 0 to
+//! [`MAX_SECONDS`]); a shutdown may carry the operator's message, shown to every player in the
+//! world as it begins; a countdown may be cancelled, and every player in the world is told; and
+//! the server may be stopped now. A countdown longer than two minutes shows its first line at
+//! once, then one at each of Empyrean's marks (two hours, an hour, 45, 30, 15, 10 and 5 minutes)
+//! still ahead, and the 2017 lines from two minutes on.
+//!
 //! However the server stops, every character still in the world is kept first, as when its client
 //! goes away ([`save_everyone`]).
 
@@ -37,9 +45,16 @@ pub const SECONDS_VAR: u32 = 0xA4A6_EDFE;
 /// The kind of a variable holding a number.
 const NUMBER: u16 = 2;
 
-/// Seconds between the countdown's lines, and before the end its first comes.
+/// Seconds between the countdown's lines from two minutes on, and the countdown's length unless
+/// the operator gives another.
 pub const STEP: u32 = 30;
 pub const LEAD: u32 = 120;
+/// The longest countdown the operator may give (Empyrean's: five digits).
+pub const MAX_SECONDS: u32 = 99_999;
+/// The seconds left at which the countdown shows a line, after its first.
+pub const MARKS: [u32; 12] = [7200, 3600, 2700, 1800, 900, 600, 300, 120, 90, 60, 30, 0];
+/// What every player in the world is told when the countdown is cancelled.
+pub const CANCELLED: &str = "This world is no longer shutting down.";
 /// Seconds the world goes on after the last line.
 pub const AFTER_NOW: f64 = 20.0;
 
@@ -84,14 +99,89 @@ pub fn line(left: u32) -> StringInfo {
     }
 }
 
-/// Begin the countdown (nothing if it is already running or done).
-pub fn begin<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+/// The seconds left at the countdown's next line after one with `left` seconds left.
+#[must_use]
+pub fn next_mark(left: u32) -> Option<u32> {
+    MARKS.into_iter().find(|m| *m < left)
+}
+
+/// Begin the countdown, as long as the operator's setting says, showing the operator's message
+/// first if there is one. Nothing if a countdown is already running or done; returns whether it
+/// began.
+pub fn begin<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    message: Option<&str>,
+) -> bool {
     if s.shutdown != Shutdown::No {
-        return;
+        return false;
     }
+    let left = s.cfg.shutdown_seconds.min(MAX_SECONDS);
+    count_down(s, net, clock, left, message);
+    true
+}
+
+/// Show the operator's message, if there is one, and the countdown's first line, with `left`
+/// seconds left.
+fn count_down<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    left: u32,
+    message: Option<&str>,
+) {
     s.shutdown = Shutdown::Counting;
-    tracing::info!("the world shuts down in {LEAD} seconds");
-    step(s, net, LEAD, clock);
+    tracing::info!("the world shuts down in {left} seconds");
+    if let Some(text) = message.map(str::trim).filter(|t| !t.is_empty()) {
+        tracing::info!("the operator's message: {text}");
+        for world in in_world(s) {
+            crate::login::notice(net, world, text);
+        }
+    }
+    step(s, net, left, clock);
+}
+
+/// Cancel a countdown that is running, and tell every player in the world. Nothing once the last
+/// line is shown; returns whether it was cancelled.
+pub fn cancel<S: Store>(s: &mut Server<S>, net: &mut ServerNet) -> bool {
+    if s.shutdown != Shutdown::Counting {
+        return false;
+    }
+    s.timers
+        .retain(|(_, t)| !matches!(t, Timer::Shutdown { .. } | Timer::ShutdownEnds));
+    s.shutdown = Shutdown::No;
+    tracing::info!("the shutdown is cancelled");
+    for world in in_world(s) {
+        crate::login::notice(net, world, CANCELLED);
+    }
+    true
+}
+
+/// Stop the server now: every player in the world is shown the operator's message, if there is
+/// one, and the last line, and the server may stop at once, whether a countdown was running or
+/// not. Nothing once the server may stop; returns whether it was stopped.
+pub fn stop_now<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    message: Option<&str>,
+) -> bool {
+    if s.shutdown == Shutdown::Done {
+        return false;
+    }
+    count_down(s, net, clock, 0, message);
+    s.timers
+        .retain(|(_, t)| !matches!(t, Timer::Shutdown { .. } | Timer::ShutdownEnds));
+    s.shutdown = Shutdown::Done;
+    true
+}
+
+/// The world connections of the players in the world, in order.
+fn in_world<S: Store>(s: &Server<S>) -> Vec<yalain_net::ConnId> {
+    let mut worlds: Vec<_> = s.players.keys().copied().collect();
+    worlds.sort();
+    worlds
 }
 
 /// Show the line for `left` seconds to everyone in the world, and have the next one follow.
@@ -101,23 +191,19 @@ pub(crate) fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, left: u32, 
         text: line(left),
     });
     let bytes = m.encode();
-    let mut worlds: Vec<_> = s.players.keys().copied().collect();
-    worlds.sort();
-    for world in worlds {
+    for world in in_world(s) {
         net.send(world, queue::EVENT, BlobKind::UNORDERED, bytes.clone());
     }
-    if left == 0 {
+    let Some(next) = next_mark(left) else {
         s.shutdown = Shutdown::Ending;
         tracing::info!("the world is shutting down");
         s.after(clock, AFTER_NOW, Timer::ShutdownEnds);
         return;
-    }
+    };
     s.after(
         clock,
-        f64::from(STEP),
-        Timer::Shutdown {
-            left: left.saturating_sub(STEP),
-        },
+        f64::from(left - next),
+        Timer::Shutdown { left: next },
     );
 }
 
@@ -130,8 +216,7 @@ pub(crate) fn ends<S: Store>(s: &mut Server<S>) {
 /// leaves it as one whose client went away does, and is kept, so nothing it did is lost. Returns
 /// how many left.
 pub fn save_everyone<S: Store>(s: &mut Server<S>, net: &mut ServerNet) -> usize {
-    let mut worlds: Vec<_> = s.players.keys().copied().collect();
-    worlds.sort();
+    let worlds = in_world(s);
     for world in &worlds {
         crate::world::leave(s, net, *world);
     }
