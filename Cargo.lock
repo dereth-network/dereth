@@ -249,6 +249,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-client"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-interface",
+ "auberean-scene",
+ "auberean-shell",
+ "auberean-ui",
+ "auberean-world",
+ "bytemuck",
+ "dereth-primitives",
+ "embed-resource",
+ "png",
+ "pollster",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "auberean-client-contract"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,6 @@
+// The application icon, for linking into the executable. Windows only: the resource compiler is
+// given this directory as an include directory, so the icon is named as the sibling file it is.
+//
+// The ordinal is 1 because Explorer shows the lowest-numbered icon in the file as the
+// executable's own, and the window and the task bar take the executable's icon.
+1 ICON "auberean.ico"

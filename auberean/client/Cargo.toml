@@ -1,0 +1,47 @@
+[package]
+name = "auberean-client"
+description = "The desktop client: a window in which Asheron's Call 2's world is drawn and played."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[[bin]]
+name = "auberean"
+path = "src/main.rs"
+
+[build-dependencies]
+# Links the application icon (`assets/auberean.ico`) into the executable, where Explorer and the
+# task bar read it before any of our code runs.
+embed-resource = "3"
+
+[dependencies]
+auberean-shell.workspace = true
+# The game's own interface (the retail screens) and the records it draws from.
+auberean-interface.workspace = true
+auberean-ui.workspace = true
+auberean-scene.workspace = true
+auberean-draw.workspace = true
+auberean-gpu.workspace = true
+auberean-world.workspace = true
+auberean-assets.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-client-sdk = { workspace = true, features = ["fs"] }
+# The transcendental functions, the same bits on every host.
+dereth-primitives.workspace = true
+# The window and its events, and the device it presents on.
+winit = { workspace = true, features = ["rwh_06"] }
+wgpu = "30"
+pollster.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+png.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+
+[lints]
+workspace = true

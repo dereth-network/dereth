@@ -157,6 +157,7 @@ members = [
     "auberean/client/crates/gpu",
     "auberean/client/crates/scene",
     "auberean/client/crates/shell",
+    "auberean/client",
     "auberean/client/crates/ui",
     "auberean/client/crates/ui-game",
     "auberean/client/crates/interface",
