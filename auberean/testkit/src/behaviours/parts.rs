@@ -148,6 +148,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "parts.holding.the-human-male-holds-things-where-its-setups-say",
+        says: "A body holds a thing at the holding location of the first part group whose setup \
+               names that kind, on its bone as the body is posed; a bone kind is found at the first \
+               bone of the kind in the first group that has it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTS-HOLD"),
+        station: "auberean-animation::dat::holding::the_human_male_holds_things_where_its_setups_say",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "parts.ray.a-ray-stops-at-the-solid-side-and-parts-multiply",
         says: "A ray through a physics tree stops where it first reaches the solid side, the cut \
                plane's normal facing back along it; through an object's parts it is brought into \

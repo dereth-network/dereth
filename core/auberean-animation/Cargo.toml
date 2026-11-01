@@ -1,0 +1,47 @@
+[package]
+name = "auberean-animation"
+description = "Bodies that animate: skeletons and their rest poses, keyframe clips, the blend graph that picks and mixes them, and skinning a mesh to the posed skeleton."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switches: `retail-dats` selects the `dat` test binary (the September 2013 install's bodies
+# and clips); `retail-corpus` the `corpus` binary (every recorded description of how an object
+# looks and moves).
+retail-dats = ["auberean-dat/retail-dats", "auberean-assets/retail-dats"]
+retail-corpus = ["auberean-testkit/captures"]
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-dat.workspace = true
+auberean-assets.workspace = true
+# Transforms (the row-vector 4 x 4 the drawing uses) and the records of the world.
+auberean-world.workspace = true
+# The transcendental functions, the same bits on every host.
+dereth-primitives.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-protocol.workspace = true
+auberean-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
+
+[[test]]
+name = "corpus"
+path = "tests/corpus/main.rs"
+required-features = ["retail-dats", "retail-corpus"]

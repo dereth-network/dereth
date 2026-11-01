@@ -129,6 +129,7 @@ pub struct Subject {
     pub rows: &'static [Behaviour],
 }
 
+pub mod animation;
 pub mod collision;
 pub mod data;
 pub mod detection;
@@ -145,6 +146,10 @@ pub mod world;
 
 /// Every subject, in name order. A new subject adds its `mod` line above and its entry here.
 pub static SUBJECTS: &[Subject] = &[
+    Subject {
+        name: "animation",
+        rows: animation::ROWS,
+    },
     Subject {
         name: "collision",
         rows: collision::ROWS,
