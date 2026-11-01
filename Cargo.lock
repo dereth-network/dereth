@@ -245,6 +245,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-physics"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-testkit",
+ "auberean-world",
+ "dereth-physics",
+ "dereth-primitives",
+ "dereth-terrain",
+]
+
+[[package]]
 name = "auberean-port"
 version = "0.0.0"
 

@@ -129,17 +129,49 @@ pub struct Subject {
     pub rows: &'static [Behaviour],
 }
 
+pub mod collision;
 pub mod data;
+pub mod detection;
+pub mod missile;
+pub mod motion;
+pub mod parts;
+pub mod pathfind;
 pub mod protocol;
 pub mod script;
+pub mod shape;
 pub mod text;
+pub mod transition;
 pub mod world;
 
 /// Every subject, in name order. A new subject adds its `mod` line above and its entry here.
 pub static SUBJECTS: &[Subject] = &[
     Subject {
+        name: "collision",
+        rows: collision::ROWS,
+    },
+    Subject {
         name: "data",
         rows: data::ROWS,
+    },
+    Subject {
+        name: "detection",
+        rows: detection::ROWS,
+    },
+    Subject {
+        name: "missile",
+        rows: missile::ROWS,
+    },
+    Subject {
+        name: "motion",
+        rows: motion::ROWS,
+    },
+    Subject {
+        name: "parts",
+        rows: parts::ROWS,
+    },
+    Subject {
+        name: "pathfind",
+        rows: pathfind::ROWS,
     },
     Subject {
         name: "protocol",
@@ -150,8 +182,16 @@ pub static SUBJECTS: &[Subject] = &[
         rows: script::ROWS,
     },
     Subject {
+        name: "shape",
+        rows: shape::ROWS,
+    },
+    Subject {
         name: "text",
         rows: text::ROWS,
+    },
+    Subject {
+        name: "transition",
+        rows: transition::ROWS,
     },
     Subject {
         name: "world",
