@@ -80,6 +80,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     }
 }
 
@@ -443,6 +444,7 @@ fn a_quest_that_fails_on_death_fails_as_its_player_dies() {
         quests: vec![
             QuestDef {
                 fails_on_death: true,
+                once: false,
                 retry: 72_000.0,
                 ..quest(MIST, 0x2500_16C8, 2)
             },
@@ -490,4 +492,157 @@ fn a_quest_that_fails_on_death_fails_as_its_player_dies() {
         .find(|q| q.quest == KEPT)
         .expect("held");
     assert_eq!(kept.status, status::UNDERWAY, "the other kept");
+}
+
+/// A player's quests, each (quest, status, phase) given `ago` seconds before now.
+fn holding(h: &mut Harness, quests: &[(u32, u32, u32)], ago: i64) {
+    let at = h.unix - ago;
+    for p in h.server.players.values_mut() {
+        p.play.quests = quests
+            .iter()
+            .map(|(quest, status, phase)| QuestState {
+                quest: *quest,
+                status: *status,
+                phase: *phase,
+                started: at,
+                updated: at,
+            })
+            .collect();
+    }
+}
+
+/// A done quest with no wait is given again at once; one its definition says is done once is
+/// never given again.
+/// Behaviour: server.quests.given-again-no-wait
+#[test]
+fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
+    const AGAIN: u32 = 0x4000_018F;
+    const ONCE: u32 = 0x4000_0088;
+    const ORLEN: u32 = 0x4700_31B4;
+    const GUARD: u32 = 0x4700_2DFD;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![
+            object(0x8130_0000_0000_0701, ORLEN, [61.0, 241.0, -44.6]),
+            object(0x8130_0000_0000_0702, GUARD, [62.0, 241.0, -44.6]),
+        ],
+    };
+    h.server.quests = QuestTable {
+        quests: vec![
+            quest(AGAIN, 0x2500_16BE, 3),
+            QuestDef {
+                once: true,
+                ..quest(ONCE, 0x2500_17EE, 3)
+            },
+        ],
+        steps: vec![
+            step(AGAIN, 0, Trigger::Use(ORLEN), Update::Bestow),
+            step(ONCE, 0, Trigger::Use(GUARD), Update::Bestow),
+        ],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    holding(
+        &mut h,
+        &[(AGAIN, status::COMPLETED, 0), (ONCE, status::COMPLETED, 0)],
+        1,
+    );
+    let from = use_it(&mut h, b, me, 0x8130_0000_0000_0701);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "given again at once");
+    assert_eq!((given[0].0, given[0].1.id), (0x1000_0000, AGAIN));
+    holding(&mut h, &[(ONCE, status::COMPLETED, 0)], 10_000_000);
+    let from = use_it(&mut h, b, me, 0x8130_0000_0000_0702);
+    assert!(updates(&h, b, from).is_empty(), "done once: never again");
+}
+
+/// A person who gives several quests gives one of them at a use (not always the same one), none
+/// while one is under way, and, when they have no wait of their own, none until two hours after
+/// the last it gave: until then it says its too-soon line. A person whose quests have waits gives
+/// the next in the use that completes one.
+/// Behaviour: server.quests.one-giving-at-a-time
+#[test]
+fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_over() {
+    const STUBBY: u32 = 0x4700_335B;
+    const QUESTS: [u32; 3] = [0x4000_0313, 0x4000_0336, 0x4000_037A];
+    const TOO_SOON: u32 = 0x3867_28F6;
+    const GO_AWAY: u32 = 0x6369_1D8F;
+    const STARTER: u32 = 0x4700_31E6;
+    const FIRST: u32 = 0x4000_0016;
+    const NEXT: u32 = 0x4000_00C0;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![
+            object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6]),
+            object(0x8130_0000_0000_0802, STARTER, [62.0, 241.0, -44.6]),
+        ],
+    };
+    let mut quests: Vec<QuestDef> = QUESTS
+        .iter()
+        .map(|q| QuestDef {
+            duration: 7200.0,
+            ..quest(*q, 0x2500_17D4, 2)
+        })
+        .collect();
+    let mut steps: Vec<Step> = QUESTS
+        .iter()
+        .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
+        .collect();
+    for q in [FIRST, NEXT] {
+        quests.push(QuestDef {
+            retry: 72_000.0,
+            ..quest(q, 0x2500_1409, 2)
+        });
+    }
+    steps.push(step(FIRST, 1, Trigger::Use(STARTER), Update::Complete));
+    steps.push(step(NEXT, 0, Trigger::Use(STARTER), Update::Bestow));
+    steps.push(step(FIRST, 0, Trigger::Use(STARTER), Update::Bestow));
+    h.server.quests = QuestTable { quests, steps };
+    h.server.talk = TalkTable {
+        lines: vec![
+            line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None),
+            line(STUBBY, GO_AWAY, Role::RefuseUse, How::Tell, None),
+            line(STUBBY, GO_AWAY + 1, Role::Use, How::Tell, None),
+            line(STUBBY, GO_AWAY + 2, Role::Use, How::Tell, None),
+        ],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let stubby = 0x8130_0000_0000_0801;
+    let mut picked = Vec::new();
+    for _ in 0..8 {
+        holding(&mut h, &[], 0);
+        let from = use_it(&mut h, b, me, stubby);
+        let given = updates(&h, b, from);
+        assert_eq!(given.len(), 1, "one quest at a use");
+        assert_eq!(given[0].0, 0x1000_0000);
+        picked.push(given[0].1.id);
+    }
+    picked.sort_unstable();
+    picked.dedup();
+    assert!(picked.len() >= 2, "not always the same one: {picked:x?}");
+    let one = picked[0];
+    holding(&mut h, &[(one, status::UNDERWAY, 1)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(
+        updates(&h, b, from).is_empty(),
+        "none while one is under way"
+    );
+    for ago in [100, 3_000, 7_000] {
+        holding(&mut h, &[(one, status::COMPLETED, 0)], ago);
+        let from = use_it(&mut h, b, me, stubby);
+        assert!(updates(&h, b, from).is_empty(), "none within the wait");
+        assert_eq!(texts(&h, b, from), vec![(HEAR_TELL, TOO_SOON)], "too soon");
+    }
+    holding(&mut h, &[(one, status::COMPLETED, 0)], 7_300);
+    let from = use_it(&mut h, b, me, stubby);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "one again once the wait is over");
+    assert_eq!(given[0].0, 0x1000_0000);
+    // Quests with waits of their own: the use that completes one gives the next.
+    holding(&mut h, &[(FIRST, status::UNDERWAY, 1)], 60);
+    let from = use_it(&mut h, b, me, 0x8130_0000_0000_0802);
+    let got: Vec<(u32, u32)> = updates(&h, b, from)
+        .iter()
+        .map(|(k, r)| (*k, r.id))
+        .collect();
+    assert_eq!(got, vec![(0x3000_0000, FIRST), (0x1000_0000, NEXT)]);
 }

@@ -366,6 +366,36 @@ fn a_person_used_again_says_a_line_the_database_gives_it() {
     );
 }
 
+/// A world whose rows say nothing of how many times a quest may be done (the pinned release) still
+/// gives a quest its setup says is done once only once: the training hall quest, done long ago,
+/// is not given again by the Shelter Guard; a quest whose setup lets it be done again (Orlen
+/// Jarlns') and the server's own errands (Stubby's) are not done once.
+/// Behaviour: server.quests.done-once-without-rows
+#[test]
+fn a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say() {
+    let t = &compiled().tables;
+    let once = |q: u32| t.quests.quest(q).map(|d| d.once);
+    assert_eq!(once(0x4000_0088), Some(true), "the training hall quest");
+    assert_eq!(once(0x4000_018F), Some(false), "Orlen Jarlns' quest");
+    assert_eq!(once(0x4000_037A), Some(false), "Stubby's errand");
+    let (mut h, b, me) = served(t);
+    for p in h.server.players.values_mut() {
+        p.play.quests = vec![yalain_world::state::QuestState {
+            quest: 0x4000_0088,
+            status: yalain_world::quests::status::COMPLETED,
+            phase: 0,
+            started: 0,
+            updated: 0,
+        }];
+    }
+    let i = person(t, 0x4700_2DFD);
+    let calls = use_person(&mut h, b, me, t, i);
+    assert!(
+        !calls.iter().any(|(f, _)| *f == 0x8213_0024),
+        "not given again: {calls:08X?}"
+    );
+}
+
 /// The compiled world on a harness, with a character in it.
 fn served(t: &Tables) -> (Harness, usize, u64) {
     let mut h = Harness::new();

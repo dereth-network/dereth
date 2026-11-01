@@ -514,6 +514,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     });
     let step = Step {
         quest,

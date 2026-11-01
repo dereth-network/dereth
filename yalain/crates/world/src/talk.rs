@@ -7,6 +7,9 @@
 //! **Used, too low for its quest.** A person whose quest the player is under the least level of
 //! says its refusal of that quest.
 //!
+//! **Used, too soon.** A person who gives several quests and gave the player one too lately to give
+//! another says its too-soon line.
+//!
 //! **Given an item it has no use for.** A person says its refusal of a give (else another line it
 //! says at a give naming no quest) as it hands the item back.
 //!
@@ -256,6 +259,18 @@ fn pick<S: Store>(s: &mut Server<S>, pool: &[Line]) -> Option<Line> {
     };
     let i = s.rng.below(from.len());
     from.get(i).map(|l| (*l).clone())
+}
+
+/// What a person who gives several quests says when it gave one too lately to give another: its
+/// too-soon line (2017: Stubby's "Come back later ..." 18 of 18, Lupe's 7 of 7).
+pub fn too_soon_line<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
+    let pool: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| l.role == Some(Role::TooSoon))
+        .cloned()
+        .collect();
+    pick(s, &pool)
 }
 
 /// What a person used says when it would give a quest but for the player's level: its refusal of

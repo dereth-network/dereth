@@ -249,6 +249,8 @@ pub struct Quest {
     pub min_level: Option<i32>,
     /// Whether it fails when its player dies.
     pub fails_on_death: Option<bool>,
+    /// Whether it is given only once.
+    pub once: Option<bool>,
     pub prov: Prov,
 }
 
@@ -600,6 +602,7 @@ pub const FIELDS: [(&str, &[&str]); 16] = [
             "visible",
             "min_level",
             "fails_on_death",
+            "once",
             "prov",
         ],
     ),
@@ -1035,6 +1038,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
             fails_on_death: f.bool("fails_on_death"),
+            once: f.bool("once"),
             prov: f.req_prov()?,
         }),
         "step" => {

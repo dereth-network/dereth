@@ -11,8 +11,8 @@
 //!   none), retry wait in seconds, completion experience, can-be-cancelled flag, provenance; then,
 //!   optionally, the hidden flag (0/1), the update effects (`KIND:STATE`, the update's kind and
 //!   the effect's saved state, joined by `,`), the phases' subquests (`PHASE:ANY:QUEST/QUEST...`,
-//!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any)
-//!   and whether it fails when its player dies (0/1);
+//!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any),
+//!   whether it fails when its player dies (0/1) and whether it is given only once (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -53,6 +53,10 @@ pub struct QuestDef {
     pub min_level: i32,
     /// Whether it fails when its player dies.
     pub fails_on_death: bool,
+    /// Whether it is given only once: done, it is never given again (else it is given again once
+    /// its wait is over, at once when it has none). The install's setup of the quest says so; a
+    /// world's row may say otherwise.
+    pub once: bool,
 }
 
 /// A phase of a quest done by doing other quests: given with the phase, kept hidden, the phase
@@ -245,7 +249,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -260,6 +264,7 @@ impl QuestTable {
                 u8::from(q.hidden),
                 q.min_level,
                 u8::from(q.fails_on_death),
+                u8::from(q.once),
             );
         }
         for s in &self.steps {
@@ -342,7 +347,7 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "quest" if (13..=18).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=19).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -384,6 +389,7 @@ impl QuestTable {
                         _ => 0,
                     },
                     fails_on_death: c.get(17) == Some(&"1"),
+                    once: c.get(18) == Some(&"1"),
                 }),
                 "step" if (9..=15).contains(&c.len()) => {
                     let (kind, tpl) = c[3]

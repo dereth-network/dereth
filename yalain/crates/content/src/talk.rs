@@ -82,6 +82,8 @@ pub enum Role {
     Fail,
     RefuseUse,
     RefuseGive,
+    /// What a person with several quests says when it gave one too lately to give another.
+    TooSoon,
     Use,
     Near,
     Idle,
@@ -130,7 +132,7 @@ pub enum TalkUpdate {
     Fail,
 }
 
-const ROLES: [(Role, &str); 14] = [
+const ROLES: [(Role, &str); 15] = [
     (Role::Offer, "offer"),
     (Role::Remind, "remind"),
     (Role::Advance, "advance"),
@@ -139,6 +141,7 @@ const ROLES: [(Role, &str); 14] = [
     (Role::Fail, "fail"),
     (Role::RefuseUse, "refuse-use"),
     (Role::RefuseGive, "refuse-give"),
+    (Role::TooSoon, "too-soon"),
     (Role::Use, "use"),
     (Role::Near, "near"),
     (Role::Idle, "idle"),

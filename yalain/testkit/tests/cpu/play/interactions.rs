@@ -140,6 +140,7 @@ fn hall() -> Harness {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     });
     h.server.quests.steps.push(Step {
         quest: ENTER_QUEST,

@@ -182,6 +182,7 @@ impl Install for Fake {
             journals: vec![(0x2E5C_1E52, 0x2500_17EE), (0x2E5F_1E52, 0x2500_17EE)],
             effects: Vec::new(),
             subquests: Vec::new(),
+            once: false,
         })
     }
 
@@ -643,6 +644,34 @@ fn a_step_can_be_moved_by_an_item_given_to_a_person() {
         (s4.trigger, s4.needs, s4.update),
         (Trigger::Give(0x4700_20B9, 0x4700_33D0), 2, Update::Complete)
     );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+}
+
+#[test]
+fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(!t.quests.quests[0].once, "left out: given again");
+    assert_eq!(t.talk.lines[0].role, Some(Role::Near));
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\nonce = true",
+    );
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"too-soon\"",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.quests.quests[0].once);
+    assert_eq!(t.talk.lines[0].role, Some(Role::TooSoon));
     assert_eq!(
         yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
         t.quests,

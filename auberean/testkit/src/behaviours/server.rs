@@ -4007,6 +4007,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.done-once-from-setup",
+        says: "Whether a quest is done once is read from its setup in the data: one solution is \
+               done once; two, any number, or a package that does not say, is not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONCE-SETUP"),
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_whether_it_is_done_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.quests.done-once-without-rows",
+        says: "A world whose rows say nothing of how many times a quest may be done still gives a \
+               quest its setup says is done once only once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONCE-NO-ROWS"),
+        station: "yalain-testkit::corpus::world_db::a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.every-quest-held-listed-at-entry",
         says: "A character enters the world with every quest it holds in its journal, under way, \
                done, failed or cancelled, each one no longer under way with what is left of its \
@@ -4041,6 +4059,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RUNS-OUT"),
         station: "yalain-testkit::cpu::play::quests::a_timed_quest_fails_when_its_time_runs_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.given-again-no-wait",
+        says: "A done quest with no wait is given again at once; one its definition says is done \
+               once is never given again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-AGAIN"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4094,11 +4121,22 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.quests.one-event-several-steps",
         says: "One use runs every quest step it triggers, each quest moved on at most once, a \
-               step another of the same use made possible included; a quest done once is not \
-               given again.",
+               step another of the same use made possible included; a second use does neither \
+               again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CHAINS"),
         station: "yalain-testkit::cpu::play::quests::one_use_completes_a_quest_and_gives_the_next_that_requires_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.one-giving-at-a-time",
+        says: "A person who gives several quests gives one of them at a use, none while one is \
+               under way, and, when they have no wait of their own, none for two hours after the \
+               last it gave, saying its too-soon line; one whose quests have waits gives the next \
+               in the use that completes one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONE-AT-A-TIME"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_over",
         tier: Tier::Cpu,
     },
     behaviour! {

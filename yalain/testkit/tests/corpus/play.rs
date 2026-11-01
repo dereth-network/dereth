@@ -261,6 +261,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            once: false,
         });
     let step = Step {
         quest,
@@ -616,6 +617,7 @@ fn a_visit() -> Vec<ServerMessage> {
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            once: false,
         }],
         steps: vec![Step {
             quest: 0x4000_0088,

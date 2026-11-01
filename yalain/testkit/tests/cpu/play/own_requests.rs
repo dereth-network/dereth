@@ -326,6 +326,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     });
     let (a, _, world) = player(&mut h, "one");
     h.server

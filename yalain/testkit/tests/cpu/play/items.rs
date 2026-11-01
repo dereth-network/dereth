@@ -127,6 +127,7 @@ fn world() -> Harness {
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            once: false,
         }],
         steps: Vec::new(),
     };

@@ -1,7 +1,8 @@
 //! The install a compile reads, from its records: templates and their qualities, the property
 //! list, the generator profiles' names, store templates' sales and quests' definitions (saved
-//! states, read with the script library's names for their fields), and optionally the language
-//! file's text for the tables' reading labels.
+//! states, read with the script library's names for their fields, and whether the quest's package
+//! sets it up to be done once), and optionally the language file's text for the tables' reading
+//! labels.
 
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, HashMap};
@@ -13,6 +14,8 @@ use auberean_assets::Context;
 use auberean_script::graph::{Body, Graph, PackedObject};
 use auberean_script::library::{Library, RECORD};
 use auberean_script::native_object::{Item, NativeObject};
+use auberean_script::opcode::{length, low_byte, signed};
+use auberean_script::value::FunctionId;
 use yalain_content::{FactIds, Props, FACT_NAMES};
 
 use crate::compile::{Install, InstallSale, QuestDefinition};
@@ -265,6 +268,7 @@ impl Install for DatInstall<'_> {
             journals: phases.into_iter().map(|(_, j)| j).collect(),
             effects,
             subquests,
+            once: done_once(&self.lib, root.package_id()),
         })
     }
 
@@ -277,6 +281,65 @@ impl Install for DatInstall<'_> {
             _ => String::new(),
         }
     }
+}
+
+/// The call a quest's setup makes to say how many times it may be done.
+const SET_SOLUTIONS: &str = "Quest::SetMaxNumberOfSolutions";
+
+/// Is a quest's package set up to be done once: its `Setup` (its own, else the nearest of its
+/// bases') passes the literal 1 to [`SET_SOLUTIONS`]? Any other value (the globals' -1, any
+/// number) or no such call: it may be done again (2017: of the quests whose setup says 1, 0 of 49
+/// were given again; of the others, 50 were).
+fn done_once(lib: &Library, package: u32) -> bool {
+    let mut at = lib.export_of(package);
+    let mut guard = 0;
+    while let Some(i) = at {
+        let Some(p) = lib.packages.get(i) else {
+            return false;
+        };
+        if let Some(f) = p.functions.iter().find(|f| f.name == "Setup") {
+            let Some(offset) = f.offset else {
+                return false;
+            };
+            let start = (offset / 4) as usize;
+            let end = start + (f.size / 4) as usize;
+            return passes_one(lib, start, end.min(lib.code.len()));
+        }
+        at = p.parent;
+        guard += 1;
+        if guard > lib.packages.len() {
+            return false;
+        }
+    }
+    false
+}
+
+/// Does the code in `start..end` call [`SET_SOLUTIONS`] with the literal 1 the last value pushed?
+fn passes_one(lib: &Library, start: usize, end: usize) -> bool {
+    // The last literal pushed, cleared by anything else that puts a value on the stack.
+    let mut literal: Option<i64> = None;
+    let mut at = start;
+    while at < end {
+        let word = lib.code[at];
+        match low_byte(word) {
+            // A small literal; a literal in the next word.
+            0x03 => literal = Some(i64::from(signed(word))),
+            0x02 => literal = lib.code.get(at + 1).map(|v| i64::from(*v)),
+            // The receiver pushed for the call leaves the argument alone.
+            0x23 => {}
+            // A call: the one that sets the count reads the literal pushed before it.
+            0x0B | 0x4F | 0x51 | 0x53 => {
+                let id = lib.code.get(at + 1).copied().unwrap_or(0);
+                if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
+                    return literal == Some(1);
+                }
+                literal = None;
+            }
+            _ => literal = None,
+        }
+        at += length(&lib.code, at).unwrap_or(1);
+    }
+    false
 }
 
 /// Reading a saved state's graph by the library's names for its fields.

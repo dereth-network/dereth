@@ -57,6 +57,8 @@ pub struct QuestDefinition {
     pub effects: Vec<(u32, u32)>,
     /// The phases done by other quests (subquests), in their order.
     pub subquests: Vec<yalain_content::quests::Subquests>,
+    /// Done once: its package's setup says it may be done one time.
+    pub once: bool,
 }
 
 /// What a compile reads from the user's install.
@@ -363,6 +365,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             subquests: def.subquests,
             min_level: 0,
             fails_on_death: false,
+            once: def.once,
         });
     }
 }
@@ -715,6 +718,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     subquests: def.subquests,
                     min_level: q.min_level.unwrap_or(0),
                     fails_on_death: q.fails_on_death.unwrap_or(false),
+                    once: q.once.unwrap_or(def.once),
                 });
             }
             Row::Step(s) => {

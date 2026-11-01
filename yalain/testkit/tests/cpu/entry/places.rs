@@ -670,6 +670,7 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     }
 }
 

@@ -3,7 +3,9 @@
 //! another quest, when the
 //! player's quest is at the phase the step needs and the other quests it requires are where it
 //! requires them. A step that gives a quest needs it not under way, and not done unless its wait
-//! to be taken again is over (a quest without one is done once). One event runs every step it
+//! to be taken again is over: a quest with no wait is given again at once, one its definition
+//! says is done once never (2017: of the quests the install says are done once, 0 of 49 were given
+//! again; 62 others were, 115 times). One event runs every step it
 //! triggers, each quest moved on at most once, a step that another of the same event made possible
 //! included (an explorer completes one quest and gives the next). The person used says its line
 //! (a tell naming the player), the step's items are given and taken, then the quest is updated:
@@ -423,16 +425,17 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
 }
 
 /// May a quest a player does not have under way be given it again: never had, or its wait over
-/// (a done one's the quest's own, none meaning done once; a failed one's the same; a cancelled
-/// one's its cancel wait). 2017: a failed quest's shrine said only its refusal while the wait
-/// ran, 2 of 2.
+/// (a done one's the quest's own, none meaning at once, unless the quest is done once; a failed
+/// one's the same; a cancelled one's its cancel wait). 2017: a failed quest's shrine said only its
+/// refusal while the wait ran, 2 of 2; quests whose completion named no wait were given again 23
+/// times (9 of 31), never one done once.
 fn given_again(def: &QuestDef, held: &[QuestState], now_unix: i64) -> bool {
     held.iter().find(|q| q.quest == def.id).is_none_or(|q| {
         #[allow(clippy::cast_precision_loss)]
         let waited = (now_unix - q.updated) as f64;
         let wait = wait_after(def, q.status);
         match q.status {
-            status::COMPLETED => wait > 0.0 && waited >= wait,
+            status::COMPLETED => !def.once && waited >= wait,
             status::FAILED | status::CANCELLED => waited >= wait,
             _ => true,
         }
@@ -510,21 +513,36 @@ fn triggered_with<S: Store>(
 ) -> (bool, bool) {
     let mut moved: Vec<u32> = Vec::new();
     let mut kept = false;
+    // A person who gives several quests gives one of them at a time.
+    let several = match trigger {
+        Trigger::Use(_) => givings(s, trigger),
+        _ => Vec::new(),
+    };
     loop {
-        let Some(step) = s
-            .quests
-            .steps
-            .iter()
-            .find(|st| {
-                st.trigger == trigger
-                    && st.to.is_none()
-                    && !moved.contains(&st.quest)
-                    && may_run(s, world, st, clock.unix)
-            })
-            .cloned()
-        else {
+        // Reckoned at each step: one given (now under way) blocks the rest.
+        let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
+        let runs = |s: &Server<S>, st: &Step| {
+            st.trigger == trigger
+                && st.to.is_none()
+                && !moved.contains(&st.quest)
+                && !(blocked && st.needs == 0 && several.contains(&st.quest))
+                && may_run(s, world, st, clock.unix)
+        };
+        let Some(mut step) = s.quests.steps.iter().find(|st| runs(s, st)).cloned() else {
             return (!moved.is_empty(), kept);
         };
+        if several.len() >= 2 && step.needs == 0 && several.contains(&step.quest) {
+            // Which of them: one at random of those it may give.
+            let may: Vec<Step> = s
+                .quests
+                .steps
+                .iter()
+                .filter(|st| st.needs == 0 && several.contains(&st.quest) && runs(s, st))
+                .cloned()
+                .collect();
+            let i = s.rng.below(may.len());
+            step = may[i].clone();
+        }
         moved.push(step.quest);
         let received = run_with(s, net, world, &step, who, given, clock);
         // The item given is kept by the first step that takes it.
@@ -536,6 +554,66 @@ fn triggered_with<S: Store>(
             triggered(s, net, world, Trigger::Take(template), None, clock);
         }
     }
+}
+
+/// How long a person who gives several quests with no wait of their own gives none after giving
+/// one, in seconds (2017, on the server's quest clock from the last one given: Stubby gave none
+/// at 371 to 6,976 s, 18 of 18 uses, and one at 7,257 s and later, 18 of 18; Lupe 12 of 13). It
+/// is those quests' own duration.
+pub const PERSON_WAIT: f64 = 7200.0;
+
+/// The quests a trigger gives (its steps that give a quest), each once, in step order.
+fn givings<S: Store>(s: &Server<S>, trigger: Trigger) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    for st in &s.quests.steps {
+        if st.trigger == trigger
+            && st.needs == 0
+            && st.update == Update::Bestow
+            && !out.contains(&st.quest)
+        {
+            out.push(st.quest);
+        }
+    }
+    out
+}
+
+/// Has a person who gives several quests, none of them with a wait of its own and none under way
+/// for the player, given the player one of them less than [`PERSON_WAIT`] ago?
+fn person_waits<S: Store>(s: &Server<S>, world: ConnId, quests: &[u32], now_unix: i64) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let no_wait = quests
+        .iter()
+        .all(|q| s.quests.quest(*q).is_some_and(|d| d.retry <= 0.0));
+    no_wait
+        && quests.iter().all(|q| phase_of(&p.play.quests, *q) == 0)
+        && p.play.quests.iter().any(|h| {
+            #[allow(clippy::cast_precision_loss)]
+            let since = (now_unix - h.started) as f64;
+            quests.contains(&h.quest) && since < PERSON_WAIT
+        })
+}
+
+/// Does a person who gives several quests give none of them now: one is under way, or they have no
+/// wait of their own and it gave one less than [`PERSON_WAIT`] ago (2017: Stubby, Kanten and Lupe
+/// gave none while one of theirs was under way, 31 of 32 uses, and never two at one use, 71 of 71;
+/// the starting towns' people, whose quests have waits, gave the next as a use completed one, 13 of
+/// 13).
+fn person_blocks<S: Store>(s: &Server<S>, world: ConnId, quests: &[u32], now_unix: i64) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return true;
+    };
+    quests.iter().any(|q| phase_of(&p.play.quests, *q) != 0)
+        || person_waits(s, world, quests, now_unix)
+}
+
+/// Would a trigger give a quest but for its person having given one too lately (it says its
+/// too-soon line instead)?
+#[must_use]
+pub fn too_soon<S: Store>(s: &Server<S>, world: ConnId, trigger: Trigger, now_unix: i64) -> bool {
+    let quests = givings(s, trigger);
+    quests.len() >= 2 && person_waits(s, world, &quests, now_unix)
 }
 
 /// The step a trigger would run now, if any (a step that takes the player somewhere runs only so:

@@ -74,6 +74,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     }
 }
 

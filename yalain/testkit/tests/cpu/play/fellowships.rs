@@ -701,6 +701,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            once: false,
         });
         h.server.quests.steps.push(Step {
             quest: QUEST,

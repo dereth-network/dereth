@@ -117,6 +117,24 @@ pub fn talk<S: Store>(
             return;
         }
     }
+    if crate::quests::too_soon(s, world, Trigger::Use(o.template), clock.unix) {
+        if let Some(line) = crate::talk::too_soon_line(s, o.template, object) {
+            let speaker = object.map_or_else(
+                || crate::talk::Speaker {
+                    id,
+                    name,
+                    stamp: auberean_protocol::types::ObjectStamp {
+                        id,
+                        instance_stamp: 1,
+                        other_stamp: 1,
+                    },
+                },
+                |i| crate::talk::content_speaker(s, i),
+            );
+            crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+            return;
+        }
+    }
     let keeper = s.stores.keeper(o.template).cloned();
     let greeting = keeper.as_ref().and_then(|k| k.greeting.clone());
     if let Some(g) = &greeting {

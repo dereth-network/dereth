@@ -387,6 +387,7 @@ fn quests() -> QuestTable {
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            once: false,
         }],
         steps: vec![
             step(0, GUARD_TEMPLATE, Update::Bestow),

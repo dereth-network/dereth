@@ -523,6 +523,7 @@ fn hour_quest(id: u32) -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        once: false,
     }
 }
 
