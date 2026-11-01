@@ -79,3 +79,4 @@ what they see, not how it was done.
 - Kingdom stones, quest shrines and the Cauldron of Tanacha move their quests, and journals list what's left.
 - Failed quests wait before they can be taken again, and some quests need a level or fail when you die.
 - Characters on the Dereth Network appear in its directory.
+- Items can be given to people and shrines, so quest hand-ins and the Hero Shrine work.

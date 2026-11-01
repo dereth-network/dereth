@@ -238,6 +238,10 @@ pub struct Move {
     pub trade: bool,
     /// The server has made its checks (its answer to a reorganization says so).
     pub no_check: bool,
+    /// Whether the item is bound to its owner does not matter (a give's answer says so).
+    pub ignore_attunement: bool,
+    /// The appearance the item shows in a hand handing it over.
+    pub item_appearance: u32,
 }
 
 /// The move's description as the client's script object (its 51 slots).
@@ -255,6 +259,8 @@ pub fn move_graph(m: &Move) -> Arg {
     };
     s[0] = b(m.merge);
     s[1] = i(m.actual_from_slot);
+    s[5] = b(m.ignore_attunement);
+    s[6] = Slot::Int(m.item_appearance);
     s[7] = b(m.no_check);
     put_long(&mut s, 2, m.target);
     put_long(&mut s, 8, m.actual_target);

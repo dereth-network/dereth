@@ -14,7 +14,7 @@
 //!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any)
 //!   and whether it fails when its player dies (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
-//!   `useon:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
+//!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
 //!   given (templates joined by `,`), provenance; then, optionally, what else it requires (other
 //!   quests at a phase or done: `QUEST:N` or `QUEST:done`, joined by `,`), the items it takes from
@@ -71,6 +71,8 @@ pub enum Trigger {
     Use(u32),
     /// Using a held item of a template on an object of another (a glyph on a vault).
     UseOn(u32, u32),
+    /// Giving an item of a template to a person or an object of another (an item dragged onto it).
+    Give(u32, u32),
     /// Arriving through a portal of a template.
     Arrive(u32),
     /// Taking an item of a template.
@@ -264,6 +266,7 @@ impl QuestTable {
             let trigger = match s.trigger {
                 Trigger::Use(t) => format!("use:{t:08X}"),
                 Trigger::UseOn(i, t) => format!("useon:{i:08X}:{t:08X}"),
+                Trigger::Give(i, t) => format!("give:{i:08X}:{t:08X}"),
                 Trigger::Arrive(t) => format!("arrive:{t:08X}"),
                 Trigger::Take(t) => format!("take:{t:08X}"),
                 Trigger::Kill(t) => format!("kill:{t:08X}"),
@@ -387,11 +390,16 @@ impl QuestTable {
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
                     let trigger = match kind {
-                        "useon" => {
-                            let (i, t) = tpl
-                                .split_once(':')
-                                .ok_or_else(|| at(format!("useon takes ITEM:TARGET, not {tpl}")))?;
-                            Trigger::UseOn(hex(i).map_err(at)?, hex(t).map_err(at)?)
+                        "useon" | "give" => {
+                            let (i, t) = tpl.split_once(':').ok_or_else(|| {
+                                at(format!("{kind} takes ITEM:TARGET, not {tpl}"))
+                            })?;
+                            let (i, t) = (hex(i).map_err(at)?, hex(t).map_err(at)?);
+                            if kind == "give" {
+                                Trigger::Give(i, t)
+                            } else {
+                                Trigger::UseOn(i, t)
+                            }
                         }
                         "use" => Trigger::Use(hex(tpl).map_err(at)?),
                         "arrive" => Trigger::Arrive(hex(tpl).map_err(at)?),

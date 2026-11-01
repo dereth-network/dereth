@@ -1,5 +1,5 @@
 //! Quests: a step of a quest is triggered by using a person, an object or a held item (or a held
-//! item on an object), arriving through a portal, taking an item, killing a creature or completing
+//! item on an object), giving an item to a person or an object, arriving through a portal, taking an item, killing a creature or completing
 //! another quest, when the
 //! player's quest is at the phase the step needs and the other quests it requires are where it
 //! requires them. A step that gives a quest needs it not under way, and not done unless its wait
@@ -374,6 +374,12 @@ fn may_run<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> 
     may_run_at_any_level(s, world, st, now_unix) && level_allows(s, world, st)
 }
 
+/// May a step run for a player now (a step due after a wait runs only if it still may).
+#[must_use]
+pub fn may_run_now<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
+    may_run(s, world, st, now_unix)
+}
+
 /// Is the player of the level a step that gives a quest needs (the quest's least level)?
 fn level_allows<S: Store>(s: &Server<S>, world: ConnId, st: &Step) -> bool {
     if st.needs != 0 || st.update != Update::Bestow {
@@ -474,7 +480,36 @@ pub fn triggered<S: Store>(
     who: Option<(u64, Option<(u32, u32)>)>,
     clock: Clock,
 ) -> bool {
+    triggered_with(s, net, world, trigger, who, None, clock).0
+}
+
+/// An item given to a person or an object may move quests on: every step the give triggers runs
+/// (each quest at most once), a step that takes the item keeping the one given, the items a step
+/// gives made from the person. An item so given that moves a quest when received moves it after.
+/// Returns whether a step kept the item given.
+pub fn triggered_by_give<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    trigger: Trigger,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    given: crate::gives::Given,
+    clock: Clock,
+) -> bool {
+    triggered_with(s, net, world, trigger, who, Some(given), clock).1
+}
+
+fn triggered_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    trigger: Trigger,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    mut given: Option<crate::gives::Given>,
+    clock: Clock,
+) -> (bool, bool) {
     let mut moved: Vec<u32> = Vec::new();
+    let mut kept = false;
     loop {
         let Some(step) = s
             .quests
@@ -488,10 +523,18 @@ pub fn triggered<S: Store>(
             })
             .cloned()
         else {
-            return !moved.is_empty();
+            return (!moved.is_empty(), kept);
         };
         moved.push(step.quest);
-        run(s, net, world, &step, who, clock);
+        let received = run_with(s, net, world, &step, who, given, clock);
+        // The item given is kept by the first step that takes it.
+        if given.is_some_and(|g| step.takes.contains(&g.template)) {
+            given = None;
+            kept = true;
+        }
+        for template in received {
+            triggered(s, net, world, Trigger::Take(template), None, clock);
+        }
     }
 }
 
@@ -522,6 +565,21 @@ pub fn run<S: Store>(
     who: Option<(u64, Option<(u32, u32)>)>,
     clock: Clock,
 ) {
+    run_with(s, net, world, step, who, None, clock);
+}
+
+/// Run a step, for an item given (if any): the item kept where the step takes its template, the
+/// step's items made from the person given it. Returns the templates of the items a give's step
+/// gave.
+fn run_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &Step,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    given: Option<crate::gives::Given>,
+    clock: Clock,
+) -> Vec<u32> {
     if let Some((teller, name)) = who {
         if let Some(line) = &step.tell {
             tell(s, net, world, teller, name, line);
@@ -536,11 +594,28 @@ pub fn run<S: Store>(
             }
         }
     }
+    let mut received = Vec::new();
+    let mut kept = given.filter(|g| step.takes.contains(&g.template));
+    if let Some(g) = kept {
+        crate::gives::keep(s, net, world, g);
+    }
     for (i, g) in step.gives.iter().enumerate() {
         let n = step.counts.get(i).copied().unwrap_or(1).max(1);
-        crate::inventory::give(s, net, world, *g, n);
+        match given {
+            Some(from) => {
+                crate::inventory::give_from(s, net, world, *g, n, from.target);
+                received.push(*g);
+            }
+            None => {
+                crate::inventory::give(s, net, world, *g, n);
+            }
+        }
     }
     for t in &step.takes {
+        if kept.is_some_and(|g| g.template == *t) {
+            kept = None;
+            continue;
+        }
         crate::inventory::take_from_pack(s, net, world, *t);
     }
     // Its effects come before the update, or for some steps after it.
@@ -554,6 +629,7 @@ pub fn run<S: Store>(
     if step.fellows {
         for_fellows(s, net, world, step, clock);
     }
+    received
 }
 
 /// A step whose update is the fellowship's: the same update made for each of the player's fellows
@@ -597,6 +673,9 @@ fn step_effects<S: Store>(
 ) {
     let me = s.players.get(&world).map_or(0, |p| p.character);
     for e in &step.effects {
+        if crate::gives::special_effect(s, net, world, *e) {
+            continue;
+        }
         crate::effects::apply(
             s,
             net,

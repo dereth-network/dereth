@@ -36,3 +36,11 @@ update = "complete"
 xp = 40
 gives = [0x470020B9]
 prov = { from = "authored" }
+
+[[step]]
+key = "s4"
+quest = 0x40000088
+needs = 2
+trigger = { give = 0x470020B9, to = 0x470033D0 }
+update = "complete"
+prov = { from = "authored" }

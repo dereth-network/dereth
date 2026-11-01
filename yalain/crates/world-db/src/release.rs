@@ -28,11 +28,11 @@ use crate::rows::{Database, Row};
 use crate::Files;
 
 /// The release this server build is tested against.
-pub const PINNED_TAG: &str = "v0.20.0";
+pub const PINNED_TAG: &str = "v0.21.0";
 
 /// The SHA-256 of [`PINNED_TAG`]'s archive, lowercase hex.
 pub const PINNED_ZIP_SHA256: &str =
-    "ee4657de948459bf569167d8171619391dea5ebc45374162cfa98064bc9d9283";
+    "cbb693de2e347e04e66b43461e93eb937ff39672affd4535e1cfaeb530bf7347";
 
 /// Where releases are downloaded from: `{tag}` stands for the tag. `yalain world fetch --from`
 /// and the `YALAIN_WORLD_URL` variable give another address (a mirror, a local file).

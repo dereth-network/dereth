@@ -1156,6 +1156,26 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     crate::places::resurrection_trip(s, net, world, to, clock);
 }
 
+/// A share of a player's vitae is taken (a person's tap of it): its vitae is that share of what it
+/// was, and the experience still to earn to raise it worked out again, both told (2017: 81 to 72.9
+/// by a tap leaving nine tenths, with 80,660 to earn, 1 of 1).
+pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, share: f32) {
+    let costs = s.vitae_costs.clone();
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let level = crate::examine::level_of(&p.qualities);
+    let was = quals::float(&p.qualities, vitae_q::VITAE).unwrap_or(100.0);
+    let vitae = was * share;
+    quals::set_float(&mut p.qualities, vitae_q::VITAE, vitae);
+    progress::send_float(net, world, vitae_q::VITAE, vitae);
+    if let Some(x) = xp_to_raise(&costs, level, vitae) {
+        quals::set_long(&mut p.qualities, vitae_q::XP_TO_RAISE, x);
+        progress::send_long(net, world, vitae_q::XP_TO_RAISE, x);
+    }
+    crate::world::keep_player(s, world);
+}
+
 /// Out of portal space after a resurrection, before the player is placed: its vitae, health and
 /// vigor, and alive as far as its client knows.
 pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {

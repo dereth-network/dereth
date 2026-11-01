@@ -135,10 +135,12 @@ pub fn requested(v: &[Value]) -> Option<Move> {
         merge_slot: signed(50),
         trade: on(20),
         no_check: on(7),
+        ignore_attunement: on(5),
+        item_appearance: int(6),
     })
 }
 
-/// A client asks to move an item. Only putting an item down is answered yet.
+/// A client asks to move an item: putting it down, or giving it to a person or an object.
 pub fn move_item<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -150,6 +152,10 @@ pub fn move_item<S: Store>(
         s.unhandled.note("a move of an item that does not read");
         return;
     };
+    if m.move_type == crate::gives::GIVE && m.target != 0 {
+        crate::gives::asked(s, net, world, m, clock);
+        return;
+    }
     if m.move_type != DROP || m.target != 0 {
         s.unhandled.note(format!(
             "a move of an item of type {:#x} into {:#x}",

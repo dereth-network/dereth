@@ -7,6 +7,9 @@
 //! **Used, too low for its quest.** A person whose quest the player is under the least level of
 //! says its refusal of that quest.
 //!
+//! **Given an item it has no use for.** A person says its refusal of a give (else another line it
+//! says at a give naming no quest) as it hands the item back.
+//!
 //! **Used, with nothing for the player.** A storekeeper greets as its store row says; anyone
 //! else (a storekeeper without a greeting too) says a reminder of one of its quests the player has
 //! under way, else one of the lines it says when used (refusals, its own words at a use), picked
@@ -308,6 +311,31 @@ pub fn at_use<S: Store>(
         .filter(|l| l.role != Some(Role::Remind) && l.quest.is_none())
         .collect();
     pick(s, &said)
+}
+
+/// What a person given an item it has no step for says as it hands the item back: its refusal of a
+/// give, else another of the lines it says when given something that names no quest (2017: 30 of 30
+/// such gives said one of the person's own lines at a give, 13 of them its refusal).
+pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
+    let lines: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| l.when == When::Give && l.quest.is_none() && l.update.is_none())
+        .cloned()
+        .collect();
+    let refusals: Vec<Line> = lines
+        .iter()
+        .filter(|l| l.role == Some(Role::RefuseGive))
+        .cloned()
+        .collect();
+    if !refusals.is_empty() {
+        return pick(s, &refusals);
+    }
+    let others: Vec<Line> = lines
+        .into_iter()
+        .filter(|l| matches!(l.role, None | Some(Role::Use | Role::Remind)))
+        .collect();
+    pick(s, &others)
 }
 
 /// Whether using an object of a template is talking to it: it says something when used.

@@ -2085,6 +2085,102 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-step-keeps-the-item",
+        says: "An item given to a person that a quest step takes is kept: it leaves the pack and the \
+               world, destroyed in the person, the person says its line with the update and the quest \
+               moves on; an item the step gives comes from the person, and nothing is handed back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-KEEP"),
+        station: "yalain-testkit::cpu::play::gives::an_item_a_step_takes_is_kept_and_moves_the_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.cannot-get-there",
+        says: "A walk to give that ends at rest out of reach is refused as one that could not get \
+               there: nothing handed over, the item never leaving the pack.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-CANT-GET-THERE"),
+        station: "yalain-testkit::cpu::play::gives::a_give_whose_walk_ends_out_of_reach_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.hero-transformation",
+        says: "A give whose step makes a hero runs that step when the transformation is through, 25.59 \
+               s after the answer: the player a hero, the quest completed, the hero's text; meanwhile \
+               only the transformation's appearances, the gift kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-HERO"),
+        station: "yalain-testkit::cpu::play::gives::a_give_that_makes_a_hero_does_so_when_the_transformation_is_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.no-step-hands-back",
+        says: "An item no step wants is answered as given, the person says its refusal of a give and \
+               hands it back: a person plays its handing-over and the item is back 1.30 s later, an \
+               object hands it back at once; no quest moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-HAND-BACK"),
+        station: "yalain-testkit::cpu::play::gives::an_item_no_step_wants_is_handed_back_with_the_persons_refusal",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.one-give-at-a-time",
+        says: "A person takes one give at a time: another player's give to it while one is under way is \
+               refused at once as the target busy, with no walk; an object takes both; a giver's second \
+               give while its first is under way is refused as its actions locked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-BUSY"),
+        station: "yalain-testkit::cpu::play::gives::a_person_takes_one_give_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.part-of-a-stack",
+        says: "A part of a stack given to a step that keeps it is taken, the rest staying in the pack \
+               with its quantity told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-STACK"),
+        station: "yalain-testkit::cpu::play::gives::a_part_of_a_stack_given_is_taken_and_the_rest_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.received-moves-on",
+        says: "An item a give's step hands the player that moves the same quest on when received moves \
+               it after the step's own update: two records, in that order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-RECEIVED"),
+        station: "yalain-testkit::cpu::play::gives::an_item_a_give_brings_moves_its_quest_on_after_the_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.subquests",
+        says: "Items given that close a phase's subquests each tell the quest's record with its phase \
+               kept, and the last, in any order, moves it on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-SUBQUESTS"),
+        station: "yalain-testkit::cpu::play::gives::items_given_close_a_phases_subquests_and_the_last_moves_it_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.vitae-tap",
+        says: "A step's tap of vitae leaves the player nine tenths of its vitae, told with what is \
+               still to earn, its appearance played on the player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-VITAE-TAP"),
+        station: "yalain-testkit::cpu::play::gives::a_steps_vitae_tap_takes_a_tenth_of_the_vitae",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.walked-handed-over-and-answered",
+        says: "A give is walked to 2 m of the person, the order sent even when the player is there; the \
+               player plays its handing-over with the item's look in its hand in the walk's context, \
+               seen by those who see it, the item's container cleared; the give is answered as done, \
+               the animation played, 1.31 s later.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK"),
+        station: "yalain-testkit::cpu::play::gives::an_item_given_is_walked_to_handed_over_and_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-picked-up-item-goes-to-the-packs-front",
         says: "An item picked up goes to the front of the pack, every item there moving up one, \
                and the move names that slot as both where it was sent and where it went.",

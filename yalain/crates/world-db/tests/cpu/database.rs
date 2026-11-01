@@ -197,7 +197,7 @@ fn the_test_world_reads_checks_and_merges_without_problems() {
     let db = read(&files).unwrap();
     assert_eq!(db.world.era, "eor");
     assert_eq!(db.packs.len(), 2);
-    assert_eq!(db.packs[0].rows.len(), 15);
+    assert_eq!(db.packs[0].rows.len(), 16);
 }
 
 #[test]
@@ -394,7 +394,7 @@ fn the_compile_takes_what_the_rows_leave_out_from_the_install() {
             ("keepers", 1),
             ("sales", 2),
             ("quests", 1),
-            ("steps", 3),
+            ("steps", 4),
             ("talk", 2)
         ]
     );
@@ -555,7 +555,7 @@ fn the_release_archive_is_the_same_bytes_for_the_same_files() {
     let m: serde_json::Value = serde_json::from_str(&manifest).unwrap();
     assert_eq!(m["rows"]["camp"], 2);
     assert_eq!(m["rows"]["remove"], 1);
-    assert_eq!(m["provenance"]["authored"], 16);
+    assert_eq!(m["provenance"]["authored"], 17);
     assert_eq!(m["rows"]["talk"], 2);
     assert_eq!(m["era"], "eor");
     // One file changed gives another archive.
@@ -630,6 +630,23 @@ fn the_cache_is_the_hosts_per_user_cache_folder() {
     assert_eq!(
         release::cache_dir_for(Host::Windows, env(&[("HOME", home)])),
         None
+    );
+}
+
+#[test]
+fn a_step_can_be_moved_by_an_item_given_to_a_person() {
+    let merged = merge(&read(&fixture()).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    // The item's template and the person's.
+    let s4 = &t.quests.steps[3];
+    assert_eq!(
+        (s4.trigger, s4.needs, s4.update),
+        (Trigger::Give(0x4700_20B9, 0x4700_33D0), 2, Update::Complete)
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
     );
 }
 

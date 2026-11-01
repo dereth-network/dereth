@@ -721,6 +721,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 let (trigger, named) = match s.trigger {
                     Trigger::Use(x) => (TableTrigger::Use(x), vec![x]),
                     Trigger::UseOn(i, x) => (TableTrigger::UseOn(i, x), vec![i, x]),
+                    Trigger::Give(i, x) => (TableTrigger::Give(i, x), vec![i, x]),
                     Trigger::Arrive(x) => (TableTrigger::Arrive(x), vec![x]),
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),

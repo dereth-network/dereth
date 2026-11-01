@@ -93,6 +93,8 @@ pub struct Player {
     pub move_to_stamp: u16,
     /// A use it is being walked toward: the use and the reach it needs.
     pub walking_to: Option<(crate::places::Use, f32)>,
+    /// An item it is giving to a person or an object.
+    pub giving: Option<crate::gives::Giving>,
     /// The object it follows.
     pub following: Option<u64>,
     /// Where it last reported itself at rest while walked toward a use.
@@ -337,6 +339,7 @@ pub fn enter<S: Store>(
         selection: 0,
         move_to_stamp: 0,
         walking_to: None,
+        giving: None,
         walk_rest: None,
         following: None,
         trip: None,
@@ -963,6 +966,7 @@ fn moved<S: Store>(
         presence::refresh(s, net, world);
     }
     crate::places::arrived(s, net, world, clock);
+    crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::usable::chests::moved(s, net, world, clock);
     crate::skill_use::moved(s, net, world, clock);

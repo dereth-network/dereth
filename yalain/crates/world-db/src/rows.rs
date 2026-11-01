@@ -259,6 +259,7 @@ pub struct Quest {
 pub enum Trigger {
     Use(u32),
     UseOn(u32, u32),
+    Give(u32, u32),
     Arrive(u32),
     Take(u32),
     Kill(u32),
@@ -1742,11 +1743,14 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
                     return Some(Trigger::UseOn(as_u32(item)?, as_u32(on)?));
+                }
+                if let (2, Some(item), Some(to)) = (t.len(), t.get("give"), t.get("to")) {
+                    return Some(Trigger::Give(as_u32(item)?, as_u32(to)?));
                 }
                 if t.len() != 1 {
                     return None;

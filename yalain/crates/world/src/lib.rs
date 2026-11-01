@@ -65,6 +65,7 @@ pub mod examine;
 pub mod fellowship;
 pub mod focus;
 pub mod follow;
+pub mod gives;
 pub mod graph;
 pub mod inventory;
 pub mod item_use;
@@ -435,6 +436,18 @@ pub enum Timer {
     },
     /// A player's picking up of an item is through.
     PickUp { world: ConnId, item: u64 },
+    /// A player's handing over of an item it gives is through.
+    Handed { world: ConnId },
+    /// A person's handing back of an item given it is through.
+    HandedBack {
+        world: ConnId,
+        asked: Box<inventory::Move>,
+    },
+    /// A give's quest step, due after its wait.
+    GiveStep {
+        world: ConnId,
+        step: Box<yalain_content::quests::Step>,
+    },
     /// A player's use of an item on an object, its behavior played out.
     Interaction {
         world: ConnId,
@@ -683,6 +696,11 @@ impl<S: Store> Server<S> {
                 }
                 Timer::PickUp { world, item } => {
                     inventory::picked_up(self, net, world, item, clock);
+                }
+                Timer::Handed { world } => gives::handed(self, net, world, clock),
+                Timer::HandedBack { world, asked } => gives::back(self, net, world, &asked),
+                Timer::GiveStep { world, step } => {
+                    gives::step_due(self, net, world, &step, clock);
                 }
                 Timer::Landing(l) => combat::lands(self, net, l, clock),
                 Timer::BindEnds { world } => places::bind_ends(self, net, world),
