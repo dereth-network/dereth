@@ -1,7 +1,9 @@
 //! Test support: the behaviour registry, and where the private test data is.
 //!
-//! **Depends on** `auberean-dat` (where the data files are), and with its feature the capture
-//! index's database engine (`captures`). **Used by** the tests of every Asheron's Call 2 crate.
+//! **Depends on** `auberean-dat` (where the data files are), and with its features the capture
+//! index's database engine (`captures`) and the server's network crate (`yalain-net`, over
+//! `dereth-transport` and `dereth-primitives`) for the server double (`double`). **Used by** the
+//! tests of every Asheron's Call 2 crate.
 //!
 //! - [`behaviours`]: every claim this workspace's tests make about the game, each a row with an
 //!   id, a sentence, the build it was read off, an opaque evidence handle and the test that
@@ -11,6 +13,8 @@
 //!   `auberean_dat::testing`) and the capture index.
 //! - `captures` (feature `captures`): the recorded sessions' messages, read from the capture
 //!   index in session order.
+//! - `double` (feature `double`): a server double, the servers' side of a recorded game login
+//!   played to a client over an in-memory network.
 //!
 //! **Must never** be a dependency of a crate's own code: nothing in any crate's `src/` depends on
 //! it; tests do (`cargo xtask seams`).
@@ -20,3 +24,5 @@ pub mod behaviours;
 pub mod captures;
 pub mod data;
 pub mod divergences;
+#[cfg(feature = "double")]
+pub mod double;

@@ -249,6 +249,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-client-net"
+version = "0.0.0"
+dependencies = [
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-testkit",
+ "dereth-client-net",
+ "dereth-primitives",
+ "dereth-transport",
+ "yalain-net",
+]
+
+[[package]]
 name = "auberean-dat"
 version = "0.0.0"
 dependencies = [
@@ -323,7 +336,10 @@ name = "auberean-testkit"
 version = "0.0.0"
 dependencies = [
  "auberean-dat",
+ "dereth-primitives",
+ "dereth-transport",
  "rusqlite",
+ "yalain-net",
 ]
 
 [[package]]

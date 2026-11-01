@@ -12,10 +12,16 @@ autotests = false
 # Reading the recorded sessions (the capture index): `captures`. Off by default, so test
 # binaries that do not read them do not build the database engine.
 captures = ["dep:rusqlite"]
+# The server double: a recorded game login's servers, played to a client over an in-memory
+# network (`double`); with `captures`, built from the capture index.
+double = ["dep:yalain-net", "dep:dereth-transport", "dep:dereth-primitives"]
 
 [dependencies]
 auberean-dat = { workspace = true, features = ["test-support"] }
 rusqlite = { workspace = true, optional = true }
+yalain-net = { workspace = true, optional = true }
+dereth-transport = { workspace = true, optional = true }
+dereth-primitives = { workspace = true, optional = true }
 
 [lints]
 workspace = true
