@@ -134,6 +134,10 @@ members = [
     "network/link",
     "network/hub",
     "network/conformance",
+    # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
+    # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
+    # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
+    "auberean/testkit",
 ]
 
 [workspace.package]
@@ -226,6 +230,7 @@ xtask = { path = "tools/xtask" }
 # builder).
 auberean-dat = { path = "core/auberean-dat" }
 auberean-primitives = { path = "core/auberean-primitives" }
+auberean-testkit = { path = "auberean/testkit" }
 
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
