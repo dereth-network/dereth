@@ -1,0 +1,476 @@
+//! The calls a client makes on the server in the world, each answered as the 2017 servers
+//! answered it. A call the server does not answer yet is counted ([`crate::Unhandled`]).
+
+use auberean_protocol::queue;
+use auberean_protocol::script::ServerCall;
+use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_store::Store;
+
+use crate::calls::{self, Value};
+use crate::examine::{self, Vitals};
+use crate::{chat, profile, Clock, Server};
+
+/// The client's calls the server answers, by their function ids.
+pub mod function {
+    /// Select an object (its id; 0 for none).
+    pub const SET_SELECTION: u32 = 0x8212_0016;
+    /// Say something aloud.
+    pub const SAY: u32 = 0x8205_0006;
+    /// Tell someone something.
+    pub const TELL: u32 = 0x8205_0002;
+    /// Show an emote.
+    pub const EMOTE: u32 = 0x8205_000B;
+    /// Examine an object.
+    pub const EXAMINE: u32 = 0x820A_0007;
+    /// Ask for an allegiance's profile.
+    pub const QUERY_ALLEGIANCE: u32 = 0x8203_0005;
+    /// Use an object.
+    pub const USE: u32 = 0x8216_0016;
+    /// Use a skill on a target (an attack; the lifestone recall among them).
+    pub const ATTACK: u32 = 0x8204_000B;
+}
+
+/// A call from a player's client on its world connection.
+pub fn call<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    call: &ServerCall,
+    clock: Clock,
+) {
+    let f = call.function.0;
+    tracing::debug!(?world, "call {f:#010x}");
+    let Ok(values) = calls::values(&call.args.0) else {
+        s.unhandled
+            .note(format!("script call {f:#010x} whose values do not read"));
+        return;
+    };
+    match f {
+        function::SET_SELECTION => select(s, net, world, &values),
+        function::EXAMINE => examine_object(s, net, world, &values, clock),
+        function::SAY => chat::say(s, net, world, call),
+        function::TELL => chat::tell(s, net, world, &values),
+        function::EMOTE => chat::emote(s, net, world, &values),
+        // A member's profile is answered; the client's asking for nothing (id 0) is not.
+        function::QUERY_ALLEGIANCE => crate::allegiance::query(s, net, world, &values),
+        crate::allegiance::function::SWEAR => {
+            crate::allegiance::swear(s, net, world, &values, clock);
+        }
+        crate::allegiance::function::BREAK => crate::allegiance::break_with(s, net, world, &values),
+        crate::allegiance::function::ACCEPT_VASSAL => {
+            crate::allegiance::accept(s, net, world, &values, clock);
+        }
+        crate::allegiance::function::DECLINE_VASSAL => {
+            crate::allegiance::decline(s, net, world, &values);
+        }
+        crate::allegiance::function::TREE_EXPORT => {
+            crate::allegiance::export(s, net, world, &values);
+        }
+        crate::fellowship::function::CREATE => {
+            crate::fellowship::create(s, net, world, &values, clock);
+        }
+        crate::fellowship::function::RECRUIT => {
+            crate::fellowship::recruit(s, net, world, &values, clock);
+        }
+        crate::fellowship::function::ACCEPT => {
+            crate::fellowship::accept(s, net, world, &values, clock);
+        }
+        crate::fellowship::function::DECLINE => crate::fellowship::decline(s, net, world, &values),
+        crate::fellowship::function::LEAVE => crate::fellowship::leave_request(s, net, world),
+        crate::fellowship::function::DISMISS => crate::fellowship::dismiss(s, net, world, &values),
+        crate::fellowship::function::DISBAND => crate::fellowship::disband(s, net, world),
+        crate::trade::function::OPEN => crate::trade::open(s, net, world, &values, clock),
+        crate::trade::function::OFFER => crate::trade::offer(s, net, world, &values),
+        crate::trade::function::REVOKE => crate::trade::revoke(s, net, world, &values),
+        crate::trade::function::ACCEPT => crate::trade::accept(s, net, world, &values, clock),
+        crate::trade::function::DECLINE => crate::trade::decline(s, net, world),
+        crate::trade::function::CLOSE => crate::trade::close(s, net, world),
+        crate::scenes::function::DONE => crate::scenes::done(s, world, &values, clock),
+        crate::market::function::ENTER_STORE => {
+            crate::market::enter_store(s, net, world, &values);
+        }
+        crate::market::function::ENTER_CONSIGNMENT => {
+            crate::market::enter_consignment(s, net, world, &values);
+        }
+        crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
+        crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),
+        // Leaving a catalog or the consignments is not answered.
+        crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {}
+        crate::follow::FOLLOW => crate::follow::start(s, net, world, &values),
+        crate::mounts::DISMOUNT => crate::mounts::dismount(s, net, world),
+        crate::personal::function::SET_ALIAS => crate::personal::set_alias(s, world, &values),
+        crate::personal::function::INSCRIBE => crate::personal::inscribe(s, net, world, &values),
+        crate::personal::function::LIST_SKILLS => crate::personal::list_skills(s, net, world),
+        crate::quests::CANCEL_QUEST => crate::quests::cancel(s, net, world, &values, clock),
+        function::USE => {
+            crate::follow::stop(s, net, world);
+            crate::places::use_object(s, net, world, &values, clock);
+        }
+        function::ATTACK => {
+            crate::follow::stop(s, net, world);
+            crate::skill_use::request(s, net, world, &values, clock);
+            fight_ends_trade(s, net, world);
+        }
+        crate::combat::function::START_ATTACK => {
+            crate::follow::stop(s, net, world);
+            crate::combat::start(s, net, world, &values, clock);
+            fight_ends_trade(s, net, world);
+        }
+        crate::combat::function::STOP_ATTACK => {
+            crate::skill_use::stopped(s, net, world, None, clock);
+            crate::combat::end(s, net, world);
+        }
+        crate::combat::function::STOP_ATTACKING => {
+            let target = values.iter().find_map(|x| match x {
+                crate::calls::Value::Long(l) => Some(*l),
+                _ => None,
+            });
+            if let Some(t) = target {
+                crate::skill_use::stopped(s, net, world, Some(t), clock);
+            }
+            crate::combat::stop(s, net, world, &values);
+        }
+        crate::craft::function::ADD_INGREDIENT => {
+            crate::craft::add_ingredient(s, net, world, &values);
+        }
+        crate::craft::function::EXECUTE => crate::craft::execute(s, net, world, &values, clock),
+        crate::craft::function::RAISE => crate::craft::raise(s, net, world, &values),
+        // The 2017 servers did not answer it (nor carry a run on to the next target).
+        crate::combat::function::SET_NEXT_TARGET => {}
+        crate::inventory::function::CLOSE => {
+            // A chest closes as it plays its closing; a corpse at once.
+            match values.iter().find_map(|v| match v {
+                Value::Long(l) => Some(*l),
+                _ => None,
+            }) {
+                Some(id) if crate::usable::chests::chest(s, id).is_some() => {
+                    crate::usable::chests::close(s, net, world, id, clock);
+                }
+                _ => crate::inventory::close_request(s, net, world, &values),
+            }
+        }
+        crate::drops::function::MOVE_ITEM => {
+            crate::drops::move_item(s, net, world, &values, clock);
+        }
+        crate::equip::function::DIRECTIVE_EQUIP => {
+            crate::equip::directive_equip(s, net, world, &values, clock);
+        }
+        crate::equip::function::DIRECTIVE_UNEQUIP => {
+            crate::equip::directive_unequip(s, net, world, &values);
+        }
+        crate::pack::function::REORGANIZE => crate::pack::reorganize(s, net, world, &values),
+        crate::pack::function::TO_MONEY_BAG => crate::pack::to_money_bag(s, net, world, &values),
+        crate::pack::function::FROM_MONEY_BAG => {
+            crate::pack::from_money_bag(s, net, world, &values);
+        }
+        crate::pack::function::TAKE_ALL => crate::pack::take_all(s, net, world, &values, clock),
+        crate::inventory::function::TRANSMUTE_ALL => {
+            crate::skill_use::cut_by_transmute(s, net, world, clock);
+            crate::inventory::transmute_all(s, net, world, &values);
+        }
+        crate::store::function::NEXT_SALES => crate::store::turn_page(s, net, world, true),
+        crate::store::function::PREV_SALES => crate::store::turn_page(s, net, world, false),
+        crate::store::function::LEAVE_STORE => crate::store::leave(s, world),
+        crate::store::function::PURCHASE => crate::store::purchase(s, net, world, &values, clock),
+        crate::skills::function::TRAIN => crate::skills::train(s, net, world, &values),
+        crate::skills::function::UNTRAIN => crate::skills::untrain(s, net, world, &values, clock),
+        crate::skills::function::UNTRAIN_CANCEL => crate::skills::cancel_untraining(s, net, world),
+        crate::death::player_fn::RESURRECT => crate::death::resurrect(s, net, world, clock),
+        crate::skills::function::RAISE => crate::skills::raise(s, net, world, &values, clock),
+        crate::pets::function::ATTACK
+        | crate::pets::function::RETURN
+        | crate::pets::function::MODE
+        | crate::pets::function::DIE
+        | crate::pets::function::NAME => crate::pets::request(s, net, world, f, &values, clock),
+        _ => s.unhandled.note(format!("script call {f:#010x}")),
+    }
+}
+
+/// A player who has begun a fight (an attack or a skill's use under way) ends its trade.
+fn fight_ends_trade<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let fighting = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.attacking.is_some() || p.using.is_some());
+    if fighting {
+        crate::trade::fighting(s, net, world);
+    }
+}
+
+/// The vitals of an object the world knows, by id: a player's from its qualities, a creature a
+/// camp keeps alive from its own, a placed creature's or a person's from its template.
+#[must_use]
+pub fn vitals_of<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
+    if let Some(p) = s.players.values().find(|p| p.character == id) {
+        return Vitals::of_qualities(&p.qualities);
+    }
+    if let Some(t) = s.things.get(id) {
+        // A creature, or a dye plant (2017: its health and vigor, 102 of 102 selections).
+        return matches!(
+            t.kind,
+            crate::things::Kind::Creature | crate::things::Kind::Plant
+        )
+        .then(|| thing_vitals(t));
+    }
+    crate::presence::content_by_id(&s.content.objects, id)
+        .and_then(|i| examine::content_vitals(&s.content.objects[i]))
+}
+
+/// A running creature's vitals, as they stand.
+fn thing_vitals(t: &crate::things::Thing) -> Vitals {
+    Vitals {
+        health: t.health.max(0).cast_unsigned(),
+        max_health: t.max_health.max(0).cast_unsigned(),
+        vigor: t.vigor.max(0).cast_unsigned(),
+        max_vigor: t.max_vigor.max(0).cast_unsigned(),
+        pk_damage: 0,
+        pk_vigor_loss: 0,
+    }
+}
+
+/// What an item's profile shows: its class's facts for a starting weapon, else its template's;
+/// its own value when it has one (treasure), else its template's times its count; its icon; the
+/// effects its template lists; who made it; whether its kind is destroyed on use; the skills it
+/// takes.
+fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
+    let own_value = (t.value > 0).then_some(t.value);
+    let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
+        s.catalog
+            .get(t.template)
+            .map_or_else(profile::ItemView::default, |tp| {
+                profile::ItemView::of(&tp.props, t.quantity, own_value)
+            })
+    });
+    if let Some(icon) = s.catalog.icons.get(&t.template) {
+        v.icon.clone_from(icon);
+    }
+    if let Some(e) = s.item_effects.get(&t.template) {
+        v.effects.clone_from(e);
+    }
+    v.crafter.clone_from(&t.crafter);
+    // A worn item shows its durability now.
+    if let (Some(now), Some((_, most))) = (t.durability, v.durability) {
+        v.durability = Some((i32::try_from(now).unwrap_or(i32::MAX), most));
+    }
+    v.destroyed_on_use |= s.destroyed_on_use.contains(&t.description.package);
+    // The skills it takes, by their names.
+    if let Some(tp) = s.catalog.get(t.template) {
+        v.skills = ["Usage_RequiredSkill1", "Usage_RequiredSkill2"]
+            .iter()
+            .filter_map(|n| tp.props.word(n).filter(|k| *k != 0))
+            .filter_map(|k| s.skill_table.skills.get(&k))
+            .map(|d| crate::progress::text(d.name))
+            .collect();
+    }
+    v
+}
+
+/// A player examines an object, or stops examining.
+fn examine_object<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) {
+    let Some(bytes) = v.iter().find_map(|x| match x.root() {
+        Some(calls::Node::Native { ty, bytes }) if *ty == profile::REQUEST_TYPE => {
+            Some(bytes.clone())
+        }
+        _ => None,
+    }) else {
+        s.unhandled.note("an examination that does not read");
+        return;
+    };
+    let req = profile::read_request(&bytes);
+    match req.kind {
+        profile::request::STOP => {
+            // A stop sent with the request it follows stops the examination before it; one sent
+            // later stops this one.
+            if s.examining
+                .get(&world)
+                .is_some_and(|e| e.asked_at < clock.local.0)
+            {
+                s.examining.remove(&world);
+            }
+            return;
+        }
+        profile::request::OBJECT | profile::request::TARGET => {}
+        k => {
+            s.unhandled.note(format!("an examination of kind {k:#x}"));
+            return;
+        }
+    }
+    let Some(sent) = profile_bytes(s, world, &req, clock.local.0) else {
+        s.examining.remove(&world);
+        return;
+    };
+    net.send(
+        world,
+        queue::EVENT,
+        BlobKind::PRIVATE,
+        profile::message_of(&sent).encode(),
+    );
+    let number = s.examining.get(&world).map_or(1, |e| e.number + 1);
+    s.examining.insert(
+        world,
+        examine::Examining {
+            request: bytes,
+            number,
+            asked_at: clock.local.0,
+            sent,
+        },
+    );
+    s.after(
+        clock,
+        examine::AGAIN_SECONDS,
+        crate::Timer::Examine { world, number },
+    );
+}
+
+/// Look again at what a player examines: its profile sent again if it changed, and another look
+/// later; nothing more once the examination is over or replaced, or the object is gone.
+pub fn examine_again<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    number: u32,
+    clock: Clock,
+) {
+    let Some(e) = s.examining.get(&world).filter(|e| e.number == number) else {
+        return;
+    };
+    let req = profile::read_request(&e.request);
+    let Some(now) = profile_bytes(s, world, &req, clock.local.0) else {
+        s.examining.remove(&world);
+        return;
+    };
+    if let Some(e) = s.examining.get_mut(&world) {
+        if e.sent != now {
+            net.send(
+                world,
+                queue::EVENT,
+                BlobKind::PRIVATE,
+                profile::message_of(&now).encode(),
+            );
+            e.sent = now;
+        }
+    }
+    s.after(
+        clock,
+        examine::AGAIN_SECONDS,
+        crate::Timer::Examine { world, number },
+    );
+}
+
+/// The packed profile answering an examination request (the request first), as the object is
+/// now; none when the world has no such object.
+fn profile_bytes<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    req: &profile::Request,
+    now: f64,
+) -> Option<Vec<u8>> {
+    let me = s.players.get(&world)?;
+    let my_level = examine::level_of(&me.qualities);
+    let profile = if let Some(q) = s.players.values().find(|q| q.character == req.object) {
+        let v = Vitals::of_qualities(&q.qualities).unwrap_or_default();
+        profile::player(
+            req.asked,
+            &crate::player::world_name(&q.name, q.sex),
+            q.race,
+            q.sex,
+            examine::level_of(&q.qualities),
+            v,
+        )
+    } else if let Some(t) = s.things.get(req.object) {
+        // What the world runs: a creature a camp keeps alive, a corpse, an item, a resource node,
+        // a dye plant.
+        match t.kind {
+            crate::things::Kind::Creature => profile::monster(
+                req.asked,
+                &t.facts,
+                thing_vitals(t),
+                profile::chance_to_hit(my_level, t.level()),
+            ),
+            crate::things::Kind::Item => profile::item(req.asked, &item_view(s, t)),
+            crate::things::Kind::Plant => crate::plants::profile(s, req.asked, t, now),
+            crate::things::Kind::Corpse
+            | crate::things::Kind::Node
+            | crate::things::Kind::Portal => {
+                profile::npc(req.asked, profile::item_name(&t.facts), &t.facts)
+            }
+        }
+    } else if let Some(i) = crate::presence::content_by_id(&s.content.objects, req.object) {
+        let o = &s.content.objects[i];
+        let f = &o.facts;
+        let named = o.description.name.map(|(sid, t)| profile::string(t, sid));
+        match o.kind {
+            yalain_content::Kind::Creature => profile::monster(
+                req.asked,
+                f,
+                examine::content_vitals(o).unwrap_or_default(),
+                profile::chance_to_hit(my_level, f.level.unwrap_or(1)),
+            ),
+            yalain_content::Kind::Npc => profile::npc(
+                req.asked,
+                named.unwrap_or_else(|| {
+                    f.name
+                        .map_or_else(|| profile::literal(""), |(sid, t)| profile::string(t, sid))
+                }),
+                f,
+            ),
+            yalain_content::Kind::Static => {
+                let lifestone = crate::places::LIFESTONES.contains(&o.template);
+                let recall = if lifestone {
+                    profile::line::LIFESTONE_RECALL
+                } else {
+                    profile::line::CANNOT_RECALL_PORTAL
+                };
+                if lifestone || o.destination.is_some() {
+                    profile::place(
+                        req.asked,
+                        named.unwrap_or_else(|| profile::item_name(f)),
+                        recall,
+                        f,
+                    )
+                } else {
+                    profile::npc(req.asked, named.unwrap_or_else(|| profile::item_name(f)), f)
+                }
+            }
+        }
+    } else {
+        s.unhandled
+            .note("examining an object the world does not have");
+        return None;
+    };
+    let answered = req.answered(examine::PEACE_MODE, examine::NO_ACCURACY);
+    Some(profile.packed(&answered))
+}
+
+fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+    let id = v
+        .iter()
+        .find_map(|x| match x {
+            Value::Long(l) => Some(*l),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let vitals = vitals_of(s, id);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    p.selection = id;
+    if id == 0 {
+        return;
+    }
+    // Only an object with vitals (a player, a creature, a person) is answered.
+    if let Some(v) = vitals {
+        net.send(
+            world,
+            queue::EVENT,
+            BlobKind::PRIVATE,
+            examine::selection_info(id, Some(v)).encode(),
+        );
+    }
+}

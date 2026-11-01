@@ -171,8 +171,10 @@ members = [
     # and the game (yalain/crates/), the `yalain` executable and its test kit. It shares Auberean's
     # core and never names a crate of the client's.
     "yalain/crates/net",
+    "yalain/crates/store",
     "yalain/crates/content",
     "yalain/crates/world-db",
+    "yalain/crates/world",
 ]
 
 [workspace.package]
@@ -290,6 +292,8 @@ auberean-text = { path = "core/auberean-text" }
 auberean-world = { path = "core/auberean-world" }
 yalain-content = { path = "yalain/crates/content" }
 yalain-net = { path = "yalain/crates/net" }
+yalain-store = { path = "yalain/crates/store" }
+yalain-world = { path = "yalain/crates/world" }
 yalain-world-db = { path = "yalain/crates/world-db" }
 
 thiserror = "2"

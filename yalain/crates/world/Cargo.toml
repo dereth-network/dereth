@@ -1,0 +1,37 @@
+[package]
+name = "yalain-world"
+description = "The game server's state and rules, sans-IO: accounts, characters, the world, its creatures and its play, driven by the server's network events and an injected clock."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+# Its tests are the server test kit's: they need the network and clients it brings.
+autotests = false
+
+[dependencies]
+# The client's written form of names and its banned-word patterns.
+auberean-assets.workspace = true
+# The client's table of record kinds, and the data files records are served from.
+auberean-dat.workspace = true
+# The walls, floors and solid things creatures meet, and the transition that moves them.
+auberean-physics.workspace = true
+auberean-world.workspace = true
+auberean-text.workspace = true
+auberean-primitives.workspace = true
+auberean-protocol.workspace = true
+auberean-script.workspace = true
+yalain-content.workspace = true
+yalain-net.workspace = true
+yalain-store.workspace = true
+dereth-protocol.workspace = true
+# The original's float-to-integer conversion.
+dereth-primitives.workspace = true
+dereth-physics.workspace = true
+# A record served to a client is compressed when that makes it smaller.
+flate2.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

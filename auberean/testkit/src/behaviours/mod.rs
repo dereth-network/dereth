@@ -142,6 +142,7 @@ pub mod parts;
 pub mod pathfind;
 pub mod protocol;
 pub mod script;
+pub mod server;
 pub mod session;
 pub mod shape;
 pub mod text;
@@ -202,6 +203,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "script",
         rows: script::ROWS,
+    },
+    Subject {
+        name: "server",
+        rows: server::ROWS,
     },
     Subject {
         name: "session",

@@ -6886,6 +6886,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "yalain-store"
+version = "0.0.0"
+dependencies = [
+ "auberean-testkit",
+ "rusqlite",
+]
+
+[[package]]
+name = "yalain-world"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-script",
+ "auberean-text",
+ "auberean-world",
+ "dereth-physics",
+ "dereth-primitives",
+ "dereth-protocol",
+ "flate2",
+ "sha2",
+ "tracing",
+ "yalain-content",
+ "yalain-net",
+ "yalain-store",
+]
+
+[[package]]
 name = "yalain-world-db"
 version = "0.0.0"
 dependencies = [

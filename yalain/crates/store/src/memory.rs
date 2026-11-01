@@ -1,0 +1,135 @@
+//! A store that keeps everything in memory: for tests, and for a server run that keeps nothing.
+
+use std::collections::BTreeMap;
+
+use crate::{Account, Character, Store, StoreError, StoreResult, WorldState};
+
+/// The in-memory store.
+#[derive(Debug, Default, Clone)]
+pub struct MemoryStore {
+    accounts: Vec<Account>,
+    characters: Vec<Character>,
+    next_character: u64,
+    worlds: BTreeMap<u64, WorldState>,
+    records: BTreeMap<String, Vec<u8>>,
+}
+
+impl Store for MemoryStore {
+    fn account_by_name(&mut self, name: &str) -> StoreResult<Option<Account>> {
+        Ok(self
+            .accounts
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+            .cloned())
+    }
+
+    fn create_account(
+        &mut self,
+        name: &str,
+        secret: Option<Vec<u8>>,
+        now: i64,
+    ) -> StoreResult<Account> {
+        if self.account_by_name(name)?.is_some() {
+            return Err(StoreError(format!("account {name} exists")));
+        }
+        let a = Account {
+            id: self.accounts.len() as u64 + 1,
+            name: name.to_string(),
+            secret,
+            created_at: now,
+        };
+        self.accounts.push(a.clone());
+        Ok(a)
+    }
+
+    fn set_account_secret(&mut self, account: u64, secret: Vec<u8>) -> StoreResult<()> {
+        let a = self
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == account)
+            .ok_or_else(|| StoreError(format!("no account {account}")))?;
+        a.secret = Some(secret);
+        Ok(())
+    }
+
+    fn characters(&mut self, account: u64) -> StoreResult<Vec<Character>> {
+        let mut v: Vec<Character> = self
+            .characters
+            .iter()
+            .filter(|c| c.account == account)
+            .cloned()
+            .collect();
+        v.sort_by_key(|c| c.last_played);
+        Ok(v)
+    }
+
+    fn character(&mut self, id: u64) -> StoreResult<Option<Character>> {
+        Ok(self.characters.iter().find(|c| c.id == id).cloned())
+    }
+
+    fn character_named(&mut self, name: &str) -> StoreResult<Option<Character>> {
+        Ok(self
+            .characters
+            .iter()
+            .find(|c| c.name.to_lowercase() == name.to_lowercase())
+            .cloned())
+    }
+
+    fn name_taken(&mut self, name: &str) -> StoreResult<bool> {
+        Ok(self
+            .characters
+            .iter()
+            .any(|c| c.name.to_lowercase() == name.to_lowercase()))
+    }
+
+    fn next_character_number(&mut self) -> StoreResult<u64> {
+        self.next_character += 1;
+        Ok(self.next_character)
+    }
+
+    fn insert_character(&mut self, c: &Character) -> StoreResult<()> {
+        if self.characters.iter().any(|x| x.id == c.id) || self.name_taken(&c.name)? {
+            return Err(StoreError(format!("character {} exists", c.name)));
+        }
+        self.characters.push(c.clone());
+        Ok(())
+    }
+
+    fn set_deleted(&mut self, id: u64, at: Option<i64>) -> StoreResult<()> {
+        if let Some(c) = self.characters.iter_mut().find(|c| c.id == id) {
+            c.deleted_at = at;
+        }
+        Ok(())
+    }
+
+    fn set_last_played(&mut self, id: u64, at: i64) -> StoreResult<()> {
+        if let Some(c) = self.characters.iter_mut().find(|c| c.id == id) {
+            c.last_played = at;
+        }
+        Ok(())
+    }
+
+    fn purge_character(&mut self, id: u64) -> StoreResult<()> {
+        self.characters.retain(|c| c.id != id);
+        self.worlds.remove(&id);
+        Ok(())
+    }
+
+    fn world_state(&mut self, id: u64) -> StoreResult<Option<WorldState>> {
+        Ok(self.worlds.get(&id).cloned())
+    }
+
+    fn set_world_state(&mut self, id: u64, state: &WorldState) -> StoreResult<()> {
+        self.worlds.insert(id, state.clone());
+        Ok(())
+    }
+
+    fn world_record(&mut self, name: &str) -> StoreResult<Option<Vec<u8>>> {
+        Ok(self.records.get(name).cloned())
+    }
+
+    fn set_world_record(&mut self, name: &str, value: &[u8]) -> StoreResult<()> {
+        self.records.insert(name.to_string(), value.to_vec());
+        Ok(())
+    }
+}
