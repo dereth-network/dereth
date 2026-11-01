@@ -1,0 +1,13 @@
+[package]
+name = "auberean-port"
+description = "The marker for retail client functions the rebuild has not ported yet."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

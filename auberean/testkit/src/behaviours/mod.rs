@@ -130,6 +130,7 @@ pub struct Subject {
 }
 
 pub mod data;
+pub mod script;
 pub mod text;
 
 /// Every subject, in name order. A new subject adds its `mod` line above and its entry here.
@@ -137,6 +138,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "data",
         rows: data::ROWS,
+    },
+    Subject {
+        name: "script",
+        rows: script::ROWS,
     },
     Subject {
         name: "text",

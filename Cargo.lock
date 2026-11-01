@@ -245,8 +245,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-port"
+version = "0.0.0"
+
+[[package]]
 name = "auberean-primitives"
 version = "0.0.0"
+
+[[package]]
+name = "auberean-script"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-port",
+ "auberean-primitives",
+ "auberean-testkit",
+ "auberean-text",
+]
 
 [[package]]
 name = "auberean-testkit"

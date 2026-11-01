@@ -47,9 +47,11 @@ members = [
     # kept in folders of the same name beside the shared crates, several of which they build on
     # (the container, the transport, the connection manager, the landscape, the transition). Each
     # builds for wasm32-unknown-unknown with its default features (`cargo xtask seams`).
+    "core/auberean-port",
     "core/auberean-primitives",
     "core/auberean-dat",
     "core/auberean-assets",
+    "core/auberean-script",
     "core/auberean-text",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
@@ -232,7 +234,9 @@ xtask = { path = "tools/xtask" }
 # builder).
 auberean-assets = { path = "core/auberean-assets" }
 auberean-dat = { path = "core/auberean-dat" }
+auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }
+auberean-script = { path = "core/auberean-script" }
 auberean-testkit = { path = "auberean/testkit" }
 auberean-text = { path = "core/auberean-text" }
 
