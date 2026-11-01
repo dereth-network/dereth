@@ -28,7 +28,6 @@ const PLAYER_OBJECT: u32 = 0x10060;
 const VELOCITY_SCALE: u32 = 0x10092;
 const CLIENT_POSITION: u32 = 0x1008E;
 const CREATE_OBJECT: u32 = 0x10058;
-const UPDATE_VISUAL: u32 = 0x1009F;
 /// The human male's setup, whose collision spheres the replayed body takes.
 const HUMAN_SETUP: u32 = 0x0400_0029;
 const PLAYER_MOTION: u32 = 0x3200_0000;
@@ -90,16 +89,13 @@ struct Tally {
     worst: Vec<(f32, String)>,
 }
 
-/// A body put at a report of a 2017 session's steady run, moving as it asks at its full speed (the
-/// motion values' speeds times its speed scale and its size), reaches the next report's position
-/// after a whole number of physics ticks: within 3 mm for three pairs in five, within one tick's
-/// travel for 98 in 100, on the same ground (height within 5 cm) for 85 in 100, heading the
-/// reported way within the heading byte's width for 80 in 100. A run is judged only when its step
-/// before the pair already moved whole ticks at full speed.
-///
-/// Behaviour: motion.corpus.a-body-driven-by-recorded-reports-reaches-the-next-report
-#[test]
-fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
+/// Bodies put at the reports of the 2017 sessions' steady runs (outdoors, or inside the rooms of
+/// the interiors), each moving as the report asks at its full speed: the motion values' speeds
+/// times the speed scale the server last sent for the player in that run of the client, whichever
+/// of its sessions sent it, and not times the size its look is drawn at. Each is ticked four times
+/// and the tick nearest the next report's distance along the ground is judged. A run is judged only
+/// when its step before the pair already moved whole ticks at full speed.
+fn replay(indoor: bool) -> Tally {
     let index = auberean_testkit::data::require_capture_index();
     let (records, region) = world().expect("the September 2013 install's world opens");
     let setup: Setup = records.get(HUMAN_SETUP).expect("the human setup");
@@ -127,12 +123,13 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
     let mut built: HashMap<(u8, u8), bool> = HashMap::new();
     let mut tally = Tally::default();
 
-    // Per session: the player's id, its speed scale, and its last reports.
+    // Per run of the client (a capture: its login and world sessions, in order): the player's id
+    // and its speed scale, which a later session of the run does not send again; per session, its
+    // last reports.
+    let mut capture = -1i64;
     let mut session = -1i64;
     let mut player = 0u64;
     let mut scale = 1.0f32;
-    // Each object's own scale along its axes, from its description and the records it starts from.
-    let mut sizes: HashMap<u64, Vec3> = HashMap::new();
     // Each object's motion description: its description's, else the first its records name.
     let mut motions: HashMap<u64, u32> = HashMap::new();
     let motion_of = |v: &auberean_protocol::types::VisualDesc| -> u32 {
@@ -165,34 +162,6 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
     let mut configs: HashMap<u32, Option<BodyConfig>> = HashMap::new();
     // Each object's speed scale as it was created.
     let mut speeds: HashMap<u64, f32> = HashMap::new();
-    let size_of = |v: &auberean_protocol::types::VisualDesc| -> Vec3 {
-        let mut s = if v.bits & auberean_protocol::types::VisualDesc::SCALE != 0 {
-            Vec3::new(v.scale.x, v.scale.y, v.scale.z)
-        } else {
-            Vec3::new(1.0, 1.0, 1.0)
-        };
-        let mut next = [v.did, v.parent]
-            .into_iter()
-            .filter(|&d| d != 0)
-            .collect::<Vec<_>>();
-        let mut seen = 0;
-        while let Some(d) = next.pop() {
-            seen += 1;
-            if seen > 32 {
-                break;
-            }
-            let Some(rec) = records.get::<auberean_assets::visual::VisualDesc>(d) else {
-                continue;
-            };
-            if let Some(k) = rec.scale {
-                s = Vec3::new(s.x * k.x, s.y * k.y, s.z * k.z);
-            }
-            if let Some(p) = rec.parent {
-                next.push(p.0);
-            }
-        }
-        s
-    };
     let mut history: Vec<ClientPosition> = Vec::new();
     let mut by_scale: BTreeMap<String, u64> = BTreeMap::new();
     let limit = u64::MAX;
@@ -203,20 +172,21 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
             VELOCITY_SCALE,
             CLIENT_POSITION,
             CREATE_OBJECT,
-            UPDATE_VISUAL,
         ],
         &[2017],
         |m| {
             if tally.pairs >= limit {
                 return;
             }
-            if m.session != session {
-                session = m.session;
+            if m.capture != capture {
+                capture = m.capture;
                 player = 0;
                 scale = 1.0;
-                sizes.clear();
                 speeds.clear();
                 motions.clear();
+            }
+            if m.session != session {
+                session = m.session;
                 history.clear();
             }
             if m.to_client {
@@ -234,7 +204,6 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
                         }
                     }
                     Ok(ServerMessage::CreateObject(c)) => {
-                        sizes.insert(c.id, size_of(&c.visual));
                         motions.insert(c.id, motion_of(&c.visual));
                         if c.physics.bits & auberean_protocol::types::PhysicsDesc::VELOCITY_SCALE
                             != 0
@@ -244,9 +213,6 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
                                 scale = c.physics.velocity_scale;
                             }
                         }
-                    }
-                    Ok(ServerMessage::UpdateVisualDesc(e)) => {
-                        sizes.insert(e.sender.id, size_of(&e.action));
                     }
                     _ => {}
                 }
@@ -262,7 +228,7 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
             let n = history.len();
             let (a, b) = (history[n - 2], history[n - 1]);
             // A steady run: the same request and heading for the last three reports, no jump, one
-            // landblock, outdoors.
+            // landblock, outdoors or in its rooms.
             let steady = history[n - 3..]
                 .iter()
                 .all(|p| p.heading_motion == a.heading_motion && p.flags & JUMP == 0);
@@ -274,10 +240,11 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
                 return;
             }
             let dt = b.time - a.time;
+            let in_rooms = |c: u32| c & 0xFFFF >= 0x100;
             if !(0.12..0.35).contains(&dt)
                 || a.cell >> 16 != b.cell >> 16
-                || a.cell & 0xFFFF > 0x40
-                || b.cell & 0xFFFF > 0x40
+                || in_rooms(a.cell) != indoor
+                || in_rooms(b.cell) != indoor
             {
                 return;
             }
@@ -288,10 +255,15 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
                 return;
             }
             let (bx, by) = ((a.cell >> 24) as u8, ((a.cell >> 16) & 0xFF) as u8);
-            if !*built
-                .entry((bx, by))
-                .or_insert_with(|| land.add_block(&records, &region, &mut trees, bx, by))
-            {
+            if !*built.entry((bx, by)).or_insert_with(|| {
+                let land_there = land.add_block(&records, &region, &mut trees, bx, by);
+                if indoor {
+                    auberean_physics::interior::add_block_cells(&land, &records, &mut trees, bx, by)
+                        > 0
+                } else {
+                    land_there
+                }
+            }) {
                 return;
             }
             let input = MotionInput {
@@ -330,10 +302,6 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
             };
             let mut body = Body::new(config, start, h);
             body.minterp.velocity_scale = scale;
-            body.minterp.scale = sizes
-                .get(&player)
-                .copied()
-                .unwrap_or(Vec3::new(1.0, 1.0, 1.0));
             body.steer(input);
             // Already running: at the speed it asks for.
             let want = body
@@ -366,12 +334,7 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
                 }
             }
             tally.pairs += 1;
-            *by_scale
-                .entry(format!(
-                    "{mid:08X} {scale:.3} x {:.3}",
-                    body.minterp.scale.y
-                ))
-                .or_default() += 1;
+            *by_scale.entry(format!("{mid:08X} {scale:.3}")).or_default() += 1;
             tally.errors.push(best);
             if best < 0.003 {
                 tally.within_3mm += 1;
@@ -435,28 +398,61 @@ fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
     for (err, at) in &tally.worst {
         eprintln!("  {err:.3} m: {at}");
     }
-    // Measured over the 2017 corpus: 64.6% within 3 mm, 98.4% within a tick of travel, 87.8% on
-    // the same ground, 83.8% heading the reported way. The rest are mostly on steep ground.
+    tally
+}
+
+/// The shares a replay's judged pairs must reach: within 3 mm, within a tick's travel, on the same
+/// ground (height within 5 cm), heading the reported way within the heading byte's width.
+fn judge(tally: &Tally, least: u64, shares: [f64; 4]) {
+    let n = tally.pairs;
+    #[allow(clippy::cast_precision_loss)]
     let share = |k: u64| k as f64 / n as f64;
-    assert!(n > 90_000, "{n} judged pairs");
+    assert!(n > least, "{n} judged pairs");
     assert!(
-        share(tally.within_3mm) >= 0.60,
+        share(tally.within_3mm) >= shares[0],
         "distance within 3 mm for {} of {n}",
         tally.within_3mm
     );
     assert!(
-        share(tally.within_tick) >= 0.98,
+        share(tally.within_tick) >= shares[1],
         "distance within a tick for {} of {n}",
         tally.within_tick
     );
     assert!(
-        share(tally.z_within_5cm) >= 0.85,
+        share(tally.z_within_5cm) >= shares[2],
         "height within 5 cm for {} of {n}",
         tally.z_within_5cm
     );
     assert!(
-        share(tally.direction_within_byte) >= 0.80,
+        share(tally.direction_within_byte) >= shares[3],
         "direction within a byte for {} of {n}",
         tally.direction_within_byte
     );
+}
+
+/// Outdoors, a body driven by a recorded report reaches the next report's position after a whole
+/// number of physics ticks: within 3 mm for three pairs in four, within one tick's travel for 99 in
+/// 100, on the same ground (height within 5 cm) for 9 in 10, heading the reported way within the
+/// heading byte's width for 85 in 100.
+///
+/// Behaviour: motion.corpus.a-body-driven-by-recorded-reports-reaches-the-next-report
+#[test]
+fn a_body_driven_by_recorded_reports_reaches_the_next_report() {
+    // Measured over the 2017 corpus: 307,245 pairs judged, 78.7% within 3 mm, 99.7% within a
+    // tick of travel, 93.3% on the same ground, 89.7% heading the reported way. The rest are mostly
+    // on steep ground.
+    judge(&replay(false), 300_000, [0.75, 0.99, 0.90, 0.85]);
+}
+
+/// Inside, in the rooms of the interiors (their floors, steps and ramps, and what stands in them),
+/// a body driven by a recorded report reaches the next report's position after a whole number of
+/// physics ticks: within 3 mm for four pairs in five, within one tick's travel for 99 in 100, on the
+/// same ground for 9 in 10, heading the reported way for 9 in 10.
+///
+/// Behaviour: motion.corpus.a-body-driven-by-recorded-reports-indoors-reaches-the-next-report
+#[test]
+fn a_body_driven_by_recorded_reports_indoors_reaches_the_next_report() {
+    // Measured over the 2017 corpus: 4,492 pairs judged, 83.6% within 3 mm, 99.7% within a tick,
+    // 92.4% on the same ground, 96.2% heading the reported way.
+    judge(&replay(true), 4_000, [0.80, 0.99, 0.90, 0.90]);
 }

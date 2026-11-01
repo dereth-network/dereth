@@ -155,6 +155,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.state.an-objects-speed-and-jump-scales-are-kept-with-it",
+        says: "The speed and jump scales the server sends for an object it made are kept with the \
+               object's physics description, as though its creation had carried them: a body made \
+               for it afterwards starts with them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-SCALES"),
+        station: "auberean-client-model::cpu::model::an_objects_speed_and_jump_scales_are_kept_with_its_description",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.state.player-qualities-and-inventory-from-the-messages",
         says: "The player's creation names the player; an object's description gives its \
                qualities and the private updates change them; objects created inside the player or \

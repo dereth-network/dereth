@@ -76,10 +76,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.corpus.a-body-driven-by-recorded-reports-indoors-reaches-the-next-report",
+        says: "A body put at a report of a recorded steady run in the rooms of an interior and \
+               moved as it asks, at its full speed, reaches the next report over the rooms' floors, \
+               steps and ramps after a whole number of ticks: within 3 mm for four pairs in five, \
+               within a tick's travel for 99 in 100.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-REPLAY-INDOOR"),
+        station: "auberean-physics::corpus::replay::a_body_driven_by_recorded_reports_indoors_reaches_the_next_report",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "motion.corpus.a-body-driven-by-recorded-reports-reaches-the-next-report",
-        says: "A body put at a report of a recorded steady run and moved as it asks, at its full \
-               speed, reaches the next report after a whole number of ticks: within 3 mm for three \
-               pairs in five, within a tick's travel for 98 in 100.",
+        says: "A body put at a report of a recorded steady run outdoors and moved as it asks, at \
+               its full speed (the motion values' times the speed scale the server last sent the \
+               player, in whichever session of the client's run), reaches the next report after a \
+               whole number of ticks: within 3 mm for three pairs in four, within a tick's travel \
+               for 99 in 100.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-REPLAY"),
         station: "auberean-physics::corpus::replay::a_body_driven_by_recorded_reports_reaches_the_next_report",
@@ -163,6 +176,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-PUSHERS"),
         station: "auberean-physics::cpu::element::pushers_carry_and_lift",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.element.the-animation-speed-takes-the-acceleration-over-each-step",
+        says: "Between ticks the speed a body's figure is animated at (how far it moved over its \
+               last tick, ten times the move in its frame before it) takes half the body's \
+               acceleration times each animation step squared, in its frame; not while its \
+               animation is frozen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-ACCEL"),
+        station: "auberean-physics::cpu::element::the_animation_speed_takes_the_acceleration_over_each_step",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -437,6 +461,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-RULES"),
         station: "auberean-physics::cpu::rules::this_worlds_transition_settings",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.run.a-body-runs-and-jumps-at-its-own-scale-not-its-looks",
+        says: "A body's speeds and its jump take its own scale along each axis (the one its \
+               qualities give), not the scale its look is drawn at: a character drawn smaller runs \
+               and jumps as fast as any other.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SPEED-OWN-SCALE"),
+        station: "auberean-physics::cpu::element::a_body_runs_and_jumps_at_its_own_scale_not_its_looks",
         tier: Tier::Cpu,
     },
     behaviour! {

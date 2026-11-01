@@ -207,6 +207,48 @@ fn the_players_description_replaces_the_weenie_description_it_was_made_with() {
     }
 }
 
+/// The speed and jump scales the server sends for an object are kept with its physics
+/// description, as though its creation had carried them, so a body made for it afterwards starts
+/// with them; one for an object not made is dropped.
+///
+/// Behaviour: model.state.an-objects-speed-and-jump-scales-are-kept-with-it
+#[test]
+fn an_objects_speed_and_jump_scales_are_kept_with_its_description() {
+    use auberean_protocol::physics::{ObjectEvent, Scale};
+    use auberean_protocol::types::{ObjectStamp, PhysicsDesc};
+    let mut m = Model::new();
+    let beetle = 0x2130_0000_0000_0007;
+    m.apply(&create_item(beetle, 1, 1));
+    let event = |id, f: fn(ObjectEvent<Scale>) -> ServerMessage, v| {
+        item(
+            2,
+            0,
+            f(ObjectEvent {
+                sender: ObjectStamp {
+                    id,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: Scale(v),
+            }),
+        )
+    };
+    m.apply(&event(beetle, ServerMessage::VelocityScale, 0.5));
+    m.apply(&event(beetle, ServerMessage::JumpScale, 1.25));
+    m.apply(&event(
+        0x2130_0000_0000_0008,
+        ServerMessage::VelocityScale,
+        2.0,
+    ));
+    let p = &m.object(beetle).expect("the beetle").physics;
+    assert_eq!((p.velocity_scale, p.jump_scale), (0.5, 1.25), "kept: {p:?}");
+    assert_eq!(
+        p.bits & (PhysicsDesc::VELOCITY_SCALE | PhysicsDesc::JUMP_SCALE),
+        PhysicsDesc::VELOCITY_SCALE | PhysicsDesc::JUMP_SCALE
+    );
+    assert!(m.object(0x2130_0000_0000_0008).is_none());
+}
+
 /// A refused entry is kept with its reason and counted, so the screens see each one, even the same
 /// reason twice; the player and the world's objects are left as they were.
 ///

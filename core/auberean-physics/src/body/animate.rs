@@ -176,6 +176,24 @@ impl Body {
     pub fn move_to_stamp(&self) -> u16 {
         self.update_times[MOVE_TO_STAMP]
     }
+
+    /// One animation step of `dt` seconds, before the body's figure is told how it moves: the
+    /// speed it is animated at ([`Body::anim_velocity`], how far it moved over its last tick)
+    /// takes half its acceleration times the step squared, in its frame, unless its animation is
+    /// frozen. The figure is then told that speed, not the velocity the body asks for: a body
+    /// held against a wall stands, and a step up or down shows in its vertical speed. (The rest of
+    /// an animation step, the figure's sliders, effects and triggers, is the figure's own.)
+    // D2-06252
+    pub fn update_animation(&mut self, dt: f32) {
+        if self.is_animation_frozen() {
+            return;
+        }
+        let a = crate::geom::global_to_local(&self.position.frame, self.acceleration);
+        let v = &mut self.anim_velocity;
+        v.x += a.x * 0.5 * dt * dt;
+        v.y += a.y * 0.5 * dt * dt;
+        v.z += a.z * 0.5 * dt * dt;
+    }
 }
 
 impl Body {

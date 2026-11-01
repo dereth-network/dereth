@@ -21,6 +21,8 @@ not how it was done.
 - Messages sent as you enter the world show in the chat window.
 - Smoother movement for you, the camera and everyone around you.
 - Jumping plays its animation: a crouch before a standing jump, then the leap.
+- Characters stand still against walls, and steps show in their stride.
+- Speed boosts and slows take effect, and every character runs at full speed.
 - You turn to face what you attack.
 - People, creatures and players wear their clothes, armor and colors, your own character included.
 - Wounded creatures look wounded until they heal.

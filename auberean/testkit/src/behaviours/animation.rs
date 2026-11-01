@@ -41,6 +41,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "animation.body.a-slider-just-past-still-moves-at-once",
+        says: "A locomotion slider standing just past still (under 0.05 m/s) toward the side the \
+               body moves is moved there in 0.05 s; from still, or across a change of more than \
+               0.75 m/s, in 0.3 s; otherwise in 0.1 s.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-SLIDER-RATE"),
+        station: "auberean-animation::cpu::motion::a_slider_just_past_still_moves_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "animation.body.a-smaller-bodys-legs-cycle-faster-at-one-speed",
+        says: "The forward and sideways locomotion sliders take the body's speed along each over \
+               its size along that axis (its look's scale times its own): a body drawn smaller \
+               cycles its legs faster at the same speed, covering the ground it covers.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-SLIDER-SIZE"),
+        station: "auberean-animation::cpu::motion::a_smaller_bodys_legs_cycle_faster_at_one_speed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "animation.body.the-human-male-puts-together-and-moves",
         says: "The player's human male is put together from its visual description: a 41-bone body \
                with its head hung from the body's head connection; its behavior table plays moving \

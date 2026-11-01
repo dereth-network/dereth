@@ -98,6 +98,10 @@ pub trait Owner {
     /// The element and mode the body is going to.
     // D2-06993
     fn desired_mode_state(&self) -> ModeKey;
+    /// The body's own scale along its axes (its physics object's, which its qualities give, not
+    /// its look's): the scale of its speeds.
+    // D2-06471
+    fn effects_scale(&self) -> Vec3;
     fn height_above_walkable(&self) -> f32;
     fn depth(&self) -> f32;
     fn has_water(&self) -> bool;
@@ -177,8 +181,6 @@ pub struct MotionInterp {
     pub terrain_type: u32,
     pub terrain_mods: HashMap<u32, u32>,
     pub global_mod: u32,
-    /// The body's scale along its own axes, from its visual description.
-    pub scale: Vec3,
     pub move_to: Option<Mover>,
     pub interpolation: Option<Follower>,
     // D2-07036
@@ -211,7 +213,6 @@ impl Default for MotionInterp {
             terrain_type: DEFAULT_TERRAIN,
             terrain_mods: HashMap::new(),
             global_mod: 0,
-            scale: Vec3::new(1.0, 1.0, 1.0),
             move_to: None,
             interpolation: None,
             constraint: None,
@@ -345,9 +346,10 @@ impl MotionInterp {
 
     /// The velocity asking for `motion` gives, in the body's frame: forward at the forward speed
     /// (or the backward speed backing up); sideways at the sideways speed, or at the forward speed
-    /// once forward passes 0.7; each times the server's speed scale, the body's scale along that
-    /// axis, and (when `constrained`) how much motion its constraint leaves it. Vertically, at the
-    /// vertical speed when `vertical`, else as forward.
+    /// once forward passes 0.7; each times the server's speed scale, the body's own scale along
+    /// that axis (not its look's: a character drawn shorter runs as fast), and (when
+    /// `constrained`) how much motion its constraint leaves it. Vertically, at the vertical speed
+    /// when `vertical`, else as forward.
     // D2-06992
     #[must_use]
     pub fn local_desired(
@@ -358,7 +360,7 @@ impl MotionInterp {
         vertical: bool,
     ) -> Vec3 {
         let m = self.motion_values(owner);
-        let s = self.scale;
+        let s = owner.effects_scale();
         let k = if constrained {
             f64::from(self.constraint_factor(&owner.position()))
         } else {
@@ -691,7 +693,7 @@ impl MotionInterp {
     // D2-07022
     pub fn clamp_velocity(&self, owner: &dyn Owner, v: &mut Vec3) {
         let m = self.motion_values(owner);
-        let s = self.scale;
+        let s = owner.effects_scale();
         let vs = self.velocity_scale;
         let f = m.max_forward;
         let cap = s.y * vs * f;
@@ -810,7 +812,7 @@ impl MotionInterp {
         if self.can_animate {
             self.show_motion(owner, dt, v, w, speed2, h, desired_element);
         }
-        let s = self.scale;
+        let s = owner.effects_scale();
         let vs = self.velocity_scale;
         let acl = self.acceleration_scale;
         let cap_x = m.max_strafe * vs * s.x;

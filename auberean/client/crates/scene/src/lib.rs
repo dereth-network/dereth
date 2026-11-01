@@ -165,6 +165,9 @@ struct Player {
     shown: BTreeSet<u32>,
     /// The effects it plays.
     effects: Option<fx::BodyFx>,
+    /// The motion its interpreter was asked at its last tick (sideways, forward, up): what its
+    /// reports carry while a move the server ordered steers it.
+    ticked: dereth_primitives::Vec3,
 }
 
 /// What a frame draws: the world, and portal space laid over it (`portal_alpha` of the way, the
@@ -356,6 +359,20 @@ impl std::fmt::Debug for Scene<'_> {
 
 fn dv(v: dereth_primitives::Vec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
+}
+
+/// What a body's figure is told of it for an animation step of `dt` seconds: how fast the body
+/// moved over its last tick, in its own frame (x to its right, y ahead, z up), with its
+/// acceleration's share of the step; its rate of turn; and its size (its look's times its own).
+/// Not the velocity the body asks for: a body held against a wall or at a ledge stands while it
+/// still asks to run, and a step up or down shows in its vertical speed for the tick it took.
+pub fn figure_motion(body: &mut Body, dt: f32) -> (Vec3, f32, Vec3) {
+    body.update_animation(dt);
+    (
+        dv(body.anim_velocity),
+        body.turn_rate,
+        dv(body.total_scale(None)),
+    )
 }
 
 /// Where a body stands, as its figure's slope lean reads it: in touch or not, sliding or not,
@@ -1390,7 +1407,6 @@ impl<'w> Scene<'w> {
         let mut body = Body::new(config, start, b.heading);
         give_parts(&mut body, &self.world.records, &mut self.trees, &look);
         profile::init_physics(&self.world.records, o, &mut body);
-        body.minterp.scale = pv(scale);
         let p = &o.physics;
         if let Some(k) = velocity_scale(p) {
             body.minterp.velocity_scale = k;
@@ -1439,6 +1455,7 @@ impl<'w> Scene<'w> {
             settle: true,
             shown: BTreeSet::new(),
             effects,
+            ticked: dereth_primitives::Vec3::ZERO,
         })
     }
 
@@ -1461,7 +1478,6 @@ impl<'w> Scene<'w> {
         p.effects = fx::BodyFx::again(p.effects.take(), &look, p.id);
         p.scale = look.scale;
         body_takes_look(&mut p.body, records, &mut self.trees, &look);
-        p.body.minterp.scale = pv(look.scale);
     }
 
     /// One frame at `now` seconds, `dt` after the last, in the client's order: the player's intent
@@ -1625,6 +1641,7 @@ impl<'w> Scene<'w> {
                     &NoGameObjects,
                     tick,
                 );
+                p.ticked = p.body.minterp.asked;
             }
             // The player's collisions go to its scripts.
             if let Some(k) = p.body.key() {
@@ -1638,9 +1655,16 @@ impl<'w> Scene<'w> {
             }
             let active = input.forward != 0.0 || input.sideways != 0.0 || input.turn != 0.0;
             client.body.driven = true;
+            // The reports carry the motion the interpreter was asked (a diagonal cut to length
+            // 1), the move the server ordered's while it steers the body.
+            let asked = if p.body.is_moving_to() {
+                p.ticked
+            } else {
+                p.body.minterp.asked
+            };
             client.act(Action::Move(Motion {
-                forward: input.forward,
-                sideways: input.sideways,
+                forward: asked.y,
+                sideways: asked.x,
                 heading: p.body.heading,
                 active,
             }));
@@ -1648,8 +1672,8 @@ impl<'w> Scene<'w> {
             client
                 .body
                 .follow(pos.cell.0, dv(pos.frame.origin), p.body.heading);
-            p.figure
-                .set_motion(dv(p.body.local_velocity()), p.body.turn_rate);
+            let (moved, turn, size) = figure_motion(&mut p.body, dt);
+            p.figure.set_motion(moved, turn, size);
             forward_behaviors(&p.body, &mut p.shown, &mut p.figure, &self.anims);
             p.figure.ground = ground_of(&p.body);
             p.figure.advance(&self.anims, dt);
@@ -2860,7 +2884,6 @@ impl<'w> Scene<'w> {
                 if let Some(look) = changed {
                     pl.scale = look.scale;
                     body_takes_look(&mut pl.body, &self.world.records, &mut self.trees, &look);
-                    pl.body.minterp.scale = pv(look.scale);
                 }
             }
         }

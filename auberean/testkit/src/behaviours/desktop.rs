@@ -18,6 +18,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-held-against-a-wall-is-animated-standing",
+        says: "A body's figure is animated at how far the body moved over its last physics tick \
+               (ten times the move, in the body's frame before it), not at the velocity it asks \
+               for: a body held against a wall or at a ledge while it asks to run stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FEET-WALL"),
+        station: "auberean-scene::cpu::feet::a_body_held_against_a_wall_is_animated_standing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.bodies.a-held-object-takes-the-profile-its-qualities-give",
         says: "An object another holds takes the profile its own qualities give when its body is \
                made, as every object's body does: whether it slides along edges and ignores \
@@ -26,6 +36,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-HELD"),
         station: "auberean-scene::corpus::combat::a_held_object_takes_the_profile_its_qualities_give",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-step-up-or-down-shows-in-the-figures-vertical-speed",
+        says: "A body that steps up onto something or down off it within one tick has its figure \
+               told, for the next tick, the vertical speed of that step (0.3 m in a tick is 3 m/s), \
+               though the body's own velocity has none; with each animation step it also takes \
+               half its acceleration times the step squared.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FEET-STEP"),
+        station: "auberean-scene::cpu::feet::a_step_up_or_down_shows_in_the_figures_vertical_speed",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.bodies.an-object-is-in-the-world-while-its-body-stands-there",
@@ -48,6 +69,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-BODY-STATES"),
         station: "auberean-scene::corpus::combat::the_scripts_scale_hide_and_slide_the_bodies",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-servers-speed-scales-reach-the-bodies",
+        says: "The scales of a body's speed, acceleration and jump the server sends after making \
+               it reach the body (the player's or another's) the frame they take effect, and stay \
+               until the next (a 2017 player sped to 2.185 times its speed ran at 14.2 m/s).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SCALES"),
+        station: "auberean-scene::corpus::combat::the_servers_speed_and_acceleration_scales_reach_the_bodies",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -758,6 +789,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-NEAR-WINDOW"),
         station: "auberean-shell::dat::session::the_land_kept_is_the_near_window_about_the_player",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-reports-carry-the-motion-the-body-was-asked",
+        says: "The client's reports of where the player is carry the motion its body's \
+               interpreter was asked (a diagonal cut to length 1), not the keys: while a move the \
+               server ordered runs the body, the motion that move asks.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-REPORT-MOTION"),
+        station: "auberean-shell::dat::session::the_reports_carry_the_motion_a_move_ordered_asks",
         tier: Tier::Dat,
     },
     behaviour! {

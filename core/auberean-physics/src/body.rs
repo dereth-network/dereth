@@ -964,6 +964,9 @@ impl Owner for Body {
     fn desired_mode_state(&self) -> ModeKey {
         Body::desired_mode_state(self)
     }
+    fn effects_scale(&self) -> Vec3 {
+        self.object_scale
+    }
     fn height_above_walkable(&self) -> f32 {
         self.height_above
     }

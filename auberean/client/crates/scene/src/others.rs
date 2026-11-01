@@ -744,7 +744,6 @@ impl Others {
                     if let Some(k) = crate::velocity_scale(&o.physics) {
                         ob.body.minterp.velocity_scale = k;
                     }
-                    ob.body.minterp.scale = pv(b.scale);
                     if let Some(l) = look.as_ref() {
                         crate::give_parts(&mut ob.body, records, trees, l);
                     }
@@ -848,8 +847,8 @@ impl Others {
                 }
                 if let Some(f) = &mut b.figure {
                     // Feet that match how the body moved over its last tick.
-                    let v = ob.body.local_velocity();
-                    f.set_motion(Vec3::new(v.x, v.y, v.z), ob.body.turn_rate);
+                    let (moved, turn, size) = crate::figure_motion(&mut ob.body, dt);
+                    f.set_motion(moved, turn, size);
                     crate::forward_behaviors(&ob.body, &mut b.shown, f, anims);
                     f.ground = crate::ground_of(&ob.body);
                     f.advance(anims, dt);
@@ -993,7 +992,6 @@ impl Others {
             if let Some(look) = changed {
                 b.scale = look.scale;
                 crate::body_takes_look(&mut ob.body, records, trees, &look);
-                ob.body.minterp.scale = crate::pv(look.scale);
             }
         }
     }

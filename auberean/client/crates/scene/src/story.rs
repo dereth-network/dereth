@@ -512,8 +512,10 @@ impl Scene<'_> {
     }
 
     /// The server's events for bodies, in order: stories told, behaviors played and stopped,
-    /// effects played and stopped. Those for an object with no body here are given back.
+    /// effects played and stopped, moves ordered, and the scales of a body's speed, acceleration
+    /// and jump. Those for an object with no body here are given back.
     // D2-04016, D2-04037, D2-04038, D2-05848, D2-05860, D2-05862, D2-04018, D2-04034, D2-05883
+    // D2-04035, D2-04029, D2-04032
     pub(crate) fn play_server_events(
         &mut self,
         client: &mut Client,
@@ -563,6 +565,21 @@ impl Scene<'_> {
                 ServerMessage::DoFx(e) => self.do_fx(id, e.action.fx, e.action.scalar),
                 ServerMessage::StopFx(e) => self.stop_fx(id, e.action.0),
                 ServerMessage::MoveTo(e) => self.recv_move_to(id, &e.action),
+                ServerMessage::VelocityScale(e) => {
+                    if let Some(b) = self.body_mut(id) {
+                        b.set_velocity_scale(e.action.0);
+                    }
+                }
+                ServerMessage::AccelerationScale(e) => {
+                    if let Some(b) = self.body_mut(id) {
+                        b.set_acceleration_scale(e.action.0);
+                    }
+                }
+                ServerMessage::JumpScale(e) => {
+                    if let Some(b) = self.body_mut(id) {
+                        b.set_jump_scale(e.action.0);
+                    }
+                }
                 _ => {}
             }
         }

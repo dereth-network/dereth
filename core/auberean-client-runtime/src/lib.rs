@@ -95,9 +95,11 @@ pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
 
 /// The server's events for an object's body that the scene plays ([`Client::physics`]): a
 /// behavior played and stopped, a change of mode (gone through, or set at once), an effect played
-/// and stopped, a combat story.
-pub const PHYSICS_EVENTS: [u32; 8] = [
-    0x1007F, 0x10080, 0x10082, 0x100A9, 0x100A0, 0x100A1, 0x100A8, 0x10083,
+/// and stopped, a combat story, a move ordered, and the scales of its speed, its acceleration and
+/// its jump.
+pub const PHYSICS_EVENTS: [u32; 11] = [
+    0x1007F, 0x10080, 0x10082, 0x100A9, 0x100A0, 0x100A1, 0x100A8, 0x10083, 0x10092, 0x10093,
+    0x100BA,
 ];
 /// How many of them are kept for a scene that has not taken them.
 pub const PHYSICS_KEPT: usize = 1024;
@@ -272,7 +274,7 @@ pub struct Client {
     pub notices: Vec<host::PanelNotice>,
     /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play
     /// and stop, their modes, the effects they play and stop, the combat stories told on them, the
-    /// moves it orders), in the order it took effect, for the scene to play; past [`PHYSICS_KEPT`] the oldest go when no scene takes
+    /// moves it orders, their speed, acceleration and jump scales), in the order it took effect, for the scene to play; past [`PHYSICS_KEPT`] the oldest go when no scene takes
     /// them.
     pub physics: Vec<ServerMessage>,
     /// The object that last attacked the player with a harmful skill, as its story told it (0 for

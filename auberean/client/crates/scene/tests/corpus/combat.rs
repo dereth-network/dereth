@@ -414,6 +414,97 @@ fn the_scripts_scale_hide_and_slide_the_bodies() {
     assert!(!scene.seen.bodies.iter().any(|s| s.id == id), "not drawn");
 }
 
+/// A minute in the world of a 2017 session in which the server scales the speed and the
+/// acceleration of the player (2.185 times) and of the creatures about it: each scale
+/// reaches the body it was sent for within a second (the frame after it takes effect), whether
+/// the body is the player's or another's, and stays until the next.
+///
+/// Behaviour: desktop.bodies.the-servers-speed-scales-reach-the-bodies
+#[test]
+fn the_servers_speed_and_acceleration_scales_reach_the_bodies() {
+    use std::collections::BTreeMap;
+    const SESSION: &str = "9e56c155870fcf8d:1";
+    const SECONDS: f64 = 60.0;
+    // The scales the session sent, in the order it sent them: the time, the object, which scale
+    // (0 speed, 1 acceleration, 2 jump), the value.
+    let index = auberean_testkit::data::require_capture_index();
+    let mut sent: Vec<(f64, u64, usize, f32)> = Vec::new();
+    let mut entered = None;
+    captures::capture_messages_in_time_order(
+        &index,
+        &[0x10060, 0x10092, 0x10093, 0x100BA],
+        SESSION,
+        |m| {
+            let Ok(msg) = ServerMessage::decode(&m.raw) else {
+                return;
+            };
+            let (e, kind) = match msg {
+                ServerMessage::PlayerObject(_) => {
+                    entered.get_or_insert(m.time);
+                    return;
+                }
+                ServerMessage::VelocityScale(e) => (e, 0),
+                ServerMessage::AccelerationScale(e) => (e, 1),
+                ServerMessage::JumpScale(e) => (e, 2),
+                _ => return,
+            };
+            sent.push((m.time, e.sender.id, kind, e.action.0));
+        },
+    )
+    .expect("the index reads");
+    let entered = entered.expect("the player entered");
+    // What each of those objects' bodies held after each frame.
+    let ids: Vec<u64> = sent.iter().map(|s| s.1).collect();
+    let mut held: Vec<(f64, BTreeMap<u64, [f32; 3]>)> = Vec::new();
+    let (c, _, _) = played_in_frames(SESSION, SECONDS, FRAME, &[], &mut |c, scene| {
+        let now = ids
+            .iter()
+            .filter_map(|id| {
+                let b = scene.body(*id)?;
+                Some((
+                    *id,
+                    [b.velocity_scale(), b.acceleration_scale(), b.jump_scale()],
+                ))
+            })
+            .collect();
+        held.push((c.local_time(), now));
+    });
+    let player = c.model.player.expect("the player");
+    let (mut judged, mut reached, mut players) = (0, 0, 0);
+    let mut missed = Vec::new();
+    for (i, &(t, id, kind, v)) in sent.iter().enumerate() {
+        if t > entered + SECONDS - 1.0 {
+            continue;
+        }
+        // Until the next scale of the same kind for the same object, or a second.
+        let until = sent[i + 1..]
+            .iter()
+            .find(|s| s.1 == id && s.2 == kind)
+            .map_or(t + 1.0, |s| s.0.min(t + 1.0));
+        let frames: Vec<f32> = held
+            .iter()
+            .filter(|(at, _)| *at > t && *at <= until)
+            .filter_map(|(_, bodies)| bodies.get(&id).map(|s| s[kind]))
+            .collect();
+        if frames.is_empty() {
+            continue;
+        }
+        judged += 1;
+        players += usize::from(id == player);
+        if frames.iter().any(|s| (s - v).abs() < 1e-6) {
+            reached += 1;
+        } else if missed.len() < 8 {
+            missed.push(format!("{id:#x} kind {kind} {v} at {t:.2}: {frames:?}"));
+        }
+    }
+    eprintln!("{reached} of {judged} scales reached their bodies ({players} the player's)");
+    assert!(
+        judged >= 30 && players >= 1,
+        "{judged} judged, {players} the player's"
+    );
+    assert_eq!(reached, judged, "missed: {missed:#?}");
+}
+
 /// With the scene placing the bodies, each object's scripts are told it is in the world exactly
 /// while its body stands in it (or, with no body, while its place's cell is loaded): creatures
 /// with a place in cells no longer loaded around the player were told they left; an object held

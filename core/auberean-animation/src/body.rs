@@ -701,28 +701,33 @@ impl Body {
     }
 
     /// Steer the locomotion sliders toward the body's motion: `velocity` in the body's own frame
-    /// (x to its right, y ahead, z up, meters per second) and `turn` its rate of turn.
+    /// (x to its right, y ahead, z up, meters per second), `turn` its rate of turn, and `scale` its
+    /// size along its axes (its look's times its own). The sideways and forward sliders take the
+    /// speed over the size along their axis, so a smaller body's legs cycle faster at one speed.
+    /// Each slider moves at once (in 0.05 s) from just past standing still toward the same side,
+    /// slowly (0.3 s) across a change of more than 0.75 m/s, else in 0.1 s.
     // D2-15327
-    pub fn set_motion(&mut self, velocity: Vec3, turn: f32) {
+    pub fn set_motion(&mut self, velocity: Vec3, turn: f32, scale: Vec3) {
         let tiny = |c: f32| if c.abs() < 0.001 { 0.0 } else { c };
         let (mut x, y, z) = (tiny(velocity.x), tiny(velocity.y), tiny(velocity.z));
         x *= (1.0 - (turn * 0.017_455_1).abs()).max(0.0);
-        let speed_time = |cur: f32, target: f32| {
-            if (cur - target).abs() > 0.75 {
-                0.3
-            } else if (cur > 0.0 && cur < 0.05 && target > 0.0)
-                || (cur < 0.0 && cur > -0.05 && target < 0.0)
+        // `now` is where the slider stands, as a speed (times the size).
+        let speed_time = |now: f32, target: f32| {
+            if (now > 0.0 && now < 0.05 && target > 0.0)
+                || (now < 0.0 && now > -0.05 && target < 0.0)
             {
                 0.05
+            } else if (now - target).abs() > 0.75 {
+                0.3
             } else {
                 0.1
             }
         };
         let s = &mut self.sliders;
-        let cur = s.current(slider::SIDEWAYS);
-        s.do_slider(0, slider::SIDEWAYS, x, speed_time(cur, x));
-        let cur = s.current(slider::FORWARD);
-        s.do_slider(0, slider::FORWARD, y, speed_time(cur, y));
+        let now = s.current(slider::SIDEWAYS) * scale.x;
+        s.do_slider(0, slider::SIDEWAYS, x / scale.x, speed_time(now, x));
+        let now = s.current(slider::FORWARD) * scale.y;
+        s.do_slider(0, slider::FORWARD, y / scale.y, speed_time(now, y));
         let v = z.max(-10.0);
         let cur = s.current(slider::VERTICAL);
         s.do_slider(

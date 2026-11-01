@@ -153,10 +153,17 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
         for _ in 0..ticker.ticks(t) {
             body.tick(&land, auberean_physics::body::tick_seconds());
         }
-        let v = body.local_velocity();
-        figure.set_motion(dv(v), body.turn_rate);
+        // The figure is animated at how fast the body moved over its last tick.
         #[allow(clippy::cast_possible_truncation)]
-        figure.advance(&recs, (1.0 / FPS) as f32);
+        let step = (1.0 / FPS) as f32;
+        body.update_animation(step);
+        figure.set_motion(
+            dv(body.anim_velocity),
+            body.turn_rate,
+            dv(body.total_scale(None)),
+        );
+        let v = body.local_velocity();
+        figure.advance(&recs, step);
         if (k as f64) < next_capture && k != total {
             continue;
         }

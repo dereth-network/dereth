@@ -55,7 +55,7 @@ fn the_human_male_puts_together_and_moves() {
     };
     eprintln!("moving {id:?}: period walking {walk} s, running {run} s");
     assert!(walk > run && run > 0.0, "{walk} then {run}");
-    body.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0);
+    body.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0, Vec3::new(1.0, 1.0, 1.0));
     for _ in 0..30 {
         body.advance(&recs, 1.0 / 30.0);
     }
@@ -79,7 +79,7 @@ fn a_wounded_human_male_moves_on_in_its_new_look() {
     let recs = CachedRecords::new(w);
     let mut body = Body::assemble(&recs, HUMAN_MALE).expect("the human male");
     assert!(body.do_autonomous_behavior(&recs, MOVE), "moving plays");
-    body.set_motion(Vec3::new(0.0, 2.2, 0.0), 0.0);
+    body.set_motion(Vec3::new(0.0, 2.2, 0.0), 0.0, Vec3::new(1.0, 1.0, 1.0));
     for _ in 0..20 {
         body.advance(&recs, 1.0 / 30.0);
     }
@@ -209,7 +209,7 @@ fn the_human_male_changes_mode_along_its_table() {
         );
     }
     assert!(body.do_autonomous_behavior(&recs, MOVE), "moving plays");
-    body.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0);
+    body.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0, Vec3::new(1.0, 1.0, 1.0));
     for _ in 0..30 {
         body.advance(&recs, 1.0 / 30.0);
     }

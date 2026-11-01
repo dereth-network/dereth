@@ -1872,3 +1872,85 @@ fn the_worlds_frame_carries_the_clients_running_time() {
         assert!(w[1].1 >= w[0].1, "never back: {w:?}");
     }
 }
+
+/// While a move the server ordered runs the player's body to a place 8 m ahead, the client's
+/// reports on the way carry the motion that move asks of the body (running forward, the forward
+/// byte near its top), not the keys, which are up: the others the server tells see the player
+/// running.
+///
+/// Behaviour: desktop.shell.the-reports-carry-the-motion-the-body-was-asked
+#[test]
+fn the_reports_carry_the_motion_a_move_ordered_asks() {
+    use auberean_client_sdk::protocol::physics::{MoveOrder, ObjectEvent};
+    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams};
+    let order = ServerMessage::MoveTo(ObjectEvent {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        action: MoveOrder {
+            params: MovementParams {
+                flags: MovementParams::MAX_SUCCESS | 0x2,
+                desired_velocity: 1.0,
+                fail_distance: f32::MAX,
+                desired_distance: 0.0,
+                max_success_distance: 0.2,
+                min_success_distance: 0.0,
+                target: MoveTarget::Place(Placement {
+                    cell: HALL_CELL,
+                    frame: Frame {
+                        origin: Vec3::new(HALL_AT.x, HALL_AT.y + 8.0, HALL_AT.z),
+                        rotation: Quat::IDENTITY,
+                    },
+                }),
+                offset: Vec3::ZERO,
+                offset_id: 0,
+                waypoints: Vec::new(),
+                context: 0,
+            },
+            stamp: 1,
+        },
+    });
+    // The double's clock runs a second ahead of the shell's: the order comes at 8 s.
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(9.0, order)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    let sent: Vec<(f64, u32, Vec3)> = s
+        .client
+        .as_ref()
+        .expect("the session")
+        .sent()
+        .iter()
+        .filter_map(|m| match &m.message {
+            ClientMessage::Position(p) => Some((m.at - 1.0, p.heading_motion, p.origin)),
+            _ => None,
+        })
+        .collect();
+    // On the way there: from a meter out until the body first comes within a meter of the place.
+    let running: Vec<_> = sent
+        .iter()
+        .take_while(|(_, _, o)| o.y < HALL_AT.y + 7.0)
+        .filter(|(_, _, o)| o.y > HALL_AT.y + 1.0)
+        .collect();
+    assert!(running.len() >= 3, "reports on the way: {sent:?}");
+    for (t, hm, o) in &running {
+        let forward = (hm >> 8) & 0xFF;
+        assert!(
+            forward >= 0xF0,
+            "at {t:.2} ({o:?}) the report asks forward {forward:#04x}"
+        );
+    }
+}

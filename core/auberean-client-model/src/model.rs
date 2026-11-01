@@ -630,6 +630,20 @@ impl Model {
                     obj.visual = e.action.clone();
                 }
             }
+            // An object's speed and jump scales, kept with its physics description: a body made
+            // for it later starts with them, as one made at its creation would have taken them.
+            S::VelocityScale(e) => {
+                if let Some(obj) = self.objects.get_mut(&e.sender.id) {
+                    obj.physics.velocity_scale = e.action.0;
+                    obj.physics.bits |= PhysicsDesc::VELOCITY_SCALE;
+                }
+            }
+            S::JumpScale(e) => {
+                if let Some(obj) = self.objects.get_mut(&e.sender.id) {
+                    obj.physics.jump_scale = e.action.0;
+                    obj.physics.bits |= PhysicsDesc::JUMP_SCALE;
+                }
+            }
             S::PlayerCall(c) | S::PlayerCallAlternate(c) => {
                 self.stats.calls += 1;
                 fx.push(Effect::Call {

@@ -216,6 +216,40 @@ fn a_slow_player_leads_in_before_jumping() {
     assert!(!b.contact, "anyone else's body jumps at once");
 }
 
+/// A body's speeds and its jump take its own scale (the one its qualities give), not the scale its
+/// look is drawn at: drawn at 0.9 of its size it still asks to run at the full 6.5 m/s and jumps at
+/// the full 6.26 m/s; at an own scale of 1.2 it asks for 7.8 m/s and jumps at 7.512 m/s.
+///
+/// Behaviour: motion.run.a-body-runs-and-jumps-at-its-own-scale-not-its-looks
+#[test]
+fn a_body_runs_and_jumps_at_its_own_scale_not_its_looks() {
+    let land = world(None);
+    let rested = |own: f32| {
+        let mut b = body(GROUND_Z, 0.0);
+        b.look_scale = Vec3::new(0.9, 0.9, 0.9);
+        b.set_scale(own);
+        for _ in 0..5 {
+            b.tick(&land, dt());
+        }
+        b.steer(auberean_physics::motion::MotionInput {
+            forward: 1.0,
+            ..auberean_physics::motion::MotionInput::default()
+        });
+        b
+    };
+    for (own, run, jump) in [(1.0, 6.5, 6.26), (1.2, 7.8, 7.512)] {
+        let mut b = rested(own);
+        let want = b.minterp.local_desired(&b, b.minterp.asked, false, false);
+        assert!((want.y - run).abs() < 1e-4, "own {own}: asks for {want:?}");
+        assert!(b.jump());
+        assert!(
+            (b.velocity.z - jump).abs() < 1e-4,
+            "own {own}: jumps at {:?}",
+            b.velocity
+        );
+    }
+}
+
 /// A body that goes into another element asks its animation to go there too, once: jumping, into
 /// the air; landing, back onto the earth.
 ///
@@ -375,6 +409,42 @@ fn a_local_velocity_is_not_turned() {
     b.set_local_velocity(Vec3::new(0.0, 3.0, 0.0));
     assert!((b.velocity.y - 3.0).abs() < 1e-6 && b.velocity.x.abs() < 1e-6);
     assert!((b.anim_velocity.y - 3.0).abs() < 1e-6);
+}
+
+/// Between ticks the speed a body's figure is animated at (how far it moved over its last tick)
+/// takes half its acceleration times each animation step squared, in its frame: a body falling
+/// under gravity is animated a little faster downward with each step. A body whose animation is
+/// frozen keeps it as it is.
+///
+/// Behaviour: motion.element.the-animation-speed-takes-the-acceleration-over-each-step
+#[test]
+fn the_animation_speed_takes_the_acceleration_over_each_step() {
+    let land = world(None);
+    let mut b = body(GROUND_Z + 20.0, 0.0);
+    b.contact = false;
+    b.on_walkable = false;
+    for _ in 0..3 {
+        b.tick(&land, dt());
+    }
+    assert!(
+        b.acceleration.z < -9.0 && !b.contact,
+        "falling: {:?}",
+        b.acceleration
+    );
+    let was = b.anim_velocity;
+    assert!(was.z < -1.0, "falling, animated falling: {was:?}");
+    let step = 0.05;
+    b.update_animation(step);
+    let want = was.z + b.acceleration.z * 0.5 * step * step;
+    assert!(
+        (b.anim_velocity.z - want).abs() < 1e-5 && (b.anim_velocity.z - was.z).abs() > 0.01,
+        "{:?} after {was:?}",
+        b.anim_velocity
+    );
+    let was = b.anim_velocity;
+    b.set_animation_frozen(true);
+    b.update_animation(step);
+    assert_eq!(b.anim_velocity, was, "frozen");
 }
 
 /// A move the server orders is taken only by the player's body, which keeps the order's stamp,
