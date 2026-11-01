@@ -1,0 +1,39 @@
+[package]
+name = "auberean-world"
+description = "The world as data: the landscape's terrain and its looks, the region's sky, light and fog over the day, and where placed objects stand and what they are made of."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch: selects the `dat` test binary, whose tests build the world from the retail installs.
+retail-dats = ["auberean-dat/retail-dats", "auberean-assets/retail-dats"]
+
+[dependencies]
+auberean-primitives.workspace = true
+auberean-dat.workspace = true
+auberean-assets.workspace = true
+# The landscape grid, the block window and the terrain's vertex, split and plane core are shared
+# with Dereth: the same algorithms on this world's grid.
+dereth-landscape.workspace = true
+dereth-terrain.workspace = true
+dereth-primitives.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

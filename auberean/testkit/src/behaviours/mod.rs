@@ -133,6 +133,7 @@ pub mod data;
 pub mod protocol;
 pub mod script;
 pub mod text;
+pub mod world;
 
 /// Every subject, in name order. A new subject adds its `mod` line above and its entry here.
 pub static SUBJECTS: &[Subject] = &[
@@ -151,6 +152,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "text",
         rows: text::ROWS,
+    },
+    Subject {
+        name: "world",
+        rows: world::ROWS,
     },
 ];
 

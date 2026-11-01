@@ -293,6 +293,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-world"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-testkit",
+ "dereth-landscape",
+ "dereth-primitives",
+ "dereth-terrain",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
