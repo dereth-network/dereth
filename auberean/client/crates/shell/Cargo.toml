@@ -1,0 +1,46 @@
+[package]
+name = "auberean-shell"
+description = "The application over a host, with no platform: the device's events routed to the game's interface and then to the world's controls, the client's session carried over the host's network, the world moved and framed, the settings read and kept, and what each frame shows."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch: `retail-dats` selects the `dat` test binary (the shell against a server double, in
+# the September 2013 world).
+retail-dats = []
+
+[dependencies]
+auberean-primitives.workspace = true
+# The key maps' records and their files' text form.
+auberean-assets.workspace = true
+auberean-dat.workspace = true
+auberean-world.workspace = true
+auberean-draw.workspace = true
+auberean-physics.workspace = true
+auberean-scene.workspace = true
+# The client: its session, model, body and actions; the script calls the world's controls make.
+auberean-client-sdk.workspace = true
+# Float-to-integer conversion, the same on every host.
+dereth-primitives.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+auberean-testkit = { workspace = true, features = ["double"] }
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-animation.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

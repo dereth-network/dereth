@@ -156,6 +156,7 @@ members = [
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
     "auberean/client/crates/scene",
+    "auberean/client/crates/shell",
     "auberean/viewer",
     "auberean/headless",
     "auberean/testkit",
@@ -265,6 +266,7 @@ auberean-draw = { path = "auberean/client/crates/draw" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
 auberean-scene = { path = "auberean/client/crates/scene" }
+auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-physics = { path = "core/auberean-physics" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }

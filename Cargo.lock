@@ -441,6 +441,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-shell"
+version = "0.0.0"
+dependencies = [
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-scene",
+ "auberean-testkit",
+ "auberean-world",
+ "dereth-primitives",
+ "tracing",
+]
+
+[[package]]
 name = "auberean-testkit"
 version = "0.0.0"
 dependencies = [

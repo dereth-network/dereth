@@ -4,7 +4,7 @@
 //! A row claims what the September 2013 client does with its keys, mouse and camera, or what the
 //! shell does as the seam the game's interface plugs into.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -90,6 +90,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.effects-played-on-objects-play-their-camera-part",
+        says: "An effect played on an object plays the camera effect record its effect table \
+               names: the player's own shake moves the camera while it lasts and lets it stand \
+               again; a flash for the player only starts from the player, not from another object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-FX-ROUTE"),
+        station: "auberean-shell::dat::session::effects_played_on_objects_play_their_camera_part",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.effects-ramp-and-add-to-the-field-of-view",
         says: "The field of view is 65 degrees plus the camera effects' sum, never under 10; an \
                effect ramps up, holds and ramps down over its period, and a distance effect adds \
@@ -131,6 +141,28 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-MOUSE-LOOK"),
         station: "auberean-scene::cpu::camera::mouse_look_turns_a_degree_a_count_smoothed",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.camera.solid-objects-stop-the-camera",
+        says: "The line from the player's shoulder to where the camera wants to be stops at solid \
+               objects, and the camera stands where it met one: beside the start hall's fir, \
+               within 2 cm of where the retail client's camera stands from the same place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-OBJECTS"),
+        station: "auberean-shell::dat::session::solid_objects_stop_the_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.camera.the-avatar-shows-in-first-person-during-combat-and-the-camera-rides-its-head",
+        says: "With the camera at the eyes the player's body shows during combat only (the avatar \
+               option's default): not at peace, and in a combat mode without its head. While a \
+               behavior that moves the first-person camera plays, the camera rides the head bone a \
+               fifth of a meter ahead and up, and goes back to the eyes when it ends; at peace it \
+               stays at the eyes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-AVATAR"),
+        station: "auberean-shell::dat::session::the_avatar_shows_in_first_person_during_combat_and_the_camera_rides_its_head",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.camera.the-keypad-views-toggle-as-the-client-does",
@@ -278,6 +310,122 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.controls.a-movement-key-begins-its-action-once",
+        says: "A movement key pressed begins its action of the key map once: forward, backward, \
+               the strafes, the turns (strafes in mouse look, where the left button runs), the \
+               jump and the run lock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVEMENT-KEYS"),
+        station: "auberean-shell::dat::controls::a_movement_key_begins_its_action_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.autorun-latches-and-a-jump-is-one-press",
+        says: "Q or Num Lock latches running; forward or backward turns it off, strafing and \
+               turning do not. Space or J jumps once a press.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-AUTORUN"),
+        station: "auberean-shell::dat::controls::autorun_latches_and_a_jump_is_one_press",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.select-use-and-letting-go-on-focus-loss",
+        says: "The selection keys select, Escape clears the selection and F uses what is selected; \
+               a window that loses the keyboard lets every key go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-SELECT"),
+        station: "auberean-shell::dat::controls::select_use_and_letting_go_on_focus_loss",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.the-default-keys-move-the-body",
+        says: "W and Up run forward, with Shift walk at 0.339 of running; S, X and Down back up \
+               and Shift does not slow them; A and D turn; Z and C strafe.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-MOVE"),
+        station: "auberean-shell::dat::controls::the_default_keys_move_the_body",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.the-keypad-and-mouse-drive-the-camera",
+        says: "The keypad drives the camera; the wheel steps it; the middle button turns mouse \
+               look on and off, and while it is on A and D strafe and the left button runs \
+               forward.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-CAMERA"),
+        station: "auberean-shell::dat::controls::the_keypad_and_mouse_drive_the_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.keys.a-key-let-go-ends-what-its-press-began",
+        says: "A key let go ends the action its press began, whatever modifier was let go in \
+               between: a key pressed with Shift ends its Shift action even after Shift is let \
+               go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-PRESS-PAIRS"),
+        station: "auberean-shell::cpu::keys::a_key_let_go_ends_the_action_its_press_began",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.a-saved-key-map-file-is-bound-in-play",
+        says: "A player's saved key map files are the keys in play: with the WoW preset saved as \
+               the plain and Ctrl maps, Q strafes and C opens the inventory, and with no Shift \
+               file the Defaults' Shift map stays bound.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-FILES-IN-PLAY"),
+        station: "auberean-shell::dat::keys::a_saved_key_map_file_is_bound_in_play",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.keys.actions-toggle-as-the-action-map-says",
+        says: "Each action toggles as the action map says: a held one is in force while its key \
+               is down, a latched one from one press to the next (forward, backward and stop end \
+               it), a single press for its frame only.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-TOGGLES"),
+        station: "auberean-shell::cpu::keys::held_latched_and_single_press_actions_toggle_as_the_action_map_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.apply-writes-the-files-and-binds-them",
+        says: "Applying keys on the key map screen writes the three key map files the \
+               preferences name and binds them in place of the player's maps; when a file cannot \
+               be written nothing changes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-APPLY"),
+        station: "auberean-shell::cpu::keys::applying_writes_the_three_files_and_binds_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.maps-come-from-their-files-else-the-defaults",
+        says: "At startup the player's key maps come from their files, the plain one read with \
+               the update binding R to reply and written again when it gains it; a file missing \
+               or not reading leaves the data's Defaults map in its place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-START"),
+        station: "auberean-shell::cpu::keys::the_key_maps_come_from_their_files_else_the_defaults",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.modifiers-choose-an-actions-values",
+        says: "The modifier actions in force choose an action's values: the entry for exactly \
+               them, else without the eighth bit, else the plain one; Shift with forward walks.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-MODIFIERS"),
+        station: "auberean-shell::cpu::keys::the_modifiers_held_choose_an_actions_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.the-front-map-binding-an-input-names-its-action",
+        says: "The key maps are a stack: an input names the action of the first map from the \
+               front that binds it and whose modifier keys are all held, so a Shift map's binding \
+               comes first while Shift is held and the plain map answers the rest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYS-STACK"),
+        station: "auberean-shell::cpu::keys::the_front_map_that_binds_an_input_with_its_modifiers_held_names_its_action",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.looks.an-effects-appearance-dresses-the-body-it-plays-on",
         says: "The appearance an object's effects lay over it or take off it changes the object's \
                own descriptions (its own with the effects' appearance laid on, kept when the \
@@ -302,6 +450,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.others.a-body-out-of-the-world-is-let-go-of-after-25-seconds",
+        says: "A body that leaves the world (its cell no longer held) is to be destroyed 25 \
+               seconds later, with what it holds; entering the world again first calls that off; \
+               left that long, the client lets it go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-LEAVE-WORLD"),
+        station: "auberean-shell::dat::session::a_body_out_of_the_world_is_let_go_of_after_25_seconds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.others.a-body-takes-the-profile-its-objects-qualities-give",
         says: "A body made for an object takes the profile the object's qualities give, asked as \
                the object answers them: its description's, then its own, then those of the \
@@ -311,6 +469,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-QUALITIES"),
         station: "auberean-scene::cpu::others::a_body_takes_the_profile_its_objects_qualities_give",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.a-creation-again-puts-the-body-and-a-new-incarnation-replaces-it",
+        says: "A creation sent again for the incarnation of an object the client has puts its \
+               body where the creation says, with the creation's stamps; a creation of a newer \
+               incarnation destroys the body the client had and makes it anew where it was \
+               created, so the new incarnation's first positions are taken.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBJECTS-INCARNATIONS"),
+        station: "auberean-shell::dat::session::a_creation_again_puts_the_body_and_a_new_incarnation_replaces_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.others.another-body-follows-its-reports-at-an-even-pace",
@@ -332,6 +501,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-OTHERS-STOP"),
         station: "auberean-scene::cpu::others::another_body_stops_on_its_last_report",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.bodies-anywhere-in-an-interior-are-drawn",
+        says: "A body in the world is drawn wherever it stands in an interior: the interior's \
+               cells belong to its landblock however far their places reach past the landblock's \
+               edges (the human training hall's straw drudges stand 338 m north of its corner).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-HALL-BODIES"),
+        station: "auberean-shell::dat::session::a_body_far_into_the_hall_is_drawn",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.others.far-reports-and-stuck-bodies-are-put-in-place",
@@ -356,6 +535,122 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.a-fresh-install-starts-at-the-quality-the-configuration-offers",
+        says: "With no preferences kept the client starts at overall quality 4, as the \
+               configuration program the original runs first offers on any machine that draws \
+               with shaders (never the highest) and the player keeps; a kept overall quality of \
+               1 to 5 sets its own preferences over those read beside it, 0 keeps them, and the \
+               quality the preferences match is written back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FIRST-RUN-GRAPHICS"),
+        station: "auberean-shell::cpu::settings::a_fresh_install_starts_at_the_quality_the_configuration_offers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.settings.graphics-preferences-read-by-the-clients-names-and-kept",
+        says: "The graphics preferences are read from their own section by the client's names (a \
+               choice by its level's name or number, a yes-or-no, a number within its range) and \
+               written back the same way, keeping the section's other lines.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SETTINGS-GRAPHICS"),
+        station: "auberean-shell::cpu::settings::graphics_preferences_read_by_the_clients_names_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.settings.options-read-by-the-clients-names-and-kept",
+        says: "The camera, mouse and avatar options are read by the client's own option names, \
+               each within its range (the avatar option by name or number, during combat by \
+               default), and written back keeping every other line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SETTINGS"),
+        station: "auberean-shell::cpu::settings::options_read_by_the_clients_names_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.settings.the-display-and-values-read-as-the-client-writes-them",
+        says: "The display's size is kept as one number, its width above its height, with full \
+               screen beside it; a yes-or-no reads only as 1 or 0, a number only when the whole \
+               text is one, and numbers are written with six places.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-DISPLAY-PREFS"),
+        station: "auberean-shell::cpu::settings::the_display_and_values_read_as_the_client_writes_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.shell.a-placed-player-stands-where-there-is-room",
+        says: "A player the server puts where it does not fit stands where there is room nearest \
+               that place, as the retail client stands it (in the start hall, against a fir: 0.685 \
+               m up, within 6 cm across the ground).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PLACED-ROOM"),
+        station: "auberean-shell::dat::session::a_placed_player_stands_where_there_is_room",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.a-standing-jump-leads-in-then-leaves-the-ground",
+        says: "The jump key with the player standing: its figure plays the jump's lead-in while \
+               the body stays on the ground, until the lead-in's animation sets the jump off; \
+               the body then leaves the ground at the jump's speed with its figure in the air, \
+               the server is told of the jump then, and the figure is back on the earth once the \
+               body lands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-JUMP-LEAD-IN"),
+        station: "auberean-shell::dat::session::a_standing_jump_leads_in_then_leaves_the_ground",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.entering-the-world-goes-through-portal-space",
+        says: "From the moment it asks to enter the world the client shows portal space; once the \
+               server has the player in the world and the client its body, it goes out over two \
+               seconds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PORTAL-ENTRY"),
+        station: "auberean-shell::dat::session::entering_the_world_goes_through_portal_space",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-body-runs-with-the-default-keys-and-is-reported",
+        says: "In the world, W held runs the player's body over the hall's floor at the running \
+               speed, and its place is reported to the server by the report rule; closing the window \
+               in the world ends the program at once with a goodbye on every connection and no \
+               log-off first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-RUN"),
+        station: "auberean-shell::dat::session::the_body_runs_with_the_default_keys_and_is_reported",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-interface-takes-input-first",
+        says: "The game's interface sees every device event before the world's controls; an event \
+               it takes never reaches them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SEAM"),
+        station: "auberean-shell::dat::session::the_interface_takes_input_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-land-kept-is-the-near-window-about-the-player",
+        says: "The land kept is the near window about the player's cell: its block and the eight \
+               beside it. Moving a block lets go of the column left and makes the one reached; \
+               coming back finds the blocks let go of as they were; inside cells that do not see \
+               the outdoors no land is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-NEAR-WINDOW"),
+        station: "auberean-shell::dat::session::the_land_kept_is_the_near_window_about_the_player",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.what-is-placed-over-the-world-takes-the-frames-own-camera",
+        says: "Each frame the interface takes input before the world moves on, and once the world \
+               moved on and its frame was built it places what stands over the world (names, the \
+               selection's marks) from that frame's camera, as the game places them after the \
+               world's update and before drawing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FRAME-ORDER"),
+        station: "auberean-shell::dat::session::what_is_placed_over_the_world_takes_the_frames_own_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.the-landscape-preferences-set-the-far-landscape-and-the-frills",
         says: "The landscape's draw distance sets how far the far landscape reaches (none, 2, 4, \
                6 or 8 blocks); the frill distance where frills are drawn (none; the cells next to \
@@ -365,5 +660,24 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-LANDSCAPE-PREFERENCES"),
         station: "auberean-scene::cpu::landscape::the_landscape_preferences_set_the_far_landscape_and_the_frills",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.world.the-sky-follows-the-camera-every-frame-and-the-ground-is-lit-on-the-lights-tick",
+        says: "Outdoors the sky stands at the camera every frame and moves on with the moment, as \
+               do the light and fog; the ground keeps the lighting it was lit with until the \
+               light's tick, the sky's light interval (30 s of game time) after the last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SKY-EVERY-FRAME"),
+        station: "auberean-shell::dat::session::the_sky_follows_the_camera_every_frame_and_the_ground_is_lit_on_the_lights_tick",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.the-worlds-frame-carries-the-clients-running-time",
+        says: "The world's frame carries the client's running time every frame: the clouds' \
+               shadows slide, the water's ripples move and the sun's flare fades by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-RUNNING-TIME"),
+        station: "auberean-shell::dat::session::the_worlds_frame_carries_the_clients_running_time",
+        tier: Tier::Dat,
     },
 ];

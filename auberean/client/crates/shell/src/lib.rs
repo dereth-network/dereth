@@ -1,0 +1,676 @@
+//! The application over a host, with no platform: the device's events routed to the game's
+//! interface and then to the world's controls, the client's session carried over the host's
+//! network, the world moved and framed, the settings read and kept, and what each frame shows.
+//!
+//! **Depends on** the client (`auberean-client-sdk`), the world a window shows (`auberean-scene`),
+//! drawing's frame (`auberean-draw`), the world (`auberean-world`, `auberean-physics`), the key
+//! maps' records and files (`auberean-assets`, `auberean-dat`), `auberean-primitives` and
+//! `dereth-primitives`. **Used by** the desktop client (`auberean-client`), which is its host, and
+//! by the game's interface, which plugs in through [`interface::Interface`].
+//!
+//! A [`Shell`] is generic over its [`Host`] (the platform: clock, network, pointer, title,
+//! settings and the player's files) and holds one [`interface::Interface`]. Each event goes to the
+//! interface first and, if the interface does not take it, to the world's controls
+//! ([`controls`]), which turn it into actions through the key maps ([`keys`]): the player's,
+//! read from their files at startup and written when the key map screen applies new ones. Each frame
+//! ([`Shell::frame`]):
+//!
+//! 1. the datagrams that arrived go to the client;
+//! 2. the interface sees the game and asks for things: connecting, the client's actions,
+//!    disconnecting, quitting ([`interface::Request`]);
+//! 3. in the world, the controls' intent moves the body and the camera ([`auberean_scene`]), and
+//!    selecting and using objects become the server calls the client makes ([`calls`]);
+//! 4. the client runs its frame, and what it sends goes out through the host;
+//! 5. the frame to draw is the scene's, with the interface's overlay (and the developer's status
+//!    overlay when asked for, [`dev`]) over it.
+//!
+//! **Must never** name a platform (a window system, the operating system, a sound device): the
+//! host brings those (`cargo xtask seams`).
+
+pub mod calls;
+pub mod controls;
+pub mod dev;
+pub mod host;
+pub mod input;
+pub mod interface;
+pub mod keys;
+pub mod settings;
+
+use std::collections::VecDeque;
+
+use core::net::SocketAddr;
+
+use auberean_client_sdk::net::LocalTime;
+use auberean_client_sdk::{Client, ClientData, ClientSettings};
+use auberean_draw::scene::Frame;
+use auberean_scene::{Scene, WorldData};
+
+pub use auberean_scene::view::ViewFrame;
+pub use host::Host;
+use input::Event;
+use interface::{CameraRequest, Game, Heard, Interface, Notice, Overlay, Phase, Request, Shown};
+pub use settings::Settings;
+
+/// The game as the interface sees it, from the shell's fields one by one (so the interface itself
+/// may be borrowed beside it).
+macro_rules! game {
+    ($s:ident, $phase:expr) => {
+        Game {
+            phase: $phase,
+            client: $s.client.as_ref(),
+            world: $s.world,
+            size: $s.size,
+            now: $s.host.now(),
+            status: &$s.scene.status,
+            selected: $s.selected,
+            heard: &$s.fresh,
+            shown: &$s.shown,
+            picked: &$s.scene.views.picked,
+            notices: &$s.notices,
+            seen: &$s.scene.seen,
+            world_pick: $s.world_pick,
+            keys: &$s.keys,
+        }
+    };
+}
+
+/// How many lines heard the status overlay keeps.
+const HEARD: usize = 6;
+
+/// What a frame shows.
+#[derive(Debug)]
+pub struct Output<'a> {
+    /// The world, once the player is in it and portal space leaves it in sight.
+    pub world: Option<&'a Frame>,
+    /// Portal space, while it is on: laid over the world `portal_alpha` of the way.
+    pub portal: Option<&'a Frame>,
+    pub portal_alpha: f32,
+    /// A color laid over the world and portal space (under the interface's front), with its alpha.
+    pub veil: Option<[f32; 4]>,
+    /// Drawn over the world, in order.
+    pub overlay: &'a Overlay,
+    /// The interface's viewport scenes, each to be drawn in its rectangle.
+    pub views: Vec<auberean_scene::view::ViewFrame>,
+    /// The program should close.
+    pub quit: bool,
+}
+
+/// The application.
+pub struct Shell<'w, H: Host> {
+    pub host: H,
+    world: &'w WorldData,
+    data: ClientData,
+    /// The session, while there is one.
+    pub client: Option<Client>,
+    pub scene: Scene<'w>,
+    interface: Box<dyn Interface + 'w>,
+    pub controls: controls::Controls,
+    /// The key maps and what their actions do.
+    pub keys: keys::Keys,
+    pub settings: Settings,
+    /// The window's drawing area, in pixels.
+    pub size: (u32, u32),
+    /// The object selected (0 for none).
+    pub selected: u64,
+    /// Draw the developer's status overlay.
+    pub dev_overlay: bool,
+    entering: bool,
+    /// How many entry refusals the shell has seen (a refusal ends the entering).
+    refusals: u32,
+    /// Seconds the last frame spent moving the world, in the client, and framing the world.
+    pub costs: [f64; 3],
+    quit: bool,
+    last: f64,
+    frames: VecDeque<f64>,
+    heard: VecDeque<String>,
+    /// What was heard since the last frame.
+    fresh: Vec<Heard>,
+    /// The lines the scripts wrote for the chat windows since the last frame.
+    shown: Vec<Shown>,
+    /// The notices the scripts sent the panels since the last frame.
+    notices: Vec<Notice>,
+    overlay: Overlay,
+    title_at: f64,
+    /// The answer to the interface's last pick in the world, for its next frame.
+    world_pick: Option<Option<u64>>,
+    /// The client's random numbers: one generator for the program's life, never seeded, which
+    /// the world, the interface and every session's scripts draw from.
+    random: auberean_primitives::random::Random,
+}
+
+impl<H: Host> std::fmt::Debug for Shell<'_, H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shell")
+            .field("phase", &self.phase())
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The client calls whose words the status overlay shows: a saying, a tell, a text for the chat
+/// window.
+pub const HEARD_CALLS: [u32; 3] = [0x8205_0016, 0x8205_0017, 0x8205_0011];
+
+impl<'w, H: Host> Shell<'w, H> {
+    /// The application over `host`, showing `world`, with the client's `data`, and `interface`
+    /// over the world. Reads the settings the host kept.
+    pub fn new(
+        mut host: H,
+        world: &'w WorldData,
+        data: ClientData,
+        mut interface: Box<dyn Interface + 'w>,
+    ) -> Self {
+        let settings = host
+            .load_settings()
+            .map(|t| Settings::read(&t))
+            .unwrap_or_default();
+        let random = auberean_primitives::random::Random::new();
+        let mut scene = Scene::new(world);
+        scene.set_random(&random);
+        interface.set_random(&random);
+        scene.camera = auberean_scene::CameraControl::new(settings.camera);
+        // The graphics preferences kept, else a fresh install's: the interface's options start
+        // from them and the world is drawn by them.
+        let graphics = settings.starting_graphics();
+        interface.set_graphics(&graphics);
+        scene.init_preferences(&graphics);
+        // The key maps: the base map, then the player's from their files (the data's Defaults where
+        // a file does not load).
+        let keys = keys::Keys::start(
+            keys::KeyRecords::read(&world.records),
+            settings.key_files.clone(),
+            &mut crate::host::HostFiles(&mut host),
+        );
+        let last = host.now();
+        Self {
+            size: settings.window,
+            host,
+            world,
+            data,
+            client: None,
+            scene,
+            interface,
+            controls: controls::Controls::default(),
+            keys,
+            settings,
+            selected: 0,
+            dev_overlay: false,
+            entering: false,
+            refusals: 0,
+            costs: [0.0; 3],
+            quit: false,
+            last,
+            frames: VecDeque::new(),
+            heard: VecDeque::new(),
+            fresh: Vec::new(),
+            shown: Vec::new(),
+            notices: Vec::new(),
+            overlay: Overlay::default(),
+            title_at: f64::NEG_INFINITY,
+            world_pick: None,
+            random,
+        }
+    }
+
+    /// Where the session is.
+    #[must_use]
+    pub fn phase(&self) -> Phase {
+        let Some(c) = &self.client else {
+            return Phase::Disconnected;
+        };
+        if c.model.player_object().is_some() && c.body.placed() {
+            return Phase::World;
+        }
+        if self.entering || c.model.player.is_some() {
+            return Phase::Entering;
+        }
+        if c.model.characters.is_some() {
+            Phase::Characters
+        } else {
+            Phase::Connecting
+        }
+    }
+
+    /// One event from the host: the interface first, then the world's controls.
+    pub fn event(&mut self, e: &Event) {
+        match e {
+            Event::Resized { width, height } => {
+                self.size = ((*width).max(1), (*height).max(1));
+                // The size kept is the window's: full screen fills the display.
+                if !self.settings.full_screen {
+                    self.settings.window = self.size;
+                }
+                return;
+            }
+            Event::Close => {
+                self.quit = true;
+                return;
+            }
+            _ => {}
+        }
+        let phase = self.phase();
+        let game = game!(self, phase);
+        if self.interface.event(e, &game) {
+            return;
+        }
+        self.controls.event(e, &self.keys);
+    }
+
+    fn request(&mut self, r: Request) {
+        match r {
+            Request::Connect {
+                server,
+                account,
+                password,
+            } => self.connect(server, &account, &password),
+            Request::Act(a) => {
+                if let Some(c) = &mut self.client {
+                    if matches!(a, auberean_client_sdk::Action::PlayCharacter { .. }) {
+                        self.entering = true;
+                    }
+                    c.act(a);
+                }
+            }
+            Request::Disconnect => {
+                self.client = None;
+                self.entering = false;
+            }
+            Request::Quit => self.quit = true,
+            Request::Camera(c) => self.camera(c),
+            Request::PickWorld { x, y } => {
+                self.world_pick = Some(self.scene.pick_world((x, y), self.size));
+            }
+            Request::Graphics(g) => {
+                self.scene.init_preferences(&g);
+                self.settings.graphics = Some(g);
+            }
+            Request::Move { action, extent } => {
+                self.controls.action_handler(
+                    &self.keys,
+                    action,
+                    extent,
+                    controls::INTERFACE,
+                    action,
+                );
+            }
+            Request::KeyMaps(maps) => {
+                let [n, s, c] = &maps;
+                if !self
+                    .keys
+                    .apply([n, s, c], &mut crate::host::HostFiles(&mut self.host))
+                {
+                    tracing::warn!("the key maps' files could not be written");
+                }
+            }
+        }
+    }
+
+    /// The interface sets the camera: mouse look and first person to the state asked (each
+    /// switched over only when it differs), a zoom step.
+    fn camera(&mut self, c: CameraRequest) {
+        use auberean_scene::camera::Press;
+        // The camera's direction is kept where it points, turned by the player's heading.
+        let heading = self.scene.status.heading;
+        let cam = &mut self.scene.camera;
+        match c {
+            CameraRequest::MouseLook(on) => cam.set_mouse_look(on, heading),
+            CameraRequest::FirstPerson(on) => {
+                if cam.first_person() != on {
+                    cam.press(Press::FirstPerson);
+                }
+            }
+            CameraRequest::Zoom { inward } => cam.press(Press::Wheel(if inward { 1 } else { -1 })),
+        }
+    }
+
+    fn connect(&mut self, server: SocketAddr, account: &str, password: &str) {
+        if let Err(e) = self.host.connect(server) {
+            tracing::warn!(%server, "cannot reach the server: {e}");
+            return;
+        }
+        let mut key = [0u8; 64];
+        self.host.random(&mut key);
+        let settings = ClientSettings {
+            login_server: server,
+            account: account.as_bytes().to_vec(),
+            ticket: password.as_bytes().to_vec(),
+            timestamp: self.host.unix_time(),
+            session_key: key,
+            script_sends: true,
+        };
+        let mut client = Client::new(settings, self.data.clone());
+        client.set_random(&self.random);
+        client.observe.extend(HEARD_CALLS);
+        self.client = Some(client);
+        self.entering = false;
+    }
+
+    fn command(&mut self, cmd: controls::Command) {
+        let Some(c) = &mut self.client else { return };
+        // With the player's scripts, the interface's own way: the scripts make the calls; without
+        // them, the calls themselves.
+        let scripted = c.scripts.is_some();
+        let select = |id: u64| {
+            if scripted {
+                auberean_client_sdk::Action::Select { target: id }
+            } else {
+                calls::select(id)
+            }
+        };
+        match cmd {
+            controls::Command::SelectNone => {
+                if self.selected != 0 {
+                    self.selected = 0;
+                    c.act(select(0));
+                }
+            }
+            controls::Command::SelectNext => {
+                let at = |o: &auberean_client_sdk::model::Object| {
+                    o.place.map(|p| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let g = auberean_primitives::Vec3::new(
+                            (p.cell >> 24) as f32 * 160.0 + p.origin.x,
+                            ((p.cell >> 16) & 0xFF) as f32 * 160.0 + p.origin.y,
+                            p.origin.z,
+                        );
+                        g
+                    })
+                };
+                let me = c.model.player_object().and_then(at);
+                let Some(me) = me else { return };
+                let mut near: Vec<(f32, u64)> = c
+                    .model
+                    .objects()
+                    .filter(|o| Some(o.id) != c.model.player && o.in_world)
+                    .filter_map(|o| {
+                        let p = at(o)?;
+                        let d =
+                            ((p.x - me.x).powi(2) + (p.y - me.y).powi(2) + (p.z - me.z).powi(2))
+                                .sqrt();
+                        (d < 60.0).then_some((d, o.id))
+                    })
+                    .collect();
+                near.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let next = near
+                    .iter()
+                    .position(|(_, id)| *id == self.selected)
+                    .map_or(0, |i| i + 1);
+                if let Some((_, id)) = near.get(next).or_else(|| near.first()) {
+                    self.selected = *id;
+                    c.act(select(*id));
+                }
+            }
+            controls::Command::Use => {
+                if self.selected != 0 {
+                    c.act(if scripted {
+                        auberean_client_sdk::Action::UseSelected
+                    } else {
+                        calls::use_object(self.selected)
+                    });
+                }
+            }
+        }
+    }
+
+    fn hear(&mut self) {
+        self.fresh.clear();
+        self.shown.clear();
+        self.notices.clear();
+        let Some(c) = &mut self.client else { return };
+        self.notices
+            .extend(std::mem::take(&mut c.notices).into_iter().map(|n| Notice {
+                native: n.native,
+                about: n.about,
+                words: n.words,
+                objects: n.objects,
+                requests: n.requests,
+                effect_lines: n.effect_lines,
+                listed: n.listed,
+            }));
+        for s in std::mem::take(&mut c.shown) {
+            if let Some(text) = c.write_text(&s.text) {
+                self.shown.push(Shown {
+                    kind: s.kind,
+                    about: s.about,
+                    text,
+                });
+            }
+        }
+        let observed = std::mem::take(&mut c.observed);
+        let Some((_, program)) = &self.data.scripts else {
+            return;
+        };
+        for (_, function, args, from) in observed {
+            let Some(a) = args else { continue };
+            let Ok(values) = auberean_client_sdk::script::args::decode(&a.0, &program.library)
+            else {
+                continue;
+            };
+            if let Some(t) = calls::text_of(&values) {
+                tracing::info!("heard: {t}");
+                if self.heard.len() == HEARD {
+                    self.heard.pop_front();
+                }
+                self.heard.push_back(t.clone());
+                self.fresh.push(Heard {
+                    function,
+                    from,
+                    text: t,
+                });
+            }
+        }
+    }
+
+    /// One frame: the network, the interface, the world, the client; the world's frame, what is
+    /// placed over it; then what to show.
+    pub fn frame(&mut self) -> Output<'_> {
+        let now = self.host.now();
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = (now - self.last).clamp(0.0, 0.25) as f32;
+        self.last = now;
+        self.frames.push_back(now);
+        while self.frames.front().is_some_and(|t| now - t > 1.0) {
+            self.frames.pop_front();
+        }
+        let local = LocalTime(1.0 + now);
+        if let Some(c) = &mut self.client {
+            while let Some((from, bytes)) = self.host.receive() {
+                c.handle_datagram(from, &bytes, local);
+            }
+        }
+        self.hear();
+        if let Some(c) = &mut self.client {
+            self.interface.prepare(c);
+        }
+        // The interface's requests.
+        let mut requests = Vec::new();
+        let phase = self.phase();
+        let game = game!(self, phase);
+        self.interface.update(&game, &mut requests);
+        self.world_pick = None;
+        for r in requests {
+            self.request(r);
+        }
+        // The world's controls.
+        let phase = self.phase();
+        self.controls.steers = self.scene.camera.options.mouse_look_steers;
+        let intent = self.controls.intent(&self.keys);
+        let commands = self.controls.take_commands();
+        if phase == Phase::World {
+            self.entering = false;
+            for cmd in commands {
+                self.command(cmd);
+            }
+        }
+        if let Some(c) = &mut self.client {
+            let t0 = self.host.now();
+            self.scene.entering = self.entering;
+            self.scene.update(c, &intent, now, dt);
+            let t1 = self.host.now();
+            c.frame(local);
+            self.costs[0] = t1 - t0;
+            self.costs[1] = self.host.now() - t1;
+            while let Some((to, bytes)) = c.poll_transmit() {
+                self.host.send(to, &bytes);
+            }
+            self.scene.game_time = c.game_time();
+            // An entry refused: the client is back at the character list.
+            if let Some((_, n)) = c.model.refused {
+                if n != self.refusals {
+                    self.refusals = n;
+                    self.entering = false;
+                }
+            }
+        }
+        let phase_now = self.phase();
+        let free = self.interface.wants_pointer(&game!(self, phase_now));
+        let pointer = self.scene.camera.mouse_look && !free;
+        self.controls.mouse_look = self.scene.camera.mouse_look;
+        self.host.hold_pointer(pointer);
+        if now - self.title_at > 0.5 {
+            self.title_at = now;
+            let t = self.title();
+            self.host.set_title(&t);
+        }
+        // The world's frame, then what is placed over the world from its camera.
+        let t = self.host.now();
+        self.scene.build_frames(now, phase == Phase::World);
+        self.costs[2] = self.host.now() - t;
+        let mut requests = Vec::new();
+        let phase_now = self.phase();
+        let game = game!(self, phase_now);
+        self.interface.after_world(&game, &mut requests);
+        for r in requests {
+            self.request(r);
+        }
+        // What to draw over the world.
+        let mut overlay = std::mem::take(&mut self.overlay);
+        overlay.quads.clear();
+        overlay.scenes.clear();
+        let phase_now = self.phase();
+        let game = game!(self, phase_now);
+        self.interface.draw(&game, &mut overlay);
+        if self.dev_overlay {
+            let lines = self.status_lines();
+            dev::overlay(&mut overlay, &lines);
+        }
+        self.overlay = overlay;
+        let quit = self.quit;
+        if quit {
+            // Closing, in the world or out of it: a goodbye on every connection, and the program
+            // ends (the server takes a character left in the world out itself).
+            // D2-08334, D2-00085
+            if let Some(c) = &mut self.client {
+                c.disconnect();
+                while let Some((to, bytes)) = c.poll_transmit() {
+                    self.host.send(to, &bytes);
+                }
+            }
+            self.host.save_settings(&self.settings.write());
+        }
+        let views = self.scene.view_frames(&self.overlay.scenes, dt);
+        let frames = self.scene.frames(now, phase == Phase::World);
+        Output {
+            world: frames.world,
+            portal: frames.portal,
+            portal_alpha: frames.portal_alpha,
+            veil: frames.over,
+            overlay: &self.overlay,
+            views,
+            quit,
+        }
+    }
+
+    fn title(&self) -> String {
+        let s = &self.scene.status;
+        match self.phase() {
+            Phase::World => format!(
+                "Auberean - {:08X} ({:.1}, {:.1}, {:.1}) heading {:.0}",
+                s.cell, s.origin.x, s.origin.y, s.origin.z, s.heading
+            ),
+            p => format!("Auberean - {p:?}"),
+        }
+    }
+
+    /// The player's health and vigor with their greatest, where the model has them.
+    #[must_use]
+    pub fn vitals(&self) -> Option<[f32; 4]> {
+        let c = self.client.as_ref()?;
+        let q = &c.model.player_object()?.qualities;
+        let v = |id: u32| {
+            #[allow(clippy::cast_precision_loss)]
+            q.ints
+                .get(&id)
+                .map(|v| *v as f32)
+                .or_else(|| q.floats.get(&id).copied())
+        };
+        Some([v(258)?, v(263)?, v(259)?, v(264)?])
+    }
+
+    /// The developer's status lines.
+    #[must_use]
+    pub fn status_lines(&self) -> Vec<String> {
+        let s = &self.scene.status;
+        let mut l = vec![format!(
+            "{:?}  {} FPS  {} BATCHES  {}K+{}K VERTICES  MS {:.1} {:.1} {:.1}",
+            self.phase(),
+            self.frames.len(),
+            s.batches,
+            s.vertices.0 / 1000,
+            s.vertices.1 / 1000,
+            self.costs[0] * 1000.0,
+            self.costs[1] * 1000.0,
+            self.costs[2] * 1000.0
+        )];
+        if self.phase() == Phase::World {
+            l.push(format!(
+                "CELL {:08X}  ({:.1}, {:.1}, {:.1})  HEADING {:.0}",
+                s.cell, s.origin.x, s.origin.y, s.origin.z, s.heading
+            ));
+            // Where the camera stands, kept off the world.
+            let eye = self
+                .scene
+                .camera
+                .last
+                .map_or(dereth_primitives::Vec3::ZERO, |v| v.origin);
+            let (look, tilt) = self
+                .scene
+                .seen
+                .camera
+                .map_or((0.0, 0.0), |c| (c.heading, c.pitch));
+            l.push(format!(
+                "SPEED {:.1}  {}  {} BODIES  CAMERA {:.1} M AT ({:.2}, {:.2}, {:.2}) LOOKING {:.1} {:.1}{}",
+                s.speed,
+                if s.contact { "GROUND" } else { "AIR" },
+                s.others,
+                self.scene.camera.distance,
+                eye.x,
+                eye.y,
+                eye.z,
+                look,
+                tilt,
+                if self.scene.camera.mouse_look {
+                    "  MOUSE LOOK"
+                } else {
+                    ""
+                }
+            ));
+            if let Some([h, hm, v, vm]) = self.vitals() {
+                l.push(format!("HEALTH {h:.0}/{hm:.0}  VIGOR {v:.0}/{vm:.0}"));
+            }
+            if self.selected != 0 {
+                l.push(format!("SELECTED {:016X}", self.selected));
+            }
+            if !s.nearest.is_empty() {
+                let near: Vec<String> = s
+                    .nearest
+                    .iter()
+                    .map(|(id, d, b)| format!("{:X} {d:.0} M AT {b:.0}", id & 0xFFFF_FFFF))
+                    .collect();
+                l.push(format!("NEAR {}", near.join("  ")));
+            }
+        }
+        l.extend(self.heard.iter().map(|t| format!("> {t}")));
+        l
+    }
+}
