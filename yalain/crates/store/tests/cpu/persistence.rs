@@ -411,3 +411,48 @@ fn an_accounts_secret_given_later_outlives_reopening_the_database() {
     let a = m.account_by_name("TESTER").expect("reads").expect("there");
     assert_eq!(a.secret, Some(vec![7, 8]));
 }
+
+/// A character's save that fails part way (here the database refuses its kept places) keeps
+/// nothing of itself: the save before it reads back whole, its places included. A purge that fails
+/// part way likewise leaves the character and everything it kept.
+/// Behaviour: server.world.a-save-is-whole-or-not-at-all
+#[test]
+fn a_save_or_purge_that_fails_part_way_leaves_the_one_before_it_whole() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-whole-test-{}.sqlite",
+        std::process::id()
+    )));
+    let _ = std::fs::remove_file(&file.0);
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let a = s.create_account("Tester", None, 100).expect("made");
+    let n = s.next_character_number().expect("number");
+    s.insert_character(&character(n, a.id, "Babyfare"))
+        .expect("kept");
+    s.set_world_state(n, &world()).expect("kept");
+
+    let other = rusqlite::Connection::open(&file.0).expect("a second connection");
+    other
+        .execute_batch(
+            "CREATE TRIGGER refuse_places BEFORE INSERT ON kept_place \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;
+             CREATE TRIGGER refuse_purge BEFORE DELETE ON character \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
+        .expect("triggers");
+    let mut later = world();
+    later.instances = 9;
+    later.play = vec![2, 2, 2, 2];
+    assert!(s.set_world_state(n, &later).is_err(), "the save fails");
+    assert_eq!(
+        s.world_state(n).expect("reads"),
+        Some(world()),
+        "the save before"
+    );
+    assert!(s.purge_character(n).is_err(), "the purge fails");
+    assert_eq!(
+        s.world_state(n).expect("reads"),
+        Some(world()),
+        "still kept"
+    );
+    assert!(s.character(n).expect("reads").is_some(), "still there");
+}

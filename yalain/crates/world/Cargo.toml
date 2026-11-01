@@ -30,7 +30,10 @@ dereth-primitives.workspace = true
 dereth-physics.workspace = true
 # A record served to a client is compressed when that makes it smaller.
 flate2.workspace = true
+# Account secrets: bcrypt; the secrets earlier versions kept are SHA-256, compared in constant time.
+bcrypt.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 tracing.workspace = true
 
 [lints]

@@ -169,6 +169,7 @@ to others.
 | `--no-referral` | keep each client on its login connection instead of sending it to the world's port |
 | `--listed-accounts` | admit only accounts made with `--add-account` (section 5) |
 | `--add-account <name>:<ticket>` | make an account with that ticket, then carry on (section 5) |
+| `--secret-cost <n>` | the bcrypt cost tickets are kept at, 4 to 31 (default 8; section 5) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
 | `--hub`, `--hub-slug`, `--hub-key-file`, `--federation` | the Dereth Network (section 8) |
@@ -291,9 +292,21 @@ admits it by one of two rules:
   may be given many times; the server makes them and carries on running). An account that exists
   already is left as it is, with a warning in the log.
 
-The store keeps a salted hash of each account's ticket, never the ticket. A world that turns
-`--listed-accounts` on later admits its players with the tickets they already use. Account and character names are matched
-without regard to case. There is no command to change a ticket or remove an account.
+The store keeps a bcrypt hash of each account's ticket, never the ticket, at cost 8, as Empyrean
+keeps its passwords. `--secret-cost <n>` sets another cost, from 4 to 31: each step up doubles the
+time a login's check takes. An account kept at another cost, or kept as an earlier Yalain kept it
+(a salted SHA-256), is kept again at the world's cost the next time it logs in with its ticket,
+and the log says so. A world that turns `--listed-accounts` on later admits its players with the
+tickets they already use. Account and character names are matched without regard to case, and an
+account name is at most 50 characters. There is no command to change a ticket or remove an
+account.
+
+Five refused logins from one address within a minute (a wrong ticket, or a name a world of listed
+accounts does not have) make the world refuse that address's logins for a minute, unchecked, with
+the same answer as any refusal. Other addresses are not affected. An IPv6 address counts by its
+/64. The friends service holds back refused tickets the same way. Players who share one address (a
+household behind one router, say) share the lockout: one player's wrong tickets hold back the others
+for that minute.
 
 An account holds up to six characters. A deleted character stays in the list, grayed out, for an
 hour.

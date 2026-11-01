@@ -361,6 +361,10 @@ serde_json = "1"
 skrifa = { version = "0.48", default-features = false, features = ["std"] }
 # Legacy SHA512 account password hashes.
 sha2 = "0.10"
+# Account secrets on the second game's server (yalain-world): bcrypt, its own salt from the OS random
+# source, compared in constant time; `subtle` for the one compare left outside it.
+bcrypt = "0.19.3"
+subtle = { version = "2.6", default-features = false }
 # The status ping's tokens (empyrean-net): HMAC-SHA256 over the asker's address and the time window.
 hmac = "0.12"
 # Configuration consumers retain ordered table keys through their preserve_order feature.

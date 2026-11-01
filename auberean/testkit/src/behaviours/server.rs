@@ -28,6 +28,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.accounts.names-at-most-50",
+        says: "An account name longer than 50 UTF-16 units is refused, and no account is made \
+               for it, as Empyrean refuses one; the operator cannot make one either.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-NAME-LENGTH"),
+        station: "yalain-testkit::cpu::entry::tickets::an_account_name_longer_than_fifty_is_refused_and_makes_no_account",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.older-secrets-kept-again-as-bcrypt",
+        says: "A secret kept as earlier versions kept it (a salted SHA-256) admits its ticket \
+               once more and is then kept as bcrypt at the world's cost, as Empyrean moves an \
+               older password hash to bcrypt at its next good login; a wrong ticket is refused \
+               and leaves it as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-OLDER-SECRETS"),
+        station: "yalain-testkit::cpu::entry::tickets::an_older_salted_sha256_secret_admits_its_ticket_and_is_kept_as_bcrypt_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.accounts.one-secret-in-every-form",
         says: "One account's secret is admitted from the September 2013 client's game login, our \
                client's game login and the friends ticket alike, whichever presented it first, \
@@ -46,6 +66,37 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-OPEN"),
         station: "yalain-testkit::cpu::entry::character_select::an_open_account_is_made_at_its_first_login_and_needs_that_ticket_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.refused-logins-hold-back-their-address",
+        says: "Five logins refused from one address (an IPv6 address by its /64) within a minute \
+               have its logins refused unchecked for a minute after, with the same answer as any \
+               refusal, as the friends service holds back refused tickets; Empyrean has no such \
+               hold, and checks every password it is sent.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-LOGIN-HOLD"),
+        station: "yalain-testkit::cpu::entry::tickets::five_refused_logins_from_one_address_hold_its_logins_back_for_a_minute",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.secrets-kept-again-at-the-worlds-cost",
+        says: "A secret kept at a bcrypt cost other than the world's is kept again at the \
+               world's cost when its ticket logs in, as Empyrean rehashes a password whose work \
+               factor differs from its setting; a wrong ticket leaves it as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-SECRET-COST"),
+        station: "yalain-testkit::cpu::entry::tickets::a_secret_kept_at_another_cost_is_kept_again_at_the_worlds_cost_by_its_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.secrets-kept-as-salted-bcrypt",
+        says: "An account's secret is kept as a bcrypt hash at the world's cost with a salt of \
+               its own, never as the ticket, as Empyrean keeps passwords; a secret in no form the \
+               server keeps matches nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-BCRYPT"),
+        station: "yalain-testkit::cpu::entry::tickets::an_accounts_secret_is_kept_as_a_salted_bcrypt_hash_and_never_as_its_ticket",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4857,6 +4908,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RELOG-DROPPED"),
         station: "yalain-testkit::cpu::entry::logging_in_again::a_character_whose_client_said_goodbye_lingers_and_leaves_at_its_leaving_behavior",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-save-is-whole-or-not-at-all",
+        says: "A character's save, and a purge, is kept whole or not at all: one that fails part \
+               way leaves the save before it whole, as Empyrean keeps each batch of saves in one \
+               transaction.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-WHOLE-SAVES"),
+        station: "yalain-store::cpu::persistence::a_save_or_purge_that_fails_part_way_leaves_the_one_before_it_whole",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -31,6 +31,8 @@
 //!   --banned-names FILE   refuse character names holding these words: one pattern a line, `*`
 //!                         for any run of letters (default: none)
 //!   --add-account N:T     make account N with ticket T, then carry on
+//!   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8); a
+//!                         secret kept at another cost is kept again at this one at its next login
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -134,6 +136,8 @@ struct Options {
     listed: bool,
     banned_names: Option<PathBuf>,
     add_accounts: Vec<(String, String)>,
+    /// The bcrypt cost of account secrets (`--secret-cost`).
+    secret_cost: u32,
     add_characters: Vec<(String, String, u32, u32)>,
     places: Vec<(String, String, StoredPosition)>,
     money: Vec<(String, String, i32)>,
@@ -171,6 +175,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         listed: false,
         banned_names: None,
         add_accounts: Vec::new(),
+        secret_cost: yalain_world::login::SECRET_COST,
         add_characters: Vec::new(),
         places: Vec::new(),
         money: Vec::new(),
@@ -211,6 +216,15 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 let v = value()?;
                 let (n, t) = v.split_once(':').ok_or("--add-account takes NAME:TICKET")?;
                 o.add_accounts.push((n.to_string(), t.to_string()));
+            }
+            "--secret-cost" => {
+                let n: u32 = value()?
+                    .parse()
+                    .map_err(|e| format!("--secret-cost: {e}"))?;
+                if !yalain_world::login::SECRET_COSTS.contains(&n) {
+                    return Err("--secret-cost takes 4 to 31".into());
+                }
+                o.secret_cost = n;
             }
             "--add-character" => {
                 let v = value()?;
@@ -318,7 +332,7 @@ fn seed<S: Store>(o: &Options, store: &mut S, rules: &CharGenRules) {
         AccountPolicy::Open
     };
     for (n, t) in &o.add_accounts {
-        if let Err(e) = add_account(store, n, t.as_bytes(), unix_now()) {
+        if let Err(e) = add_account(store, n, t.as_bytes(), o.secret_cost, unix_now()) {
             tracing::warn!("account {n}: {e}");
         }
     }
@@ -441,6 +455,7 @@ fn run<S: Store>(
         referral: o.referral,
         echo_positions: o.echo,
         seed,
+        secret_cost: o.secret_cost,
         ..ServerConfig::default()
     };
     let advertise = if o.referral {
@@ -996,7 +1011,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             return std::process::ExitCode::FAILURE;
         }

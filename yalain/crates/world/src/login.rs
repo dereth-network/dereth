@@ -28,6 +28,8 @@ use auberean_protocol::types::{CharacterIdentity, VisualDesc};
 use auberean_protocol::wire::{Field, Reader, Writer};
 use auberean_protocol::{message_type, queue, ClientBlob, ClientMessage, ServerMessage};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::net::IpAddr;
 use yalain_net::login::GameLogin;
 use yalain_net::{BlobKind, CloseReason, ConnId, ServerNet};
 use yalain_store::{Account, Character, Store};
@@ -74,50 +76,159 @@ fn send(net: &mut ServerNet, conn: ConnId, queue: u16, kind: BlobKind, m: &Serve
     net.send(conn, queue, kind, bytes);
 }
 
-/// A credential check: a salt, then the hash of the salt and the ticket.
-#[must_use]
-pub fn secret_for(name: &str, ticket: &[u8], now: i64) -> Vec<u8> {
-    let salt: Vec<u8> = Sha256::new()
-        .chain_update(b"salt")
-        .chain_update(name.as_bytes())
-        .chain_update(now.to_le_bytes())
-        .finalize()[..16]
-        .to_vec();
-    let mut out = salt.clone();
-    out.extend_from_slice(
-        &Sha256::new()
-            .chain_update(&salt)
-            .chain_update(ticket)
-            .finalize(),
-    );
-    out
+/// Refused logins from one address within [`LOGIN_LOCKOUT`] seconds past which its next logins
+/// are refused unchecked for as long, as the friends service counts refused tickets.
+pub const LOGIN_REFUSALS: usize = 5;
+/// See [`LOGIN_REFUSALS`].
+pub const LOGIN_LOCKOUT: f64 = 60.0;
+/// The most addresses the login guard remembers refusals for; past it, those with none in the
+/// window are forgotten.
+const GUARD_ADDRESSES: usize = 4096;
+
+/// The refused logins of each address, and the addresses refused unchecked until a time.
+#[derive(Debug, Default)]
+pub struct LoginGuard {
+    refusals: HashMap<String, Vec<f64>>,
+    locked: HashMap<String, f64>,
 }
 
-/// Does a ticket match a credential check?
+impl LoginGuard {
+    /// Is an address refused unchecked now?
+    pub fn locked(&mut self, address: &str, now: f64) -> bool {
+        match self.locked.get(address) {
+            Some(&until) if now < until => true,
+            Some(_) => {
+                self.locked.remove(address);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// A login from an address was refused.
+    pub fn refused(&mut self, address: &str, now: f64) {
+        if self.refusals.len() >= GUARD_ADDRESSES {
+            self.refusals
+                .retain(|_, t| t.iter().any(|t| now - t < LOGIN_LOCKOUT));
+            self.locked.retain(|_, until| now < *until);
+        }
+        let times = self.refusals.entry(address.to_owned()).or_default();
+        times.retain(|t| now - t < LOGIN_LOCKOUT);
+        times.push(now);
+        if times.len() >= LOGIN_REFUSALS {
+            times.clear();
+            self.locked.insert(address.to_owned(), now + LOGIN_LOCKOUT);
+        }
+    }
+}
+
+/// The address refusals are counted against: an IPv4 address (one mapped into IPv6 included), or
+/// an IPv6 address's /64.
+#[must_use]
+pub fn address_key(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v) => v.to_string(),
+        IpAddr::V6(v) => match v.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = v.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+    }
+}
+
+/// The longest account name admitted, in UTF-16 units, as Empyrean admits.
+pub const ACCOUNT_NAME_MAX: usize = 50;
+
+/// Is an account name one an account may have: not empty, and no longer than
+/// [`ACCOUNT_NAME_MAX`]?
+#[must_use]
+pub fn account_name_fits(name: &str) -> bool {
+    !name.is_empty() && name.encode_utf16().count() <= ACCOUNT_NAME_MAX
+}
+
+/// The bcrypt cost new secrets are kept at, unless the operator gives another: Empyrean's
+/// default work factor.
+pub const SECRET_COST: u32 = 8;
+/// The lowest and highest bcrypt costs; a cost outside them is taken as the nearer one.
+pub const SECRET_COSTS: std::ops::RangeInclusive<u32> = 4..=31;
+
+/// The length of a secret kept in the bcrypt form (`$2b$`, the cost, the salt and the hash).
+const BCRYPT_LEN: usize = 60;
+/// The length of a secret earlier versions kept: a 16-byte salt, then the SHA-256 of the salt and
+/// the ticket.
+const SALTED_SHA256_LEN: usize = 48;
+
+/// A credential check: the ticket's bcrypt hash at `cost` (taken into [`SECRET_COSTS`]), with a
+/// fresh salt from the system's random source. `None` when there is no random source to draw it
+/// from.
+#[must_use]
+pub fn secret_for(ticket: &[u8], cost: u32) -> Option<Vec<u8>> {
+    let cost = cost.clamp(*SECRET_COSTS.start(), *SECRET_COSTS.end());
+    match bcrypt::hash(ticket, cost) {
+        Ok(h) => Some(h.into_bytes()),
+        Err(e) => {
+            tracing::error!("an account's secret could not be made: {e}");
+            None
+        }
+    }
+}
+
+/// Does a ticket match a credential check? The check is a bcrypt hash, or the salted SHA-256
+/// earlier versions kept; either is compared in constant time. Anything else matches nothing.
 #[must_use]
 pub fn ticket_matches(secret: &[u8], ticket: &[u8]) -> bool {
-    let Some((salt, hash)) = secret.split_at_checked(16) else {
-        return false;
-    };
-    Sha256::new()
-        .chain_update(salt)
-        .chain_update(ticket)
-        .finalize()
-        .as_slice()
-        == hash
+    match secret.len() {
+        BCRYPT_LEN => std::str::from_utf8(secret)
+            .ok()
+            .and_then(|h| bcrypt::verify(ticket, h).ok())
+            .unwrap_or(false),
+        SALTED_SHA256_LEN => {
+            use subtle::ConstantTimeEq;
+            let (salt, hash) = secret.split_at(16);
+            let made = Sha256::new()
+                .chain_update(salt)
+                .chain_update(ticket)
+                .finalize();
+            made.as_slice().ct_eq(hash).into()
+        }
+        _ => false,
+    }
 }
 
-/// Make an account beforehand (for [`AccountPolicy::Listed`]).
+/// Is a credential check kept as it should be: a bcrypt hash at this cost? One that is not (the
+/// salted SHA-256 of earlier versions, or another cost) is kept again once its ticket matches.
+#[must_use]
+pub fn secret_is_current(secret: &[u8], cost: u32) -> bool {
+    let cost = cost.clamp(*SECRET_COSTS.start(), *SECRET_COSTS.end());
+    secret.len() == BCRYPT_LEN
+        && secret.starts_with(b"$2")
+        && std::str::from_utf8(&secret[4..6])
+            .ok()
+            .and_then(|c| c.parse::<u32>().ok())
+            == Some(cost)
+}
+
+/// Make an account beforehand (for [`AccountPolicy::Listed`]), its secret kept at `cost`.
 ///
 /// # Errors
-/// The store's.
+/// The name is empty or too long, the store's, or no secret could be made.
 pub fn add_account<S: Store>(
     store: &mut S,
     name: &str,
     ticket: &[u8],
+    cost: u32,
     now: i64,
 ) -> yalain_store::StoreResult<Account> {
-    store.create_account(name, Some(secret_for(name, ticket, now)), now)
+    if !account_name_fits(name) {
+        return Err(yalain_store::StoreError(format!(
+            "an account name is 1 to {ACCOUNT_NAME_MAX} characters"
+        )));
+    }
+    let secret = secret_for(ticket, cost)
+        .ok_or_else(|| yalain_store::StoreError("no secret could be made".into()))?;
+    store.create_account(name, Some(secret), now)
 }
 
 /// The account a character made outside a client's login (a server command) goes on: the account
@@ -156,38 +267,69 @@ pub fn account_for_command<S: Store>(
 ///
 /// The ticket is the plain secret, however the client carried it: the game login's is read back to
 /// its text, the friends ticket's is its decoded secret. This is the one place a secret is checked
-/// or kept.
+/// or kept. Secrets are kept as bcrypt hashes at `cost`; a matching one kept otherwise (the salted
+/// SHA-256 of earlier versions, or another cost) is kept again at `cost`.
 pub fn admits<S: Store>(
     policy: AccountPolicy,
+    cost: u32,
     store: &mut S,
     name: &str,
     ticket: &[u8],
     now: i64,
 ) -> Option<Account> {
     let name = name.trim();
-    if name.is_empty() {
+    if !account_name_fits(name) {
         return None;
     }
     match (policy, store.account_by_name(name)) {
-        (AccountPolicy::Open, Ok(Some(mut a))) => match a.secret.as_deref() {
-            Some(sec) => ticket_matches(sec, ticket).then_some(a),
-            None => {
-                let secret = secret_for(&a.name, ticket, now);
-                store.set_account_secret(a.id, secret.clone()).ok()?;
-                a.secret = Some(secret);
-                Some(a)
+        (AccountPolicy::Open, Ok(Some(mut a))) if a.secret.is_none() => {
+            let secret = secret_for(ticket, cost)?;
+            store.set_account_secret(a.id, secret.clone()).ok()?;
+            a.secret = Some(secret);
+            Some(a)
+        }
+        (AccountPolicy::Open | AccountPolicy::Listed, Ok(Some(a))) => {
+            let sec = a.secret.as_deref()?;
+            if !ticket_matches(sec, ticket) {
+                return None;
             }
-        },
+            Some(kept_current(store, a, ticket, cost))
+        }
         (AccountPolicy::Open, Ok(None)) => store
-            .create_account(name, Some(secret_for(name, ticket, now)), now)
+            .create_account(name, Some(secret_for(ticket, cost)?), now)
             .ok(),
-        (AccountPolicy::Listed, Ok(Some(a))) => a
-            .secret
-            .as_deref()
-            .is_some_and(|sec| ticket_matches(sec, ticket))
-            .then_some(a),
         (_, Ok(None) | Err(_)) => None,
     }
+}
+
+/// An admitted account whose secret is not kept as it should be ([`secret_is_current`]) has it
+/// kept again from the ticket that matched it. Admitted either way: a store that fails here still
+/// holds the secret the ticket matched.
+fn kept_current<S: Store>(store: &mut S, mut a: Account, ticket: &[u8], cost: u32) -> Account {
+    let Some(old) = a.secret.as_deref() else {
+        return a;
+    };
+    if secret_is_current(old, cost) {
+        return a;
+    }
+    let was = if old.len() == BCRYPT_LEN {
+        "bcrypt at another cost"
+    } else {
+        "the older salted SHA-256"
+    };
+    let Some(secret) = secret_for(ticket, cost) else {
+        return a;
+    };
+    match store.set_account_secret(a.id, secret.clone()) {
+        Ok(()) => {
+            tracing::info!(account = %a.name, "the account's secret, kept as {was}, is kept as bcrypt at cost {cost} now");
+            a.secret = Some(secret);
+        }
+        Err(e) => {
+            tracing::warn!(account = %a.name, "the account's secret could not be kept again: {e}");
+        }
+    }
+    a
 }
 
 pub(crate) fn logged_in<S: Store>(
@@ -198,15 +340,32 @@ pub(crate) fn logged_in<S: Store>(
     clock: Clock,
 ) {
     let name = login.account.trim().to_string();
-    let account = admits(
-        s.cfg.accounts,
-        &mut s.store,
-        &name,
-        &login.ticket,
-        clock.unix,
-    );
+    let address = net.peer(conn).map(|a| address_key(a.ip()));
+    let now = clock.local.0;
+    let locked = address
+        .as_deref()
+        .is_some_and(|a| s.login_guard.locked(a, now));
+    let account = if locked {
+        None
+    } else {
+        admits(
+            s.cfg.accounts,
+            s.cfg.secret_cost,
+            &mut s.store,
+            &name,
+            &login.ticket,
+            clock.unix,
+        )
+    };
     let Some(account) = account else {
-        tracing::info!(?conn, "login refused");
+        if locked {
+            tracing::info!(?conn, address = ?address, "login refused unchecked: too many refused from its address");
+        } else {
+            tracing::info!(?conn, address = ?address, "login refused");
+            if let Some(a) = address.as_deref() {
+                s.login_guard.refused(a, now);
+            }
+        }
         let m = ServerMessage::CharacterRefused(CharacterRefused {
             reason: ACCOUNT_INVALID,
         });

@@ -19,6 +19,8 @@ what they see, not how it was done.
 - Clients get missing game data from the server.
 - Stopping the server, Ctrl-C and service stops included, saves everyone in the world first.
 - Open worlds check an account's password after its first login.
+- Passwords are stored as bcrypt hashes; older ones are converted at the next login.
+- Five wrong passwords from one address lock it out for a minute.
 - Logging in again after a crash frees the old character in about twenty seconds.
 - Logging off takes about nineteen seconds.
 - The start area's quests, the training hall's included, can be started and finished.

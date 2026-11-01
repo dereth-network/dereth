@@ -7,12 +7,14 @@
 //! (`auberean-dat`), `auberean-primitives`, the server's connections (`yalain-net`), the store's
 //! trait (`yalain-store`), the content (`yalain-content`), the shared physics its creatures move through
 //! (`auberean-physics`, `auberean-world`, `dereth-physics`), the chat service's packet
-//! (`dereth-protocol`), the original's float-to-integer conversion (`dereth-primitives`) and the
-//! records' compression (`flate2`).
+//! (`dereth-protocol`), the original's float-to-integer conversion (`dereth-primitives`), the
+//! records' compression (`flate2`) and the account secrets' hashes (`bcrypt`; `sha2` and `subtle`
+//! for the form earlier versions kept).
 //! **Used by** the server executable (`yalain`) and its test kit (`yalain-testkit`).
 //!
 //! **Must never** touch a socket, a file or the clock: the host feeds it the network's events and
-//! the time ([`Clock`]), and it answers through the network it is handed.
+//! the time ([`Clock`]), and it answers through the network it is handed. The one thing it takes
+//! from the system is a new account secret's salt, from its random source.
 //!
 //! One [`Server`] owns everything; every handler runs on the caller's thread, one event at a
 //! time.
@@ -164,6 +166,9 @@ pub struct ServerConfig {
     pub echo_positions: bool,
     /// The seed of the world's dice.
     pub seed: u64,
+    /// The bcrypt cost account secrets are kept at ([`login::SECRET_COST`] unless the operator
+    /// gives another).
+    pub secret_cost: u32,
 }
 
 impl Default for ServerConfig {
@@ -177,6 +182,7 @@ impl Default for ServerConfig {
             referral: true,
             echo_positions: true,
             seed: 0x5EED_00A2,
+            secret_cost: login::SECRET_COST,
         }
     }
 }
@@ -213,6 +219,8 @@ pub struct Server<S: Store> {
     pub content: ContentPack,
     /// Login connections and their sessions.
     pub sessions: HashMap<ConnId, Session>,
+    /// The addresses whose logins were refused, and those refused unchecked for a while.
+    pub login_guard: login::LoginGuard,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
@@ -527,6 +535,7 @@ impl<S: Store> Server<S> {
             start: StartRules::default(),
             content: ContentPack::default(),
             sessions: HashMap::new(),
+            login_guard: login::LoginGuard::default(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,

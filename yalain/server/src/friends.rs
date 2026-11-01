@@ -89,6 +89,7 @@ impl Friends {
         for t in self.service.take_tickets() {
             let account = yalain_world::login::admits(
                 server.cfg.accounts,
+                server.cfg.secret_cost,
                 &mut server.store,
                 &t.ticket.account,
                 t.ticket.secret.as_bytes(),

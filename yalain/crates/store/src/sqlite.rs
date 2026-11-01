@@ -281,26 +281,21 @@ impl Store for SqliteStore {
             .map_err(err)
     }
 
+    // All or nothing: a character is never left half gone.
     fn purge_character(&mut self, id: u64) -> StoreResult<()> {
-        self.db
-            .execute("DELETE FROM world_state WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM kept_place WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM play_state WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM network_character WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM network_list WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM character WHERE id = ?1", [id as i64])
-            .map(|_| ())
-            .map_err(err)
+        let tx = self.db.transaction().map_err(err)?;
+        for table in [
+            "world_state",
+            "kept_place",
+            "play_state",
+            "network_character",
+            "network_list",
+            "character",
+        ] {
+            tx.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id as i64])
+                .map_err(err)?;
+        }
+        tx.commit().map_err(err)
     }
 
     fn world_state(&mut self, id: u64) -> StoreResult<Option<WorldState>> {
@@ -354,9 +349,10 @@ impl Store for SqliteStore {
             .map_err(err)
     }
 
+    // All or nothing: a save that fails part way leaves the one before it whole.
     fn set_world_state(&mut self, id: u64, s: &WorldState) -> StoreResult<()> {
-        self.db
-            .execute(
+        let tx = self.db.transaction().map_err(err)?;
+        tx.execute(
                 "INSERT INTO world_state (id, position, instances, qualities, options) VALUES (?1, ?2, ?3, ?4, ?5)                  ON CONFLICT (id) DO UPDATE SET position = ?2, instances = ?3, qualities = ?4, options = ?5",
                 params![
                     id as i64,
@@ -366,25 +362,22 @@ impl Store for SqliteStore {
                     s.options
                 ],
             )
-            .map_err(err)?;
-        self.db
-            .execute(
-                "INSERT INTO play_state (id, play) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET play = ?2",
-                params![id as i64, s.play],
-            )
-            .map_err(err)?;
-        self.db
-            .execute("DELETE FROM kept_place WHERE id = ?1", [id as i64])
+        .map_err(err)?;
+        tx.execute(
+            "INSERT INTO play_state (id, play) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET play = ?2",
+            params![id as i64, s.play],
+        )
+        .map_err(err)?;
+        tx.execute("DELETE FROM kept_place WHERE id = ?1", [id as i64])
             .map_err(err)?;
         for (kind, p) in &s.places {
-            self.db
-                .execute(
-                    "INSERT INTO kept_place (id, kind, position) VALUES (?1, ?2, ?3)",
-                    params![id as i64, i64::from(*kind), position_bytes(p)],
-                )
-                .map_err(err)?;
+            tx.execute(
+                "INSERT INTO kept_place (id, kind, position) VALUES (?1, ?2, ?3)",
+                params![id as i64, i64::from(*kind), position_bytes(p)],
+            )
+            .map_err(err)?;
         }
-        Ok(())
+        tx.commit().map_err(err)
     }
 
     fn world_record(&mut self, name: &str) -> StoreResult<Option<Vec<u8>>> {

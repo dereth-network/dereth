@@ -10,7 +10,7 @@ use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_net::Service;
 use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, WORLD_PORT};
-use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE};
+use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE, SECRET_COST};
 use yalain_world::names::NameRules;
 use yalain_world::{AccountPolicy, ServerConfig, Stage};
 
@@ -428,7 +428,7 @@ fn an_account_made_for_an_operators_character_can_log_in() {
         None,
         "none made"
     );
-    let made = add_account(&mut listed, "tester", b"ticket", 1).expect("made");
+    let made = add_account(&mut listed, "tester", b"ticket", SECRET_COST, 1).expect("made");
     let found = account_for_command(AccountPolicy::Listed, &mut listed, "Tester", 1);
     assert_eq!(found.map(|a| a.id), Ok(made.id));
 
@@ -461,7 +461,7 @@ fn a_listed_account_logs_in_with_its_ticket_only() {
         ..ServerConfig::default()
     };
     let mut store = MemoryStore::default();
-    add_account(&mut store, "tester", b"ticket", 1).expect("made");
+    add_account(&mut store, "tester", b"ticket", SECRET_COST, 1).expect("made");
     let mut h = Harness::with(cfg, store, yalain_testkit::test_rules());
     let good = at_character_list(&mut h, "tester");
     assert!(h.bots[good].logged_in());

@@ -1457,9 +1457,14 @@ impl<S: Store> Harness<S> {
 
     /// A new client; returns its index.
     pub fn add_bot(&mut self) -> usize {
+        self.add_bot_from(Ipv4Addr::LOCALHOST)
+    }
+
+    /// A new client at another address; returns its index.
+    pub fn add_bot_from(&mut self, ip: Ipv4Addr) -> usize {
         let i = self.bots.len();
         let port = 50_000 + u16::try_from(i).unwrap_or(0);
-        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
+        let addr = SocketAddr::V4(SocketAddrV4::new(ip, port));
         self.bots.push(Bot::new(addr, port_addr(Port::LOGIN_EVEN)));
         i
     }
