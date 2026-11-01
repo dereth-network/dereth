@@ -1,0 +1,38 @@
+[[quest]]
+id = 0x40000088
+id_name = "QuestRescueHold"
+challenge = -999
+duration = 72000
+prov = { from = "authored" }
+
+[[step]]
+key = "s1"
+quest = 0x40000088
+needs = 0
+trigger = { use = 0x470033D0 }
+tell = { table = 0x25002881, string = 0x2824FD4C }
+update = "bestow"
+prov = { from = "authored" }
+
+[[step]]
+key = "s2"
+quest = 0x40000088
+needs = 1
+trigger = { use = 0x470020BB, on = 0x4700115B }
+tell_text = "The way opens."
+update = "advance"
+phase = 2
+requires = [{ quest = 0x40000016, done = true }, { quest = 0x40000017, phase = 3 }]
+takes = [0x470020BB]
+to = "inn"
+prov = { from = "authored" }
+
+[[step]]
+key = "s3"
+quest = 0x40000088
+needs = 2
+trigger = { arrive = 0x4700115B }
+update = "complete"
+xp = 40
+gives = [0x470020B9]
+prov = { from = "authored" }

@@ -6869,6 +6869,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "yalain"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-script",
+ "auberean-world",
+ "ctrlc",
+ "dereth-primitives",
+ "embed-resource",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "yalain-content",
+ "yalain-net",
+ "yalain-store",
+ "yalain-testkit",
+ "yalain-world",
+ "yalain-world-db",
+ "zip",
+]
+
+[[package]]
 name = "yalain-content"
 version = "0.0.0"
 dependencies = [
@@ -6891,6 +6916,31 @@ version = "0.0.0"
 dependencies = [
  "auberean-testkit",
  "rusqlite",
+]
+
+[[package]]
+name = "yalain-testkit"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-client-sdk",
+ "auberean-dat",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-protocol",
+ "auberean-script",
+ "auberean-testkit",
+ "auberean-world",
+ "dereth-primitives",
+ "dereth-protocol",
+ "dereth-transport",
+ "flate2",
+ "rusqlite",
+ "yalain-content",
+ "yalain-net",
+ "yalain-store",
+ "yalain-world",
+ "yalain-world-db",
 ]
 
 [[package]]

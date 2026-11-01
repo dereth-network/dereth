@@ -1,0 +1,6 @@
+[[place]]
+key = "inn"
+cell = 0x77B80003
+at = [1.18, 53.42, 183.82]
+heading = 320.5
+prov = { from = "authored" }

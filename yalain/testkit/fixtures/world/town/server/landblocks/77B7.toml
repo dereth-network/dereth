@@ -1,0 +1,38 @@
+[[object]]
+key = "keeper"
+kind = "npc"
+template = 0x470033D0
+cell = 0x77B70036
+at = [129.1077, 105.773, 250.005]
+heading = 165.0
+prov = { from = "authored", by = "tests" }
+
+[[object]]
+key = "gate"
+kind = "static"
+id = 0x4077B70000000001
+template = 0x4700115B
+at = [120.0, 110.0, 250.0]
+rotation = [1.0, 0.0, 0.0, 0.0]
+name = { table = 0x25001B41, string = 0xF3E43482 }
+to = "inn"
+prov = { from = "authored" }
+
+[[camp]]
+key = "beetles"
+at = [144.8, 144.7, 133.0]
+radius = 5.0
+population = 2
+regen = 192.0
+spawns = [{ template = 0x47002224, weight = 2 }]
+profile = 0x19B
+profile_name = "GP_TestBeetleHoard"
+prov = { from = "authored", fields = { regen = { from = "derived", rule = "camp-regen-median" } } }
+
+[[object]]
+key = "sign"
+kind = "static"
+id = 0x4077B70000000002
+template = 0x4700115B
+at = [118.0, 112.0, 250.0]
+prov = { from = "authored" }

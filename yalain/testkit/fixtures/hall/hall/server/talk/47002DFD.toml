@@ -1,0 +1,8 @@
+[[talk]]
+key = "go-away"
+who = 0x47002DFD
+line = { table = 0x25002881, string = 0x63691D8F }
+line_name = "ID_GoAway"
+role = "refuse-use"
+when = "use"
+prov = { from = "authored" }

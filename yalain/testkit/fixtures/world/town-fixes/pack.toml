@@ -1,0 +1,6 @@
+format_version = 1
+name = "town-fixes"
+version = "0.1.0"
+game = "ac2"
+license = "CC0-1.0"
+description = "The town's camp moved, and a sign taken away."

@@ -1,0 +1,10 @@
+# A test world database: a town and a pack of fixes over it.
+format_version = 1
+key = "test-world"
+game = "ac2"
+era = "eor"
+packs = ["town", "town-fixes"]
+
+[[override]]
+pack = "town-fixes"
+over = "town"

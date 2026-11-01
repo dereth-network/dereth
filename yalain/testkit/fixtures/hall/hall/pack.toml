@@ -1,0 +1,7 @@
+format_version = 1
+name = "hall"
+version = "0.1.0"
+game = "ac2"
+authors = ["Dereth Network"]
+license = "CC0-1.0"
+description = "A training hall's guard, a camp of one sentinel, the hall's exit shard and the town it leads to, close together."

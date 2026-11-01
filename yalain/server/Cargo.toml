@@ -1,0 +1,60 @@
+[package]
+name = "yalain"
+description = "The Asheron's Call 2 server executable: its settings, the data it reads at start, the sockets and the loop."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[[bin]]
+name = "yalain"
+path = "src/main.rs"
+
+[build-dependencies]
+# Links the application icon (`assets/yalain.ico`) into the executable. Explorer, the task bar and
+# Alt-Tab read the icon out of the binary before any of our code runs, so it cannot be a file
+# loaded at start-up.
+embed-resource = "3"
+
+[dependencies]
+auberean-assets.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-physics.workspace = true
+auberean-world.workspace = true
+dereth-primitives.workspace = true
+auberean-script.workspace = true
+yalain-content.workspace = true
+yalain-net = { workspace = true, features = ["udp"] }
+yalain-world.workspace = true
+yalain-store = { workspace = true, features = ["sqlite"] }
+yalain-world-db.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# Ctrl-C and the service manager's stop (SIGTERM): the world keeps everyone in it, then stops.
+ctrlc = { workspace = true, features = ["termination"] }
+# `world fetch`: downloading a world database release over HTTPS (rustls with its bundled web
+# roots, no system TLS library) and reading archives other than the release's own.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[features]
+# Tier switch: selects the `live` test binary, which plays our own client against this executable
+# on loopback with the September 2013 install's data. It alone turns on the test kit's data
+# half, so testing this crate beside the test kit never builds the kit's data binary.
+live = ["yalain-testkit/retail-dats"]
+
+[dev-dependencies]
+auberean-client-sdk = { workspace = true, features = ["fs"] }
+auberean-dat = { workspace = true, features = ["test-support"] }
+yalain-content.workspace = true
+yalain-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "live"
+path = "tests/live/main.rs"
+required-features = ["live"]

@@ -1,0 +1,6 @@
+[[place]]
+key = "town"
+cell = 0x75B90031
+at = [131.13, 13.54, 127.26]
+rotation = [0.006109, 0.0, 0.0, -0.999981]
+prov = { from = "authored" }

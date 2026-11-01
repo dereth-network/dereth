@@ -1,0 +1,474 @@
+//! Butchery: a hunting knife used on a corpse, the walk to it, the work, the material gathered and
+//! the butchery skill's experience; a corpse butchered twice, one another player is opening, one
+//! its killer far outleveled, a cut that finds nothing; the knife's wear, and its wear kept across
+//! a logout. Fixture: the test world's beetle (level 2) given a butchery profile that yields bone,
+//! a crude knife with durability in the player's pack.
+
+use auberean_protocol::{queue, ServerMessage};
+use auberean_script::args::Arg;
+use yalain_content::{Prop, Props};
+use yalain_testkit::play::server_call;
+use yalain_testkit::{Harness, BUTCHERY, TEST_CREATURE};
+use yalain_world::butchery::{self, refusal, wear, Yield};
+use yalain_world::calls::{self, Node, Value};
+use yalain_world::things::{Corpse, Kind, Thing};
+
+const PROFILE: u32 = 0x6F00_12DD;
+const BONE: u32 = 0x4700_06C8;
+const CRUDE_KNIFE: u32 = 0x4700_0CBD;
+const USE_DONE: u32 = 0x8216_0021;
+const SHOW_TEXT: u32 = 0x8205_0011;
+
+/// A use of a held item on an object, as the client asks for it.
+fn use_on(item: u64, target: u64, me: u64) -> Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(target),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    Arg::Object(b.graph())
+}
+
+/// A player in the world with a crude knife, and a beetle's corpse 1.5 m away; the client, the
+/// player, its world connection, the knife and the corpse.
+fn at_a_corpse() -> (Harness, usize, u64, yalain_net::ConnId, u64, u64) {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let mut beetle = h
+        .server
+        .catalog
+        .get(TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    beetle.props.set("ButcheryProfile", Prop::Word(PROFILE));
+    h.server.catalog.insert(beetle.clone());
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BONE, 0x3A1, Props::default()));
+    let mut knife = Props::default();
+    knife.set("Item_Durability_MaxLevel", Prop::Int(KNIFE_DURABILITY));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(CRUDE_KNIFE, 0x3A1, knife));
+    h.server.crafting.butchery.insert(
+        PROFILE,
+        vec![Yield {
+            template: BONE,
+            weight: 1,
+        }],
+    );
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, CRUDE_KNIFE, 1);
+    h.run(3);
+    let knife = h.server.players[&world].play.items[0].id;
+    let id = corpse_by(&mut h, world, me, 0);
+    (h, b, me, world, knife, id)
+}
+
+/// A crude knife's durability in the fixture.
+const KNIFE_DURABILITY: i64 = 50;
+
+/// Another beetle's corpse 1.5 m from the player, killed by `killer` at a level (0: no level
+/// kept); its id.
+fn corpse_by(h: &mut Harness, world: yalain_net::ConnId, killer: u64, killer_level: i32) -> u64 {
+    let beetle = h
+        .server
+        .catalog
+        .get(TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 1.5;
+    let id = h.server.things.new_id();
+    let mut corpse = Thing::of(id, &beetle, Kind::Corpse);
+    corpse.at = Some(at);
+    corpse.corpse = Some(Corpse {
+        killer,
+        originator: 0,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: TEST_CREATURE,
+        butchered: false,
+        killer_level,
+    });
+    h.server.things.insert(corpse);
+    id
+}
+
+/// Ask to butcher a corpse with a knife and run the world `seconds` on; the inbox mark before.
+fn butcher(h: &mut Harness, b: usize, me: u64, knife: u64, corpse: u64, seconds: f64) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(knife, corpse, me)]),
+    );
+    h.run(4);
+    let t = h.now.0 + seconds;
+    while h.now.0 < t {
+        h.step();
+    }
+    from
+}
+
+/// The knife's durability updates a client was sent since `from`.
+fn wear_updates(h: &Harness, b: usize, from: usize, knife: u64) -> Vec<i32> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateIntVisual(q)
+                if q.object.id == knife && q.quality == wear::DURABILITY =>
+            {
+                Some(q.value)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The use answers a client was sent since `from`: (status, the message's string id).
+fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == USE_DONE => {
+                let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok())?;
+                let Some(Value::Graph(g)) = v.first() else {
+                    return None;
+                };
+                let status = g.iter().find_map(|(_, n)| match n {
+                    Node::Script { slots, .. } => Some(slots[11].1),
+                    _ => None,
+                })?;
+                let text = g.iter().find_map(|(_, n)| match n {
+                    Node::TextInfo(t) => Some(t.string_id),
+                    _ => None,
+                });
+                Some((status, text.unwrap_or(0)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A crude knife used on a corpse: the player walks to it (to 3 m), plays its butchering behavior
+/// and lets it go, and about two seconds later the butchery skill's experience (its pool, then its
+/// record), the craft effect, the material made in the pack (11 units, or 22 for an expert cut)
+/// and the use answered "You butcher ... units of ... from ...". The same corpse again is refused,
+/// butchered already.
+/// Behaviour: server.craft.butchery-gathers-a-material
+#[test]
+fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(knife, corpse, me)]),
+    );
+    h.run(4);
+    let msgs = h.world_messages(b, from);
+    assert!(msgs.iter().any(|m| matches!(m,
+        ServerMessage::MoveTo(e) if e.sender.id == me
+            && e.action.params.flags == 0x63
+            && (e.action.params.desired_distance - butchery::REACH).abs() < 1e-6)));
+    assert!(msgs.iter().any(|m| matches!(m,
+        ServerMessage::PlayBehavior(e) if e.sender.id == me
+            && e.action.behavior == butchery::BEHAVIOR)));
+    assert!(msgs.iter().any(|m| matches!(m,
+        ServerMessage::LetGoBehavior(e) if e.action.behavior == butchery::BEHAVIOR)));
+    assert!(use_answers(&h, b, from).is_empty(), "not done yet");
+    let t = h.now.0 + 2.2;
+    while h.now.0 < t {
+        h.step();
+    }
+    let got = use_answers(&h, b, from);
+    assert_eq!(got.len(), 1, "answered once");
+    assert_eq!(got[0].0, 0, "not refused");
+    assert!(
+        got[0].1 == butchery::text::BUTCHERED.0 || got[0].1 == butchery::text::EXPERTLY.0,
+        "the butchery's text"
+    );
+    let p = &h.server.players[&world];
+    let bone = p
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == BONE)
+        .expect("bone");
+    assert!(
+        bone.quantity == 11 || bone.quantity == 22,
+        "{}",
+        bone.quantity
+    );
+    let record = p.play.craft_skills.iter().find(|c| c.skill == BUTCHERY);
+    assert_eq!(record.map(|c| c.today), Some(2), "a level 1 cut pays 2");
+    assert_eq!(yalain_world::quals::long(&p.qualities, 1001), Some(1));
+    let msgs = h.world_messages(b, from);
+    assert!(msgs.iter().any(|m| matches!(m,
+        ServerMessage::DoFx(e) if e.sender.id == me
+            && (e.action.fx == 0x4100_051E || e.action.fx == 0x4100_051F))));
+
+    let again = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(knife, corpse, me)]),
+    );
+    h.run(4);
+    assert_eq!(
+        use_answers(&h, b, again).first().map(|a| a.0),
+        Some(refusal::BUTCHERED)
+    );
+}
+
+/// How many units a knife cuts: a crude knife 11 from any creature; a hunting knife 16 from
+/// creatures below level 17 and more from stronger ones; an item that is not a knife none. An
+/// expert cut comes more often the more the butcher's level passes the creature's.
+/// Behaviour: server.craft.butchery-units-by-knife
+#[test]
+fn a_knife_cuts_its_units_by_the_creatures_level() {
+    assert_eq!(butchery::units(CRUDE_KNIFE, 5), Some(11));
+    assert_eq!(butchery::units(CRUDE_KNIFE, 50), Some(11));
+    assert_eq!(butchery::units(0x4700_0CBB, 16), Some(16));
+    assert_eq!(butchery::units(0x4700_0CBB, 17), Some(32));
+    assert_eq!(butchery::units(0x4700_0CBB, 43), Some(35));
+    assert_eq!(butchery::units(BONE, 5), None);
+    assert!(butchery::expert_chance(-5) < butchery::expert_chance(10));
+    assert!(butchery::expert_chance(10) < butchery::expert_chance(45));
+}
+
+/// A corpse another player is on its way to open is refused at once with "target locked"; once
+/// that player is no longer on its way, it is butchered.
+/// Behaviour: server.craft.butchery-refused-while-another-opens
+#[test]
+fn a_corpse_another_player_is_on_its_way_to_open_is_refused() {
+    let (mut h, b, me, _, knife, corpse) = at_a_corpse();
+    let (_, other) = h.player_in_world("two", "Rowan");
+    let other_world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == other)
+        .expect("in the world")
+        .0;
+    let from_where = h.server.players[&other_world].position;
+    let opening = yalain_world::places::Use {
+        item: corpse,
+        target: 0,
+        slots: Vec::new(),
+        message: None,
+        from: from_where,
+    };
+    if let Some(p) = h.server.players.get_mut(&other_world) {
+        p.walking_to = Some((opening, 2.0));
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 0.0);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::LOCKED)
+    );
+    assert!(
+        !h.world_messages(b, from).iter().any(|m| matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == butchery::BEHAVIOR)),
+        "no work begun"
+    );
+    if let Some(p) = h.server.players.get_mut(&other_world) {
+        p.walking_to = None;
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 2.2);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+}
+
+/// A corpse whose killer was 9 or more levels above the creature is too damaged to butcher, refused
+/// at once; one killed 8 levels above is butchered.
+/// Behaviour: server.craft.butchery-too-damaged
+#[test]
+fn a_corpse_its_killer_far_outleveled_is_too_damaged_to_butcher() {
+    let (mut h, b, me, world, knife, _) = at_a_corpse();
+    let damaged = corpse_by(&mut h, world, me, 2 + 9);
+    let from = butcher(&mut h, b, me, knife, damaged, 0.0);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::TOO_DAMAGED)
+    );
+    let fit = corpse_by(&mut h, world, me, 2 + 8);
+    let from = butcher(&mut h, b, me, knife, fit, 2.2);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+    assert!(butchery::too_damaged(20, 11));
+    assert!(!butchery::too_damaged(19, 11));
+    assert!(!butchery::too_damaged(0, -20), "no player killed it");
+}
+
+/// A cut that draws its profile's share of nothing is answered "empty" at the result: no material,
+/// no experience, and the corpse may be butchered again.
+/// Behaviour: server.craft.butchery-finds-nothing
+#[test]
+fn a_cut_that_finds_nothing_is_answered_empty_and_leaves_the_corpse() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    h.server.crafting.butchery.insert(
+        PROFILE,
+        vec![Yield {
+            template: butchery::NOTHING_FOUND,
+            weight: 1,
+        }],
+    );
+    let from = butcher(&mut h, b, me, knife, corpse, 2.2);
+    let msgs = h.world_messages(b, from);
+    assert!(
+        msgs.iter().any(|m| matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == butchery::BEHAVIOR)),
+        "the work done"
+    );
+    assert_eq!(use_answers(&h, b, from), [(refusal::EMPTY, 0)]);
+    let p = &h.server.players[&world];
+    assert!(
+        !p.play.items.iter().any(|i| i.template == BONE),
+        "no material"
+    );
+    assert_eq!(
+        p.play
+            .craft_skills
+            .iter()
+            .find(|c| c.skill == BUTCHERY)
+            .map(|c| c.today),
+        Some(0),
+        "no experience"
+    );
+    assert_eq!(
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.butchered),
+        Some(false),
+        "still to butcher"
+    );
+}
+
+/// Each cut lowers the knife's durability by one at even odds, the client told the new value; a
+/// knife worn to nothing is destroyed with "Your ... has been destroyed through overuse!" and
+/// leaves the pack.
+/// Behaviour: server.craft.knife-wears-out
+#[test]
+fn a_knife_loses_durability_on_about_half_its_cuts_and_breaks_at_nothing() {
+    let (mut h, b, me, world, knife, _) = at_a_corpse();
+    let mut lowered = Vec::new();
+    for _ in 0..20 {
+        let corpse = corpse_by(&mut h, world, me, 0);
+        let from = butcher(&mut h, b, me, knife, corpse, 2.2);
+        assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+        lowered.extend(wear_updates(&h, b, from, knife));
+    }
+    let start = i32::try_from(KNIFE_DURABILITY).expect("small");
+    let expected: Vec<i32> = (1..=i32::try_from(lowered.len()).expect("few"))
+        .map(|n| start - n)
+        .collect();
+    assert_eq!(lowered, expected, "one at a time");
+    assert!(
+        (3..=17).contains(&lowered.len()),
+        "about half of 20 cuts: {}",
+        lowered.len()
+    );
+    // Worn down to its last point, the knife breaks on the cut that wears it.
+    if let Some(t) = h.server.things.get_mut(knife) {
+        t.durability = Some(1);
+    }
+    let mut broke = None;
+    for _ in 0..40 {
+        let corpse = corpse_by(&mut h, world, me, 0);
+        let from = butcher(&mut h, b, me, knife, corpse, 2.2);
+        if h.server.things.get(knife).is_none() {
+            broke = Some(from);
+            break;
+        }
+    }
+    let from = broke.expect("worn out within 40 cuts");
+    assert!(
+        wear_updates(&h, b, from, knife).is_empty(),
+        "no update to nothing"
+    );
+    let said = h.world_messages(b, from).iter().any(|m| match m {
+        ServerMessage::PlayerCall(c) if c.function.0 == SHOW_TEXT => c
+            .args
+            .as_ref()
+            .and_then(|a| calls::values(&a.0).ok())
+            .is_some_and(|v| {
+                v.iter().any(|x| match x {
+                    Value::Graph(g) => g.iter().any(
+                        |(_, n)| matches!(n, Node::TextInfo(t) if t.string_id == wear::DESTROYED.0),
+                    ),
+                    _ => false,
+                })
+            }),
+        _ => false,
+    });
+    assert!(said, "destroyed through overuse");
+    assert!(
+        !h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == knife),
+        "out of the pack"
+    );
+}
+
+/// A knife's wear is kept with it across a logout.
+/// Behaviour: server.craft.tool-wear-kept-across-sessions
+#[test]
+fn a_worn_knife_keeps_its_durability_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let (mut h, b, me, world, knife, _) = at_a_corpse();
+    if let Some(t) = h.server.things.get_mut(knife) {
+        t.durability = Some(7);
+    }
+    yalain_world::world::keep_player(&mut h.server, world);
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    assert!(h.server.things.get(knife).is_none(), "out of the world");
+    h.enter_world(b, "one", me);
+    assert_eq!(
+        h.server.things.get(knife).and_then(|t| t.durability),
+        Some(7)
+    );
+}

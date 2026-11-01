@@ -1,0 +1,30 @@
+[[object]]
+key = "guard"
+kind = "npc"
+template = 0x47002DFD
+cell = 0x02980109
+at = [52.16, 242.03, -44.45]
+rotation = [1.0, 0.0, 0.0, 0.0]
+prov = { from = "authored" }
+
+[[object]]
+key = "shard"
+kind = "static"
+id = 0x4002980000000059
+template = 0x47001BFF
+cell = 0x02980109
+at = [54.0, 236.0, -44.6]
+rotation = [1.0, 0.0, 0.0, 0.0]
+to = "town"
+prov = { from = "authored" }
+
+[[camp]]
+key = "sentinels"
+cell = 0x02980109
+at = [66.0, 240.0, -44.6]
+radius = 0.0
+spots = [{ cell = 0x02980109, at = [66.0, 240.0, -44.6] }]
+population = 1
+regen = 600.0
+spawns = [{ template = 0x470023B4, weight = 1 }]
+prov = { from = "authored" }

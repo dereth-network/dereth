@@ -45,6 +45,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.interface.requests-are-the-recorded-clients",
+        says: "Every call our client sends through the player's scripts in a whole session (the \
+               selection, the examination stop and queries, the attack, the uses of a corpse, an \
+               item and a portal, a saying) has the values of calls the recorded 2017 clients sent \
+               for the same function, object ids, the numbering of a graph's entries and a saying's \
+               words aside.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-PANEL-CALLS"),
+        station: "yalain-testkit::corpus::client_sends::every_call_our_client_sends_is_one_the_recorded_clients_sent",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "session.interface.say-hands-the-line-and-its-words",
         says: "A line typed into the chat box is a command's line (one that is no command gets \
                the say command first, a command's marks are cut); its words split at spaces with \
@@ -151,6 +163,40 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SESS-BLOB-STAMPS"),
         station: "auberean-client-net::cpu::session::every_message_is_stamped_from_its_counter_and_the_sequence_starts_at_zero",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
+        says: "Our client wields its starting sword on our server, logs off and enters again: its \
+               model has the sword hanging from the player and wielded by it, and the server \
+               keeps it wielded.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-KEEP-WIELDED"),
+        station: "yalain-testkit::dat::session::our_client_enters_again_with_the_weapon_it_left_wielded",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.our-client-plays-a-whole-session-on-our-server",
+        says: "Our client and our server play a whole session together: the character list, a \
+               character made and entered, the player walking with its reports taken, the people \
+               and creatures around seen, a creature selected (the selection, its examination and \
+               the look at it told in that order) and examined, attacked until it dies, its \
+               corpse opened by using it and its item taken into the pack the player's scripts \
+               keep, a saying heard, the hall's shard taken to the town through portal space, a \
+               log-off and an entry again where the character left. Every request is the player's \
+               scripts' own, as the game's panels ask for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-WHOLE"),
+        station: "yalain-testkit::dat::session::our_client_plays_a_whole_session_on_our_server",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.our-client-plays-a-whole-session-on-the-server-executable",
+        says: "The same whole session over real sockets: our client on loopback against the \
+               server's executable started with the install and a small world of its data.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOOPBACK"),
+        station: "yalain::live::session::our_client_plays_a_whole_session_on_the_server_executable",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "session.time.the-game-clock-moves-forward-to-the-servers-time-sync",

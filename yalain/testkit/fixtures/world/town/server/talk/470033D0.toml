@@ -1,0 +1,21 @@
+[[talk]]
+key = "hello"
+who = 0x470033D0
+line = { table = 0x25002AFC, string = 0x2824938C }
+line_name = "ID_Hello"
+role = "near"
+when = "use"
+prov = { from = "authored" }
+
+[[talk]]
+key = "offer"
+who = 0x470033D0
+object = "keeper@77B7"
+line_text = "Take this to the gate."
+role = "offer"
+how = "say"
+when = "use"
+quest = 0x40000088
+update = "bestow"
+order = 1
+prov = { from = "authored" }

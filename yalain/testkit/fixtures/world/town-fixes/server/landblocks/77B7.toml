@@ -1,0 +1,11 @@
+[[camp]]
+key = "beetles"
+at = [100.0, 100.0, 140.0]
+radius = 8.0
+population = 3
+regen = 120.0
+spawns = [{ template = 0x47002224, weight = 1 }]
+prov = { from = "authored", note = "moved up the hill" }
+
+[[remove]]
+items = ["object sign@77B7"]

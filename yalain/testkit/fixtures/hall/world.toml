@@ -1,0 +1,6 @@
+# The world the server's session tests play: a small world database written for them.
+format_version = 1
+key = "test-hall"
+game = "ac2"
+era = "eor"
+packs = ["hall"]

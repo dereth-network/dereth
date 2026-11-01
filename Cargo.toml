@@ -175,6 +175,8 @@ members = [
     "yalain/crates/content",
     "yalain/crates/world-db",
     "yalain/crates/world",
+    "yalain/server",
+    "yalain/testkit",
 ]
 
 [workspace.package]
@@ -293,6 +295,7 @@ auberean-world = { path = "core/auberean-world" }
 yalain-content = { path = "yalain/crates/content" }
 yalain-net = { path = "yalain/crates/net" }
 yalain-store = { path = "yalain/crates/store" }
+yalain-testkit = { path = "yalain/testkit" }
 yalain-world = { path = "yalain/crates/world" }
 yalain-world-db = { path = "yalain/crates/world-db" }
 

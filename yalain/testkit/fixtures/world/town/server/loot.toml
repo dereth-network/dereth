@@ -1,0 +1,7 @@
+[[loot]]
+profile = 0x19B
+profile_name = "GP_TestBeetleHoard"
+counts = [0.25, 0.75]
+items = [{ template = 0x47002108, weight = 3 }]
+extras = [{ template = 0x470011B4, chance = 0.1 }]
+prov = { from = "authored" }

@@ -1,0 +1,947 @@
+//! Pets: a Ranger's Lasher summoned by Nature's Aid (told of, then beside its owner), a summon past
+//! the class's pets failing, the orders (a mode echoed, a name in the written form, death, attack
+//! and return, too many too quickly), the pet keeping near its owner and taking on what its owner
+//! attacks, a creature it strikes fighting it back, and its end with its owner (dying, leaving the
+//! world) and through a portal. Fixture: Nature's Aid, its pet effect and the Lasher as the data
+//! defines them, a player with a sword in hand who trained the skill, and the test world's beetles.
+
+use auberean_protocol::{queue, ServerMessage};
+use auberean_script::args::Arg;
+use yalain_content::{Prop, Props};
+use yalain_testkit::play::server_call;
+use yalain_testkit::{test_template, Harness};
+use yalain_world::calls::{Node, Value};
+use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+use yalain_world::pets::{self, function};
+use yalain_world::player::quality;
+use yalain_world::quals;
+use yalain_world::skills::{SkillDef, Usage};
+use yalain_world::state::SkillState;
+use yalain_world::world::Player;
+
+const NATURES_AID: u32 = 227;
+const PET_EFFECT: u32 = 0x7000_0805;
+const LASHER: u32 = 0x4700_0846;
+const LASHER_NAME: (u32, u32) = (0xA860_7CEC, 0x2500_05D8);
+const ICON: u32 = 0x4100_47E6;
+const SWORD: u32 = 0x4700_051C;
+const SKILL_INFO: u32 = 0x8214_000D;
+const USE_SKILL: u32 = 0x8204_000B;
+const ATTACK_STATE: u32 = 0x8204_001B;
+const USE_ENDED: u32 = 0x8204_0019;
+const USE_REFUSED: u32 = 0x8204_001A;
+
+/// Nature's Aid, its pet effect and the Lasher, as the data defines them.
+fn with_natures_aid(h: &mut Harness) {
+    let usage = Usage {
+        min_range: -1.0,
+        max_range: 1.0,
+        recovery: 30.0,
+        min_use: 0.5,
+        powerup: 1.0,
+        powerup_behavior: 0x4100_000C,
+        vigor_add: -1.0,
+        min_vigor: 1.0,
+        implements_right: -2,
+        implements_left: -1,
+        valid_targets: 1,
+        behavior_other: [0x4100_00ED; 3],
+        behavior_self: [0x4100_00ED; 2],
+        user_effects: vec![PET_EFFECT],
+        ui_flags: 0x32C0,
+        ..Usage::default()
+    };
+    h.server.skill_table.skills.insert(
+        NATURES_AID,
+        SkillDef {
+            id: NATURES_AID,
+            icon: ICON,
+            cap: 150,
+            table: 0x6F00_000B,
+            flags: 0x41,
+            active: true,
+            usage: Some(usage),
+            ..SkillDef::default()
+        },
+    );
+    h.server.effect_table.effects.insert(
+        PET_EFFECT,
+        EffectDef {
+            state: PET_EFFECT,
+            kind: Kind::Pet {
+                class: 16,
+                lifetime: Scale::default(),
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 177,
+            internal_flags: 0x4140_8513,
+            enum_value: 538,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(560))
+        .set("GameplayStatistics_MaxVigor", Prop::Int(560))
+        .set("AICombat_NaturalDamage", Prop::Float(45.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5))
+        .set("AI_PerceptionRadius", Prop::Float(40.0))
+        .set("AI_HomesickRadius", Prop::Float(60.0))
+        .set("Physics_VelScale", Prop::Float(2.0));
+    let mut lasher = test_template(LASHER, 0x1169, props);
+    lasher.description.name = Some(LASHER_NAME);
+    lasher.description.scale = Some(0.7);
+    h.server.catalog.insert(lasher);
+}
+
+fn player(h: &mut Harness, me: u64) -> &mut Player {
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in the world")
+}
+
+/// A Ranger in the world with the scene drawn, a sword in hand, vigor to spare and Nature's Aid
+/// trained; returns the client and the player.
+fn ranger(h: &mut Harness, account: &str, name: &str) -> (usize, u64) {
+    let (b, me) = h.player_in_world(account, name);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    h.arm(b, me, SWORD);
+    let p = player(h, me);
+    quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 400);
+    quals::set_int(&mut p.qualities, quality::VIGOR, 400);
+    p.play.skills.push(SkillState {
+        skill: NATURES_AID,
+        granted: 0,
+        mask: 0x1,
+        cost: 2,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    (b, me)
+}
+
+/// Use Nature's Aid and let the use end; the messages since the request begin at the index
+/// returned.
+fn summon(h: &mut Harness, b: usize, use_id: u32) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            USE_SKILL,
+            &[Arg::Int(use_id), Arg::Int(NATURES_AID), Arg::LongInt(0)],
+        ),
+    );
+    h.run(120);
+    from
+}
+
+/// The pet a call names (its 64-bit value).
+fn pet_of(v: &[Value]) -> Option<u64> {
+    v.iter().find_map(|x| match x {
+        Value::Long(l) => Some(*l),
+        _ => None,
+    })
+}
+
+/// A ready Ranger with its Lasher out; returns the client, the player and the pet.
+fn with_lasher(h: &mut Harness) -> (usize, u64, u64) {
+    with_natures_aid(h);
+    let (b, me) = ranger(h, "one", "Kestrel");
+    let from = summon(h, b, 1);
+    let pet = h
+        .calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added");
+    (b, me, pet)
+}
+
+fn order(h: &mut Harness, b: usize, f: u32, args: &[Arg]) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(f, args));
+    h.run(10);
+    from
+}
+
+/// Nature's Aid ends with its pet: the player is told of a new pet (the Lasher's name, the skill's
+/// icon, no time left, class 16, flags 1096) before the skill's information, and the Lasher
+/// appears two meters in front of it after, naming it as its summoner.
+/// Behaviour: server.pets.summoned
+#[test]
+fn natures_aid_tells_the_ranger_of_its_lasher_which_then_appears_beside_it() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    let from = summon(&mut h, b, 1);
+    let calls = h.calls(b, from);
+    let add = calls
+        .iter()
+        .position(|(f, _)| *f == function::ADD)
+        .expect("the pet added");
+    let info = calls
+        .iter()
+        .position(|(f, _)| *f == SKILL_INFO)
+        .expect("the skill's information");
+    assert!(add < info, "the pet first: {:?}", h.functions(b, from));
+    let v = &calls[add].1;
+    let pet = pet_of(v).expect("its id");
+    assert!(v.contains(&Value::Int(ICON)), "the skill's icon");
+    assert!(v.iter().any(|x| matches!(x.root(), Some(Node::TextInfo(t))
+        if (t.string_id, t.table) == LASHER_NAME)));
+    let data = v
+        .iter()
+        .find_map(|x| match x.root() {
+            Some(Node::Script { package, slots }) if *package == pets::PET_DATA => Some(slots),
+            _ => None,
+        })
+        .expect("its data");
+    let words: Vec<u32> = data.iter().map(|s| s.1).collect();
+    assert_eq!(
+        f64::from_bits(u64::from(words[1]) << 32 | u64::from(words[0])),
+        -1.0
+    );
+    assert_eq!(&words[2..], &[16, 1096]);
+    let msgs = h.world_messages(b, from);
+    let made = msgs
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(c) if c.id == pet => Some(c),
+            _ => None,
+        })
+        .expect("the pet appears");
+    assert_eq!(made.weenie.entity_did, LASHER);
+    assert_eq!(made.weenie.objects[6], me, "its summoner");
+    assert!(
+        (made.physics.velocity_scale - 3.5).abs() < 1e-4,
+        "1.75 times its kind's 2"
+    );
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let mine = player(&mut h, me).position;
+    let d = yalain_world::presence::distance(&at, &mine).expect("near");
+    assert!((d - pets::APPEARS_AWAY).abs() < 0.01, "{d}");
+    // In front of it, along its heading.
+    let h8 = yalain_world::world::heading_of_rotation(mine.rotation);
+    let a = (f32::from(h8) * 360.0 / 255.0).to_radians();
+    let (dx, dy) = (at.origin[0] - mine.origin[0], at.origin[1] - mine.origin[1]);
+    let ahead =
+        dx * dereth_primitives::num::math::sinf(a) + dy * dereth_primitives::num::math::cosf(a);
+    assert!(ahead > 1.9, "in front: {ahead}");
+}
+
+/// A summoning skill used while its user has as many live pets of its class as it allows is
+/// refused as too many pets, in one tick: attacking, the use over, the refusal (the skill and its
+/// reason), not attacking; no pet is told of and none appears.
+/// Behaviour: server.pets.too-many-of-a-class
+#[test]
+fn a_second_lasher_is_refused_as_too_many_pets() {
+    let mut h = Harness::new();
+    let (b, _, first) = with_lasher(&mut h);
+    h.run(700);
+    let from = summon(&mut h, b, 2);
+    let calls = h.calls(b, from);
+    let fs: Vec<u32> = calls.iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        fs[..4],
+        [ATTACK_STATE, USE_ENDED, USE_REFUSED, ATTACK_STATE],
+        "{fs:?}"
+    );
+    assert!(calls[2].1.contains(&Value::Int(pets::TOO_MANY_PETS)));
+    assert!(!fs.contains(&function::ADD));
+    let owner = h.server.pets.by_id[&first].owner;
+    assert_eq!(h.server.pets.of(owner), vec![first]);
+    // Its first pet gone, the skill summons again.
+    order(&mut h, b, function::DIE, &[Arg::LongInt(first)]);
+    let from = summon(&mut h, b, 3);
+    assert!(h.functions(b, from).contains(&function::ADD));
+}
+
+/// A pet's mode is echoed back, pet and mode, and kept.
+/// Behaviour: server.pets.mode-echoed
+#[test]
+fn a_pets_mode_is_echoed_back_and_kept() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let from = order(
+        &mut h,
+        b,
+        function::MODE,
+        &[Arg::Int(0x4000_0003), Arg::LongInt(pet)],
+    );
+    let calls = h.calls(b, from);
+    let echo = calls
+        .iter()
+        .find(|(f, _)| *f == function::UPDATE_MODE)
+        .expect("echoed");
+    assert_eq!(pet_of(&echo.1), Some(pet));
+    assert!(echo.1.contains(&Value::Int(0x4000_0003)));
+    assert_eq!(h.server.pets.by_id[&pet].mode, 0x4000_0003);
+}
+
+/// The literal text of a name a call carries: the nested reference's literal.
+fn literal_names(v: &[Value]) -> Vec<String> {
+    v.iter()
+        .filter_map(|x| match x.root() {
+            Some(Node::TextInfo(t)) => Some(t),
+            _ => None,
+        })
+        .flat_map(|t| t.variables.iter())
+        .filter_map(|var| match &var.value {
+            auberean_script::native_object::VariableValue::Nested(n) => {
+                n.literal.as_ref().map(|l| String::from_utf16_lossy(l))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A pet renamed is named in the written form as "Name (kind)": its owner told, everyone who sees
+/// it shown the name; the same name again tells only its owner.
+/// Behaviour: server.pets.renamed
+#[test]
+fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_new() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let name = |n: &str| {
+        let mut g = yalain_world::graph::Builder::new();
+        #[allow(clippy::cast_possible_truncation)]
+        g.native(
+            auberean_script::native_object::native_type::WP_STRING as u16,
+            auberean_script::native_object::NativeObject::Text(n.encode_utf16().collect()),
+        );
+        Arg::Object(g.graph())
+    };
+    let from = order(
+        &mut h,
+        b,
+        function::NAME,
+        &[name("karl marx ii"), Arg::LongInt(pet)],
+    );
+    let calls = h.calls(b, from);
+    let update = calls
+        .iter()
+        .find(|(f, _)| *f == function::UPDATE_NAME)
+        .expect("named");
+    assert_eq!(literal_names(&update.1), vec!["Karl Marx Ii".to_string()]);
+    let shown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::UpdateStringInfoVisual(q)
+                if q.object.id == pet && q.quality == pets::NAME_QUALITY)
+        })
+    };
+    assert!(shown(&h, from), "shown as the pet's own name");
+    let from = order(
+        &mut h,
+        b,
+        function::NAME,
+        &[name("Karl Marx II"), Arg::LongInt(pet)],
+    );
+    assert!(h.functions(b, from).contains(&function::UPDATE_NAME));
+    assert!(!shown(&h, from), "the same name: nothing shown");
+}
+
+/// A pet ordered to die (0: all) is taken off its owner's list and falls as a creature does, in
+/// one tick; its corpse comes after, and its body leaves the world.
+/// Behaviour: server.pets.ordered-to-die
+#[test]
+fn a_pet_ordered_to_die_falls_and_is_taken_off_its_owners_list() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let from = order(&mut h, b, function::DIE, &[Arg::LongInt(0)]);
+    let msgs = h.world_messages(b, from);
+    let fell = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::UpdateBoolVisual(q) if q.object.id == pet && q.quality == 279 && q.value == 1))
+        .expect("dead");
+    let removed = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == function::REMOVE))
+        .expect("taken off the list");
+    assert!(removed < fell, "off the list first");
+    assert!(h.server.pets.by_id.is_empty());
+    h.run(40);
+    let corpse = h
+        .server
+        .things
+        .by_id
+        .values()
+        .any(|t| t.corpse.as_ref().is_some_and(|c| c.originator == pet));
+    assert!(corpse, "its corpse a second and a half later");
+    h.run(100);
+    assert!(h.server.things.get(pet).is_none(), "its body is gone");
+}
+
+/// A beetle of the test world beside the Ranger, one that never attacks first.
+fn beetle(h: &mut Harness) -> u64 {
+    h.add_creatures(1);
+    h.run(10);
+    let id = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE && t.alive())
+        .map(|t| t.id)
+        .expect("a beetle");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.attacks_first = false;
+    }
+    id
+}
+
+fn conn_of(h: &Harness, me: u64) -> yalain_net::ConnId {
+    h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world")
+}
+
+fn target_of(h: &Harness, id: u64) -> Option<u64> {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.target)
+}
+
+/// A pet keeps to supporting its owner: it takes on what its owner hurts (not before the owner's
+/// first hit takes health) and strikes it, and the creature it strikes fights the pet.
+/// Behaviour: server.pets.supports-its-owner
+#[test]
+fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    // The owner beside the beetle, so its hits reach.
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 1.0, at.origin[1], at.origin[2]];
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+    );
+    let struck = h.run_until(400, |h| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        })
+    });
+    assert!(
+        struck,
+        "the pet strikes its owner's target: {:?} {:?}",
+        target_of(&h, pet),
+        h.server
+            .players
+            .values()
+            .map(|p| p.attacking.is_some())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(target_of(&h, pet), Some(beetle));
+    let hurt_first = h.world_messages(b, from).iter().position(|m| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me
+            && e.action.hooks.iter().any(|k| k.target == beetle && k.numbers[3] < 0))
+    });
+    let pet_first = h
+        .world_messages(b, from)
+        .iter()
+        .position(|m| matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet));
+    assert!(
+        hurt_first.expect("the owner hurts it") < pet_first.expect("the pet strikes it"),
+        "the owner's hit first"
+    );
+    assert!(
+        h.run_until(100, |h| target_of(h, beetle) == Some(pet)),
+        "the beetle fights the pet"
+    );
+}
+
+/// A pet ordered to attack goes after the target, with no answer; a target more than 32 m from
+/// the owner is refused with its text and no pet goes.
+/// Behaviour: server.pets.attack-order
+#[test]
+fn an_attack_order_sends_the_pet_unless_the_target_is_too_far_from_its_owner() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    // The owner 40 m off.
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 40.0, at.origin[1], at.origin[2]];
+    }
+    let from = order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle)]);
+    assert!(h
+        .texts(b, from)
+        .iter()
+        .any(|(k, id)| (*k, *id) == (1, pets::text::TOO_FAR.0)));
+    assert_eq!(target_of(&h, pet), None);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 30.0, at.origin[1], at.origin[2]];
+    }
+    let from = order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle)]);
+    assert!(h.texts(b, from).is_empty(), "no answer");
+    assert_eq!(target_of(&h, pet), Some(beetle));
+}
+
+/// Orders run up a debt of a second each: from none, six in one moment are carried out and the
+/// seventh is refused with the seconds to wait (the debt past five).
+/// Behaviour: server.pets.too-many-orders
+#[test]
+fn the_seventh_order_in_a_moment_is_refused_with_the_wait() {
+    let mut h = Harness::new();
+    let (b, _, _) = with_lasher(&mut h);
+    let from = h.bots[b].inbox.len();
+    for _ in 0..7 {
+        h.bots[b].send(true, queue::WEENIE, &server_call(function::RETURN, &[]));
+    }
+    h.run(3);
+    let refusals: Vec<f64> = h
+        .calls(b, from)
+        .iter()
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) if t.string_id == pets::text::TOO_MANY.0 => {
+                    t.variables.iter().find_map(|var| match var.value {
+                        auberean_script::native_object::VariableValue::Double(bits, _) => {
+                            Some(f64::from_bits(bits))
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+        })
+        .collect();
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    assert!((refusals[0] - 2.0).abs() < 1e-6, "{refusals:?}");
+}
+
+/// A pet called back drops its fight and is at peace until it is with its owner again.
+/// Behaviour: server.pets.called-back
+#[test]
+fn a_pet_called_back_drops_its_fight() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle)]);
+    assert_eq!(target_of(&h, pet), Some(beetle));
+    let from = order(&mut h, b, function::RETURN, &[]);
+    assert_eq!(target_of(&h, pet), None);
+    assert!(h.world_messages(b, from).iter().any(|m| matches!(m,
+        ServerMessage::DoMode(e) if e.sender.id == pet && e.action.0 == 0x4000_0001)));
+}
+
+/// A pet that supports its owner does not fight back what strikes it; in a mode that defends
+/// itself it does; struck down, it is taken off its owner's list.
+/// Behaviour: server.pets.defends-itself-by-mode
+#[test]
+fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let strike = |h: &mut Harness| {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.next_attack = 0.0;
+        }
+        let clock = h.clock();
+        yalain_world::combat::thing_strikes_thing(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            pet,
+            None,
+            clock,
+        );
+    };
+    let landed = |h: &Harness| {
+        h.server
+            .things
+            .get(pet)
+            .is_some_and(|t| t.health < t.max_health)
+    };
+    while !landed(&h) {
+        strike(&mut h);
+    }
+    assert_eq!(target_of(&h, pet), None, "supporting: no fighting back");
+    order(
+        &mut h,
+        b,
+        function::MODE,
+        &[Arg::Int(0x4000_0006), Arg::LongInt(pet)],
+    );
+    let before = h.server.things.get(pet).map_or(0, |t| t.health);
+    while h.server.things.get(pet).is_some_and(|t| t.health == before) {
+        strike(&mut h);
+    }
+    assert_eq!(
+        target_of(&h, pet),
+        Some(beetle),
+        "self-defending: it fights back"
+    );
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.health = 1;
+    }
+    let from = h.bots[b].inbox.len();
+    while h.server.pets.is_pet(pet) {
+        strike(&mut h);
+    }
+    h.run(2);
+    assert!(h.functions(b, from).contains(&function::REMOVE));
+}
+
+/// An owner's death takes its pets in its death tick: each taken off the list.
+/// Behaviour: server.pets.die-with-their-owner
+#[test]
+fn an_owners_death_takes_its_pets() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let from = h.bots[b].inbox.len();
+    let conn = conn_of(&h, me);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, conn, None, clock);
+    assert!(!h.server.pets.is_pet(pet));
+    h.run(3);
+    let calls = h.calls(b, from);
+    let death = calls
+        .iter()
+        .position(|(f, _)| *f == yalain_world::death::player_fn::DEATH_MESSAGE)
+        .expect("the owner's death");
+    let removed = calls
+        .iter()
+        .position(|(f, _)| *f == function::REMOVE)
+        .expect("the pet taken off");
+    assert!(death < removed);
+}
+
+/// An owner leaving the world takes its pets out of it, and another player sees the pet go.
+/// Behaviour: server.pets.leave-with-their-owner
+#[test]
+fn an_owner_leaving_the_world_takes_its_pets_out_of_it() {
+    let mut h = Harness::new();
+    let (_, me, pet) = with_lasher(&mut h);
+    let (c, _) = h.player_in_world("two", "Watcher");
+    h.run(10);
+    assert!(h
+        .server
+        .players
+        .values()
+        .any(|p| p.character != me && p.known.contains_key(&pet)));
+    let from = h.bots[c].inbox.len();
+    let conn = conn_of(&h, me);
+    yalain_world::world::leave(&mut h.server, &mut h.net, conn);
+    h.run(3);
+    assert!(!h.server.pets.is_pet(pet) && h.server.things.get(pet).is_none());
+    assert!(h
+        .world_messages(c, from)
+        .iter()
+        .any(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == pet)));
+}
+
+/// An owner who logs off lingers in the world, and its pet with it, until it leaves; then the pet
+/// is forgotten by those who saw it in the owner's leaving instant, the owner told nothing of it.
+/// Behaviour: server.pets.linger-with-their-owner
+#[test]
+fn an_owner_logging_off_keeps_its_pet_until_it_leaves() {
+    use yalain_world::world::log_off;
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let (c, _) = h.player_in_world("two", "Watcher");
+    h.run(10);
+    let (from_b, from_c) = (h.bots[b].inbox.len(), h.bots[c].inbox.len());
+    let asked = h.now.0;
+    h.bots[b].send(
+        false,
+        auberean_protocol::queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: me,
+        }),
+    );
+    while h.now.0 < asked + log_off::LEAVES_AFTER - 0.3 {
+        h.step();
+    }
+    assert!(h.server.pets.is_pet(pet), "the pet is still in the world");
+    while h.now.0 < asked + log_off::LEAVES_AFTER + 0.5 {
+        h.step();
+    }
+    assert!(!h.server.pets.is_pet(pet) && h.server.things.get(pet).is_none());
+    let seen = h.world_messages(c, from_c);
+    let owner_left = seen
+        .iter()
+        .position(|m| matches!(m, ServerMessage::ObjectLeaves(e) if e.sender.id == me))
+        .expect("the owner leaves");
+    let pet_forgotten = seen
+        .iter()
+        .position(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == pet))
+        .expect("the pet is forgotten");
+    assert!(
+        pet_forgotten < owner_left,
+        "in its leaving instant, before it"
+    );
+    assert!(
+        !h.calls(b, from_b)
+            .iter()
+            .any(|(f, _)| *f == function::REMOVE),
+        "the owner is told nothing of its pet"
+    );
+}
+
+/// A pet not fighting plans its way to its owner every three seconds, stopping three meters short
+/// (its velocity scale told as it sets off), and one more than 100 m away is put beside its owner.
+/// Behaviour: server.pets.follow
+#[test]
+fn a_pet_follows_its_owner_and_is_put_beside_it_when_far() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let conn = conn_of(&h, me);
+    let start = h.server.players[&conn].position;
+    let to =
+        auberean_primitives::Vec3::new(start.origin[0] + 20.0, start.origin[1], start.origin[2]);
+    let stamp = h.server.players[&conn].teleport_stamp;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(start.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp),
+    );
+    h.run(200);
+    let owner_at = h.server.players[&conn].position;
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let d = yalain_world::presence::distance(&at, &owner_at).expect("near");
+    assert!((2.0..4.0).contains(&d), "three meters short: {d}");
+    assert!(h.world_messages(b, from).iter().any(|m| matches!(m,
+        ServerMessage::VelocityScale(e) if e.sender.id == pet && (e.action.0 - 3.5).abs() < 1e-4)));
+    // Far off: put beside its owner at its next plan.
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin[1] -= 140.0;
+        p.position.cell = start.cell;
+    }
+    h.run(80);
+    let owner_at = h.server.players[&conn].position;
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let d = yalain_world::presence::distance(&at, &owner_at).expect("near");
+    assert!(d < 5.0, "{d}");
+}
+
+/// A pet goes with its owner through a portal: out of portal space, the pet is beside its owner
+/// at the destination.
+/// Behaviour: server.pets.through-portals
+#[test]
+fn a_pet_goes_with_its_owner_through_a_portal() {
+    const PORTAL: u64 = 0x4002_9900_0000_0056;
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let conn = conn_of(&h, me);
+    let here = h.server.players[&conn].position;
+    let to = yalain_content::Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![yalain_content::ContentObject {
+            object: Some(PORTAL),
+            template: 0x4700_1154,
+            description: yalain_content::Description {
+                package: 0x1A00,
+                look: 0x1F00_0ED5,
+                enter_fx: 0,
+                scale: None,
+                name: None,
+                numbers: [0; 6],
+                source: "authored for a test".into(),
+            },
+            cell: here.cell,
+            origin: here.origin,
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            kind: yalain_content::Kind::Static,
+            label: String::new(),
+            placed: "authored for a test".into(),
+            destination: Some(to),
+            facts: yalain_content::Facts::default(),
+            walks: None,
+            gate: None,
+        }],
+    };
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::requests::function::USE,
+            &[yalain_testkit::play::use_of(PORTAL, me)],
+        ),
+    );
+    h.run(60);
+    let owner_at = h.server.players[&conn].position;
+    assert_eq!(owner_at.cell, 0x7000_0001);
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let d = yalain_world::presence::distance(&at, &owner_at).expect("beside it");
+    assert!(d < 3.0, "{d}");
+}
+
+/// A pet setting off from standing toward its owner is told its speed once, and again on arrival
+/// (its kind's own, told even when unchanged); its plans while it runs tell nothing.
+/// Behaviour: server.pets.speed-told-setting-off-and-arriving
+#[test]
+fn a_pets_speed_is_told_as_it_sets_off_and_as_it_arrives_and_not_between() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let conn = conn_of(&h, me);
+    h.run(200);
+    let start = h.server.players[&conn].position;
+    let to =
+        auberean_primitives::Vec3::new(start.origin[0] + 60.0, start.origin[1], start.origin[2]);
+    let stamp = h.server.players[&conn].teleport_stamp;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(start.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp),
+    );
+    h.run(400);
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let owner_at = h.server.players[&conn].position;
+    let d = yalain_world::presence::distance(&at, &owner_at).expect("near");
+    assert!(d < 4.0, "arrived: {d}");
+    let told: Vec<f32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::VelocityScale(e) if e.sender.id == pet => Some(e.action.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told.len(), 2, "setting off and arriving: {told:?}");
+    assert!((told[1] - 3.5).abs() < 1e-4, "its kind's own on arrival");
+}
+
+/// The pet's own messages since `from`: (a mode it went into, or a velocity scale told).
+fn modes_and_speeds(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<(bool, f32)> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoMode(e) if e.sender.id == pet => Some((true, 0.0)),
+            ServerMessage::VelocityScale(e) if e.sender.id == pet => Some((false, e.action.0)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A pet that goes into a fight while still on its way to its owner is told its kind's own speed
+/// right after its fighting mode; one that goes into a fight standing is told nothing.
+/// Behaviour: server.pets.speed-told-entering-a-fight-mid-move
+#[test]
+fn a_pet_going_into_a_fight_on_its_way_is_told_its_own_speed_after_its_mode() {
+    // Standing beside its owner: nothing told.
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    h.run(200);
+    let beetle_id = beetle(&mut h);
+    let conn = conn_of(&h, me);
+    let at = h
+        .server
+        .things
+        .get(beetle_id)
+        .and_then(|t| t.at)
+        .expect("placed");
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 10.0, at.origin[1], at.origin[2]];
+    }
+    if let Some(t) = h.server.things.get_mut(pet) {
+        let mut near = at;
+        near.origin[0] -= 11.0;
+        t.at = Some(near);
+    }
+    let from = order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle_id)]);
+    h.run(20);
+    let seen = modes_and_speeds(&h, b, from, pet);
+    assert!(
+        seen.first().is_some_and(|(mode, _)| *mode),
+        "its mode: {seen:?}"
+    );
+    assert!(!seen.iter().any(|(mode, _)| !mode), "no speed: {seen:?}");
+
+    // On its way: its own speed right after its mode.
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let conn = conn_of(&h, me);
+    h.run(200);
+    let start = h.server.players[&conn].position;
+    let to =
+        auberean_primitives::Vec3::new(start.origin[0] + 60.0, start.origin[1], start.origin[2]);
+    let stamp = h.server.players[&conn].teleport_stamp;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(start.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp),
+    );
+    assert!(
+        h.run_until(100, |h| !modes_and_speeds(h, b, from, pet).is_empty()),
+        "it sets off"
+    );
+    let beetle_id = beetle(&mut h);
+    let owner_at = h.server.players[&conn].position;
+    if let Some(t) = h.server.things.get_mut(beetle_id) {
+        let mut near = owner_at;
+        near.origin[0] += 5.0;
+        t.at = Some(near);
+    }
+    let from = order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle_id)]);
+    h.run(20);
+    let seen = modes_and_speeds(&h, b, from, pet);
+    let mode = seen
+        .iter()
+        .position(|(m, _)| *m)
+        .expect("its fighting mode");
+    let told = seen.get(mode + 1).copied();
+    let own = h
+        .server
+        .things
+        .get(pet)
+        .and_then(|t| h.server.catalog.get(t.template))
+        .and_then(|t| t.props.float(pets::KIND_VELOCITY))
+        .unwrap_or(1.0)
+        * pets::VELOCITY_FACTOR;
+    assert!(
+        told.is_some_and(|(m, v)| !m && (v - own).abs() < 1e-4),
+        "its kind's own speed ({own}) right after: {seen:?}"
+    );
+}

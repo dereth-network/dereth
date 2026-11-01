@@ -1,0 +1,19 @@
+[[keeper]]
+template = 0x470033D0
+greeting = { table = 0x25002AFC, string = 0x2824938C }
+prov = { from = "authored" }
+
+[[sale]]
+store = 0x6F0016F6
+ordinal = 0
+stack = 1
+icon = [{ layer = 1000, picture = 0x41004552, color = 0xFFFFFFFF }]
+prov = { from = "authored" }
+
+[[sale]]
+store = 0x6F0016F6
+ordinal = 1
+product = 0x470020B9
+cost = 75.0
+name_text = "A bow the tests made up"
+prov = { from = "authored", fields = { cost = { from = "authored", note = "a sale price of our own" } } }

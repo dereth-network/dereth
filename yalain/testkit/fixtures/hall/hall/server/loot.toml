@@ -1,0 +1,5 @@
+[[loot]]
+profile = 0x3B2
+counts = [0.0, 1.0]
+items = [{ template = 0x4700051C, weight = 1 }]
+prov = { from = "authored", note = "a sword, always" }
