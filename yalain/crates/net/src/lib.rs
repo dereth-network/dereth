@@ -1,0 +1,30 @@
+//! Server sessions over the shared transport: the login and world services' handshakes, each
+//! connection's reliable transport, the referral that takes a client from the login service to
+//! the world, message sending under blob ids, and teardown.
+//!
+//! **Depends on** the shared transport (`dereth-transport`, unchanged, with `dereth-primitives`)
+//! and `auberean-primitives`. **Used by** the game server (`yalain-world`), the server executable
+//! (`yalain`), its test kit (`yalain-testkit`) and the client's test kit's server double
+//! (`auberean-testkit`).
+//!
+//! - [`server::ServerNet`]: the connections, sans-IO.
+//! - [`endpoint::Endpoint`]: one connection's transport, either end (the test kit's clients use
+//!   the client end).
+//! - [`login`]: the game login body.
+//! - [`memory::MemoryNet`]: an in-memory network for tests; [`udp`] (feature `udp`): sockets.
+//!
+//! **Must never** read what a message means: it moves message bytes and queue numbers.
+
+pub mod blob;
+pub mod endpoint;
+pub mod login;
+pub mod memory;
+pub mod server;
+#[cfg(feature = "udp")]
+pub mod udp;
+
+pub use blob::BlobKind;
+pub use dereth_primitives::LocalTime;
+pub use server::{
+    CloseReason, ConnId, Datagram, NetConfig, NetEvent, Port, ServerNet, Service, ServiceId,
+};

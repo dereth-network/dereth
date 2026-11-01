@@ -6633,6 +6633,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yalain-net"
+version = "0.0.0"
+dependencies = [
+ "auberean-primitives",
+ "dereth-primitives",
+ "dereth-transport",
+ "tracing",
+]
+
+[[package]]
 name = "yasna"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

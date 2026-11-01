@@ -147,6 +147,10 @@ members = [
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
     "auberean/testkit",
+    # yalain/: Yalain, the Asheron's Call 2 server (MIT): its sessions, its store, its content pack
+    # and the game (yalain/crates/), the `yalain` executable and its test kit. It shares Auberean's
+    # core and never names a crate of the client's.
+    "yalain/crates/net",
 ]
 
 [workspace.package]
@@ -249,6 +253,7 @@ auberean-script = { path = "core/auberean-script" }
 auberean-testkit = { path = "auberean/testkit" }
 auberean-text = { path = "core/auberean-text" }
 auberean-world = { path = "core/auberean-world" }
+yalain-net = { path = "yalain/crates/net" }
 
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
