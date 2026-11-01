@@ -42,6 +42,13 @@ members = [
     "core/plugin-wasm",
     "core/plugin-host",
     "core/plugin-lua",
+    # core/auberean-*: the Asheron's Call 2 half of the engine (MIT), shared by its client
+    # (auberean/), its server (yalain/) and its world builder (athenaeum/). Named `auberean-*` and
+    # kept in folders of the same name beside the shared crates, several of which they build on
+    # (the container, the transport, the connection manager, the landscape, the transition). Each
+    # builds for wasm32-unknown-unknown with its default features (`cargo xtask seams`).
+    "core/auberean-primitives",
+    "core/auberean-dat",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -215,6 +222,10 @@ dereth-network-link = { path = "network/link" }
 dereth-network-hub = { path = "network/hub" }
 dereth-network-conformance = { path = "network/conformance" }
 xtask = { path = "tools/xtask" }
+# Auberean (the Asheron's Call 2 client and its core), Yalain (its server), Athenaeum (its world
+# builder).
+auberean-dat = { path = "core/auberean-dat" }
+auberean-primitives = { path = "core/auberean-primitives" }
 
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
