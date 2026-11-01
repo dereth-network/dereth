@@ -2,14 +2,23 @@
 
 ## Which checks to run, and when
 
-There is one command for each moment, and each covers the client and the server alike:
+There is one command for each moment, and each covers the client and the server alike, of both
+games:
 
 | When | Command | Needs | Takes (warm) |
 |---|---|---|---|
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
-| With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump (below) | about 15 minutes |
+| With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
 | On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
+
+**One game.** Each of these covers Asheron's Call (Dereth, Empyrean, Lyceum, the shared crates and
+the tools) and Asheron's Call 2 (Auberean, Yalain and Athenaeum: the `auberean-*`, `yalain`,
+`yalain-*` and `athenaeum-*` crates). `--game dereth` or `--game auberean` limits one to a single game's
+crates (`cargo xtask ci tier1 --game dereth`); `--game all` is the default. `cargo xtask build
+--game auberean` builds one game's products and tools. The formatting check, the
+lints and the source rules read the whole repository whatever the filter. `cargo xtask ci auberean`
+is `ci tier1 --game auberean`.
 
 - **`check`** runs clippy and the tests of the crates you changed since your branch left
   `origin/HEAD` (`--base <ref>` to compare with another branch, `-p <crate>` to name crates
@@ -18,7 +27,10 @@ There is one command for each moment, and each covers the client and the server 
 - **`ci tier0` is exactly what CI runs. Run it before you push.** It builds everything, runs every
   test that needs no game data, clippy with every warning an error (over the tests that need the
   game data too: clippy only reads them), every rule and the documentation check.
-- **`ci tier1`** runs every crate's data tier and the server's real-content tests.
+- **`ci tier1`** runs every crate's data tier and the server's real-content tests, then
+  Asheron's Call 2's crates' tests and its data tiers. A game whose data is not found reports its
+  rows as NO-ORACLE and the run fails; the other game's rows still run. Without one game's data,
+  run the other alone with `--game`.
 - **`ci tier2`** runs the tests that draw on a real graphics device and the comparisons against
   the original game.
 
@@ -63,6 +75,14 @@ The tests of the older eras read four more, also with no default unless noted:
   `world.pack.infiltration` at the top of the checkout). Without it, `ci tier1` reports the
   real-content rows that read it as NO-ORACLE.
 
+Asheron's Call 2's tests (`auberean`, `yalain`, `athenaeum` and `core/auberean-*`) read two of
+their own, also with no default; `cargo xtask ci tier1` runs its data tiers with them
+([auberean/README.md](auberean/README.md#testing)):
+
+- `AUBEREAN_TEST_DAT_DIR`: the end-of-retail data files, as retail left them in January 2017 (which
+  the September 2013 client reads).
+- `AUBEREAN_TEST_CAPTURE_INDEX`: the capture index of recorded sessions.
+
 **Test data in the tree.** `fixtures/` holds the shared recordings, the packet captures and the
 message corpus reassembled from them, which the client's and the server's tests both read.
 `empyrean/fixtures/vectors/` holds ACE's answers to the server's test questions, produced by running
@@ -80,6 +100,11 @@ integration test carries `/// Behaviour: <id>` naming a registry row (a module t
 behaviour says `//! Behaviour: none (<why>)`); a server test module carries `ACE:` (the ACE source it
 holds the port to), `Vectors:` (the recorded ACE answers it replays) or `Divergence:` (the numbered
 divergence it pins). Tests are named for what they prove, and an `#[ignore]` says why.
+
+Asheron's Call 2's claims are rows of its own registry (`auberean/testkit/src/behaviours/`), and every
+one of its tests carries an anchor or sits in a file that says `//! Behaviour: none (<why>)`. An item
+that ports a function of its retail client carries that function's opaque id as a comment of its own
+(`// D2-04211`), and `not_ported!("D2-04211")` marks one not written yet.
 
 ## Releases
 

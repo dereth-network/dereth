@@ -8,9 +8,9 @@ its own page. The workspace carries no scripts: every check and runner is Rust, 
 ## `xtask` — the task runner
 
 `cargo xtask <task>` runs the checks this workspace holds itself to, each from one command: the CI
-tiers (`ci tier0|tier1|tier2`), the tests (`test`, in the `test-release` profile), the lints clippy
-cannot express (`lint`, `comment-lint`, `test-lint`, `seams`, `crate-docs`, `fmt-check`, `doc`),
-the source rules (`separation` and `output-hygiene`, both also in `ci tier0`), the repository-wide
+tiers (`ci tier0|tier1|tier2`, both games' crates unless `--game dereth|auberean` names one), the tests
+(`test`, in the `test-release` profile), the lints clippy cannot express (`lint`, `comment-lint`,
+`test-lint`, `seams`, `crate-docs`, `fmt-check`, `doc`), the source rules (`separation` and `output-hygiene`, both also in `ci tier0`), the repository-wide
 checks (`line-endings --tree`, `skip-claims --tree`) and the per-track acceptance gates
 (`gate <track>`, `gates`). `cargo xtask` with no task prints the full list. Its source is
 `xtask/`; each check's module opens with the rule it enforces.

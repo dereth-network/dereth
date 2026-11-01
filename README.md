@@ -15,6 +15,10 @@ The Dereth Network is an open-source reimplementation of Asheron's Call:
   worlds.
 - A shared SDK for building other clients, bots and tools.
 
+And, early, the same for **Asheron's Call 2**, on the same engine: **Auberean**, a client rebuilt from
+the final retail client, ac2client 00.00.00.0930 (September 2013); **Yalain**, its server; and
+**Athenaeum**, its world builder.
+
 Retail behavior is written down, tested and tied to evidence, and every deliberate difference is
 listed ([client](dereth/DIVERGENCES.md), [server](empyrean/DIVERGENCES.md)).
 
@@ -67,6 +71,7 @@ Where it's going:
 | Empyrean | [`empyrean/SETUP.md`](empyrean/SETUP.md) to run a server; [`empyrean/README.md`](empyrean/README.md) for reference |
 | Lyceum | [`lyceum/README.md`](lyceum/README.md) |
 | The Dereth Network | [`network/README.md`](network/README.md); for ACE worlds, [`network/ace-mod/README.md`](network/ace-mod/README.md) |
+| Asheron's Call 2 | [`auberean/README.md`](auberean/README.md) (the client), [`yalain/README.md`](yalain/README.md) (the server), [`athenaeum/README.md`](athenaeum/README.md) (the world builder) |
 
 ## Build and run
 
@@ -105,6 +110,8 @@ cargo xtask check            # while working, before each commit: the crates you
 cargo xtask ci tier0         # before pushing: exactly what CI runs; needs no game data
 cargo xtask ci tier1         # with your game data: the data tests and the server's real-content tests
 cargo xtask ci tier2         # on hardware: the GPU tests and the retail comparisons
+cargo xtask ci tier1 --game dereth   # any tier, one game's crates only (dereth, auberean; default both)
+cargo xtask build --game auberean --release   # one game's products and tools
 cargo xtask web              # build the web client and serve it on 127.0.0.1
 cargo xtask                  # list every check and tool
 ```
