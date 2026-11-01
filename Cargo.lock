@@ -479,6 +479,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-ui"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-testkit",
+ "auberean-text",
+ "dereth-primitives",
+ "dereth-render-cpu",
+]
+
+[[package]]
 name = "auberean-viewer"
 version = "0.0.0"
 dependencies = [

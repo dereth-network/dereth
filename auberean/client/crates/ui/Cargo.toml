@@ -1,0 +1,43 @@
+[package]
+name = "auberean-ui"
+description = "The Asheron's Call 2 interface: elements built from the layout records, drawn with the records' pictures and fonts, the way the September 2013 client builds and draws them."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose modules read
+# the retail install under $AUBEREAN_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+auberean-dat.workspace = true
+auberean-assets.workspace = true
+# The game's text writer: string table entries as the client writes them.
+auberean-text.workspace = true
+# Record ids, for pictures a panel adds to a state.
+auberean-primitives.workspace = true
+# The picture codecs (block compression, JPEG), shared with Dereth.
+dereth-render-cpu.workspace = true
+# The original's float-to-integer conversion.
+dereth-primitives.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["fs", "test-support"] }
+auberean-primitives.workspace = true
+auberean-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

@@ -1,0 +1,503 @@
+//! Lists, scroll bars, meters, menus and trees on synthetic layouts: scrolling by arrows, the
+//! wheel, the scroll bar's widget and smoothly over the clock; meters reaching their goals; a
+//! menu's popup; a tree's lines.
+
+use auberean_assets::ui::{AttributeValue as V, Element};
+use auberean_ui::draw::{self, Surface};
+use auberean_ui::token::{attr, msg};
+use auberean_ui::types::button_id;
+use auberean_ui::{Handle, Token, Ui, Value};
+
+use crate::fixture::{element, state, ui, LAYOUT};
+
+fn id(name: &str) -> V {
+    V::Id(Token::of(name).0)
+}
+
+/// A row 100 by 20.
+fn row() -> Element {
+    element(
+        "Row",
+        "text",
+        [0, 0, 99, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    )
+}
+
+/// A window holding a list two rows tall at (10, 10), with `extra` attributes and siblings.
+fn window(list_attrs: Vec<(&str, V)>, siblings: Vec<Element>) -> Element {
+    let list = element(
+        "List",
+        "listbox",
+        [10, 10, 109, 49],
+        0,
+        vec![state("stateless", 0, list_attrs, vec![], vec![])],
+    );
+    let mut kids = vec![list];
+    kids.extend(siblings);
+    element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], kids)],
+    )
+}
+
+/// The interface with the window up and five rows in its list.
+fn five_rows(elements: Vec<Element>) -> (Ui, Handle, Vec<Handle>) {
+    let mut u = ui(elements, vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let list = u.child(w, Token::of("List")).unwrap();
+    let rows = (0..5)
+        .map(|_| {
+            let r = u.create(l, Token::of("Row")).unwrap();
+            u.list_add(list, r);
+            r
+        })
+        .collect();
+    (u, list, rows)
+}
+
+fn hot_button(name: &str, rect: [i16; 4]) -> Element {
+    element(
+        name,
+        "button",
+        rect,
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("hot_button", V::Bool(true))],
+            vec![],
+            vec![],
+        )],
+    )
+}
+
+fn ghosted(u: &Ui, w: Handle, name: &str) -> bool {
+    let b = u.child(w, Token::of(name)).unwrap();
+    u.node(b).unwrap().bool_attr(attr::GHOSTED)
+}
+
+fn y_view(u: &Ui, list: Handle) -> i32 {
+    u.node(list).unwrap().int_attr(Token::of("y_view")).unwrap()
+}
+
+fn click(u: &mut Ui, x: i32, y: i32) {
+    u.pointer_move(x, y);
+    u.pointer_press();
+    u.pointer_release();
+}
+
+/// A list two rows tall over five rows: its down arrow scrolls it a row at a time (the rows move
+/// up by a row's height) until the last full view; the up arrow is ghosted at the top and the down
+/// arrow at the bottom.
+///
+/// Behaviour: ui.list.arrow-buttons-scroll-a-row-and-ghost-at-the-ends
+#[test]
+fn arrow_buttons_scroll_a_row_and_ghost_at_the_ends() {
+    let (mut u, list, rows) = five_rows(vec![
+        row(),
+        window(
+            vec![("up_button", id("Up")), ("down_button", id("Down"))],
+            vec![
+                hot_button("Up", [120, 10, 139, 29]),
+                hot_button("Down", [120, 30, 139, 49]),
+            ],
+        ),
+    ]);
+    let w = u.roots()[0];
+    assert!(ghosted(&u, w, "Up"), "the top: up is ghosted");
+    assert!(!ghosted(&u, w, "Down"));
+    click(&mut u, 130, 40);
+    assert_eq!(y_view(&u, list), 20, "a row on");
+    assert_eq!(
+        u.screen_rect(rows[1]).unwrap().y0,
+        10,
+        "the second row at the top"
+    );
+    assert!(!ghosted(&u, w, "Up"));
+    click(&mut u, 130, 40);
+    click(&mut u, 130, 40);
+    assert_eq!(y_view(&u, list), 60, "the last full view");
+    assert!(ghosted(&u, w, "Down"), "the bottom: down is ghosted");
+    click(&mut u, 130, 40);
+    assert_eq!(y_view(&u, list), 60, "a ghosted arrow does nothing");
+}
+
+/// A list's vertical scroll bar, its widget placed by the bar alone (as the layouts' widgets are).
+fn bar() -> Element {
+    let mut widget = element("widget", "field", [0, 0, 14, 9], 0, vec![]);
+    widget.edges = [0, 0, 0, 0];
+    element(
+        "Bar",
+        "scrollbar",
+        [110, 10, 124, 49],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("vertical", V::Bool(true)),
+                ("proportional", V::Bool(true)),
+                ("move_to_touched_position", V::Bool(true)),
+            ],
+            vec![],
+            vec![widget],
+        )],
+    )
+}
+
+/// The wheel turned down over a list goes to its scroll bar, which tells the list to scroll a
+/// line: the list moves a row on, and the bar's position follows the view.
+///
+/// Behaviour: ui.list.the-wheel-scrolls-a-list-through-its-scroll-bar
+#[test]
+fn the_wheel_scrolls_a_list_through_its_scroll_bar() {
+    let (mut u, list, _) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+    ]);
+    let w = u.roots()[0];
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    let size = u.node(b).unwrap().float_attr(attr::Y_WIDGET_SIZE).unwrap();
+    assert!(
+        (size - 0.4).abs() < 1e-6,
+        "two rows of five in view: {size}"
+    );
+    u.pointer_move(50, 20);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 20);
+    let p = u.node(b).unwrap().float_attr(attr::Y_POSITION).unwrap();
+    assert!((p - 1.0 / 3.0).abs() < 1e-6, "a third of the way: {p}");
+    u.pointer_button(button_id::WHEEL_UP, true);
+    assert_eq!(y_view(&u, list), 0);
+}
+
+/// Dragging a scroll bar's widget moves the bar to the widget's share of the way, and the list
+/// takes that share of its hidden rows (kept on a row's edge).
+///
+/// Behaviour: ui.scrollbar.dragging-the-widget-scrolls-its-list
+#[test]
+fn dragging_the_widget_scrolls_its_list() {
+    let (mut u, list, _) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+    ]);
+    let w = u.roots()[0];
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    let widget = u.child(b, Token::of("widget")).unwrap();
+    let wr = u.screen_rect(widget).unwrap();
+    assert_eq!(wr.height(), 16, "the widget is the share in view");
+    u.pointer_move(115, wr.y0 + 5);
+    u.pointer_press();
+    u.pointer_move(115, wr.y0 + 5 + 12);
+    let p = u.node(b).unwrap().float_attr(attr::Y_POSITION).unwrap();
+    assert!((p - 0.5).abs() < 1e-6, "half way: {p}");
+    assert_eq!(y_view(&u, list), 40, "half of 60, on a row's edge");
+    u.pointer_release();
+    assert!(u
+        .take_messages()
+        .iter()
+        .any(|m| m.what == Token::of("widget_release")));
+}
+
+/// A smooth list glides to its goal: half way after half its movement time, there at the end,
+/// and the goal is then forgotten.
+///
+/// Behaviour: ui.list.a-smooth-list-glides-to-its-goal-over-its-movement-time
+#[test]
+fn a_smooth_list_glides_to_its_goal_over_its_movement_time() {
+    let (mut u, list, _) = five_rows(vec![
+        row(),
+        window(vec![("smooth_movement", V::Bool(true))], vec![]),
+    ]);
+    u.use_time(10.0);
+    u.set_attr(list, Token::of("goal_y_view"), Value::Int(40));
+    assert_eq!(y_view(&u, list), 0, "not yet");
+    u.use_time(10.125);
+    assert_eq!(y_view(&u, list), 20, "half way after half the time");
+    u.use_time(10.5);
+    assert_eq!(y_view(&u, list), 40, "there");
+    assert_eq!(
+        u.node(list).unwrap().int_attr(Token::of("goal_y_view")),
+        Some(-1_000_000),
+        "no goal"
+    );
+}
+
+/// A meter with a left fill: a goal is taken at once (the fill half the meter at 0.5); a smooth
+/// meter moves toward it over its movement time.
+///
+/// Behaviour: ui.meter.a-meter-takes-its-goal-at-once-or-smoothly
+#[test]
+fn a_meter_takes_its_goal_at_once_or_smoothly() {
+    let meter = |name: &str, smooth: bool| {
+        element(
+            name,
+            "meter",
+            [0, 0, 99, 9],
+            0,
+            vec![state(
+                "stateless",
+                0,
+                vec![("smooth_movement", V::Bool(smooth))],
+                vec![],
+                vec![element("left_fill", "field", [0, 0, 99, 9], 0, vec![])],
+            )],
+        )
+    };
+    let mut u = ui(vec![meter("Plain", false), meter("Smooth", true)], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let plain = u.create_root(l, Token::of("Plain")).unwrap();
+    let smooth = u.create_root(l, Token::of("Smooth")).unwrap();
+    let fill = |u: &Ui, m| {
+        u.node(u.child(m, attr::LEFT_FILL).unwrap())
+            .unwrap()
+            .rect
+            .width()
+    };
+    u.use_time(1.0);
+    u.set_attr(plain, attr::GOAL_POSITION, Value::Float(0.5));
+    assert_eq!(fill(&u, plain), 50);
+    u.set_attr(smooth, attr::GOAL_POSITION, Value::Float(1.0));
+    assert_eq!(fill(&u, smooth), 0, "not yet");
+    u.use_time(1.125);
+    assert_eq!(fill(&u, smooth), 50, "half way after half the time");
+    u.use_time(2.0);
+    assert_eq!(fill(&u, smooth), 100);
+}
+
+/// A menu opens its popup under itself, sized to its rows; choosing a row selects it, the menu
+/// says what was chosen, and letting go on the list closes the popup.
+///
+/// Behaviour: ui.menu.a-menu-opens-its-list-and-closes-on-a-choice
+#[test]
+fn a_menu_opens_its_list_and_closes_on_a_choice() {
+    let popup = element(
+        "Popup",
+        "field",
+        [0, 0, 79, 59],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element(
+                "MenuList",
+                "listbox",
+                [0, 0, 79, 59],
+                0,
+                vec![state(
+                    "stateless",
+                    0,
+                    vec![("click_select", V::Bool(true))],
+                    vec![],
+                    vec![],
+                )],
+            )],
+        )],
+    );
+    let item = element(
+        "Item",
+        "text",
+        [0, 0, 79, 14],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let menu = element(
+        "Menu",
+        "menu",
+        [10, 10, 89, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("popup", id("Popup")),
+                ("listbox", id("MenuList")),
+                ("text_item", id("Item")),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let win = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![menu])],
+    );
+    let mut u = ui(vec![popup, item, win], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let m = u.child(w, Token::of("Menu")).unwrap();
+    u.menu_insert_text(m, "One", 0).unwrap();
+    u.menu_insert_text(m, "Two", 1).unwrap();
+    assert_eq!(u.menu_len(m), 2);
+    click(&mut u, 50, 20);
+    let popup = u
+        .roots()
+        .iter()
+        .copied()
+        .find(|r| u.node(*r).unwrap().id == Token::of("Popup"))
+        .expect("the popup is up");
+    assert!(u.shown(popup));
+    let pr = u.screen_rect(popup).unwrap();
+    assert_eq!((pr.x0, pr.y0, pr.width(), pr.height()), (10, 29, 80, 30));
+    u.take_messages();
+    click(&mut u, 30, pr.y0 + 20);
+    assert_eq!(u.menu_selected_index(m), Some(1));
+    let said: Vec<Token> = u
+        .take_messages()
+        .iter()
+        .filter(|x| x.from == m)
+        .map(|x| x.what)
+        .collect();
+    assert!(said.contains(&msg::NEW_SELECTION), "{said:?}");
+    assert!(said.contains(&Token::of("closed")), "{said:?}");
+    assert!(!u.shown(popup), "closed");
+}
+
+/// A menu shows its chosen row's text in its selection display, chosen by the player or by the
+/// program, and nothing once nothing is chosen.
+///
+/// Behaviour: ui.menu.a-menu-shows-its-choice-in-its-display
+#[test]
+fn a_menu_shows_its_choice_in_its_display() {
+    let popup = element(
+        "Popup",
+        "field",
+        [0, 0, 79, 59],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element(
+                "MenuList",
+                "listbox",
+                [0, 0, 79, 59],
+                0,
+                vec![state(
+                    "stateless",
+                    0,
+                    vec![("click_select", V::Bool(true))],
+                    vec![],
+                    vec![],
+                )],
+            )],
+        )],
+    );
+    let item = element(
+        "Item",
+        "text",
+        [0, 0, 79, 14],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let display = element(
+        "Display",
+        "text",
+        [0, 0, 59, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let menu = element(
+        "Menu",
+        "menu",
+        [10, 10, 89, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("popup", id("Popup")),
+                ("listbox", id("MenuList")),
+                ("text_item", id("Item")),
+                ("selection_display", id("Display")),
+            ],
+            vec![],
+            vec![display],
+        )],
+    );
+    let win = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![menu])],
+    );
+    let mut u = ui(vec![popup, item, win], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let m = u.child(w, Token::of("Menu")).unwrap();
+    let d = u.child(m, Token::of("Display")).unwrap();
+    let one = u.menu_insert_text(m, "One", 0).unwrap();
+    u.menu_insert_text(m, "Two", 1).unwrap();
+    u.menu_select_item(m, Some(one));
+    assert_eq!(u.text(d).as_deref(), Some("One"), "chosen by the program");
+    click(&mut u, 50, 20);
+    let pr = u
+        .roots()
+        .iter()
+        .copied()
+        .find(|r| u.node(*r).unwrap().id == Token::of("Popup"))
+        .and_then(|p| u.screen_rect(p))
+        .expect("the popup is up");
+    click(&mut u, 30, pr.y0 + 20);
+    assert_eq!(u.text(d).as_deref(), Some("Two"), "chosen by the player");
+    u.menu_select_item(m, None);
+    assert_eq!(u.text(d).as_deref(), Some(""), "nothing chosen");
+}
+
+/// A tree whose top node names the other as its child: the child hangs from it, and the tree
+/// draws a line from the parent's top middle to the child's bottom middle in its line color.
+///
+/// Behaviour: ui.tree.children-hang-from-their-parents-by-lines
+#[test]
+fn children_hang_from_their_parents_by_lines() {
+    let a = element(
+        "A",
+        "field",
+        [80, 10, 119, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("child1", id("B"))],
+            vec![],
+            vec![],
+        )],
+    );
+    let b = element("B", "field", [80, 100, 119, 119], 0, vec![]);
+    let tree = element(
+        "Tree",
+        "tree",
+        [0, 0, 199, 199],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("line_color_red", V::Float(1.0))],
+            vec![],
+            vec![a, b],
+        )],
+    );
+    let mut u = ui(vec![tree], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let t = u.create_root(l, Token::of("Tree")).unwrap();
+    let (segments, color) = u.tree_segments(t);
+    assert_eq!(segments, vec![[99, 10, 99, 119]]);
+    assert_eq!(color, [1.0, 0.0, 0.0]);
+    let mut frame = Surface::new(200, 200);
+    draw::draw(&u, &mut frame);
+    assert_eq!(frame.get(99, 50), [0, 0, 255, 255], "a red line");
+    assert_eq!(frame.get(98, 50), [0, 0, 0, 0]);
+}
