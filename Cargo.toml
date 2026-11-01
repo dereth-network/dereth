@@ -53,6 +53,7 @@ members = [
     "core/auberean-assets",
     "core/auberean-script",
     "core/auberean-text",
+    "core/auberean-protocol",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -236,6 +237,7 @@ auberean-assets = { path = "core/auberean-assets" }
 auberean-dat = { path = "core/auberean-dat" }
 auberean-port = { path = "core/auberean-port" }
 auberean-primitives = { path = "core/auberean-primitives" }
+auberean-protocol = { path = "core/auberean-protocol" }
 auberean-script = { path = "core/auberean-script" }
 auberean-testkit = { path = "auberean/testkit" }
 auberean-text = { path = "core/auberean-text" }

@@ -130,6 +130,7 @@ pub struct Subject {
 }
 
 pub mod data;
+pub mod protocol;
 pub mod script;
 pub mod text;
 
@@ -138,6 +139,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "data",
         rows: data::ROWS,
+    },
+    Subject {
+        name: "protocol",
+        rows: protocol::ROWS,
     },
     Subject {
         name: "script",

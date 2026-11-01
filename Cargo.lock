@@ -253,6 +253,17 @@ name = "auberean-primitives"
 version = "0.0.0"
 
 [[package]]
+name = "auberean-protocol"
+version = "0.0.0"
+dependencies = [
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-script",
+ "auberean-testkit",
+ "rusqlite",
+]
+
+[[package]]
 name = "auberean-script"
 version = "0.0.0"
 dependencies = [
