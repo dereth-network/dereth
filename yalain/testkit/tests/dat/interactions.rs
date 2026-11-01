@@ -101,3 +101,27 @@ fn person_kind_objects_and_faction_shrines_are_told_by_their_script_kinds() {
         );
     }
 }
+
+/// The kinds of placed objects that cannot be used are the script library's forges and road
+/// signs (the town signs and the gateway signs among them); persons, portals and lifestones are
+/// none of them.
+/// Behaviour: server.places.cannot-be-used-read
+#[test]
+fn forges_and_road_signs_are_told_by_their_script_kinds() {
+    use yalain_world::places::{CANNOT_BE_USED, PERSONS};
+    let p = Portal::open();
+    // Forges, a gateway sign, a road sign, a town sign.
+    for t in [
+        0x4700_0CD1,
+        0x4700_0CD2,
+        0x4700_1BE1,
+        0x4700_1BC0,
+        0x4700_1BEF,
+    ] {
+        assert!(p.derives(t, &CANNOT_BE_USED), "{t:08X} cannot be used");
+        assert!(!p.derives(t, &PERSONS), "{t:08X} no person");
+    }
+    for t in [0x4700_33ED, 0x4700_114D, 0x4700_113A] {
+        assert!(!p.derives(t, &CANNOT_BE_USED), "{t:08X}");
+    }
+}

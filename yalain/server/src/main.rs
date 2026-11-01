@@ -419,6 +419,7 @@ struct Play {
     walk_in: std::collections::HashSet<u32>,
     persons: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
+    cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
@@ -511,6 +512,7 @@ fn run<S: Store>(
     server.walk_in_packages = play.walk_in;
     server.person_packages = play.persons;
     server.shrine_packages = play.shrines;
+    server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
@@ -877,6 +879,8 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             &content,
             &yalain_world::usable::shrines::FACTION_SHRINES,
         )?;
+        let cannot_use =
+            data::packages_deriving_from(&portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
         let (doors, doors_through_locks) = data::door_packages(&portal, &content)?;
         let chests = data::chest_packages(&portal, &content)?;
         tracing::info!(
@@ -935,6 +939,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             walk_in,
             persons,
             shrines,
+            cannot_use,
             doors,
             doors_through_locks,
             chests,

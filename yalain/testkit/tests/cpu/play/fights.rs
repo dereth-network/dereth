@@ -384,7 +384,8 @@ fn a_corpse_another_player_has_open_refuses_the_use_until_it_is_closed() {
 }
 
 /// Turning a corpse's items into money moves each into the pack and destroys it there, the money
-/// going up by its value; the answer says what was earned.
+/// going up by its value; the answer says what was earned; each item is let go of (its holder
+/// none) before it is gone.
 /// Behaviour: server.loot.turned-into-money
 #[test]
 fn turning_a_corpses_items_into_money_pays_their_value() {
@@ -448,6 +449,21 @@ fn turning_a_corpses_items_into_money_pays_their_value() {
         .collect();
     assert_eq!(money.len(), 1, "one item, one payment");
     assert!(money[0] >= 1, "worth something: {money:?}");
+    let msgs = h.world_messages(b, from);
+    let gone: Vec<u64> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::ForgetObject(o) => Some(o.0.id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gone.len(), 1, "the item gone");
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+            if q.object.id == gone[0] && q.quality == 258 && q.value == 0)),
+        "let go of first"
+    );
 }
 
 /// The corpse a client was told of, from its messages since `from`.
@@ -519,8 +535,8 @@ fn a_dying_creature_is_told_standing_where_it_fell_after_its_death() {
 
 /// The death pose is one of six whole poses, and the corpse lies in it: its object carries the
 /// pose's slider unless it is the first pose. In the same tick come the corpse's scale, its two
-/// effects, its pose, its mode, then nobody's claim, its killer and the creature it was, their
-/// visual stamps 2 to 9 below the object's 10.
+/// effects, its pose, its mode, then nobody's claim, its killer, the creature it was and its name,
+/// their visual stamps 2 to 10, the object's own.
 /// Behaviour: server.death.corpse-settles
 #[test]
 fn a_corpse_lies_in_the_death_pose_and_is_followed_by_its_settling() {
@@ -579,6 +595,14 @@ fn a_corpse_lies_in_the_death_pose_and_is_followed_by_its_settling() {
             ServerMessage::UpdateInstanceIdVisual(q) if q.object.id == corpse.id => {
                 Some((format!("{} {:x}", q.quality, q.value), q.object.other_stamp))
             }
+            ServerMessage::UpdateStringInfoVisual(q) if q.object.id == corpse.id => Some((
+                if q.value == corpse.weenie.name {
+                    format!("{} its name", q.quality)
+                } else {
+                    format!("{} another name", q.quality)
+                },
+                q.object.other_stamp,
+            )),
             _ => None,
         })
         .collect();
@@ -591,8 +615,58 @@ fn a_corpse_lies_in_the_death_pose_and_is_followed_by_its_settling() {
         ("322 0".into(), 7),
         (format!("320 {me:x}"), 8),
         (format!("321 {beetle:x}"), 9),
+        ("256 its name".into(), 10),
     ];
     assert_eq!(after, expected);
+}
+
+/// A corpse made for a client whose view it comes into after it appeared is followed by the same
+/// changes it was made up of, its name last at stamp 10 (2017: 369 of 442 corpses first seen
+/// after their creature's death).
+/// Behaviour: server.death.corpse-settles-for-newcomers
+#[test]
+fn a_corpse_seen_later_is_followed_by_its_settling_too() {
+    let (mut h, b, _me, _beetle) = fight();
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(200, |h| corpse_made(h, b, from).is_some()));
+    let corpse = corpse_made(&h, b, from).expect("corpse");
+    let (c, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let msgs = h.world_messages(c, 0);
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == corpse.id)),
+        "made for the newcomer"
+    );
+    // Sent after the object, on the visual channel: they may arrive before it.
+    let mut stamps: Vec<u16> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateFloatVisual(q) if q.object.id == corpse.id => {
+                Some(q.object.other_stamp)
+            }
+            ServerMessage::DoFx(e) if e.sender.id == corpse.id => Some(e.sender.other_stamp),
+            ServerMessage::MoveSlider(e) if e.sender.id == corpse.id => Some(e.sender.other_stamp),
+            ServerMessage::SetMode(e) if e.sender.id == corpse.id => Some(e.sender.other_stamp),
+            ServerMessage::UpdateInstanceIdVisual(q) if q.object.id == corpse.id => {
+                Some(q.object.other_stamp)
+            }
+            _ => None,
+        })
+        .collect();
+    stamps.sort_unstable();
+    let named = msgs.iter().find_map(|m| match m {
+        ServerMessage::UpdateStringInfoVisual(q) if q.object.id == corpse.id => {
+            Some((q.value == corpse.weenie.name, q.object.other_stamp))
+        }
+        _ => None,
+    });
+    assert_eq!(
+        stamps,
+        [2, 3, 4, 5, 6, 7, 8, 9],
+        "the changes it was made up of"
+    );
+    assert_eq!(named, Some((true, 10)), "its name last");
 }
 
 /// A corpse made again for a client (one asking for it again, one whose view it comes into) lies

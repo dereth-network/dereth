@@ -1216,3 +1216,158 @@ fn a_faction_shrine_used_on_a_mount_is_canceled_after_the_rating() {
     }
     assert_eq!(shown(&mut h), vec![RECORDED, CANCELED], "mounted");
 }
+
+/// A player's report of its place carrying the moved-by-hand flag (or not) and a walk's stamp.
+fn hand_report(
+    at: yalain_store::StoredPosition,
+    dx: f32,
+    by_hand: bool,
+    move_to_stamp: u16,
+) -> auberean_protocol::ClientMessage {
+    auberean_protocol::ClientMessage::Position(auberean_protocol::physics::ClientPosition {
+        time: 0.0,
+        cell: at.cell,
+        origin: auberean_primitives::Vec3::new(at.origin[0] + dx, at.origin[1], at.origin[2]),
+        heading_motion: yalain_world::world::IDLE_MOTION,
+        flags: if by_hand {
+            yalain_world::places::MOVED_BY_HAND
+        } else {
+            0
+        },
+        instance_stamp: 1,
+        teleport_stamp: 0,
+        force_position_stamp: 0,
+        move_to_stamp,
+        jump_velocity: auberean_primitives::Vec3::ZERO,
+    })
+}
+
+/// A player walked toward a portal that moves by its own hand once the walk is taken up (its
+/// report carries the walk's stamp) has interrupted it: the walk is stopped and the use refused
+/// (54, flags 820) at the distance it now stands, and it is free to act again. A report under the
+/// walk, or one by hand from before the walk was taken up, changes nothing.
+/// Behaviour: server.places.walk-interrupted
+#[test]
+fn a_walk_to_a_portal_the_player_moves_off_by_hand_is_refused_as_interrupted() {
+    use yalain_world::places::{MOVE_INTERRUPTED, USE_FLAGS_BOUND};
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    h.server.content = ContentPack {
+        objects: vec![object(PORTAL, 0x4700_1154, [61.0, 259.0, -44.6], Some(to))],
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == ida)
+        .expect("in the world")
+        .0;
+    let at = h.server.players[&world].position;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(PORTAL, ida)]),
+    );
+    h.run(10);
+    let walk = h
+        .world_messages(a, from)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::MoveTo(o) if o.sender.id == ida && o.action.params.flags == 0x63 => {
+                Some(o.action.stamp)
+            }
+            _ => None,
+        })
+        .expect("walked toward the portal");
+    // Under the walk, then by hand from before the walk was taken up: still walking.
+    h.bots[a].send(true, queue::WEENIE, &hand_report(at, 0.0, false, walk));
+    h.run(4);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &hand_report(at, 0.0, true, walk.wrapping_sub(1)),
+    );
+    h.run(4);
+    assert!(use_answers(&h, a, from).is_empty(), "still walking");
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &hand_report(at, -10.0, true, walk));
+    h.run(4);
+    let answers = use_answers(&h, a, before);
+    assert_eq!(answers.len(), 1, "refused once");
+    assert_eq!(
+        (answers[0].0, answers[0].1),
+        (MOVE_INTERRUPTED, USE_FLAGS_BOUND)
+    );
+    assert!(answers[0].2 > 20.0, "at the distance it now stands");
+    let stops: Vec<u32> = h
+        .world_messages(a, before)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveTo(o) if o.sender.id == ida => Some(o.action.params.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stops, [0x40], "the walk stopped");
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, world),
+        "free to act again"
+    );
+    assert_eq!(teleported_to(&h, a, from, ida), None, "no trip");
+}
+
+/// A placed object of a kind that cannot be used (a forge, a road sign) is refused at once wherever
+/// the player stands, with no walk: "cannot use" (10001), flags 828, the distance from where the
+/// player asked.
+/// Behaviour: server.places.cannot-be-used
+#[test]
+fn a_forge_or_a_road_sign_is_refused_at_once_wherever_the_player_stands() {
+    use yalain_world::places::{USE_FLAGS_CANNOT_BE_USED, USE_STATUS_IN_USE};
+    const SIGN: u64 = 0x4002_9900_0000_0064;
+    const OTHER: u64 = 0x4002_9900_0000_0065;
+    let mut h = Harness::new();
+    let mut sign = object(SIGN, 0x4700_1BE1, [61.0, 290.0, -44.6], None);
+    sign.description.package = 0x13C0;
+    let other = object(OTHER, 0x4700_7777, [62.0, 240.2, -44.6], None);
+    h.server.content = ContentPack {
+        objects: vec![sign, other],
+    };
+    h.server.cannot_use_packages.insert(0x13C0);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(SIGN, ida)]),
+    );
+    h.run(3);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(answers.len(), 1, "answered at once");
+    assert_eq!((answers[0].0, answers[0].1), (USE_STATUS_IN_USE, 828));
+    assert_eq!(USE_FLAGS_CANNOT_BE_USED, 828);
+    assert!(answers[0].2 > 40.0, "from where the player asked");
+    assert!(
+        !h.world_messages(a, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::MoveTo(o) if o.sender.id == ida)),
+        "no walk"
+    );
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(OTHER, ida)]),
+    );
+    h.run(3);
+    assert!(
+        use_answers(&h, a, from).is_empty(),
+        "an object of another kind: not answered"
+    );
+}

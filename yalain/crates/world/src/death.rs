@@ -68,6 +68,8 @@ pub mod q {
     pub const PLUNDERER: u32 = 320;
     pub const ORIGINATOR: u32 = 321;
     pub const CLAIMANT: u32 = 322;
+    /// An object's name.
+    pub const NAME: u32 = 256;
     /// A thing's scale.
     pub const SCALE: u32 = 298;
 }
@@ -612,16 +614,23 @@ pub fn corpse_appears<S: Store>(
             }
         }
     }
-    for m in corpse_settles(id, scale, pose, killer, creature) {
+    let name = s
+        .things
+        .get(id)
+        .and_then(|t| t.named.clone())
+        .unwrap_or_else(|| corpse_name(None));
+    for m in corpse_settles(id, scale, pose, killer, creature, name) {
         to_all_seeing(s, net, id, &m);
     }
     s.after(clock, LEAVES_AFTER, Timer::Vanish { id: creature });
 }
 
-/// What follows a creature's corpse's object in the tick it appears, in 2017's order (9,601 of
-/// 10,856 corpses; 9,934 with the first five in some order): its scale, its two effects, its pose,
-/// its mode, then who may claim it (nobody), its killer and the creature it was. Their visual stamps
-/// run from 2 to 9, below the object's own 10, as the corpse was made up of them.
+/// What follows a corpse's object whenever a client is told of it, a creature's or a player's, as it
+/// appears or later, in 2017's order (9,601 of 10,856 corpses; 9,934 with the first five in some
+/// order): its scale, its two effects, its pose, its mode, then who may claim it (nobody), its
+/// killer, the creature or player it was, and its name. Their visual stamps run from 2 to 10, the
+/// object's own, as the corpse was made up of them (the name at 10: 10,663 of 10,663 creatures'
+/// corpses, 496 of 506 players').
 #[must_use]
 pub fn corpse_settles(
     id: u64,
@@ -629,6 +638,7 @@ pub fn corpse_settles(
     pose: f32,
     killer: u64,
     creature: u64,
+    name: StringInfo,
 ) -> Vec<ServerMessage> {
     let at = |n: u16| ObjectStamp {
         id,
@@ -673,7 +683,29 @@ pub fn corpse_settles(
             value,
         }));
     }
+    out.push(ServerMessage::UpdateStringInfoVisual(VisualQuality {
+        object: at(10),
+        quality: q::NAME,
+        value: name,
+    }));
     out
+}
+
+/// A corpse's block (see [`corpse_settles`]), from the corpse as the world keeps it; nothing for a
+/// thing that is no corpse.
+#[must_use]
+pub fn corpse_block(t: &Thing) -> Vec<ServerMessage> {
+    let Some(c) = t.corpse.as_ref() else {
+        return Vec::new();
+    };
+    corpse_settles(
+        t.id,
+        t.description.scale.unwrap_or(1.0),
+        t.pose.unwrap_or(0.0),
+        c.killer,
+        c.originator,
+        t.named.clone().unwrap_or_else(|| corpse_name(None)),
+    )
 }
 
 /// A thing leaves the world: every client that knows it forgets it and sees it leave.
@@ -1117,6 +1149,10 @@ pub fn player_corpse<S: Store>(
                 },
             );
         }
+    }
+    let block = s.things.get(id).map(corpse_block).unwrap_or_default();
+    for m in block {
+        to_all_seeing(s, net, id, &m);
     }
 }
 

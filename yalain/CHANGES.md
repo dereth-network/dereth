@@ -84,3 +84,5 @@ what they see, not how it was done.
 - Characters on the Dereth Network appear in its directory.
 - Items can be given to people and shrines, so quest hand-ins and the Hero Shrine work.
 - Cartomancers send you where a surveyor's map leads when you hand it to them.
+- Moving off while walking to a portal, person or corpse now cancels the use.
+- Forges and road signs now say they can't be used.

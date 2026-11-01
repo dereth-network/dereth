@@ -966,6 +966,7 @@ fn moved<S: Store>(
         presence::refresh(s, net, world);
     }
     crate::places::arrived(s, net, world, clock);
+    crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::usable::chests::moved(s, net, world, clock);

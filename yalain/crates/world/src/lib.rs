@@ -303,6 +303,8 @@ pub struct Server<S: Store> {
     /// The portal storms of crowded landblocks.
     pub storms: storms::Storms,
     pub shrine_packages: std::collections::HashSet<u32>,
+    /// The packages of the world's objects that cannot be used (forges, road signs).
+    pub cannot_use_packages: std::collections::HashSet<u32>,
     /// The packages of the items that take an inscription.
     pub inscribable_packages: std::collections::HashSet<u32>,
     /// The packages of the items whose use from the pack only answers: the status and flags.
@@ -578,6 +580,7 @@ impl<S: Store> Server<S> {
             person_packages: std::collections::HashSet::new(),
             storms: storms::Storms::default(),
             shrine_packages: std::collections::HashSet::new(),
+            cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),
             vault_trips: usable::vaults::VaultTrips::new(),

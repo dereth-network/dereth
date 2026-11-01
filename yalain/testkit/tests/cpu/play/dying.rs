@@ -124,6 +124,98 @@ fn a_player_killed_by_a_creature_dies_and_its_corpse_is_made_ten_seconds_later()
     assert_eq!(corpse.weenie.objects[3], me, "the player's corpse");
 }
 
+/// What follows an object made for a client since `from`: each message about it, after its
+/// creation, as (what, its visual stamp).
+fn block_after(h: &Harness, b: usize, from: usize, id: u64) -> Vec<(String, u16)> {
+    let msgs = h.world_messages(b, from);
+    let Some(at) = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == id))
+    else {
+        return Vec::new();
+    };
+    msgs[at + 1..]
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateFloatVisual(q) if q.object.id == id => {
+                Some((format!("{} {}", q.quality, q.value), q.object.other_stamp))
+            }
+            ServerMessage::DoFx(e) if e.sender.id == id => {
+                Some((format!("fx {:x}", e.action.fx), e.sender.other_stamp))
+            }
+            ServerMessage::MoveSlider(e) if e.sender.id == id => {
+                Some(("pose".into(), e.sender.other_stamp))
+            }
+            ServerMessage::SetMode(e) if e.sender.id == id => {
+                Some((format!("mode {:x}", e.action.0), e.sender.other_stamp))
+            }
+            ServerMessage::UpdateInstanceIdVisual(q) if q.object.id == id => {
+                Some((format!("{} {:x}", q.quality, q.value), q.object.other_stamp))
+            }
+            ServerMessage::UpdateStringInfoVisual(q) if q.object.id == id => {
+                Some((format!("{} name", q.quality), q.object.other_stamp))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A player's corpse is followed, as a creature's is, by the changes it was made up of: its scale,
+/// its two effects, its pose, its mode, nobody's claim, its killer, the player it was and its name,
+/// their visual stamps 2 to 10.
+/// Behaviour: server.death.player-corpse-settles
+#[test]
+fn a_players_corpse_is_followed_by_its_settling_as_a_creatures_is() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let after = run_to_death(&mut h, b, from);
+    wait(&mut h, 10.5);
+    let corpse = h
+        .world_messages(b, after)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE => Some(o),
+            _ => None,
+        })
+        .expect("its corpse is made");
+    let killer = h
+        .server
+        .things
+        .get(corpse.id)
+        .and_then(|t| t.corpse.as_ref())
+        .map(|c| c.killer)
+        .expect("a corpse");
+    let block: Vec<(String, u16)> = block_after(&h, b, after, corpse.id)
+        .into_iter()
+        .take(9)
+        .map(|(w, n)| {
+            (
+                if w.starts_with("298") {
+                    "298".into()
+                } else {
+                    w
+                },
+                n,
+            )
+        })
+        .collect();
+    assert_eq!(
+        block,
+        vec![
+            ("298".into(), 2),
+            ("fx 41000002".into(), 3),
+            ("fx 41000004".into(), 4),
+            ("pose".into(), 5),
+            ("mode 41000003".into(), 6),
+            ("322 0".into(), 7),
+            (format!("320 {killer:x}"), 8),
+            (format!("321 {me:x}"), 9),
+            ("256 name".into(), 10),
+        ]
+    );
+}
+
 /// Asked for once the corpse is made, the resurrection takes the player through portal space; a
 /// second and a half later it is alive again with three quarters of its health.
 /// Behaviour: server.death.resurrection

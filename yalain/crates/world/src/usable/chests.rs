@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 
 use auberean_protocol::physics::{Fx, ObjectEvent, Word};
 use auberean_protocol::quality::VisualQuality;
+use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -462,8 +463,9 @@ fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<u32> {
     out
 }
 
-/// The chest begins to open: what it held is cleared (for everyone who sees it), it flashes and
-/// plays its opening, and what it holds now is made.
+/// The chest begins to open: it flashes, what it held is cleared (for everyone who sees it, each
+/// item by the chest itself: the item, then the chest), it plays its opening, and what it holds now
+/// is made (2017: the flash, the clears, the opening, 26 of 26).
 fn open<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -472,22 +474,32 @@ fn open<S: Store>(
     waiting: Waiting,
     clock: Clock,
 ) {
+    flash(s, net, id);
     let left = s
         .chests
         .by_id
         .get(&id)
         .map(|c| c.contents.clone())
         .unwrap_or_default();
+    let chest = places::object_stamp(s, id);
     for item in left {
         if s.things.get(item).and_then(|t| t.container).map(|c| c.0) != Some(id) {
             continue;
         }
-        let m = session::call(DESTROY_CONTAINED, &[Arg::LongInt(id), Arg::LongInt(item)])
-            .expect("ids pack");
+        let m = ServerMessage::VisualObjectCall(ObjectCall {
+            object: chest,
+            call: ClientCall {
+                function: FunctionId(DESTROY_CONTAINED),
+                args: Some(
+                    ScriptArgs::from_values(&[Arg::LongInt(item), Arg::LongInt(id)])
+                        .expect("ids pack"),
+                ),
+            },
+        });
         let bytes = m.encode();
         for (conn, p) in &mut s.players {
             if p.known.remove(&item).is_some() || p.known.contains_key(&id) {
-                net.send(*conn, queue::EVENT, BlobKind::PRIVATE, bytes.clone());
+                net.send(*conn, queue::EVENT, BlobKind::VISUAL, bytes.clone());
             }
         }
         s.things.remove(item);
@@ -501,7 +513,6 @@ fn open<S: Store>(
             contents.push(item);
         }
     }
-    flash(s, net, id);
     mode(s, net, id, look::OPEN_MODE);
     let c = s.chests.by_id.entry(id).or_default();
     c.phase = Phase::Opening;

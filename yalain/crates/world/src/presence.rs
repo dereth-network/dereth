@@ -246,7 +246,12 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         let known = p.known.contains_key(&id);
         if !known && in_sight(ground, &p, at.cell, at.origin) {
             let m = ServerMessage::CreateObject(crate::things::create(t));
+            let block = crate::death::corpse_block(t);
             learn(net, &mut p, world, id, &m);
+            // A corpse is followed by the changes it was made up of.
+            for m in &block {
+                send(net, world, BlobKind::VISUAL, m);
+            }
             // A creature fighting is made with its weapons drawn.
             for (w, m) in crate::arms::seen_with(s, id) {
                 learn(net, &mut p, world, w, &m);

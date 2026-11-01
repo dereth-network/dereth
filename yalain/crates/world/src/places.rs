@@ -458,6 +458,13 @@ fn talks_to<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool 
 /// The script library's kinds whose placed objects answer a use as a person does.
 pub const PERSONS: [&str; 1] = ["NPC"];
 
+/// The script library's kinds whose placed objects cannot be used: forges and road signs, refused
+/// at once wherever the player stands.
+pub const CANNOT_BE_USED: [&str; 2] = ["Forge", "RoadSignTemplate"];
+
+/// The use answer's control flags for a placed object that cannot be used.
+pub const USE_FLAGS_CANNOT_BE_USED: u32 = 828;
+
 fn p_id<S: Store>(s: &Server<S>, world: ConnId) -> u64 {
     s.players.get(&world).map_or(0, |p| p.character)
 }
@@ -804,6 +811,18 @@ pub fn use_object<S: Store>(
         }
     }
     if o.destination.is_none() && !lifestone && !person && !broker {
+        if s.cannot_use_packages.contains(&o.description.package) {
+            let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
+            let no = use_refused(
+                &u,
+                0,
+                Some(USE_FLAGS_CANNOT_BE_USED),
+                distance,
+                USE_STATUS_IN_USE,
+            );
+            send(net, world, BlobKind::PRIVATE, &no);
+            return;
+        }
         s.unhandled
             .note(format!("using an object of template {:08X}", o.template));
         return;
@@ -1239,6 +1258,70 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
             held_on_object(s, net, world, u, clock);
         }
     }
+}
+
+/// A use's answer when the walk to its object was cut short by the player moving by its own hand.
+pub const MOVE_INTERRUPTED: u32 = 54;
+
+/// The flag of a player's report that it moves by its own hand (its keys), not on a walk the
+/// server ordered.
+pub const MOVED_BY_HAND: u32 = 0x4;
+
+/// The control flags of a use refused on its walk: a portal's and a lifestone's 820, a knife's on
+/// a corpse 316, anything else's (a corpse, a person, a stone) 828.
+fn walk_refusal_flags<S: Store>(s: &Server<S>, u: &Use) -> u32 {
+    if crate::butchery::is_butchery(s, u) {
+        return crate::usable::interactions::FLAGS_KEPT;
+    }
+    let place = presence::content_by_id(&s.content.objects, walk_goal(u)).is_some_and(|i| {
+        let o = &s.content.objects[i];
+        LIFESTONES.contains(&o.template) || o.destination.is_some() || o.gate.is_some()
+    });
+    if place {
+        USE_FLAGS_BOUND
+    } else {
+        USE_FLAGS_TAKE_REFUSED
+    }
+}
+
+/// A player walking to a use has reported moving by its own hand, the walk taken up (its report
+/// carries the walk's stamp) and the object not yet in reach: the walk is stopped and the use
+/// refused as interrupted, at the distance the player now stands from the object. A walk to pick
+/// an item up is left to its own rule.
+pub fn walk_interrupted<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    flags: u32,
+    move_to_stamp: u16,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let Some((u, _)) = p.walking_to.clone() else {
+        return;
+    };
+    if flags & MOVED_BY_HAND == 0 || move_to_stamp != p.move_to_stamp {
+        return;
+    }
+    let goal = walk_goal(&u);
+    let here = p.position;
+    let thing = s.things.get(goal).map(|t| (t.at, t.kind, t.container));
+    if let Some((_, crate::things::Kind::Item, None)) = thing {
+        return;
+    }
+    let distance = match thing {
+        Some((at, _, _)) => at.and_then(|at| presence::distance(&here, &at)),
+        None => presence::content_by_id(&s.content.objects, goal).and_then(|i| {
+            let o = &s.content.objects[i];
+            reach(&here, o.cell, o.origin)
+        }),
+    }
+    .unwrap_or(0.0);
+    let flags = walk_refusal_flags(s, &u);
+    stop_walking(s, net, world);
+    let no = use_refused(&u, 0, Some(flags), distance, MOVE_INTERRUPTED);
+    send(net, world, BlobKind::PRIVATE, &no);
 }
 
 /// Carry out a use of a portal or a lifestone, the player in reach.

@@ -1560,7 +1560,17 @@ pub fn transmute_all<S: Store>(
     let answer =
         session::call(function::TRANSMUTE_ALL_DONE, &[Arg::Object(b.graph())]).expect("packs");
     progress::private(net, world, &answer);
+    // Each item turned into money is let go of (its holder none) before it is gone (2017: 1,718
+    // of the transmutes' destroyed items).
     for item in &done {
+        if s.things.get(*item).is_some() {
+            let left = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+                object: visual(s, *item),
+                quality: q::CONTAINER,
+                value: 0,
+            });
+            net.send(world, queue::EVENT, BlobKind::VISUAL, left.encode());
+        }
         if let Some(t) = s.things.remove(*item) {
             let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
                 id: t.id,

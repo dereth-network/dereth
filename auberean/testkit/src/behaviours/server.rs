@@ -1334,10 +1334,19 @@ pub static ROWS: &[Behaviour] = &[
         says: "A creature falls in one of six whole death poses; its corpse's object lies in it \
                (the pose's slider left out for the first pose), with visual stamp 10, and in the \
                same tick come its scale, its two effects, its pose, its mode, nobody's claim, its \
-               killer and the creature it was, their stamps 2 to 9.",
+               killer, the creature it was and its name, their stamps 2 to 10.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-SETTLES"),
         station: "yalain-testkit::cpu::play::fights::a_corpse_lies_in_the_death_pose_and_is_followed_by_its_settling",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.corpse-settles-for-newcomers",
+        says: "A corpse made for a client whose view it comes into after it appeared is followed by \
+               the same changes it was made up of, stamps 2 to 10, its name last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-BLOCK-LATER"),
+        station: "yalain-testkit::cpu::play::fights::a_corpse_seen_later_is_followed_by_its_settling_too",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1392,6 +1401,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-XP-NOTHING"),
         station: "yalain-testkit::cpu::play::experience::a_part_worth_nothing_sends_no_text_and_no_totals",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.player-corpse-settles",
+        says: "A player's corpse is followed, as a creature's is, by its scale, its two effects, its \
+               pose, its mode, nobody's claim, its killer, the player it was and its name, stamps 2 \
+               to 10.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-CORPSE-BLOCK"),
+        station: "yalain-testkit::cpu::play::dying::a_players_corpse_is_followed_by_its_settling_as_a_creatures_is",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2794,7 +2813,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.loot.turned-into-money",
         says: "Turning a corpse's items into money moves each into the pack and destroys it \
-               there, the money going up by its value, and the answer says what was earned.",
+               there, the money going up by its value, and the answer says what was earned; each \
+               item is let go of (its holder none) before it is gone.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE"),
         station: "yalain-testkit::cpu::play::fights::turning_a_corpses_items_into_money_pays_their_value",
@@ -3485,6 +3505,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.cannot-be-used",
+        says: "A placed object of a kind that cannot be used (a forge, a road sign) is refused at \
+               once wherever the player stands, with no walk: status 10001, flags 828, the \
+               distance from where the player asked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CANNOT-BE-USED"),
+        station: "yalain-testkit::cpu::entry::places::a_forge_or_a_road_sign_is_refused_at_once_wherever_the_player_stands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.cannot-be-used-read",
+        says: "The placed objects that cannot be used are those of the script library's forge and \
+               road sign kinds; persons, portals and lifestones are not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CANNOT-BE-USED-KINDS"),
+        station: "yalain-testkit::dat::interactions::forges_and_road_signs_are_told_by_their_script_kinds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.places.chest-closes-when-its-opener-walks-away",
         says: "An open chest whose opener goes more than six meters from it plays its closing, its \
                opener is told it is closed and everyone sees it shut.",
@@ -3496,7 +3535,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.places.chest-filled-at-each-opening",
         says: "What a chest holds is made anew at each opening from its generator profile, what was left in \
-               it cleared for all who see it; an item is taken out of it as from a corpse.",
+               it cleared for all who see it, by the chest itself (the item, then the chest) between its \
+               flash and its opening; an item is taken out of it as from a corpse.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHEST-FILLED"),
         station: "yalain-testkit::cpu::play::chests::a_chest_is_filled_anew_at_each_opening_and_an_item_is_taken_out_into_the_pack",
@@ -3890,6 +3930,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VAULT-REFUSALS"),
         station: "yalain-testkit::cpu::play::vaults::a_vault_refuses_while_another_goes_through_and_too_soon_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.walk-interrupted",
+        says: "A player walked toward an object it used that moves by its own hand once the walk \
+               is taken up has interrupted it: the walk is stopped and the use refused (54), with \
+               the flags of its kind, at the distance the player now stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-INTERRUPTED"),
+        station: "yalain-testkit::cpu::entry::places::a_walk_to_a_portal_the_player_moves_off_by_hand_is_refused_as_interrupted",
         tier: Tier::Cpu,
     },
     behaviour! {

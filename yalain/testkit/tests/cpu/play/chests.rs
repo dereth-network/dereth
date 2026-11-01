@@ -161,6 +161,30 @@ fn seen(h: &Harness, b: usize, from: usize) -> Vec<String> {
             ServerMessage::CreateObject(o) if o.weenie.entity_did == CRYSTAL => {
                 Some("crystal".into())
             }
+            // A clear: by the chest itself, the item then the chest.
+            ServerMessage::VisualObjectCall(c)
+                if c.object.id == CHEST && c.call.function.0 == chests::DESTROY_CONTAINED =>
+            {
+                let v = c
+                    .call
+                    .args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())?;
+                let item = v.iter().find_map(|x| match x {
+                    Value::Long(id) if *id != CHEST => Some(*id),
+                    _ => None,
+                })?;
+                let as_sent = auberean_protocol::script::ScriptArgs::from_values(&[
+                    Arg::LongInt(item),
+                    Arg::LongInt(CHEST),
+                ])
+                .ok();
+                Some(if c.call.args == as_sent {
+                    "cleared".into()
+                } else {
+                    "cleared, the arguments the other way".into()
+                })
+            }
             ServerMessage::PlayerCall(c) => {
                 let v = c.args.as_ref().and_then(|a| calls::values(&a.0).ok())?;
                 match c.function.0 {
@@ -170,7 +194,7 @@ fn seen(h: &Harness, b: usize, from: usize) -> Vec<String> {
                     },
                     CLOSE_DONE => Some("closed".into()),
                     DISCRETE_DESTROY => Some("key gone".into()),
-                    chests::DESTROY_CONTAINED => Some("cleared".into()),
+                    chests::DESTROY_CONTAINED => Some("cleared to the player alone".into()),
                     USE_DONE => {
                         let Some(Value::Graph(g)) = v.first() else {
                             return None;
@@ -313,7 +337,8 @@ fn a_chest_its_key_only_unlocks_opens_to_a_plain_use_after() {
 }
 
 /// What a chest holds is made anew at each opening, what was left in it cleared for everyone who
-/// sees it; an item in an open chest is taken out as from a corpse, into the opener's pack.
+/// sees it, by the chest itself between its flash and its opening; an item in an open chest is
+/// taken out as from a corpse, into the opener's pack.
 /// Behaviour: server.places.chest-filled-at-each-opening
 #[test]
 fn a_chest_is_filled_anew_at_each_opening_and_an_item_is_taken_out_into_the_pack() {
@@ -349,6 +374,12 @@ fn a_chest_is_filled_anew_at_each_opening_and_an_item_is_taken_out_into_the_pack
         again.iter().filter(|s| *s == "cleared").count(),
         first.len() - 1,
         "what was left is cleared, not what was taken: {again:?}"
+    );
+    let at = |what: &str| again.iter().position(|s| s.starts_with(what));
+    let (flash, cleared, mode) = (at("flash"), at("cleared"), at("mode"));
+    assert!(
+        flash.is_some() && flash < cleared && cleared < mode,
+        "the flash, the clears, the opening: {again:?}"
     );
     let now = &h.server.chests.by_id[&CHEST].contents;
     assert!(now.iter().all(|i| !first.contains(i)), "made anew");
