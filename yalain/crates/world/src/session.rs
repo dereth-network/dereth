@@ -522,8 +522,10 @@ pub fn movement_frozen(frozen: bool) -> ServerMessage {
     call(function::MOVEMENT_FROZEN, &[Arg::Int(u32::from(frozen))]).expect("an integer packs")
 }
 
-/// The welcome the 2017 servers showed in the chat window as a character entered: a string of
-/// the client's tables, as text of kind 1.
+/// The line the 2017 servers showed in the chat window as a character entered, that the
+/// character could not be logged into the authorization server and its friends list is out of
+/// reach: a string of the client's tables, as text of kind 1. Sent only when the friends service
+/// is off or the account has no stream on it.
 #[must_use]
 pub fn welcome() -> ServerMessage {
     let text = TextInfo {
@@ -541,5 +543,5 @@ pub fn welcome() -> ServerMessage {
     .expect("a string reference packs")
 }
 
-/// The welcome string: its id and its table.
+/// The entry line's string: its id and its table.
 pub const WELCOME: (u32, u32) = (0x7F91_D315, 0x2500_0884);

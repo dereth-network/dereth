@@ -551,6 +551,8 @@ pub struct Retail {
     /// The session had the player in the world, or was connected (for its end).
     was_in_world: bool,
     was_connected: bool,
+    /// The chat service refused the login's ticket, and the screens said so.
+    refused: bool,
     /// The dialogs, one up at a time, and their notices for the panels (their answers, mouse
     /// look waiting on them), handed on at the next frame.
     dialogs: Dialogs,
@@ -641,6 +643,7 @@ impl Retail {
             chat: chat::ChatClient::default(),
             was_in_world: false,
             was_connected: false,
+            refused: false,
             dialogs: Dialogs::default(),
             said: Vec::new(),
             gather: world::Gather::default(),
@@ -1240,10 +1243,7 @@ impl Retail {
                         ..gameplay::Notice::default()
                     });
                 }
-                R::Social(r) => match map::social_action(r) {
-                    Ok(a) => requests.push(Request::Act(a)),
-                    Err(r) => tracing::debug!(?r, "no chat service to carry it out"),
-                },
+                R::Social(r) => requests.push(Request::Act(map::social_action(r))),
                 r => tracing::debug!(?r, "not carried out yet"),
             }
         }
@@ -1252,6 +1252,37 @@ impl Retail {
     /// The dialogs' notices: what the dialog up heard (its answer), and those of the last frame,
     /// handed to the screen before the world up (a question's answer) and to the play screen's
     /// panels.
+    /// The chat service's news from the client: its connection lost, the ticket taken again (or
+    /// not) after it came back, the login's ticket refused (the session goes, the screens say why).
+    fn chat_service(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        use auberean_client_sdk::runtime::friends::{notice, Refusal};
+        for n in game.notices {
+            match n.native {
+                notice::CONNECTION_LOST => self.flow.chat_service_lost(&mut self.ui),
+                notice::AUTHENTICATED => {
+                    let taken = n.words.first() == Some(&1);
+                    self.flow.chat_service_reauthenticated(&mut self.ui, taken);
+                }
+                _ => {}
+            }
+        }
+        let refusal = game
+            .client
+            .and_then(auberean_client_sdk::Client::friends_refusal);
+        match refusal {
+            Some(r) if !self.refused => {
+                self.refused = true;
+                self.flow
+                    .chat_service_refused(&self.ui, r == Refusal::Banned);
+                // The session's end is the refusal's, not a connection that failed.
+                self.net = pregame::Net::Idle;
+                requests.push(Request::Disconnect);
+            }
+            None => self.refused = false,
+            Some(_) => {}
+        }
+    }
+
     fn dialog_notices(&mut self) {
         self.dialogs.listen(&mut self.ui, &mut self.said);
         let said = std::mem::take(&mut self.said);
@@ -1873,6 +1904,7 @@ impl Interface for Retail {
         if let Some(auto) = &mut self.auto {
             auto.update(game, requests);
         }
+        self.chat_service(game, requests);
         match game.phase {
             Phase::Disconnected => {
                 if self.was_connected {

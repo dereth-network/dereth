@@ -17,6 +17,8 @@ rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 auberean-testkit.workspace = true
+# A database file as an earlier version of the store kept it, written directly.
+rusqlite.workspace = true
 
 [lints]
 workspace = true

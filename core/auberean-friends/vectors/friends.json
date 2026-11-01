@@ -1,0 +1,1023 @@
+{
+  "about": [
+    "Test vectors for the friends stream (docs/network/08-friends-stream.md), for any implementation.",
+    "elements: each element's XML in the one form this crate writes, and its fields. Reading the XML gives the fields; writing the fields gives the XML.",
+    "captured: the friends service's own elements in the forms its traffic showed: white space before '/>' and '>', a space after a closing tag, lower-case hex. The character names are made up; a ticket, and the lists, are replaced by this protocol's, in the same form. Each reads as its fields and writes as canonical.",
+    "skipped: what a reader ignores or reads leniently, and what it reads instead.",
+    "malformed: text a reader refuses; on a stream, the reader says Bye with Reason protocol and closes.",
+    "frames: a stream's bytes in hex (preamble: they begin with it) and the frames they hold; bad_frames: bytes that close the stream.",
+    "tickets: the a1. form of an account and its secret; bad_tickets: strings not of that form.",
+    "fields: element is the element's name; cx and hr are 0x and lower-case hex; numbers are numbers; an optional value left out is null; unknown is true for an element this version does not know."
+  ],
+  "limits": {
+    "max_frame": 65536,
+    "ping_secs": 20,
+    "silence_secs": 70,
+    "hello_deadline_secs": 10,
+    "ticket_deadline_secs": 30,
+    "reconnect_waits_secs": [
+      1,
+      2,
+      5,
+      10,
+      30
+    ],
+    "stood_secs": 60,
+    "burst": 20,
+    "rate_per_sec": 5,
+    "max_software": 64,
+    "max_ticket": 512,
+    "max_tell": 1024
+  },
+  "codes": {
+    "ok": "0x0",
+    "ticket_refused": "0xc1120806",
+    "banned": "0xc1121005",
+    "not_ticketed": "0xc112080b",
+    "already_ticketed": "0xc112080c",
+    "not_connected": "0xc1120405",
+    "no_such_user": "0xc1120012",
+    "not_online": "0xc1120011",
+    "timed_out": "0xc1120010",
+    "denied": "0xc1120018",
+    "not_implemented": "0x80004001"
+  },
+  "modes": {
+    "offline": 0,
+    "online": 1,
+    "away": 2,
+    "not_disturbed": 4
+  },
+  "elements": [
+    {
+      "xml": "<Hello Proto=\"1\" Software=\"auberean-friends/0.1.0\" Locale=\"1033\"/>",
+      "fields": {
+        "element": "Hello",
+        "proto": 1,
+        "software": "auberean-friends/0.1.0",
+        "locale": 1033
+      }
+    },
+    {
+      "xml": "<Hello Proto=\"1\" Software=\"example/1.0\"/>",
+      "fields": {
+        "element": "Hello",
+        "proto": 1,
+        "software": "example/1.0",
+        "locale": null
+      }
+    },
+    {
+      "xml": "<Welcome Proto=\"1\" World=\"dawnsong\" Name=\"Dawnsong\" Ping=\"20\"/>",
+      "fields": {
+        "element": "Welcome",
+        "proto": 1,
+        "world": "dawnsong",
+        "name": "Dawnsong",
+        "ping": 20
+      }
+    },
+    {
+      "xml": "<Welcome Proto=\"1\" World=\"\" Name=\"Local World\" Ping=\"20\"/>",
+      "fields": {
+        "element": "Welcome",
+        "proto": 1,
+        "world": "",
+        "name": "Local World",
+        "ping": 20
+      }
+    },
+    {
+      "xml": "<Ping Seq=\"1\"/>",
+      "fields": {
+        "element": "Ping",
+        "seq": 1
+      }
+    },
+    {
+      "xml": "<Pong Seq=\"4294967295\"/>",
+      "fields": {
+        "element": "Pong",
+        "seq": 4294967295
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"protocol\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "protocol"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"replaced\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "replaced"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"refused\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "refused"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"flood\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "flood"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"idle\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "idle"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"full\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "full"
+      }
+    },
+    {
+      "xml": "<Bye Reason=\"shutdown\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "shutdown"
+      }
+    },
+    {
+      "xml": "<PresentTicketCmd Cx=\"0x154218\" Email=\"\"><Ticket Val=\"a1.YW5u.c2VjcmV0\"/></PresentTicketCmd>",
+      "fields": {
+        "element": "PresentTicketCmd",
+        "cx": "0x154218",
+        "email": "",
+        "ticket": "a1.YW5u.c2VjcmV0"
+      }
+    },
+    {
+      "xml": "<PresentTicketRes Cx=\"0x154218\" HR=\"0x0\" Status=\"0\"/>",
+      "fields": {
+        "element": "PresentTicketRes",
+        "cx": "0x154218",
+        "hr": "0x0",
+        "status": 0
+      }
+    },
+    {
+      "xml": "<PresentTicketRes Cx=\"0x154218\" HR=\"0xc1120806\" Status=\"0\"/>",
+      "fields": {
+        "element": "PresentTicketRes",
+        "cx": "0x154218",
+        "hr": "0xc1120806",
+        "status": 0
+      }
+    },
+    {
+      "xml": "<GetFriendsList Cx=\"0x1\"/>",
+      "fields": {
+        "element": "GetFriendsList",
+        "cx": "0x1"
+      }
+    },
+    {
+      "xml": "<GetFriendsListRes Cx=\"0x1\" HR=\"0x0\" Cnt=\"2\"><FriendStatus User=\"Cara@Dawnsong\" Mode=\"3\" Location=\"\"/><FriendStatus User=\"Bob@coldeve\" Mode=\"0\" Location=\"\"/></GetFriendsListRes>",
+      "fields": {
+        "element": "GetFriendsListRes",
+        "cx": "0x1",
+        "hr": "0x0",
+        "friends": [
+          {
+            "user": "Cara@Dawnsong",
+            "mode": 3,
+            "location": ""
+          },
+          {
+            "user": "Bob@coldeve",
+            "mode": 0,
+            "location": ""
+          }
+        ]
+      }
+    },
+    {
+      "xml": "<GetFriendsListRes Cx=\"0x2\" HR=\"0x0\" Cnt=\"0\"/>",
+      "fields": {
+        "element": "GetFriendsListRes",
+        "cx": "0x2",
+        "hr": "0x0",
+        "friends": []
+      }
+    },
+    {
+      "xml": "<FriendAdd Cx=\"0xe09a818\" User=\"Bob@coldeve\"/>",
+      "fields": {
+        "element": "FriendAdd",
+        "cx": "0xe09a818",
+        "user": "Bob@coldeve"
+      }
+    },
+    {
+      "xml": "<FriendAddRes Cx=\"0xe09a818\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "FriendAddRes",
+        "cx": "0xe09a818",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<FriendAddRes Cx=\"0xe09a818\" HR=\"0xc1120012\"/>",
+      "fields": {
+        "element": "FriendAddRes",
+        "cx": "0xe09a818",
+        "hr": "0xc1120012"
+      }
+    },
+    {
+      "xml": "<FriendDelete Cx=\"0x19893ab0\" User=\"Bob@coldeve\"/>",
+      "fields": {
+        "element": "FriendDelete",
+        "cx": "0x19893ab0",
+        "user": "Bob@coldeve"
+      }
+    },
+    {
+      "xml": "<FriendDeleteRes Cx=\"0x19893ab0\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "FriendDeleteRes",
+        "cx": "0x19893ab0",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<GetIgnoredList Cx=\"0x3\"/>",
+      "fields": {
+        "element": "GetIgnoredList",
+        "cx": "0x3"
+      }
+    },
+    {
+      "xml": "<GetIgnoredListRes Cx=\"0x3\" HR=\"0x0\" Cnt=\"1\"><Jerk Str=\"Dex@coldeve\"/></GetIgnoredListRes>",
+      "fields": {
+        "element": "GetIgnoredListRes",
+        "cx": "0x3",
+        "hr": "0x0",
+        "ignored": [
+          "Dex@coldeve"
+        ]
+      }
+    },
+    {
+      "xml": "<GetIgnoredListRes Cx=\"0x3\" HR=\"0xc112080b\" Cnt=\"0\"/>",
+      "fields": {
+        "element": "GetIgnoredListRes",
+        "cx": "0x3",
+        "hr": "0xc112080b",
+        "ignored": []
+      }
+    },
+    {
+      "xml": "<IgnoredAdd Cx=\"0x9\" User=\"Dex@coldeve\"/>",
+      "fields": {
+        "element": "IgnoredAdd",
+        "cx": "0x9",
+        "user": "Dex@coldeve"
+      }
+    },
+    {
+      "xml": "<IgnoredAddRes Cx=\"0x9\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "IgnoredAddRes",
+        "cx": "0x9",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<IgnoredDelete Cx=\"0xa\" User=\"Dex@coldeve\"/>",
+      "fields": {
+        "element": "IgnoredDelete",
+        "cx": "0xa",
+        "user": "Dex@coldeve"
+      }
+    },
+    {
+      "xml": "<IgnoredDeleteRes Cx=\"0xa\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "IgnoredDeleteRes",
+        "cx": "0xa",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<Flags Cx=\"0x4\" Op=\"1\" Word=\"1\" Flags=\"1\"/>",
+      "fields": {
+        "element": "Flags",
+        "cx": "0x4",
+        "op": 1,
+        "word": 1,
+        "flags": 1
+      }
+    },
+    {
+      "xml": "<FlagsRes Cx=\"0x4\" HR=\"0x0\" WhichFlag=\"1\" Flags=\"1\"/>",
+      "fields": {
+        "element": "FlagsRes",
+        "cx": "0x4",
+        "hr": "0x0",
+        "which_flag": 1,
+        "flags": 1
+      }
+    },
+    {
+      "xml": "<SetLoc Cx=\"0x5\" Flags=\"2\" Location=\"\"/>",
+      "fields": {
+        "element": "SetLoc",
+        "cx": "0x5",
+        "flags": 2,
+        "location": ""
+      }
+    },
+    {
+      "xml": "<SetLocRes Cx=\"0x5\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "SetLocRes",
+        "cx": "0x5",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<SendToUserEx Cx=\"0x6\" User=\"Bob@coldeve\" Text=\"hi &amp; &lt;bye&gt; &quot;now&quot;\"/>",
+      "fields": {
+        "element": "SendToUserEx",
+        "cx": "0x6",
+        "user": "Bob@coldeve",
+        "text": "hi & <bye> \"now\"",
+        "extra": null
+      }
+    },
+    {
+      "xml": "<SendToUserEx Cx=\"0x7\" User=\"Cara@Dawnsong\" Text=\"hi\"><Extra Val=\"00112233445566778899aabbccddeeff\"/></SendToUserEx>",
+      "fields": {
+        "element": "SendToUserEx",
+        "cx": "0x7",
+        "user": "Cara@Dawnsong",
+        "text": "hi",
+        "extra": "00112233445566778899aabbccddeeff"
+      }
+    },
+    {
+      "xml": "<SendToUserExRes Cx=\"0x6\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "SendToUserExRes",
+        "cx": "0x6",
+        "hr": "0x0"
+      }
+    },
+    {
+      "xml": "<SendToUserExRes Cx=\"0x6\" HR=\"0xc1120405\"/>",
+      "fields": {
+        "element": "SendToUserExRes",
+        "cx": "0x6",
+        "hr": "0xc1120405"
+      }
+    },
+    {
+      "xml": "<CallCreate Cx=\"0x8\"/>",
+      "fields": {
+        "element": "CallCreate",
+        "cx": "0x8"
+      }
+    },
+    {
+      "xml": "<CallCreateRes Cx=\"0x8\" HR=\"0x80004001\"/>",
+      "fields": {
+        "element": "CallCreateRes",
+        "cx": "0x8",
+        "hr": "0x80004001"
+      }
+    },
+    {
+      "xml": "<SendToRoomEx Cx=\"0xffffffffffffffff\"/>",
+      "fields": {
+        "element": "SendToRoomEx",
+        "cx": "0xffffffffffffffff"
+      }
+    },
+    {
+      "xml": "<SendToRoomExRes Cx=\"0xffffffffffffffff\" HR=\"0x80004001\"/>",
+      "fields": {
+        "element": "SendToRoomExRes",
+        "cx": "0xffffffffffffffff",
+        "hr": "0x80004001"
+      }
+    },
+    {
+      "xml": "<FStart Cnt=\"1\"><FriendStatus User=\"Bob@coldeve\" Mode=\"1\" Location=\"\"/></FStart>",
+      "fields": {
+        "element": "FStart",
+        "friends": [
+          {
+            "user": "Bob@coldeve",
+            "mode": 1,
+            "location": ""
+          }
+        ]
+      }
+    },
+    {
+      "xml": "<FStart Cnt=\"0\"/>",
+      "fields": {
+        "element": "FStart",
+        "friends": []
+      }
+    },
+    {
+      "xml": "<FriendStat User=\"Cara@Dawnsong\" Mode=\"5\"/>",
+      "fields": {
+        "element": "FriendStat",
+        "user": "Cara@Dawnsong",
+        "mode": 5
+      }
+    },
+    {
+      "xml": "<UTellEv User=\"Ëlin@coldeve\" Text=\"&lt;3 — line&#10;two&#9;tab\"/>",
+      "fields": {
+        "element": "UTellEv",
+        "user": "Ëlin@coldeve",
+        "text": "<3 — line\ntwo\ttab",
+        "extra": null
+      }
+    },
+    {
+      "xml": "<UTellEv User=\"Ann@Dawnsong\" Text=\"hi\"><Extra Val=\"00112233445566778899aabbccddeeff\"/></UTellEv>",
+      "fields": {
+        "element": "UTellEv",
+        "user": "Ann@Dawnsong",
+        "text": "hi",
+        "extra": "00112233445566778899aabbccddeeff"
+      }
+    }
+  ],
+  "captured": [
+    {
+      "about": "a friend added (the client's request)",
+      "xml": "<FriendAdd Cx=\"0xe09a818\" User=\"ommel@Abendgrau\" />",
+      "canonical": "<FriendAdd Cx=\"0xe09a818\" User=\"ommel@Abendgrau\"/>",
+      "fields": {
+        "element": "FriendAdd",
+        "cx": "0xe09a818",
+        "user": "ommel@Abendgrau"
+      }
+    },
+    {
+      "about": "the new friend's state, sent before the answer, its name as the service writes it",
+      "xml": "<FriendStat User=\"Ommel@Abendgrau\" Mode=\"0\" />",
+      "canonical": "<FriendStat User=\"Ommel@Abendgrau\" Mode=\"0\"/>",
+      "fields": {
+        "element": "FriendStat",
+        "user": "Ommel@Abendgrau",
+        "mode": 0
+      }
+    },
+    {
+      "about": "a friend online",
+      "xml": "<FriendStat User=\"Tarrow Venn@Frostfell\" Mode=\"1\" />",
+      "canonical": "<FriendStat User=\"Tarrow Venn@Frostfell\" Mode=\"1\"/>",
+      "fields": {
+        "element": "FriendStat",
+        "user": "Tarrow Venn@Frostfell",
+        "mode": 1
+      }
+    },
+    {
+      "about": "the add answered",
+      "xml": "<FriendAddRes Cx=\"0xe09a818\" HR=\"0x0\" />",
+      "canonical": "<FriendAddRes Cx=\"0xe09a818\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "FriendAddRes",
+        "cx": "0xe09a818",
+        "hr": "0x0"
+      }
+    },
+    {
+      "about": "an add refused: no such user",
+      "xml": "<FriendAddRes Cx=\"0x188ea658\" HR=\"0xc1120012\" />",
+      "canonical": "<FriendAddRes Cx=\"0x188ea658\" HR=\"0xc1120012\"/>",
+      "fields": {
+        "element": "FriendAddRes",
+        "cx": "0x188ea658",
+        "hr": "0xc1120012"
+      }
+    },
+    {
+      "about": "a friend removed",
+      "xml": "<FriendDelete Cx=\"0x19893ab0\" User=\"Brannoc@Abendgrau\" />",
+      "canonical": "<FriendDelete Cx=\"0x19893ab0\" User=\"Brannoc@Abendgrau\"/>",
+      "fields": {
+        "element": "FriendDelete",
+        "cx": "0x19893ab0",
+        "user": "Brannoc@Abendgrau"
+      }
+    },
+    {
+      "about": "the removal answered",
+      "xml": "<FriendDeleteRes Cx=\"0x19893ab0\" HR=\"0x0\" />",
+      "canonical": "<FriendDeleteRes Cx=\"0x19893ab0\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "FriendDeleteRes",
+        "cx": "0x19893ab0",
+        "hr": "0x0"
+      }
+    },
+    {
+      "about": "the friends list asked for",
+      "xml": "<GetFriendsList Cx=\"0x15443390\" />",
+      "canonical": "<GetFriendsList Cx=\"0x15443390\"/>",
+      "fields": {
+        "element": "GetFriendsList",
+        "cx": "0x15443390"
+      }
+    },
+    {
+      "about": "an empty friends list",
+      "xml": "<GetFriendsListRes Cx=\"0x15443390\" HR=\"0x0\" Cnt=\"0\" ></GetFriendsListRes> ",
+      "canonical": "<GetFriendsListRes Cx=\"0x15443390\" HR=\"0x0\" Cnt=\"0\"/>",
+      "fields": {
+        "element": "GetFriendsListRes",
+        "cx": "0x15443390",
+        "hr": "0x0",
+        "friends": []
+      }
+    },
+    {
+      "about": "a friends list in the service's form (the names and the list are made up)",
+      "xml": "<GetFriendsListRes Cx=\"0x178f9830\" HR=\"0x0\" Cnt=\"2\" ><FriendStatus User=\"Ommel@Abendgrau\" Mode=\"0\" Location=\"\" /><FriendStatus User=\"Hale Orrin@Abendgrau\" Mode=\"1\" Location=\"\" /></GetFriendsListRes> ",
+      "canonical": "<GetFriendsListRes Cx=\"0x178f9830\" HR=\"0x0\" Cnt=\"2\"><FriendStatus User=\"Ommel@Abendgrau\" Mode=\"0\" Location=\"\"/><FriendStatus User=\"Hale Orrin@Abendgrau\" Mode=\"1\" Location=\"\"/></GetFriendsListRes>",
+      "fields": {
+        "element": "GetFriendsListRes",
+        "cx": "0x178f9830",
+        "hr": "0x0",
+        "friends": [
+          {
+            "user": "Ommel@Abendgrau",
+            "mode": 0,
+            "location": ""
+          },
+          {
+            "user": "Hale Orrin@Abendgrau",
+            "mode": 1,
+            "location": ""
+          }
+        ]
+      }
+    },
+    {
+      "about": "the ignore list asked for",
+      "xml": "<GetIgnoredList Cx=\"0x15441230\" />",
+      "canonical": "<GetIgnoredList Cx=\"0x15441230\"/>",
+      "fields": {
+        "element": "GetIgnoredList",
+        "cx": "0x15441230"
+      }
+    },
+    {
+      "about": "an empty ignore list",
+      "xml": "<GetIgnoredListRes Cx=\"0x15441230\" HR=\"0x0\" Cnt=\"0\" ></GetIgnoredListRes> ",
+      "canonical": "<GetIgnoredListRes Cx=\"0x15441230\" HR=\"0x0\" Cnt=\"0\"/>",
+      "fields": {
+        "element": "GetIgnoredListRes",
+        "cx": "0x15441230",
+        "hr": "0x0",
+        "ignored": []
+      }
+    },
+    {
+      "about": "the start-of-session state flags",
+      "xml": "<Flags Cx=\"0x15459a68\" Op=\"1\" Word=\"1\" Flags=\"1\" />",
+      "canonical": "<Flags Cx=\"0x15459a68\" Op=\"1\" Word=\"1\" Flags=\"1\"/>",
+      "fields": {
+        "element": "Flags",
+        "cx": "0x15459a68",
+        "op": 1,
+        "word": 1,
+        "flags": 1
+      }
+    },
+    {
+      "about": "the flags echoed",
+      "xml": "<FlagsRes Cx=\"0x15459a68\" HR=\"0x0\" WhichFlag=\"1\" Flags=\"1\" />",
+      "canonical": "<FlagsRes Cx=\"0x15459a68\" HR=\"0x0\" WhichFlag=\"1\" Flags=\"1\"/>",
+      "fields": {
+        "element": "FlagsRes",
+        "cx": "0x15459a68",
+        "hr": "0x0",
+        "which_flag": 1,
+        "flags": 1
+      }
+    },
+    {
+      "about": "away",
+      "xml": "<SetLoc Cx=\"0x14922068\" Flags=\"2\" Location=\"\" />",
+      "canonical": "<SetLoc Cx=\"0x14922068\" Flags=\"2\" Location=\"\"/>",
+      "fields": {
+        "element": "SetLoc",
+        "cx": "0x14922068",
+        "flags": 2,
+        "location": ""
+      }
+    },
+    {
+      "about": "back",
+      "xml": "<SetLoc Cx=\"0x12eb7c78\" Flags=\"1\" Location=\"\" />",
+      "canonical": "<SetLoc Cx=\"0x12eb7c78\" Flags=\"1\" Location=\"\"/>",
+      "fields": {
+        "element": "SetLoc",
+        "cx": "0x12eb7c78",
+        "flags": 1,
+        "location": ""
+      }
+    },
+    {
+      "about": "the state answered",
+      "xml": "<SetLocRes Cx=\"0x14922068\" HR=\"0x0\" />",
+      "canonical": "<SetLocRes Cx=\"0x14922068\" HR=\"0x0\"/>",
+      "fields": {
+        "element": "SetLocRes",
+        "cx": "0x14922068",
+        "hr": "0x0"
+      }
+    },
+    {
+      "about": "the friends list pushed on entering the world, empty",
+      "xml": "<FStart Cnt=\"0\" ></FStart> ",
+      "canonical": "<FStart Cnt=\"0\"/>",
+      "fields": {
+        "element": "FStart",
+        "friends": []
+      }
+    },
+    {
+      "about": "the friends list pushed on entering the world, in the service's form (the names and the list are made up)",
+      "xml": "<FStart Cnt=\"2\" ><FriendStatus User=\"Ommel@Abendgrau\" Mode=\"1\" Location=\"\" /><FriendStatus User=\"Hale Orrin@Abendgrau\" Mode=\"0\" Location=\"\" /></FStart> ",
+      "canonical": "<FStart Cnt=\"2\"><FriendStatus User=\"Ommel@Abendgrau\" Mode=\"1\" Location=\"\"/><FriendStatus User=\"Hale Orrin@Abendgrau\" Mode=\"0\" Location=\"\"/></FStart>",
+      "fields": {
+        "element": "FStart",
+        "friends": [
+          {
+            "user": "Ommel@Abendgrau",
+            "mode": 1,
+            "location": ""
+          },
+          {
+            "user": "Hale Orrin@Abendgrau",
+            "mode": 0,
+            "location": ""
+          }
+        ]
+      }
+    },
+    {
+      "about": "the ticket presented, in the client's form (the ticket is one of this protocol's)",
+      "xml": "<PresentTicketCmd Cx=\"0x15658e8\" Email=\"\" ><Ticket Val=\"a1.YW5u.c2VjcmV0\"/></PresentTicketCmd> ",
+      "canonical": "<PresentTicketCmd Cx=\"0x15658e8\" Email=\"\"><Ticket Val=\"a1.YW5u.c2VjcmV0\"/></PresentTicketCmd>",
+      "fields": {
+        "element": "PresentTicketCmd",
+        "cx": "0x15658e8",
+        "email": "",
+        "ticket": "a1.YW5u.c2VjcmV0"
+      }
+    },
+    {
+      "about": "the ticket admitted",
+      "xml": "<PresentTicketRes Cx=\"0x15658e8\" HR=\"0x0\" Status=\"0\" />",
+      "canonical": "<PresentTicketRes Cx=\"0x15658e8\" HR=\"0x0\" Status=\"0\"/>",
+      "fields": {
+        "element": "PresentTicketRes",
+        "cx": "0x15658e8",
+        "hr": "0x0",
+        "status": 0
+      }
+    }
+  ],
+  "skipped": [
+    {
+      "about": "an element this version does not know",
+      "xml": "<Shout Loud=\"1\"><Echo Times=\"2\"/></Shout>",
+      "fields": {
+        "element": "Shout",
+        "unknown": true
+      }
+    },
+    {
+      "about": "an attribute and a child this version does not know",
+      "xml": "<FriendStat User=\"Cara@Dawnsong\" Mode=\"1\" Colour=\"red\"><Badge Val=\"x\"/></FriendStat>",
+      "fields": {
+        "element": "FriendStat",
+        "user": "Cara@Dawnsong",
+        "mode": 1
+      }
+    },
+    {
+      "about": "a farewell for a reason this version does not know",
+      "xml": "<Bye Reason=\"sulking\"/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "protocol"
+      }
+    },
+    {
+      "about": "a farewell with no reason",
+      "xml": "<Bye/>",
+      "fields": {
+        "element": "Bye",
+        "reason": "protocol"
+      }
+    },
+    {
+      "about": "a count the children disagree with, and no location: the children decide",
+      "xml": "<GetFriendsListRes Cx=\"0x1\" HR=\"0x0\" Cnt=\"7\"><FriendStatus User=\"Bob@coldeve\" Mode=\"1\"/></GetFriendsListRes>",
+      "fields": {
+        "element": "GetFriendsListRes",
+        "cx": "0x1",
+        "hr": "0x0",
+        "friends": [
+          {
+            "user": "Bob@coldeve",
+            "mode": 1,
+            "location": ""
+          }
+        ]
+      }
+    },
+    {
+      "about": "upper-case hex and single quotes",
+      "xml": "<FriendAddRes Cx='0XABC' HR='0xC1120012'/>",
+      "fields": {
+        "element": "FriendAddRes",
+        "cx": "0xabc",
+        "hr": "0xc1120012"
+      }
+    },
+    {
+      "about": "a line break written as itself reads as a space, as in XML",
+      "xml": "<UTellEv User=\"Bob@coldeve\" Text=\"one\r\ntwo\"/>",
+      "fields": {
+        "element": "UTellEv",
+        "user": "Bob@coldeve",
+        "text": "one two",
+        "extra": null
+      }
+    }
+  ],
+  "malformed": [
+    {
+      "about": "no User",
+      "xml": "<FriendAdd Cx=\"0x1\"/>"
+    },
+    {
+      "about": "no Cx",
+      "xml": "<FriendAdd User=\"Bob@coldeve\"/>"
+    },
+    {
+      "about": "a Cx without 0x",
+      "xml": "<FriendAdd Cx=\"1\" User=\"Bob@coldeve\"/>"
+    },
+    {
+      "about": "a Cx of no digits",
+      "xml": "<FriendAdd Cx=\"0x\" User=\"Bob@coldeve\"/>"
+    },
+    {
+      "about": "a Cx of 17 digits",
+      "xml": "<FriendAdd Cx=\"0x10000000000000000\" User=\"Bob@coldeve\"/>"
+    },
+    {
+      "about": "an HR of 9 digits",
+      "xml": "<FriendAddRes Cx=\"0x1\" HR=\"0x100000000\"/>"
+    },
+    {
+      "about": "no HR",
+      "xml": "<FriendAddRes Cx=\"0x1\"/>"
+    },
+    {
+      "about": "a signed Mode",
+      "xml": "<FriendStat User=\"Bob@coldeve\" Mode=\"-1\"/>"
+    },
+    {
+      "about": "a Mode with a plus",
+      "xml": "<FriendStat User=\"Bob@coldeve\" Mode=\"+1\"/>"
+    },
+    {
+      "about": "an empty Software",
+      "xml": "<Hello Proto=\"1\" Software=\"\"/>"
+    },
+    {
+      "about": "a Software of 65 characters",
+      "xml": "<Hello Proto=\"1\" Software=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"/>"
+    },
+    {
+      "about": "a Software not ASCII",
+      "xml": "<Hello Proto=\"1\" Software=\"aubérean\"/>"
+    },
+    {
+      "about": "a greeting with no Proto",
+      "xml": "<Hello Software=\"x\"/>"
+    },
+    {
+      "about": "a Ping of no seconds",
+      "xml": "<Welcome Proto=\"1\" World=\"dawnsong\" Name=\"Dawnsong\" Ping=\"0\"/>"
+    },
+    {
+      "about": "no Ticket",
+      "xml": "<PresentTicketCmd Cx=\"0x1\" Email=\"\"/>"
+    },
+    {
+      "about": "an empty Ticket",
+      "xml": "<PresentTicketCmd Cx=\"0x1\" Email=\"\"><Ticket Val=\"\"/></PresentTicketCmd>"
+    },
+    {
+      "about": "a Ticket of 513 characters",
+      "xml": "<PresentTicketCmd Cx=\"0x1\" Email=\"\"><Ticket Val=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"/></PresentTicketCmd>"
+    },
+    {
+      "about": "an empty tell",
+      "xml": "<SendToUserEx Cx=\"0x1\" User=\"Bob@coldeve\" Text=\"\"/>"
+    },
+    {
+      "about": "a tell of 1,025 characters",
+      "xml": "<SendToUserEx Cx=\"0x1\" User=\"Bob@coldeve\" Text=\"ëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëëë\"/>"
+    },
+    {
+      "about": "an Extra not of 32 hex digits",
+      "xml": "<SendToUserEx Cx=\"0x1\" User=\"Bob@coldeve\" Text=\"hi\"><Extra Val=\"00\"/></SendToUserEx>"
+    },
+    {
+      "about": "a Jerk with no Str",
+      "xml": "<GetIgnoredListRes Cx=\"0x1\" HR=\"0x0\" Cnt=\"1\"><Jerk/></GetIgnoredListRes>"
+    },
+    {
+      "about": "a FriendStatus with no User",
+      "xml": "<FStart Cnt=\"1\"><FriendStatus Mode=\"1\" Location=\"\"/></FStart>"
+    },
+    {
+      "about": "not closed",
+      "xml": "<FriendAdd Cx=\"0x1\" User=\"Bob@coldeve\">"
+    },
+    {
+      "about": "a declaration",
+      "xml": "<?xml version=\"1.0\"?><Ping Seq=\"1\"/>"
+    },
+    {
+      "about": "a comment",
+      "xml": "<!-- hi --><Ping Seq=\"1\"/>"
+    },
+    {
+      "about": "two elements",
+      "xml": "<Ping Seq=\"1\"/><Ping Seq=\"2\"/>"
+    },
+    {
+      "about": "no element",
+      "xml": "Ping"
+    },
+    {
+      "about": "children two deep",
+      "xml": "<FStart Cnt=\"1\"><FriendStatus User=\"Bob@coldeve\" Mode=\"1\" Location=\"\"><X/></FriendStatus></FStart>"
+    },
+    {
+      "about": "a reference to nothing",
+      "xml": "<UTellEv User=\"Bob@coldeve\" Text=\"&bad;\"/>"
+    },
+    {
+      "about": "a reference to NUL",
+      "xml": "<UTellEv User=\"Bob@coldeve\" Text=\"&#0;\"/>"
+    },
+    {
+      "about": "text in an element",
+      "xml": "<Ping Seq=\"1\">text</Ping>"
+    },
+    {
+      "about": "CDATA",
+      "xml": "<UTellEv User=\"Bob@coldeve\" Text=\"x\"><![CDATA[x]]></UTellEv>"
+    },
+    {
+      "about": "an attribute twice",
+      "xml": "<Ping Seq=\"1\" Seq=\"2\"/>"
+    },
+    {
+      "about": "an unquoted value",
+      "xml": "<Ping Seq=1/>"
+    }
+  ],
+  "frames": [
+    {
+      "about": "a client's first bytes: the preamble, then its greeting",
+      "hex": "444e4631420000003c48656c6c6f2050726f746f3d22312220536f6674776172653d22617562657265616e2d667269656e64732f302e312e3022204c6f63616c653d2231303333222f3e",
+      "preamble": true,
+      "frames": [
+        "<Hello Proto=\"1\" Software=\"auberean-friends/0.1.0\" Locale=\"1033\"/>"
+      ]
+    },
+    {
+      "about": "two frames in a row",
+      "hex": "0f0000003c50696e67205365713d2237222f3e0f0000003c506f6e67205365713d2237222f3e",
+      "preamble": false,
+      "frames": [
+        "<Ping Seq=\"7\"/>",
+        "<Pong Seq=\"7\"/>"
+      ]
+    },
+    {
+      "about": "a length counts bytes of UTF-8, not characters",
+      "hex": "2b0000003c467269656e645374617420557365723d22c38b6c696e40636f6c6465766522204d6f64653d2231222f3e",
+      "preamble": false,
+      "frames": [
+        "<FriendStat User=\"Ëlin@coldeve\" Mode=\"1\"/>"
+      ]
+    }
+  ],
+  "bad_frames": [
+    {
+      "about": "a length of zero",
+      "hex": "00000000"
+    },
+    {
+      "about": "a length past 65,536",
+      "hex": "0100010000"
+    },
+    {
+      "about": "text that is not UTF-8",
+      "hex": "02000000c328"
+    }
+  ],
+  "tickets": [
+    {
+      "account": "ann",
+      "secret": "secret",
+      "ticket": "a1.YW5u.c2VjcmV0"
+    },
+    {
+      "account": "Ann",
+      "secret": "",
+      "ticket": "a1.QW5u."
+    },
+    {
+      "account": "zoë",
+      "secret": "pä ss/wörd?",
+      "ticket": "a1.em_Dqw.cMOkIHNzL3fDtnJkPw"
+    },
+    {
+      "account": "a-b_c.d",
+      "secret": "~!@#$%^&*()",
+      "ticket": "a1.YS1iX2MuZA.fiFAIyQlXiYqKCk"
+    }
+  ],
+  "bad_tickets": [
+    {
+      "about": "empty",
+      "ticket": ""
+    },
+    {
+      "about": "the prefix alone",
+      "ticket": "a1."
+    },
+    {
+      "about": "one part",
+      "ticket": "a1.YW5u"
+    },
+    {
+      "about": "another form",
+      "ticket": "a2.YW5u.c2VjcmV0"
+    },
+    {
+      "about": "no account",
+      "ticket": "a1..c2VjcmV0"
+    },
+    {
+      "about": "three parts",
+      "ticket": "a1.YW5u.c2VjcmV0.eA"
+    },
+    {
+      "about": "padding",
+      "ticket": "a1.YW5u.c2VjcmV0=="
+    },
+    {
+      "about": "standard base64, not URL-safe",
+      "ticket": "a1.Pz8_.Pz8+"
+    },
+    {
+      "about": "a single character left over",
+      "ticket": "a1.YW5uY.c2VjcmV0"
+    },
+    {
+      "about": "bits past the last byte set",
+      "ticket": "a1.Zh.c2VjcmV0"
+    },
+    {
+      "about": "a part that is not UTF-8",
+      "ticket": "a1.wyg.c2VjcmV0"
+    }
+  ]
+}

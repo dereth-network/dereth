@@ -487,7 +487,15 @@ pub fn enter<S: Store>(
         Ok(m) => send(net, world, BlobKind::PRIVATE, &m),
         Err(e) => tracing::warn!("the session start does not pack: {e}"),
     }
-    send(net, world, BlobKind::PRIVATE, &session::welcome());
+    // The line that the friends list and tells are out of reach: only for an account the
+    // world's friends service has no stream for (the client presents its ticket before the game
+    // login, so one without a stream now has none to come), or when the world serves none.
+    if s.friends_streams
+        .as_ref()
+        .is_none_or(|streams| !streams.contains(&c.account))
+    {
+        send(net, world, BlobKind::PRIVATE, &session::welcome());
+    }
     s.players.insert(world, p);
     if new_character {
         crate::scenes::first_entry(s, net, world);

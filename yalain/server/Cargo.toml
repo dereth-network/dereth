@@ -32,8 +32,19 @@ yalain-store = { workspace = true, features = ["sqlite"] }
 yalain-world-db.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# `--hub`: the heartbeat the world posts to a Dereth Network hub, the network's own, as JSON.
+dereth-network-protocol.workspace = true
+serde_json.workspace = true
+# `--federation`: the WebSocket to the hub (the network's own), and the world's half of what goes
+# over it.
+dereth-network-link.workspace = true
+yalain-federation.workspace = true
+# The players' friends service, served on TCP beside the login.
+yalain-friends.workspace = true
 # Ctrl-C and the service manager's stop (SIGTERM): the world keeps everyone in it, then stops.
 ctrlc = { workspace = true, features = ["termination"] }
+# The keys the network's directory knows the world's allegiances by: random, from the system.
+getrandom.workspace = true
 # `world fetch`: downloading a world database release over HTTPS (rustls with its bundled web
 # roots, no system TLS library) and reading archives other than the release's own.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
@@ -46,10 +57,14 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 live = ["yalain-testkit/retail-dats"]
 
 [dev-dependencies]
+# The live test's friends streams speak the stream's client half.
+auberean-friends.workspace = true
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-dat = { workspace = true, features = ["test-support"] }
 yalain-content.workspace = true
 yalain-testkit.workspace = true
+# The live test's stand-in hub takes the world's link as a WebSocket.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

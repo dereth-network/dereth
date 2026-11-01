@@ -16,13 +16,15 @@
 //! 5. **The action seam.** The contract, the runtime, the SDK and the headless client name no key,
 //!    mouse button or window message ([`DEVICE_NAMES`]): a front end turns its device into actions.
 //! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
-//!    server's the core and their own; the world builder's the core, its own and
+//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
+//!    the world builder's the core, its own and
 //!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
 //!    network, store or program: it runs Yalain as a program); a core crate's
 //!    tests may use the client's test kit and the server's network crate (the server double), the
 //!    server's tests the client's test kit. Nothing of the first game's uses any of them. No crate
 //!    but a test kit names a test kit outside its tests, and no library names a log subscriber
-//!    ([`super::LIBRARY_NO_SUBSCRIBER`]): only an executable installs one.
+//!    ([`super::LIBRARY_NO_SUBSCRIBER`]): only an executable installs one, and the libraries in
+//!    [`OUTERMOST`], loaded by a program that is not ours.
 //! 7. **The application's halves reach no platform.** The client's shell, scene and interface
 //!    ([`HALVES`])
 //!    depend directly on no window system, operating system binding, sound device, pad or desktop
@@ -130,6 +132,11 @@ pub const DEVICE_NAMES: &[&str] = &[
 /// The first game's client crates the second's client may use: the picture codecs.
 pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu"];
 
+/// The crates outside the four parts the server may use: the Dereth Network's protocol and a
+/// world's end of its link, which name no game (the network is self-contained), so that the server
+/// speaks the network with the code every world shares rather than a copy of its own.
+pub const SERVER_MAY_USE: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
+
 /// The client's and the server's crates the world builder may use: the world's frame and its
 /// device, which it draws the world with, and the world database and the server's tables, which
 /// it reads, checks and compiles worlds with. Nothing of the server's game, network, store or
@@ -178,6 +185,11 @@ pub const EXECUTABLES: &[&str] = &[
     "athenaeum-editor",
 ];
 
+/// The libraries that are the outermost Rust of their process, loaded by a program that is not
+/// ours, so that each installs its own log subscriber as an executable does: the friends service's
+/// library for the retail client, when it is built.
+pub const OUTERMOST: &[&str] = &["auberean-friends-dll"];
+
 /// The test kits: test support, which only tests may name.
 const TEST_KITS: &[&str] = &["auberean-testkit", "yalain-testkit"];
 
@@ -200,7 +212,8 @@ pub fn part_violations(packages: &[WorkspacePackage]) -> Vec<String> {
     let mut out = Vec::new();
     for p in packages {
         let ours = part_of(&p.dir);
-        let executable = EXECUTABLES.contains(&p.name.as_str());
+        let executable =
+            EXECUTABLES.contains(&p.name.as_str()) || OUTERMOST.contains(&p.name.as_str());
         for d in &p.deps {
             let theirs = dir_of(&d.name).and_then(part_of);
             let test = if d.dev { " (for its tests)" } else { "" };
@@ -225,6 +238,7 @@ pub fn part_violations(packages: &[WorkspacePackage]) -> Vec<String> {
                 Some("yalain/") => {
                     in_core
                         || theirs == Some("yalain/")
+                        || SERVER_MAY_USE.contains(&d.name.as_str())
                         || (d.dev && d.name == "auberean-testkit")
                         || dir_of(&d.name).is_none()
                 }
@@ -638,8 +652,9 @@ pub fn reports(ws: &Path) -> Vec<Report> {
         row(
             "seam: Asheron's Call 2 parts",
             parts,
-            "the client, the server and the world builder use the core and their own; nothing \
-             else uses them; test kits only in tests; executables alone install a log subscriber"
+            "the client, the server and the world builder use the core, their own and their \
+             reviewed lists; nothing else uses them; test kits only in tests; executables alone \
+             install a log subscriber"
                 .to_owned(),
         ),
     ]
@@ -730,6 +745,8 @@ mod tests {
                     ("yalain-net", false),
                     ("tracing-subscriber", false),
                     ("auberean-testkit", true),
+                    ("dereth-network-protocol", false),
+                    ("dereth-network-link", false),
                 ],
                 true,
             ),
@@ -762,6 +779,25 @@ mod tests {
                 "athenaeum/crates/foundry",
                 &[("yalain-world-db", false)],
                 false,
+            ),
+            pkg("dereth-network-protocol", "network/protocol", &[], false),
+            pkg(
+                "dereth-network-link",
+                "network/link",
+                &[("dereth-network-protocol", false)],
+                false,
+            ),
+            pkg(
+                "auberean-friends-dll",
+                "auberean/friends-dll",
+                &[("tracing-subscriber", false)],
+                false,
+            ),
+            pkg(
+                "dereth-network-hub",
+                "network/hub",
+                &[("dereth-network-protocol", false)],
+                true,
             ),
         ]
     }
@@ -804,6 +840,17 @@ mod tests {
         assert!(plant(12, ("yalain", false))[0].contains("athenaeum-foundry depends on `yalain`"));
         assert!(plant(7, ("auberean-testkit", true))[0]
             .contains("athenaeum-cli depends on `auberean-testkit`"));
+        // The server speaks the network with its shared crates; the client and the world builder
+        // do not take them in, and no other crate of the network's.
+        assert!(plant(3, ("dereth-network-link", false))[0]
+            .contains("auberean-draw depends on `dereth-network-link`"));
+        assert!(plant(12, ("dereth-network-protocol", false))[0]
+            .contains("athenaeum-foundry depends on `dereth-network-protocol`"));
+        assert!(plant(5, ("dereth-network-hub", false))[0]
+            .contains("yalain-net depends on `dereth-network-hub`"));
+        // The retail client's friends library is the outermost Rust of its process, and installs
+        // its own log subscriber (the base layout's); a library beside it may not.
+        assert!(plant(3, ("tracing-subscriber", false))[0].contains("log subscriber"));
     }
 
     /// **The core reaches only the core and the shared crates**, the primitives nothing and the

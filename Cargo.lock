@@ -344,6 +344,7 @@ dependencies = [
 name = "auberean-client-net"
 version = "0.0.0"
 dependencies = [
+ "auberean-friends",
  "auberean-primitives",
  "auberean-protocol",
  "auberean-testkit",
@@ -410,6 +411,22 @@ dependencies = [
  "dereth-landscape",
  "dereth-primitives",
  "dereth-render-cpu",
+]
+
+[[package]]
+name = "auberean-friends"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "auberean-friends-dll"
+version = "0.0.0"
+dependencies = [
+ "auberean-friends",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -6927,16 +6944,24 @@ dependencies = [
  "auberean-assets",
  "auberean-client-sdk",
  "auberean-dat",
+ "auberean-friends",
  "auberean-physics",
  "auberean-script",
  "auberean-world",
  "ctrlc",
+ "dereth-network-link",
+ "dereth-network-protocol",
  "dereth-primitives",
  "embed-resource",
+ "getrandom 0.4.3",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
+ "tungstenite",
  "ureq",
  "yalain-content",
+ "yalain-federation",
+ "yalain-friends",
  "yalain-net",
  "yalain-store",
  "yalain-testkit",
@@ -6950,6 +6975,26 @@ name = "yalain-content"
 version = "0.0.0"
 dependencies = [
  "auberean-assets",
+]
+
+[[package]]
+name = "yalain-federation"
+version = "0.0.0"
+dependencies = [
+ "dereth-network-protocol",
+ "tracing",
+ "yalain-store",
+]
+
+[[package]]
+name = "yalain-friends"
+version = "0.0.0"
+dependencies = [
+ "auberean-friends",
+ "dereth-network-protocol",
+ "tracing",
+ "yalain-federation",
+ "yalain-store",
 ]
 
 [[package]]
@@ -6977,12 +7022,15 @@ dependencies = [
  "auberean-assets",
  "auberean-client-sdk",
  "auberean-dat",
+ "auberean-friends",
  "auberean-physics",
  "auberean-primitives",
  "auberean-protocol",
  "auberean-script",
  "auberean-testkit",
  "auberean-world",
+ "dereth-client-sdk",
+ "dereth-dat",
  "dereth-primitives",
  "dereth-protocol",
  "dereth-transport",

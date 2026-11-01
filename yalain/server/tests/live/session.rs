@@ -45,6 +45,10 @@ pub(crate) fn free_ports() -> u16 {
     panic!("no four free ports on loopback");
 }
 
+/// How long a server a test starts runs before it stops by itself, in seconds: a stop for one a
+/// test left behind, far past what any test takes on a loaded machine.
+pub(crate) const LIFE: u32 = 1_800;
+
 /// The server's executable, serving the authored world's database with its files in `dir`, for at
 /// most `seconds`.
 pub(crate) fn start_server(dir: &Path, login: u16, seconds: u32) -> Child {
@@ -143,7 +147,7 @@ pub(crate) fn must<T>(r: Result<T, String>, dir: &Path) -> T {
 fn our_client_plays_a_whole_session_on_the_server_executable() {
     let dir = scratch("yalain-live-session");
     let port = free_ports();
-    let _server = Running(start_server(&dir, port, 300));
+    let _server = Running(start_server(&dir, port, LIFE));
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
     socket.set_nonblocking(true).expect("nonblocking");
     let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
@@ -206,7 +210,7 @@ fn our_client_plays_a_whole_session_on_the_server_executable() {
         again.place
     );
     must(
-        play::until(&mut s, 10.0, "the sword in hand again", |c| {
+        play::until(&mut s, play::HANG, "the sword in hand again", |c| {
             c.model
                 .object(sword)
                 .is_some_and(|o| o.parent.is_some_and(|(p, _)| p == me) && o.wielder == Some(me))

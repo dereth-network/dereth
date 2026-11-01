@@ -352,6 +352,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.system-line-ends-its-line",
+        says: "A system line the world writes itself ends with a line end (LF), as the client's \
+               own strings do, so lines in a row do not run together; one that already ends its \
+               line is not given a second.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SYSTEM-LINE-END"),
+        station: "yalain-testkit::cpu::entry::chat::a_system_line_the_world_writes_ends_its_line_as_the_clients_strings_do",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.tell-delivered-or-refused",
         says: "A tell reaches the player of the name typed (with or without its grammar mark, in \
                any case) as the teller's tell with its id and world name; the teller is shown its \
@@ -1861,6 +1871,220 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.dn-said-in-chat",
+        says: "A line said as @dn, aloud or into a room, is heard by nobody and answered with the \
+               world's lines: the character's place on the network, on and off at once (kept), \
+               the commands, and with the world off the network, that it is not on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-DN"),
+        station: "yalain-friends::cpu::commands::dn_said_in_chat_shows_puts_on_and_takes_off_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.entry-line-only-without-a-stream",
+        says: "The line that the character could not be logged into the authorization server, \
+               its friends list out of reach, is shown as it enters only when the world serves no \
+               friends service or the account has no stream on it; an account with a stream \
+               enters without it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-ENTRY-LINE"),
+        station: "yalain-testkit::cpu::entry::world::the_line_that_friends_are_out_of_reach_comes_at_entry_only_without_a_friends_stream",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.friend-added-and-removed",
+        says: "A friend of this world must be a character of it, named with no world, the world's \
+               name in any case or its slug, and is written back with the world's name exactly; \
+               added, its state goes first and then the answer; one listed already, not listed, \
+               or no address is answered with the code that says so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-FRIEND-ADD"),
+        station: "yalain-friends::cpu::friends::a_friend_of_this_world_is_added_with_its_state_first_and_removed_by_any_of_its_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.hand-over-keeps-presence",
+        says: "A character whose friends stream came while it was already in the world (a new \
+               client taking over from one gone) stays present for nineteen seconds after it \
+               leaves the world, counted from its body's leaving at the end of its linger, not \
+               from its old login's going; entering again within them, no friend in the world or \
+               on another world sees it go and come back, and its stream is sent its friends \
+               again. Not entered again, or its stream ended, or another character of the account \
+               entering, it is seen to leave then.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-HAND-OVER"),
+        station: "yalain-friends::cpu::presence::a_character_handed_over_and_entered_again_in_time_is_never_seen_offline",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.ignore-list-kept",
+        says: "The ignore list keeps characters of this world, which must exist, and other \
+               worlds' addresses, lists them back as the client knows them, and answers a name \
+               already listed or not listed with the code that says so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-IGNORE"),
+        station: "yalain-friends::cpu::friends::the_ignore_list_keeps_names_of_this_world_and_addresses_of_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.ignored-tells-not-shown",
+        says: "A character never hears a tell from a character it ignores, through the friends \
+               service or the game's own tell; the teller is shown what a delivered tell shows.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-IGNORED-TELL"),
+        station: "yalain-friends::cpu::tells::an_ignored_tellers_tell_is_answered_done_and_shown_to_nobody",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.lists-capped",
+        says: "A character keeps at most a hundred friends; the next is refused with the world's \
+               line and a code the client shows as its list's error.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-CAP"),
+        station: "yalain-friends::cpu::friends::a_friends_list_holds_a_hundred_and_the_next_is_refused_with_a_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.lists-kept",
+        says: "Each character's friends and ignored names are kept across a restart, a name once \
+               in any case, and forgotten with the character; a database kept before the friends \
+               service opens with every list empty.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-KEPT"),
+        station: "yalain-store::cpu::persistence::an_earlier_database_gains_the_friends_lists_and_keeps_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.presence-within-the-world",
+        says: "A character with a friends stream entering the world is shown online to every \
+               present character that lists it, and offline when it leaves (unless it was handed \
+               over to a new client) or its stream ends; away is mode 3 and not to be disturbed 5, \
+               and the state lasts until it leaves.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-PRESENCE"),
+        station: "yalain-friends::cpu::presence::friends_in_the_world_see_a_character_come_go_and_change_its_state",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.remote-add-shown-once",
+        says: "A friend added on another world is shown once, with the state its world reports, \
+               then the add is answered; offline at once when the link is down or its world not \
+               linked, and offline after three seconds without an answer (a later answer shown \
+               only if online); never offline first and then its real state.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-REMOTE-ADD"),
+        station: "yalain-friends::cpu::network::a_friend_added_on_another_world_is_shown_once_with_the_state_its_world_reports",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.remote-friend-watched",
+        says: "Another world's friend needs the world and the character on the network, else the \
+               world's line; kept, it is watched over the link, and shows each state its world \
+               reports, offline again when its world goes; another world sees a \
+               character online only while it has a stream.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-REMOTE-FRIEND"),
+        station: "yalain-friends::cpu::network::another_worlds_friend_is_watched_and_its_state_shown_once_the_character_is_on_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.remote-tell",
+        says: "A tell to another world's character goes over the link and is answered once, when \
+               it ends: done for delivered, away (with the away line) and squelched, not logged \
+               in for offline, could not be sent with the world's line for the rest and for no \
+               answer in time; a tell from another world reaches the stream with the teller's \
+               address.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-REMOTE-TELL"),
+        station: "yalain-friends::cpu::network::a_tell_to_another_world_is_answered_once_by_how_it_ended",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.second-stream-replaces-first",
+        says: "A second friends stream for an account replaces the first, which is told so and \
+               closed; the character stays present, its friends told nothing, and the new stream \
+               is sent its friends.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-REPLACED"),
+        station: "yalain-friends::cpu::streams::a_second_stream_for_an_account_replaces_the_first_and_the_character_stays_present",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.served-beside-the-login",
+        says: "The server serves the friends stream on TCP at its login port's number: a ticket \
+               admits a stream before the game login, friends and tells work within the world, \
+               and after @dn on said in chat another world's friend is watched and tells go both \
+               ways over the link.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-LIVE"),
+        station: "yalain::live::friends::the_server_serves_friends_and_tells_within_the_world_and_across_the_link",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.friends.state-told-only-when-it-changes",
+        says: "Every state a character asks for (away, not to be disturbed, available) is \
+               answered, and its friends in the world are told only when the state changes: the \
+               client asks for away twice for one away, and prints a line for each state it is \
+               sent.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-STATE-ONCE"),
+        station: "yalain-friends::cpu::presence::the_same_state_asked_for_again_is_answered_but_not_told_to_friends_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.stream-back-sent-its-friends",
+        says: "A friends stream that comes back while its character is in the world, after the \
+               old one dropped or in place of one still open, is sent the whole friends list with \
+               each friend's state at its ticket and answers the list asked for after; a \
+               replacing stream leaves the character present, so no friend in the world or on \
+               another world sees it go and come back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-STREAM-BACK"),
+        station: "yalain-friends::cpu::streams::a_stream_that_drops_and_comes_back_is_sent_the_whole_friends_list_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.stream-bound-to-account-and-character",
+        says: "A friends stream is bound to the account its ticket names, as the login's rule \
+               admits it, and acts for the account's character while it is in the world: every \
+               request is answered not connected before, the friends list is sent as it enters \
+               (or as the stream comes back), and nothing as it leaves.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-BOUND"),
+        station: "yalain-friends::cpu::streams::a_ticketed_stream_acts_for_its_accounts_character_while_it_is_in_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.streams-bounded",
+        says: "One address holds at most eight friends streams, an IPv6 address counted by its \
+               /64; the next is told the world is full and closed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-BOUNDS"),
+        station: "yalain-friends::cpu::streams::an_address_holds_at_most_eight_streams_an_ipv6_one_by_its_prefix",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.tell-within-the-world",
+        says: "A tell to a present character of this world reaches its stream from the teller as \
+               Name@ and the world's name, with its extra data, answered done (with the world's \
+               away line for one away); one not present is answered not logged in, an unknown \
+               name doesn't exist, and a character's tells are held to the network's pace.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-TELL"),
+        station: "yalain-friends::cpu::tells::a_tell_within_the_world_is_shown_to_a_present_character_and_answered_by_its_outcome",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.ticket-refused-and-guessing-held-back",
+        says: "A ticket the login's rule refuses, or one not of the ticket's form, is answered \
+               refused and the stream may try again; after five refusals from one address in a \
+               minute, its next minute's tickets are refused unchecked.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-TICKET"),
+        station: "yalain-friends::cpu::streams::refused_tickets_are_answered_so_and_five_in_a_minute_lock_the_address_for_a_minute",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-picked-up-item-goes-to-the-packs-front",
         says: "An item picked up goes to the front of the pack, every item there moving up one, \
                and the move names that slot as both where it was sent and where it went.",
@@ -2498,6 +2722,250 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.answers-owed-capped",
+        says: "A world owed a hundred answers already is not answered again, and its tell not shown, until \
+               it is owed fewer; an answer the hub stopped waiting for after thirty seconds is dropped.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-ANSWERS"),
+        station: "yalain-federation::cpu::tells::a_world_owed_a_hundred_answers_is_answered_no_more_until_it_is_owed_fewer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-answers",
+        says: "A listing refused after @dn on is shown and holds the character out until its next \
+               login or @dn on; one the hub held back to its pace goes again a minute later, the \
+               latest profile then, its page then shown.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-ANSWERS"),
+        station: "yalain-federation::cpu::directory::a_refusal_holds_the_character_out_and_one_held_back_goes_a_minute_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-changes-paced",
+        says: "A listed character's change while it plays goes once its last listing is five \
+               minutes old, the latest profile alone; an unchanged profile or one out of the \
+               directory's bounds sends nothing; at logout a changed profile goes at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-CHANGES"),
+        station: "yalain-federation::cpu::directory::a_change_waits_its_five_minutes_and_a_logout_sends_it_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-listed-on",
+        says: "A character on the network is listed with its Asheron's Call 2 profile at once at \
+               each login and at @dn on, which asks the world for its profile and shows its page; a \
+               character off the network is never listed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-ON"),
+        station: "yalain-federation::cpu::directory::a_character_on_the_network_is_listed_at_login_and_at_dn_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-off-kept",
+        says: "Going off the network takes the character out of the directory at once; the listing \
+               that says so is owed until the hub answers it, across a lost link and a restart, and \
+               goes before any profile; a profile not answered goes again after a lost link.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-OFF"),
+        station: "yalain-federation::cpu::directory::going_off_takes_the_character_out_at_once_and_is_owed_until_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-paced",
+        says: "The directory's listings go after everything else the link carries, within the hub's \
+               pace for a world's listings, and each goes once the pace allows.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-PACED"),
+        station: "yalain-federation::cpu::directory::listings_go_after_the_rest_within_the_hubs_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-taken-out-by-operator",
+        says: "The hub's operator taking a character out: the world says it heard at once, tells \
+               the character (at its next login when away), and sends nothing for it until its next \
+               login.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-OPERATOR"),
+        station: "yalain-federation::cpu::directory::the_hubs_operator_holds_a_character_out_until_its_next_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.directory-taken-out-by-person",
+        says: "A character whose person asked the network to forget it: the world says it heard \
+               at once, takes the character off the network, kept, and tells it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-DIR-PERSON"),
+        station: "yalain-federation::cpu::directory::a_character_its_person_forgot_goes_off_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.frames-paced-in-order",
+        says: "The world's own tells go to the hub first, then the answers it owes other worlds, then \
+               watches and presence answers a world at a time, each at its share of the hub's pace; \
+               a newer watch takes a waiting one's place, and none waits while the link is down.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-ORDER"),
+        station: "yalain-federation::cpu::presence::watches_wait_behind_tells_and_answers_and_go_a_world_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.friends-state-paced",
+        says: "A character is shown at most four changes of one friend on another world at once, then \
+               one every five seconds, its latest state.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-PRESENCE-PACE"),
+        station: "yalain-federation::cpu::presence::a_friends_changes_are_shown_four_at_once_then_one_every_five_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.friends-state-shown",
+        says: "A friend's state on another world reaches the character that lists it as its world \
+               reports it, the first report a state and later ones news; friends of a world that \
+               goes, or of a lost hub, show offline.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-PRESENCE"),
+        station: "yalain-federation::cpu::presence::a_friends_state_is_shown_as_its_world_reports_it_and_offline_when_its_world_goes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.friends-watched",
+        says: "A present character on the network watches each friend on a linked world: at the \
+               welcome, when it arrives, when the friend's world comes up and when it adds one; it \
+               stops when it leaves or removes one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-WATCHING"),
+        station: "yalain-federation::cpu::presence::present_characters_on_the_network_watch_their_friends_on_linked_worlds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.linked-to-a-hub",
+        says: "A server on the Dereth Network links to its hub with the world's key and says hello \
+               first; once welcomed it answers another world's tell and watch, and its console \
+               shows the hub connected and blocks a world.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-LINK"),
+        station: "yalain::live::network::the_server_links_to_its_hub_and_answers_another_worlds_tell_and_watch",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.network.operator-block-at-once",
+        says: "An operator's block takes hold at once: what it covers sees this world's characters \
+               offline, is no longer watched and shows offline here; lifting it gives back what it \
+               took.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-BLOCK"),
+        station: "yalain-federation::cpu::operator::a_block_takes_hold_at_once_and_lifting_it_gives_back_what_it_took",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.operator-console",
+        says: "The console's dn shows the world's link and its blocks, dn block and dn unblock block or \
+               lift a world or Name@world for everyone on this world, and with the network off each \
+               says so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-CONSOLE"),
+        station: "yalain-federation::cpu::operator::the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.setting-and-blocks-kept",
+        says: "Each character's place on the network and the operator's blocks are kept across a \
+               restart; a database kept before the network opens with everyone off it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-KEPT"),
+        station: "yalain-store::cpu::persistence::an_earlier_database_gains_the_networks_setting_and_blocks_and_keeps_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-received",
+        says: "A tell from another world is shown to a present character on the network after the \
+               network's text rules and answered at once: delivered, or away with its text (or the \
+               default for its state).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-IN"),
+        station: "yalain-federation::cpu::tells::a_tell_from_another_world_is_shown_after_the_text_rules_and_answered_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-received-refused",
+        says: "A tell from another world to a character not present, off the network or unknown, or \
+               from what the operator blocks, is answered offline alike; one the character ignores \
+               squelched; one world's tells to one character past twenty, then one a second, \
+               rate_limited.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-IN-REFUSED"),
+        station: "yalain-federation::cpu::tells::a_tell_from_another_world_is_refused_alike_and_held_to_its_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-refused-before-sending",
+        says: "A tell to another world is refused before it is sent, with its line, from a world or a \
+               character off the network, to what the operator blocks, and past the teller's own \
+               pace.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-REFUSED"),
+        station: "yalain-federation::cpu::tells::a_tell_is_refused_here_for_the_world_the_teller_the_blocks_and_the_tellers_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-sent-and-answered",
+        says: "A tell to another world goes to the hub under the teller's address and ends as the \
+               recipient's world answers, with the line the teller's world writes for each outcome.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-OUT"),
+        station: "yalain-federation::cpu::tells::a_tell_to_another_world_goes_to_the_hub_and_ends_as_its_answer_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tells-wait-for-the-link",
+        says: "A tell waits a minute for a link and goes once the world is welcomed; one lost with the \
+               link goes again first; one kept waiting a minute ends with the network unavailable, \
+               and one unanswered for a hundred seconds with its world out of reach.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-QUEUE"),
+        station: "yalain-federation::cpu::tells::tells_wait_for_the_link_for_a_minute_and_for_an_answer_for_a_hundred_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.three-worlds-of-two-games-on-one-hub",
+        says: "Through one hub, a world of each game and two of this game's worlds carry friends, \
+               presence and tells between their players both ways, within this game and across \
+               games: refused with the joining line off the network, listed in the directory at \
+               @dn on, offline when a player leaves, quits, says @dn off or its world's link \
+               drops, and online again when it returns.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-E2E"),
+        station: "yalain-testkit::network::end_to_end::players_of_both_games_reach_each_other_across_three_worlds_on_one_hub",
+        tier: Tier::Network,
+    },
+    behaviour! {
+        id: "server.network.watch-answered",
+        says: "Another world's watch is answered online only for a present character on the network \
+               and a watcher not blocked, and offline alike for anything else.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-WATCH"),
+        station: "yalain-federation::cpu::watches::a_watch_is_answered_online_only_for_a_present_character_on_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.watchers-capped",
+        says: "A character keeps at most a hundred watchers from one world and a thousand in all, \
+               always one it lists, and another world's watches are held to its share of the pace.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-WATCHERS-CAP"),
+        station: "yalain-federation::cpu::watches::watchers_are_capped_by_world_and_in_all_and_watches_paced_by_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.watchers-told-each-change",
+        says: "A kept watcher and every friend on another world is told each change of what it may \
+               see of a character: arriving, leaving, going off the network, a block lifted.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-WATCHERS"),
+        station: "yalain-federation::cpu::watches::a_kept_watcher_and_every_listed_friend_is_told_each_change",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.reload-from-the-console",
         says: "Typing reload at a running server's console compiles its world database again: one \
                that does not compile leaves the world as it was and says so; one that does is \
@@ -2526,6 +2994,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-RELOAD"),
         station: "yalain-testkit::cpu::operator::reload::a_reload_changes_what_people_say_at_once_and_holds_placed_objects_for_a_restart",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.reported-to-the-hub",
+        says: "A server told to report to a Dereth Network hub posts a heartbeat as an Asheron's \
+               Call 2 world at once, under its slug and with its key, saying it is up and how many \
+               characters are in the world, and at once again when a shutdown starts, so the \
+               launcher's Auberean realm lists it with its population.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HUB-REPORT"),
+        station: "yalain::live::hub::the_server_reports_itself_to_a_hub_as_an_auberean_world_with_the_characters_in_it",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.operator.shutdown-counts-down-two-minutes",

@@ -7,6 +7,7 @@
 //! | `auberean-script` | the installs | the script machine's `dat` binaries: the September 2013 library, its saved states, its code run with every native |
 //! | `auberean-corpus` | the installs and the capture index | every `corpus` binary: every recorded message and script call, bodies and looks against the recordings, the recorded logins replayed through the client and against the server |
 //! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback |
+//! | `auberean-network` | the installs and the first game's data files | the test kit's `network` binary: the Dereth Network end to end, the hub, a first-game world and two of this game's worlds as programs, with both games' clients; it builds those programs first |
 //! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw |
 //!
 //! `cargo xtask gate <tier>` runs one. `cargo xtask ci tier1` runs the crates' tests that read
@@ -27,15 +28,19 @@ pub enum Data {
     Installs,
     /// The capture index: `AUBEREAN_TEST_CAPTURE_INDEX`.
     Captures,
+    /// The first game's data files, for its client and its world: `DERETH_TEST_DAT_DIR`.
+    FirstGame,
 }
 
-/// One tier: its name, the area in words, what it reads, and its runs, each a crate's test binary
-/// with the features that build it.
+/// One tier: its name, the area in words, what it reads, the programs its tests start (built
+/// first, in the same profile), and its runs, each a crate's test binary with the features that
+/// build it.
 #[derive(Debug)]
 pub struct Tier {
     pub name: &'static str,
     pub title: &'static str,
     pub reads: &'static [Data],
+    pub builds: &'static [&'static str],
     pub runs: &'static [(&'static str, &'static str, &'static str)],
 }
 
@@ -45,6 +50,7 @@ pub const TIERS: &[Tier] = &[
         name: "auberean-dat",
         title: "Asheron's Call 2 data files",
         reads: &[Data::Installs],
+        builds: &[],
         runs: &[
             ("auberean-dat", "retail-dats", "dat"),
             ("auberean-assets", "retail-dats", "dat"),
@@ -65,6 +71,7 @@ pub const TIERS: &[Tier] = &[
         name: "auberean-script",
         title: "Asheron's Call 2 script machine",
         reads: &[Data::Installs],
+        builds: &[],
         runs: &[
             ("auberean-script", "retail-dats", "dat"),
             ("auberean-glue", "retail-dats", "dat"),
@@ -74,6 +81,7 @@ pub const TIERS: &[Tier] = &[
         name: "auberean-corpus",
         title: "Asheron's Call 2 recorded sessions",
         reads: &[Data::Installs, Data::Captures],
+        builds: &[],
         runs: &[
             ("auberean-protocol", "retail-corpus", "corpus"),
             ("auberean-script", "retail-corpus", "corpus"),
@@ -90,7 +98,20 @@ pub const TIERS: &[Tier] = &[
         name: "auberean-live",
         title: "Asheron's Call 2 on loopback",
         reads: &[Data::Installs],
+        builds: &[],
         runs: &[("yalain", "live", "live")],
+    },
+    Tier {
+        name: "auberean-network",
+        title: "the Dereth Network end to end",
+        reads: &[Data::Installs, Data::FirstGame],
+        builds: &[
+            "dereth-network-hub",
+            "empyrean-server",
+            "empyrean-import",
+            "yalain",
+        ],
+        runs: &[("yalain-testkit", "network", "network")],
     },
 ];
 
@@ -101,6 +122,7 @@ pub const GPU_TIER: Tier = Tier {
     name: "auberean-gpu",
     title: "Asheron's Call 2 on a graphics device",
     reads: &[Data::Installs],
+    builds: &[],
     runs: &[("auberean-gpu", "retail-dats", "gpu")],
 };
 
@@ -150,6 +172,8 @@ pub fn shortfall(data: Data) -> Option<String> {
                 "the capture index was not found: AUBEREAN_TEST_CAPTURE_INDEX is unset".to_owned(),
             ),
         },
+        Data::FirstGame => dereth_dat::testing::shortfall()
+            .map(|why| format!("the first game's data files were not found: {why}")),
     }
 }
 
@@ -186,6 +210,26 @@ pub fn run_tier(tier: &Tier, profile: Profile) -> Vec<Report> {
         )];
     }
     let ws = workspace_root();
+    if !tier.builds.is_empty() {
+        let mut argv: Vec<&str> = vec!["build"];
+        argv.extend_from_slice(profile.cargo_args());
+        for p in tier.builds {
+            argv.extend(["-p", p]);
+        }
+        println!("$ cargo {}", argv.join(" "));
+        let (ok, out) = run_captured(&ws, "cargo", &argv);
+        print!("{out}");
+        if !ok {
+            return vec![Report::new(
+                format!("{} ({})", tier.name, tier.title),
+                Outcome::Fail,
+                format!(
+                    "the programs it starts did not build: {}",
+                    tier.builds.join(", ")
+                ),
+            )];
+        }
+    }
     tier.runs
         .iter()
         .map(|run| {
@@ -388,6 +432,9 @@ mod tests {
         if let Some(s) = shortfall(Data::Installs) {
             assert!(s.contains("AUBEREAN_TEST_DAT_DIR"), "{s}");
         }
+        if let Some(s) = shortfall(Data::FirstGame) {
+            assert!(s.contains("DERETH_TEST_DAT_DIR"), "{s}");
+        }
         assert_eq!(
             invocation(("auberean-dat", "retail-dats", "dat"), Profile::TestRelease).join(" "),
             "test --profile test-release -p auberean-dat --features retail-dats --test dat"
@@ -395,6 +442,17 @@ mod tests {
         assert_eq!(
             find("AUBEREAN-CORPUS").map(|t| t.name),
             Some("auberean-corpus")
+        );
+        let network = find("auberean-network").expect("the network's tier");
+        assert_eq!(
+            network.builds,
+            [
+                "dereth-network-hub",
+                "empyrean-server",
+                "empyrean-import",
+                "yalain"
+            ],
+            "it builds every program its test starts"
         );
         assert!(
             find("dat").is_none(),
@@ -430,6 +488,7 @@ mod tests {
             name: "auberean-planted",
             title: "a tier with no binary",
             reads: &[Data::Installs, Data::Captures],
+            builds: &[],
             runs: &[],
         };
         let rows = run_tier(&empty, Profile::TestRelease);

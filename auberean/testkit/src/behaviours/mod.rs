@@ -52,6 +52,8 @@ pub enum Tier {
     Gpu,
     /// A server on loopback.
     Live,
+    /// The Dereth Network on loopback: a hub, worlds of both games, and both games' clients.
+    Network,
 }
 
 impl Tier {
@@ -64,6 +66,7 @@ impl Tier {
             Self::Corpus => "corpus",
             Self::Gpu => "gpu",
             Self::Live => "live",
+            Self::Network => "network",
         }
     }
 }
@@ -135,6 +138,7 @@ pub mod data;
 pub mod desktop;
 pub mod detection;
 pub mod draw;
+pub mod friends;
 pub mod missile;
 pub mod model;
 pub mod motion;
@@ -175,6 +179,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "draw",
         rows: draw::ROWS,
+    },
+    Subject {
+        name: "friends",
+        rows: friends::ROWS,
     },
     Subject {
         name: "missile",

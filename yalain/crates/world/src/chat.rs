@@ -7,7 +7,12 @@
 //!
 //! **Tell.** A tell reaches the player of that name (with or without its grammar mark, in any
 //! case) as the teller's tell, with the teller's world name; the teller is shown "You tell ...";
-//! a name no player in the world has is answered "... is unavailable".
+//! a name no player in the world has is answered "... is unavailable". A player who ignores the
+//! teller on its friends service ([`Server::ignoring`]) never hears it.
+//!
+//! **The Dereth Network's command.** A line said as `@dn ...`, aloud or into a room, is heard by
+//! nobody: it is kept for the world's friends service ([`Server::network_commands`]), which
+//! answers it.
 //!
 //! **Emotes.** An emote plays its behavior on the emoter for every client that knows it, with
 //! the emote's id, from which each client writes the emote's text itself.
@@ -152,8 +157,63 @@ fn send_to_knowers<S: Store>(
     }
 }
 
-/// A player says something: it and every client that knows it hear it.
+/// The Dereth Network's command, said in chat (the client handles every `/` command itself):
+/// a line that is `@dn`, or begins with `@dn ` (in any case). Its words after `@dn`.
+#[must_use]
+pub fn network_words(text: &str) -> Option<&str> {
+    let t = text.trim_start();
+    let head = t.get(..3)?;
+    if !head.eq_ignore_ascii_case("@dn") {
+        return None;
+    }
+    let rest = &t[3..];
+    if rest.is_empty() {
+        return Some("");
+    }
+    rest.starts_with(char::is_whitespace).then(|| rest.trim())
+}
+
+/// The Dereth Network's command, said by a player in the world: heard by nobody, and answered by
+/// the world's friends service.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkCommand {
+    /// The player's world connection.
+    pub world: ConnId,
+    pub character: u64,
+    pub name: String,
+    /// The words after `@dn`.
+    pub words: String,
+}
+
+/// Keeps a line said as the network's command for the friends service: true when it was one.
+fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bool {
+    let Some(words) = network_words(text) else {
+        return false;
+    };
+    let Some(p) = s.players.get(&world) else {
+        return true;
+    };
+    let command = NetworkCommand {
+        world,
+        character: p.character,
+        name: p.name.clone(),
+        words: words.to_owned(),
+    };
+    s.network_commands.push(command);
+    true
+}
+
+/// A player says something: it and every client that knows it hear it. The network's command is
+/// heard by nobody.
 pub fn say<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, call: &ServerCall) {
+    let said = crate::calls::values(&call.args.0)
+        .ok()
+        .and_then(|v| v.get(1).and_then(text_of))
+        .and_then(|t| t.literal)
+        .map(|l| String::from_utf16_lossy(&l));
+    if said.is_some_and(|t| network_command(s, world, &t)) {
+        return;
+    }
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -235,39 +295,36 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         .find(|(_, q)| q.name.to_lowercase() == wanted)
         .map(|(c, _)| *c);
     let Some(target) = target else {
-        let mut t = TextInfo {
-            string_id: strings::UNAVAILABLE,
-            table: strings::TABLE,
-            ..TextInfo::default()
-        };
-        t.set_variable(nested(strings::NAME, tellee));
-        net.send(
-            world,
-            queue::EVENT,
-            BlobKind::PRIVATE,
-            show_text(text_type::TELL_ERROR, t).encode(),
-        );
+        unavailable(net, world, tellee);
         return;
     };
-    let heard = session::call(
-        function::HEAR_TELL,
-        &[
-            Arg::Int(*flags),
-            text_arg(words.clone()),
-            text_arg(TextInfo {
-                has_literal: 1,
-                literal: Some(
-                    player::world_name(&teller.name, teller.sex)
-                        .encode_utf16()
-                        .collect(),
-                ),
-                ..TextInfo::default()
-            }),
-            Arg::LongInt(teller.character),
-        ],
-    )
-    .expect("a tell packs");
-    net.send(target, queue::EVENT, BlobKind::PRIVATE, heard.encode());
+    // A player who ignores the teller never hears it; the teller is shown its tell as usual.
+    let ignored = s.players.get(&target).is_some_and(|q| {
+        s.ignoring
+            .get(&q.character)
+            .is_some_and(|names| names.contains(&teller.name.to_lowercase()))
+    });
+    if !ignored {
+        let heard = session::call(
+            function::HEAR_TELL,
+            &[
+                Arg::Int(*flags),
+                text_arg(words.clone()),
+                text_arg(TextInfo {
+                    has_literal: 1,
+                    literal: Some(
+                        player::world_name(&teller.name, teller.sex)
+                            .encode_utf16()
+                            .collect(),
+                    ),
+                    ..TextInfo::default()
+                }),
+                Arg::LongInt(teller.character),
+            ],
+        )
+        .expect("a tell packs");
+        net.send(target, queue::EVENT, BlobKind::PRIVATE, heard.encode());
+    }
     let mut t = TextInfo {
         string_id: strings::YOU_TELL,
         table: strings::TABLE,
@@ -280,6 +337,22 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         queue::EVENT,
         BlobKind::PRIVATE,
         show_text(text_type::TELL, t).encode(),
+    );
+}
+
+/// "... is unavailable", for a tell to a name no player in the world has.
+fn unavailable(net: &mut ServerNet, world: ConnId, tellee: TextInfo) {
+    let mut t = TextInfo {
+        string_id: strings::UNAVAILABLE,
+        table: strings::TABLE,
+        ..TextInfo::default()
+    };
+    t.set_variable(nested(strings::NAME, tellee));
+    net.send(
+        world,
+        queue::EVENT,
+        BlobKind::PRIVATE,
+        show_text(text_type::TELL_ERROR, t).encode(),
     );
 }
 
@@ -599,6 +672,21 @@ pub fn service<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, 
             .note("a room line from a client not in the world");
         return;
     };
+    // The network's command, said into a room: answered, and heard by nobody.
+    let world = s.sessions.get(&login).and_then(|x| match x.stage {
+        Stage::InWorld { world, .. } => Some(world),
+        _ => None,
+    });
+    if let Some(world) = world {
+        if network_command(s, world, &String::from_utf16_lossy(&line.text)) {
+            send_chat(
+                net,
+                login,
+                room_response(service_word(login), line.context, 0),
+            );
+            return;
+        }
+    }
     // An allegiance's or a fellowship's room reaches its members alone.
     let members = crate::allegiance::room_members(s, line.room)
         .or_else(|| s.fellowships.room_members(line.room));

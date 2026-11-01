@@ -10,7 +10,7 @@ use std::time::Instant;
 use auberean_client_sdk::Action;
 use yalain_testkit::session::{self as play, Drive};
 
-use crate::session::{free_ports, must, scratch, start_server, Loopback, Running};
+use crate::session::{free_ports, must, scratch, start_server, Loopback, Running, LIFE};
 
 fn logged(dir: &Path, needle: &str) -> usize {
     std::fs::read_to_string(dir.join("server.log"))
@@ -38,7 +38,7 @@ fn client(login: SocketAddr, account: &str) -> Loopback {
 fn a_client_killed_in_the_world_is_followed_by_a_new_one_that_enters_after_the_linger() {
     let dir = scratch("yalain-live-relogin");
     let port = free_ports();
-    let _server = Running(start_server(&dir, port, 300));
+    let _server = Running(start_server(&dir, port, LIFE));
     let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let mut first = client(login, "relive");
     must(play::character_list(&mut first), &dir);
@@ -51,7 +51,7 @@ fn a_client_killed_in_the_world_is_followed_by_a_new_one_that_enters_after_the_l
     must(
         play::until(
             &mut s,
-            30.0,
+            play::HANG,
             "the character left in the world logged off",
             |_| logged(&dir, "logged in again") > 0,
         ),
@@ -60,13 +60,13 @@ fn a_client_killed_in_the_world_is_followed_by_a_new_one_that_enters_after_the_l
     let refused = logged(&dir, "sent 0x10056");
     s.client().act(Action::PlayCharacter { character: me });
     must(
-        play::until(&mut s, 30.0, "the entry refused", |_| {
+        play::until(&mut s, play::HANG, "the entry refused", |_| {
             logged(&dir, "sent 0x10056") > refused
         }),
         &dir,
     );
     must(
-        play::until(&mut s, 60.0, "the character out of the world", |_| {
+        play::until(&mut s, play::HANG, "the character out of the world", |_| {
             logged(&dir, "left the world") > 0
         }),
         &dir,

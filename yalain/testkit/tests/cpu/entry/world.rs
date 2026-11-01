@@ -605,3 +605,58 @@ fn without_a_referral_the_world_comes_on_the_login_connection() {
         log_off(&mut h, b, id);
     }
 }
+
+/// The line that the character could not be logged into the authorization server, so its
+/// friends list is out of reach, comes as it enters only when it is true: the world serves no
+/// friends service, or the account has no stream on it (the client presents its ticket before the
+/// game login). An account with a stream enters without it.
+/// Behaviour: server.friends.entry-line-only-without-a-stream
+#[test]
+fn the_line_that_friends_are_out_of_reach_comes_at_entry_only_without_a_friends_stream() {
+    use std::collections::HashSet;
+    use yalain_store::Store as _;
+    // (the world's friends service: none, or whether the account has a stream; the line shown)
+    for (service, shown) in [(None, true), (Some(false), true), (Some(true), false)] {
+        let mut h = Harness::new();
+        let b = at_character_list(&mut h, "tester");
+        let id = create(&mut h, b, "Elara");
+        let account = h
+            .server
+            .store
+            .account_by_name("tester")
+            .expect("reads")
+            .expect("an account")
+            .id;
+        h.server.friends_streams = service.map(|has: bool| {
+            if has {
+                HashSet::from([account])
+            } else {
+                HashSet::new()
+            }
+        });
+        let from = h.bots[b].inbox.len();
+        let m = ClientMessage::PlayCharacter(PlayCharacter {
+            character: id,
+            account: NarrowString::from("tester"),
+        });
+        h.bots[b].send(false, queue::LOGON, &m);
+        assert!(
+            h.run_until(STEPS, |h| h.bots[b].inbox[from..].iter().any(|r| matches!(
+                r.message(),
+                Some(ServerMessage::PlayerCall(c)) if c.function.0 == function::SESSION_START
+            ))),
+            "the session starts"
+        );
+        h.run(10);
+        let lines = h.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| r.message() == Some(yalain_world::session::welcome()))
+            .count();
+        assert_eq!(
+            lines,
+            usize::from(shown),
+            "friends service {service:?}: the line {}",
+            if shown { "once" } else { "never" }
+        );
+    }
+}

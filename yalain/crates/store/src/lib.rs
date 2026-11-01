@@ -13,6 +13,14 @@
 //! is kept beside it, written when it leaves the world and read when it enters again. The store
 //! keeps the qualities and options as the bytes the server hands it; only the server reads them.
 //!
+//! What the world keeps for the Dereth Network, the network that links worlds: which characters
+//! their players put on the network, and the operator's blocks of other worlds and their
+//! characters. A store kept before the network was added gains both, empty, when it is opened.
+//!
+//! What each character lists on its friends service: its friends and the names it ignores
+//! ([`Listed`]), kept as the service writes them. A store kept before the friends service gains
+//! the lists, empty, when it is opened.
+//!
 //! **Must never** read a character's world state: its qualities and options are the server's
 //! bytes, kept and handed back.
 
@@ -106,6 +114,46 @@ pub struct WorldState {
     /// What it holds and has done in play (its items, quests and skills), in the server's
     /// encoding; empty for a character that has not played.
     pub play: Vec<u8>,
+}
+
+/// One of the lists a character keeps on its friends service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NetworkList {
+    /// Its friends.
+    Friends,
+    /// The names whose tells it does not take.
+    Ignored,
+}
+
+impl NetworkList {
+    /// The list's number as the store keeps it.
+    #[must_use]
+    pub const fn number(self) -> u32 {
+        match self {
+            Self::Friends => 1,
+            Self::Ignored => 2,
+        }
+    }
+
+    /// The list a kept number names.
+    #[must_use]
+    pub const fn from_number(n: u32) -> Option<Self> {
+        match n {
+            1 => Some(Self::Friends),
+            2 => Some(Self::Ignored),
+            _ => None,
+        }
+    }
+}
+
+/// One name a character keeps on one of its lists, as the friends service wrote it (a character
+/// of the world by its name, another world's by its address). A list holds a name once, without
+/// regard to case.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Listed {
+    pub character: u64,
+    pub list: NetworkList,
+    pub entry: String,
 }
 
 /// The server's persistent state.
@@ -212,6 +260,52 @@ pub trait Store {
     /// # Errors
     /// The database failed.
     fn set_world_record(&mut self, name: &str, value: &[u8]) -> StoreResult<()>;
+
+    /// The characters on the Dereth Network, by id: every character starts off it, and is on it
+    /// once its player puts it on.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn network_characters(&mut self) -> StoreResult<Vec<u64>>;
+
+    /// Put a character on the Dereth Network, or take it off. Forgetting the character takes it
+    /// off.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn set_network_on(&mut self, id: u64, on: bool) -> StoreResult<()>;
+
+    /// The operator's blocks on the Dereth Network: other worlds' names and their characters'
+    /// addresses, each as the network writes its identity (in small letters).
+    ///
+    /// # Errors
+    /// The database failed.
+    fn network_blocks(&mut self) -> StoreResult<Vec<String>>;
+
+    /// Keep an operator's block, or lift it.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn set_network_block(&mut self, block: &str, on: bool) -> StoreResult<()>;
+
+    /// Every name every character lists, by character, list and name.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn network_lists(&mut self) -> StoreResult<Vec<Listed>>;
+
+    /// Keep a name on a character's list, or take it off (any case). Forgetting the character
+    /// forgets its lists.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn set_listed(
+        &mut self,
+        character: u64,
+        list: NetworkList,
+        entry: &str,
+        on: bool,
+    ) -> StoreResult<()>;
 }
 
 /// A position as stored: the cell, then seven floats.

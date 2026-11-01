@@ -42,6 +42,18 @@ yalain --dats <install folder> [options]
                         still, for comparing clients at one moment; what the game counts in its
                         own time (a skill's recovery, the wait after a recall, a quest's wait)
                         does not run out while it is held
+  --hub URL             report this world to the Dereth Network hub at URL (https://, or
+                        http:// to this machine), with --hub-slug and --hub-key-file: the
+                        hub's launcher lists it among Asheron's Call 2's worlds
+  --hub-slug SLUG       the world's slug at the hub, as it was registered
+  --hub-key-file FILE   the file holding the key the hub gave the world (drth_...)
+  --federation          link the world to the hub's network (with --hub), once the world's
+                        federation is on at the hub: characters whose players put them on the
+                        network reach and are reached by other worlds' characters, of either
+                        game
+  --no-friends          serve no friends service: by default the world serves its players'
+                        friends, presence and tells to Name@world on TCP at the login port's
+                        number
   --seconds S           stop after S seconds (default: run until stopped)
   --verbose             log at the debug level (every connection event, and more)
 
@@ -70,7 +82,7 @@ mod tests {
     #[test]
     fn every_option_the_help_lists_is_one_the_command_line_takes() {
         let options = listed();
-        assert!(options.len() >= 20, "{options:?}");
+        assert!(options.len() >= 25, "{options:?}");
         for o in options {
             let got = crate::parse_from([o.to_owned()]);
             if let Err(e) = got {

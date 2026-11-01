@@ -1,7 +1,9 @@
 //! Characters and accounts kept and read back. Each test uses its own file in the temporary
 //! folder, removed at the end.
 
-use yalain_store::{Character, MemoryStore, SqliteStore, Store, StoredPosition, WorldState};
+use yalain_store::{
+    Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition, WorldState,
+};
 
 fn character(id: u64, account: u64, name: &str) -> Character {
     Character {
@@ -189,6 +191,191 @@ fn a_world_record_outlives_reopening_the_database() {
         m.world_record("allegiances").expect("reads"),
         Some(vec![4, 5])
     );
+}
+
+/// A store file kept before the Dereth Network was added: its earlier tables alone, holding one
+/// account and one character.
+fn earlier_store(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).expect("made");
+    db.execute_batch(
+        "CREATE TABLE account (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+             secret BLOB, created_at INTEGER NOT NULL);
+         CREATE TABLE character (id INTEGER PRIMARY KEY, account INTEGER NOT NULL REFERENCES account (id),
+             name TEXT NOT NULL UNIQUE COLLATE NOCASE, race INTEGER NOT NULL, sex INTEGER NOT NULL,
+             class INTEGER NOT NULL, implement INTEGER NOT NULL, start_area INTEGER NOT NULL,
+             entity_did INTEGER NOT NULL, physique BLOB NOT NULL, look BLOB NOT NULL,
+             created_at INTEGER NOT NULL, deleted_at INTEGER, last_played INTEGER NOT NULL);
+         CREATE TABLE counter (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+         CREATE TABLE world_state (id INTEGER PRIMARY KEY REFERENCES character (id), position BLOB,
+             instances INTEGER NOT NULL, qualities BLOB NOT NULL, options BLOB NOT NULL);
+         CREATE TABLE play_state (id INTEGER PRIMARY KEY REFERENCES character (id), play BLOB NOT NULL);
+         CREATE TABLE kept_place (id INTEGER NOT NULL REFERENCES character (id), kind INTEGER NOT NULL,
+             position BLOB NOT NULL, PRIMARY KEY (id, kind));
+         CREATE TABLE world_record (name TEXT PRIMARY KEY, value BLOB NOT NULL);
+         INSERT INTO account VALUES (1, 'Tester', NULL, 100);
+         INSERT INTO character VALUES (7, 1, 'Babyfare', 4, 8192, 4, 8, 1073741829, 1191186703,
+             x'', x'', 100, NULL, 100);",
+    )
+    .expect("the earlier tables");
+}
+
+/// A database kept before the Dereth Network was added opens with every character off the
+/// network and nothing blocked; a character put on the network and the operator's blocks are kept
+/// across a restart, and forgetting the character takes it off.
+/// Behaviour: server.network.setting-and-blocks-kept
+#[test]
+fn an_earlier_database_gains_the_networks_setting_and_blocks_and_keeps_them() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-network-test-{}.sqlite",
+        std::process::id()
+    )));
+    let _ = std::fs::remove_file(&file.0);
+    earlier_store(&file.0);
+    {
+        let mut s = SqliteStore::open(&file.0).expect("an earlier file opens");
+        assert_eq!(
+            s.character(7).expect("reads").map(|c| c.name),
+            Some("Babyfare".to_string()),
+            "what it held is still there"
+        );
+        assert!(s.network_characters().expect("reads").is_empty());
+        assert!(s.network_blocks().expect("reads").is_empty());
+        s.set_network_on(7, true).expect("on");
+        s.set_network_on(7, true).expect("on twice");
+        s.set_network_block("coldeve", true).expect("blocked");
+        s.set_network_block("mal@dreamweave", true)
+            .expect("blocked");
+        s.set_network_block("frost", true).expect("blocked");
+        s.set_network_block("frost", false).expect("lifted");
+    }
+    let mut s = SqliteStore::open(&file.0).expect("opens again");
+    assert_eq!(s.network_characters().expect("reads"), vec![7]);
+    assert_eq!(
+        s.network_blocks().expect("reads"),
+        vec!["coldeve".to_string(), "mal@dreamweave".to_string()]
+    );
+    s.set_network_on(7, false).expect("off");
+    assert!(s.network_characters().expect("reads").is_empty());
+    s.set_network_on(7, true).expect("on again");
+    s.purge_character(7).expect("purged");
+    assert!(
+        s.network_characters().expect("reads").is_empty(),
+        "a character forgotten is off the network"
+    );
+}
+
+/// Behaviour: server.network.setting-and-blocks-kept
+#[test]
+fn the_memory_store_keeps_the_networks_setting_and_blocks_alike() {
+    let mut s = MemoryStore::default();
+    assert!(s.network_characters().expect("reads").is_empty());
+    s.set_network_on(3, true).expect("on");
+    s.set_network_on(9, true).expect("on");
+    s.set_network_on(9, false).expect("off");
+    s.set_network_block("coldeve", true).expect("blocked");
+    assert_eq!(s.network_characters().expect("reads"), vec![3]);
+    assert_eq!(
+        s.network_blocks().expect("reads"),
+        vec!["coldeve".to_string()]
+    );
+    s.purge_character(3).expect("purged");
+    assert!(s.network_characters().expect("reads").is_empty());
+}
+
+/// A database kept before the friends service (the Dereth Network's tables already in it) opens
+/// with every list empty; a character's friends and ignored names are kept across a restart, a
+/// name once in any case, and forgetting the character forgets its lists.
+/// Behaviour: server.friends.lists-kept
+#[test]
+fn an_earlier_database_gains_the_friends_lists_and_keeps_them() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-friends-test-{}.sqlite",
+        std::process::id()
+    )));
+    let _ = std::fs::remove_file(&file.0);
+    earlier_store(&file.0);
+    rusqlite::Connection::open(&file.0)
+        .expect("opens")
+        .execute_batch(
+            "CREATE TABLE network_character (id INTEGER PRIMARY KEY REFERENCES character (id));
+             CREATE TABLE network_block (block TEXT PRIMARY KEY);
+             INSERT INTO network_character VALUES (7);",
+        )
+        .expect("the network's tables");
+    let listed = |list, entry: &str| Listed {
+        character: 7,
+        list,
+        entry: entry.to_owned(),
+    };
+    {
+        let mut s = SqliteStore::open(&file.0).expect("an earlier file opens");
+        assert_eq!(s.network_characters().expect("reads"), vec![7]);
+        assert!(s.network_lists().expect("reads").is_empty());
+        assert_eq!(
+            s.character_named("BABYFARE").expect("reads").map(|c| c.id),
+            Some(7)
+        );
+        assert_eq!(s.character_named("Nobody").expect("reads"), None);
+        s.set_listed(7, NetworkList::Friends, "Cara", true)
+            .expect("kept");
+        s.set_listed(7, NetworkList::Friends, "cara", true)
+            .expect("kept once");
+        s.set_listed(7, NetworkList::Friends, "Bob@coldeve", true)
+            .expect("kept");
+        s.set_listed(7, NetworkList::Ignored, "Mal@dreamweave", true)
+            .expect("kept");
+        s.set_listed(7, NetworkList::Ignored, "Dan", true)
+            .expect("kept");
+        s.set_listed(7, NetworkList::Ignored, "DAN", false)
+            .expect("taken off in any case");
+    }
+    let mut s = SqliteStore::open(&file.0).expect("opens again");
+    assert_eq!(
+        s.network_lists().expect("reads"),
+        vec![
+            listed(NetworkList::Friends, "Bob@coldeve"),
+            listed(NetworkList::Friends, "Cara"),
+            listed(NetworkList::Ignored, "Mal@dreamweave"),
+        ]
+    );
+    s.purge_character(7).expect("purged");
+    assert!(
+        s.network_lists().expect("reads").is_empty(),
+        "a character forgotten forgets its lists"
+    );
+}
+
+/// Behaviour: server.friends.lists-kept
+#[test]
+fn the_memory_store_keeps_the_friends_lists_alike() {
+    let mut s = MemoryStore::default();
+    s.set_listed(3, NetworkList::Friends, "Cara", true)
+        .expect("kept");
+    s.set_listed(3, NetworkList::Friends, "CARA", true)
+        .expect("kept once");
+    s.set_listed(3, NetworkList::Ignored, "Bob@coldeve", true)
+        .expect("kept");
+    s.set_listed(4, NetworkList::Friends, "Ann", true)
+        .expect("kept");
+    s.set_listed(4, NetworkList::Friends, "ann", false)
+        .expect("taken off");
+    assert_eq!(
+        s.network_lists().expect("reads"),
+        vec![
+            Listed {
+                character: 3,
+                list: NetworkList::Friends,
+                entry: "Cara".into()
+            },
+            Listed {
+                character: 3,
+                list: NetworkList::Ignored,
+                entry: "Bob@coldeve".into()
+            },
+        ]
+    );
+    s.purge_character(3).expect("purged");
+    assert!(s.network_lists().expect("reads").is_empty());
 }
 
 /// An account made with no secret takes one, which reads back after the database is opened again,

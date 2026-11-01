@@ -1,6 +1,7 @@
 //! The records the scripts' notices name, as the panels read them: an examination profile and
 //! request, the player's options, a quest and the quest list, a string reference or a string, a
-//! shop and a catalog's shops, the story's scenes, a fellowship and a fellow, an allegiance's profile.
+//! shop and a catalog's shops, the story's scenes, a fellowship and a fellow, an allegiance's profile,
+//! a friend's state and the friends list.
 
 use std::collections::BTreeMap;
 
@@ -24,6 +25,13 @@ pub fn of_notice(n: &auberean_shell::interface::Notice) -> Vec<Option<Record>> {
                 return Some(Record::Request(request(&r)));
             }
             let listed = n.listed.get(i).map_or(&[][..], Vec::as_slice);
+            // The friends list: every entry a friend's state (an empty list too, for its notice).
+            let friends: Vec<_> = listed.iter().flatten().filter_map(friend).collect();
+            if friends.len() == listed.len()
+                && (!friends.is_empty() || n.native == FRIENDS_LIST_NOTICE)
+            {
+                return Some(Record::Friends(friends));
+            }
             if !listed.is_empty() {
                 let shops: Vec<_> = listed.iter().flatten().filter_map(store).collect();
                 if !shops.is_empty() {
@@ -79,6 +87,7 @@ pub fn of(o: &Option<NativeObject>) -> Option<Record> {
             }))
         }
         NativeObject::QuestList(l) => Some(Record::Quests(l.iter().map(quest).collect())),
+        o if friend(o).is_some() => friend(o).map(Record::Friend),
         NativeObject::Adaptor { ty, fields } => match *ty {
             adaptor::FELLOWSHIP => Some(Record::Fellowship(Box::new(fellowship(fields)))),
             adaptor::FELLOW => Some(Record::Fellow(Box::new(fellow(fields)))),
@@ -91,6 +100,19 @@ pub fn of(o: &Option<NativeObject>) -> Option<Record> {
 
 /// The native type of a shop's adaptor, and of a sale's.
 const SHOP: u32 = 0x1AD6;
+
+/// The scripts' notice of the friends list to the friends page.
+const FRIENDS_LIST_NOTICE: u32 = 0x1AD2_0001;
+
+/// A friend's state, as the friends page reads it.
+fn friend(o: &NativeObject) -> Option<auberean_ui_game::social::UserStatus> {
+    let s = auberean_client_sdk::runtime::friends::UserStatus::of(o)?;
+    Some(auberean_ui_game::social::UserStatus {
+        name: String::from_utf16_lossy(&s.name),
+        location: String::from_utf16_lossy(&s.location),
+        mode: s.mode,
+    })
+}
 
 /// A field of an adaptor: a word, a 64-bit value, a string reference.
 fn word(f: &std::collections::BTreeMap<String, Field>, k: &str) -> u32 {
@@ -399,5 +421,62 @@ fn quest(q: &QuestInfo) -> Quest {
         maxed_out: q.maxed_out(),
         seconds_remaining: q.seconds_remaining(),
         cancellable: q.cancellable != 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (how a notice's objects read for the panels, which their own tests hold)
+    use super::*;
+    use auberean_client_sdk::runtime::friends::UserStatus;
+
+    fn status(name: &str, mode: u32) -> NativeObject {
+        UserStatus {
+            name: name.encode_utf16().collect(),
+            location: Vec::new(),
+            mode,
+        }
+        .native()
+    }
+
+    fn notice(native: u32, listed: Vec<Option<NativeObject>>) -> auberean_shell::interface::Notice {
+        auberean_shell::interface::Notice {
+            native,
+            about: None,
+            words: Vec::new(),
+            objects: vec![None],
+            requests: vec![None],
+            effect_lines: vec![Vec::new()],
+            listed: vec![listed],
+        }
+    }
+
+    #[test]
+    fn a_friends_state_reads_as_a_friend_and_the_friends_list_as_the_friends_even_empty() {
+        let page = |name: &str, mode| auberean_ui_game::social::UserStatus {
+            name: name.into(),
+            location: String::new(),
+            mode,
+        };
+        assert_eq!(
+            of(&Some(status("Cara", 3))),
+            Some(Record::Friend(page("Cara", 3)))
+        );
+        let n = notice(
+            FRIENDS_LIST_NOTICE,
+            vec![Some(status("Cara", 1)), Some(status("Bob@coldeve", 0))],
+        );
+        assert_eq!(
+            of_notice(&n),
+            [Some(Record::Friends(vec![
+                page("Cara", 1),
+                page("Bob@coldeve", 0)
+            ]))]
+        );
+        assert_eq!(
+            of_notice(&notice(FRIENDS_LIST_NOTICE, Vec::new())),
+            [Some(Record::Friends(Vec::new()))]
+        );
+        assert_eq!(of_notice(&notice(0x1AD3_0001, Vec::new())), [None]);
     }
 }

@@ -53,10 +53,11 @@ const REGISTRY_DIR: &str = "dereth/testkit/src/behaviours";
 /// Where Asheron's Call 2's behaviour registry is: its tests' claims, apart from the first game's.
 pub const AC2_REGISTRY_DIR: &str = "auberean/testkit/src/behaviours";
 
-/// The test binary of a server on loopback (the `live` tier): it talks to a server process over
-/// real sockets on the real clock, so the timing rule does not hold for it; its waits only guard
+/// The test binaries of servers on loopback (the `live` tier, a server; the `network` tier, the
+/// Dereth Network's hub and worlds of both games): they talk to server processes over real
+/// sockets on the real clock, so the timing rule does not hold for them; their waits only guard
 /// against a hang.
-pub const AC2_LIVE_TARGET: &str = "live";
+pub const AC2_LOOPBACK_TARGETS: &[&str] = &["live", "network"];
 
 /// What Asheron's Call 2's test code must not call: its tests never depend on timing.
 pub const AC2_TIMING: &[&str] = &[
@@ -173,7 +174,7 @@ fn ac2_findings(ws: &Path, inv: &Inventory, rows: &[Row]) -> Vec<Finding> {
         }
         let text = text_of(&f.file);
         let code = test_code(&text, is_integration(&f.target));
-        let timing = if f.target == AC2_LIVE_TARGET {
+        let timing = if AC2_LOOPBACK_TARGETS.contains(&f.target.as_str()) {
             &[][..]
         } else {
             AC2_TIMING

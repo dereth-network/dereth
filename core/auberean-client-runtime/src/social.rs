@@ -72,6 +72,20 @@ impl Client {
             SocialAction::Break(id) => self.ask(f::BREAK_ALLEGIANCE, &[Long(id)]),
             SocialAction::TakeOath => self.ask(f::ACCEPT_VASSAL, &[]),
             SocialAction::RefuseOath(why) => self.ask(f::DECLINE_VASSAL, &[Word(why)]),
+            // The friends page asks the friends service itself; its answers reach the player's
+            // scripts, which tell the page.
+            SocialAction::AddFriend(name) => {
+                self.with_friends(|l| l.friend_add(&name));
+            }
+            SocialAction::RemoveFriend(name) => {
+                self.with_friends(|l| l.friend_delete(&name));
+            }
+            SocialAction::GetFriends => {
+                self.with_friends(|l| l.get_friends_list(1));
+            }
+            SocialAction::SetState { mode, location } => {
+                self.with_friends(|l| l.set_location(mode, &location));
+            }
         }
     }
 

@@ -27,6 +27,7 @@
 //! - [`options`]: the player's options profile and its shortcuts.
 //! - [`chat_options`]: the chat's part of the options profile, as the chat windows read it.
 //! - [`effects`]: an effect as the effects panel lists it.
+//! - [`friends`]: a friend's state as the friends service gives it.
 //! - [`position`]: positions (their parts, distances, land and map coordinates, text) and vectors.
 //! - [`text`]: strings and the string-building natives.
 //! - [`containers`]: hashes, sets, lists and arrays, and their iterators.
@@ -54,6 +55,7 @@ pub mod effects;
 pub mod entity;
 pub mod enums;
 pub mod examination;
+pub mod friends;
 pub mod machine;
 pub mod missile;
 pub mod numbers;
@@ -86,6 +88,7 @@ pub fn natives(lib: &Library) -> NativeTable {
     color::bind(&mut t);
     options::bind(&mut t);
     effects::bind(&mut t);
+    friends::bind(&mut t);
     position::bind(&mut t);
     containers::bind(&mut t, lib);
     t

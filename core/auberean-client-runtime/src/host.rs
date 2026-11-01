@@ -168,6 +168,8 @@ pub struct ClientHost {
     /// Calls that began to sleep in the last call, and for how many seconds, for the runtime to
     /// wake.
     pub sleeps: Vec<(crate::latent::Waiting, f64)>,
+    /// The friends service's layer, while a call runs (the runtime lends it).
+    pub friends: Option<crate::friends::Friends>,
     /// Where the player is (its cell, its origin in the cell's landblock and its rotation, scalar
     /// first), as the runtime last lent it: none before the player has a place.
     pub my_position: Option<(u32, [f32; 3], [f32; 4])>,
@@ -435,33 +437,9 @@ fn get_output_files_path(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// A request to the chat service (a friends or ignored list, adding or removing a friend or an
-/// ignored name, a state or location change, a tell, a call): this client has no chat service,
-/// and the client without one answers 0 (in the slot below the request's `ARGS` arguments).
-// D2-00993, D2-00645, D2-00992, D2-00642, D2-00999, D2-00686, D2-00990, D2-00640
-// D2-00991, D2-00641, D2-00994, D2-00643, D2-00995, D2-00644, D2-00998, D2-00687
-// D2-00997, D2-00664, D2-00989, D2-00646
-fn no_chat_service<const ARGS: i64>(c: &mut Call<'_>) -> Result<Status, Stop> {
-    if c.receiver()? == NULL {
-        return Ok(Status::Crash);
-    }
-    c.write(-2 - ARGS, 0, tag::MIXED)?;
-    Ok(Status::Success)
-}
-
 /// The model's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
     (INTERFACE, 0x64, get_output_files_path),
-    (GM_INTERFACE, 0x32, no_chat_service::<3>),
-    (GM_INTERFACE, 0x34, no_chat_service::<1>),
-    (GM_INTERFACE, 0x35, no_chat_service::<1>),
-    (GM_INTERFACE, 0x36, no_chat_service::<1>),
-    (GM_INTERFACE, 0x37, no_chat_service::<1>),
-    (GM_INTERFACE, 0x38, no_chat_service::<1>),
-    (GM_INTERFACE, 0x39, no_chat_service::<1>),
-    (GM_INTERFACE, 0x3A, no_chat_service::<1>),
-    (GM_INTERFACE, 0x3B, no_chat_service::<4>),
-    (GM_INTERFACE, 0xF3, no_chat_service::<2>),
     (BOOK_KEEPER, 0x1E, add_object_to_be_destroyed),
     (BOOK_KEEPER, 0x1F, remove_object_to_be_destroyed),
     (INTERFACE, 0x0A, weenie_object),
@@ -491,7 +469,6 @@ const PHYSICS_OBJECT: u32 = 0x80;
 const OBJECT_MAINTENANCE: u32 = 0x95;
 const BOOK_KEEPER: u32 = 0x7D;
 const DISTRIBUTOR: u32 = 0x7E;
-const GM_INTERFACE: u32 = 0xB4;
 const STRING_INFO: u32 = 0x6A;
 const COMMUNICATION_NOTICES: u32 = 0x87;
 const EXAMINATION_PROFILE: u32 = 0x99;
@@ -514,7 +491,10 @@ pub fn model_natives(lib: &Library) -> NativeTable {
     for (package, number, f) in NATIVES {
         t.bind(NativeId::new(*package, *number), Binding::Ported(*f));
     }
-    for (id, f) in crate::examination::natives().chain(crate::files::natives()) {
+    for (id, f) in crate::examination::natives()
+        .chain(crate::files::natives())
+        .chain(crate::friends::natives())
+    {
         t.bind(id, Binding::Ported(f));
     }
     for (id, f) in crate::selection::natives()
@@ -572,6 +552,7 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         commands: crate::shell::Commands::default(),
         history: crate::shell::History::default(),
         sleeps: Vec::new(),
+        friends: None,
         my_position: None,
         records: HashMap::new(),
         database: None,
@@ -622,6 +603,20 @@ pub(crate) fn call_on_process(
                             .heap
                             .add_native(native_type::WP_STRING, NativeObject::Text(units.clone()));
                         items.push(Item::Ref(r));
+                    }
+                }
+                let r = vm.heap.add_native(REF_LIST, list);
+                cx.push(r, tag::REFERENCE)?;
+            }
+            InterfaceArg::Object { ty, object } => {
+                let r = vm.heap.add_native(*ty, object.clone());
+                cx.push(r, tag::REFERENCE)?;
+            }
+            InterfaceArg::Objects { ty, objects } => {
+                let mut list = NativeObject::new(&host.program.library, REF_LIST);
+                if let NativeObject::Sequence { items, .. } = &mut list {
+                    for o in objects {
+                        items.push(Item::Ref(vm.heap.add_native(*ty, o.clone())));
                     }
                 }
                 let r = vm.heap.add_native(REF_LIST, list);
@@ -694,6 +689,10 @@ pub enum InterfaceArg {
     /// A new native object of a type, read from its packed form as the engine holds one (a
     /// shortcut, a table of the windows' places).
     Native { ty: u32, bytes: Vec<u8> },
+    /// A new native object of a type, as given.
+    Object { ty: u32, object: NativeObject },
+    /// A new list of new native objects of a type.
+    Objects { ty: u32, objects: Vec<NativeObject> },
 }
 
 /// The native type of a list of references.

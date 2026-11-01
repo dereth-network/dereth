@@ -200,6 +200,33 @@ impl<P> GameFlow<P> {
         }
     }
 
+    /// The chat service took the login's ticket again after its connection came back (or did not):
+    /// the screen up is told so, as for a connection lost.
+    pub fn chat_service_reauthenticated(&mut self, ui: &mut Ui, taken: bool) {
+        let name = if taken {
+            "ID_GunReAuthenticationSuccess"
+        } else {
+            "ID_GunReAuthenticationFailed"
+        };
+        let text = message(ui, CHAT_SERVICE_MESSAGES, name);
+        let (current, data) = self.flow.current_mut();
+        if let Some(s) = current {
+            s.argument(ui, data, &text);
+        }
+    }
+
+    /// The chat service refused the login's ticket, so the login ends: the disconnected screen,
+    /// saying why (the account banned, or the credentials not had).
+    pub fn chat_service_refused(&mut self, ui: &Ui, banned: bool) {
+        let name = if banned {
+            "ID_DataPatch_GUNAccountBanned"
+        } else {
+            "ID_DataPatch_GUNFailed"
+        };
+        let text = message(ui, MESSAGES, name);
+        self.flow.queue_mode(mode::DISCONNECTED, &text);
+    }
+
     /// The flow goes: the screen up goes, and the flow stops listening.
     // D2-01704, D2-01707
     pub fn close(self, ui: &mut Ui) {

@@ -68,6 +68,9 @@ members = [
     "core/auberean-client-contract",
     "core/auberean-client-runtime",
     "core/auberean-client-sdk",
+    # The friends stream: the protocol between an Asheron's Call 2 client and its world's friends
+    # service, which the client, the server and the retail client's stand-in friends library speak.
+    "core/auberean-friends",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -166,6 +169,10 @@ members = [
     "auberean/client/crates/interface",
     "auberean/viewer",
     "auberean/headless",
+    # The friends library the retail client loads in place of its original, shipped built for
+    # i686-pc-windows-msvc beside the launcher; its client-facing part builds only for that target,
+    # the rest on any host for its tests. Nothing depends on it.
+    "auberean/friends-dll",
     "auberean/testkit",
     # yalain/: Yalain, the Asheron's Call 2 server (MIT): its sessions, its store, its content pack
     # and the game (yalain/crates/), the `yalain` executable and its test kit. It shares Auberean's
@@ -175,6 +182,8 @@ members = [
     "yalain/crates/content",
     "yalain/crates/world-db",
     "yalain/crates/world",
+    "yalain/crates/federation",
+    "yalain/crates/friends",
     "yalain/server",
     "yalain/testkit",
     # athenaeum/: Athenaeum, the Asheron's Call 2 world builder (MIT): its world machinery, the
@@ -281,6 +290,7 @@ auberean-client-runtime = { path = "core/auberean-client-runtime" }
 auberean-client-sdk = { path = "core/auberean-client-sdk" }
 auberean-dat = { path = "core/auberean-dat" }
 auberean-draw = { path = "auberean/client/crates/draw" }
+auberean-friends = { path = "core/auberean-friends" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
 auberean-scene = { path = "auberean/client/crates/scene" }
@@ -299,6 +309,8 @@ auberean-text = { path = "core/auberean-text" }
 auberean-world = { path = "core/auberean-world" }
 athenaeum-foundry = { path = "athenaeum/crates/foundry" }
 yalain-content = { path = "yalain/crates/content" }
+yalain-federation = { path = "yalain/crates/federation" }
+yalain-friends = { path = "yalain/crates/friends" }
 yalain-net = { path = "yalain/crates/net" }
 yalain-store = { path = "yalain/crates/store" }
 yalain-testkit = { path = "yalain/testkit" }

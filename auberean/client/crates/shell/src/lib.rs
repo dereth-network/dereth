@@ -46,7 +46,7 @@ use auberean_draw::scene::Frame;
 use auberean_scene::{Scene, WorldData};
 
 pub use auberean_scene::view::ViewFrame;
-pub use host::Host;
+pub use host::{FriendsNews, Host};
 use input::Event;
 use interface::{CameraRequest, Game, Heard, Interface, Notice, Overlay, Phase, Request, Shown};
 pub use settings::Settings;
@@ -136,7 +136,35 @@ pub struct Shell<'w, H: Host> {
     /// The client's random numbers: one generator for the program's life, never seeded, which
     /// the world, the interface and every session's scripts draw from.
     random: auberean_primitives::random::Random,
+    /// Where the friends service is for the next session.
+    pub friends: FriendsService,
 }
+
+/// Where a session finds the friends service.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FriendsService {
+    /// At the login's own host, on the login's port number, with a ticket made from the account
+    /// and the password the player logs in with.
+    #[default]
+    AtTheLogin,
+    /// Where the options named it: its host and port (the original service's 2310 when none was
+    /// named), whether to present the ticket, and the ticket (made from the login's account and
+    /// password when none was named).
+    At {
+        host: String,
+        port: Option<u16>,
+        use_ticket: bool,
+        ticket: Option<String>,
+    },
+    /// None.
+    Off,
+}
+
+/// The original friends service's port, which a service named without one is on.
+const FRIENDS_PORT: u16 = 2310;
+
+/// How the client names itself to the friends service.
+const FRIENDS_SOFTWARE: &str = concat!("auberean/", env!("CARGO_PKG_VERSION"));
 
 impl<H: Host> std::fmt::Debug for Shell<'_, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -209,6 +237,7 @@ impl<'w, H: Host> Shell<'w, H> {
             title_at: f64::NEG_INFINITY,
             world_pick: None,
             random,
+            friends: FriendsService::default(),
         }
     }
 
@@ -272,7 +301,9 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
             Request::Disconnect => {
-                self.client = None;
+                if self.client.take().is_some_and(|c| c.friends().is_some()) {
+                    self.host.friends_close();
+                }
                 self.entering = false;
             }
             Request::Quit => self.quit = true,
@@ -341,8 +372,88 @@ impl<'w, H: Host> Shell<'w, H> {
         let mut client = Client::new(settings, self.data.clone());
         client.set_random(&self.random);
         client.observe.extend(HEARD_CALLS);
+        if self.client.as_ref().is_some_and(|c| c.friends().is_some()) {
+            self.host.friends_close();
+        }
+        if let Some(options) = self.friends_options(server, account, password) {
+            let link = auberean_client_sdk::net::friends::FriendsLink::new(FRIENDS_SOFTWARE, None);
+            client.use_friends(auberean_client_sdk::runtime::friends::Friends::new(
+                Box::new(link),
+                &options,
+            ));
+        }
         self.client = Some(client);
         self.entering = false;
+    }
+
+    /// The friends service a session at `server` as `account` uses, when the host carries its
+    /// stream and the player did not turn it off.
+    fn friends_options(
+        &self,
+        server: SocketAddr,
+        account: &str,
+        password: &str,
+    ) -> Option<auberean_client_sdk::runtime::friends::FriendsOptions> {
+        use auberean_client_sdk::runtime::friends::FriendsOptions;
+        if !self.host.carries_friends() {
+            return None;
+        }
+        let own = || {
+            auberean_client_sdk::net::friends::Ticket::new(account, password)
+                .encode()
+                .ok()
+        };
+        match &self.friends {
+            FriendsService::Off => None,
+            FriendsService::AtTheLogin => Some(FriendsOptions {
+                server: server.ip().to_string(),
+                port: server.port(),
+                use_ticket: true,
+                ticket: own(),
+                named: false,
+            }),
+            FriendsService::At {
+                host,
+                port,
+                use_ticket,
+                ticket,
+            } => Some(FriendsOptions {
+                server: host.clone(),
+                port: port.unwrap_or(FRIENDS_PORT),
+                use_ticket: *use_ticket,
+                ticket: ticket.clone().or_else(own),
+                named: true,
+            }),
+        }
+    }
+
+    /// The friends service's stream carried both ways: what the host's connection did, to the
+    /// client's link; what the link asks, to the host.
+    fn carry_friends(&mut self, now: core::time::Duration) {
+        use auberean_client_sdk::net::friends::Io;
+        let Some(link) = self
+            .client
+            .as_mut()
+            .and_then(|c| c.friends_mut())
+            .and_then(|f| f.connection().io())
+        else {
+            return;
+        };
+        while let Some(news) = self.host.friends_news() {
+            match news {
+                FriendsNews::Opened => link.opened(now),
+                FriendsNews::Failed => link.failed(now),
+                FriendsNews::Closed => link.closed(now),
+                FriendsNews::Bytes(b) => link.on_bytes(now, &b),
+            }
+        }
+        while let Some(io) = link.poll_io(now) {
+            match io {
+                Io::Dial { host, port } => self.host.friends_dial(&host, port),
+                Io::Write(bytes) => self.host.friends_send(&bytes),
+                Io::Close => self.host.friends_close(),
+            }
+        }
     }
 
     fn command(&mut self, cmd: controls::Command) {
@@ -473,11 +584,13 @@ impl<'w, H: Host> Shell<'w, H> {
             self.frames.pop_front();
         }
         let local = LocalTime(1.0 + now);
+        let stream_now = core::time::Duration::from_secs_f64(local.0);
         if let Some(c) = &mut self.client {
             while let Some((from, bytes)) = self.host.receive() {
                 c.handle_datagram(from, &bytes, local);
             }
         }
+        self.carry_friends(stream_now);
         self.hear();
         if let Some(c) = &mut self.client {
             self.interface.prepare(c);
@@ -522,6 +635,7 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
         }
+        self.carry_friends(stream_now);
         let phase_now = self.phase();
         let free = self.interface.wants_pointer(&game!(self, phase_now));
         let pointer = self.scene.camera.mouse_look && !free;

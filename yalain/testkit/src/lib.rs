@@ -6,8 +6,10 @@
 //! (`dereth-primitives`) and the shared transport (`dereth-transport`); with feature `retail-dats`,
 //! the client (`auberean-client-sdk`), the install's data (`auberean-dat`, `auberean-assets`,
 //! `auberean-script`) and the world database (`yalain-world-db`) for a whole session of our own
-//! client (`session`, on the world of `authored`, a world database compiled against the install).
-//! **Used by** nothing but tests: no server crate depends on it.
+//! client (`session`, on the world of `authored`, a world database compiled against the install);
+//! with feature `network`, for the Dereth Network end to end, the friends stream's client half
+//! (`auberean-friends`), the first game's client (`dereth-client-sdk`) and where the first game's
+//! data is found (`dereth-dat`). **Used by** nothing but tests: no server crate depends on it.
 //!
 //! **Must never** wait on real time: tests step the clock themselves ([`Harness::step`]) or run
 //! until something holds ([`Harness::run_until`]). The clients are [`bot::Bot`]s, or any client

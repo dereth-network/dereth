@@ -11,6 +11,8 @@
 //!
 //! ```text
 //! auberean --dats <install folder> [--server 127.0.0.1:9000] [--account ACCOUNT[:PASSWORD]]
+//!          [--glsticketdirect SECRET]
+//!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
 //!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--verbose]
 //! ```
@@ -26,6 +28,18 @@
 //! folder's `screenshots`. `--no-window` runs everything but the window and the device for that
 //! many seconds (the world is still framed, with no picture made), printing the status lines.
 //!
+//! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
+//! does (it stands for the password after `--account`).
+//!
+//! The friends service (friends, the ignore list, the away state, tells to `Name@World`) is reached
+//! at the login's host and port by default, with a ticket made from the login's account and
+//! password. The September 2013 client's own options name it elsewhere: `--gunserver` its host,
+//! `--gunport` its port (2310 when left out, as the original service's), `--gunticket` to present
+//! the ticket and hear the service's events, `--gunticketoverride` the ticket; `--gunclientdll`,
+//! the retail client's library, is taken and ignored. A service that cannot be reached leaves the
+//! player without friends when the login has its secret; a service named for a login without one
+//! ends the login, as the September 2013 client does.
+//!
 //! The settings (`Preferences.ini`) are kept in the folder `AUBEREAN_SETTINGS_DIR` names, else in
 //! the user's application data (`Auberean`). Tests and trial runs set the variable to a folder of
 //! their own. The key maps' files are saved there too; one not saved there is read from the
@@ -34,6 +48,7 @@
 //! **Must never** hold the game: what a frame shows and what the player's input does are the
 //! shell's (`auberean-shell`); this program only brings the platform under it.
 
+mod friends;
 mod icon;
 mod keys;
 mod present;
@@ -77,6 +92,11 @@ struct Options {
     shots: Option<PathBuf>,
     verbose: bool,
     no_window: Option<f64>,
+    gun_server: Option<String>,
+    gun_port: Option<u16>,
+    gun_ticket: bool,
+    gun_ticket_override: Option<String>,
+    secret: Option<String>,
 }
 
 fn options() -> Result<Options, String> {
@@ -123,6 +143,20 @@ fn options() -> Result<Options, String> {
                         .map_err(|e| format!("--no-window: {e} (want seconds)"))?,
                 );
             }
+            "--glsticketdirect" => o.secret = Some(value()?),
+            "--gunserver" => o.gun_server = Some(value()?),
+            "--gunport" => {
+                o.gun_port = Some(
+                    value()?
+                        .parse()
+                        .map_err(|e| format!("--gunport: {e} (want a port)"))?,
+                );
+            }
+            "--gunticket" => o.gun_ticket = true,
+            "--gunticketoverride" => o.gun_ticket_override = Some(value()?),
+            "--gunclientdll" => {
+                value()?;
+            }
             "-h" | "--help" => return Err("see the usage at the top of src/main.rs".into()),
             other => return Err(format!("unknown option {other}")),
         }
@@ -130,7 +164,29 @@ fn options() -> Result<Options, String> {
     if o.dats.as_os_str().is_empty() {
         return Err("--dats <install folder> is needed".into());
     }
+    if o.gun_ticket && o.gun_server.is_none() {
+        return Err("--gunticket needs --gunserver".into());
+    }
+    if let Some(secret) = o.secret.take() {
+        let Some((_, password)) = o.account.as_mut() else {
+            return Err("--glsticketdirect needs --account".into());
+        };
+        *password = secret;
+    }
     Ok(o)
+}
+
+/// Where the friends service is: where the options name it, else at the login.
+fn friends_service(o: &Options) -> auberean_shell::FriendsService {
+    match &o.gun_server {
+        Some(host) => auberean_shell::FriendsService::At {
+            host: host.clone(),
+            port: o.gun_port,
+            use_ticket: o.gun_ticket,
+            ticket: o.gun_ticket_override.clone(),
+        },
+        None => auberean_shell::FriendsService::AtTheLogin,
+    }
 }
 
 /// The settings folder: the variable's, else the user's application data.
@@ -211,6 +267,7 @@ struct Desktop {
     held: bool,
     seed: u64,
     buf: Vec<u8>,
+    friends: friends::FriendsSocket,
 }
 
 impl Host for Desktop {
@@ -322,6 +379,26 @@ impl Host for Desktop {
                 false
             }
         }
+    }
+
+    fn carries_friends(&self) -> bool {
+        true
+    }
+
+    fn friends_dial(&mut self, host: &str, port: u16) {
+        self.friends.dial(host, port);
+    }
+
+    fn friends_send(&mut self, bytes: &[u8]) {
+        self.friends.send(bytes);
+    }
+
+    fn friends_close(&mut self) {
+        self.friends.close();
+    }
+
+    fn friends_news(&mut self) -> Option<auberean_shell::FriendsNews> {
+        self.friends.news()
     }
 }
 
@@ -641,9 +718,11 @@ fn run() -> Result<(), String> {
                 .map_or(0, |d| d.subsec_nanos()),
         ),
         buf: vec![0; 65536],
+        friends: friends::FriendsSocket::default(),
     };
     let mut shell = Shell::new(host, &world, data, interface);
     shell.dev_overlay = o.overlay;
+    shell.friends = friends_service(&o);
     if let Some(s) = o.size {
         shell.size = s;
     }

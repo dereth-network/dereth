@@ -43,6 +43,7 @@ pub mod description;
 pub mod effects;
 pub mod examination;
 pub mod files;
+pub mod friends;
 pub mod host;
 pub mod interface;
 pub mod inventory;
@@ -294,6 +295,11 @@ pub struct Client {
     inventory_stale: bool,
     inventory_seen: (u32, u32),
     open_containers: std::collections::BTreeSet<u64>,
+    /// The friends service's layer, when the player was started with one.
+    friends: Option<friends::Friends>,
+    /// The login was given its secret directly: a friends service that cannot be reached does not
+    /// end it.
+    login_secret_given: bool,
 }
 
 pub use motion::Body;
@@ -315,6 +321,7 @@ pub struct Heartbeat {
 impl Client {
     #[must_use]
     pub fn new(settings: ClientSettings, data: ClientData) -> Self {
+        let login_secret_given = !settings.ticket.is_empty();
         let logon = Logon {
             account: settings.account.clone(),
             ticket: settings.ticket,
@@ -384,6 +391,8 @@ impl Client {
             inventory_stale: false,
             inventory_seen: (0, 0),
             open_containers: std::collections::BTreeSet::new(),
+            friends: None,
+            login_secret_given,
         }
     }
 
@@ -959,11 +968,18 @@ impl Client {
     pub fn frame(&mut self, now: LocalTime) {
         let dt = (now.0 - self.now).max(0.0);
         self.now = now.0;
+        // The friends service's news first; while its part of the login runs, the game login
+        // waits.
+        self.friends_frame();
+        if self.friends_hold_login() {
+            return;
+        }
         self.session.tick(now);
         self.upkeep();
         while let Some(e) = self.session.poll_event() {
             self.event(e);
         }
+        self.friends_world_name();
         if let Some(t) = self.session.take_time_sync() {
             self.sync_time(t);
         }
@@ -1437,6 +1453,7 @@ impl Client {
         let scripts = self.scripts.as_mut()?;
         scripts.host.model = std::mem::take(&mut self.model);
         scripts.host.history = std::mem::take(&mut self.shell);
+        scripts.host.friends = self.friends.take();
         scripts.host.clock = self.clock.map_or(0.0, |(t, at)| t + (self.now - at));
         scripts.host.my_position = self.body.placed().then(|| {
             let o = self.body.origin;
@@ -1474,6 +1491,7 @@ impl Client {
         }
         self.model = std::mem::take(&mut scripts.host.model);
         self.shell = std::mem::take(&mut scripts.host.history);
+        self.friends = scripts.host.friends.take();
         for (w, seconds) in std::mem::take(&mut scripts.host.sleeps) {
             self.waiting.push((self.now + seconds, w));
         }

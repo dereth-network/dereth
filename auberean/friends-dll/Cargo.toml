@@ -1,0 +1,45 @@
+[package]
+name = "auberean-friends-dll"
+description = "The friends library the retail Asheron's Call 2 client loads in place of its original: the client's friends interfaces, served over the friends stream."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+autoexamples = false
+
+[lib]
+# `auberean_friends.dll`, built for i686-pc-windows-msvc (the retail client is 32-bit) with the C
+# runtime linked in; and the library its tests drive on any host.
+name = "auberean_friends"
+crate-type = ["cdylib", "rlib"]
+# Its name is the friends stream's library's too, and two libraries of one name cannot both be
+# documented in one run: the workspace's documentation is the stream's.
+doc = false
+
+[dependencies]
+# The friends stream: its client session, elements and codes. Named `stream` here, since this
+# library's own name is the stream crate's.
+stream = { package = "auberean-friends", path = "../../core/auberean-friends" }
+tracing.workspace = true
+# The log file the launcher names: the library is the outermost Rust in the retail client's process.
+tracing-subscriber.workspace = true
+
+[lints.rust]
+# The client's interfaces take pointers from their caller; every unsafe block is in `com.rs`.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[example]]
+# A world that serves only the friends stream, for trying the library with the retail client.
+name = "friends-world"
+path = "examples/friends_world.rs"

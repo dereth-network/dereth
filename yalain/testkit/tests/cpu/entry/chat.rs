@@ -255,3 +255,185 @@ fn a_room_line_is_echoed_answered_and_relayed_to_the_other_players() {
         "{to_b:?}"
     );
 }
+
+/// The Dereth Network's command said aloud (`@dn`, or `@dn` and words, in any case) is heard by
+/// nobody, the speaker included, and is kept for the friends service with the speaker and its
+/// words; a line that only begins with the letters is said as any other.
+/// Behaviour: server.friends.dn-said-in-chat
+#[test]
+fn the_networks_command_said_aloud_is_heard_by_nobody_and_kept_for_the_friends_service() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    for line in ["@dn on", "@DN", "  @dn help me"] {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal(line)]),
+        );
+    }
+    h.run(30);
+    assert_eq!(heard(&h, a, fa, ida), 0, "not even the speaker");
+    assert_eq!(heard(&h, b, fb, ida), 0);
+    let kept: Vec<(u64, String, String)> = h
+        .server
+        .network_commands
+        .drain(..)
+        .map(|c| (c.character, c.name, c.words))
+        .collect();
+    assert_eq!(
+        kept,
+        vec![
+            (ida, "Elara".into(), "on".into()),
+            (ida, "Elara".into(), String::new()),
+            (ida, "Elara".into(), "help me".into()),
+        ]
+    );
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SAY, &[Arg::Int(0), literal("@dnd is a word")]),
+    );
+    h.run(30);
+    assert_eq!(heard(&h, b, fb, ida), 1, "said as any other line");
+    assert!(h.server.network_commands.is_empty());
+    assert_eq!(chat::network_words("@dn  off "), Some("off"));
+    assert_eq!(chat::network_words("hello @dn"), None);
+}
+
+/// The Dereth Network's command said into a chat room is answered as the room's request, and
+/// reaches nobody, not even as the speaker's own echo.
+/// Behaviour: server.friends.dn-said-in-chat
+#[test]
+fn the_networks_command_said_into_a_room_reaches_nobody() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    let packet = SendToRoomById {
+        context: 9,
+        room: 1,
+        text: "@dn off".into(),
+        extra: ExtraBlob::Speaker {
+            sender: 1,
+            chat_type: 100 << 16 | 1,
+        },
+    }
+    .network_packet()
+    .expect("packs");
+    h.bots[a].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+    h.run(30);
+    let service = |b: usize, from: usize| -> Vec<IncomingPayload> {
+        h.bots[b].inbox[from..]
+            .iter()
+            .filter(|r| !r.world)
+            .filter_map(|r| match r.message() {
+                Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                    &[
+                        &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                        &p,
+                    ]
+                    .concat(),
+                )
+                .ok()
+                .map(|i| i.payload),
+                _ => None,
+            })
+            .collect()
+    };
+    let to_a = service(a, fa);
+    assert!(
+        matches!(&to_a[..], [IncomingPayload::RoomResponse(r)] if r.context == 9 && r.result == 0),
+        "the answer alone: {to_a:?}"
+    );
+    assert!(service(b, fb).is_empty(), "nobody hears it");
+    assert_eq!(
+        h.server
+            .network_commands
+            .iter()
+            .map(|c| (c.character, c.words.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(ida, "off")]
+    );
+}
+
+/// A player who ignores another on the friends service never hears its tells by the game's own
+/// tell either; the teller is shown its tell as usual.
+/// Behaviour: server.friends.ignored-tells-not-shown
+#[test]
+fn a_game_tell_from_a_player_the_hearer_ignores_is_not_heard() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    h.server
+        .ignoring
+        .insert(idb, std::iter::once("elara".to_owned()).collect());
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal("Babyfare")],
+        ),
+    );
+    h.run(30);
+    assert!(calls_of(&h, b, fb, chat::function::HEAR_TELL).is_empty());
+    assert!(
+        calls_of(&h, a, fa, SHOW_TEXT)
+            .iter()
+            .any(|v| v.get(1) == Some(&Value::Int(chat::text_type::TELL))),
+        "the teller is shown its tell"
+    );
+    h.server.ignoring.clear();
+    let fb = h.bots[b].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal("Babyfare")],
+        ),
+    );
+    h.run(30);
+    assert_eq!(calls_of(&h, b, fb, chat::function::HEAR_TELL).len(), 1);
+}
+
+/// A system line the world writes itself (the network's answers, the friends service's lines)
+/// ends its line, as the client's own strings do, so that lines in a row do not run together;
+/// one that already ends its line is not given a second.
+/// Behaviour: server.chat.system-line-ends-its-line
+#[test]
+fn a_system_line_the_world_writes_ends_its_line_as_the_clients_strings_do() {
+    let mut h = Harness::new();
+    let (b, id) = h.player_in_world("one", "Elara");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    let from = h.bots[b].inbox.len();
+    yalain_world::login::notice(&mut h.net, world, "You are not on the Dereth Network.");
+    yalain_world::login::notice(&mut h.net, world, "Say @dn help for the commands.\n");
+    h.run(10);
+    let lines: Vec<String> = h.bots[b].inbox[from..]
+        .iter()
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::Notice(n)) => n.text.literal.map(|l| l.text()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "You are not on the Dereth Network.\n",
+            "Say @dn help for the commands.\n"
+        ]
+    );
+}

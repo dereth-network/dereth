@@ -1,0 +1,26 @@
+[package]
+name = "yalain-friends"
+description = "The world's friends service, sans-IO: what an Asheron's Call 2 world serves its players over the friends stream, beside its login."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+# The friends stream: its elements and the world's half of one stream.
+auberean-friends.workspace = true
+# Addresses and the paces the network holds tells to.
+dereth-network-protocol.workspace = true
+# The link's world half: other worlds' friends and tells, through its `Friends` boundary.
+yalain-federation.workspace = true
+yalain-store.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

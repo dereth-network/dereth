@@ -52,6 +52,24 @@ world as it was, and the log says why. `help` lists the console's commands.
 line, `*` for any run of letters, matched against a name's letters in small letters. The list is
 empty by default; which words the 2017 servers refused is not known.
 
+## Listing it on the Dereth Network
+
+A world can be listed on a Dereth Network hub, where the launcher's Auberean realm shows it with
+how many are playing. Register it with the hub once, as an Asheron's Call 2 world (`"game":
+"auberean"`), with its address and its login port as the endpoint: on the hub's site, or by the
+hub's operator (`dereth-network-hub register world.json`). Keep the key the hub prints in a file of
+its own, then start the server with:
+
+```text
+yalain --dats <install folder> --hub https://hub.dereth.network --hub-slug <slug> --hub-key-file network.key
+```
+
+It posts a heartbeat to the hub at start, once a minute, at once when a shutdown starts, and as it
+stops, each naming the world's game, so a world registered without one is put right by its first
+heartbeat. A key, slug or hub address it cannot use stops it at start, saying why; a hub that
+refuses a heartbeat or cannot be reached is logged, and the world plays on. Plain `http://` is for
+a hub on the same machine. Only the listing is carried: tells and friends between worlds are not.
+
 ## Testing
 
 Its tests that need no data run with the workspace's (`cargo xtask check`, `cargo xtask ci tier0`);

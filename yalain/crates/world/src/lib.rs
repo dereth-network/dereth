@@ -224,6 +224,16 @@ pub struct Server<S: Store> {
     /// The last visual stamp each content object's visual events used (made with 1).
     pub visuals: HashMap<u64, u16>,
     pub unhandled: Unhandled,
+    /// The Dereth Network's commands said in chat since the host last took them: heard by
+    /// nobody, answered by the world's friends service.
+    pub network_commands: Vec<chat::NetworkCommand>,
+    /// The names of this world's characters each character ignores on its friends service, in
+    /// small letters, by character id: the game's own tell honours them. The friends service
+    /// keeps it.
+    pub ignoring: HashMap<u64, std::collections::HashSet<String>>,
+    /// The accounts with a friends stream the world's friends service admitted; `None` while
+    /// the world serves no friends service. The friends service keeps it.
+    pub friends_streams: Option<std::collections::HashSet<u64>>,
     /// The templates the world makes things of, and the names of generator profiles.
     pub catalog: Catalog,
     /// Where creatures spawn, and what they leave.
@@ -504,6 +514,9 @@ impl<S: Store> Server<S> {
             next_context: 0,
             visuals: HashMap::new(),
             unhandled: Unhandled::default(),
+            network_commands: Vec::new(),
+            ignoring: HashMap::new(),
+            friends_streams: None,
             catalog: Catalog::default(),
             spawns: SpawnTable::default(),
             loot: LootTable::default(),

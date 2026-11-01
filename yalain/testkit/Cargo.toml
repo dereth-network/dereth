@@ -21,6 +21,16 @@ retail-dats = [
     "dep:auberean-script",
     "dep:yalain-world-db",
 ]
+# Tier switch: selects the `network` test binary, the Dereth Network end to end on loopback: the
+# network's hub, an Asheron's Call world and two of this game's worlds, each its own program, with
+# a player of each game's client in them. It adds the friends stream's client half, the first
+# game's client and where its data is found.
+network = [
+    "retail-dats",
+    "dep:auberean-friends",
+    "dep:dereth-client-sdk",
+    "dep:dereth-dat",
+]
 
 [dependencies]
 auberean-assets = { workspace = true, optional = true }
@@ -28,6 +38,9 @@ auberean-client-sdk = { workspace = true, optional = true, features = ["fs"] }
 auberean-dat = { workspace = true, optional = true, features = ["test-support", "fs"] }
 auberean-script = { workspace = true, optional = true }
 yalain-world-db = { workspace = true, optional = true }
+auberean-friends = { workspace = true, optional = true }
+dereth-client-sdk = { workspace = true, optional = true }
+dereth-dat = { workspace = true, optional = true, features = ["test-support"] }
 auberean-primitives.workspace = true
 auberean-protocol.workspace = true
 yalain-content.workspace = true
@@ -67,3 +80,8 @@ required-features = ["retail-corpus"]
 name = "dat"
 path = "tests/dat/main.rs"
 required-features = ["retail-dats"]
+
+[[test]]
+name = "network"
+path = "tests/network/main.rs"
+required-features = ["network"]

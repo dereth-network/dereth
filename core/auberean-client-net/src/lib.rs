@@ -1,7 +1,8 @@
 //! The client's session, sans-IO: the game login, the login connection held all session, world
 //! connections reached by referral, the receive queues and their drain order, messages in and out.
 //!
-//! **Depends on** `auberean-protocol` (the messages), `auberean-primitives` (the string scramble)
+//! **Depends on** `auberean-protocol` (the messages), `auberean-friends` (the friends stream),
+//! `auberean-primitives` (the string scramble)
 //! and the shared connection manager and transport (`dereth-client-net`, `dereth-transport`, with
 //! `dereth-primitives` for their times). **Used by** the client runtime
 //! (`auberean-client-runtime`).
@@ -12,6 +13,7 @@
 //! clock: it hands [`Session`] each datagram with the time, sends what [`Session::poll_transmit`]
 //! gives, and reads what happened from [`Session::poll_event`].
 //!
+//! - [`friends`]: the friends service's connection, as the client's friends layer sees it.
 //! - [`logon`]: the game login's body: the version, the ticket, the account, the session key.
 //! - [`queues`]: the queues the client receives on, the order it reads them in, and the queue each
 //!   of its messages goes out on.
@@ -19,6 +21,7 @@
 //!
 //! **Must never** do I/O or read a clock: datagrams and times come in, datagrams and events go out.
 
+pub mod friends;
 pub mod logon;
 pub mod queues;
 pub mod session;

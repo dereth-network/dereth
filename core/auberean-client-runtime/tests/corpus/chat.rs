@@ -1092,3 +1092,276 @@ fn a_killing_blow_is_shown_by_the_players_scripts() {
     assert_eq!(n.shown + n.shown_later + n.held, n.in_world, "{n:?}");
     assert_eq!(n.held, 0, "{n:?}");
 }
+
+mod friends {
+    //! The friends service through the player's own scripts, on the recorded session brought
+    //! into the world: a tell to another world goes out through the service and its answer is
+    //! shown, a tell heard is shown, a friend's state reaches the friends page, and the friends
+    //! list asked for reaches it whole.
+
+    use core::time::Duration;
+
+    use auberean_client_contract::{Action, SocialAction};
+    use auberean_client_net::friends::stream::{
+        Answer, Event, FriendStatus, Hr, Mode, Request, ServerConfig, ServerEvent, ServerOut,
+        ServerStream, Ticket,
+    };
+    use auberean_client_net::friends::{FriendsLink, Io};
+    use auberean_client_runtime::friends::{ChatExtra, Friends, FriendsOptions, UserStatus};
+    use auberean_client_runtime::Client;
+
+    use super::in_the_world;
+
+    /// The world's name as the session's login named it (the recorded session's).
+    const WORLD: &str = "Dawnsong";
+
+    /// The world's side of the friends stream: admits the ticket, keeps what it is asked, answers a
+    /// tell with `tell_answer`.
+    struct World {
+        stream: Option<ServerStream>,
+        asked: Vec<Request>,
+        tell_answer: Hr,
+    }
+
+    impl World {
+        fn handle(&mut self, now: Duration, e: ServerEvent) {
+            let Some(s) = self.stream.as_mut() else {
+                return;
+            };
+            match e {
+                ServerEvent::Ticket { cx, .. } => {
+                    s.admit(now, cx);
+                    let _ = s.enter(now, Vec::new());
+                }
+                ServerEvent::Request { cx, request } => {
+                    self.asked.push(request.clone());
+                    let (hr, answer) = match request {
+                        Request::GetFriendsList => (
+                            Hr::OK,
+                            Answer::GetFriendsList {
+                                friends: vec![
+                                    FriendStatus::new(&format!("Cara@{WORLD}"), Mode(1)),
+                                    FriendStatus::new("Bob@coldeve", Mode(0)),
+                                ],
+                            },
+                        ),
+                        Request::SendToUserEx { .. } => (self.tell_answer, Answer::SendToUserEx),
+                        other => (Hr::OK, Answer::empty(other.kind())),
+                    };
+                    let _ = s.answer(now, cx, hr, answer);
+                }
+                ServerEvent::Hello(_) | ServerEvent::Ended(_) => {}
+            }
+        }
+
+        fn event(&mut self, c: &Client, e: Event) {
+            let now = Duration::from_secs_f64(c.local_time());
+            self.stream
+                .as_mut()
+                .expect("a stream")
+                .event(now, e)
+                .expect("sent");
+        }
+    }
+
+    /// Carry the stream both ways at the client's own time, then let the client take what came.
+    fn pump(c: &mut Client, w: &mut World) {
+        let now = Duration::from_secs_f64(c.local_time());
+        for _ in 0..4 {
+            loop {
+                let mut moved = false;
+                let link = c
+                    .friends_mut()
+                    .and_then(|f| f.connection().io())
+                    .expect("the link");
+                while let Some(io) = link.poll_io(now) {
+                    moved = true;
+                    match io {
+                        Io::Dial { .. } => {
+                            w.stream =
+                                Some(ServerStream::new(now, ServerConfig::new("dawnsong", WORLD)));
+                            link.opened(now);
+                        }
+                        Io::Write(b) => {
+                            if let Some(s) = w.stream.as_mut() {
+                                s.on_bytes(now, &b);
+                            }
+                        }
+                        Io::Close => w.stream = None,
+                    }
+                }
+                let outs = w.stream.as_mut().map(|s| s.poll(now)).unwrap_or_default();
+                for out in outs {
+                    moved = true;
+                    match out {
+                        ServerOut::Write(b) => link.on_bytes(now, &b),
+                        ServerOut::Close => link.closed(now),
+                        ServerOut::Event(e) => w.handle(now, e),
+                    }
+                }
+                if !moved {
+                    break;
+                }
+            }
+            c.pump_friends();
+        }
+    }
+
+    /// The recorded player in the world with the friends service up, its ticket taken.
+    fn connected() -> (Client, World) {
+        let (mut c, _) = in_the_world();
+        let mut w = World {
+            stream: None,
+            asked: Vec::new(),
+            tell_answer: Hr::OK,
+        };
+        let options = FriendsOptions {
+            server: "127.0.0.1".into(),
+            port: 9000,
+            use_ticket: true,
+            ticket: Ticket::new("player", "secret").encode().ok(),
+            named: true,
+        };
+        c.use_friends(Friends::new(
+            Box::new(FriendsLink::new("auberean-test/1.0", None)),
+            &options,
+        ));
+        pump(&mut c, &mut w);
+        let f = c.friends_mut().expect("the layer");
+        assert!(f.connected());
+        if f.world_name().is_empty() {
+            f.set_world_name(&WORLD.encode_utf16().collect::<Vec<_>>());
+        }
+        c.shown.clear();
+        c.notices.clear();
+        (c, w)
+    }
+
+    /// The lines shown since they were last taken.
+    fn shown(c: &mut Client) -> Vec<String> {
+        std::mem::take(&mut c.shown)
+            .iter()
+            .filter_map(|s| c.write_text(&s.text))
+            .collect()
+    }
+
+    /// `/tell Name@World, text` goes to the friends service (the name and text as typed), and the
+    /// service's answer is shown by the player's scripts: the client's own echo when the tell went,
+    /// the tellee not on when the service says so, the tellee unknown when it says that.
+    ///
+    /// Behaviour: friends.scripts.a-tell-to-another-world-goes-through-the-service-and-its-answer-is-shown
+    #[test]
+    fn a_tell_to_another_world_goes_through_the_service_and_its_answer_is_shown() {
+        let (mut c, mut w) = connected();
+        for (answer, says) in [
+            (Hr::OK, "hi there"),
+            (Hr::NOT_ONLINE, "not logged in"),
+            (Hr::NO_SUCH_USER, "doesn't exist"),
+        ] {
+            w.tell_answer = answer;
+            let asked = w.asked.len();
+            c.process_text("/tell Bob@coldeve, hi there");
+            pump(&mut c, &mut w);
+            assert_eq!(
+                w.asked.get(asked),
+                Some(&Request::SendToUserEx {
+                    user: "Bob@coldeve".into(),
+                    text: "hi there".into(),
+                    extra: w.asked.get(asked).and_then(|r| match r {
+                        Request::SendToUserEx { extra, .. } => *extra,
+                        _ => None,
+                    }),
+                }),
+                "{:?}",
+                w.asked
+            );
+            let lines = shown(&mut c);
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("Bob@coldeve") && l.contains(says)),
+                "{answer:?}: {lines:?}"
+            );
+        }
+    }
+
+    /// A tell heard through the service is shown by the player's scripts with the teller's name and
+    /// the text as sent, markup and all, as the teller's own words.
+    ///
+    /// Behaviour: friends.scripts.a-tell-heard-through-the-service-is-shown-with-its-text-as-sent
+    #[test]
+    fn a_tell_heard_through_the_service_is_shown_with_its_text_as_sent() {
+        let (mut c, mut w) = connected();
+        let extra = ChatExtra::new(&"Bob [M]".encode_utf16().collect::<Vec<_>>(), 0);
+        w.event(
+            &c,
+            Event::UTellEv {
+                user: "Bob@coldeve".into(),
+                text: "well [met]".into(),
+                extra: Some(extra.to_stream()),
+            },
+        );
+        pump(&mut c, &mut w);
+        let lines = shown(&mut c);
+        assert!(
+            lines.iter().any(|l| l.contains("Bob@coldeve")
+                && l.contains("tells you")
+                && l.contains("well [met]")),
+            "{lines:?}"
+        );
+    }
+
+    /// A friend's new state and the friends list asked for reach the friends page through the
+    /// player's scripts: the page's notices carry the friend's state, and the list whole, names of
+    /// this world without the world's name.
+    ///
+    /// Behaviour: friends.scripts.a-friends-state-and-the-list-reach-the-friends-page
+    #[test]
+    fn a_friends_state_and_the_list_reach_the_friends_page() {
+        /// The scripts' notices to the friends page: the list, and one friend's state.
+        const LIST: u32 = 0x1AD2_0001;
+        const STATUS: u32 = 0x1AD2_0004;
+        let (mut c, mut w) = connected();
+        w.event(
+            &c,
+            Event::FriendStat {
+                user: format!("Cara@{WORLD}"),
+                mode: Mode(3),
+            },
+        );
+        pump(&mut c, &mut w);
+        let status = c
+            .notices
+            .iter()
+            .find(|n| n.native == STATUS)
+            .unwrap_or_else(|| panic!("a friend's state: {:?}", c.notices));
+        let s = status
+            .objects
+            .iter()
+            .flatten()
+            .find_map(UserStatus::of)
+            .expect("the friend's state");
+        assert_eq!(String::from_utf16_lossy(&s.name), "Cara");
+        assert_eq!(s.mode, 3);
+        c.notices.clear();
+        c.act(Action::Social(SocialAction::GetFriends));
+        pump(&mut c, &mut w);
+        let list = c
+            .notices
+            .iter()
+            .find(|n| n.native == LIST)
+            .unwrap_or_else(|| panic!("the list: {:?}", c.notices));
+        let names: Vec<(String, u32)> = list
+            .listed
+            .iter()
+            .flatten()
+            .flatten()
+            .filter_map(UserStatus::of)
+            .map(|s| (String::from_utf16_lossy(&s.name), s.mode))
+            .collect();
+        assert_eq!(
+            names,
+            [("Cara".to_owned(), 1), ("Bob@coldeve".to_owned(), 0)]
+        );
+    }
+}

@@ -28,6 +28,9 @@ what they see, not how it was done.
 - Fellowships: make one, recruit, share experience and follow your fellows' health.
 - Players can trade items with each other.
 - Story shards play their scenes, and books can be read.
+- Worlds can be listed on a Dereth Network hub with `--hub`.
+- New `--federation` option links the world to the Dereth Network; the console gains `dn` blocks.
+- Characters on the Dereth Network appear in its directory.
 - Creatures fight with their weapons, turn on whoever hurts them most, and heal themselves.
 - Market brokers show their catalogs, and players can sell items there and buy what others sell.
 - Crafting earns craft experience, craft skills can be raised, and corpses can be butchered.
@@ -62,6 +65,7 @@ what they see, not how it was done.
 - Hoard keys open the Shaper's hoards to a whole fellowship, and the Sentries walk their rounds.
 - Vault and Dominion Center portals keep out players without the quest they need.
 - Monsters open doors to chase players; summoned creatures can't.
+- Friends, squelches and tells to Name@world now work, across worlds after `@dn on`.
 - Kill experience is split by damage dealt, none goes to fighters a monster can't reach, and
   fellows out of level range still earn their own.
 - Summon Lifestone and Summon Portal open a portal anyone can use for 30 seconds.

@@ -157,6 +157,16 @@ pub enum SocialAction {
     /// Take an oath offered, or turn it down with a reason's number.
     TakeOath,
     RefuseOath(u32),
+    /// The friends page asks the friends service: add a name (as UTF-16 units) to the friends,
+    /// take one off, the list again, the player's own state (1 available, 2 away, 4 not to be
+    /// disturbed) and where it is.
+    AddFriend(Vec<u16>),
+    RemoveFriend(Vec<u16>),
+    GetFriends,
+    SetState {
+        mode: u32,
+        location: Vec<u16>,
+    },
 }
 
 /// One of the player's options the options window sets; its value is a word: 1 or 0 for a

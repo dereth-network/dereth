@@ -217,6 +217,11 @@ fn timed_out(d: &impl Drive, what: &str, seconds: f64) -> String {
     )
 }
 
+/// How long a step may take before the session is taken to hang, in seconds on the session's
+/// clock. Every step waits for what it should bring; this only stops a hang, so it is generous
+/// enough for a loaded machine running several servers at once.
+pub const HANG: f64 = 900.0;
+
 /// Step until `done` holds, at most `seconds`.
 ///
 /// # Errors
@@ -265,7 +270,7 @@ pub fn sent_since(c: &Client, from: usize) -> Vec<ClientMessage> {
 /// # Errors
 /// It did not.
 pub fn character_list(d: &mut impl Drive) -> Result<(), String> {
-    until(d, 30.0, "the character list", |c| {
+    until(d, HANG, "the character list", |c| {
         c.model.characters.is_some()
     })
 }
@@ -293,7 +298,7 @@ pub fn create(d: &mut impl Drive, name: &str) -> Result<u64, String> {
         physique: vec![(1, 1.0), (2, 1.0)],
         physique_size_class: 2,
     }));
-    until(d, 30.0, "the new character in the list", |c| {
+    until(d, HANG, "the new character in the list", |c| {
         c.model
             .characters
             .as_ref()
@@ -312,10 +317,10 @@ pub fn create(d: &mut impl Drive, name: &str) -> Result<u64, String> {
 pub fn enter(d: &mut impl Drive, character: u64) -> Result<(), String> {
     let from = d.client_ref().sent().len();
     d.client().act(Action::PlayCharacter { character });
-    until(d, 30.0, "the player in the world", |c| {
+    until(d, HANG, "the player in the world", |c| {
         c.model.player == Some(character) && c.model.player_object().is_some() && c.body.placed()
     })?;
-    until(d, 10.0, "the scene reported drawn", |c| {
+    until(d, HANG, "the scene reported drawn", |c| {
         sent_since(c, from)
             .iter()
             .any(|m| matches!(m, ClientMessage::SceneRenderingComplete(_)))
@@ -327,7 +332,7 @@ pub fn enter(d: &mut impl Drive, character: u64) -> Result<(), String> {
 /// # Errors
 /// They did not all come.
 pub fn see(d: &mut impl Drive, templates: &[u32]) -> Result<(), String> {
-    until(d, 30.0, "the people and creatures around", |c| {
+    until(d, HANG, "the people and creatures around", |c| {
         let around: Vec<u32> = c
             .model
             .surroundings()
@@ -385,7 +390,7 @@ pub fn walk_to(d: &mut impl Drive, to: [f32; 3], reach: f32) -> Result<usize, St
 pub fn select_and_examine(d: &mut impl Drive, target: u64) -> Result<Vec<u32>, String> {
     let (seen, from) = (d.client_ref().observed.len(), d.client_ref().sent().len());
     d.client().act(Action::Select { target });
-    until(d, 10.0, "the vitals and the profile", |c| {
+    until(d, HANG, "the vitals and the profile", |c| {
         let got = |f| c.observed[seen..].iter().any(|(_, g, _, _)| *g == f);
         got(call::SELECTION_INFO) && got(call::EXAMINATION_PROFILE)
     })?;
@@ -419,7 +424,7 @@ pub fn wield(d: &mut impl Drive, template: u32) -> Result<u64, String> {
         .map(|o| o.id)
         .ok_or("the player holds no such item")?;
     use_object(d, item);
-    until(d, 10.0, "the item wielded", |c| {
+    until(d, HANG, "the item wielded", |c| {
         c.model
             .object(item)
             .is_some_and(|o| o.parent.is_some_and(|(p, _)| p == me))
@@ -435,7 +440,7 @@ pub fn attack_until_dead(d: &mut impl Drive, target: u64) -> Result<(), String> 
     d.client().act(Action::Attack { start: true });
     // The client keeps the flag where its qualities answer it first: in the object's description,
     // which holds it.
-    until(d, 90.0, "the creature dead", |c| {
+    until(d, HANG, "the creature dead", |c| {
         c.model.object(target).is_some_and(|o| {
             auberean_client_sdk::runtime::description::bool(&o.weenie, DEAD)
                 .or_else(|| o.qualities.bools.get(&DEAD).copied())
@@ -455,14 +460,14 @@ pub fn use_object(d: &mut impl Drive, target: u64) {
 /// # Errors
 /// No corpse, or nothing in it.
 pub fn open_corpse(d: &mut impl Drive) -> Result<(u64, u64), String> {
-    until(d, 10.0, "the corpse", |c| {
+    until(d, HANG, "the corpse", |c| {
         find(c, authored::CORPSE).is_some()
     })?;
     let corpse = find(d.client_ref(), authored::CORPSE)
         .map(|o| o.id)
         .ok_or("no corpse")?;
     use_object(d, corpse);
-    until(d, 10.0, "what the corpse holds", |c| {
+    until(d, HANG, "what the corpse holds", |c| {
         c.model.objects().any(|o| o.container == Some(corpse))
     })?;
     let item = d
@@ -512,7 +517,7 @@ pub fn take(d: &mut impl Drive, item: u64) -> Result<(), String> {
 pub fn talk_to(d: &mut impl Drive, person: u64) -> Result<(), String> {
     let heard = d.client_ref().observed.len();
     use_object(d, person);
-    until(d, 15.0, "the person's tell", |c| {
+    until(d, HANG, "the person's tell", |c| {
         c.observed[heard..]
             .iter()
             .any(|(_, f, _, _)| *f == call::HEAR_TELL)
@@ -526,7 +531,7 @@ pub fn talk_to(d: &mut impl Drive, person: u64) -> Result<(), String> {
 pub fn say(d: &mut impl Drive, text: &str) -> Result<(), String> {
     let heard = d.client_ref().observed.len();
     d.client().act(Action::Say { text: text.into() });
-    until(d, 10.0, "the saying heard", |c| {
+    until(d, HANG, "the saying heard", |c| {
         c.observed[heard..]
             .iter()
             .any(|(_, f, _, _)| *f == call::SAYING)
@@ -541,8 +546,8 @@ pub fn say(d: &mut impl Drive, text: &str) -> Result<(), String> {
 pub fn take_portal(d: &mut impl Drive, portal: u64, to: u32) -> Result<(), String> {
     let trip = d.client_ref().observed.len();
     use_object(d, portal);
-    until(d, 15.0, "the portal's destination", |c| c.body.cell == to)?;
-    until(d, 10.0, "out of portal space", |c| {
+    until(d, HANG, "the portal's destination", |c| c.body.cell == to)?;
+    until(d, HANG, "out of portal space", |c| {
         let n = |f| {
             c.observed[trip..]
                 .iter()
@@ -559,7 +564,7 @@ pub fn take_portal(d: &mut impl Drive, portal: u64, to: u32) -> Result<(), Strin
 /// The client stayed in the world.
 pub fn log_off(d: &mut impl Drive) -> Result<(), String> {
     d.client().act(Action::LogOff);
-    until(d, 60.0, "out of the world", |c| {
+    until(d, HANG, "out of the world", |c| {
         c.model.player.is_none() && c.model.characters.is_some()
     })
 }

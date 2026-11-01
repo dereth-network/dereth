@@ -5,8 +5,8 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::{
-    physique_bytes, physique_from, position_bytes, position_from, Account, Character, Store,
-    StoreError, StoreResult, WorldState,
+    physique_bytes, physique_from, position_bytes, position_from, Account, Character, Listed,
+    NetworkList, Store, StoreError, StoreResult, WorldState,
 };
 
 const SCHEMA: &str = "
@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS kept_place (
     PRIMARY KEY (id, kind)
 );
 CREATE TABLE IF NOT EXISTS world_record (name TEXT PRIMARY KEY, value BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS network_character (id INTEGER PRIMARY KEY REFERENCES character (id));
+CREATE TABLE IF NOT EXISTS network_block (block TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS network_list (
+    id INTEGER NOT NULL REFERENCES character (id),
+    list INTEGER NOT NULL,
+    entry TEXT NOT NULL COLLATE NOCASE,
+    PRIMARY KEY (id, list, entry)
+);
 ";
 
 const CHARACTER_COLUMNS: &str =
@@ -284,6 +292,12 @@ impl Store for SqliteStore {
             .execute("DELETE FROM play_state WHERE id = ?1", [id as i64])
             .map_err(err)?;
         self.db
+            .execute("DELETE FROM network_character WHERE id = ?1", [id as i64])
+            .map_err(err)?;
+        self.db
+            .execute("DELETE FROM network_list WHERE id = ?1", [id as i64])
+            .map_err(err)?;
+        self.db
             .execute("DELETE FROM character WHERE id = ?1", [id as i64])
             .map(|_| ())
             .map_err(err)
@@ -389,6 +403,93 @@ impl Store for SqliteStore {
             .execute(
                 "INSERT INTO world_record (name, value) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET value = ?2",
                 params![name, value],
+            )
+            .map(|_| ())
+            .map_err(err)
+    }
+
+    fn network_characters(&mut self) -> StoreResult<Vec<u64>> {
+        let mut st = self
+            .db
+            .prepare("SELECT id FROM network_character ORDER BY id")
+            .map_err(err)?;
+        let rows = st.query_map([], |r| r.get::<_, i64>(0)).map_err(err)?;
+        rows.map(|r| r.map(|id| id as u64).map_err(err)).collect()
+    }
+
+    fn set_network_on(&mut self, id: u64, on: bool) -> StoreResult<()> {
+        let sql = if on {
+            "INSERT OR IGNORE INTO network_character (id) VALUES (?1)"
+        } else {
+            "DELETE FROM network_character WHERE id = ?1"
+        };
+        self.db.execute(sql, [id as i64]).map(|_| ()).map_err(err)
+    }
+
+    fn network_blocks(&mut self) -> StoreResult<Vec<String>> {
+        let mut st = self
+            .db
+            .prepare("SELECT block FROM network_block ORDER BY block")
+            .map_err(err)?;
+        let rows = st.query_map([], |r| r.get(0)).map_err(err)?;
+        rows.map(|r| r.map_err(err)).collect()
+    }
+
+    fn set_network_block(&mut self, block: &str, on: bool) -> StoreResult<()> {
+        let sql = if on {
+            "INSERT OR IGNORE INTO network_block (block) VALUES (?1)"
+        } else {
+            "DELETE FROM network_block WHERE block = ?1"
+        };
+        self.db.execute(sql, [block]).map(|_| ()).map_err(err)
+    }
+
+    fn network_lists(&mut self) -> StoreResult<Vec<Listed>> {
+        let mut st = self
+            .db
+            .prepare("SELECT id, list, entry FROM network_list ORDER BY id, list, entry")
+            .map_err(err)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as u64,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(err)?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (character, list, entry) = row.map_err(err)?;
+            // A list a later version keeps is left alone.
+            if let Some(list) = u32::try_from(list).ok().and_then(NetworkList::from_number) {
+                out.push(Listed {
+                    character,
+                    list,
+                    entry,
+                });
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    fn set_listed(
+        &mut self,
+        character: u64,
+        list: NetworkList,
+        entry: &str,
+        on: bool,
+    ) -> StoreResult<()> {
+        let sql = if on {
+            "INSERT OR IGNORE INTO network_list (id, list, entry) VALUES (?1, ?2, ?3)"
+        } else {
+            "DELETE FROM network_list WHERE id = ?1 AND list = ?2 AND entry = ?3"
+        };
+        self.db
+            .execute(
+                sql,
+                params![character as i64, i64::from(list.number()), entry],
             )
             .map(|_| ())
             .map_err(err)

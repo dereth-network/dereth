@@ -7,6 +7,9 @@
 //!          the world as it was
 //! shutdown count down two minutes, telling every player in the world as the 2017 worlds did
 //!          (at two minutes, then every thirty seconds), then stop
+//! dn       the world's link to the Dereth Network and its blocks; `dn block <world or
+//!          Name@world>` and `dn unblock ...` block a world or a character for everyone on this
+//!          world, or lift it (`yalain_federation`'s operator commands)
 //! hero     `hero <name>` makes a character a hero (it earns focus, and has its greatest at
 //!          once), `hero <name> off` no longer one; in the world or out of it
 //! help     list the commands
@@ -21,7 +24,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 /// The commands, as `help` lists them.
 pub const HELP: &str = "commands: reload (compile the world database again and take what can \
                         change while the world runs), shutdown (tell the players and stop in two \
-                        minutes), hero (hero <name>, hero <name> off: make a character a \
+                        minutes), dn (the Dereth Network: dn, dn block <world or Name@world>, \
+                        dn unblock <world or Name@world>), hero (hero <name>, hero <name> off: make a character a \
                         hero or no longer one), help";
 
 /// A command typed at the console.
@@ -30,6 +34,8 @@ pub enum Command {
     Reload,
     Shutdown,
     Help,
+    /// `dn` and the words after it.
+    Network(Vec<String>),
     /// `hero <name> [off]`: the character's name, and whether it is made a hero; `None` for a
     /// line without a name.
     Hero(Option<(String, bool)>),
@@ -45,6 +51,7 @@ pub fn parse(line: &str) -> Option<Command> {
         "reload" => Command::Reload,
         "shutdown" => Command::Shutdown,
         "help" | "?" => Command::Help,
+        "dn" => Command::Network(line.split_whitespace().skip(1).map(str::to_owned).collect()),
         "hero" => {
             let words: Vec<&str> = line.split_whitespace().skip(1).collect();
             Command::Hero(match words[..] {

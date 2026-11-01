@@ -40,6 +40,39 @@ pub trait Host {
         let _ = (name, bytes);
         false
     }
+    /// Whether this host carries the friends service's stream. One that does not leaves the player
+    /// without friends.
+    fn carries_friends(&self) -> bool {
+        false
+    }
+    /// Open the friends service's stream to `host` and `port` (closing one open before); how it went
+    /// comes back from [`Host::friends_news`].
+    fn friends_dial(&mut self, host: &str, port: u16) {
+        let _ = (host, port);
+    }
+    /// Write to the friends service's stream.
+    fn friends_send(&mut self, bytes: &[u8]) {
+        let _ = bytes;
+    }
+    /// Close the friends service's stream.
+    fn friends_close(&mut self) {}
+    /// The next thing that happened on the friends service's stream.
+    fn friends_news(&mut self) -> Option<FriendsNews> {
+        None
+    }
+}
+
+/// What happened on the friends service's stream.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FriendsNews {
+    /// It opened.
+    Opened,
+    /// It could not be opened.
+    Failed,
+    /// It closed.
+    Closed,
+    /// Bytes read from it.
+    Bytes(Vec<u8>),
 }
 
 /// The key maps' files, kept by a host.

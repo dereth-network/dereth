@@ -24,6 +24,13 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "A record the data files hold that fails to read is read again before it counts as missing, so one bad read on a busy machine does not lose it for the rest of the session.",
     },
     Divergence {
+        id: "CD2-friends-stream",
+        says: "Friends, presence, the ignore list, the away state and tells to other worlds reach \
+               the world over this network's own friends stream, with its own greeting, ticket, \
+               keep-alive and waits between reconnects, instead of the original friends service's \
+               connection.",
+    },
+    Divergence {
         id: "CD2-script-step-budget",
         says: "Every script run has a step budget: one that runs too long is stopped instead of \
                freezing the game, where the retail client would hang.",

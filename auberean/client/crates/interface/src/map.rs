@@ -99,14 +99,12 @@ pub fn clock(world: &WorldData, t: f64) -> Option<Clock> {
     })
 }
 
-/// A social window's request as the client's action; those of the chat service (which this
-/// client has none of) come back.
-///
-/// # Errors
-/// The request needs the chat service.
-pub fn social_action(r: Request) -> Result<Action, Request> {
+/// A social window's request as the client's action: the friends page's go to the friends
+/// service.
+#[must_use]
+pub fn social_action(r: Request) -> Action {
     use SocialAction as S;
-    Ok(Action::Social(match r {
+    Action::Social(match r {
         Request::CreateFellowship {
             name,
             social,
@@ -127,11 +125,14 @@ pub fn social_action(r: Request) -> Result<Action, Request> {
         Request::Break(id) => S::Break(id),
         Request::TakeOath => S::TakeOath,
         Request::RefuseOath(why) => S::RefuseOath(why),
-        Request::Emote { string, table } => return Ok(Action::Emote { string, table }),
-        Request::AssistedTell(name) => return Ok(Action::AssistedTell { name }),
-        r @ (Request::AddFriend(_)
-        | Request::RemoveFriend(_)
-        | Request::GetFriends
-        | Request::SetLocation { .. }) => return Err(r),
-    }))
+        Request::Emote { string, table } => return Action::Emote { string, table },
+        Request::AssistedTell(name) => return Action::AssistedTell { name },
+        Request::AddFriend(name) => S::AddFriend(name.encode_utf16().collect()),
+        Request::RemoveFriend(name) => S::RemoveFriend(name.encode_utf16().collect()),
+        Request::GetFriends => S::GetFriends,
+        Request::SetLocation { mode, location } => S::SetState {
+            mode,
+            location: location.encode_utf16().collect(),
+        },
+    })
 }

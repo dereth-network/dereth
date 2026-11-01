@@ -6,8 +6,12 @@
 //! (`yalain-world-db`: the world it serves, compiled at start, fetched by `yalain world`), and
 //! Asheron's Call 2's core
 //! for the data it reads at start (`auberean-dat`, `auberean-assets`, `auberean-script`,
-//! `auberean-world`, `auberean-physics`), with `dereth-primitives`, and `ctrlc` for the system's
-//! stop signals. **Used by** nothing: it is the `yalain` program.
+//! `auberean-world`, `auberean-physics`), with `dereth-primitives`, and the Dereth Network's
+//! protocol (`dereth-network-protocol`) for its heartbeat to a hub, its link
+//! (`dereth-network-link`) and the world's half of it (`yalain-federation`), with the system's
+//! random source (`getrandom`) for the directory's allegiance keys, and the players' friends
+//! service (`yalain-friends`), and `ctrlc` for the system's stop signals. **Used by** nothing: it
+//! is the `yalain` program.
 //!
 //! ```text
 //! yalain --dats <install folder> [options]
@@ -50,6 +54,18 @@
 //!                         still, for comparing clients at one moment; what the game counts in its
 //!                         own time (a skill's recovery, the wait after a recall, a quest's wait)
 //!                         does not run out while it is held
+//!   --hub URL             report this world to the Dereth Network hub at URL (https://, or
+//!                         http:// to this machine), with --hub-slug and --hub-key-file: the
+//!                         hub's launcher lists it among Asheron's Call 2's worlds
+//!   --hub-slug SLUG       the world's slug at the hub, as it was registered
+//!   --hub-key-file FILE   the file holding the key the hub gave the world (drth_...)
+//!   --federation          link the world to the hub's network (with --hub), once the world's
+//!                         federation is on at the hub: characters whose players put them on the
+//!                         network reach and are reached by other worlds' characters, of either
+//!                         game
+//!   --no-friends          serve no friends service: by default the world serves its players'
+//!                         friends, presence and tells to Name@world on TCP at the login port's
+//!                         number
 //!   --seconds S           stop after S seconds (default: run until stopped)
 //!   --verbose             log at the debug level (every connection event, and more)
 //!
@@ -62,6 +78,9 @@
 //! module): `reload` compiles the world database again and takes what can change without a
 //! restart; `shutdown` tells every player in the world the world is shutting down, counts down two
 //! minutes and stops.
+//!
+//! A line a player says that is `@dn` or begins with `@dn ` is the Dereth Network's command: heard
+//! by nobody, and answered by the friends service in the player's chat window.
 //!
 //! A client reaches it with `--host <IP> --port <login port> --account <name>
 //! --glsticketdirect <ticket>`. With the default open accounts any new name logs in, and its
@@ -77,7 +96,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod console;
 mod data;
+mod friends;
 mod help;
+mod hub;
+mod network;
 mod referral;
 mod stop;
 mod world;
@@ -117,6 +139,12 @@ struct Options {
     echo: bool,
     game_time: Option<f64>,
     hold_clock: bool,
+    /// Where and as what the world reports itself to a Dereth Network hub (`--hub`).
+    hub: Option<hub::HubSettings>,
+    /// Link to the hub's network (`--federation`).
+    federation: bool,
+    /// Serve the friends service (not `--no-friends`).
+    friends: bool,
     seconds: Option<f64>,
     verbose: bool,
 }
@@ -148,9 +176,13 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         echo: true,
         game_time: None,
         hold_clock: false,
+        hub: None,
+        federation: false,
+        friends: true,
         seconds: None,
         verbose: false,
     };
+    let (mut hub_url, mut hub_slug, mut hub_key_file) = (None, None, None);
     let mut args = args.into_iter();
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{a} needs a value"));
@@ -231,6 +263,11 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 o.game_time = Some(t);
             }
             "--hold-clock" => o.hold_clock = true,
+            "--hub" => hub_url = Some(value()?),
+            "--hub-slug" => hub_slug = Some(value()?),
+            "--hub-key-file" => hub_key_file = Some(PathBuf::from(value()?)),
+            "--federation" => o.federation = true,
+            "--no-friends" => o.friends = false,
             "--seconds" => {
                 o.seconds = Some(value()?.parse().map_err(|e| format!("--seconds: {e}"))?)
             }
@@ -242,8 +279,23 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
     if !o.login_port.is_multiple_of(2) || !o.world_port.is_multiple_of(2) {
         return Err("the ports are even: each service uses its port and the one above".into());
     }
+    o.hub = match (hub_url, hub_slug, hub_key_file) {
+        (None, None, None) => None,
+        (Some(url), Some(slug), Some(key)) => Some(hub::HubSettings::new(&url, &slug, &key)?),
+        (Some(_), ..) => return Err("--hub needs --hub-slug and --hub-key-file".into()),
+        (None, ..) => return Err("--hub-slug and --hub-key-file go with --hub".into()),
+    };
     if o.referral {
         referral::advertised(o.bind, o.advertise)?;
+    }
+    if o.federation {
+        match &o.hub {
+            None => return Err("--federation needs --hub, --hub-slug and --hub-key-file".into()),
+            Some(h) => {
+                network::settings(h)?;
+                network::link_url(h)?;
+            }
+        }
     }
     Ok(o)
 }
@@ -455,6 +507,24 @@ fn run<S: Store>(
         o.world_port,
         o.world_port + 1
     );
+    let mut reporter = o.hub.clone().map(hub::Reporter::start);
+    let mut network = match (&o.hub, o.federation) {
+        (Some(h), true) => Some(network::Network::start(h, unix_now(), &mut server.store)?),
+        _ => None,
+    };
+    let slug = match (&o.hub, o.federation) {
+        (Some(h), true) => h.slug.clone(),
+        _ => String::new(),
+    };
+    let service = yalain_friends::Service::load(
+        yalain_friends::Config::new(&o.world_name, &slug),
+        &mut server.store,
+    )
+    .map_err(|e| format!("the friends lists: {e}"))?;
+    let mut friends = friends::Friends::start(
+        service,
+        o.friends.then(|| friends::listen_at(o.bind, o.login_port)),
+    )?;
     let typed = console::lines();
     let mut reloading: Option<console::Job<(PathBuf, WorldTables)>> = None;
     let mut shutting = false;
@@ -485,6 +555,17 @@ fn run<S: Store>(
                     reloading = Some(console::start(move || {
                         reload_world(&dats, &db, base.as_deref(), banned.as_deref())
                     }));
+                }
+                Some(console::Command::Network(words)) => {
+                    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+                    match &mut network {
+                        Some(n) => {
+                            for line in n.console(&mut server.store, &mut friends.service, &words) {
+                                tracing::info!("{line}");
+                            }
+                        }
+                        None => tracing::info!("This world is not on the Dereth Network."),
+                    }
                 }
                 Some(console::Command::Hero(None)) => {
                     tracing::info!(
@@ -524,19 +605,47 @@ fn run<S: Store>(
             yalain_world::shutdown::begin(&mut server, &mut net, clock);
         }
         server.pump(&mut net, clock);
+        if let Some(r) = &mut reporter {
+            let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
+                hub::State::Online
+            } else {
+                hub::State::Maintenance
+            };
+            r.now(
+                state,
+                u32::try_from(server.players.len()).unwrap_or(u32::MAX),
+            );
+        }
+        if let Some(n) = &mut network {
+            n.directory(&mut server, now.0);
+            n.pump(&mut friends.service, now.0);
+        }
+        let talked = friends.pump(
+            Duration::from_secs_f64(now.0),
+            &mut server,
+            &mut net,
+            network.as_mut().map(|n| &mut n.federation),
+        );
         net.tick(now);
         let out = net.take_datagrams();
         ports.send(&out);
         if server.shutdown == yalain_world::shutdown::Shutdown::Done {
             break;
         }
-        if got == 0 && out.is_empty() {
+        if got == 0 && out.is_empty() && !talked {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
     let kept = yalain_world::shutdown::save_everyone(&mut server, &mut net);
     tracing::info!("stopping: {kept} characters in the world kept");
     ports.send(&net.take_datagrams());
+    friends.stop();
+    if let Some(n) = &mut network {
+        n.stop();
+    }
+    if let Some(r) = reporter {
+        r.stop();
+    }
     for (what, n) in server.unhandled.counts() {
         tracing::info!("not handled yet: {what} x{n}");
     }
@@ -874,7 +983,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--seconds S] [--verbose]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             return std::process::ExitCode::FAILURE;
         }
@@ -891,6 +1000,7 @@ fn main() -> std::process::ExitCode {
         eprintln!("yalain: --dats names the install to read the data from");
         return std::process::ExitCode::FAILURE;
     };
+
     let loaded = data::Portal::open(&dats)
         .and_then(|p| Ok((data::chargen_rules(&p)?, data::start_rules(&p)?)));
     let (rules, start) = match loaded {

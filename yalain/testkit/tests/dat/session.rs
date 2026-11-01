@@ -129,7 +129,7 @@ fn our_client_enters_again_with_the_weapon_it_left_wielded() {
     let sword = ok(play::wield(&mut s, authored::SWORD));
     ok(play::log_off(&mut s));
     ok(play::enter(&mut s, me));
-    ok(play::until(&mut s, 10.0, "the sword made", |c| {
+    ok(play::until(&mut s, play::HANG, "the sword made", |c| {
         c.model.object(sword).is_some()
     }));
     let o = s

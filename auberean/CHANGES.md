@@ -61,4 +61,5 @@ not how it was done.
 - Keys set in Controls now work in play and are kept between sessions.
 - Logging in while your character is still in the world says so, instead of waiting forever.
 - Alt+Enter switches between full screen and a window, and the choice is kept.
+- Friends, presence, ignore, away and /tell Name@World work on worlds with a friends service.
 - Crystals and other shiny surfaces show their reflections.

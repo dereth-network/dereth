@@ -151,7 +151,8 @@ pub fn account_for_command<S: Store>(
 /// The account a login of this name and ticket is admitted as, by the world's rule: on an open
 /// world the account is made the first time its name logs in, with that ticket, and admitted from
 /// then on with that ticket only (an account made with none takes the first ticket it logs in
-/// with); on a world of listed accounts only an account made beforehand, with its own ticket.
+/// with); on a world of listed accounts only an account made beforehand, with its own ticket. The
+/// friends service checks its tickets by the same rule.
 pub fn admits<S: Store>(
     policy: AccountPolicy,
     store: &mut S,
@@ -766,11 +767,17 @@ pub(crate) fn closed<S: Store>(
     }
 }
 
-/// Show a notice (the kind the 2017 servers used for system text) on a connection.
+/// Show a notice (the kind the 2017 servers used for system text) on a connection. The client
+/// adds each notice to the chat window as it comes, and the client's own strings end their lines,
+/// so a literal is given a line end unless it has one.
 pub fn notice(net: &mut ServerNet, conn: ConnId, text: &str) {
+    let mut line = text.to_owned();
+    if !line.ends_with('\n') {
+        line.push('\n');
+    }
     let m = ServerMessage::Notice(Notice {
         kind: 256,
-        text: StringInfo::literal(text),
+        text: StringInfo::literal(&line),
     });
     send(net, conn, queue::EVENT, BlobKind::UNORDERED, &m);
 }

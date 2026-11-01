@@ -45,7 +45,7 @@ fn start_server(dir: &Path, db: &Path, login: u16) -> (Child, ChildStdin) {
         .args(["--world-port", &(login + 2).to_string()])
         .arg("--world-db")
         .arg(db)
-        .args(["--seconds", "300"])
+        .args(["--seconds", &crate::session::LIFE.to_string()])
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(log.try_clone().expect("the log twice"))
@@ -80,7 +80,7 @@ fn reload(s: &mut Loopback, console: &mut ChildStdin, dir: &Path) -> Result<Stri
     console.flush().map_err(|e| e.to_string())?;
     let started = Instant::now();
     while done(dir) == before {
-        if started.elapsed().as_secs() > 120 {
+        if started.elapsed() > crate::network::HANG {
             return Err("the reload never answered".into());
         }
         s.step();

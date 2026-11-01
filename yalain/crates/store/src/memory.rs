@@ -1,8 +1,8 @@
 //! A store that keeps everything in memory: for tests, and for a server run that keeps nothing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Account, Character, Store, StoreError, StoreResult, WorldState};
+use crate::{Account, Character, Listed, NetworkList, Store, StoreError, StoreResult, WorldState};
 
 /// The in-memory store.
 #[derive(Debug, Default, Clone)]
@@ -12,6 +12,9 @@ pub struct MemoryStore {
     next_character: u64,
     worlds: BTreeMap<u64, WorldState>,
     records: BTreeMap<String, Vec<u8>>,
+    network: BTreeSet<u64>,
+    blocks: BTreeSet<String>,
+    lists: Vec<Listed>,
 }
 
 impl Store for MemoryStore {
@@ -112,6 +115,8 @@ impl Store for MemoryStore {
     fn purge_character(&mut self, id: u64) -> StoreResult<()> {
         self.characters.retain(|c| c.id != id);
         self.worlds.remove(&id);
+        self.network.remove(&id);
+        self.lists.retain(|l| l.character != id);
         Ok(())
     }
 
@@ -130,6 +135,64 @@ impl Store for MemoryStore {
 
     fn set_world_record(&mut self, name: &str, value: &[u8]) -> StoreResult<()> {
         self.records.insert(name.to_string(), value.to_vec());
+        Ok(())
+    }
+
+    fn network_characters(&mut self) -> StoreResult<Vec<u64>> {
+        Ok(self.network.iter().copied().collect())
+    }
+
+    fn set_network_on(&mut self, id: u64, on: bool) -> StoreResult<()> {
+        if on {
+            self.network.insert(id);
+        } else {
+            self.network.remove(&id);
+        }
+        Ok(())
+    }
+
+    fn network_blocks(&mut self) -> StoreResult<Vec<String>> {
+        Ok(self.blocks.iter().cloned().collect())
+    }
+
+    fn set_network_block(&mut self, block: &str, on: bool) -> StoreResult<()> {
+        if on {
+            self.blocks.insert(block.to_string());
+        } else {
+            self.blocks.remove(block);
+        }
+        Ok(())
+    }
+
+    fn network_lists(&mut self) -> StoreResult<Vec<Listed>> {
+        let mut v = self.lists.clone();
+        v.sort();
+        Ok(v)
+    }
+
+    fn set_listed(
+        &mut self,
+        character: u64,
+        list: NetworkList,
+        entry: &str,
+        on: bool,
+    ) -> StoreResult<()> {
+        let same = |l: &Listed| {
+            l.character == character
+                && l.list == list
+                && l.entry.to_lowercase() == entry.to_lowercase()
+        };
+        if on {
+            if !self.lists.iter().any(same) {
+                self.lists.push(Listed {
+                    character,
+                    list,
+                    entry: entry.to_owned(),
+                });
+            }
+        } else {
+            self.lists.retain(|l| !same(l));
+        }
         Ok(())
     }
 }

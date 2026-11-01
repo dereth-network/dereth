@@ -11,6 +11,8 @@ autotests = false
 [dependencies]
 auberean-primitives.workspace = true
 auberean-protocol.workspace = true
+# The friends stream: its values and its client session.
+auberean-friends.workspace = true
 # The connection manager (connections, referral walk, server switch, queues) and the transport
 # are Dereth's, shared: the receive queues are a setting.
 dereth-client-net.workspace = true
