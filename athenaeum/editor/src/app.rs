@@ -1,0 +1,1536 @@
+//! The editor: a world held open (its session), the camera flying through it, the rows standing
+//! in it drawn as bodies and marked where they stand, the one selected, and the panels that show
+//! and change them.
+//!
+//! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
+//! sinks, the wheel changes its speed. A click on a marker selects its row; dragging it moves the
+//! row over the ground. R turns the selected row a step to the right (with Shift, to the left),
+//! Delete takes it away, F flies to it, Escape lets it go. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y
+//! redoes.
+//!
+//! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
+//! or a place, and its template) and the button that places it at the next click on the ground;
+//! the moment of the day; and play (Yalain serving the world, a client in it). On the left, the
+//! rows near the camera, each with the letter of where it came from (C recorded sessions, D the
+//! data files, R a rule, A a person), and the database's rows the world takes away. On the right,
+//! the selected row: where it came from and what it was, its fields, which are changed there.
+//! Along the bottom: the world's problems, as the server's check finds them, and the status.
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use athenaeum_foundry::edit::{NewKind, NewRow};
+use athenaeum_foundry::{Entry, Layer, Session};
+use dereth_builder::camera::{FlyCamera, Held};
+use dereth_primitives::num::math;
+use dereth_primitives::Vec3;
+use winit::keyboard::KeyCode;
+use yalain_world_db::compile::{rotation_heading, Install};
+use yalain_world_db::rows::{ObjectKind, Prov, Row, Source};
+use yalain_world_db::{layer, Problem};
+
+use crate::live::{self, Live, Programs};
+use crate::scene::{Scene, Standing};
+use crate::view::{self, View};
+
+/// How far from the camera rows are drawn as bodies and listed, meters.
+pub const NEAR: f32 = 160.0;
+/// How far from the camera rows are marked, meters.
+pub const MARKED: f32 = 400.0;
+/// How close to a marker a click selects it, pixels.
+pub const HIT: f32 = 12.0;
+/// The step R turns a row by, degrees.
+pub const TURN_STEP: f32 = 15.0;
+
+/// The window's input for one frame that the panels did not take.
+#[derive(Debug, Default, Clone)]
+pub struct ViewInput {
+    /// The pointer, pixels.
+    pub pointer: [f32; 2],
+    pub left_pressed: bool,
+    pub left_released: bool,
+    pub left_down: bool,
+    pub right_down: bool,
+    /// The mouse's motion, counts.
+    pub motion: (f32, f32),
+    pub wheel: f32,
+    pub pressed: Vec<KeyCode>,
+    pub down: HashSet<KeyCode>,
+    pub ctrl: bool,
+    pub shift: bool,
+}
+
+/// What the next click on the ground does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tool {
+    Select,
+    Place,
+}
+
+/// A row being dragged: where the press was, and the ground under the pointer now.
+#[derive(Debug, Clone, PartialEq)]
+struct Drag {
+    item: String,
+    from: [f32; 2],
+    moved: bool,
+    to: Option<[f32; 3]>,
+}
+
+/// Which rows the list and the world show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Shown {
+    people: bool,
+    objects: bool,
+    camps: bool,
+    places: bool,
+    only_world: bool,
+}
+
+/// The kind of a row, as the panels name it.
+#[must_use]
+pub fn kind_word(row: &Row) -> &'static str {
+    match row {
+        Row::Object(o) if o.kind == ObjectKind::Npc => "person",
+        Row::Object(o) if !o.landings.is_empty() => "lifestone",
+        Row::Object(o) if o.to.is_some() => "portal",
+        Row::Object(_) => "object",
+        Row::Camp(_) => "camp",
+        Row::Place(_) => "place",
+        _ => "row",
+    }
+}
+
+/// The letter of where a row came from, and its words.
+#[must_use]
+pub fn badge(p: Option<&Prov>) -> (&'static str, String) {
+    match p {
+        None => ("A", "authored".into()),
+        Some(p) => (
+            match p.source {
+                Source::Capture => "C",
+                Source::Dat => "D",
+                Source::Derived => "R",
+                Source::Authored => "A",
+            },
+            p.to_string(),
+        ),
+    }
+}
+
+fn color_of(row: &Row) -> egui::Color32 {
+    match kind_word(row) {
+        "person" => egui::Color32::from_rgb(250, 210, 90),
+        "lifestone" => egui::Color32::from_rgb(110, 230, 140),
+        "portal" => egui::Color32::from_rgb(200, 130, 255),
+        "object" => egui::Color32::from_rgb(120, 190, 255),
+        "camp" => egui::Color32::from_rgb(255, 110, 100),
+        _ => egui::Color32::from_rgb(235, 235, 235),
+    }
+}
+
+/// The editor's state.
+pub struct Editor<'w> {
+    pub session: Session,
+    install: &'w dyn Install,
+    pub scene: Scene<'w>,
+    pub camera: FlyCamera,
+    pub selected: Option<String>,
+    pub tool: Tool,
+    pub new_kind: NewKind,
+    pub template: String,
+    drag: Option<Drag>,
+    looks: HashMap<u32, Option<(u32, f32)>>,
+    labels: HashMap<u32, String>,
+    shown: Shown,
+    /// The inspector's text for each field of the selected row, as typed.
+    fields: Vec<(String, String)>,
+    fields_of: Option<(String, u64)>,
+    pub status: String,
+    pub live: Live,
+    pub programs: Programs,
+    /// The window, pixels; and pixels to the panels' point.
+    pub size: (u32, u32),
+    pub scale: f32,
+    /// Rows near the camera, by index into the session's entries, nearest first.
+    near: Vec<(usize, f32)>,
+    near_at: Option<([f32; 3], u64)>,
+    /// The base's folder, when the world lies over one.
+    pub base: Option<PathBuf>,
+    /// The selected row's place and heading while one of them is dragged in the inspector.
+    held: Option<(String, [f32; 4])>,
+    /// Every template of the install, for the finder; and what the finder looks for.
+    templates: Vec<u32>,
+    finding: Option<String>,
+    /// The last build against the install: the world's revision it was of, its problems and
+    /// warnings in the world's own files, and what it made.
+    build: Option<(u64, Vec<Problem>, Vec<Problem>, String)>,
+    /// How many problems the list showed last frame.
+    problems_seen: usize,
+}
+
+impl std::fmt::Debug for Editor<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Editor")
+            .field("session", &self.session)
+            .field("selected", &self.selected)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The global point of an entry: its landblock's grid with its point (the ground's height where
+/// it gives none).
+fn entry_global(e: &Entry, scene: &mut Scene<'_>) -> [f32; 3] {
+    let at = e.at();
+    let g = view::global(e.landblock(), [at.x, at.y, 0.0]);
+    let z = at.z.or_else(|| scene.ground(g[0], g[1])).unwrap_or(0.0);
+    [g[0], g[1], z]
+}
+
+fn rotation_of(row: &Row) -> [f32; 4] {
+    let (q, h) = match row {
+        Row::Object(o) => (o.rotation, o.heading),
+        Row::Place(p) => (p.rotation, p.heading),
+        _ => (None, None),
+    };
+    q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
+}
+
+/// A row's heading, degrees.
+fn heading_of(row: &Row) -> f32 {
+    match row {
+        Row::Object(o) => o
+            .heading
+            .unwrap_or_else(|| o.rotation.map_or(0.0, rotation_heading)),
+        Row::Place(p) => p
+            .heading
+            .unwrap_or_else(|| p.rotation.map_or(0.0, rotation_heading)),
+        _ => 0.0,
+    }
+}
+
+/// A field of a row as TOML text, for the inspector.
+fn field_text(row: &Row, field: &str) -> String {
+    let hex = |v: u32| format!("0x{v:08X}");
+    let num = athenaeum_foundry::toml::number_text;
+    match (row, field) {
+        (Row::Object(o), "template") => hex(o.template),
+        (Row::Object(o), "kind") => format!(
+            "\"{}\"",
+            if o.kind == ObjectKind::Npc {
+                "npc"
+            } else {
+                "static"
+            }
+        ),
+        (Row::Object(o), "cell") => o.cell.map(hex).unwrap_or_default(),
+        (Row::Object(o), "id") => o.id.map(|v| format!("0x{v:016X}")).unwrap_or_default(),
+        (Row::Object(o), "to") => {
+            o.to.as_ref()
+                .map(|t| format!("\"{t}\""))
+                .unwrap_or_default()
+        }
+        (Row::Object(o), "name") => o
+            .name
+            .map(|n| {
+                format!(
+                    "{{ table = 0x{:08X}, string = 0x{:08X} }}",
+                    n.table, n.string
+                )
+            })
+            .unwrap_or_default(),
+        (Row::Camp(c), "radius") => num(c.radius),
+        (Row::Camp(c), "population") => c.population.to_string(),
+        #[allow(clippy::cast_possible_truncation)]
+        (Row::Camp(c), "regen") => num(c.regen as f32),
+        (Row::Camp(c), "spawns") => format!(
+            "[{}]",
+            c.spawns
+                .iter()
+                .map(|(t, w)| format!("{{ template = 0x{t:08X}, weight = {w} }}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        (Row::Camp(c), "cell") => c.cell.map(hex).unwrap_or_default(),
+        (Row::Place(p), "cell") => p.cell.map(hex).unwrap_or_default(),
+        (Row::Place(p), "destination") => p
+            .destination
+            .as_ref()
+            .map(|d| format!("\"{d}\""))
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// The fields the inspector lets a person change, by kind.
+fn editable(row: &Row) -> &'static [&'static str] {
+    match row {
+        Row::Object(_) => &["template", "kind", "to", "name", "id", "cell"],
+        Row::Camp(_) => &["spawns", "radius", "population", "regen", "cell"],
+        Row::Place(_) => &["cell", "destination"],
+        _ => &[],
+    }
+}
+
+impl<'w> Editor<'w> {
+    #[must_use]
+    pub fn new(
+        session: Session,
+        install: &'w dyn Install,
+        scene: Scene<'w>,
+        camera: FlyCamera,
+        programs: Programs,
+    ) -> Self {
+        Self {
+            session,
+            install,
+            scene,
+            camera,
+            selected: None,
+            tool: Tool::Select,
+            new_kind: NewKind::Person,
+            template: "0x470033D0".into(),
+            drag: None,
+            looks: HashMap::new(),
+            labels: HashMap::new(),
+            shown: Shown {
+                people: true,
+                objects: true,
+                camps: true,
+                places: true,
+                only_world: false,
+            },
+            fields: Vec::new(),
+            fields_of: None,
+            status: String::new(),
+            live: Live::default(),
+            programs,
+            size: (1280, 800),
+            scale: 1.0,
+            near: Vec::new(),
+            near_at: None,
+            base: None,
+            held: None,
+            templates: Vec::new(),
+            finding: None,
+            build: None,
+            problems_seen: 0,
+        }
+    }
+
+    /// The camera's view of the window.
+    #[must_use]
+    pub fn view(&self) -> View {
+        View::of(&self.camera, self.scene.fov, self.size)
+    }
+
+    /// A template's look and scale, as the server describes it.
+    fn look(&mut self, template: u32) -> Option<(u32, f32)> {
+        let install = self.install;
+        *self.looks.entry(template).or_insert_with(|| {
+            let d = yalain_content::describe(template, &|id| install.entity(id), &|id| {
+                install.qualities(id)
+            })
+            .ok()?;
+            let mut look = d.look;
+            for _ in 0..8 {
+                if look >> 24 != 0x47 {
+                    break;
+                }
+                look = install.entity(look)?.object?;
+            }
+            Some((look, d.scale.unwrap_or(1.0)))
+        })
+    }
+
+    /// A template's name, to read a row by.
+    pub fn label(&mut self, template: u32) -> String {
+        let install = self.install;
+        self.labels
+            .entry(template)
+            .or_insert_with(|| install.label(template))
+            .clone()
+    }
+
+    fn shows(&self, e: &Entry) -> bool {
+        if self.shown.only_world && e.layer == Layer::Base {
+            return false;
+        }
+        match &e.row.row {
+            Row::Object(o) if o.kind == ObjectKind::Npc => self.shown.people,
+            Row::Object(_) => self.shown.objects,
+            Row::Camp(_) => self.shown.camps,
+            Row::Place(_) => self.shown.places,
+            _ => false,
+        }
+    }
+
+    /// The rows near the camera, nearest first, worked out again when the camera or the world
+    /// moved.
+    fn near(&mut self) {
+        let eye = self.view().eye;
+        let rev = self.session.revision();
+        if let Some((at, r)) = self.near_at {
+            let d = math::hypotf(at[0] - eye[0], at[1] - eye[1]);
+            if r == rev && d < 8.0 {
+                return;
+            }
+        }
+        let mut near = Vec::new();
+        for (i, e) in self.session.entries().iter().enumerate() {
+            let at = e.at();
+            let g = view::global(e.landblock(), [at.x, at.y, at.z.unwrap_or(eye[2])]);
+            let d = math::hypotf(g[0] - eye[0], g[1] - eye[1]);
+            if d <= MARKED {
+                near.push((i, d));
+            }
+        }
+        near.sort_by(|a, b| a.1.total_cmp(&b.1));
+        self.near = near;
+        self.near_at = Some((eye, rev));
+    }
+
+    /// Fly the camera to a row: a little back from it and above, looking at it.
+    pub fn fly_to(&mut self, item: &str) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let g = entry_global(&e, &mut self.scene);
+        let back = 9.0;
+        let (sy, cy) = (math::sinf(self.camera.yaw), math::cosf(self.camera.yaw));
+        // Back along the way the camera looks now, level.
+        self.camera.position = Vec3::new(g[0] + sy * back, g[1] - cy * back, g[2] + 5.0);
+        let (dx, dy, dz) = (
+            g[0] - self.camera.position.x,
+            g[1] - self.camera.position.y,
+            g[2] + 1.0 - self.camera.position.z,
+        );
+        self.camera.yaw = math::atan2f(-dx, dy);
+        self.camera.pitch = math::atan2f(dz, math::hypotf(dx, dy)).clamp(-1.5, 1.5);
+    }
+
+    /// Select a row, or none.
+    pub fn select(&mut self, item: Option<String>) {
+        self.selected = item;
+        self.fields_of = None;
+        self.held = None;
+    }
+
+    fn report(&mut self, r: Result<String, String>) -> Option<String> {
+        match r {
+            Ok(item) => Some(item),
+            Err(e) => {
+                self.status = e;
+                None
+            }
+        }
+    }
+
+    /// Place a new row of the chosen kind at a point of the world's grid, facing `heading`.
+    pub fn place_at(&mut self, g: [f32; 3], heading: f32) {
+        let template = parse_id(&self.template);
+        if self.new_kind != NewKind::Place && template.is_none() {
+            self.status = format!("{:?} is not a template id (0x47...)", self.template);
+            return;
+        }
+        let (lb, at) = view::local(g);
+        let r = self.session.place(&NewRow {
+            kind: self.new_kind,
+            template: template.unwrap_or(0),
+            landblock: lb,
+            at,
+            heading,
+        });
+        if let Some(item) = self.report(r) {
+            self.status = format!("placed {item}");
+            self.select(Some(item));
+        }
+    }
+
+    /// Move a row to a point of the world's grid.
+    pub fn move_row(&mut self, item: &str, g: [f32; 3]) {
+        let (lb, at) = view::local(g);
+        let r = self.session.move_to(item, lb, at);
+        if let Some(moved) = self.report(r) {
+            self.status = format!("moved {moved}");
+            self.select(Some(moved));
+        }
+    }
+
+    /// Turn the selected row by `by` degrees.
+    pub fn turn_selected(&mut self, by: f32) {
+        let Some(item) = self.selected.clone() else {
+            return;
+        };
+        let Some(e) = self.session.entry(&item) else {
+            return;
+        };
+        let h = heading_of(&e.row.row) + by;
+        let r = self.session.turn(&item, h);
+        self.report(r);
+    }
+
+    /// Take the selected row away.
+    pub fn delete_selected(&mut self) {
+        if let Some(item) = self.selected.clone() {
+            match self.session.delete(&item) {
+                Ok(()) => {
+                    self.status = format!("took {item} away");
+                    self.select(None);
+                }
+                Err(e) => self.status = e,
+            }
+        }
+    }
+
+    /// Save the world; when Yalain serves it, start it again on what was saved.
+    pub fn save(&mut self) {
+        match self.session.save() {
+            Ok(written) => {
+                self.status = format!("saved {} files", written.len());
+                if self.live.serving() {
+                    let entry = self.entry_point();
+                    let base = self.base_dir();
+                    let run = self.run_dir();
+                    let world = self.session.dir().to_path_buf();
+                    if let Err(e) =
+                        self.live
+                            .reload(&self.programs, &world, base.as_deref(), &run, entry)
+                    {
+                        self.status = e;
+                    } else {
+                        self.status.push_str("; Yalain started again on them");
+                    }
+                }
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    /// Open the template finder on `text`.
+    pub fn find(&mut self, text: &str) {
+        self.finding = Some(text.to_string());
+    }
+
+    /// The install's templates, for the finder.
+    pub fn set_templates(&mut self, templates: Vec<u32>) {
+        self.templates = templates;
+    }
+
+    /// Build the world against the install, as the server will at start, and keep what it says of
+    /// the world's own rows.
+    pub fn build_check(&mut self) {
+        let files = self.session.files().clone();
+        let base = self.session.base();
+        let (db, read) = layer::read(base, &files);
+        let ours: Vec<String> = db
+            .as_ref()
+            .map(|d| d.packs.iter().map(|p| format!("{}/", p.folder)).collect())
+            .unwrap_or_default();
+        let mine = |p: &Problem| ours.iter().any(|f| p.file.starts_with(f.as_str()));
+        let rev = self.session.revision();
+        let Some(db) = db.filter(|_| read.is_empty()) else {
+            self.build = Some((rev, read, Vec::new(), "the world does not read".into()));
+            return;
+        };
+        let merged = match layer::merge_over(base, &db) {
+            Ok(m) => m,
+            Err(p) => {
+                self.build = Some((rev, p, Vec::new(), "the world does not merge".into()));
+                return;
+            }
+        };
+        self.build = Some(
+            match yalain_world_db::compile::compile(&merged, self.install) {
+                Ok(t) => {
+                    let warnings: Vec<Problem> =
+                        t.warnings.iter().filter(|w| mine(w)).cloned().collect();
+                    let counts = t
+                        .counts()
+                        .iter()
+                        .map(|(k, n)| format!("{k} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (rev, Vec::new(), warnings, format!("builds: {counts}"))
+                }
+                Err(p) => {
+                    let n = p.len();
+                    (rev, p, Vec::new(), format!("does not build: {n} problems"))
+                }
+            },
+        );
+        if let Some((_, _, _, said)) = &self.build {
+            self.status.clone_from(said);
+        }
+    }
+
+    /// The finder: templates whose names hold what is typed.
+    fn finder(&mut self, ctx: &egui::Context) {
+        let Some(mut text) = self.finding.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut chosen = None;
+        egui::Window::new("Templates")
+            .open(&mut open)
+            .default_size([360.0, 420.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("name has");
+                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(200.0));
+                });
+                let want = text.trim().to_lowercase();
+                if want.len() < 2 {
+                    ui.label(egui::RichText::new("type two letters or more").weak());
+                    return;
+                }
+                let templates = self.templates.clone();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut shown = 0;
+                    for t in templates {
+                        let name = self.label(t);
+                        if name.is_empty() || !name.to_lowercase().contains(&want) {
+                            continue;
+                        }
+                        if ui
+                            .selectable_label(false, format!("0x{t:08X}  {name}"))
+                            .clicked()
+                        {
+                            chosen = Some(t);
+                        }
+                        shown += 1;
+                        if shown >= 200 {
+                            ui.label(egui::RichText::new("and more: type more of the name").weak());
+                            break;
+                        }
+                    }
+                });
+            });
+        if let Some(t) = chosen {
+            self.template = format!("0x{t:08X}");
+            self.tool = Tool::Place;
+            self.status = "click the ground to place it".into();
+        } else if open {
+            self.finding = Some(text);
+        }
+    }
+
+    /// Keep the camera's place for the next session.
+    pub fn keep_camera(&self) {
+        let c = &self.camera;
+        let file = camera_file(self.session.dir());
+        if let Some(d) = file.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let text = format!(
+            "{} {} {} {} {} {}\n",
+            c.position.x, c.position.y, c.position.z, c.yaw, c.pitch, c.speed as f32
+        );
+        if let Err(e) = std::fs::write(&file, text) {
+            tracing::warn!("{}: {e}", file.display());
+        }
+    }
+
+    /// The base's folder, as Yalain is told it.
+    fn base_dir(&self) -> Option<PathBuf> {
+        self.base.clone()
+    }
+
+    /// The folder Yalain runs in: the world's build folder's `live`.
+    #[must_use]
+    pub fn run_dir(&self) -> PathBuf {
+        self.session.dir().join("build").join("live")
+    }
+
+    /// Where a player enters: on the ground under the camera, facing as it faces.
+    pub fn entry_point(&mut self) -> live::Entry {
+        let p = self.camera.position;
+        let z = self.scene.ground(p.x, p.y).unwrap_or(p.z);
+        let (lb, at) = view::local([p.x, p.y, z]);
+        let v = self.view();
+        live::Entry {
+            cell: yalain_world_db::compile::outdoor_cell(lb, at[0], at[1]),
+            at: [at[0], at[1], z + 0.5],
+            heading: v.heading(),
+        }
+    }
+
+    /// Start Yalain on the world as saved.
+    pub fn serve(&mut self) {
+        if self.session.unsaved() {
+            self.status = "save first: Yalain serves the world as saved".into();
+            return;
+        }
+        let entry = self.entry_point();
+        let (base, run) = (self.base_dir(), self.run_dir());
+        let world = self.session.dir().to_path_buf();
+        match self
+            .live
+            .serve(&self.programs, &world, base.as_deref(), &run, entry)
+        {
+            Ok(()) => self.status.clone_from(&self.live.said),
+            Err(e) => self.status = e,
+        }
+    }
+
+    /// Start a client into Yalain (starting Yalain first when it is not serving).
+    pub fn play(&mut self, retail: bool) {
+        if !self.live.serving() {
+            self.serve();
+        }
+        if self.live.serving() {
+            self.live.play_when_ready(retail);
+            self.status = "a client starts once Yalain listens".into();
+        }
+    }
+
+    /// The bodies standing near the camera: people and objects by their templates' looks, and
+    /// each camp's first creature at its middle.
+    fn standing(&mut self) -> Vec<Standing> {
+        let mut out = Vec::new();
+        let near: Vec<(usize, f32)> = self.near.clone();
+        for (i, d) in near {
+            if d > NEAR || out.len() >= 400 {
+                break;
+            }
+            let Some(e) = self.session.entries().get(i).cloned() else {
+                continue;
+            };
+            if !self.shows(&e) {
+                continue;
+            }
+            let template = match &e.row.row {
+                Row::Object(o) => o.template,
+                Row::Camp(c) => match c.spawns.first() {
+                    Some((t, _)) => *t,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            let Some((look, scale)) = self.look(template) else {
+                continue;
+            };
+            let mut at = entry_global(&e, &mut self.scene);
+            if let Some(d) = self.drag.as_ref().filter(|d| d.item == e.item && d.moved) {
+                if let Some(to) = d.to {
+                    at = to;
+                }
+            }
+            out.push(Standing {
+                look,
+                at,
+                rotation: rotation_of(&e.row.row),
+                scale,
+            });
+        }
+        out
+    }
+
+    /// The marker nearest a pixel, within [`HIT`].
+    fn hit(&mut self, px: [f32; 2]) -> Option<String> {
+        let v = self.view();
+        let mut best: Option<(f32, String)> = None;
+        let near = self.near.clone();
+        for (i, _) in near {
+            let Some(e) = self.session.entries().get(i).cloned() else {
+                continue;
+            };
+            if !self.shows(&e) {
+                continue;
+            }
+            let g = entry_global(&e, &mut self.scene);
+            let Some(p) = v.project([g[0], g[1], g[2] + 1.0]) else {
+                continue;
+            };
+            let d = math::hypotf(p[0] - px[0], p[1] - px[1]);
+            if d <= HIT && best.as_ref().is_none_or(|b| d < b.0) {
+                best = Some((d, e.item.clone()));
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// The ground under a pixel, on the world's grid.
+    fn ground_at(&mut self, px: [f32; 2]) -> Option<[f32; 3]> {
+        let v = self.view();
+        let dir = v.ray(px);
+        let scene = &mut self.scene;
+        view::hit_ground(v.eye, dir, 2000.0, 2.0, &mut |x, y| scene.ground(x, y))
+    }
+
+    /// The world's input this frame: the camera, selecting, dragging, placing, the keys.
+    pub fn world_input(&mut self, input: &ViewInput, over_panels: bool, typing: bool, dt: f32) {
+        self.near();
+        if input.right_down && !over_panels {
+            self.camera.look(input.motion.0, input.motion.1);
+        }
+        if !typing {
+            let k = |c: KeyCode| input.down.contains(&c) && !input.ctrl;
+            self.camera.fly(
+                Held {
+                    forward: k(KeyCode::KeyW),
+                    back: k(KeyCode::KeyS),
+                    left: k(KeyCode::KeyA),
+                    right: k(KeyCode::KeyD),
+                    up: k(KeyCode::KeyE),
+                    down: k(KeyCode::KeyQ),
+                },
+                dt,
+            );
+            for code in &input.pressed {
+                match code {
+                    KeyCode::KeyS if input.ctrl => self.save(),
+                    KeyCode::KeyZ if input.ctrl && input.shift => {
+                        self.session.redo();
+                    }
+                    KeyCode::KeyZ if input.ctrl => {
+                        self.session.undo();
+                    }
+                    KeyCode::KeyY if input.ctrl => {
+                        self.session.redo();
+                    }
+                    KeyCode::KeyR if !input.ctrl => {
+                        self.turn_selected(if input.shift { -TURN_STEP } else { TURN_STEP });
+                    }
+                    KeyCode::KeyF if !input.ctrl => {
+                        if let Some(item) = self.selected.clone() {
+                            self.fly_to(&item);
+                        }
+                    }
+                    KeyCode::Delete => self.delete_selected(),
+                    KeyCode::Escape => {
+                        self.tool = Tool::Select;
+                        self.drag = None;
+                        self.select(None);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !over_panels && input.wheel != 0.0 {
+            self.camera
+                .change_speed(dereth_primitives::num::to_i32(input.wheel.signum()));
+        }
+        // Selecting, dragging and placing with the left button.
+        if input.left_pressed && !over_panels {
+            match self.tool {
+                Tool::Place => {
+                    if let Some(g) = self.ground_at(input.pointer) {
+                        let facing = (self.view().heading() + 180.0).rem_euclid(360.0);
+                        self.place_at(g, facing);
+                    } else {
+                        self.status = "no ground there".into();
+                    }
+                    self.tool = Tool::Select;
+                }
+                Tool::Select => match self.hit(input.pointer) {
+                    Some(item) => {
+                        self.select(Some(item.clone()));
+                        self.drag = Some(Drag {
+                            item,
+                            from: input.pointer,
+                            moved: false,
+                            to: None,
+                        });
+                    }
+                    None => self.select(None),
+                },
+            }
+        }
+        if let Some(mut d) = self.drag.take() {
+            if input.left_down {
+                let far = math::hypotf(input.pointer[0] - d.from[0], input.pointer[1] - d.from[1]);
+                if far > 4.0 {
+                    d.moved = true;
+                }
+                if d.moved {
+                    d.to = self.ground_at(input.pointer).or(d.to);
+                }
+                self.drag = Some(d);
+            } else if d.moved {
+                if let Some(to) = d.to {
+                    self.move_row(&d.item, to);
+                }
+            }
+        }
+    }
+
+    /// Mark the rows where they stand: a dot of the kind's color with its source's letter, a
+    /// camp's reach, a portal's way to where it leads, the selected row ringed and named.
+    #[allow(clippy::too_many_lines)] // one pass over the rows near the camera
+    pub fn markers(&mut self, painter: &egui::Painter) {
+        let v = self.view();
+        let s = self.scale;
+        let pt = |p: [f32; 2]| egui::pos2(p[0] / s, p[1] / s);
+        let near = self.near.clone();
+        let font = egui::FontId::proportional(11.0);
+        for (i, d) in near {
+            let Some(e) = self.session.entries().get(i).cloned() else {
+                continue;
+            };
+            if !self.shows(&e) {
+                continue;
+            }
+            let mut g = entry_global(&e, &mut self.scene);
+            let dragged = self
+                .drag
+                .as_ref()
+                .filter(|dr| dr.item == e.item && dr.moved)
+                .and_then(|dr| dr.to);
+            if let Some(to) = dragged {
+                g = to;
+            }
+            let selected = self.selected.as_deref() == Some(e.item.as_str());
+            let color = color_of(&e.row.row);
+            if let Row::Camp(c) = &e.row.row {
+                if d < NEAR || selected {
+                    let steps = 32;
+                    let mut last: Option<egui::Pos2> = None;
+                    for k in 0..=steps {
+                        #[allow(clippy::cast_precision_loss)]
+                        let a = k as f32 / steps as f32 * std::f32::consts::TAU;
+                        let (x, y) = (
+                            g[0] + c.radius * math::cosf(a),
+                            g[1] + c.radius * math::sinf(a),
+                        );
+                        let z = self.scene.ground(x, y).unwrap_or(g[2]) + 0.2;
+                        let p = v.project([x, y, z]).map(pt);
+                        if let (Some(a), Some(b)) = (last, p) {
+                            painter.line_segment([a, b], egui::Stroke::new(1.5, color));
+                        }
+                        last = p;
+                    }
+                }
+            }
+            if let Row::Object(o) = &e.row.row {
+                if let Some(to) = &o.to {
+                    if let Some(p) = self.place_of(to, &e.row.pack) {
+                        let pg = entry_global(&p, &mut self.scene);
+                        let (a, b) = (
+                            v.project([g[0], g[1], g[2] + 1.0]),
+                            v.project([pg[0], pg[1], pg[2] + 1.0]),
+                        );
+                        if let (Some(a), Some(b)) = (a, b) {
+                            painter.line_segment(
+                                [pt(a), pt(b)],
+                                egui::Stroke::new(
+                                    if selected { 2.5 } else { 1.0 },
+                                    egui::Color32::from_rgba_unmultiplied(200, 130, 255, 180),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            let Some(p) = v.project([g[0], g[1], g[2] + 1.0]) else {
+                continue;
+            };
+            let p = pt(p);
+            let r = if d < 60.0 { 6.0 } else { 4.0 };
+            painter.circle_filled(p, r, color);
+            painter.circle_stroke(p, r, egui::Stroke::new(1.0, egui::Color32::BLACK));
+            if e.layer != Layer::Base {
+                painter.circle_stroke(p, r + 2.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+            }
+            if d < 60.0 || selected {
+                let (letter, _) = badge(e.prov());
+                painter.text(
+                    p + egui::vec2(r + 3.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    letter,
+                    font.clone(),
+                    egui::Color32::WHITE,
+                );
+            }
+            if selected {
+                painter.circle_stroke(
+                    p,
+                    r + 6.0,
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 255, 120)),
+                );
+                let name = match &e.row.row {
+                    Row::Object(o) => {
+                        let l = self.label(o.template);
+                        format!("{}  {l}", e.item)
+                    }
+                    _ => e.item.clone(),
+                };
+                painter.text(
+                    p + egui::vec2(0.0, -r - 10.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    name,
+                    egui::FontId::proportional(13.0),
+                    egui::Color32::from_rgb(255, 255, 160),
+                );
+            }
+        }
+    }
+
+    /// The place a portal's `to` names (`key`, or `pack:key`), from a row of `pack`.
+    fn place_of(&self, to: &str, pack: &str) -> Option<Entry> {
+        let (pack, key) = to.split_once(':').unwrap_or((pack, to));
+        self.session
+            .entries()
+            .iter()
+            .find(|x| matches!(&x.row.row, Row::Place(p) if p.key == key) && x.row.pack == pack)
+            .cloned()
+    }
+
+    /// The world's frame from the camera, with the rows near it standing in it.
+    pub fn frame(&mut self) -> &auberean_draw::scene::Frame {
+        self.near();
+        let rows = self.standing();
+        let v = self.view();
+        self.scene.frame(&v, &rows)
+    }
+
+    /// The panels.
+    #[allow(clippy::too_many_lines)] // the editor's chrome, panel by panel
+    pub fn panels(&mut self, ui: &mut egui::Ui) {
+        match self.live.tick(&self.programs) {
+            Ok(true) => self.status.clone_from(&self.live.said),
+            Ok(false) => {}
+            Err(e) => self.status = e,
+        }
+        let serving = self.live.serving();
+        egui::Panel::top(egui::Id::new("top")).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Athenaeum");
+                ui.label(format!(
+                    "{}  ·  editing {}",
+                    self.session
+                        .dir()
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().to_string()),
+                    self.session.target()
+                ));
+                ui.separator();
+                let (undo, redo) = self.session.steps();
+                if ui
+                    .add_enabled(self.session.unsaved(), egui::Button::new("Save"))
+                    .on_hover_text("Ctrl+S")
+                    .clicked()
+                {
+                    self.save();
+                }
+                if ui
+                    .add_enabled(undo > 0, egui::Button::new("Undo"))
+                    .clicked()
+                {
+                    self.session.undo();
+                }
+                if ui
+                    .add_enabled(redo > 0, egui::Button::new("Redo"))
+                    .clicked()
+                {
+                    self.session.redo();
+                }
+                ui.separator();
+                egui::ComboBox::from_id_salt("new kind")
+                    .selected_text(self.new_kind.word())
+                    .show_ui(ui, |ui| {
+                        for k in [
+                            NewKind::Person,
+                            NewKind::Static,
+                            NewKind::Camp,
+                            NewKind::Place,
+                        ] {
+                            ui.selectable_value(&mut self.new_kind, k, k.word());
+                        }
+                    });
+                if self.new_kind != NewKind::Place {
+                    ui.add(egui::TextEdit::singleline(&mut self.template).desired_width(90.0))
+                        .on_hover_text(
+                            "the template: a person's, an object's, or the creature a camp keeps",
+                        );
+                    if let Some(t) = parse_id(&self.template) {
+                        let l = self.label(t);
+                        ui.label(egui::RichText::new(l).weak());
+                    }
+                    if ui
+                        .button("Find")
+                        .on_hover_text("a template by its name")
+                        .clicked()
+                    {
+                        self.finding = Some(self.finding.take().unwrap_or_default());
+                    }
+                }
+                let placing = self.tool == Tool::Place;
+                if ui
+                    .selectable_label(placing, "Place")
+                    .on_hover_text("then click the ground")
+                    .clicked()
+                {
+                    self.tool = if placing { Tool::Select } else { Tool::Place };
+                }
+                ui.separator();
+                if ui
+                    .button("Check build")
+                    .on_hover_text("build the world against the install, as Yalain will")
+                    .clicked()
+                {
+                    self.build_check();
+                }
+                ui.separator();
+                ui.label("Time");
+                ui.add(egui::Slider::new(&mut self.scene.time_of_day, 0.0..=1.0).show_value(false));
+                ui.separator();
+                if serving {
+                    if ui.button("Stop").clicked() {
+                        self.live.stop_all();
+                        self.status = "Yalain stopped".into();
+                    }
+                } else if ui
+                    .button("Serve")
+                    .on_hover_text("Yalain serves the world as saved, on this machine")
+                    .clicked()
+                {
+                    self.serve();
+                }
+                if self.programs.client.is_some()
+                    && ui
+                        .button("Play")
+                        .on_hover_text("our client, standing where the camera is")
+                        .clicked()
+                {
+                    self.play(false);
+                }
+                if self.programs.retail.is_some() && ui.button("Play retail").clicked() {
+                    self.play(true);
+                }
+            });
+        });
+        egui::Panel::bottom(egui::Id::new("status")).show(ui, |ui| self.status_panel(ui, serving));
+        egui::Panel::left(egui::Id::new("rows"))
+            .resizable(true)
+            .default_size(300.0)
+            .show(ui, |ui| self.rows_panel(ui));
+        egui::Panel::right(egui::Id::new("inspector"))
+            .resizable(true)
+            .default_size(330.0)
+            .show(ui, |ui| self.inspector(ui));
+        let ctx = ui.ctx().clone();
+        self.finder(&ctx);
+    }
+
+    fn status_panel(&mut self, ui: &mut egui::Ui, serving: bool) {
+        // A build of an older revision says nothing of the world as it stands.
+        if self
+            .build
+            .as_ref()
+            .is_some_and(|b| b.0 != self.session.revision())
+        {
+            self.build = None;
+        }
+        let (built_problems, built_warnings) = self
+            .build
+            .as_ref()
+            .map_or((Vec::new(), Vec::new()), |b| (b.1.clone(), b.2.clone()));
+        let problems = self.session.problems().len() + built_problems.len();
+        let warnings = self.session.warnings().len() + built_warnings.len();
+        // New problems open the list.
+        let open = (problems > self.problems_seen).then_some(true);
+        self.problems_seen = problems;
+        egui::CollapsingHeader::new(format!("Problems: {problems}   Warnings: {warnings}"))
+            .id_salt("problems")
+            .open(open)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(120.0)
+                    .show(ui, |ui| {
+                        let mut go = None;
+                        for p in self.session.problems().iter().chain(&built_problems) {
+                            let text = egui::RichText::new(p.to_string())
+                                .color(egui::Color32::from_rgb(255, 140, 120));
+                            if ui
+                                .add(egui::Label::new(text).sense(egui::Sense::click()))
+                                .clicked()
+                            {
+                                go = self
+                                    .session
+                                    .entries()
+                                    .iter()
+                                    .find(|e| e.row.file == p.file && e.row.line == p.line)
+                                    .map(|e| e.item.clone());
+                            }
+                        }
+                        for w in built_warnings
+                            .iter()
+                            .chain(self.session.warnings())
+                            .take(200)
+                        {
+                            ui.label(egui::RichText::new(w.to_string()).weak());
+                        }
+                        if let Some(item) = go {
+                            self.select(Some(item.clone()));
+                            self.fly_to(&item);
+                        }
+                    });
+            });
+        let p = self.camera.position;
+        let (lb, at) = view::local([p.x, p.y, p.z]);
+        let (undo, redo) = self.session.steps();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "{lb:04X} ({:.1}, {:.1}, {:.1})  {:.0} m/s",
+                at[0],
+                at[1],
+                at[2],
+                self.camera.meters_per_second()
+            ));
+            ui.separator();
+            ui.label(format!(
+                "{} rows{}  ·  undo {undo}, redo {redo}",
+                self.session.entries().len(),
+                if self.session.unsaved() {
+                    "  ·  unsaved"
+                } else {
+                    ""
+                }
+            ));
+            ui.separator();
+            if serving {
+                ui.label(
+                    egui::RichText::new(&self.live.said)
+                        .color(egui::Color32::from_rgb(140, 220, 140)),
+                );
+                ui.separator();
+            }
+            ui.label(&self.status);
+        });
+    }
+
+    fn rows_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Rows near");
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.shown.people, "people");
+            ui.checkbox(&mut self.shown.objects, "objects");
+            ui.checkbox(&mut self.shown.camps, "camps");
+            ui.checkbox(&mut self.shown.places, "places");
+        });
+        ui.checkbox(&mut self.shown.only_world, "only this world's");
+        ui.separator();
+        let mut pick = None;
+        egui::ScrollArea::vertical()
+            .id_salt("near rows")
+            .max_height(ui.available_height() * 0.7)
+            .show(ui, |ui| {
+                let near: Vec<(usize, f32)> = self.near.iter().copied().take(400).collect();
+                for (i, d) in near {
+                    if d > NEAR {
+                        break;
+                    }
+                    let Some(e) = self.session.entries().get(i).cloned() else {
+                        continue;
+                    };
+                    if !self.shows(&e) {
+                        continue;
+                    }
+                    let (letter, words) = badge(e.prov());
+                    let name = match &e.row.row {
+                        Row::Object(o) => self.label(o.template),
+                        Row::Camp(c) => c
+                            .spawns
+                            .first()
+                            .map(|(t, _)| self.label(*t))
+                            .unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let mark = match e.layer {
+                        Layer::Base => "",
+                        Layer::Target if e.was.is_some() => " (changed)",
+                        _ => " (new)",
+                    };
+                    let selected = self.selected.as_deref() == Some(e.item.as_str());
+                    let text = egui::RichText::new(format!(
+                        "[{letter}] {} {}{mark}  {name}  {d:.0} m",
+                        kind_word(&e.row.row),
+                        e.item.split_whitespace().nth(1).unwrap_or(""),
+                    ))
+                    .color(color_of(&e.row.row));
+                    if ui
+                        .selectable_label(selected, text)
+                        .on_hover_text(words)
+                        .clicked()
+                    {
+                        pick = Some(e.item.clone());
+                    }
+                }
+            });
+        if let Some(item) = pick {
+            self.select(Some(item.clone()));
+            self.fly_to(&item);
+        }
+        let removed = self.session.removed().to_vec();
+        if !removed.is_empty() {
+            ui.separator();
+            ui.strong(format!("Taken away: {}", removed.len()));
+            let mut back = None;
+            egui::ScrollArea::vertical()
+                .id_salt("removed")
+                .show(ui, |ui| {
+                    for (item, _) in &removed {
+                        ui.horizontal(|ui| {
+                            ui.label(item);
+                            if ui.small_button("Put back").clicked() {
+                                back = Some(item.clone());
+                            }
+                        });
+                    }
+                });
+            if let Some(item) = back {
+                if let Err(e) = self.session.put_back(&item) {
+                    self.status = e;
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_lines)] // one row's fields
+    fn inspector(&mut self, ui: &mut egui::Ui) {
+        let Some(item) = self.selected.clone() else {
+            ui.heading("No row selected");
+            ui.label("Click a marker in the world, or a row on the left.");
+            return;
+        };
+        let Some(e) = self.session.entry(&item).cloned() else {
+            ui.heading(&item);
+            ui.label("Not in the world any more.");
+            return;
+        };
+        ui.heading(&item);
+        let kind = kind_word(&e.row.row);
+        match &e.row.row {
+            Row::Object(o) => {
+                let l = self.label(o.template);
+                ui.label(format!("{kind}: {l}"));
+            }
+            Row::Camp(c) => {
+                let names: Vec<String> = c
+                    .spawns
+                    .iter()
+                    .map(|(t, w)| format!("{} x{w}", self.label(*t)))
+                    .collect();
+                ui.label(format!("camp of {}", names.join(", ")));
+            }
+            _ => {
+                ui.label(kind);
+            }
+        }
+        ui.separator();
+        let (letter, words) = badge(e.prov());
+        ui.label(format!("[{letter}] {words}"));
+        match e.layer {
+            Layer::Base => {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "The database's row (pack {}). A change writes this world's own row of its key.",
+                        e.row.pack
+                    ))
+                    .weak(),
+                );
+            }
+            Layer::Other => {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Pack {}'s row: this session edits {}.",
+                        e.row.pack,
+                        self.session.target()
+                    ))
+                    .weak(),
+                );
+            }
+            Layer::Target => {
+                ui.label(egui::RichText::new(format!("{}:{}", e.row.file, e.row.line)).weak());
+            }
+        }
+        if let Some(was) = &e.was {
+            let (wl, ww) = badge(was.row.prov());
+            ui.label(format!("was: [{wl}] {ww}"));
+            if ui
+                .button("Put back")
+                .on_hover_text("as the database has it")
+                .clicked()
+            {
+                match self.session.put_back(&item) {
+                    Ok(()) => self.status = format!("put {item} back"),
+                    Err(err) => self.status = err,
+                }
+            }
+        }
+        ui.separator();
+        // Where it stands, and which way it faces: while a value is dragged it is held here, and
+        // the row changes once, when the drag ends.
+        let at = e.at();
+        let held = self
+            .held
+            .as_ref()
+            .filter(|(i, _)| *i == item)
+            .map(|(_, v)| *v);
+        let [mut x, mut y, mut z, mut h] =
+            held.unwrap_or([at.x, at.y, at.z.unwrap_or(0.0), heading_of(&e.row.row)]);
+        let (mut moved, mut dragging) = (false, false);
+        ui.horizontal(|ui| {
+            ui.label("at");
+            for v in [&mut x, &mut y, &mut z] {
+                let r = ui.add(egui::DragValue::new(v).speed(0.1).max_decimals(3));
+                moved |= r.drag_stopped() || (r.changed() && !r.dragged());
+                dragging |= r.dragged();
+            }
+        });
+        if moved {
+            self.held = None;
+            let g = view::global(e.landblock(), [x, y, z]);
+            self.move_row(&item, g);
+        } else if dragging {
+            self.held = Some((item.clone(), [x, y, z, h]));
+        }
+        if matches!(e.row.row, Row::Object(_) | Row::Place(_)) {
+            let mut turned = false;
+            ui.horizontal(|ui| {
+                ui.label("heading");
+                let r = ui.add(
+                    egui::DragValue::new(&mut h)
+                        .speed(1.0)
+                        .range(0.0..=360.0)
+                        .max_decimals(1),
+                );
+                turned |= r.drag_stopped() || (r.changed() && !r.dragged());
+                dragging |= r.dragged();
+                if ui.small_button("left").clicked() {
+                    h -= TURN_STEP;
+                    turned = true;
+                }
+                if ui.small_button("right").clicked() {
+                    h += TURN_STEP;
+                    turned = true;
+                }
+            });
+            if turned {
+                self.held = None;
+                let r = self.session.turn(&item, h);
+                self.report(r);
+            } else if dragging {
+                self.held = Some((item.clone(), [x, y, z, h]));
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .button("Ground")
+                .on_hover_text("stand it on the ground under it")
+                .clicked()
+            {
+                let g = view::global(e.landblock(), [x, y, 0.0]);
+                if let Some(gz) = self.scene.ground(g[0], g[1]) {
+                    self.move_row(&item, [g[0], g[1], gz]);
+                }
+            }
+            if ui
+                .button("Here")
+                .on_hover_text("move it under the camera")
+                .clicked()
+            {
+                let p = self.camera.position;
+                if let Some(gz) = self.scene.ground(p.x, p.y) {
+                    self.move_row(&item, [p.x, p.y, gz]);
+                }
+            }
+            if ui.button("Fly to").clicked() {
+                self.fly_to(&item);
+            }
+        });
+        ui.separator();
+        // Its other fields, as TOML.
+        let fresh = self.fields_of.as_ref() != Some(&(item.clone(), self.session.revision()));
+        if fresh {
+            self.fields = editable(&e.row.row)
+                .iter()
+                .map(|f| ((*f).to_string(), field_text(&e.row.row, f)))
+                .collect();
+            self.fields_of = Some((item.clone(), self.session.revision()));
+        }
+        let mut set = None;
+        egui::Grid::new("fields")
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                for (name, text) in &mut self.fields {
+                    ui.label(name.as_str());
+                    let r = ui.add(
+                        egui::TextEdit::singleline(text)
+                            .desired_width(220.0)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        set = Some((name.clone(), text.clone()));
+                    }
+                    ui.end_row();
+                }
+            });
+        if let Some((field, value)) = set {
+            match self.session.set(&item, &field, &value) {
+                Ok(_) => self.status = format!("{item}: {field} set"),
+                Err(err) => {
+                    self.status = err;
+                    self.fields_of = None;
+                }
+            }
+        }
+        if let Row::Object(o) = &e.row.row {
+            if let Some(to) = &o.to {
+                if ui.button(format!("Go to {to}")).clicked() {
+                    if let Some(t) = self.place_of(to, &e.row.pack).map(|p| p.item) {
+                        self.select(Some(t.clone()));
+                        self.fly_to(&t);
+                    }
+                }
+            }
+            if !o.landings.is_empty() {
+                ui.label(format!("{} recall landings", o.landings.len()));
+            }
+        }
+        ui.separator();
+        if ui
+            .add_enabled(e.layer != Layer::Other, egui::Button::new("Take away"))
+            .on_hover_text("Delete")
+            .clicked()
+        {
+            self.delete_selected();
+        }
+    }
+}
+
+/// The file the camera's place is kept in between sessions, in the world's build folder.
+fn camera_file(world: &std::path::Path) -> PathBuf {
+    world.join("build").join("editor-camera.txt")
+}
+
+/// The camera where it was when the world was last closed.
+#[must_use]
+pub fn kept_camera(world: &std::path::Path) -> Option<FlyCamera> {
+    let text = std::fs::read_to_string(camera_file(world)).ok()?;
+    let v: Vec<f32> = text
+        .split_whitespace()
+        .filter_map(|w| w.parse().ok())
+        .collect();
+    let [x, y, z, yaw, pitch, speed] = v[..] else {
+        return None;
+    };
+    let mut c = FlyCamera::new(Vec3::new(x, y, z), yaw, pitch);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        c.speed = speed as usize;
+    }
+    Some(c)
+}
+
+/// A data id written in hexadecimal (`0x47002224`, or without `0x`).
+#[must_use]
+pub fn parse_id(s: &str) -> Option<u32> {
+    let t = s.trim();
+    let h = t
+        .strip_prefix("0x")
+        .or_else(|| t.strip_prefix("0X"))
+        .unwrap_or(t);
+    u32::from_str_radix(h, 16).ok().filter(|v| *v != 0)
+}

@@ -1,0 +1,552 @@
+//! Athenaeum, the Asheron's Call 2 world builder: a world's rows drawn where they stand in the
+//! world as the client draws it, selected, placed, moved, turned, changed and removed, saved into
+//! the world's pack, and played on Yalain.
+//!
+//! **Depends on** the world machinery (`athenaeum-foundry`: the world over the world database, its
+//! edits, undo and save), the world database (`yalain-world-db`, `yalain-content`: rows, and a
+//! template described as the server describes it), the pack format (`dereth-pack`), the world as
+//! the client draws it (`auberean-world`, `-assets`, `-dat`, `-animation`, `-physics`,
+//! `-primitives`, `auberean-draw`, `auberean-gpu`), the free camera (`dereth-builder`), the panels
+//! (`egui`), and the window system (`winit`) and device (`wgpu`). **Used by** nothing: it is the
+//! `athenaeum-editor` program. Yalain and the clients it plays the world with are programs it
+//! starts, never crates it uses.
+//!
+//! ```text
+//! athenaeum-editor <world> --dats <install> [--base <folder>] [--pack <name>]
+//!                  [--at XXYY[:X,Y]] [--size 1600x900] [--scale 1.25]
+//!                  [--yalain <exe>] [--server-dats <install>] [--port 9300]
+//!                  [--client <exe>] [--client-dats <install>] [--retail <client.exe>]
+//!                  [--client-arg ARG]...
+//!                  [--script FILE] [--shots DIR] [--verbose]
+//! ```
+//!
+//! `<world>` is a world's folder (`athenaeum new` makes one). Its base is the release of the world
+//! database it names, from the per-user cache, or `--base`; edits go into its last pack, or
+//! `--pack`. The install is the one the world is drawn from and built against. Yalain and our
+//! client are found beside this program unless given; the server reads `--server-dats` (by
+//! default the same install: give a copy no client runs from when the retail client plays). The
+//! retail client is run from its own folder; `--client-arg` passes more to whichever starts (our
+//! client's `--dev-script`, say). Screenshots (F12, and a script's) go to `--shots`, by
+//! default the world's `build/shots`. A script (`script.rs`) plays editor steps as frames pass.
+//!
+//! **Must never** write a base database or an install: it writes only the world's pack, its build
+//! folder and its screenshots.
+
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Instant;
+
+use athenaeum_foundry::edit::NewKind;
+use athenaeum_foundry::{build, world, Session};
+use dereth_builder::camera::FlyCamera;
+use dereth_primitives::Vec3;
+use winit::application::ApplicationHandler;
+use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Window, WindowId};
+
+use athenaeum_editor::app::{self, Editor, ViewInput};
+use athenaeum_editor::script::{Script, Step};
+use athenaeum_editor::{gui, icon, live, paint, scene, view};
+
+#[derive(Debug, Default)]
+struct Options {
+    world: PathBuf,
+    dats: PathBuf,
+    base: Option<PathBuf>,
+    pack: Option<String>,
+    at: Option<(u16, Option<(f32, f32)>)>,
+    size: (u32, u32),
+    scale: f32,
+    programs: live::Programs,
+    script: Option<PathBuf>,
+    shots: Option<PathBuf>,
+    verbose: bool,
+}
+
+fn options() -> Result<Options, String> {
+    let mut o = Options {
+        size: (1600, 900),
+        scale: 1.0,
+        ..Options::default()
+    };
+    o.programs.port = 9300;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        let mut value = || args.next().ok_or(format!("{a} needs a value"));
+        match a.as_str() {
+            "--dats" => o.dats = PathBuf::from(value()?),
+            "--base" => o.base = Some(PathBuf::from(value()?)),
+            "--pack" => o.pack = Some(value()?),
+            "--at" => {
+                let v = value()?;
+                let (b, xy) = v
+                    .split_once(':')
+                    .map_or((v.as_str(), None), |(b, r)| (b, Some(r)));
+                let lb = u16::from_str_radix(b, 16).map_err(|e| format!("--at: {e}"))?;
+                let xy = match xy {
+                    Some(r) => {
+                        let (x, y) = r.split_once(',').ok_or("--at: want XXYY:X,Y")?;
+                        Some((
+                            x.parse().map_err(|e| format!("--at: {e}"))?,
+                            y.parse().map_err(|e| format!("--at: {e}"))?,
+                        ))
+                    }
+                    None => None,
+                };
+                o.at = Some((lb, xy));
+            }
+            "--size" => {
+                let v = value()?;
+                let (w, h) = v.split_once('x').ok_or("--size: want WxH")?;
+                o.size = (
+                    w.parse().map_err(|e| format!("--size: {e}"))?,
+                    h.parse().map_err(|e| format!("--size: {e}"))?,
+                );
+            }
+            "--scale" => o.scale = value()?.parse().map_err(|e| format!("--scale: {e}"))?,
+            "--yalain" => o.programs.yalain = Some(PathBuf::from(value()?)),
+            "--server-dats" => o.programs.server_dats = Some(PathBuf::from(value()?)),
+            "--client" => o.programs.client = Some(PathBuf::from(value()?)),
+            "--client-dats" => o.programs.client_dats = Some(PathBuf::from(value()?)),
+            "--retail" => o.programs.retail = Some(PathBuf::from(value()?)),
+            "--client-arg" => o.programs.client_args.push(value()?),
+            "--port" => {
+                o.programs.port = value()?.parse().map_err(|e| format!("--port: {e}"))?;
+            }
+            "--script" => o.script = Some(PathBuf::from(value()?)),
+            "--shots" => o.shots = Some(PathBuf::from(value()?)),
+            "--verbose" => o.verbose = true,
+            "-h" | "--help" => return Err("see the usage at the top of src/main.rs".into()),
+            other if !other.starts_with("--") && o.world.as_os_str().is_empty() => {
+                o.world = PathBuf::from(other);
+            }
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    if o.world.as_os_str().is_empty() {
+        return Err("give the world's folder (athenaeum new <folder> makes one)".into());
+    }
+    if o.dats.as_os_str().is_empty() {
+        return Err("--dats <install folder> is needed".into());
+    }
+    if o.programs.yalain.is_none() {
+        o.programs.yalain = live::beside_me("yalain");
+    }
+    if o.programs.client.is_none() {
+        o.programs.client = live::beside_me("auberean");
+    }
+    if o.programs.server_dats.is_none() {
+        o.programs.server_dats = Some(o.dats.clone());
+    }
+    Ok(o)
+}
+
+/// The window, the device and the editor.
+struct App<'w> {
+    editor: Editor<'w>,
+    world: &'w scene::WorldData,
+    gui: gui::Gui,
+    window: Option<Arc<Window>>,
+    present: Option<paint::Presenter>,
+    input: ViewInput,
+    script: Option<Script>,
+    shots: PathBuf,
+    shot_next: Option<PathBuf>,
+    shot_count: u32,
+    start: Instant,
+    last: f64,
+    failed: Option<String>,
+    quit: bool,
+}
+
+impl App<'_> {
+    /// Run the steps a script has due.
+    fn script(&mut self, now: f64) {
+        let Some(s) = &mut self.script else {
+            return;
+        };
+        for step in s.due(now) {
+            let e = &mut self.editor;
+            match step {
+                Step::Wait(_) => {}
+                Step::Camera(lb, at, yaw, pitch) => {
+                    let g = view::global(lb, at);
+                    e.camera.position = Vec3::new(g[0], g[1], g[2]);
+                    e.camera.yaw = yaw.to_radians();
+                    e.camera.pitch = pitch.to_radians();
+                }
+                Step::Fly(item) => e.fly_to(&item),
+                Step::Select(item) => e.select(item),
+                Step::Place(kind, template, lb, x, y, h) => {
+                    e.new_kind = match kind.as_str() {
+                        "static" => NewKind::Static,
+                        "camp" => NewKind::Camp,
+                        "place" => NewKind::Place,
+                        _ => NewKind::Person,
+                    };
+                    e.template = template;
+                    let g = view::global(lb, [x, y, 0.0]);
+                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
+                    e.place_at([g[0], g[1], z], h);
+                }
+                Step::Move(item, lb, x, y) => {
+                    let g = view::global(lb, [x, y, 0.0]);
+                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
+                    e.move_row(&item, [g[0], g[1], z]);
+                }
+                Step::Turn(item, h) => {
+                    if let Err(err) = e.session.turn(&item, h) {
+                        e.status = err;
+                    }
+                }
+                Step::Set(item, field, value) => {
+                    if let Err(err) = e.session.set(&item, &field, &value) {
+                        e.status = err;
+                    }
+                }
+                Step::Delete(item) => {
+                    e.select(Some(item));
+                    e.delete_selected();
+                }
+                Step::PutBack(item) => {
+                    if let Err(err) = e.session.put_back(&item) {
+                        e.status = err;
+                    }
+                }
+                Step::Undo => {
+                    e.session.undo();
+                }
+                Step::Redo => {
+                    e.session.redo();
+                }
+                Step::Save => e.save(),
+                Step::Check => e.build_check(),
+                Step::Find(text) => e.find(&text),
+                Step::Serve => e.serve(),
+                Step::Play(retail) => e.play(retail),
+                Step::Stop => e.live.stop_all(),
+                Step::Shot(p) => self.shot_next = Some(p),
+                Step::Quit => self.quit = true,
+            }
+            tracing::info!("script: {}", self.editor.status);
+        }
+    }
+
+    fn redraw(&mut self, el: &ActiveEventLoop) {
+        let now = self.start.elapsed().as_secs_f64();
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = ((now - self.last) as f32).clamp(0.0, 0.25);
+        self.last = now;
+        self.script(now);
+        let Some(present) = &mut self.present else {
+            return;
+        };
+        let size = present.size();
+        self.editor.size = size;
+        self.editor.scale = self.gui.scale;
+        let raw = self.gui.input(size, now);
+        let editor = &mut self.editor;
+        let mut viewport = egui::Rect::NOTHING;
+        let out = self.gui.ctx.run_ui(raw, |ui| {
+            editor.panels(ui);
+            egui::CentralPanel::no_frame().show(ui, |ui| {
+                viewport = ui.max_rect();
+                editor.markers(ui.painter());
+            });
+        });
+        let p = self.gui.pointer_pixels();
+        let inside = viewport.contains(egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale));
+        let over = !inside || self.gui.ctx.egui_is_using_pointer();
+        let typing = self.gui.ctx.egui_wants_keyboard_input();
+        self.input.pointer = self.gui.pointer_pixels();
+        self.editor.world_input(&self.input, over, typing, dt);
+        self.input.left_pressed = false;
+        self.input.left_released = false;
+        self.input.motion = (0.0, 0.0);
+        self.input.wheel = 0.0;
+        self.input.pressed.clear();
+        let shot = self.shot_next.take();
+        let world = self.world;
+        let frame = self.editor.frame();
+        let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
+        present.present(Some(frame), out, &self.gui.ctx, &mut load, shot.as_deref());
+        if let Some(w) = &self.window {
+            let dirty = if self.editor.session.unsaved() {
+                "*"
+            } else {
+                ""
+            };
+            w.set_title(&format!(
+                "Athenaeum - {}{dirty}",
+                self.editor
+                    .session
+                    .dir()
+                    .file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().to_string())
+            ));
+        }
+        if self.quit {
+            self.editor.keep_camera();
+            self.editor.live.stop_all();
+            el.exit();
+        }
+    }
+}
+
+impl ApplicationHandler for App<'_> {
+    fn resumed(&mut self, el: &ActiveEventLoop) {
+        if self.present.is_some() {
+            return;
+        }
+        let (w, h) = self.editor.size;
+        let attrs = icon::with_icon(Window::default_attributes())
+            .with_title("Athenaeum")
+            .with_inner_size(winit::dpi::PhysicalSize::new(w, h));
+        let window = match el.create_window(attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                self.failed = Some(format!("no window: {e}"));
+                el.exit();
+                return;
+            }
+        };
+        match paint::Presenter::new(Arc::clone(&window)) {
+            Ok(p) => {
+                tracing::info!(adapter = %p.renderer.adapter, "drawing");
+                self.present = Some(p);
+            }
+            Err(e) => {
+                self.failed = Some(e);
+                el.exit();
+                return;
+            }
+        }
+        let size = window.inner_size();
+        if let Some(p) = &mut self.present {
+            p.resize(size.width, size.height);
+        }
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        self.gui.event(&event);
+        match &event {
+            WindowEvent::CloseRequested => {
+                self.editor.keep_camera();
+                self.editor.live.stop_all();
+                el.exit();
+            }
+            WindowEvent::Resized(s) => {
+                if let Some(p) = &mut self.present {
+                    p.resize(s.width, s.height);
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    if event.state == ElementState::Pressed {
+                        if code == KeyCode::F12 {
+                            self.shot_count += 1;
+                            self.shot_next =
+                                Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
+                        }
+                        if !event.repeat {
+                            self.input.pressed.push(code);
+                        }
+                        self.input.down.insert(code);
+                    } else {
+                        self.input.down.remove(&code);
+                    }
+                }
+            }
+            WindowEvent::ModifiersChanged(m) => {
+                self.input.ctrl = m.state().control_key();
+                self.input.shift = m.state().shift_key();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let down = *state == ElementState::Pressed;
+                match button {
+                    MouseButton::Left => {
+                        self.input.left_down = down;
+                        if down {
+                            self.input.left_pressed = true;
+                        } else {
+                            self.input.left_released = true;
+                        }
+                    }
+                    MouseButton::Right => self.input.right_down = down,
+                    _ => {}
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                #[allow(clippy::cast_possible_truncation)]
+                let notches = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => *y,
+                    MouseScrollDelta::PixelDelta(p) => (p.y / 120.0) as f32,
+                };
+                self.input.wheel += notches;
+            }
+            WindowEvent::Focused(false) => {
+                self.input.down.clear();
+                self.input.left_down = false;
+                self.input.right_down = false;
+            }
+            WindowEvent::RedrawRequested => self.redraw(el),
+            _ => {}
+        }
+    }
+
+    fn device_event(&mut self, _el: &ActiveEventLoop, _id: winit::event::DeviceId, e: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = e {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.input.motion.0 += delta.0 as f32;
+                self.input.motion.1 += delta.1 as f32;
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+}
+
+/// Where the camera starts: `--at`, else where it was when the world was last closed, else over
+/// the target pack's first row, else over the
+/// outdoor landblock where the world places the most people and objects, looking north at them.
+fn start_camera(o: &Options, session: &Session, scene: &mut scene::Scene<'_>) -> FlyCamera {
+    let outdoors = |e: &athenaeum_foundry::Entry| match &e.row.row {
+        yalain_world_db::rows::Row::Object(r) => r.cell.is_none_or(|c| c & 0xFFFF < 0x100),
+        _ => false,
+    };
+    if o.at.is_none() {
+        if let Some(c) = app::kept_camera(session.dir()) {
+            return c;
+        }
+    }
+    let (lb, x, y) = if let Some((lb, xy)) = o.at {
+        let (x, y) = xy.unwrap_or((80.0, 80.0));
+        (lb, x, y)
+    } else if let Some(e) = session
+        .entries()
+        .iter()
+        .find(|e| e.layer == athenaeum_foundry::Layer::Target && outdoors(e))
+    {
+        let at = e.at();
+        (e.landblock(), at.x, at.y)
+    } else {
+        let mut by: std::collections::BTreeMap<u16, (u32, f32, f32)> = Default::default();
+        for e in session.entries().iter().filter(|e| outdoors(e)) {
+            let at = e.at();
+            let s = by.entry(e.landblock()).or_default();
+            *s = (s.0 + 1, s.1 + at.x, s.2 + at.y);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        by.into_iter()
+            .max_by_key(|(lb, (n, _, _))| (*n, std::cmp::Reverse(*lb)))
+            .map_or((0x77B8, 80.0, 80.0), |(lb, (n, x, y))| {
+                (lb, x / n as f32, y / n as f32)
+            })
+    };
+    let g = view::global(lb, [x, y, 0.0]);
+    let ground = scene.ground(g[0], g[1]).unwrap_or(0.0);
+    FlyCamera::new(Vec3::new(g[0], g[1] - 30.0, ground + 16.0), 0.0, -0.42)
+}
+
+fn run() -> Result<(), String> {
+    let o = options()?;
+    tracing_subscriber::fmt()
+        .with_max_level(if o.verbose {
+            tracing::Level::DEBUG
+        } else {
+            tracing::Level::INFO
+        })
+        .with_writer(std::io::stderr)
+        .init();
+    let world_dir = if o.world.file_name().is_some_and(|n| n == "world.toml") {
+        o.world
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    } else {
+        o.world.clone()
+    };
+    // Yalain runs in a folder of its own, so it is told the world's folder whole.
+    let world_dir =
+        std::path::absolute(&world_dir).map_err(|e| format!("{}: {e}", world_dir.display()))?;
+    let base = o
+        .base
+        .as_deref()
+        .map(std::path::absolute)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let opened = world::open(&world_dir, base.as_deref())?;
+    let base_dir = opened.base_dir.clone();
+    tracing::info!(
+        world = %world_dir.display(),
+        base = ?base_dir,
+        rows = opened.base.merged.rows.len(),
+        "opened"
+    );
+    let session = Session::open(opened, o.pack.as_deref())?;
+    let files = build::InstallFiles::open(&o.dats)?;
+    let install = files.install()?;
+    let data = scene::WorldData::open(&o.dats)?;
+    let mut scene = scene::Scene::new(&data);
+    let camera = start_camera(&o, &session, &mut scene);
+    let mut editor = Editor::new(session, &install, scene, camera, o.programs.clone());
+    editor.set_templates(
+        files
+            .portal
+            .entries_in(0x4700_0000, 0x47FF_FFFF)
+            .map(|e| e.id)
+            .collect(),
+    );
+    editor.base = base_dir;
+    editor.size = o.size;
+    let shots = o
+        .shots
+        .clone()
+        .unwrap_or_else(|| world_dir.join("build").join("shots"));
+    let script = match &o.script {
+        Some(f) => Some(Script::load(f, &shots)?),
+        None => None,
+    };
+    let mut app = App {
+        editor,
+        world: &data,
+        gui: gui::Gui::new(o.scale),
+        window: None,
+        present: None,
+        input: ViewInput::default(),
+        script,
+        shots,
+        shot_next: None,
+        shot_count: 0,
+        start: Instant::now(),
+        last: 0.0,
+        failed: None,
+        quit: false,
+    };
+    let el = EventLoop::new().map_err(|e| e.to_string())?;
+    el.set_control_flow(ControlFlow::Poll);
+    el.run_app(&mut app).map_err(|e| e.to_string())?;
+    app.editor.live.stop_all();
+    if let Some(e) = app.failed {
+        return Err(e);
+    }
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("athenaeum-editor: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}

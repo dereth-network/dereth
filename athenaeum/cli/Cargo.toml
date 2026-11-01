@@ -1,0 +1,22 @@
+[package]
+name = "athenaeum-cli"
+description = "Athenaeum's command line: worlds made over the world database, built into the server's tables, checked and counted; and the Asheron's Call 2 data files read, listed, decoded and counted."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[[bin]]
+name = "athenaeum"
+path = "src/main.rs"
+
+[dependencies]
+athenaeum-foundry.workspace = true
+yalain-world-db.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-assets.workspace = true
+
+[lints]
+workspace = true

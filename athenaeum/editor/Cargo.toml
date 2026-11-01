@@ -1,0 +1,57 @@
+[package]
+name = "athenaeum-editor"
+description = "Athenaeum, the Asheron's Call 2 world builder: a world's rows drawn where they stand in the world as the client draws it, selected, placed, moved, turned, changed and removed, saved into the world's pack, and played on Yalain."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+# One test target per tier, listed at the bottom; a stray tests/*.rs cannot become another.
+autotests = false
+
+[build-dependencies]
+# Links the application icon (`assets/athenaeum.ico`) into the executable, where Explorer and the
+# task bar read it before any of our code runs.
+embed-resource = "3"
+
+[dependencies]
+# The world's rows, their edits, undo and save, and its build: the world machinery.
+athenaeum-foundry.workspace = true
+# The world database's rows, merge and compile reader, and the server's description of a template
+# (its look), as the server describes it.
+yalain-world-db.workspace = true
+yalain-content.workspace = true
+dereth-pack.workspace = true
+# The world as the client draws it: its records and region, the frame at the camera, bodies posed
+# and skinned, and the device that draws a frame; the ground under a point.
+auberean-world.workspace = true
+auberean-assets.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-animation.workspace = true
+auberean-physics.workspace = true
+auberean-primitives.workspace = true
+auberean-draw.workspace = true
+auberean-gpu.workspace = true
+# The free camera the world builders share, and the transcendental functions.
+dereth-builder.workspace = true
+dereth-primitives.workspace = true
+# The panels: immediate-mode widgets, drawn by our own painter on the world's device.
+egui.workspace = true
+# The window and its events, and the device it presents on.
+winit = { workspace = true, features = ["rwh_06"] }
+wgpu = "30"
+pollster.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+png.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

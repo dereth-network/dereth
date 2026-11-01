@@ -222,6 +222,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "athenaeum-cli"
+version = "0.0.0"
+dependencies = [
+ "athenaeum-foundry",
+ "auberean-assets",
+ "auberean-dat",
+ "yalain-world-db",
+]
+
+[[package]]
+name = "athenaeum-editor"
+version = "0.0.0"
+dependencies = [
+ "athenaeum-foundry",
+ "auberean-animation",
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-physics",
+ "auberean-primitives",
+ "auberean-world",
+ "bytemuck",
+ "dereth-builder",
+ "dereth-pack",
+ "dereth-primitives",
+ "egui",
+ "embed-resource",
+ "png",
+ "pollster",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
+ "yalain-content",
+ "yalain-world-db",
+]
+
+[[package]]
+name = "athenaeum-foundry"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-pack",
+ "dereth-pack",
+ "toml_edit",
+ "yalain-content",
+ "yalain-world-db",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -177,6 +177,11 @@ members = [
     "yalain/crates/world",
     "yalain/server",
     "yalain/testkit",
+    # athenaeum/: Athenaeum, the Asheron's Call 2 world builder (MIT): its world machinery, the
+    # `athenaeum` command and the editor. It runs Yalain as a program, never as a crate.
+    "athenaeum/crates/foundry",
+    "athenaeum/cli",
+    "athenaeum/editor",
 ]
 
 [workspace.package]
@@ -292,6 +297,7 @@ auberean-script = { path = "core/auberean-script" }
 auberean-testkit = { path = "auberean/testkit" }
 auberean-text = { path = "core/auberean-text" }
 auberean-world = { path = "core/auberean-world" }
+athenaeum-foundry = { path = "athenaeum/crates/foundry" }
 yalain-content = { path = "yalain/crates/content" }
 yalain-net = { path = "yalain/crates/net" }
 yalain-store = { path = "yalain/crates/store" }
