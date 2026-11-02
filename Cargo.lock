@@ -1768,8 +1768,12 @@ dependencies = [
 name = "dereth-web-relay"
 version = "0.0.0"
 dependencies = [
+ "dereth-network-protocol",
  "dereth-transport",
+ "rcgen",
+ "rustls",
  "tungstenite",
+ "ureq",
 ]
 
 [[package]]

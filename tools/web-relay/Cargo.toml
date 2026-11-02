@@ -1,6 +1,6 @@
 [package]
 name = "dereth-web-relay"
-description = "The local proxy a player runs to play in a browser on a server that speaks only UDP: one game datagram per WebSocket message, on the player's own machine."
+description = "The proxy that lets a browser play on a server that speaks only UDP: one game datagram per WebSocket message, on the player's own machine or beside the server for many players."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,10 +9,22 @@ publish = false
 autotests = false
 
 [dependencies]
-# The frame: a two-byte port, then one datagram; port 0 the will.
+# The frame: a two-byte port, then one datagram; port 0 the will. And the login request, read
+# for the account name a session's log line gives.
 dereth-transport.workspace = true
+# The rule for a world's WebSocket address, the one the hub keeps.
+dereth-network-protocol.workspace = true
 # The WebSocket handshake and framing, blocking, one thread per browser connection.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+# wss:// with the relay's own certificate: rustls on its ring provider.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Announcing the relay's address to the hub over HTTPS (rustls with its ring provider and the web's
+# root certificates).
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+# A certificate made for the test of the relay's own TLS.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 
 [lints]
 workspace = true

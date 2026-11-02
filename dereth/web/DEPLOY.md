@@ -433,9 +433,13 @@ The world's **Connect through** field takes a WebSocket URL:
   its `SETUP.md`). The field holds the URL the hub's list names for a world linked to the network;
   otherwise use its `wss://` URL, or its status address (`https://…/status`), and the page reads
   the WebSocket URL from the status. The server must list the page's origin in `allowed_origins`.
-- **Any other server** (ACE, GDLE, or an Empyrean with the endpoint off). The player runs
-  `dereth-web-relay` on their own machine and uses `ws://127.0.0.1:9180/` (the field's default). For
-  a page served from your site, the relay must be started with that site's origin:
+- **Any other server** (ACE, GDLE, or an Empyrean with the endpoint off). Its operator can run
+  `dereth-web-relay --public` beside it, for every player, behind TLS: its `wss://` URL is then
+  used as an Empyrean's is, and the hub lists it for a world that announces it
+  ([the relay's README](../../tools/web-relay/README.md#beside-your-server-operators)).
+  Otherwise the player runs `dereth-web-relay` on their own machine and uses
+  `ws://127.0.0.1:9180/` (the field's default). For a page served from your site, the relay must
+  be started with that site's origin:
 
   ```text
   dereth-web-relay --server <host:port> --allow-origin https://play.example.org

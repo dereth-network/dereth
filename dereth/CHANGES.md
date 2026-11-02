@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Web: ACE and GDLE worlds can host the web relay, so players install nothing.
+
 ## 0.4.9 (2026-11-01)
 
 - Launcher: each realm lists only its own game's worlds.

@@ -17,8 +17,9 @@ Two things speak it on the server side:
 
 - **An Empyrean server** with `[server.websocket]` enabled accepts the connection itself. Each
   WebSocket is one client endpoint of the server, beside its UDP clients.
-- **`dereth-web-relay`**, a proxy the player runs on their own machine, carries the datagrams to a
-  server that speaks only UDP (ACE, GDLE, or an Empyrean without WebSocket).
+- **`dereth-web-relay`**, a proxy run beside a server that speaks only UDP (ACE, GDLE, or an
+  Empyrean without WebSocket) by its operator, or on a player's own machine, carries the datagrams
+  to that server.
 
 The client does the same thing in both cases.
 
@@ -78,9 +79,12 @@ at `wss://host:port/`, or at `ws://` where plain WebSocket is allowed. `SETUP.md
 configuration, a reverse proxy in front of it, and the limits it applies. The server's status
 endpoint reports the URL as `websocket_url`, so a launcher or a page can find it.
 
-**`dereth-web-relay`** serves it at `ws://127.0.0.1:<port>/`, and only there.
+**`dereth-web-relay`** serves it on any path: on a player's machine at `ws://127.0.0.1:<port>/`
+and only there; beside a server at the `wss://` address its operator gives it, through a TLS proxy
+or with its own certificate.
 
-**Refusals.** Both refuse a browser page whose `Origin` they were not told to accept, and a
-connection without an `Origin` header is not a browser page. The browser client refuses a `ws://`
+**Refusals.** Both refuse a browser page whose `Origin` they were not told to accept. A
+connection without an `Origin` header is not a browser page: Empyrean and a player's relay accept
+it, and a relay beside a server refuses it. The browser client refuses a `ws://`
 URL to anything but the loopback address, because the game protocol is not encrypted: ISAAC only
 keys the checksums, and the login carries the account's password.
