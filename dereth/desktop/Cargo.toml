@@ -45,8 +45,8 @@ tracing-subscriber.workspace = true
 winit = { workspace = true, features = ["rwh_06"] }
 # The window icon, decoded for the window systems that take pixels.
 png.workspace = true
-# The sound device.
-cpal.workspace = true
+# The sound device: the default output endpoint through cpal.
+dereth-audio-out.workspace = true
 
 # The local clock, the URL launch and the Documents folder on Windows (WinRT, safe bindings).
 [target.'cfg(windows)'.dependencies]

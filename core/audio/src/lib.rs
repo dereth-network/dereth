@@ -6,7 +6,8 @@
 //! the output device.
 //!
 //! **Must never** open a sound device: [`mixer::VoicePool::mix`] fills a caller-supplied
-//! interleaved stereo block, so the whole crate and its tests run without a sound card. Reading
+//! interleaved stereo block, so the whole crate and its tests run without a sound card; the device
+//! is the host's, behind [`output::AudioOutput`]. Reading
 //! sound objects out of the data files is `dereth-assets`' job, the listener's position is the
 //! camera's, and hook dispatch is animation's.
 //!
@@ -31,6 +32,11 @@
 //! `Sound.SoundDisabled` is bound to an *enabled* boolean with no inversion.
 //!
 //! **Specified in** `docs/formats/21-sound-tables.md` (waves and the sound tables that name them).
+//!
+//! Beside that engine, [`voices`] is a general mixer for a client with other rules: any output
+//! rate, any number of voices, looping, and each voice's gains and rate changed while it plays,
+//! over sources decoded at their own rate ([`wave::pcm_source`], [`wave::mp3_source`]). Nothing of
+//! the engine above uses it.
 
 #![doc(html_no_source)]
 
@@ -40,11 +46,13 @@ pub mod cache;
 pub mod error;
 pub mod focus;
 pub mod mixer;
+pub mod output;
 pub mod prefs;
 pub mod table;
 pub mod testing;
 pub mod trigger;
 pub mod video;
+pub mod voices;
 pub mod wave;
 
 use std::sync::atomic::AtomicBool;

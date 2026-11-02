@@ -6,7 +6,7 @@
 //! runtime it starts (`dereth-client-runtime`), the contract (`dereth-client-contract`) and
 //! `dereth-primitives`, the device crate's window arithmetic (`dereth-render`), the device
 //! input's key tables (`dereth-input`), the dat locator (`dereth-dat`), the two unsafe hops
-//! (`dereth-clipboard`, `dereth-console`), and the fonts it hands the classic interface (the
+//! (`dereth-clipboard`, `dereth-console`), the sound device (`dereth-audio-out`), and the fonts it hands the classic interface (the
 //! Windows font system through `dereth-classic-gdi`, elsewhere the carried ones of
 //! `dereth-classic-fonts`, in the atlas format of `dereth-classic-dat`), and on Windows the pads
 //! (`gilrs`). **Used by** the desktop client (`dereth-client`), and by any other desktop product
@@ -23,7 +23,7 @@
 use dereth_client_runtime::config::Config;
 use dereth_client_shell::cursor::CursorImages;
 
-// The sound device: the runtime's mixer over `cpal`.
+// The sound device: the runtime's mixer over the cpal endpoint.
 pub mod audio;
 // The clipboard bridge over the system clipboard.
 pub mod clipboard;

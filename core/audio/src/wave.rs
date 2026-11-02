@@ -258,6 +258,44 @@ pub(crate) fn to_stereo_at_mix_rate(interleaved: &[f32], channels: u16, rate: u3
     frames.into()
 }
 
+/// PCM samples (8-bit unsigned or 16-bit signed little-endian, one or two channels) as a mixer
+/// [`Source`](crate::voices::Source) at their own rate, for a mixer that reads each source at its
+/// own rate rather than this module's [`MIX_RATE`]. `id` only names the sound in an error.
+///
+/// # Errors
+/// A rate of 0, a channel count other than 1 or 2, or a sample size other than 8 or 16 bits.
+pub fn pcm_source(
+    id: DataId,
+    data: &[u8],
+    channels: u16,
+    bits: u16,
+    rate: u32,
+) -> Result<crate::voices::Source, AudioError> {
+    if rate == 0 {
+        return Err(AudioError::ZeroRate(id));
+    }
+    if channels != 1 && channels != 2 {
+        return Err(AudioError::BadChannelCount(id, channels));
+    }
+    let samples = decode_pcm(id, data, channels, bits)?;
+    Ok(crate::voices::Source::from_interleaved(
+        &samples, channels, rate,
+    ))
+}
+
+/// An MPEG layer III stream (bare frames, no container) as a mixer
+/// [`Source`](crate::voices::Source) at the stream's own rate: one channel spread to both sides,
+/// two kept. `id` only names the sound in an error.
+///
+/// # Errors
+/// The stream does not decode, or decodes to nothing.
+pub fn mp3_source(id: DataId, stream: &[u8]) -> Result<crate::voices::Source, AudioError> {
+    let (pcm, rate, channels) = decode_mp3(id, stream)?;
+    Ok(crate::voices::Source::from_interleaved(
+        &pcm, channels, rate,
+    ))
+}
+
 /// Linear interpolation, which is what the DirectSound software mixer used for rate conversion. An
 /// equal-rate source is copied through untouched, so the 471 waves already at 11025 Hz are
 /// bit-exact.
@@ -411,6 +449,29 @@ mod tests {
         assert_eq!(s.frames[1], -1000.0 / 32768.0);
         assert_eq!(s.frames[2], 2000.0 / 32768.0);
         assert_eq!(s.frames[3], -2000.0 / 32768.0);
+    }
+
+    /// A PCM source keeps its own rate and its frames exactly: 16-bit mono spread to both sides,
+    /// 8-bit centred on 128.
+    #[test]
+    fn a_pcm_source_keeps_its_rate_and_its_samples() {
+        let data: Vec<u8> = [0i16, 16384, -32768]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let s = pcm_source(DataId(1), &data, 1, 16, 32000).expect("decodes");
+        assert_eq!(s.rate(), 32000);
+        assert_eq!(s.frames(), &[0.0, 0.0, 0.5, 0.5, -1.0, -1.0]);
+        let s = pcm_source(DataId(1), &[128, 192, 0, 64], 2, 8, 44100).expect("decodes");
+        assert_eq!(s.frames(), &[0.0, 0.5, -1.0, -0.5]);
+        assert!(matches!(
+            pcm_source(DataId(1), &data, 3, 16, 8000),
+            Err(AudioError::BadChannelCount(_, 3))
+        ));
+        assert!(matches!(
+            pcm_source(DataId(1), &data, 1, 16, 0),
+            Err(AudioError::ZeroRate(_))
+        ));
     }
 
     /// The client's silent-failure behaviour for a format `msacm32` cannot open: an error the caller

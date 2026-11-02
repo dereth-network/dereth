@@ -1,0 +1,24 @@
+[package]
+name = "dereth-audio-out"
+description = "The default sound output endpoint through cpal, for any client whose mixer plays through the sound engine's output seam."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[dependencies]
+# The output seam this implements.
+dereth-audio.workspace = true
+# The sound device.
+cpal.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

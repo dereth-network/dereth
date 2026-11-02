@@ -87,6 +87,7 @@ members = [
     "dereth/client/crates/ui",
     "dereth/client/crates/ui-screens",
     "dereth/client/crates/input",
+    "dereth/client/crates/audio-out",
     "dereth/client/crates/clipboard",
     "dereth/client/crates/console",
     "dereth/client/crates/classic",
@@ -218,6 +219,7 @@ dereth-client-net = { path = "core/client-net", default-features = false }
 dereth-client-runtime = { path = "core/client-runtime" }
 dereth-client-sdk = { path = "core/client-sdk" }
 dereth-client-shell = { path = "dereth/client/crates/shell", default-features = false }
+dereth-audio-out = { path = "dereth/client/crates/audio-out" }
 dereth-clipboard = { path = "dereth/client/crates/clipboard" }
 dereth-console = { path = "dereth/client/crates/console" }
 dereth-corpus = { path = "tools/corpus" }

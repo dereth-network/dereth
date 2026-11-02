@@ -1359,6 +1359,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-audio-out"
+version = "0.0.0"
+dependencies = [
+ "cpal",
+ "dereth-audio",
+ "tracing",
+]
+
+[[package]]
 name = "dereth-builder"
 version = "0.0.0"
 dependencies = [
@@ -1655,7 +1664,7 @@ name = "dereth-desktop"
 version = "0.0.0"
 dependencies = [
  "chrono",
- "cpal",
+ "dereth-audio-out",
  "dereth-classic-dat",
  "dereth-classic-fonts",
  "dereth-classic-gdi",
