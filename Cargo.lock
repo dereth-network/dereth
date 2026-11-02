@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "auberean-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "auberean-assets",
  "auberean-client-sdk",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "auberean-headless"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "auberean-client-sdk",
  "auberean-dat",
