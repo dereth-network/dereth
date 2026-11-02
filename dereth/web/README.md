@@ -4,8 +4,9 @@ The Dereth client, compiled to WebAssembly. It is the same application as the de
 running in a Web Worker and drawing into a canvas with WebGPU, or WebGL 2 where the browser has no
 WebGPU.
 
-- **A launcher first.** The page opens on the desktop launcher's world list: pick a world or type
-  an address, choose your data files, and play.
+- **The launcher first.** The page is the desktop launcher's Dereth realm, in its own look: Home,
+  the worlds, each world's page, accounts, plugins and the library. Pick a world or type an
+  address, choose your data files, and play.
 - **Your own data files.** You pick your four `client_*.dat` files, plus the older `portal.dat`
   and `cell.dat` for the classic interface and early-era worlds. The page reads them on your
   machine and can keep a copy in the browser's private storage. Nothing is uploaded.
@@ -14,9 +15,10 @@ WebGPU.
   overlay per world, and never writes your files.
 - **The page is the screen.** Full screen is on at first and draws at the page's own pixels.
   Render scale, on the front page and in Client Options, draws fewer of them for speed.
-- **One WebSocket to the server:** an Empyrean server's own `wss://` endpoint, or
-  `dereth-web-relay` (`tools/web-relay`) on your machine for a server that speaks only UDP. Plain
-  `ws://` is refused for anything but your own machine.
+- **One WebSocket to the server:** an Empyrean server's own `wss://` endpoint, or the
+  `dereth-web-relay` (`tools/web-relay`) its operator runs beside a server that speaks only UDP.
+  A world with neither can't be played in a browser. Plain `ws://` is refused for anything but
+  your own machine.
 - **Static files.** Any static host can serve the page, its scripts and the module.
 
 [`DEPLOY.md`](DEPLOY.md) covers building and hosting it, the headers a host must send, the page's
@@ -25,7 +27,10 @@ address parameters, and how each of the above works. `cargo xtask web` builds it
 
 | File | What |
 |---|---|
-| `www/index.html`, `www/front.js` | the front page: the world list, the data sets, the launch form |
+| `www/index.html`, `www/front.js` | the front page: the desktop launcher's screens, drawn from its backend's snapshot |
+| `www/backend.js` | the front page's backend: the desktop launcher's commands, answered by the launcher logic in the module and by the browser's storage |
+| `www/launcher.css`, `www/web.css` | the desktop launcher's stylesheet, copied as it is, and the page's own rules beside it |
+| `www/assets/` | the launcher's art the page wears (Dereth's paintings and emblem, the two typefaces), copied there by the build and not kept in git |
 | `www/play.js` | the canvas, and the page's input forwarded to the worker |
 | `www/play-worker.js` | the worker: loads the module, opens the data files, carries the WebSocket, runs a frame per animation frame |
 | `www/datfiles.js` | reads the data files: picked files, the browser's copy, or the dev runner's |

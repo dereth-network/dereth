@@ -36,6 +36,9 @@ pub struct WorldList {
     worlds: Vec<World>,
     copy: Option<ListCache>,
     hub: HubWatch,
+    /// Whether this launcher asks each world how it is itself (the desktop's status ping); a
+    /// browser cannot, and has only the hub's word.
+    asks_worlds: bool,
 }
 
 impl Default for WorldList {
@@ -55,12 +58,18 @@ impl WorldList {
             sources,
             worlds: Vec::new(),
             copy: None,
+            asks_worlds: false,
         };
         if let Some(copy) = copy {
             // A copy that does not read leaves the list empty, to be read.
             let _ = list.show_copy(copy);
         }
         list
+    }
+
+    /// This launcher asks each world how it is itself, and says so in `heard` ([`Self::shown`]).
+    pub fn set_asks_worlds(&mut self, asks: bool) {
+        self.asks_worlds = asks;
     }
 
     /// Where the list is read from, in the order the sources are tried.
@@ -165,14 +174,22 @@ impl WorldList {
     }
 
     /// The hub's word on the worlds, read again about once a minute while the hub's list is shown.
+    #[must_use]
+    pub fn hub(&self) -> &HubWatch {
+        &self.hub
+    }
+
+    /// The hub's word on the worlds, to read it again ([`HubWatch::start`]).
     pub fn hub_mut(&mut self) -> &mut HubWatch {
         &mut self.hub
     }
 
     /// Every world as it is shown at `now`: the list's, then the servers the player added
     /// (`state`), each with what it says of itself and whether it answered when asked (`heard`,
-    /// by the world's key), else the hub's word ([`worlds::shown`]). A server the player added
-    /// that is a world of the list ([`worlds::same_world`]) is shown once, as the list's world.
+    /// by the world's key), else the hub's word ([`worlds::shown`]). What a world of the list said
+    /// when the hub asked it ([`HubWatch::said`]) stands in for its own word while it has none;
+    /// the hub never speaks for a server the player added. A server the player added that is a
+    /// world of the list ([`worlds::same_world`]) is shown once, as the list's world.
     pub fn shown<'a, F>(
         &'a self,
         state: &'a LauncherState,
@@ -229,8 +246,21 @@ impl WorldList {
         worlds::all(&self.worlds, state)
             .map(|w| {
                 let (live, answered) = heard(&w.slug);
+                let listed = !state.custom_worlds.iter().any(|c| c.slug == w.slug);
+                let said = self.hub.said(&w.slug, now).filter(|_| listed);
                 let hub = self.hub.current(&w.slug, now);
-                worlds::shown(w, answered, live, hub, state)
+                let heard = live.or(said);
+                // An answer may still come while this launcher has not asked the world itself, or,
+                // for one that cannot, while the hub's word on the list is still to be taken.
+                let may_answer = if self.asks_worlds {
+                    answered.is_none()
+                } else {
+                    listed && self.hub.word_pending()
+                };
+                let mut w = worlds::shown(w, answered, heard, hub, state);
+                w.era_state = worlds::era_state(&w, heard.is_some(), may_answer);
+                w.favorite = state.is_favorite_world(&w.slug);
+                w
             })
             .collect()
     }
@@ -242,13 +272,106 @@ mod tests {
     //! shows the same).
     use super::*;
     use crate::serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
+    use crate::status::LiveStatus;
     use crate::testing::world_list as fixture;
-    use crate::world::WorldState;
+    use crate::world::{Emulator, Told, WorldState};
 
     fn summaries(list: &WorldList, now: u64) -> Vec<fixture::Summary> {
         list.shown(&LauncherState::default(), now, |_| (None, None))
             .map(|w| fixture::summary(&w))
             .collect()
+    }
+
+    /// The list marks the worlds the player starred, which a launcher shows first; a world a Play
+    /// favorite names is not one unless starred.
+    #[test]
+    fn the_list_marks_the_worlds_the_player_starred() {
+        let now = fixture::READ_AT;
+        let mut list = WorldList::default();
+        list.read_with(now, fixture::fetch(true)).unwrap();
+        let mut state = LauncherState::default();
+        state.set_favorite_world("ironwood", true);
+        state.favourites.push(crate::state::Favourite {
+            id: "f1".into(),
+            name: None,
+            world_slug: "coldeve".into(),
+            account: "player".into(),
+            client: crate::install::ClientKind::Dereth,
+            dat_set_id: None,
+            classic_set_id: None,
+        });
+        let favorites: Vec<String> = list
+            .shown(&state, now, |_| (None, None))
+            .filter(|w| w.favorite)
+            .map(|w| w.slug)
+            .collect();
+        assert_eq!(favorites, ["ironwood"]);
+    }
+
+    /// The era of an Empyrean world nobody has heard from is being checked while an answer may
+    /// still come: for a launcher that asks worlds itself, until it has asked; for one that
+    /// cannot, until the hub's word on the list is taken. Then it is unknown, and the era a world
+    /// says is known as soon as it says it. A world whose software the list does not name is
+    /// taken to play the end of retail.
+    #[test]
+    fn an_empyrean_worlds_era_is_checked_until_an_answer_can_no_longer_come() {
+        use crate::world::EraState;
+        let now = fixture::READ_AT;
+        let quiet_page = || {
+            let mut page: serde_json::Value = serde_json::from_str(&fixture::hub_page()).unwrap();
+            page["data"][3]["statusPing"] = serde_json::Value::Null;
+            page["data"][0]["emulator"]["family"] = serde_json::json!(null);
+            page.to_string()
+        };
+        let fetch = move |url: &str| -> Result<Vec<u8>, String> {
+            if url.starts_with(HUB_LIST_URL) {
+                Ok(quiet_page().into_bytes())
+            } else {
+                Err(format!("{url}: not found"))
+            }
+        };
+        let era = |list: &WorldList, answered: Option<bool>, live: Option<&LiveStatus>| {
+            list.shown_as(
+                &LauncherState::default(),
+                now,
+                |_| (live, answered),
+                "ironwood",
+            )
+            .unwrap()
+            .era_state
+        };
+        let unnamed = |list: &WorldList| {
+            list.shown_as(&LauncherState::default(), now, |_| (None, None), "coldeve")
+                .unwrap()
+        };
+
+        // A browser: the hub's word comes with the list it reads, and has nothing from Ironwood.
+        let mut browser = WorldList::default();
+        let copy = browser.read_with(now, fetch).unwrap().clone();
+        assert_eq!(era(&browser, None, None), EraState::Unknown);
+        // The day's copy shown again: the hub's word on it is still to come.
+        let mut again = WorldList::default();
+        again.show_copy(copy.clone()).unwrap();
+        assert_eq!(era(&again, None, None), EraState::Checking);
+        let w = unnamed(&again);
+        assert_eq!((w.era_state, w.era), (EraState::Assumed, None));
+
+        // A launcher that asks worlds itself: checking until it has asked.
+        let mut desktop = WorldList::default();
+        desktop.set_asks_worlds(true);
+        desktop.show_copy(copy).unwrap();
+        assert_eq!(era(&desktop, None, None), EraState::Checking);
+        assert_eq!(
+            era(&desktop, Some(true), None),
+            EraState::Unknown,
+            "asked; no status"
+        );
+        let says = LiveStatus {
+            state: WorldState::Online,
+            era: Some("infiltration".into()),
+            ..LiveStatus::default()
+        };
+        assert_eq!(era(&desktop, Some(true), Some(&says)), EraState::Known);
     }
 
     /// The hub's list is read first and shown, with its word on each world; when the hub does not
@@ -355,6 +478,118 @@ mod tests {
         assert!(list
             .shown_as(&state, now, |_| (None, None), "nowhere")
             .is_none());
+    }
+
+    /// What a world of the list told the hub when it asked stands in for the world's own word:
+    /// its era, systems and version are shown while it counts, the world's own answer goes before
+    /// it, and a server the player added never takes it, even one kept under a key the hub's list
+    /// has too.
+    #[test]
+    fn what_a_world_told_the_hub_is_shown_until_it_answers_and_never_for_a_server_the_player_added()
+    {
+        use serde_json::json;
+        let now = fixture::READ_AT;
+        let row = |name: &str, address: &str| {
+            json!({"slug": serverlist::slug_for(name), "name": name, "isDemo": false,
+                "emulator": {"family": "Empyrean"},
+                "endpoint": {"mode": "manual", "address": address, "port": 9000},
+                "websocketUrl": format!("wss://{address}/ws"),
+                "status": {"state": "online", "playersOnline": 1,
+                           "source": "server-heartbeat", "expiresAt": "2026-10-11T18:10:00Z"},
+                "statusPing": {"state": "open", "playersOnline": 2, "era": "infiltration",
+                               "eraFeatures": "1:0000ff", "software": "Empyrean",
+                               "version": "0.3.7", "name": name,
+                               "expiresAt": "2026-10-11T18:03:00Z"}})
+        };
+        let page = json!({"data": [row("Ironwood", "ironwood.example.org"),
+                                   row("Custom 1", "custom.example.org")],
+                          "nextOffset": null})
+        .to_string();
+        let mut list = WorldList::default();
+        list.read_with(now, |url| {
+            if url.starts_with(HUB_LIST_URL) {
+                Ok(page.clone().into_bytes())
+            } else {
+                Err("not found".into())
+            }
+        })
+        .expect("the hub answers");
+        let mut state = LauncherState::default();
+        let shown = |state: &LauncherState, at: u64, slug: &str| {
+            list.shown_as(state, at, |_| (None, None), slug)
+                .expect("a world")
+        };
+
+        let w = shown(&state, now, "ironwood");
+        assert_eq!(
+            (
+                w.era.as_deref(),
+                w.era_source,
+                w.emulator_version.as_deref()
+            ),
+            (Some("infiltration"), Some(Told::World), Some("0.3.7"))
+        );
+        assert_eq!((w.state, w.players), (WorldState::Online, Some(2)));
+        assert!(w.era_features.is_some() && w.features_source == Some(Told::World));
+        let w = shown(&state, now + 180, "ironwood");
+        assert_eq!(
+            (w.era.as_deref(), w.emulator_version.as_deref(), w.players),
+            (None, None, Some(1)),
+            "past its expiry: the heartbeat alone"
+        );
+
+        // The world's own answer goes before what it told the hub.
+        let own = LiveStatus {
+            state: WorldState::Online,
+            era: Some("eor".into()),
+            version: Some("0.3.8".into()),
+            ..LiveStatus::default()
+        };
+        let w = list
+            .shown_as(&state, now, |_| (Some(&own), None), "ironwood")
+            .unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.emulator_version.as_deref()),
+            (Some("eor"), Some("0.3.8"))
+        );
+
+        // A server the player added by the listed world's WebSocket endpoint is that world, with
+        // what it told the hub; one added by its game address alone is a server of its own, and
+        // the hub says nothing of it, even kept under the key of another listed world.
+        let by_address = state
+            .add_custom_world("", "ironwood.example.org", "9000", None, Emulator::Unknown)
+            .unwrap();
+        assert_eq!(
+            by_address, "custom-1",
+            "the key the hub's Custom 1 is kept under"
+        );
+        let by_ws = state
+            .add_custom_world("", "ironwood.example.org", "443", None, Emulator::Unknown)
+            .unwrap();
+        state.set_custom_world_url(&by_ws, Some("wss://ironwood.example.org/ws"));
+        let w = shown(&state, now, &by_ws);
+        assert_eq!(
+            (w.slug.as_str(), w.era.as_deref()),
+            ("ironwood", Some("infiltration"))
+        );
+        let all = list.every_world(&state, now, |_| (None, None));
+        let added = &all[list.worlds().len()..];
+        assert_eq!(
+            added.iter().map(|w| w.slug.as_str()).collect::<Vec<_>>(),
+            [by_address.as_str(), by_ws.as_str()]
+        );
+        for w in added {
+            assert_eq!(
+                (
+                    w.era.as_deref(),
+                    w.era_source,
+                    w.emulator_version.as_deref()
+                ),
+                (None, None, None),
+                "{}",
+                w.slug
+            );
+        }
     }
 
     /// The day's copy is shown at start, and the list is read only once the copy is a day old; a

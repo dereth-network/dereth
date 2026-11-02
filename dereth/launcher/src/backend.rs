@@ -124,15 +124,16 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// One HTTPS GET, bounded. Plain HTTP is refused: the URLs come from configuration and the
-/// world list, and quietly downgrading either to plaintext is not a favour.
+/// One HTTPS GET, bounded. Plain HTTP is refused, except to this machine itself: the URLs come
+/// from configuration and the world list, and quietly downgrading either to plaintext is not a
+/// favour; a hub or world run on this machine for testing is reached as it serves.
 pub fn http_get(url: &str) -> Result<Vec<u8>, String> {
     http_get_bounded(url, 1 << 20, Duration::from_secs(8))
 }
 
-/// One HTTPS GET of at most `limit` bytes within `timeout`.
+/// One HTTPS GET of at most `limit` bytes within `timeout` (or plain HTTP to this machine).
 fn http_get_bounded(url: &str, limit: u64, timeout: Duration) -> Result<Vec<u8>, String> {
-    if !url.to_ascii_lowercase().starts_with("https://") {
+    if !url.to_ascii_lowercase().starts_with("https://") && !plain_http_to_loopback(url) {
         return Err(format!("{url}: only https is accepted"));
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -145,6 +146,30 @@ fn http_get_bounded(url: &str, limit: u64, timeout: Duration) -> Result<Vec<u8>,
         .limit(limit)
         .read_to_vec()
         .map_err(|e| format!("{url}: {e}"))
+}
+
+/// Whether `url` is plain `http://` to this machine: `127.0.0.1`, `[::1]` or `localhost`, at any
+/// port.
+fn plain_http_to_loopback(url: &str) -> bool {
+    let Some(rest) = url
+        .get(..7)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("http://"))
+        .map(|_| &url[7..])
+    else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return false;
+    }
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((host, tail)) if tail.is_empty() || tail.starts_with(':') => host,
+            _ => return false,
+        },
+        None => authority.split(':').next().unwrap_or_default(),
+    };
+    host == "127.0.0.1" || host == "::1" || host.eq_ignore_ascii_case("localhost")
 }
 
 /// How the plugins' downloads are made: one HTTPS GET of at most `limit` bytes, the bytes or why
@@ -462,6 +487,9 @@ pub struct Backend {
     /// Whether each server answered the server-tracker login, for worlds with no status document.
     probed: HashMap<String, bool>,
     probing: HashSet<String>,
+    /// Whether the page shows the worlds (its home, the list or a world's page): only then are
+    /// the worlds that answered asked again how they are.
+    worlds_shown: bool,
     running: Vec<Running>,
     job: Option<JobView>,
     message: Option<Message>,
@@ -534,7 +562,9 @@ impl Backend {
                 }
             }
         }
-        let list = WorldList::new(list_sources, ListCache::load(&folders.data));
+        let mut list = WorldList::new(list_sources, ListCache::load(&folders.data));
+        // The launcher asks each world how it is itself, with the status ping.
+        list.set_asks_worlds(true);
         let plugins = Shelf::open(folders.plugins());
         Self {
             plugins,
@@ -548,6 +578,7 @@ impl Backend {
             polled: HashMap::new(),
             probed: HashMap::new(),
             probing: HashSet::new(),
+            worlds_shown: true,
             running: Vec::new(),
             job: None,
             message: None,
@@ -869,19 +900,7 @@ impl Backend {
     /// that answered it), and watch the clients.
     pub fn tick(shared: &Shared) {
         Self::read_hub_status_at(shared, now(), http_get);
-        let pings: Vec<String> = {
-            let b = lock(shared);
-            b.all_worlds()
-                .filter(|w| w.status_method != StatusMethod::EmpyreanHttp)
-                .filter(|w| b.live.contains_key(&w.slug) && !b.probing.contains(&w.slug))
-                .filter(|w| {
-                    b.polled
-                        .get(&w.slug)
-                        .is_none_or(|t| t.elapsed() >= STATUS_INTERVAL)
-                })
-                .map(|w| w.slug)
-                .collect()
-        };
+        let pings = lock(shared).pings_due();
         if !pings.is_empty() {
             Self::probe(shared, pings);
         }
@@ -912,6 +931,29 @@ impl Backend {
             });
         }
         lock(shared).poll_running();
+    }
+
+    /// The page shows the worlds, or no longer does ([`Self::pings_due`]).
+    pub fn set_worlds_shown(&mut self, shown: bool) {
+        self.worlds_shown = shown;
+    }
+
+    /// The worlds to ask how they are again, with the status ping: those that answered it, each a
+    /// minute after it was last asked, while the page shows the worlds.
+    fn pings_due(&self) -> Vec<String> {
+        if !self.worlds_shown {
+            return Vec::new();
+        }
+        self.all_worlds()
+            .filter(|w| w.status_method != StatusMethod::EmpyreanHttp)
+            .filter(|w| self.live.contains_key(&w.slug) && !self.probing.contains(&w.slug))
+            .filter(|w| {
+                self.polled
+                    .get(&w.slug)
+                    .is_none_or(|t| t.elapsed() >= STATUS_INTERVAL)
+            })
+            .map(|w| w.slug)
+            .collect()
     }
 
     fn poll_running(&mut self) {
@@ -1404,6 +1446,12 @@ impl Backend {
         self.save();
     }
 
+    /// Star the world `slug` in the world list, or take its star away.
+    pub fn set_world_favorite(&mut self, slug: &str, favorite: bool) {
+        self.state.set_favorite_world(slug, favorite);
+        self.save();
+    }
+
     /// Add a server by hand, with the rules and the emulator the player says it has. Its era is
     /// what it says when asked, else the end of retail.
     pub fn add_custom_world(&mut self, s: &NewServer) -> Result<String, String> {
@@ -1796,6 +1844,36 @@ mod tests {
             dat_set_id: Some("eor".into()),
             classic_set_id: None,
         }
+    }
+
+    /// The list and the worlds' status documents are read over HTTPS only, except from this
+    /// machine itself, where a hub or world run for testing serves plain HTTP; an address that
+    /// only looks like this machine is refused.
+    #[test]
+    fn plain_http_is_read_only_from_this_machine() {
+        for here in [
+            "http://127.0.0.1:8102/v1/servers",
+            "http://localhost/v1/servers",
+            "HTTP://LocalHost:9000",
+            "http://[::1]:8102/v1/servers?limit=100",
+        ] {
+            assert!(plain_http_to_loopback(here), "{here}");
+        }
+        for elsewhere in [
+            "http://hub.dereth.network/v1/servers",
+            "http://127.0.0.1.example.org/v1/servers",
+            "http://localhost.example.org/",
+            "http://user@127.0.0.1/",
+            "http://example.org/?127.0.0.1",
+            "http://[::1].example.org/",
+            "http://10.0.0.1/",
+            "ftp://127.0.0.1/",
+            "https://127.0.0.1/",
+        ] {
+            assert!(!plain_http_to_loopback(elsewhere), "{elsewhere}");
+        }
+        let refused = http_get("http://hub.dereth.network/v1/servers").unwrap_err();
+        assert!(refused.contains("only https"), "{refused}");
     }
 
     #[test]
@@ -2596,6 +2674,57 @@ mod tests {
         let (mut b, dir) = backend("probe");
         b.probed.insert("eulmore".into(), false);
         assert_eq!(b.world("eulmore").unwrap().state, WorldState::Offline);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A world starred in the world list is a favorite, which the list shows first, and the star
+    /// is saved; taken away, it is not.
+    #[test]
+    fn a_world_starred_in_the_list_is_a_favorite_and_is_saved() {
+        let (mut b, dir) = backend("world-favorite");
+        assert!(!b.world("eulmore").unwrap().favorite);
+        b.set_world_favorite("eulmore", true);
+        assert!(b.world("eulmore").unwrap().favorite);
+        let (saved, _) = dereth_launch::state::LauncherState::load(&b.folders.config);
+        assert_eq!(
+            saved.favorite_worlds,
+            ["eulmore"],
+            "the star is in the launcher's file"
+        );
+        b.set_world_favorite("eulmore", false);
+        assert!(!b.world("eulmore").unwrap().favorite);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The desktop shows an Empyrean world's era as being checked until it has asked the world,
+    /// then the era the world says, or unknown when it says none; and it asks the worlds that
+    /// answered again only while the page shows the worlds.
+    #[test]
+    fn an_empyrean_worlds_era_is_checked_until_asked_and_asked_again_only_while_shown() {
+        use dereth_launch::status::LiveStatus;
+        use dereth_launch::world::EraState;
+        let (mut b, dir) = backend("era-state");
+        assert_eq!(b.world("eulmore").unwrap().era_state, EraState::Checking);
+        b.probed.insert("eulmore".into(), true);
+        assert_eq!(b.world("eulmore").unwrap().era_state, EraState::Unknown);
+        b.live.insert(
+            "eulmore".into(),
+            LiveStatus {
+                state: WorldState::Online,
+                era: Some("infiltration".into()),
+                ..LiveStatus::default()
+            },
+        );
+        let w = b.world("eulmore").unwrap();
+        assert_eq!(
+            (w.era_state, w.era.as_deref()),
+            (EraState::Known, Some("infiltration"))
+        );
+        assert_eq!(b.pings_due(), ["eulmore"]);
+        b.set_worlds_shown(false);
+        assert!(b.pings_due().is_empty(), "nothing is asked off screen");
+        b.set_worlds_shown(true);
+        assert_eq!(b.pings_due(), ["eulmore"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -10,8 +10,9 @@
 //! and writes three release files into `<target dir>/package/dereth-web-<version>/` (or `--out`):
 //!
 //! - `dereth-web-<version>.zip`: the files under one folder, `dereth-web-<version>/`, ready to be
-//!   served as they are ([`FILES`]: the page, the module, and the Horizon interface's art beside
-//!   the module, which the module does not carry), with the notices the module needs beside them ([`NOTICES`]:
+//!   served as they are ([`FILES`]: the page, the module, the Horizon interface's art beside
+//!   the module, which the module does not carry, and the launcher's art the front page wears in
+//!   `assets/`), with the notices the module needs beside them ([`NOTICES`]:
 //!   the licence, what the module is built from and the typefaces it carries, and every
 //!   third-party crate's licence text);
 //! - `web.json`: the release's manifest, which a host or the launcher reads to find out what the
@@ -63,10 +64,28 @@ pub const WWW: &str = "dereth/web/www";
 /// Every file the bundle holds, relative to `www/`, and nothing else.
 pub const FILES: &[&str] = &[
     "_headers",
+    "assets/background/dereth/blacksmith.webp",
+    "assets/background/dereth/diamond-golem.webp",
+    "assets/background/dereth/iconic.webp",
+    "assets/background/dereth/meeting-hall.webp",
+    "assets/background/dereth/obsidian-bridge.webp",
+    "assets/background/dereth/obsidian-plains.webp",
+    "assets/background/dereth/olthoi-queen.webp",
+    "assets/background/dereth/sanctuary.webp",
+    "assets/background/dereth/tenkarrdun.webp",
+    "assets/background/dereth/wilderness.webp",
+    "assets/backgrounds.json",
+    "assets/emblem/dereth.webp",
+    "assets/fonts/Cinzel-var.ttf",
+    "assets/fonts/EBGaramond-var.ttf",
+    "assets/fonts/OFL-Cinzel.txt",
+    "assets/fonts/OFL-EBGaramond.txt",
     "audio-worklet.js",
+    "backend.js",
     "datfiles.js",
     "front.js",
     "index.html",
+    "launcher.css",
     "pkg/dereth_web.js",
     "pkg/dereth_web_bg.wasm",
     "pkg/horizon/atlas-1-0.png",
@@ -83,6 +102,7 @@ pub const FILES: &[&str] = &[
     "play-worker.js",
     "play.js",
     "plugin-io.js",
+    "web.css",
 ];
 
 /// The notices the bundle carries beside the page's files, written by the package itself.
@@ -95,8 +115,9 @@ const WASM: super::targets::Target = super::targets::Target {
     arch: super::targets::Arch::X86_64,
 };
 
-/// Files under `www/` that are never released: the folder's own ignore file.
-const NOT_RELEASED: &[&str] = &[".gitignore"];
+/// Files under `www/` that are never released: the folder's own ignore file, and the one the build
+/// writes beside the launcher's art it copies into `assets/`.
+const NOT_RELEASED: &[&str] = &[".gitignore", "assets/.gitignore"];
 
 /// No file is larger than this: 25 MiB, the most Cloudflare Pages serves as one file. The module
 /// is about 22 MB, the largest of the Horizon interface's atlases about 9 MB.
@@ -809,6 +830,43 @@ mod tests {
             .filter(|f| f.starts_with("pkg/horizon/"))
             .collect();
         assert_eq!(listed, on_disk);
+    }
+
+    /// The bundle's launcher art is exactly Dereth's paintings in the launcher's art folder, its
+    /// emblem and the typefaces with their licences: a painting added or taken away changes the
+    /// list, or the package refuses the stray or missing file.
+    #[test]
+    fn the_bundle_s_launcher_art_is_the_launcher_s_dereth_art() {
+        // What `cargo xtask web --build-only` copies into `assets/`.
+        let art = workspace_root().join("dereth/launcher/assets");
+        let names = |dir: &str| -> Vec<String> {
+            let folder = art.join(dir);
+            std::fs::read_dir(&folder)
+                .unwrap_or_else(|e| panic!("{}: {e}", folder.display()))
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        };
+        let mut on_disk: Vec<String> = names("background/dereth")
+            .into_iter()
+            .map(|n| format!("assets/background/dereth/{n}"))
+            .chain(
+                names("fonts")
+                    .into_iter()
+                    .map(|n| format!("assets/fonts/{n}")),
+            )
+            .chain([
+                "assets/backgrounds.json".to_owned(),
+                "assets/emblem/dereth.webp".to_owned(),
+            ])
+            .collect();
+        on_disk.sort();
+        let listed: Vec<&str> = FILES
+            .iter()
+            .copied()
+            .filter(|f| f.starts_with("assets/"))
+            .collect();
+        assert_eq!(listed, on_disk);
+        assert!(art.join("emblem/dereth.webp").is_file());
     }
 
     /// The rules of a static host's `_headers` file, in order: each URL pattern with the headers it

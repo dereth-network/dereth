@@ -28,15 +28,25 @@
 //! is linked ([`crate::direct`]): the hub's word on that goes before the day's copy, which a
 //! world's link coming or going since has made stale.
 //!
+//! It brings, too, what an Empyrean world said when the hub asked it with the status ping (a row's
+//! `statusPing`): its state and players, the era it plays and its systems, its software and that
+//! software's version. That is read as the launcher reads the world's own answer
+//! ([`crate::status::from_status_reply`]), kept by the same key, and taken only until its
+//! `expiresAt`. It stands in for the world's own answer while the launcher has none: a browser
+//! cannot send the ping, and the desktop has not sent it yet.
+//!
 //! [`slug_for`]: crate::serverlist::slug_for
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use dereth_primitives::EraFeatureBits;
+
 use crate::serverlist::{
     hub_key, hub_rows, ListCache, ListFetch, ListFormat, ListSource, MalformedList,
 };
+use crate::status::LiveStatus;
 use crate::world::WorldState;
 
 /// How long after one read of the hub's list for status the next is due, in seconds.
@@ -94,6 +104,94 @@ impl HubStatus {
     }
 }
 
+/// What an Empyrean world said when the hub asked it with the status ping, as the hub lists it
+/// (a row's `statusPing`), read as the launcher reads the world's own answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HubSaid {
+    /// What it said: its state and players, era and systems, software, version and name.
+    pub live: LiveStatus,
+    /// When the answer stops counting, in seconds since the epoch.
+    pub expires_at: u64,
+}
+
+impl HubSaid {
+    /// A row's `statusPing` read. `None` for `null`, and for an answer with no expiry that reads.
+    /// The state is taken as the ping's own: `open` is up, `starting` starting, `shutting-down`
+    /// down, and anything else unknown. The systems are kept by name, as far as this build's table
+    /// and the world's both name them; the rest are left to the era's table.
+    #[must_use]
+    pub fn read(said: &Value) -> Option<Self> {
+        let expires_at = parse_time(said.get("expiresAt")?.as_str()?)?;
+        let text = |at: &str| {
+            said.get(at)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let state = match said.get("state").and_then(Value::as_str) {
+            Some("open") => WorldState::Online,
+            Some("starting") => WorldState::Starting,
+            Some("shutting-down") => WorldState::Offline,
+            _ => WorldState::Unknown,
+        };
+        let era_features = said
+            .get("eraFeatures")
+            .and_then(Value::as_str)
+            .and_then(|bits| EraFeatureBits::parse(bits).ok())
+            .and_then(|bits| crate::status::systems_named(&bits));
+        let live = LiveStatus {
+            state,
+            players: said
+                .get("playersOnline")
+                .and_then(Value::as_u64)
+                .map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
+            version: text("version"),
+            era: text("era"),
+            era_features,
+            software: text("software"),
+            world_name: text("name"),
+            ..LiveStatus::default()
+        };
+        Some(Self { live, expires_at })
+    }
+
+    /// Whether the answer still counts at `now` (seconds since the epoch).
+    #[must_use]
+    pub fn is_current(&self, now: u64) -> bool {
+        now < self.expires_at
+    }
+}
+
+/// The rows of the hub's list, its pages in order, by the key the launcher keeps each world
+/// under. A row the launcher does not show is left out, and so are two rows whose names spell one
+/// key.
+fn rows_by_key(pages: &[String]) -> Result<BTreeMap<String, Value>, MalformedList> {
+    let mut by_key: BTreeMap<String, Value> = BTreeMap::new();
+    let mut namesakes = BTreeSet::new();
+    for row in hub_rows(pages)? {
+        let Some(key) = hub_key(&row) else {
+            continue;
+        };
+        if by_key.insert(key.clone(), row).is_some() {
+            namesakes.insert(key);
+        }
+    }
+    by_key.retain(|key, _| !namesakes.contains(key));
+    Ok(by_key)
+}
+
+/// A row's status from its heartbeat, with where a browser reaches its world.
+fn status_of(row: &Value) -> Option<HubStatus> {
+    let s = HubStatus::read(row.get("status")?)?;
+    let (websocket_url, status_url) = crate::serverlist::hub_web_addresses(row);
+    Some(HubStatus {
+        websocket_url,
+        status_url,
+        ..s
+    })
+}
+
 /// The status the hub's list, its pages in order, gives each world, by the key the launcher keeps
 /// the world under. A row the launcher does not show gives none, and neither do two rows whose
 /// names spell one key.
@@ -101,29 +199,32 @@ impl HubStatus {
 /// # Errors
 /// [`MalformedList`] when a page is not a page of the list.
 pub fn read_pages(pages: &[String]) -> Result<BTreeMap<String, HubStatus>, MalformedList> {
-    let mut by_key: BTreeMap<String, Option<HubStatus>> = BTreeMap::new();
-    let mut namesakes = BTreeSet::new();
-    for row in hub_rows(pages)? {
-        let Some(key) = hub_key(&row) else {
-            continue;
-        };
-        let status = row.get("status").and_then(HubStatus::read).map(|s| {
-            let (websocket_url, status_url) = crate::serverlist::hub_web_addresses(&row);
-            HubStatus {
-                websocket_url,
-                status_url,
-                ..s
-            }
-        });
-        if by_key.insert(key.clone(), status).is_some() {
-            namesakes.insert(key);
-        }
-    }
-    Ok(by_key
-        .into_iter()
-        .filter(|(key, _)| !namesakes.contains(key))
-        .filter_map(|(key, status)| Some((key, status?)))
-        .collect())
+    Ok(read_word(pages)?.0)
+}
+
+/// What the hub's list, its pages in order, says each world said when the hub asked it, by the
+/// key the launcher keeps the world under, by the rule of [`read_pages`].
+///
+/// # Errors
+/// [`MalformedList`] when a page is not a page of the list.
+pub fn read_said(pages: &[String]) -> Result<BTreeMap<String, HubSaid>, MalformedList> {
+    Ok(read_word(pages)?.1)
+}
+
+/// Each world's status from its heartbeat, and what it said when the hub asked it.
+type Word = (BTreeMap<String, HubStatus>, BTreeMap<String, HubSaid>);
+
+fn read_word(pages: &[String]) -> Result<Word, MalformedList> {
+    let rows = rows_by_key(pages)?;
+    let statuses = rows
+        .iter()
+        .filter_map(|(key, row)| Some((key.clone(), status_of(row)?)))
+        .collect();
+    let said = rows
+        .iter()
+        .filter_map(|(key, row)| Some((key.clone(), HubSaid::read(row.get("statusPing")?)?)))
+        .collect();
+    Ok((statuses, said))
 }
 
 /// The hub's status for the worlds shown, kept in memory, and when to read it again.
@@ -131,8 +232,9 @@ pub fn read_pages(pages: &[String]) -> Result<BTreeMap<String, HubStatus>, Malfo
 /// Whoever shows the worlds tells it which list is on screen ([`Self::copy_shown`] for the day's
 /// copy, [`Self::list_read`] for a list just fetched), asks it for a read when one is due
 /// ([`Self::start`]), fetches each page the read names as the list's own are fetched, hands the
-/// read back ([`Self::finish`]), and asks it for a world's status as the world is shown
-/// ([`Self::current`]). The desktop launcher and the web page keep one each.
+/// read back ([`Self::finish`]), and asks it for a world's status and what the world said when the
+/// hub asked it as the world is shown ([`Self::current`], [`Self::said`]). The desktop launcher
+/// and the web page keep one each.
 #[derive(Debug, Clone, Default)]
 pub struct HubWatch {
     /// The hub's list, which the status is read from; `None` when the list is read from elsewhere
@@ -141,10 +243,15 @@ pub struct HubWatch {
     /// Whether the worlds on screen are the hub's list's.
     hubs_list_shown: bool,
     statuses: BTreeMap<String, HubStatus>,
+    /// What each world said when the hub asked it.
+    said: BTreeMap<String, HubSaid>,
     /// When the latest read started, in seconds since the epoch.
     last_read: Option<u64>,
     /// Whether a read is under way.
     reading: bool,
+    /// Whether the hub's word on the list shown has been taken: with the list itself, or by a
+    /// read since.
+    word_taken: bool,
 }
 
 impl HubWatch {
@@ -166,7 +273,7 @@ impl HubWatch {
             .cloned();
         if source != self.source {
             self.source = source;
-            self.statuses.clear();
+            self.forget();
             self.last_read = None;
         }
     }
@@ -175,9 +282,16 @@ impl HubWatch {
     /// copy; a copy of another list ends the hub's word for the worlds.
     pub fn copy_shown(&mut self, copy: &ListCache) {
         self.hubs_list_shown = copy.is_hubs();
+        self.word_taken = false;
         if !self.hubs_list_shown {
-            self.statuses.clear();
+            self.forget();
         }
+    }
+
+    /// Forget all the hub said.
+    fn forget(&mut self) {
+        self.statuses.clear();
+        self.said.clear();
     }
 
     /// A list just fetched at `now` is on screen. The hub's carries each world's status as it is
@@ -185,9 +299,11 @@ impl HubWatch {
     pub fn list_read(&mut self, list: &ListCache, now: u64) {
         self.copy_shown(list);
         if self.hubs_list_shown && self.source.is_some() {
-            if let Ok(statuses) = read_pages(&list.hub) {
+            if let Ok((statuses, said)) = read_word(&list.hub) {
                 self.statuses = statuses;
+                self.said = said;
                 self.last_read = Some(now);
+                self.word_taken = true;
             }
         }
     }
@@ -224,20 +340,38 @@ impl HubWatch {
         if !self.hubs_list_shown {
             return false;
         }
-        let Ok(statuses) = read
+        let Ok((statuses, said)) = read
             .finish(now)
-            .and_then(|(list, _)| read_pages(&list.hub).map_err(|e| e.to_string()))
+            .and_then(|(list, _)| read_word(&list.hub).map_err(|e| e.to_string()))
         else {
             return false;
         };
         self.statuses = statuses;
+        self.said = said;
+        self.word_taken = true;
         true
+    }
+
+    /// Whether the hub may still say more of the list shown than it has: it is the hub's list, and
+    /// the hub's word on it has not been taken yet.
+    #[must_use]
+    pub fn word_pending(&self) -> bool {
+        self.source.is_some() && self.hubs_list_shown && !self.word_taken
     }
 
     /// The hub's status for the world kept under `key`, while its heartbeat counts at `now`.
     #[must_use]
     pub fn current(&self, key: &str, now: u64) -> Option<&HubStatus> {
         self.statuses.get(key).filter(|s| s.is_current(now))
+    }
+
+    /// What the world kept under `key` said when the hub asked it, while that counts at `now`.
+    #[must_use]
+    pub fn said(&self, key: &str, now: u64) -> Option<&LiveStatus> {
+        self.said
+            .get(key)
+            .filter(|s| s.is_current(now))
+            .map(|s| &s.live)
     }
 }
 
@@ -404,6 +538,147 @@ mod tests {
             None,
             "a status with no expiry could count forever"
         );
+    }
+
+    /// What a world said when the hub asked it, as the hub lists it: `era` and `systems` (the
+    /// `--era-features` bits), counting until `expires` seconds after [`NOW`].
+    fn said(era: Option<&str>, systems: Option<&str>, expires: u64) -> Value {
+        json!({"state": "open", "playersOnline": 4, "era": era, "eraFeatures": systems,
+               "software": "Empyrean", "version": "0.3.7", "name": "Ironwood",
+               "askedAt": at(0), "expiresAt": at(expires)})
+    }
+
+    /// `row`, with what its world said when the hub asked it.
+    fn with_said(mut row: Value, said: Value) -> Value {
+        row["statusPing"] = said;
+        row
+    }
+
+    #[test]
+    fn what_a_world_told_the_hub_reads_as_its_own_answer_over_udp_does() {
+        use dereth_primitives::{EraFeatureBits, EraFeatures};
+        use dereth_transport::status_ping::{StatusReply, WorldState as PingState};
+        let bits = EraFeatureBits::of(EraFeatures::INFILTRATION);
+        let said_bits = said(Some("infiltration"), Some(&bits.to_string()), 180);
+        let read = HubSaid::read(&said_bits).expect("an answer");
+        // The same answer, as the desktop launcher reads it from the world over UDP.
+        let over_udp = crate::status::from_status_reply(&StatusReply {
+            format_version: 1,
+            state: PingState::Open,
+            players: 4,
+            era: "infiltration".into(),
+            era_table_version: bits.table_version,
+            era_features: bits.bytes,
+            software: "Empyrean".into(),
+            software_version: "0.3.7".into(),
+            world_name: "Ironwood".into(),
+        });
+        assert_eq!(read.live, over_udp);
+        assert_eq!(read.expires_at, NOW + 180);
+        assert!(read.live.era_features.is_some(), "its systems, by name");
+
+        let state = |word: &str| {
+            let mut s = said(None, None, 180);
+            s["state"] = word.into();
+            HubSaid::read(&s).unwrap().live.state
+        };
+        assert_eq!(state("open"), WorldState::Online);
+        assert_eq!(state("starting"), WorldState::Starting);
+        assert_eq!(state("shutting-down"), WorldState::Offline);
+        assert_eq!(state("unknown"), WorldState::Unknown);
+        assert_eq!(state("later"), WorldState::Unknown);
+
+        // An answer naming no era or systems says nothing of them; systems that do not read, or
+        // a table of version 0, name none.
+        let bare = HubSaid::read(&said(None, None, 180)).unwrap().live;
+        assert_eq!((bare.era, bare.era_features), (None, None));
+        for junk in ["0:ff", "1:f", "ffff5f", "1:zz", ""] {
+            let s = HubSaid::read(&said(Some("eor"), Some(junk), 180)).unwrap();
+            assert_eq!(s.live.era_features, None, "{junk:?}");
+            assert_eq!(s.live.era.as_deref(), Some("eor"));
+        }
+        let mut blank = said(Some("  "), None, 180);
+        blank["version"] = " ".into();
+        let blank = HubSaid::read(&blank).unwrap().live;
+        assert_eq!((blank.era, blank.version), (None, None));
+
+        // No answer, or one with no expiry, is none.
+        assert_eq!(HubSaid::read(&Value::Null), None);
+        let mut no_expiry = said(Some("eor"), None, 180);
+        no_expiry["expiresAt"] = Value::Null;
+        assert_eq!(HubSaid::read(&no_expiry), None);
+    }
+
+    #[test]
+    fn what_a_world_told_the_hub_counts_until_it_expires_and_a_world_that_told_none_has_none() {
+        let online = heartbeat("online", Some(2), 600);
+        let pages = [page(
+            &[
+                with_said(
+                    row("inf", "Ironwood", &online),
+                    said(Some("infiltration"), Some("1:0000ff"), 180),
+                ),
+                with_said(row("eor", "Eulmore", &online), Value::Null),
+                row("ace", "Coldeve", &online),
+                // Told the hub, but with no heartbeat: what it said is read all the same.
+                with_said(
+                    row("quiet", "Quiet", &json!({"state": "unknown"})),
+                    said(Some("eor"), None, 60),
+                ),
+                // Namesakes: neither takes what either said.
+                with_said(row("t1", "Twin", &online), said(Some("eor"), None, 180)),
+                with_said(row("t2", "twin", &online), said(Some("eor"), None, 180)),
+            ],
+            None,
+        )];
+        assert_eq!(
+            read_said(&pages)
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["ironwood", "quiet"]
+        );
+        let mut watch = HubWatch::new(&sources(None));
+        watch.list_read(&hub_copy(&pages), NOW);
+        let era = |key: &str, now: u64| watch.said(key, now).and_then(|l| l.era.clone());
+        assert_eq!(era("ironwood", NOW).as_deref(), Some("infiltration"));
+        assert_eq!(
+            watch
+                .said("ironwood", NOW)
+                .and_then(|l| l.version.as_deref()),
+            Some("0.3.7")
+        );
+        assert!(watch.said("ironwood", NOW + 179).is_some());
+        assert_eq!(
+            watch.said("ironwood", NOW + 180),
+            None,
+            "past its expiry, as if the world had told the hub nothing"
+        );
+        assert_eq!(
+            watch.current("ironwood", NOW + 180).map(|s| s.players),
+            Some(Some(2)),
+            "the heartbeat counts on"
+        );
+        assert_eq!(
+            watch.said("eulmore", NOW),
+            None,
+            "null: it has not answered"
+        );
+        assert_eq!(watch.said("coldeve", NOW), None, "no answer listed");
+        assert_eq!(era("quiet", NOW).as_deref(), Some("eor"));
+        assert_eq!(watch.said("twin", NOW), None);
+
+        // A later read without the answer takes it away, and the day's copy never brings one.
+        let mut read = watch.start(NOW + 60).expect("due");
+        read.take(Ok(
+            page(&[row("inf", "Ironwood", &online)], None).into_bytes()
+        ));
+        assert!(watch.finish(read, NOW + 60));
+        assert_eq!(watch.said("ironwood", NOW + 60), None);
+        let mut fresh = HubWatch::new(&sources(None));
+        fresh.copy_shown(&hub_copy(&pages));
+        assert_eq!(fresh.said("ironwood", NOW), None, "never from the copy");
     }
 
     #[test]

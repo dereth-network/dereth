@@ -1,187 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="still" data-realm="dereth">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dereth</title>
-<style>
-  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #17171a; --field: #0f0f11; --fg: #e9e5dc; --muted: #9a9486; --line: #34312c; --accent: #d7b46a; --bad: #e08a7a; --good: #8fbf7f; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
-  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
-  #view { display: block; background: #000; outline: none; image-rendering: auto; cursor: default; }
-  #launch { position: fixed; inset: 0; overflow: auto; background: var(--bg); }
-  .front { box-sizing: border-box; max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
-  .cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
-  @media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
-  h1 { font-size: 20px; margin: 0 0 2px; color: var(--accent); letter-spacing: 0.02em; }
-  h2 { font-size: 15px; margin: 0; color: var(--accent); }
-  .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  .head h2 { margin-right: auto; }
-  .sub, .muted { color: var(--muted); font-size: 13px; }
-  .sub { margin: 0; }
-  .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; white-space: pre-wrap; }
-  .note:empty { display: none; }
-  .bad { color: var(--bad); }
-  a { color: var(--accent); }
-  .good { color: var(--good); }
-  #problem { color: var(--bad); margin: 10px 0 0; font-size: 13px; white-space: pre-wrap; }
-  #problem:empty { display: none; }
-  label { display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
-  input[type=text], input[type=password], select { width: 100%; box-sizing: border-box; padding: 6px 8px; background: var(--field); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .filters input { flex: 1 1 160px; width: auto; }
-  .filters select { width: auto; }
-  .btn { padding: 5px 10px; font: 13px system-ui, sans-serif; color: var(--fg); background: var(--field); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
-  .btn:hover { border-color: var(--accent); }
-  .btn.on { border-color: var(--accent); color: var(--accent); }
-  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-  #go { margin-top: 14px; width: 100%; padding: 8px; font: 600 14px system-ui, sans-serif; color: #111; background: var(--accent); border: 0; border-radius: 4px; cursor: pointer; }
-  #go:disabled { opacity: 0.5; cursor: default; }
-  .table-wrap { overflow-x: auto; margin-top: 10px; max-height: 60vh; overflow-y: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; letter-spacing: 0.05em; padding: 4px 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
-  td { padding: 5px 6px; border-bottom: 1px solid #222; white-space: nowrap; }
-  td.name { white-space: normal; }
-  tr.world { cursor: pointer; }
-  tr.world:hover td { background: #1d1d21; }
-  tr.world.chosen td { background: #24221d; }
-  tr.section td { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; padding-top: 10px; }
-  .bead { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #555; }
-  .bead.online, .bead.high { background: var(--good); }
-  .bead.offline { background: var(--bad); }
-  .bead.starting { background: var(--accent); }
-  .strip { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; margin-top: 8px; }
-  .strip b { color: var(--muted); font-weight: 500; margin-right: 4px; font-size: 11px; letter-spacing: 0.05em; }
-  .features { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 10px; margin-top: 4px; }
-  .features label { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--fg); font-size: 12px; }
-  details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
-  .kept { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; align-items: center; font-size: 13px; margin-top: 6px; }
-  .kept .what { min-width: 0; overflow-wrap: anywhere; }
-  code { font: 12px ui-monospace, monospace; background: var(--field); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
-  #status { position: fixed; left: 8px; bottom: 6px; font: 11px ui-monospace, monospace; color: var(--muted); pointer-events: none; text-shadow: 0 0 3px #000; }
-  #log { position: fixed; right: 8px; bottom: 6px; max-width: 46vw; max-height: 30vh; overflow: auto; margin: 0; font: 11px/1.3 ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; pointer-events: none; text-shadow: 0 0 3px #000; }
-  .hidden { display: none !important; }
-</style>
+<link rel="stylesheet" href="launcher.css">
+<link rel="stylesheet" href="web.css">
 </head>
 <body>
 <div id="stage"><canvas id="view" width="800" height="600" tabindex="0"></canvas></div>
 
 <div id="launch">
-  <div class="front">
-    <header>
-      <h1>Dereth</h1>
-      <p class="sub">Asheron's Call, in this browser. Your data files are read on this machine and never uploaded.</p>
-    </header>
-
-    <div class="cols">
-      <section class="panel" id="worlds-panel">
-        <div class="head">
-          <h2>Worlds</h2><span id="count" class="muted"></span>
-          <button type="button" id="add-open" class="btn" title="Add a server of your own">+ Add server</button>
-          <button type="button" id="refresh" class="btn" title="Fetch the world list again">&#x21bb;</button>
-        </div>
-        <form id="add-form" class="hidden">
-          <label for="add-name">Name</label>
-          <input id="add-name" type="text" autocomplete="off" placeholder="optional">
-          <label for="add-address">Address</label>
-          <input id="add-address" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="host:port, a wss:// URL, or an Empyrean status address (https://…/status)">
-          <p id="add-problem" class="note bad"></p>
-          <div class="btns"><button type="button" id="add-cancel" class="btn">Cancel</button><button type="submit" class="btn">Add</button></div>
-        </form>
-        <div class="filters">
-          <input id="search" type="text" autocomplete="off" placeholder="Search">
-        </div>
-        <p class="note">Worlds not reached directly need the <a href="https://github.com/dereth-network/dereth/blob/main/tools/web-relay/README.md" target="_blank" rel="noopener noreferrer">web relay</a> running on this machine.</p>
-        <p id="list-note" class="note"></p>
-        <div class="table-wrap">
-          <table id="worlds">
-            <thead><tr><th></th><th>WORLD</th><th>EMULATOR</th><th>ERA</th><th>REACHED</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel" id="world-panel">
-        <p id="no-world" class="muted">Choose a world from the list.</p>
-        <form id="form" class="hidden">
-          <div class="head"><h2 id="w-name"></h2><button type="button" id="w-remove" class="btn hidden">Remove server</button></div>
-          <p id="w-desc" class="muted" style="margin:0"></p>
-          <div class="strip" id="w-facts"></div>
-          <label>Era</label>
-          <div id="w-era"></div>
-          <label for="w-set">Data files</label>
-          <select id="w-set"></select>
-          <label for="w-classic">Older data files (portal.dat and cell.dat)</label>
-          <select id="w-classic"></select>
-          <p id="w-files" class="note"></p>
-          <label for="server">Connect through</label>
-          <input id="server" type="text" spellcheck="false"
-                 title="A wss:// address, a status address, or the web relay's ws://127.0.0.1:9180/">
-          <p id="w-connect" class="note"></p>
-          <div class="row">
-            <div><label for="account">Account</label><input id="account" type="text" autocomplete="username"></div>
-            <div><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
-          </div>
-          <p id="w-overlay" class="note"></p>
-          <div class="btns" id="w-overlay-btns"></div>
-          <label for="scale">Render scale</label>
-          <select id="scale">
-            <option value="100">100%</option>
-            <option value="85">85%</option>
-            <option value="75">75%</option>
-            <option value="67">67%</option>
-            <option value="50">50%</option>
-          </select>
-          <button id="go" type="submit">Play</button>
-          <p id="problem" role="alert"></p>
-        </form>
-      </section>
-    </div>
-
-    <section class="panel" id="storage-panel">
-      <div class="head">
-        <h2>Kept in this browser</h2><span id="storage-use" class="muted"></span>
-        <button type="button" id="add-set" class="btn" title="Keep a folder of data files in this browser">+ Add data files</button>
+  <div class="vista" id="vista"></div>
+  <div class="shell">
+    <aside class="side">
+      <div class="lockup">
+        <span class="crest"><img class="emblem" src="assets/emblem/dereth.webp" alt=""></span>
+        <div class="word">DERETH<br>NETWORK</div>
       </div>
-      <p id="persist-note" class="note"></p>
-      <div id="sets" class="kept"></div>
-      <div id="overlays" class="kept"></div>
-      <label>Plugins (experimental)</label>
-      <div class="btns">
-        <button type="button" id="add-plugin" class="btn" title="Keep a plugin's folder (the one holding its plugin.toml) in this browser">Add a plugin folder…</button>
-        <button type="button" id="add-plugin-zip" class="btn" title="Keep a plugin's zip in this browser as it is">Add a plugin zip…</button>
-        <button type="button" id="remove-plugins" class="btn">Remove all plugins</button>
-      </div>
-      <p id="plugin-note" class="note bad"></p>
-      <label for="source-url">Plugin sources</label>
-      <div id="source-plugins" class="kept"></div>
-      <div class="filters" style="margin-top:8px">
-        <input id="source-url" type="text" spellcheck="false" autocomplete="off" placeholder="https://…/plugins.json">
-        <button type="button" id="add-source" class="btn">Add source</button>
-        <button type="button" id="refresh-sources" class="btn" title="Read every source again">Refresh</button>
-      </div>
-      <div id="source-warn" class="filters hidden" style="margin-top:6px">
-        <span class="sub">Dereth does not review plugins from other sources.</span>
-        <button type="button" id="source-confirm" class="btn">Add</button><button type="button" id="source-cancel" class="btn">Cancel</button>
-      </div>
-      <label for="plugin-updates">Automatically update plugins</label>
-      <select id="plugin-updates">
-        <option value="none">None</option>
-        <option value="all">All</option>
-        <option value="first_party" selected>Only Dereth</option>
-      </select>
-      <p class="note">Plugin updates that ask for additional permissions will never automatically install.</p>
-      <p id="source-note" class="note"></p>
-      <input id="plugin-folder" type="file" webkitdirectory class="hidden">
-      <input id="plugin-zip" type="file" accept=".zip,application/zip" multiple class="hidden">
-    </section>
+      <div class="realm" id="realm" role="radiogroup" aria-label="Game"></div>
+      <nav class="rail" id="rail"></nav>
+      <div class="foot" id="foot"></div>
+    </aside>
+    <main class="main" id="main"></main>
   </div>
+  <div class="notice" id="notice" aria-live="polite"></div>
 </div>
-<input id="files" type="file" multiple accept=".dat" class="hidden"
+
+<input id="files" type="file" multiple accept=".dat" hidden
        title="The four client_*.dat files, and portal.dat and cell.dat from before Throne of Destiny for the classic interface and the early worlds">
+<input id="plugin-folder" type="file" webkitdirectory hidden>
+<input id="plugin-zip" type="file" accept=".zip,application/zip" multiple hidden>
 
 <div id="status"></div>
 <pre id="log"></pre>

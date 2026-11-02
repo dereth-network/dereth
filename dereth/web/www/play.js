@@ -1,6 +1,10 @@
 // The playable client's page: the front page (the launcher, `front.js`), the canvas the worker
 // draws into, and the page's input events forwarded to the worker in the client's terms.
 //
+// Each start hands the worker a canvas of its own: a canvas's drawing can be handed to a worker only
+// once, and a browser may keep it tied to the client that drew into it. When the client ends, its
+// canvas is put away and a new one takes its place for the next start.
+//
 // The server is a WebSocket URL: a server's own wss:// endpoint, or ws://127.0.0.1:<port>/ for
 // dereth-web-relay on this machine. An http:// or https:// address is taken as the server's status
 // endpoint, and the WebSocket URL it reports is used.
@@ -35,10 +39,10 @@ function show(text) {
   if (echo) fetch('/log', { method: 'POST', body: line, keepalive: true }).catch(() => {});
 }
 
-const view = $('view');
+// The canvas the client draws into, or the next one, not yet handed to the worker.
+let view = $('view');
+let handedOff = false;
 const worker = new Worker(`play-worker.js${location.search}`, { type: 'module' });
-const offscreen = view.transferControlToOffscreen();
-worker.postMessage({ canvas: offscreen }, [offscreen]);
 
 // The drawing buffer's size, which the client chooses; the page only scales it to fit. In full
 // screen the client draws at the page's own size (below), so it fills the page.
@@ -51,16 +55,16 @@ function fit() {
 }
 
 // The render scale: the share of the page's own pixels the client draws in full screen, which
-// the front page chooses, the game's Client Options page changes, and this browser keeps. Fewer
-// pixels draw faster and look softer.
+// the front page's Library chooses, the game's Client Options page changes, and this browser keeps.
+// Fewer pixels draw faster and look softer.
 const SCALE_KEY = 'dereth.renderScale';
 // The key a choice was kept under before, read while no choice is kept under the new one.
 const SCALE_KEY_BEFORE = 'dereth.drawingScale';
-const scaleBox = $('scale');
-function showScale(value) {
-  if ([...scaleBox.options].some((o) => o.value === value)) scaleBox.value = value;
-}
+const SCALES = ['100', '85', '75', '67', '50'];
+let renderScale = '100';
 function keepScale(value) {
+  if (!SCALES.includes(value)) return;
+  renderScale = value;
   try {
     localStorage.setItem(SCALE_KEY, value);
     localStorage.removeItem(SCALE_KEY_BEFORE);
@@ -70,7 +74,7 @@ function keepScale(value) {
 }
 try {
   const kept = localStorage.getItem(SCALE_KEY) ?? localStorage.getItem(SCALE_KEY_BEFORE);
-  if (kept) showScale(kept);
+  if (SCALES.includes(kept)) renderScale = kept;
 } catch (_) {
   // No storage: every visit starts at the whole page.
 }
@@ -82,7 +86,7 @@ function page() {
   return {
     width: Math.round(r.width * ratio),
     height: Math.round(r.height * ratio),
-    scale: Number(scaleBox.value) || 100,
+    scale: Number(renderScale) || 100,
   };
 }
 
@@ -100,7 +104,6 @@ function watchRatio() {
   }, { once: true });
 }
 watchRatio();
-scaleBox.addEventListener('change', () => keepScale(scaleBox.value));
 fit();
 
 // The sound: an audio context the launch opens (a page may only start one from a click), playing
@@ -148,10 +151,7 @@ worker.onmessage = (ev) => {
   if (m.error) show(`error: ${m.error}`);
   if (m.status !== undefined) $('status').textContent = m.status;
   // The game's Client Options page changed the render scale: the next start begins there.
-  if (m.scale !== undefined) {
-    showScale(String(m.scale));
-    keepScale(String(m.scale));
-  }
+  if (m.scale !== undefined) keepScale(String(m.scale));
   if (m.size) {
     show(`drawing at ${m.size[0]}x${m.size[1]}`);
     size = m.size;
@@ -170,190 +170,44 @@ worker.onmessage = (ev) => {
   // The client ended (its own Exit, or a lost connection) or could not start: the front page
   // comes back, saying what went wrong. Data files already open stay open for the next start.
   if (m.ended) {
-    $('go').disabled = false;
-    $('go').textContent = 'Play again';
-    $('launch').style.display = 'block';
-    front?.back().then(() => {
-      $('problem').textContent = m.error ?? '';
-    });
+    freshView();
+    $('launch').style.display = '';
+    front?.back(m.error);
   }
 };
 worker.onerror = (e) => show(`worker error: ${e.message}`);
 
 // ---- the front page ------------------------------------------------------------------------------
 
-// Plugins: a folder the player picks is copied into this browser's private storage by the worker
-// and loads when the client starts; the client asks before granting what a plugin asks for.
-$('add-plugin').addEventListener('click', () => $('plugin-folder').click());
-$('plugin-folder').addEventListener('change', async () => {
-  const picked = [...$('plugin-folder').files];
-  const files = await Promise.all(picked.map(async (f) => ({
-    path: f.webkitRelativePath || f.name,
-    bytes: new Uint8Array(await f.arrayBuffer()),
-  })));
-  if (!files.some((f) => f.path.endsWith('/plugin.toml'))) {
-    $('plugin-note').textContent = 'That folder has no plugin.toml: pick the plugin\'s own folder.';
-    return;
-  }
-  $('plugin-note').textContent = '';
-  worker.postMessage({ cmd: 'addPlugins', files });
-  $('plugin-folder').value = '';
-});
-// A plugin's zip is kept as it is, beside the folders; the client reads it when it starts.
-$('add-plugin-zip').addEventListener('click', () => $('plugin-zip').click());
-$('plugin-zip').addEventListener('change', async () => {
-  const picked = [...$('plugin-zip').files].filter((f) => f.name.toLowerCase().endsWith('.zip'));
-  const files = await Promise.all(picked.map(async (f) => ({
-    path: f.name,
-    bytes: new Uint8Array(await f.arrayBuffer()),
-  })));
-  if (files.length) worker.postMessage({ cmd: 'addPlugins', files });
-  $('plugin-zip').value = '';
-});
-$('remove-plugins').addEventListener('click', async () => {
-  try {
-    await call('removePlugins');
-  } catch (e) {
-    $('plugin-note').textContent = String(e?.message ?? e);
-  }
-  showSources();
-});
-
-// Plugin sources, as the desktop launcher has them (its own logic, in the worker): Dereth's own and
-// the ones the player adds by address, each with the plugins installed from it and then the ones
-// it offers that are not installed, each saying what it does and uses, with Install, Update and
-// Remove. A plugin installed here is kept in this browser and found by the client when it starts,
-// on the first time it is found, until the player turns it off there. Every source is read as the
-// page opens and again with
-// Refresh; updates apply as the setting says, and one that asks for more permissions waits for
-// the player.
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const uses = (list) => (list.length ? ` Uses ${list.join(', ')}.` : '');
-const DESKTOP = '<span class="muted" title="It downloads from a GitHub release, which web pages can&#39;t fetch.">Desktop launcher only</span>';
-let shelf = null;
-
-// A plugin a source offers that is not installed.
-function availableRow(a) {
-  const action = a.state === 'install'
-    ? (a.desktop_only ? DESKTOP : `<button type="button" class="btn" data-plugin-install="${esc(a.id)}" data-source="${esc(a.source)}">Install</button>`)
-    : a.state === 'needs_newer_dereth' ? '<span class="muted">Needs a newer Dereth</span>' : '<span class="muted">Only from Dereth</span>';
-  return `<span class="what" style="padding-left:14px">Plugin <b>${esc(a.name)}</b> <span class="muted">${esc(`${a.description}${uses([...a.permissions, ...a.domains])}`)}</span></span><span class="muted">${esc(a.version)}</span>${action}`;
-}
-
-// An installed plugin, with its update when one waits; `from` says where it came from, when its
-// row is not under its source.
-function installedRow(p, from = '') {
-  const u = p.update;
-  let what = esc(`${from}${p.description}${uses([...p.permissions, ...p.domains])}`);
-  let update = '';
-  if (u?.needs_newer_dereth) {
-    what += ` <span class="bad">${esc(u.to)} needs a newer Dereth.</span>`;
-  } else if (u) {
-    const asks = [...u.new_permissions, ...u.new_domains];
-    if (asks.length) what += ` <span class="bad">${esc(u.to)} also asks for ${esc(asks.join(', '))}.</span>`;
-    update = p.desktop_only ? DESKTOP : `<button type="button" class="btn" data-plugin-update="${esc(p.id)}">Update to ${esc(u.to)}</button>`;
-  }
-  const remove = `<button type="button" class="btn" data-plugin-remove="${esc(p.id)}">Remove</button>`;
-  return `<span class="what" style="padding-left:14px">Plugin <b>${esc(p.name)}</b> <span class="muted">${what}</span></span><span class="muted">${esc(p.version)}</span>${update ? `<span class="btns" style="margin:0">${update}${remove}</span>` : remove}`;
-}
-
-async function showSources() {
-  try {
-    shelf = await call('plugins');
-  } catch (e) {
-    $('source-note').textContent = String(e?.message ?? e);
-    return;
-  }
-  $('plugin-updates').value = shelf.auto_update;
-  const rows = [];
-  for (const s of shelf.sources) {
-    const read = s.problem ? `<span class="bad">${esc(s.problem)}</span>` : `${s.plugins} plugin${s.plugins === 1 ? '' : 's'}`;
-    const end = s.first_party ? '<span class="muted">Dereth&#39;s own</span>' : `<button type="button" class="btn" data-source-remove="${esc(s.url)}">Remove</button>`;
-    rows.push(`<span class="what">Source <b>${esc(s.name)}</b> <span class="muted">${esc(s.url)} · ${read}</span></span><span></span>${end}`);
-    for (const p of shelf.installed.filter((x) => x.source === s.url)) rows.push(installedRow(p));
-    for (const a of shelf.available.filter((x) => x.source === s.url)) rows.push(availableRow(a));
-  }
-  // Installed plugins whose source was removed.
-  const gone = shelf.installed.filter((x) => x.source_removed);
-  if (gone.length) rows.push('<span class="what muted">Installed, and listed by no source here</span><span></span><span></span>');
-  for (const p of gone) rows.push(installedRow(p, `From ${p.source_name}, a source you removed: no updates. `));
-  $('source-plugins').innerHTML = rows.join('');
-}
-
-// One of the plugin calls, with the plugins' buttons off while it runs, and what it came to said.
-async function pluginCall(work) {
-  const controls = [...document.querySelectorAll('#source-plugins button, #add-source, #refresh-sources, #source-confirm, #plugin-updates')];
-  for (const c of controls) c.disabled = true;
-  try {
-    $('source-note').textContent = (await work()) || '';
-  } catch (e) {
-    $('source-note').textContent = String(e?.message ?? e);
-  }
-  for (const c of controls) c.disabled = false;
-  await showSources();
-}
-
-$('source-plugins').addEventListener('click', (ev) => {
-  const d = ev.target.closest('button')?.dataset;
-  if (!d) return;
-  if (d.pluginInstall) pluginCall(() => call('installPlugin', d.source, d.pluginInstall));
-  if (d.pluginUpdate) pluginCall(() => call('updatePlugin', d.pluginUpdate));
-  if (d.pluginRemove) pluginCall(() => call('removePlugin', d.pluginRemove));
-  if (d.sourceRemove) pluginCall(() => call('pluginRemoveSource', d.sourceRemove));
-});
-
-// Add the source typed in. One other than Dereth's is added once the player confirms it, on the
-// line under the address.
-function addSource(confirmed) {
-  const url = $('source-url').value.trim();
-  if (!url) return;
-  if (!confirmed && url !== shelf?.first_party) {
-    $('source-warn').classList.remove('hidden');
-    return;
-  }
-  $('source-warn').classList.add('hidden');
-  pluginCall(async () => {
-    const said = await call('pluginAddSource', url);
-    $('source-url').value = '';
-    return said;
-  });
-}
-$('add-source').addEventListener('click', () => addSource(false));
-$('source-url').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter') addSource(false);
-});
-$('source-url').addEventListener('input', () => $('source-warn').classList.add('hidden'));
-$('source-confirm').addEventListener('click', () => addSource(true));
-$('source-cancel').addEventListener('click', () => $('source-warn').classList.add('hidden'));
-$('refresh-sources').addEventListener('click', () => pluginCall(async () => (await call('pluginRefresh')).said || 'Nothing new.'));
-$('plugin-updates').addEventListener('change', () => pluginCall(() => call('pluginUpdates', $('plugin-updates').value)));
-
-// As the page opens: what is kept, then every source read again, and what is new said.
-showSources().then(() => pluginCall(async () => (await call('pluginRefresh')).said));
-
 // Start the client on what the front page chose: the data files, the server, the account, what
 // the launcher says about the world, and the folder its overlay is kept in.
 function launch(choice) {
-  $('go').disabled = true;
   if (!audio) openAudio(48000);
   $('launch').style.display = 'none';
+  if (handedOff) freshView();
+  const canvas = view.transferControlToOffscreen();
+  handedOff = true;
   worker.postMessage({
     cmd: 'start',
     ...choice,
+    canvas,
     width: size[0],
     height: size[1],
     page: page(),
     // `?plugin_policy=https://…`: the world's plugin policy document, from its world entry.
     pluginPolicy: params.get('plugin_policy') || undefined,
-  });
+  }, [canvas]);
   view.focus();
 }
 
-front = startFront({ call, launch, params, log: show });
-front.begin().catch((e) => {
-  show(`front page: ${e?.message ?? e}`);
-  $('list-note').textContent = `The launcher did not start: ${e?.message ?? e}`;
+front = startFront({
+  call,
+  start: launch,
+  params,
+  log: show,
+  scale: { get: () => renderScale, set: keepScale },
 });
+front.begin().catch((e) => show(`front page: ${e?.message ?? e}`));
 
 // ---- input -----------------------------------------------------------------------------------
 
@@ -380,28 +234,57 @@ const BUTTON_BIT = [1, 4, 2, 8, 16];
 // The pointer that last went down, kept for the canvas to keep its events after a lock ends.
 let lastPointer = null;
 
-view.addEventListener('pointermove', (ev) => {
-  // A button pressed or let go of while another is held comes as a movement that names it.
-  if (ev.button >= 0 && ev.button < BUTTON_BIT.length) {
-    send({ kind: 'button', button: ev.button, pressed: (ev.buttons & BUTTON_BIT[ev.button]) !== 0 });
-  }
-  send({ kind: 'move', ...at(ev), ...movement(ev), buttons: ev.buttons });
-});
-view.addEventListener('pointerdown', (ev) => {
-  view.focus();
-  if (audio && audio.ctx.state !== 'running') audio.ctx.resume();
-  lastPointer = ev.pointerId;
-  view.setPointerCapture(ev.pointerId);
-  send({ kind: 'move', ...at(ev) });
-  send({ kind: 'button', button: ev.button, pressed: true });
-  ev.preventDefault();
-});
-view.addEventListener('pointerup', (ev) => {
-  send({ kind: 'move', ...at(ev) });
-  send({ kind: 'button', button: ev.button, pressed: false });
-  ev.preventDefault();
-});
-view.addEventListener('contextmenu', (ev) => ev.preventDefault());
+// The page's input on a canvas, for the client drawing into it.
+function listen(canvas) {
+  canvas.addEventListener('pointermove', (ev) => {
+    // A button pressed or let go of while another is held comes as a movement that names it.
+    if (ev.button >= 0 && ev.button < BUTTON_BIT.length) {
+      send({ kind: 'button', button: ev.button, pressed: (ev.buttons & BUTTON_BIT[ev.button]) !== 0 });
+    }
+    send({ kind: 'move', ...at(ev), ...movement(ev), buttons: ev.buttons });
+  });
+  canvas.addEventListener('pointerdown', (ev) => {
+    view.focus();
+    if (audio && audio.ctx.state !== 'running') audio.ctx.resume();
+    lastPointer = ev.pointerId;
+    view.setPointerCapture(ev.pointerId);
+    send({ kind: 'move', ...at(ev) });
+    send({ kind: 'button', button: ev.button, pressed: true });
+    ev.preventDefault();
+  });
+  canvas.addEventListener('pointerup', (ev) => {
+    send({ kind: 'move', ...at(ev) });
+    send({ kind: 'button', button: ev.button, pressed: false });
+    ev.preventDefault();
+  });
+  canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  canvas.addEventListener('wheel', (ev) => {
+    // One detent is about 100 pixels, or three lines.
+    const notches = ev.deltaMode === 1 ? -ev.deltaY / 3 : -ev.deltaY / 100;
+    send({ kind: 'wheel', notches });
+    ev.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('focus', () => send({ kind: 'focus', gained: true }));
+  canvas.addEventListener('blur', () => send({ kind: 'focus', gained: false }));
+  canvas.addEventListener('keydown', (ev) => key(ev, true));
+  canvas.addEventListener('keyup', (ev) => key(ev, false));
+}
+
+// The client ended: its canvas goes, and a new one, with the page's input on it, waits for the
+// next start in its place.
+function freshView() {
+  const next = document.createElement('canvas');
+  next.id = 'view';
+  next.width = 800;
+  next.height = 600;
+  next.tabIndex = 0;
+  view.replaceWith(next);
+  view = next;
+  handedOff = false;
+  lastPointer = null;
+  listen(view);
+  fit();
+}
 
 // A camera drag hides the pointer and holds it still: the browser locks it to the canvas, if it
 // will. It locks it only soon after a press on the page, which a drag follows; refused, the pointer
@@ -428,14 +311,6 @@ document.addEventListener('pointerlockchange', () => {
     // The pointer is no longer down.
   }
 });
-view.addEventListener('wheel', (ev) => {
-  // One detent is about 100 pixels, or three lines.
-  const notches = ev.deltaMode === 1 ? -ev.deltaY / 3 : -ev.deltaY / 100;
-  send({ kind: 'wheel', notches });
-  ev.preventDefault();
-}, { passive: false });
-view.addEventListener('focus', () => send({ kind: 'focus', gained: true }));
-view.addEventListener('blur', () => send({ kind: 'focus', gained: false }));
 
 // The text a key types, as the host translates it: a printable character, the control character
 // for Ctrl with a letter, and the few control keys that type one.
@@ -456,8 +331,7 @@ function key(ev, pressed) {
   send({ kind: 'key', code: ev.code, pressed, text: pressed ? typed(ev) : undefined });
   ev.preventDefault();
 }
-view.addEventListener('keydown', (ev) => key(ev, true));
-view.addEventListener('keyup', (ev) => key(ev, false));
+listen(view);
 document.addEventListener('paste', (ev) => {
   // A paste into one of the page's own fields (the server, the account, the password) is that
   // field's; only one made while the game has the keyboard goes to the game.

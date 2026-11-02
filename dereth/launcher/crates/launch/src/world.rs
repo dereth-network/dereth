@@ -227,6 +227,24 @@ pub enum Told {
     World,
 }
 
+/// How sure a world's shown era is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EraState {
+    /// Said: by its row, by the world (its status ping or document, or what it told the hub), or
+    /// by its software, which plays only the end of retail.
+    #[default]
+    Known,
+    /// An Empyrean world, which may play any era, not heard from yet while an answer may still
+    /// come.
+    Checking,
+    /// An Empyrean world that nothing will answer for: it did not answer when asked, or the hub
+    /// has no word from it.
+    Unknown,
+    /// A world whose software nobody names, shown as the end of retail, which it most likely plays.
+    Assumed,
+}
+
 /// One world.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct World {
@@ -255,6 +273,14 @@ pub struct World {
     /// Who named [`World::era_features`]; `None` when nobody has.
     #[serde(default)]
     pub features_source: Option<Told>,
+    /// How sure the shown era is ([`EraState`]). Set by [`crate::listing::WorldList::shown`].
+    #[serde(default)]
+    pub era_state: EraState,
+    /// Whether the player starred the world in the world list, which shows it first
+    /// ([`crate::state::LauncherState::is_favorite_world`]). Set by
+    /// [`crate::listing::WorldList::shown`].
+    #[serde(default)]
+    pub favorite: bool,
     pub emulator: Emulator,
     /// The server software's version, when the world says it (Empyrean's status document, or what
     /// a server reported to the directory).

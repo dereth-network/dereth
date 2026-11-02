@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Web: ACE and GDLE worlds can host the web relay, so players install nothing.
+- Web: the front page is now the launcher.
 
 ## 0.4.9 (2026-11-01)
 

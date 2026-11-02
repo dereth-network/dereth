@@ -7,7 +7,7 @@
 use crate::hubstatus::HubStatus;
 use crate::state::LauncherState;
 use crate::status::LiveStatus;
-use crate::world::{AccountModel, Emulator, Told, World, WorldState};
+use crate::world::{AccountModel, Emulator, EraState, Told, World, WorldState};
 
 /// Every world: the list's, then the servers the player added, as their rows say.
 pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Item = World> + 'a {
@@ -128,6 +128,22 @@ pub fn shown(
         }
     }
     w
+}
+
+/// How sure `w`'s shown era is: whether it was heard from (`heard`: its own word, or what it told
+/// the hub), and whether an answer may still come (`may_answer`). Only Empyrean plays an era other
+/// than the end of retail; a world whose software nobody names is taken to play the end of retail.
+#[must_use]
+pub fn era_state(w: &World, heard: bool, may_answer: bool) -> EraState {
+    if w.era.is_some() || heard {
+        return EraState::Known;
+    }
+    match w.emulator {
+        Emulator::Empyrean if may_answer => EraState::Checking,
+        Emulator::Empyrean => EraState::Unknown,
+        Emulator::Unknown => EraState::Assumed,
+        _ => EraState::Known,
+    }
 }
 
 #[cfg(test)]
@@ -353,6 +369,65 @@ mod tests {
         );
         assert_eq!(w.slug, slug);
         assert_eq!((w.state, w.players), (WorldState::Offline, None));
+    }
+
+    /// An Empyrean world, which may play any era, shows its era as being checked while an answer
+    /// may still come, the era it says once it answers, and unknown once nothing will. A world
+    /// whose software nobody names is taken to play the end of retail; one whose software plays
+    /// only the end of retail, or whose row names its era, is known at once.
+    #[test]
+    fn an_empyrean_worlds_era_is_checked_then_known_or_unknown_and_unnamed_software_is_assumed() {
+        let world = |emulator: Emulator, era: Option<&str>| {
+            let mut w = World::new("w", "W");
+            w.emulator = emulator;
+            w.era = era.map(str::to_owned);
+            w
+        };
+        let empyrean = world(Emulator::Empyrean, None);
+        assert_eq!(era_state(&empyrean, false, true), EraState::Checking);
+        assert_eq!(
+            era_state(&empyrean, true, true),
+            EraState::Known,
+            "it answered"
+        );
+        assert_eq!(
+            era_state(&empyrean, false, false),
+            EraState::Unknown,
+            "nothing will answer"
+        );
+        assert_eq!(
+            era_state(
+                &world(Emulator::Empyrean, Some("infiltration")),
+                false,
+                true
+            ),
+            EraState::Known,
+            "its row names it"
+        );
+        for unnamed_may_answer in [true, false] {
+            assert_eq!(
+                era_state(&world(Emulator::Unknown, None), false, unnamed_may_answer),
+                EraState::Assumed
+            );
+        }
+        for plays_only_eor in [Emulator::Ace, Emulator::ClassicAce, Emulator::Gdle] {
+            assert_eq!(
+                era_state(&world(plays_only_eor, None), false, true),
+                EraState::Known,
+                "{plays_only_eor:?}"
+            );
+        }
+        // Heard from, naming no era: it plays the end of retail, and that is known.
+        let said = LiveStatus {
+            state: WorldState::Online,
+            ..LiveStatus::default()
+        };
+        let state = LauncherState::default();
+        let w = shown(empyrean, None, Some(&said), None, &state);
+        assert_eq!(
+            (w.era.as_deref(), era_state(&w, true, false)),
+            (None, EraState::Known)
+        );
     }
 
     /// A world from the list, as the community list gives it: `emulator`, and the id the

@@ -426,8 +426,6 @@ select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220p
 
 /* The pixel-grid icons inside buttons: chevrons and the bin. */
 .btn svg { width: 10px; height: 14px; shape-rendering: crispEdges; }
-.btn.trash svg { width: 13px; height: 13px; }
-.btn.trash { color: var(--muted); }
 
 /* A status dot: a plain disc, with the state said in words beside it. */
 .dot {
@@ -463,13 +461,13 @@ select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220p
 .row .name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .sub { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .end { color: var(--muted); font-size: 15px; white-space: nowrap; }
-/* Home's pin: a favourite shows its star, and on hover the button that takes it off; any other row
- * shows, on hover, the button that makes it a favourite. */
-.row .pin { width: 30px; display: flex; justify-content: center; }
-.row .pin .mini { display: none; min-height: 24px; min-width: 24px; font-size: 13px; padding: 0; }
-.row .pin .star { color: var(--gold-bright); font-size: 18px; line-height: 1; }
-.row:hover .pin .mini { display: inline-flex; }
-.row:hover .pin .star { display: none; }
+/* A row's pin, on Home and in the world list: a favorite shows its star, and on hover the button that
+ * takes it off; any other row shows, on hover, the button that makes it a favorite. */
+.pin { width: 34px; display: flex; justify-content: center; align-items: center; margin-left: auto; }
+.pin .btn { display: none; }
+.pin .star { color: var(--gold-bright); font-size: 18px; line-height: 1; }
+.row:hover .pin .btn, table.worlds tr:hover .pin .btn { display: inline-flex; }
+.row:hover .pin .star, table.worlds tr:hover .pin .star { display: none; }
 
 
 .tag {
@@ -489,7 +487,7 @@ table.worlds col.c-emu { width: 150px; }
 table.worlds col.c-era { width: 200px; }
 table.worlds col.c-rules { width: 64px; }
 table.worlds col.c-players { width: 84px; }
-table.worlds col.c-end { width: 46px; }
+table.worlds col.c-end { width: 50px; }
 table.worlds select.field.mini { width: 100%; min-width: 0; }
 table.worlds td { overflow: hidden; text-overflow: ellipsis; }
 /* PLAY in an open row: the same green plate, small. */
@@ -528,6 +526,8 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
 .detail-body p { margin: 0; }
 .detail-top { display: flex; gap: 14px; align-items: flex-start; }
 .detail-top p { flex: 1; }
+/* An open row's PLAY, and under it, for a world the player added, the button that removes it. */
+.detail-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .detail-body .strip b, .era-line b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 6px; }
 .era-line { display: flex; align-items: center; gap: 4px; font-size: 16px; }
 .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; }

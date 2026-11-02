@@ -1,14 +1,15 @@
 // The playable client's worker. It answers the front page's launcher (the module's, over the
 // player's files kept in this browser), fetches the Horizon interface's art from beside the
 // module, opens the player's data files and the world's overlay, brings the client up drawing into
-// the canvas the page handed it, carries datagrams between the client and the server's WebSocket
-// (a server's own endpoint, or dereth-web-relay on this machine), runs one client frame per
-// animation frame, and hands the client the page's input events.
+// the canvas the page handed it with the start (a new one each start), carries datagrams between
+// the client and the server's WebSocket (a server's own endpoint, or dereth-web-relay on this
+// machine), runs one client frame per animation frame, and hands the client the page's input
+// events.
 
 import init, * as dereth from './pkg/dereth_web.js';
 import {
-  FULL, flushOverlay, holdOverlay, listOverlays, openFiles, openStore, removeOverlay, removeSet,
-  scanSets, storeSet,
+  FULL, NAMES, flushOverlay, holdOverlay, listOverlays, openFiles, openStore, removeOverlay,
+  removeSet, removeSetFiles, scanSets, storeSet,
 } from './datfiles.js';
 import { installPluginIo, fetchPluginPolicy } from './plugin-io.js';
 
@@ -81,6 +82,8 @@ function shutDown() {
   play = null;
   socket?.close();
   socket = null;
+  // The canvas was this client's alone: the page makes a new one for the next start.
+  canvas = null;
 }
 
 // The client's own files (preferences, keymaps, layouts), kept in one file in the origin's private
@@ -302,6 +305,28 @@ async function addPlugins(files) {
     access.close();
   }
   log(`kept ${files.length} plugin file(s); turn each on in the client with /plugin`);
+}
+// The plugins the player added by hand (a plugin's folder, or a zip), by their names in `plugins/`:
+// every entry there but the record of what was installed from sources and those plugins' zips.
+async function addedPlugins() {
+  const kept = new Set([
+    ...JSON.parse(dereth.frontPlugins()).installed.map((p) => dereth.frontPluginZipPath(p.id)),
+    dereth.frontPluginRecords()[1],
+  ].map((path) => path.split('/').pop()));
+  const out = [];
+  try {
+    for await (const [name, handle] of (await pluginsDir(false)).entries()) {
+      if (!kept.has(name)) out.push({ name, folder: handle.kind === 'directory' });
+    }
+  } catch {
+    // No plugins kept.
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+async function removeAddedPlugin(name) {
+  if (!name || name.includes('/')) return;
+  await (await pluginsDir(false)).removeEntry(name, { recursive: true }).catch(() => {});
+  log(`removed the plugin ${name}`);
 }
 async function removePlugins() {
   const root = await navigator.storage.getDirectory();
@@ -559,7 +584,17 @@ const calls = {
   addWorld: (name, host, port, ruleset, emulator) => dereth.frontAddWorld(name, host, port, ruleset, emulator),
   addedBy: (slug, url) => dereth.frontAddedBy(slug, url),
   removeWorld: (slug) => dereth.frontRemoveWorld(slug),
-  remember: (slug, prefs) => dereth.frontRemember(slug, JSON.stringify(prefs)),
+  recordLaunch: (slug, prefs) => dereth.frontRecordLaunch(slug, JSON.stringify(prefs)),
+  home: () => JSON.parse(dereth.frontHome()),
+  saveFavourite: (favourite) => dereth.frontSaveFavourite(JSON.stringify(favourite)),
+  removeFavourite: (id) => dereth.frontRemoveFavourite(id),
+  setWorldFavorite: (slug, favorite) => dereth.frontSetWorldFavorite(slug, favorite),
+  forgetAccount: (slug, username) => dereth.frontForgetAccount(slug, username),
+  forgetAllAccounts: () => dereth.frontForgetAllAccounts(),
+  setDefaultSet: (id) => dereth.frontSetDefaultSet(id),
+  interface: () => JSON.parse(dereth.frontInterface()),
+  setInterface: (name) => dereth.frontSetInterface(name),
+  version: () => dereth.version(),
   scanSets: (known, again) => scanSets(dereth, known, again),
   storeSet: async (name, files) => {
     datsKey = null;
@@ -571,6 +606,12 @@ const calls = {
     storeKey = null;
     return removeSet(dereth, path);
   },
+  // One kind's files of a kept set: the later four, or the older pair.
+  removeSetKind: async (path, kind) => {
+    datsKey = null;
+    storeKey = null;
+    return removeSetFiles(dereth, path, kind === 'classic' ? NAMES.slice(4) : NAMES.slice(0, 4));
+  },
   plugins: () => JSON.parse(dereth.frontPlugins()),
   pluginRefresh: () => inTurn(refreshPlugins),
   pluginAddSource: (url) => inTurn(() => addSource(url)),
@@ -580,6 +621,9 @@ const calls = {
   removePlugin: (id) => inTurn(() => changeShelf(() => dereth.frontPluginRemove(id))),
   pluginUpdates: (setting) => inTurn(() => changeShelf(() => dereth.frontPluginUpdates(setting))),
   removePlugins: () => inTurn(removePlugins),
+  addedPlugins: () => inTurn(addedPlugins),
+  removeAddedPlugin: (name) => inTurn(() => removeAddedPlugin(name)),
+  addPlugins: (files) => inTurn(() => addPlugins(files)),
   overlayFolder: (address) => dereth.overlayFolder(address),
   // The world's overlay as the folder holds it: held open for the world being looked at.
   overlay: async (path) => {
@@ -618,7 +662,6 @@ onmessage = async (ev) => {
     if (msg.cmd === 'logoff') logOff();
     if (msg.cmd === 'page') setPage(msg.page);
     if (msg.cmd === 'audio') audioState.started = true;
-    if (msg.cmd === 'addPlugins') await addPlugins(msg.files);
   } catch (e) {
     log(`error: ${e?.message ?? e}`);
   }

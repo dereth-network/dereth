@@ -12,8 +12,10 @@ cargo xtask web --build-only
 ```
 
 This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
-the bindings into `www/pkg/`, and copies the Horizon interface's art into `www/pkg/horizon/`. It
-needs:
+the bindings into `www/pkg/`, copies the Horizon interface's art into `www/pkg/horizon/`, and
+copies the launcher's art the front page wears (Dereth's paintings and emblem, and the Cinzel and
+EB Garamond typefaces with their licences) from `dereth/launcher/assets/` into `www/assets/`,
+which git ignores. It needs:
 
 - the target, installed once: `rustup target add wasm32-unknown-unknown`;
 - **zig 0.15 or later** on the path (or named by the `ZIG` environment variable). The plugin
@@ -22,7 +24,7 @@ needs:
   it with a small C and C++ runtime built the same way from the LLVM sources zig ships. The build
   runs without a compiler cache (`RUSTC_WRAPPER` is cleared for it), which cannot run zig.
 
-Publish the whole `www/` folder, `pkg/` included:
+Publish the whole `www/` folder, `pkg/` and `assets/` included:
 
 | File | Bytes | Gzipped |
 |---|---:|---:|
@@ -31,7 +33,9 @@ Publish the whole `www/` folder, `pkg/` included:
 | `pkg/horizon/atlas-1-0.png`, `atlas-2-0.png`, `atlas-3-0.png` | 1.2, 4.4 and 9.0 MB | the same (PNG is compressed) |
 | `pkg/horizon/font-0.png` to `font-5.png` | about 3.4 MB in all | the same |
 | `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
-| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js` | about 85 kB | about 29 kB |
+| `assets/background/dereth/*.webp` (ten paintings), `assets/backgrounds.json` | about 4.1 MB | the same (WebP is compressed) |
+| `assets/fonts/Cinzel-var.ttf`, `EBGaramond-var.ttf`, `OFL-Cinzel.txt`, `OFL-EBGaramond.txt`; `assets/emblem/dereth.webp` | about 1.0 MB and 30 kB | about 0.5 MB |
+| `index.html`, `play.js`, `front.js`, `backend.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `launcher.css`, `web.css` | about 200 kB | about 57 kB |
 
 No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
 a bundle with a larger one.
@@ -245,8 +249,43 @@ Chrome shares Edge's engine but has not been run itself.
 
 ## The front page
 
-The page opens on a launcher, the desktop launcher's own logic run in the browser (the module
-carries it): pick a world or type an address, choose or add the data files, and play.
+The page opens on the launcher: the desktop launcher's Dereth realm, in its look (its stylesheet,
+copied as `launcher.css`, its paintings, emblem and typefaces) and with its own logic run in the
+browser (the module carries it). Pick a world or type an address, choose or add the data files, and
+play. Its screens are the desktop's, by the same names:
+
+- **Play** (Home): the favourites, then the combinations played recently, each a world and an
+  account with its data files, and PLAY.
+- **Worlds**: the list in three sections (the player's own, online, offline), with search, a
+  PvE/PvP filter, rows that open in place to what each world says about itself and how the
+  browser reaches it, and **Add world**.
+- **A world's page**: the account and password, the Modern and Classic data sets it takes, how it
+  is reached, its updates kept here (with **Remove updates** and **Refuse updates**), the link to
+  send a friend (`https://dereth.network/join#host=…&port=…&name=…`, for a world with a game
+  address), and PLAY.
+- **Accounts**: the account names used on each world, with **Forget** and **Forget all accounts**.
+  The page keeps no password. The page's form is marked for the browser's password manager
+  (`autocomplete="username"` and `"current-password"`), which offers to keep the password when
+  the player plays, and where the browser lets a page ask (`navigator.credentials`, in Chrome and
+  Edge) the page offers the password to it and asks for it back when Home's PLAY needs one.
+- **Plugins**: Installed, Available and Sources (see [Plugins](#plugins)).
+- **Library**: the client (its version, the interface it starts in, and the render scale), the
+  Modern and Classic data sets kept in this browser (**+ Add data files**, **Set default**,
+  **Delete**), the world updates kept, and the storage used and whether the browser keeps it.
+- **The first visit** asks which interface to play in, as the desktop launcher's first start
+  does, and writes the answer into the client's preferences, kept in this browser; then, with no
+  data files kept yet, it asks for them.
+
+The address may open a screen directly: `#worlds`, `#worlds=<slug>` (that world's row open),
+`#world=<slug>`, `#accounts`, `#plugins`, `#library`, `#first-run` and `#interface`. At phone width
+the rail is a bar along the top.
+
+What the desktop launcher has that a browser cannot (hosting a world, building one, the retail
+client, downloading the launcher's programs, Discord, a gamepad, a desktop shortcut) is not on the
+page. The slot above the rail where the desktop launcher shows its realms is there, empty.
+
+What the launcher keeps (its state record: the accounts, favourites, recent combinations, the
+servers added and the data sets) is kept in the browser's local storage, never sent anywhere.
 
 - **The worlds** are the world list (the Dereth Network hub's, `/v1/servers`, which holds the
   community list, `acresources/serverslist`'s `Servers.xml`, and the worlds registered at the
@@ -261,14 +300,17 @@ carries it): pick a world or type an address, choose or add the data files, and 
   systems, its logon version and the rules its client played by) is the launcher's one
   description of it: the words the desktop launcher puts on the client's command line, read by the
   client in the browser with the same parser. They come from the list, the table and the world's
-  status document when it has one. A world plays the era it says, else the one the table gives
-  it, else the end of retail, which the client is not told and plays from the later files; the
-  player chooses neither the era nor its systems.
+  status document when it has one, else what an Empyrean world told the hub when the hub asked it
+  (the hub's `statusPing`: its era, systems and version, which the desktop launcher asks the
+  world itself over UDP). A world plays the era it says, else the one the table gives it, else
+  the end of retail, which the client is not told and plays from the later files; the player
+  chooses neither the era nor its systems. An Empyrean world, or one whose software is not named,
+  that has said nothing to either shows its era as unknown.
 - **Whether a world is up**, and how many are on, is its status document's word when it has one;
-  else, while the world list shown is the hub's, the hub's word from the world's own heartbeat (any
-  world linked to the Dereth Network, ACE worlds with the network's mod among them), read from the
-  hub's list about once a minute while the page shows its worlds and taken until the heartbeat
-  expires, by the desktop launcher's rules. A browser cannot ask a server over UDP whether it is
+  else what it told the hub when asked; else, while the world list shown is the hub's, the hub's
+  word from the world's own heartbeat (any world linked to the Dereth Network, ACE worlds with the
+  network's mod among them), read from the hub's list about once a minute while the page shows its
+  worlds and taken until the answer or the heartbeat expires, by the desktop launcher's rules. A browser cannot ask a server over UDP whether it is
   up, so any other world is shown with its state unknown. A list the `list` parameter names, and
   the community's own list read when the hub does not answer, bring no status.
 - **Reaching a world.** The browser connects directly to a world whose WebSocket endpoint it
@@ -276,10 +318,12 @@ carries it): pick a world or type an address, choose or add the data files, and 
   with its endpoint on tells its hub), or the one a server the player added names (its `wss://`
   URL, or its status document's). Whoever names it, the page follows a `wss://` URL to any host
   and a `ws://` one only to this machine. Any other world (ACE, GDLE, ClassicACE, or an Empyrean
-  without the endpoint) needs [`dereth-web-relay`](../../tools/web-relay/README.md) running on the
-  player's machine; the page says so on each such world and gives the command line. Worlds reached
-  directly are listed first. A server the player added that the hub's list names too, by its
-  status address or its WebSocket URL, is shown once, as the hub's world.
+  without the endpoint, whose operator runs no web relay beside it) can't be played in a browser:
+  its page says so, with links to the desktop client and to
+  [`dereth-web-relay`](../../tools/web-relay/README.md) for anyone who runs it by hand. The page
+  never starts or offers a relay of its own. Worlds reached directly are listed first. A server the
+  player added that the hub's list names too, by its status address or its WebSocket URL, is shown
+  once, as the hub's world.
 
 ## The picture
 
@@ -289,7 +333,7 @@ the page's scaled ones, and follows the page as the window is resized or zoomed 
 screen. Full screen is on at first in a browser, and a profile kept from before it filled the page
 is turned on once.
 
-- **Render scale.** The front page's Render scale draws a share of those pixels, from all of them
+- **Render scale.** The Library's Render scale draws a share of those pixels, from all of them
   down to half, and the browser enlarges the picture to fill the page: faster on a large or
   high-density screen, and softer. Every interface's Client Options page has it too, under Display,
   and a change there is drawn at once. The browser keeps the last choice for the next visit.
@@ -304,9 +348,10 @@ is turned on once.
 
 ## Plugins
 
-The front page's *Add a plugin folder…* (under *Kept in this browser*) copies a plugin's folder (the
-one holding its `plugin.toml`) into the browser's private storage for this site, and *Add a plugin
-zip…* keeps a plugin's zip there as it is; *Remove all plugins* deletes them. A compiled plugin (a
+The Plugins page's **Add Plugin Folder** copies a plugin's folder (the one holding its
+`plugin.toml`) into the browser's private storage for this site, and **Add Plugin Zip** keeps a
+plugin's zip there as it is; each is listed under Installed as Added, with **Remove**, and
+**Remove all** deletes every plugin kept. A compiled plugin (a
 WebAssembly component, `docs/plugins/wasm.md`) runs in the browser's own WebAssembly, in the page's
 worker. Kept plugins load when the client starts: each is on the first time the client finds it,
 and stays as the player leaves it in the plugin panel (`/plugin`) after that.
@@ -316,15 +361,16 @@ Their stores are kept in the same private storage, with the client's settings.
 the desktop launcher does, with the launcher's own code: from Dereth's own source, which is not
 part of the web release but has a host of its own, `https://plugins.dereth.network/`
 ([Deploying Dereth's plugins](#deploying-dereths-plugins)), and from the sources the player adds by
-address, once the player confirms it. *Kept in this browser* lists each source with its plugins,
-each with what it does and uses, and **Install**, **Update** or **Remove**. Every source is read
+address, once the player confirms it. The Plugins page lists, as the desktop launcher's does, the
+plugins installed, the ones the sources offer, and the sources, each plugin with what it does and
+uses, and **Install**, **Update** or **Remove**. Every source is read
 as the page opens and again on **Refresh**, and updates apply as the page's **Automatically update
 plugins** setting says. Installing fetches the plugin's zip from its source's host and keeps it only when it
 is the release the list names (its size, its SHA-256, and a manifest that says what its entry
 says). The sources, the last list each gave and the setting are kept in the origin's private
 storage beside the client's settings file (`plugin-sources.json`); each installed zip is kept with
 the added plugins as `plugins/<id>.zip`, with the record of what was installed
-(`plugins/installed.json`), so *Remove all plugins* removes them too.
+(`plugins/installed.json`), so **Remove all** removes them too.
 
 The page's policy admits any `https:` host (`connect-src`), but a host must also let any page read
 its files (`Access-Control-Allow-Origin: *`): Dereth's does, as do GitHub Pages, GitLab Pages,
@@ -393,13 +439,13 @@ server, and never writes the player's data files:
   world already sent.
 - **Persistent storage.** Playing or adding files asks the browser to keep the page's files
   (`navigator.storage.persist()`). A browser that declines may clear them when it runs short of
-  space; the front page says which, and how much of the browser's allowance is used.
+  space; the Library says which, and how much of the browser's allowance is used.
 - **When the storage is full,** the browser refuses the write: the record is not kept, its revision
   is not recorded, and the world offers it again on the next visit. Adding data files that do not
   fit says so and keeps nothing of them.
 - **Removing and refusing.** The world's page removes its overlay, or refuses it: a refused world is
   on the client's overlay blocklist (kept with its settings), its overlay is not read, and its
-  updates are not kept. The front page lists every overlay kept, with its size.
+  updates are not kept. The Library lists every overlay kept, with its size.
 - **One tab at a time.** A file in the private storage is open in one tab at a time. A second tab
   of the page plays with no overlay, and tells the server it keeps none.
 
@@ -427,23 +473,19 @@ for them.
 
 ## Connecting to a server
 
-The world's **Connect through** field takes a WebSocket URL:
+A world is played at its WebSocket URL:
 
 - **An Empyrean server with its WebSocket endpoint on** (its `[server.websocket]`, described in
-  its `SETUP.md`). The field holds the URL the hub's list names for a world linked to the network;
-  otherwise use its `wss://` URL, or its status address (`https://…/status`), and the page reads
-  the WebSocket URL from the status. The server must list the page's origin in `allowed_origins`.
-- **Any other server** (ACE, GDLE, or an Empyrean with the endpoint off). Its operator can run
+  its `SETUP.md`). The hub's list names the URL for a world linked to the network; otherwise the
+  player adds the world by its `wss://` URL, or its status address (`https://…/status`), and the
+  page reads the WebSocket URL from the status. The server must list the page's origin in
+  `allowed_origins`.
+- **Any other server** (ACE, GDLE, or an Empyrean with the endpoint off), when its operator runs
   `dereth-web-relay --public` beside it, for every player, behind TLS: its `wss://` URL is then
   used as an Empyrean's is, and the hub lists it for a world that announces it
-  ([the relay's README](../../tools/web-relay/README.md#beside-your-server-operators)).
-  Otherwise the player runs `dereth-web-relay` on their own machine and uses
-  `ws://127.0.0.1:9180/` (the field's default). For a page served from your site, the relay must
-  be started with that site's origin:
-
-  ```text
-  dereth-web-relay --server <host:port> --allow-origin https://play.example.org
-  ```
+  ([the relay's README](../../tools/web-relay/README.md#beside-your-server-operators)). Without
+  one the world can't be played in a browser. A player may still run `dereth-web-relay` on their
+  own machine by hand and add the world by `ws://127.0.0.1:9180/`; the page offers nothing for it.
 
 The page refuses plain `ws://` to anything but this machine: the game protocol is not encrypted,
 and the login carries the password.
@@ -464,9 +506,9 @@ chosen. The page takes only these:
 | `dats=http` | offers the dev runner's data files (development only; see below) |
 | `echo=1` | on a page served from this machine only: posts the log to the dev runner, which prints it |
 
-The password is never taken from the address. The page remembers the servers added, the account
-and the data sets chosen per world, and the day's copy of the world list, in the browser's local
-storage.
+The password is never taken from the address. The page remembers the servers added, the
+accounts, the data sets chosen per world, the favourites and the recent combinations, and the
+day's copy of the world list, in the browser's local storage.
 
 ## Developing
 

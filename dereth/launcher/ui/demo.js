@@ -250,11 +250,12 @@
   const needsPrivate = (w) => !!w.dats.patches_over_wire || !!w.dats.custom;
   const setsFor = (w) => state.dat_sets.filter((s) => s.kind !== "classic").filter((s) => (s.origin.kind === "world" ? s.origin.slug === w.slug : s.origin.kind === "custom" ? !!w.dats.custom : !needsPrivate(w)));
 
+  // Every world, each marked a favorite when the player starred it, as the launcher marks them.
   const allWorlds = () => [...worlds, ...state.custom_worlds.map((c) => ({
     ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null),
     endpoint: { address: c.host, port: c.port, transport: null },
     description: `Added by you: ${c.host}:${c.port}`, development_status: null,
-  }))];
+  }))].map((w) => ({ ...w, favorite: (state.favorite_worlds ?? []).includes(w.slug) }));
 
   // Empyrean and Lyceum as GitHub lists them, and what is here. `?dev=1` is a development build with
   // its checkout's own builds.
@@ -578,6 +579,10 @@
     verify_retail: () => { message = { text: "205 of 205 files match", error: false }; },
     save_favourite: ({ favourite }) => { state.favourites.push({ ...favourite, id: `f${Date.now()}` }); },
     remove_favourite: ({ id }) => { state.favourites = state.favourites.filter((f) => f.id !== id); },
+    set_world_favorite: ({ slug, favorite }) => {
+      state.favorite_worlds = (state.favorite_worlds ?? []).filter((s) => s !== slug);
+      if (favorite) state.favorite_worlds.push(slug);
+    },
     forget_account: ({ slug, username }) => { state.accounts = state.accounts.filter((a) => !(a.world_slug === slug && a.username === username)); vault.delete(`${slug}/${username}`); },
     set_remember: ({ slug, username, remember }) => { const a = state.accounts.find((x) => x.world_slug === slug && x.username === username); if (a) a.remember = remember; if (!remember) vault.delete(`${slug}/${username}`); },
     forget_all_passwords: () => { vault.clear(); state.accounts.forEach((a) => (a.remember = false)); },
@@ -591,6 +596,7 @@
       return slug;
     },
     probe_world: () => {},
+    worlds_shown: () => {},
     remove_custom_world: ({ slug }) => { state.custom_worlds = state.custom_worlds.filter((c) => c.slug !== slug); },
     set_interface: ({ name }) => {
       const offer = interfaceOffers.find((o) => o.name.toLowerCase() === String(name).toLowerCase());

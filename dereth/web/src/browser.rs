@@ -836,6 +836,14 @@ pub fn front_plugin_writes() -> js_sys::Array {
     out
 }
 
+/// Where the page keeps the zip of plugin `id` installed from a source, in the origin's private
+/// storage: the page tells those apart from the plugins the player added by hand.
+#[wasm_bindgen(js_name = frontPluginZipPath)]
+#[must_use]
+pub fn front_plugin_zip_path(id: &str) -> String {
+    crate::plugin_sources::zip_path(id)
+}
+
 /// The plugin sources and the plugins, as the page shows them, as JSON.
 #[wasm_bindgen(js_name = frontPlugins)]
 #[must_use]
@@ -1089,15 +1097,100 @@ pub fn front_remove_world(slug: &str) {
     FRONT.with(|f| f.borrow_mut().remove_world(slug));
 }
 
-/// Remember the player's choices on a world (JSON: `account`, `dat_set_id`, `classic_set_id`).
+/// A start on a world, recorded now as the desktop launcher records one (JSON: `account`,
+/// `dat_set_id`, `classic_set_id`).
 ///
 /// # Errors
 /// Choices that do not read.
-#[wasm_bindgen(js_name = frontRemember)]
-pub fn front_remember(slug: &str, prefs: &str) -> Result<(), JsError> {
+#[wasm_bindgen(js_name = frontRecordLaunch)]
+pub fn front_record_launch(slug: &str, prefs: &str) -> Result<(), JsError> {
     FRONT
-        .with(|f| f.borrow_mut().remember(slug, prefs))
+        .with(|f| f.borrow_mut().record_launch(slug, prefs, now_secs()))
         .map_err(js_err)
+}
+
+/// What Home offers now, as JSON: [`Front::home`].
+#[wasm_bindgen(js_name = frontHome)]
+#[must_use]
+pub fn front_home() -> String {
+    FRONT.with(|f| f.borrow().home(now_secs()).to_string())
+}
+
+/// Pin a combination to Home (JSON, a favourite); answers its id.
+///
+/// # Errors
+/// A favourite that does not read.
+#[wasm_bindgen(js_name = frontSaveFavourite)]
+pub fn front_save_favourite(favourite: &str) -> Result<String, JsError> {
+    FRONT
+        .with(|f| f.borrow_mut().save_favourite(favourite))
+        .map_err(js_err)
+}
+
+/// Unpin the favourite `id`.
+#[wasm_bindgen(js_name = frontRemoveFavourite)]
+pub fn front_remove_favourite(id: &str) {
+    FRONT.with(|f| f.borrow_mut().remove_favourite(id));
+}
+
+/// Star the world `slug` in the world list, or take its star away.
+#[wasm_bindgen(js_name = frontSetWorldFavorite)]
+pub fn front_set_world_favorite(slug: &str, favorite: bool) {
+    FRONT.with(|f| f.borrow_mut().set_world_favorite(slug, favorite));
+}
+
+/// Forget the account `username` on world `slug`.
+#[wasm_bindgen(js_name = frontForgetAccount)]
+pub fn front_forget_account(slug: &str, username: &str) {
+    FRONT.with(|f| f.borrow_mut().forget_account(slug, username));
+}
+
+/// Forget every account.
+#[wasm_bindgen(js_name = frontForgetAllAccounts)]
+pub fn front_forget_all_accounts() {
+    FRONT.with(|f| f.borrow_mut().forget_all_accounts());
+}
+
+/// Make the data set `id` the default of its kind.
+///
+/// # Errors
+/// No such set.
+#[wasm_bindgen(js_name = frontSetDefaultSet)]
+pub fn front_set_default_set(id: &str) -> Result<(), JsError> {
+    FRONT
+        .with(|f| f.borrow_mut().set_default_set(id))
+        .map_err(js_err)
+}
+
+/// The interface the client starts in and the ones on offer, as JSON, as the desktop launcher's
+/// page has them: `{ chosen, offers: [{ name, line }] }`, `chosen` null while the kept profile
+/// names none.
+#[wasm_bindgen(js_name = frontInterface)]
+#[must_use]
+pub fn front_interface() -> String {
+    serde_json::json!({
+        "chosen": crate::settings::interface().map(|i| i.label()),
+        "offers": dereth_launch::interface::offers(),
+    })
+    .to_string()
+}
+
+/// Name the interface the client starts in, by its name in any case.
+///
+/// # Errors
+/// No interface of that name, or a profile the store will not take.
+#[wasm_bindgen(js_name = frontSetInterface)]
+pub fn front_set_interface(name: &str) -> Result<(), JsError> {
+    let choice = dereth_launch::interface::by_name(name)
+        .ok_or_else(|| JsError::new(&format!("{name} is not an interface the client has.")))?;
+    crate::settings::set_interface(choice).map_err(js_err)
+}
+
+/// This build's version: Dereth's.
+#[wasm_bindgen]
+#[must_use]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_owned()
 }
 
 /// Read the files the worker holds open for a data set kept in the browser's folder `folder`:

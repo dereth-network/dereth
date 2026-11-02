@@ -17,7 +17,9 @@
 //! - It builds `dereth-web` for `wasm32-unknown-unknown` (the `web-release` profile, or `release`
 //!   with `--dev`, which keeps function names for stack traces), runs the bindgen step into `www/pkg/`,
 //!   copies the Horizon interface's art beside the module into `www/pkg/horizon/` (the module does
-//!   not carry it; the page fetches it), and serves `www/` at `http://127.0.0.1:<port>/`.
+//!   not carry it; the page fetches it), copies the launcher's art the front page wears (Dereth's
+//!   paintings and emblem, and the two typefaces with their licences) into `www/assets/`, and
+//!   serves `www/` at `http://127.0.0.1:<port>/`.
 //!   `--build-only` stops after the build, for a deployment.
 //! - With `--dat-dir`, it also serves the retail data files from that folder at `/dats/<name>`,
 //!   with byte ranges, for the worker's development reader: the four of the later set, and
@@ -63,6 +65,10 @@ const RELAY_LISTEN: &str = "127.0.0.1:9180";
 /// The Horizon interface's art, relative to the workspace: the files the module does not carry,
 /// served beside it.
 const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
+
+/// The desktop launcher's art, relative to the workspace: the front page wears the part of it that
+/// is Dereth's (its paintings, its emblem and the typefaces), copied into `www/assets/`.
+const LAUNCHER_ART: &str = "dereth/launcher/assets";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Server {
@@ -349,7 +355,56 @@ fn build(ws: &Path, dev: bool) -> Result<(), String> {
     bindgen
         .generate(&out)
         .map_err(|e| format!("bindgen {}: {e}", wasm.display()))?;
-    copy_horizon_art(&ws.join(HORIZON_ART), &out.join("horizon"))
+    copy_horizon_art(&ws.join(HORIZON_ART), &out.join("horizon"))?;
+    copy_launcher_art(
+        &ws.join(LAUNCHER_ART),
+        &ws.join("dereth").join("web").join("www").join("assets"),
+    )
+}
+
+/// Copies the launcher's art the front page wears from `from` (the launcher's `assets/`) into `to`
+/// (`www/assets/`), in place of what `to` held: Dereth's paintings (`background/dereth/`) with
+/// their list (`backgrounds.json`, as the launcher's build writes it), Dereth's emblem, and the
+/// fonts with their licences. `to` gets a `.gitignore` that ignores it whole: the art's home is
+/// the launcher's folder.
+fn copy_launcher_art(from: &Path, to: &Path) -> Result<(), String> {
+    fn at(p: &Path) -> impl Fn(std::io::Error) -> String + '_ {
+        move |e| format!("{}: {e}", p.display())
+    }
+    let copy_files = |dir: &str, keep: &dyn Fn(&str) -> bool| -> Result<Vec<String>, String> {
+        let (src, dst) = (from.join(dir), to.join(dir));
+        std::fs::create_dir_all(&dst).map_err(at(&dst))?;
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&src).map_err(at(&src))? {
+            let entry = entry.map_err(at(&src))?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().map_err(at(&src))?.is_file() && keep(&name) {
+                let target = dst.join(&name);
+                std::fs::copy(entry.path(), &target).map_err(at(&target))?;
+                names.push(name);
+            }
+        }
+        names.sort();
+        Ok(names)
+    };
+    if to.exists() {
+        std::fs::remove_dir_all(to).map_err(at(to))?;
+    }
+    std::fs::create_dir_all(to).map_err(at(to))?;
+    std::fs::write(to.join(".gitignore"), "*\n").map_err(at(to))?;
+    let paintings = copy_files("background/dereth", &|n| n.ends_with(".webp"))?;
+    copy_files("emblem", &|n| n == "dereth.webp")?;
+    copy_files("fonts", &|n| n.ends_with(".ttf") || n.ends_with(".txt"))?;
+    let list: Vec<String> = paintings.iter().map(|n| format!("dereth/{n}")).collect();
+    let json = format!(
+        "{{\"dereth\":[{}]}}",
+        list.iter()
+            .map(|n| format!("\"{n}\""))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let target = to.join("backgrounds.json");
+    std::fs::write(&target, json).map_err(at(&target))
 }
 
 /// Copies every file of the Horizon interface's art in `from` into `to`, in place of what `to`
@@ -430,6 +485,9 @@ fn content_type(path: &Path) -> &'static str {
         Some("json") => "application/json",
         Some("png") => "image/png",
         Some("css") => "text/css; charset=utf-8",
+        Some("webp") => "image/webp",
+        Some("ttf") => "font/ttf",
+        Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }
 }
@@ -987,6 +1045,75 @@ mod tests {
         names.sort();
         assert_eq!(names, ["atlas-1-0.png", "manifest.json"]);
         assert_eq!(std::fs::read(to.join("manifest.json")).unwrap(), b"{}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_launchers_art_is_copied_as_the_front_page_wears_it_and_ignored_where_it_lands() {
+        let root = std::env::temp_dir().join(format!("web-dev-launcher-{}", std::process::id()));
+        let (from, to) = (root.join("assets"), root.join("www").join("assets"));
+        for dir in [
+            "background/dereth",
+            "background/auberean",
+            "emblem",
+            "fonts",
+            "portal",
+        ] {
+            std::fs::create_dir_all(from.join(dir)).unwrap();
+        }
+        for file in [
+            "background/dereth/b.webp",
+            "background/dereth/a.webp",
+            "background/auberean/c.webp",
+            "emblem/dereth.webp",
+            "emblem/lyceum.webp",
+            "fonts/Cinzel-var.ttf",
+            "fonts/OFL-Cinzel.txt",
+            "portal/dereth-ring.webp",
+        ] {
+            std::fs::write(from.join(file), file).unwrap();
+        }
+        std::fs::create_dir_all(to.join("old")).unwrap();
+        std::fs::write(to.join("old").join("gone.webp"), "gone").unwrap();
+        copy_launcher_art(&from, &to).unwrap();
+        let mut copied = Vec::new();
+        let mut walk = vec![to.clone()];
+        while let Some(dir) = walk.pop() {
+            for e in std::fs::read_dir(&dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    walk.push(p);
+                } else {
+                    let rel = p
+                        .strip_prefix(&to)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    copied.push(rel);
+                }
+            }
+        }
+        copied.sort();
+        assert_eq!(
+            copied,
+            [
+                ".gitignore",
+                "background/dereth/a.webp",
+                "background/dereth/b.webp",
+                "backgrounds.json",
+                "emblem/dereth.webp",
+                "fonts/Cinzel-var.ttf",
+                "fonts/OFL-Cinzel.txt",
+            ]
+        );
+        assert_eq!(
+            std::fs::read_to_string(to.join("backgrounds.json")).unwrap(),
+            r#"{"dereth":["dereth/a.webp","dereth/b.webp"]}"#
+        );
+        assert_eq!(
+            std::fs::read_to_string(to.join(".gitignore")).unwrap(),
+            "*\n"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -29,7 +29,7 @@ const ui = {
   search: "",
   filter: null,            // the Worlds list's one rules filter: null | "pve" | "pvp"
   expanded: null,          // the Worlds list's one open row: a world's slug, or null
-  folded: { custom: false, online: false, offline: true },   // the Worlds list's closed sections
+  folded: { favorites: false, custom: false, online: false, offline: true },   // the Worlds list's closed sections
   addServer: null,         // the Worlds list's "add a world" form, while it is open: { name, host, port, emulator, ruleset, error }
   world: null,             // the world page: { view, form, notice }
   firstRun: { step: "ask", find: null, dismissed: false },
@@ -110,9 +110,18 @@ function eraLabel(name) {
   if (!name) return null;
   return ui.snap?.eras.find((e) => e.name === name)?.label ?? name;
 }
-// The era a world plays, in words: the one it names, else the end of retail.
+// The era a world plays, in words: the one it names, else the end of retail; for an Empyrean world
+// that has not said which, "Checking…" while an answer may still come, then "Unknown".
 function eraText(w) {
+  if (w.era_state === "checking") return "Checking…";
+  if (w.era_state === "unknown") return "Unknown";
   return eraLabel(w.era || "eor");
+}
+// The era in a line of facts.
+function eraFact(w) {
+  if (w.era_state === "checking") return "checking era…";
+  if (w.era_state === "unknown") return "era unknown";
+  return eraText(w);
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
@@ -294,10 +303,21 @@ document.addEventListener("pointerdown", (ev) => { pressedInLog = !!ev.target.cl
 document.addEventListener("pointerup", () => { pressedInLog = false; catchUp(); });
 document.addEventListener("selectionchange", catchUp);
 
+// Whether the worlds are on screen (home, the list or a world's page), as the backend was last told:
+// it asks the worlds how they are again only while they are.
+let worldsShown = null;
+function tellWorldsShown() {
+  const shown = ["home", "worlds", "world"].includes(ui.screen);
+  if (shown === worldsShown) return;
+  worldsShown = shown;
+  api("worlds_shown", { shown }).catch(() => {});
+}
+
 // Re-rendering replaces the page, so the element being typed into is found again afterwards and the
 // caret put back where it was.
 function render() {
   if (!ui.snap) return;
+  tellWorldsShown();
   const active = document.activeElement;
   const keep = active && active.id ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
   // While a pad moves about the page, the control it focused is focused again once the page is
@@ -1385,11 +1405,11 @@ function home() {
   } else {
     list = `<div class="list">` + entries.map((e, i) => {
       const w = worldBy(e.world_slug);
-      const era = w ? eraText(w) : "era unknown";
+      const era = w ? eraFact(w) : "era unknown";
       const end = !w ? "not listed" : w.state === "offline" ? "offline" : w.players != null ? `${w.players} online` : "players unknown";
       const pin = e.fav
-        ? `<span class="star" title="Favourite">★</span><button class="btn icon-btn mini" data-unfav="${esc(e.fav.id)}" title="Remove from favourites">✕</button>`
-        : `<button class="btn icon-btn mini" data-fav="${i}" title="Add to favourites">☆</button>`;
+        ? `<span class="star" title="Favorite">★</span><button class="btn icon-btn" data-unfav="${esc(e.fav.id)}" title="Remove from favorites">✕</button>`
+        : `<button class="btn icon-btn" data-fav="${i}" title="Add to favorites">☆</button>`;
       return `<div class="row ${i === ui.homeSel ? "sel" : ""} ${e.fav ? "fav" : ""}" data-home="${i}" data-dbl-home="${i}">
           ${bead(w?.state ?? "unknown")}
           <div class="grow"><div class="name">${esc(w?.name ?? e.world_slug)}</div>
@@ -1425,15 +1445,15 @@ const isCustom = (w) => ui.snap.state.custom_worlds.some((c) => c.slug === w.slu
 // The three sections of the list, in order: the player's own servers, the listed worlds that are
 // up (or not yet asked), and the listed worlds that are down.
 const SECTIONS = [
+  ["favorites", "FAVORITES"],
   ["custom", "CUSTOM"],
   ["online", "ONLINE"],
   ["offline", "OFFLINE"],
 ];
-const sectionOf = (w) => (isCustom(w) ? "custom" : w.state === "offline" ? "offline" : "online");
+const sectionOf = (w) => (w.favorite ? "favorites" : isCustom(w) ? "custom" : w.state === "offline" ? "offline" : "online");
 
 function visibleWorlds() {
   const q = ui.search.trim().toLowerCase();
-  const favs = new Set(ui.snap.state.favourites.map((f) => f.world_slug));
   const rank = { online: 0, high: 0, starting: 1, unknown: 2, offline: 3 };
   return ui.snap.worlds
     .filter(inRealm)
@@ -1444,13 +1464,11 @@ function visibleWorlds() {
       if (ui.filter === "pvp") return rs.includes("pvp") || rs.includes("pk");
       return true;
     })
-    .sort((a, b) => (favs.has(b.slug) - favs.has(a.slug)) || (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
+    .sort((a, b) => (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
 }
 
 // A chevron on the same pixel grid as the rest of the chrome: "<" goes back.
 const CHEVRON_LEFT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><rect x="5" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/><rect x="1" y="5" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/><rect x="5" y="9" width="2" height="2"/></svg>`;
-// A bin, for taking a server of your own off the list.
-const TRASH_ICON = `<svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="4" y="0" width="4" height="1"/><rect x="1" y="2" width="10" height="1"/><rect x="2" y="4" width="1" height="8"/><rect x="9" y="4" width="1" height="8"/><rect x="2" y="11" width="8" height="1"/><rect x="5" y="5" width="1" height="5"/><rect x="7" y="5" width="1" height="5"/></svg>`;
 
 function playersLabel(w) {
   return w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "unknown";
@@ -1465,7 +1483,10 @@ function worldDetail(w) {
   const boxes = named
     ? ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" ${on[f.name] ? "checked" : ""} disabled>${esc(f.label)}</label>`).join("")
     : "";
-  const said = !named ? `This world does not name its era: it plays ${eraText(w)}.`
+  const said = w.era_state === "checking" ? "Checking which era this world plays."
+    : w.era_state === "unknown" ? "This world has not said its era."
+    : w.era_state === "assumed" ? "Assumed: the list doesn't say."
+    : !named ? `This world does not name its era: it plays ${eraText(w)}.`
     : w.era_source !== "world" ? `This world says the systems it has, and plays ${eraText(w)}.`
     : w.features_source === "world" ? "This world says its era and the systems it has."
     : "This world says its era, and has that era's systems.";
@@ -1479,7 +1500,10 @@ function worldDetail(w) {
       <div class="detail-body">
         <div class="detail-top">
           <p class="${w.description ? "" : "muted"}">${esc(w.description ?? "No description.")}</p>
-          <button class="play mini" data-open-world="${esc(w.slug)}" title="Play on ${esc(w.name)}">PLAY</button>
+          <div class="detail-actions">
+            <button class="play mini" data-open-world="${esc(w.slug)}" title="Play on ${esc(w.name)}">PLAY</button>
+            ${isCustom(w) ? `<button class="btn" data-trash="${esc(w.slug)}" title="Remove ${esc(w.name)}">Remove</button>` : ""}
+          </div>
         </div>
         <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
         ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}</div>` : ""}
@@ -1491,11 +1515,13 @@ function worldDetail(w) {
 
 function worldRow(w) {
   const open = ui.expanded === w.slug;
-  const trash = isCustom(w) ? `<button class="btn icon-btn trash" data-trash="${esc(w.slug)}" title="Remove ${esc(w.name)}">${TRASH_ICON}</button>` : "";
+  const pin = w.favorite
+    ? `<span class="star" title="Favorite">★</span><button class="btn icon-btn" data-world-fav="${esc(w.slug)}" title="Remove from favorites">✕</button>`
+    : `<button class="btn icon-btn" data-world-fav="${esc(w.slug)}" title="Add to favorites">☆</button>`;
   return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
       <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
       <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
-      <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end">${trash}</td></tr>`
+      <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
     + (open ? worldDetail(w) : "");
 }
 
@@ -1681,7 +1707,7 @@ function worldPage() {
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   const f = w.form;
 
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraText(world), emulatorLabel(world)].filter(Boolean);
+  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraFact(world), emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -1712,7 +1738,9 @@ function worldPage() {
     + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
   const eraName = eraText(world);
-  const dataNote = world.world_base === "modern" && world.dats.custom
+  const dataNote = world.era_state === "checking" || world.era_state === "unknown"
+    ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
+    : world.world_base === "modern" && world.dats.custom
     ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
     : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
@@ -1737,6 +1765,7 @@ function worldPage() {
           ${custom ? `<button class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
         <div class="scroll">
           <div class="facts">${bead(world.state)}<span>${esc(facts.join("  ·  "))}</span></div>
+          ${world.era_state === "assumed" ? `<p class="muted small">Assumed: the list doesn't say.</p>` : ""}
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
           <div class="form" style="margin-top:14px">
             <label class="lab" for="${f.adding ? "acct-name" : "account"}">ACCOUNT</label>${accountField}
@@ -1868,7 +1897,7 @@ function accounts() {
   const s = ui.snap.state;
   const rows = s.accounts.map((a, i) => {
     return `<div class="row static"><div class="grow"><div class="name">${esc(worldBy(a.world_slug)?.name ?? a.world_slug)} · ${esc(a.username)}</div></div>
-        <button class="btn icon-btn" data-forget-account="${i}" title="Forget this account">✕</button></div>`;
+        <button class="btn" data-forget-account="${i}" title="Forget this account">Forget</button></div>`;
   }).join("") || `<p class="muted">No accounts yet. They are added the first time you sign in to a world.</p>`;
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><h1>ACCOUNTS</h1></header>
@@ -2264,7 +2293,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-world-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2274,6 +2303,11 @@ document.addEventListener("click", async (ev) => {
     return;
   }
   if (d.unfav) { ev.stopPropagation(); await act("remove_favourite", { id: d.unfav }); return; }
+  if (d.worldFav) {
+    ev.stopPropagation();
+    await act("set_world_favorite", { slug: d.worldFav, favorite: !worldBy(d.worldFav)?.favorite });
+    return;
+  }
   if (d.fav) {
     ev.stopPropagation();
     const e = homeEntries()[Number(d.fav)];

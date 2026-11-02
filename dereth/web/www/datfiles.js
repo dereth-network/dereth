@@ -353,6 +353,25 @@ export async function removeSet(dereth, path) {
   dereth.frontRemoveSets(path);
 }
 
+// Remove the files named `names` from the set kept in folder `path` (one kind's), and read what is
+// left; the folder goes with its last data file.
+export async function removeSetFiles(dereth, path, names) {
+  releaseHeld();
+  const dir = await folderOrNull(path);
+  if (!dir) {
+    dereth.frontRemoveSets(path);
+    return;
+  }
+  for (const name of names) await dir.removeEntry(name).catch(() => {});
+  for await (const [name, entry] of dir.entries()) {
+    if (entry.kind === 'file' && NAMES.includes(name)) {
+      await readSet(dereth, path);
+      return;
+    }
+  }
+  await removeSet(dereth, path);
+}
+
 // ---- a world's overlay -----------------------------------------------------------------------
 
 // The world's overlay folder the worker holds open: its path and its four containers' handles. A

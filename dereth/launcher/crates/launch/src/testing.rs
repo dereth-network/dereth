@@ -54,9 +54,10 @@ pub mod world_list {
     /// The hub's list, one page: two ACE worlds whose heartbeats say they are up (twelve on) and
     /// starting (none on), a world the launcher's table knows by its list id, whose heartbeat
     /// says it is down, and an Empyrean world linked to the hub, up (three on), which the hub
-    /// names a WebSocket endpoint and a status document for. One ACE world's row names a plain
-    /// `ws://` endpoint on another machine, which no launcher follows. Every heartbeat counts
-    /// until 2099.
+    /// names a WebSocket endpoint and a status document for, and which told the hub, when it
+    /// asked, that it plays Infiltration. One ACE world's row names a plain `ws://` endpoint on
+    /// another machine, which no launcher follows. Every heartbeat, and the answer, counts until
+    /// 2099.
     #[must_use]
     pub fn hub_page() -> String {
         let row = |name: &str,
@@ -96,6 +97,10 @@ pub mod world_list {
         );
         ironwood["websocketUrl"] = serde_json::json!(IRONWOOD_WEBSOCKET);
         ironwood["statusUrl"] = serde_json::json!(IRONWOOD_STATUS);
+        ironwood["statusPing"] = serde_json::json!({
+            "state": "open", "playersOnline": 3, "era": "infiltration", "eraFeatures": "1:0000ff",
+            "software": "Empyrean", "version": "0.3.7", "name": "Ironwood",
+            "askedAt": "2098-12-31T23:57:00.000Z", "expiresAt": "2099-01-01T00:00:00.000Z"});
         serde_json::json!({"data": [
             row("Coldeve", "ACE", "192.0.2.10", 9000, "6b1f8d6e-0c55-4c1a-9d0e-31a2c7d0a001", "online", Some(12)),
             frostfell,
@@ -194,7 +199,8 @@ pub mod world_list {
         )
     }
 
-    /// The worlds a launcher shows from the hub's list, with how many are on as the hub has it.
+    /// The worlds a launcher shows from the hub's list, with how many are on as the hub has it,
+    /// and the era the Empyrean world told the hub it plays.
     #[must_use]
     pub fn from_the_hub() -> Vec<Summary> {
         vec![
@@ -228,7 +234,7 @@ pub mod world_list {
                     "ironwood",
                     "Ironwood",
                     Emulator::Empyrean,
-                    None,
+                    Some("infiltration"),
                     "192.0.2.13:9060",
                     Some(3),
                 ),

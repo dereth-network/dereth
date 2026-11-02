@@ -315,6 +315,10 @@ pub struct LauncherState {
     pub accounts: Vec<Account>,
     #[serde(default)]
     pub favourites: Vec<Favourite>,
+    /// The worlds the player starred in the world list, by key, which the list shows first. They
+    /// are apart from the Play page's favorites: each is kept and removed on its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub favorite_worlds: Vec<String>,
     /// The last few combinations played, most recent first, each once.
     #[serde(default)]
     pub recent: Vec<Recent>,
@@ -335,6 +339,7 @@ impl Default for LauncherState {
             dat_sets: Vec::new(),
             accounts: Vec::new(),
             favourites: Vec::new(),
+            favorite_worlds: Vec::new(),
             recent: Vec::new(),
             custom_worlds: Vec::new(),
             world_prefs: BTreeMap::new(),
@@ -536,12 +541,27 @@ impl LauncherState {
         }
     }
 
+    /// Whether the world kept under `slug` is starred in the world list.
+    #[must_use]
+    pub fn is_favorite_world(&self, slug: &str) -> bool {
+        self.favorite_worlds.iter().any(|s| s == slug)
+    }
+
+    /// Star the world kept under `slug` in the world list, or take its star away.
+    pub fn set_favorite_world(&mut self, slug: &str, favorite: bool) {
+        self.favorite_worlds.retain(|s| s != slug);
+        if favorite {
+            self.favorite_worlds.push(slug.to_owned());
+        }
+    }
+
     /// Remove a server the player added, with its accounts, favourites and remembered choices. The
     /// caller deletes the accounts' vault entries first.
     pub fn remove_custom_world(&mut self, slug: &str) {
         self.custom_worlds.retain(|w| w.slug != slug);
         self.accounts.retain(|a| a.world_slug != slug);
         self.favourites.retain(|f| f.world_slug != slug);
+        self.favorite_worlds.retain(|s| s != slug);
         self.recent.retain(|r| r.world_slug != slug);
         self.world_prefs.remove(slug);
     }
@@ -553,10 +573,11 @@ impl LauncherState {
         let custom: std::collections::HashSet<String> =
             self.custom_worlds.iter().map(|w| w.slug.clone()).collect();
         let keep = |slug: &str| listed.contains(slug) || custom.contains(slug);
-        let before = self.recent.len() + self.favourites.len();
+        let before = self.recent.len() + self.favourites.len() + self.favorite_worlds.len();
         self.recent.retain(|r| keep(&r.world_slug));
         self.favourites.retain(|f| keep(&f.world_slug));
-        before != self.recent.len() + self.favourites.len()
+        self.favorite_worlds.retain(|s| keep(s));
+        before != self.recent.len() + self.favourites.len() + self.favorite_worlds.len()
     }
 
     /// Record a combination as the most recent, keeping each combination once and the last
@@ -695,6 +716,52 @@ mod tests {
         assert!(Realm::Auberean.shows(&auberean) && !Realm::Auberean.shows(&dereth));
         assert!(Realm::Dereth.shows(&World::new("plain", "Plain")));
         assert_eq!(Realm::default().game(), Game::Dereth);
+    }
+
+    /// A world starred in the world list is a favorite; a Play favorite is not a starred world,
+    /// and each is kept and removed on its own. Starred worlds are kept in the launcher's file,
+    /// written only when there are any, and forgotten with the world.
+    #[test]
+    fn a_starred_world_is_a_favorite_apart_from_the_play_favorites_and_is_kept() {
+        let mut s = LauncherState::default();
+        assert!(!s.is_favorite_world("coldeve"));
+        s.set_favorite_world("coldeve", true);
+        s.set_favorite_world("coldeve", true);
+        assert_eq!(s.favorite_worlds, ["coldeve"], "starred once");
+        s.favourites.push(Favourite {
+            id: "f1".into(),
+            name: None,
+            world_slug: "seedsow".into(),
+            account: "player".into(),
+            client: ClientKind::Dereth,
+            dat_set_id: None,
+            classic_set_id: None,
+        });
+        assert!(
+            !s.is_favorite_world("seedsow"),
+            "a Play favorite is not a star"
+        );
+        s.set_favorite_world("seedsow", true);
+        s.set_favorite_world("seedsow", false);
+        assert!(!s.is_favorite_world("seedsow"));
+        assert_eq!(s.favourites.len(), 1, "the Play favorite is left alone");
+
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""favorite_worlds":["coldeve"]"#), "{json}");
+        let back: LauncherState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.favorite_worlds, ["coldeve"]);
+        assert!(
+            !serde_json::to_string(&LauncherState::default())
+                .unwrap()
+                .contains("favorite_worlds"),
+            "none: not written"
+        );
+        let older: LauncherState = serde_json::from_str(r#"{"schema":1}"#).unwrap();
+        assert!(older.favorite_worlds.is_empty(), "a file from before reads");
+
+        let listed: std::collections::HashSet<&str> = ["seedsow"].into_iter().collect();
+        assert!(s.forget_unlisted(&listed));
+        assert!(s.favorite_worlds.is_empty(), "a world no longer listed");
     }
 
     #[test]

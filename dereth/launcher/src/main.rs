@@ -369,6 +369,12 @@ fn remove_favourite(b: State<'_, Shared>, id: String) {
     lock(&b).remove_favourite(&id);
 }
 
+/// Star a world in the world list, or take its star away.
+#[tauri::command]
+fn set_world_favorite(b: State<'_, Shared>, slug: String, favorite: bool) {
+    lock(&b).set_world_favorite(&slug, favorite);
+}
+
 #[tauri::command]
 fn forget_account(b: State<'_, Shared>, slug: String, username: String) {
     lock(&b).forget_account(&slug, &username);
@@ -419,6 +425,12 @@ fn open_local_world(b: State<'_, Shared>, l: State<'_, local::Shared>, key: Stri
 #[tauri::command]
 fn probe_world(b: State<'_, Shared>, slug: String) {
     Backend::probe(&b, vec![slug]);
+}
+
+/// The page shows the worlds, or no longer does: the worlds are asked again only while it does.
+#[tauri::command]
+fn worlds_shown(b: State<'_, Shared>, shown: bool) {
+    lock(&b).set_worlds_shown(shown);
 }
 
 #[tauri::command]
@@ -826,6 +838,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            worlds_shown,
             restart_to_update,
             refresh,
             world_view,
@@ -842,6 +855,7 @@ fn main() {
             verify_retail,
             save_favourite,
             remove_favourite,
+            set_world_favorite,
             forget_account,
             set_remember,
             forget_all_passwords,

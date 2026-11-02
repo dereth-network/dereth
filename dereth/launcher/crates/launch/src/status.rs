@@ -53,7 +53,6 @@ pub fn from_status_reply(r: &StatusReply) -> LiveStatus {
         table_version: r.era_table_version,
         bytes: r.era_features.clone(),
     };
-    let features = bits.overrides();
     LiveStatus {
         state: match r.state {
             PingState::Open => WorldState::Online,
@@ -64,11 +63,19 @@ pub fn from_status_reply(r: &StatusReply) -> LiveStatus {
         players: Some(u32::from(r.players)),
         version: some(&r.software_version),
         era: some(&r.era),
-        era_features: (!features.is_empty()).then(|| features.to_string()),
+        era_features: systems_named(&bits),
         software: some(&r.software),
         world_name: some(&r.world_name),
         ..LiveStatus::default()
     }
+}
+
+/// The systems `bits` names, by name in the `--era-features` form, as far as this build's table
+/// and the world's both name them; `None` when they name none (the era's table then speaks for
+/// them all).
+pub(crate) fn systems_named(bits: &EraFeatureBits) -> Option<String> {
+    let features = bits.overrides();
+    (!features.is_empty()).then(|| features.to_string())
 }
 
 /// The document's `features` object (`{"ratings":false,"trade":true,...}`) in the `--era-features`

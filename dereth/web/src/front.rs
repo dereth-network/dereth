@@ -11,9 +11,12 @@
 //! and the day's copy of the list; this holds them while the page is open and answers the page's
 //! questions as JSON. While the worlds are shown, the hub's list is read again about once a minute
 //! for whether each world is up and how many are on, by the desktop launcher's rules
-//! ([`dereth_launch::hubstatus`]); the page fetches each page of it it is given. A browser cannot
-//! ask a server over UDP whether it is up, so a world with no status document, of which the hub
-//! has no word, is shown with its state unknown.
+//! ([`dereth_launch::hubstatus`]); the page fetches each page of it it is given. The same read
+//! brings what each Empyrean world told the hub when it asked (its era, systems and version),
+//! which the desktop launcher asks the world itself. A browser cannot ask a server over UDP, so a
+//! world with no status document, of which the hub has no word, is shown with its state unknown,
+//! and an Empyrean world that has told nobody its era is shown with its era being checked until
+//! the hub's word is read, then unknown.
 //!
 //! **Plugins.** The page installs plugins from plugin sources as the launcher does, with the
 //! launcher's own shelf of sources: [`crate::plugin_sources`].
@@ -24,12 +27,14 @@ use std::path::PathBuf;
 use dereth_launch::choices;
 use dereth_launch::datset::{self, DatOrigin, DatSet, SetKind};
 use dereth_launch::eras;
+use dereth_launch::install::ClientKind;
+use dereth_launch::join::JoinLink;
 use dereth_launch::launch;
 use dereth_launch::listing::WorldList;
 use dereth_launch::serverlist::{self, ListCache, ListFetch};
-use dereth_launch::state::{LauncherState, Realm, WorldPrefs};
+use dereth_launch::state::{Account, Favourite, LauncherState, Realm, Recent, WorldPrefs};
 use dereth_launch::status::{self, LiveStatus};
-use dereth_launch::world::{Emulator, World};
+use dereth_launch::world::{AccountModel, Emulator, World};
 use serde_json::{json, Value};
 
 /// The launcher behind the front page.
@@ -208,6 +213,14 @@ impl Front {
             .filter(|w| Realm::Dereth.shows(w))
     }
 
+    /// `w` for the page: the world, whether the player added it, and the address it is played at.
+    fn world_json(&self, w: &World) -> Value {
+        let mut v = serde_json::to_value(w).unwrap_or(Value::Null);
+        v["added"] = json!(self.state.custom_worlds.iter().any(|c| c.slug == w.slug));
+        v["address"] = json!(address(w));
+        v
+    }
+
     /// The world shown for `slug` at `now`: the world itself, or, for a server the player added
     /// that the list names too, the list's world; none for a world of another game.
     fn world_of(&self, slug: &str, now: u64) -> Option<World> {
@@ -225,21 +238,7 @@ impl Front {
     /// the page offers for those that do not say theirs.
     #[must_use]
     pub fn worlds(&self, now: u64) -> Value {
-        let custom: Vec<&str> = self
-            .state
-            .custom_worlds
-            .iter()
-            .map(|c| c.slug.as_str())
-            .collect();
-        let worlds: Vec<Value> = self
-            .shown(now)
-            .map(|w| {
-                let mut v = serde_json::to_value(&w).unwrap_or(Value::Null);
-                v["added"] = json!(custom.contains(&w.slug.as_str()));
-                v["address"] = json!(address(&w));
-                v
-            })
-            .collect();
+        let worlds: Vec<Value> = self.shown(now).map(|w| self.world_json(&w)).collect();
         json!({
             "worlds": worlds,
             "eras": eras::eras(),
@@ -268,16 +267,38 @@ impl Front {
             })
             .collect();
         Some(json!({
-            "world": w,
+            "world": self.world_json(&w),
             "dat_sets": taken,
             "refused_sets": refused,
             "classic_sets": choices::classic_sets_for(&self.state),
             "launch": launch::describe(&w),
             "args": launch::describe(&w).args(),
             "prefs": self.state.world_prefs.get(slug),
+            "accounts": self.state.accounts_for(&w.slug).collect::<Vec<_>>(),
             "address": address(&w),
             "overlay_folder": address(&w).map(|a| overlay_folder(&a)),
+            "join_link": self.join_link(&w),
         }))
+    }
+
+    /// The link a player sends a friend for world `w`: the site's join page with the world's game
+    /// address and name. None for a world with no game address, or one the player added by a URL,
+    /// whose port is the URL's rather than the game's.
+    fn join_link(&self, w: &World) -> Option<String> {
+        let added_by_url = self
+            .state
+            .custom_worlds
+            .iter()
+            .any(|c| c.slug == w.slug && c.url.is_some());
+        let e = w.endpoint.as_ref().filter(|_| !added_by_url)?;
+        Some(
+            JoinLink {
+                host: e.address.clone(),
+                port: e.port,
+                name: w.name.clone(),
+            }
+            .web_link(),
+        )
     }
 
     /// Add a server by its host and port.
@@ -311,14 +332,138 @@ impl Front {
         self.unanswered.remove(slug);
     }
 
-    /// Remember the player's choices on a world: the account and the data sets.
+    /// A start on world `slug` at `now` (seconds since the epoch), as the desktop launcher records
+    /// one: the account among the world's accounts, the choices as the world's own, and the
+    /// combination as the most recent. `prefs` (JSON) names the account and the data sets; the
+    /// client is this one. No password is kept: the browser's password manager keeps it.
     ///
     /// # Errors
     /// Choices that do not read.
-    pub fn remember(&mut self, slug: &str, prefs: &str) -> Result<(), String> {
-        let prefs: WorldPrefs = serde_json::from_str(prefs).map_err(|e| e.to_string())?;
+    pub fn record_launch(&mut self, slug: &str, prefs: &str, now: u64) -> Result<(), String> {
+        let mut prefs: WorldPrefs = serde_json::from_str(prefs).map_err(|e| e.to_string())?;
+        prefs.client = Some(ClientKind::Dereth);
+        prefs.last_played = Some(now);
+        let account = prefs
+            .account
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_owned);
+        prefs.account.clone_from(&account);
+        if let Some(account) = &account {
+            let existing = self.state.account(slug, account).cloned();
+            let creates = self
+                .world_of(slug, now)
+                .is_some_and(|w| w.account_model == AccountModel::AutoCreateOnFirstLogin);
+            self.state.upsert_account(Account {
+                world_slug: slug.to_owned(),
+                username: account.clone(),
+                label: existing.as_ref().and_then(|a| a.label.clone()),
+                remember: false,
+                created_by_launcher: existing.map_or(creates, |a| a.created_by_launcher),
+            });
+            self.state.record_recent(Recent {
+                world_slug: slug.to_owned(),
+                account: account.clone(),
+                client: ClientKind::Dereth,
+                dat_set_id: prefs.dat_set_id.clone(),
+                classic_set_id: prefs.classic_set_id.clone(),
+                last_played: now,
+            });
+        }
         self.state.remember_launch(slug, prefs);
         Ok(())
+    }
+
+    /// Pin a combination to Home (JSON, a favourite; an empty id is given a new one). Answers its
+    /// id.
+    ///
+    /// # Errors
+    /// A favourite that does not read.
+    pub fn save_favourite(&mut self, favourite: &str) -> Result<String, String> {
+        let mut f: Favourite = serde_json::from_str(favourite).map_err(|e| e.to_string())?;
+        if f.id.is_empty() {
+            f.id = self.state.new_id("f");
+        }
+        self.state.favourites.retain(|x| x.id != f.id);
+        let id = f.id.clone();
+        self.state.favourites.push(f);
+        Ok(id)
+    }
+
+    /// Unpin the favourite `id`.
+    pub fn remove_favourite(&mut self, id: &str) {
+        self.state.favourites.retain(|f| f.id != id);
+    }
+
+    /// Star the world `slug` in the world list, or take its star away.
+    pub fn set_world_favorite(&mut self, slug: &str, favorite: bool) {
+        self.state.set_favorite_world(slug, favorite);
+    }
+
+    /// Forget the account `username` on world `slug`, with the favourites and recent combinations
+    /// that used it.
+    pub fn forget_account(&mut self, slug: &str, username: &str) {
+        self.state.forget_account(slug, username);
+    }
+
+    /// Forget every account, as [`Front::forget_account`] forgets one.
+    pub fn forget_all_accounts(&mut self) {
+        let all: Vec<(String, String)> = self
+            .state
+            .accounts
+            .iter()
+            .map(|a| (a.world_slug.clone(), a.username.clone()))
+            .collect();
+        for (slug, username) in all {
+            self.state.forget_account(&slug, &username);
+        }
+    }
+
+    /// Make the data set `id` the default of its kind, the one a world's page offers first.
+    ///
+    /// # Errors
+    /// No such set.
+    pub fn set_default_set(&mut self, id: &str) -> Result<(), String> {
+        if self.state.set_default_set(id) {
+            Ok(())
+        } else {
+            Err("Those data files are not kept in this browser.".into())
+        }
+    }
+
+    /// What Home offers, as the desktop launcher's Home lists it: every favourite, then the
+    /// combinations played recently that are not one, newest first. While the page shows any world,
+    /// a combination whose world it does not show at `now` is left out.
+    #[must_use]
+    pub fn home(&self, now: u64) -> Value {
+        let shown: Vec<String> = self.shown(now).map(|w| w.slug).collect();
+        let listed = |slug: &str| shown.is_empty() || shown.iter().any(|s| s == slug);
+        let s = &self.state;
+        let favourites = s.favourites.iter().map(|f| {
+            json!({"world_slug": f.world_slug, "account": f.account, "client": f.client,
+                   "dat_set_id": f.dat_set_id, "classic_set_id": f.classic_set_id,
+                   "favourite": f.id})
+        });
+        let recent = s
+            .recent
+            .iter()
+            .filter(|r| {
+                !s.favourites.iter().any(|f| {
+                    r.same_as(&f.world_slug, &f.account, f.client, f.dat_set_id.as_deref())
+                })
+            })
+            .map(|r| {
+                json!({"world_slug": r.world_slug, "account": r.account, "client": r.client,
+                       "dat_set_id": r.dat_set_id, "classic_set_id": r.classic_set_id,
+                       "favourite": null})
+            });
+        Value::Array(
+            favourites
+                .chain(recent)
+                .filter(|e| listed(e["world_slug"].as_str().unwrap_or("")))
+                .collect(),
+        )
     }
 
     /// The files kept in the browser's folder `folder`, read: the later set they hold and the
@@ -365,11 +510,17 @@ impl Front {
                 }
                 None => {
                     let id = self.state.new_id("web-");
+                    // The first set of its kind is its default, as the desktop library makes it.
+                    let origin = if self.state.default_set(kind).is_none() {
+                        DatOrigin::Shared
+                    } else {
+                        DatOrigin::Unassigned
+                    };
                     self.state.dat_sets.push(DatSet {
                         id: id.clone(),
                         path: path.clone(),
                         kind,
-                        origin: DatOrigin::Unassigned,
+                        origin,
                         files,
                         last_patched_by_server: None,
                         created_by_launcher: true,
@@ -635,6 +786,141 @@ mod tests {
         assert!(f.world("coldeve", NOW).is_some());
     }
 
+    /// A world starred in the page's world list is a favorite, which the list shows first; a Play
+    /// favorite does not make its world one, and each is removed on its own.
+    #[test]
+    fn a_world_starred_on_the_page_is_a_favorite_apart_from_the_play_favorites() {
+        const IN_10_MIN: &str = "2026-10-11T18:10:00.000Z";
+        let mut f = Front::default();
+        f.list_start(None, None).unwrap();
+        f.list_next(hub_page(
+            &[
+                hub_row("Coldeve", "online", Some(12), Some(IN_10_MIN)),
+                hub_row("Seedsow", "online", Some(3), Some(IN_10_MIN)),
+                hub_row("AChard", "online", Some(1), Some(IN_10_MIN)),
+            ],
+            None,
+        ));
+        f.list_done(NOW).unwrap();
+        let favorites = |f: &Front| -> Vec<String> {
+            f.worlds(NOW)["worlds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|w| w["favorite"] == true)
+                .map(|w| w["slug"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert!(favorites(&f).is_empty());
+        f.set_world_favorite("seedsow", true);
+        let pinned = json!({"id": "", "world_slug": "achard", "account": "player",
+                            "client": "dereth", "dat_set_id": "web-1"})
+        .to_string();
+        f.save_favourite(&pinned).unwrap();
+        assert_eq!(
+            favorites(&f),
+            ["seedsow"],
+            "a Play favorite is not a starred world"
+        );
+        f.set_world_favorite("seedsow", false);
+        assert!(favorites(&f).is_empty());
+        assert!(
+            home_of(&f).iter().any(|(w, _, fav)| w == "achard" && *fav),
+            "the Play favorite is left alone"
+        );
+    }
+
+    /// The page shows the era, systems and version an Empyrean world told the hub, as the desktop
+    /// launcher shows what the world tells it over UDP; an Empyrean world's era nobody has said as
+    /// unknown once the hub has said all it will, never as the end of retail; and a world whose
+    /// software nobody names as taken to play the end of retail.
+    #[test]
+    fn the_page_shows_what_a_world_told_the_hub_and_an_era_nobody_said_as_unknown() {
+        const IN_3_MIN: &str = "2026-10-11T18:03:00.000Z";
+        const IN_10_MIN: &str = "2026-10-11T18:10:00.000Z";
+        let empyrean = |name: &str, said: Value| {
+            let mut row = hub_row(name, "online", Some(0), Some(IN_10_MIN));
+            row["emulator"]["family"] = json!("Empyrean");
+            row["statusPing"] = said;
+            row
+        };
+        let said = json!({"state": "open", "playersOnline": 1, "era": "infiltration",
+            "eraFeatures": "1:0000ff", "software": "Empyrean", "version": "0.3.7",
+            "name": "Infiltration", "askedAt": "2026-10-11T18:00:00.000Z", "expiresAt": IN_3_MIN});
+        let mut f = Front::default();
+        f.list_start(None, None).unwrap();
+        f.list_next(hub_page(
+            &[
+                empyrean("Infiltration", said),
+                empyrean("Retail", Value::Null),
+                hub_row("Coldeve", "online", Some(12), Some(IN_10_MIN)),
+            ],
+            None,
+        ));
+        f.list_done(NOW).unwrap();
+        let fact = |f: &Front, slug: &str, now: u64| {
+            let w = f.world(slug, now).unwrap()["world"].clone();
+            (
+                w["era"].as_str().map(str::to_owned),
+                w["emulator_version"].as_str().map(str::to_owned),
+                w["era_state"].as_str().unwrap().to_owned(),
+            )
+        };
+        assert_eq!(
+            fact(&f, "infiltration", NOW),
+            (
+                Some("infiltration".into()),
+                Some("0.3.7".into()),
+                "known".into()
+            )
+        );
+        let w = &f.world("infiltration", NOW).unwrap()["world"];
+        assert_eq!(
+            (w["era_source"].as_str(), w["features_source"].as_str()),
+            (Some("world"), Some("world")),
+            "the systems it has, as it said them"
+        );
+        assert_eq!(w["players"], 1);
+        assert_eq!(
+            fact(&f, "retail", NOW),
+            (None, None, "unknown".into()),
+            "not heard from, and the hub has said all it will"
+        );
+        assert_eq!(
+            fact(&f, "coldeve", NOW),
+            (None, None, "known".into()),
+            "ACE plays the end of retail"
+        );
+        let listed: Vec<String> = f.worlds(NOW)["worlds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["era_state"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(listed, ["known", "unknown", "known"]);
+        // Past the answer's expiry, the era is unknown again.
+        assert_eq!(
+            fact(&f, "infiltration", NOW + 180),
+            (None, None, "unknown".into())
+        );
+        // A status document that names no era says the world plays the end of retail.
+        assert!(f.set_status("retail", br#"{"world_open":true,"version":"0.3.7"}"#));
+        assert_eq!(
+            fact(&f, "retail", NOW),
+            (None, Some("0.3.7".into()), "known".into())
+        );
+        // A server the player added, its software not named and not heard from: taken to play the
+        // end of retail.
+        let added = f
+            .add_world("", "play.example.org", "9000", "", "unknown")
+            .unwrap();
+        assert_eq!(fact(&f, &added, NOW), (None, None, "assumed".into()));
+        let added = f
+            .add_world("", "ace.example.org", "9000", "", "ace")
+            .unwrap();
+        assert_eq!(fact(&f, &added, NOW), (None, None, "known".into()));
+    }
+
     #[test]
     fn the_page_shows_the_hubs_word_on_each_world_by_the_desktop_launchers_rules() {
         use serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
@@ -893,7 +1179,7 @@ mod tests {
         again.status_failed(&slug);
         assert_eq!(again.worlds(NOW)["worlds"][0]["state"], "offline");
         again
-            .remember(&slug, r#"{"account":"player","dat_set_id":"web-1"}"#)
+            .record_launch(&slug, r#"{"account":"player","dat_set_id":"web-1"}"#, NOW)
             .unwrap();
         assert_eq!(
             again.world(&slug, NOW).unwrap()["prefs"]["account"],
@@ -901,6 +1187,155 @@ mod tests {
         );
         again.remove_world(&slug);
         assert!(again.worlds(NOW)["worlds"].as_array().unwrap().is_empty());
+        assert!(
+            again.state.accounts.is_empty() && again.state.recent.is_empty(),
+            "its account and its start go with it"
+        );
+    }
+
+    /// The (world, account, favourite) of each entry Home offers.
+    fn home_of(f: &Front) -> Vec<(String, String, bool)> {
+        f.home(NOW)
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                (
+                    e["world_slug"].as_str().unwrap().to_owned(),
+                    e["account"].as_str().unwrap().to_owned(),
+                    !e["favourite"].is_null(),
+                )
+            })
+            .collect()
+    }
+
+    /// A start is recorded as the desktop launcher records one (the account, the world's choices,
+    /// the combination as the most recent, each once whatever the account name's case), with no
+    /// password kept; Home lists the favourites, then the recent combinations that are not one,
+    /// and none whose world the page does not show.
+    #[test]
+    fn a_start_is_recorded_as_the_desktop_launcher_records_one_and_home_lists_it() {
+        let mut f = Front::default();
+        f.set_copy(&copy_of(LIST), None, None).unwrap();
+        assert!(f.record_launch("achard", "not prefs", NOW).is_err());
+        f.record_launch(
+            "achard",
+            r#"{"account":"player","dat_set_id":"web-1"}"#,
+            NOW,
+        )
+        .unwrap();
+        f.record_launch(
+            "achard",
+            r#"{"account":"Player ","dat_set_id":"web-1"}"#,
+            NOW + 1,
+        )
+        .unwrap();
+        let st: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert_eq!(st["accounts"].as_array().unwrap().len(), 1);
+        assert_eq!(st["accounts"][0]["remember"], false, "no password is kept");
+        assert_eq!(st["recent"].as_array().unwrap().len(), 1);
+        assert_eq!(st["recent"][0]["client"], "dereth");
+        assert_eq!(st["world_prefs"]["achard"]["last_played"], NOW + 1);
+        assert_eq!(
+            f.world("achard", NOW).unwrap()["accounts"][0]["username"],
+            "Player"
+        );
+        f.record_launch("seedsow", r#"{"account":"alt"}"#, NOW + 2)
+            .unwrap();
+        // A start on a world the list no longer shows is recorded, and not offered.
+        f.record_launch("nowhere", r#"{"account":"ghost"}"#, NOW + 3)
+            .unwrap();
+        assert_eq!(
+            home_of(&f),
+            [
+                ("seedsow".into(), "alt".into(), false),
+                ("achard".into(), "Player".into(), false)
+            ]
+        );
+
+        // Pinned, the combination is a favourite, first, and not offered again as a recent one.
+        let pinned = json!({"id": "", "world_slug": "achard", "account": "player",
+                            "client": "dereth", "dat_set_id": "web-1"})
+        .to_string();
+        let id = f.save_favourite(&pinned).unwrap();
+        assert!(!id.is_empty());
+        assert_eq!(
+            home_of(&f),
+            [
+                ("achard".into(), "player".into(), true),
+                ("seedsow".into(), "alt".into(), false)
+            ]
+        );
+        f.remove_favourite(&id);
+        assert_eq!(home_of(&f).len(), 2);
+
+        // Forgetting an account forgets its combinations; forgetting all forgets every one.
+        f.save_favourite(&pinned).unwrap();
+        f.forget_account("achard", "PLAYER");
+        assert_eq!(home_of(&f), [("seedsow".into(), "alt".into(), false)]);
+        assert!(f.world("achard", NOW).unwrap()["prefs"]["account"].is_null());
+        f.forget_all_accounts();
+        assert!(home_of(&f).is_empty());
+        assert!(f.state.accounts.is_empty());
+    }
+
+    /// A world's page carries its join link, the site's page with the world's game address and
+    /// name, as the desktop launcher builds it; a server added by a URL has none, its port being
+    /// the URL's.
+    #[test]
+    fn a_worlds_join_link_names_its_game_address_and_a_server_added_by_url_has_none() {
+        let mut f = Front::default();
+        f.set_copy(&copy_of(LIST), None, None).unwrap();
+        assert_eq!(
+            f.world("achard", NOW).unwrap()["join_link"],
+            "https://dereth.network/join#host=a-chard.example&port=9000&name=AChard"
+        );
+        let typed = f.add_world("Mine", "127.0.0.1", "9050", "", "").unwrap();
+        assert_eq!(
+            f.world(&typed, NOW).unwrap()["join_link"],
+            "https://dereth.network/join#host=127.0.0.1&port=9050&name=Mine"
+        );
+        let by_url = f
+            .add_world("", "play.example.org", "443", "", "empyrean")
+            .unwrap();
+        f.added_by(&by_url, "wss://play.example.org/");
+        assert!(f.world(&by_url, NOW).unwrap()["join_link"].is_null());
+    }
+
+    /// The first set of each kind kept in the browser is that kind's default, as the desktop
+    /// library makes it; another can be made the default in its place.
+    #[test]
+    fn the_first_set_of_a_kind_is_its_default_and_another_can_take_its_place() {
+        let mut f = Front::default();
+        let first = f.add_sets("sets/eor", end_of_retail_files());
+        let second = f.add_sets(
+            "sets/copy",
+            vec![file("client_portal.dat", testdat::eor(1, 0, 2072))],
+        );
+        let origin = |f: &Front, id: &str| {
+            let st: Value = serde_json::from_str(&f.state_json()).unwrap();
+            st["dat_sets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["id"] == id)
+                .unwrap()["origin"]["kind"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(origin(&f, &first[0]), "shared");
+        assert_eq!(
+            origin(&f, &first[1]),
+            "shared",
+            "the older pair's own default"
+        );
+        assert_eq!(origin(&f, &second[0]), "unassigned");
+        f.set_default_set(&second[0]).unwrap();
+        assert_eq!(origin(&f, &second[0]), "shared");
+        assert_eq!(origin(&f, &first[0]), "unassigned");
+        assert_eq!(origin(&f, &first[1]), "shared", "the other kind's stays");
+        assert!(f.set_default_set("nothing").is_err());
     }
 
     #[test]
