@@ -156,8 +156,14 @@ pub struct HubConfig {
     pub probe_per_caller: Rate,
     /// The probes the hub runs for every caller together ([`crate::probe::OVERALL`]).
     pub probe_overall: Rate,
-    /// A probe's copies and its wait ([`crate::probe::EVERY`], [`crate::probe::WAIT`]).
+    /// A probe's copies and its wait ([`crate::probe::EVERY`], [`crate::probe::WAIT`]), and the
+    /// status ping's to the listed Empyrean worlds ([`crate::ping`]).
     pub probe_timing: crate::probe::Timing,
+    /// How long after a listed Empyrean world answered the status ping it is asked again
+    /// ([`crate::ping::EVERY`]).
+    pub status_ping_every: Duration,
+    /// How long after one said nothing it is asked again ([`crate::ping::AFTER_SILENCE`]).
+    pub status_ping_after_silence: Duration,
     pub limits: Limits,
     /// HTTP requests a minute from one address.
     pub http_per_minute: u32,
@@ -200,6 +206,8 @@ impl Default for HubConfig {
             probe_per_caller: crate::probe::PER_CALLER,
             probe_overall: crate::probe::OVERALL,
             probe_timing: crate::probe::Timing::default(),
+            status_ping_every: crate::ping::EVERY,
+            status_ping_after_silence: crate::ping::AFTER_SILENCE,
             limits: Limits::DEFAULT,
             http_per_minute: 180,
             wire_log: None,
@@ -399,6 +407,8 @@ pub(crate) struct Shared {
     pub(crate) challenges: crate::challenge::Waiting,
     /// The limits on probes of a world from outside, kept in memory only.
     pub(crate) probes: crate::probe::Limits,
+    /// What the listed Empyrean worlds said when the hub asked them, kept in memory only.
+    pub(crate) pings: crate::ping::Answers,
     /// The Discord broker, on a hub given the bot token.
     pub(crate) broker: Option<crate::broker::Service>,
     started: Instant,
@@ -568,10 +578,12 @@ impl Shared {
             },
         };
         let mut worlds = registry.all()?;
+        let at = registry.now();
         drop(registry);
         let linked = self.linked();
         for w in &mut worlds {
-            web_addresses_while_linked(w, &linked);
+            public_web_addresses(w, &linked);
+            self.pings.list(w, at);
         }
         let now = std::time::SystemTime::now();
         let fresh = Arc::new(Public {
@@ -584,6 +596,18 @@ impl Shared {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&fresh));
         Ok(fresh)
+    }
+
+    /// Every world of the public lists, read from the registry itself; none while the registry is
+    /// busy or cannot be read. It leaves the lists' snapshot alone: one built here would be served
+    /// to the next caller, up to [`PUBLIC_EVERY`] older than what the registry holds.
+    pub(crate) fn public_worlds(&self) -> Vec<Value> {
+        let registry = match self.registry.try_lock() {
+            Ok(r) => r,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Vec::new(),
+        };
+        registry.all().unwrap_or_default()
     }
 
     /// Takes one request from `ip`'s allowance (an IPv6 client's by its /64, as connections are
@@ -846,6 +870,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         resolver,
         challenges: crate::challenge::Waiting::default(),
         probes,
+        pings: crate::ping::Answers::default(),
         broker,
         started: Instant::now(),
         next_conn: AtomicU64::new(1),
@@ -866,6 +891,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         .name("hub-accept".into())
         .spawn(move || accept_loop(&s2, &listener))?;
     let mut threads = vec![accept, router];
+    threads.extend(crate::ping::start(&shared)?);
     if let Some(broker) = shared.broker.as_ref() {
         let mirrors = broker.bridge.mirrors().len();
         log(
@@ -1246,12 +1272,21 @@ fn wire_line(f: &mut std::fs::File, way: &str, kind: &str) {
     let _ = writeln!(f, "{now} {way}: {kind}");
 }
 
-/// A world's web addresses, as the public answers show them: only while its link is up.
-fn web_addresses_while_linked(world: &mut Value, linked: &BTreeSet<String>) {
+/// A world's web addresses, as the public answers show them: what its link's `hello` named, only
+/// while the link is up; else, for its WebSocket endpoint, the one it announced over HTTP, while
+/// that announcement is fresh.
+fn public_web_addresses(world: &mut Value, linked: &BTreeSet<String>) {
     let up = world["slug"].as_str().is_some_and(|s| linked.contains(s));
     if !up {
         world["websocketUrl"] = Value::Null;
         world["statusUrl"] = Value::Null;
+    }
+    let announced = world
+        .as_object_mut()
+        .and_then(|w| w.remove("announcedWebsocketUrl"))
+        .unwrap_or(Value::Null);
+    if world["websocketUrl"].is_null() {
+        world["websocketUrl"] = announced;
     }
 }
 
@@ -1953,6 +1988,17 @@ fn first_game(worlds: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// The WebSocket endpoint in the body of `POST /v1/servers/<slug>/web`, `{"websocketUrl"}`: a
+/// URL, or `null` to withdraw the last one. `None` for a body that names neither.
+fn announced_url(body: &[u8]) -> Option<Option<String>> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    match v.as_object()?.get("websocketUrl")? {
+        Value::Null => Some(None),
+        Value::String(u) => Some(Some(u.clone())),
+        _ => None,
+    }
+}
+
 /// The one answer for a character the directory does not show, whatever the reason.
 const NOT_LISTED: &str = "No such character in the directory";
 
@@ -2026,21 +2072,28 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
             let server = shared.registry().public_server(&slug);
             match server {
                 Ok(Some(mut s)) => {
-                    web_addresses_while_linked(&mut s, &shared.linked());
+                    public_web_addresses(&mut s, &shared.linked());
                     resolve(s, &shared.resolver, shared.config.loopback_allowed)
                 }
                 Ok(None) => (404, error_json(404, "Server not found")),
                 Err(e) => reg_result(Err(e)),
             }
         }
-        (_, ["v1", "servers", slug]) if get => match shared.registry().public_server(slug) {
-            Ok(Some(mut s)) => {
-                web_addresses_while_linked(&mut s, &shared.linked());
-                (200, s.to_string())
+        (_, ["v1", "servers", slug]) if get => {
+            let (server, at) = {
+                let registry = shared.registry();
+                (registry.public_server(slug), registry.now())
+            };
+            match server {
+                Ok(Some(mut s)) => {
+                    public_web_addresses(&mut s, &shared.linked());
+                    shared.pings.list(&mut s, at);
+                    (200, s.to_string())
+                }
+                Ok(None) => (404, error_json(404, "Server not found")),
+                Err(e) => reg_result(Err(e)),
             }
-            Ok(None) => (404, error_json(404, "Server not found")),
-            Err(e) => reg_result(Err(e)),
-        },
+        }
         (_, ["v1", "servers", slug, "status"]) if get => {
             match shared.registry().public_server(slug) {
                 Ok(Some(s)) => (
@@ -2063,6 +2116,22 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
                         Err(e) => (400, error_json(400, &e.to_string())),
                     }
                 }
+                _ => (
+                    401,
+                    error_json(401, "A valid key for this server is required"),
+                ),
+            }
+        }
+        ("POST", ["v1", "servers", slug, "web"]) => {
+            let reg = shared.registry();
+            match bearer(head) {
+                Some(key) if reg.authenticate(slug, &key) => match announced_url(body) {
+                    Some(url) => reg_result(reg.announce_websocket(slug, url.as_deref())),
+                    None => (
+                        400,
+                        error_json(400, "The body is {\"websocketUrl\": <a URL or null>}"),
+                    ),
+                },
                 _ => (
                     401,
                     error_json(401, "A valid key for this server is required"),

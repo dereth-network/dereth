@@ -6,7 +6,7 @@
 //!
 //! - **The status ping** (`docs/networking/06-status-ping.md`), which Empyrean answers: a hello is
 //!   answered with a token, and an ask carrying the token with the world's live status (its state,
-//!   players, software and its version, and its name). Every other server drops both datagrams
+//!   players, era and systems, software and its version, and its name). Every other server drops both datagrams
 //!   unread, since their header's size field is larger than any datagram.
 //! - **The server-tracker login**: the account `acservertracker:jj9h26hcsggc` with no password,
 //!   one fixed datagram, which ACE, GDLE and Empyrean all answer without making an account. Any
@@ -131,11 +131,17 @@ pub fn status_token_reply(token: &[u8; TOKEN_LEN]) -> Vec<u8> {
 }
 
 /// What a world says of itself in answer to the status ping's ask.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Status {
     /// `1` open, `2` starting, `3` shutting down; another value is a later version's.
     pub state: u8,
     pub players: u16,
+    /// The era the world plays (`eor`, `infiltration`); empty when it names none.
+    pub era: String,
+    /// The version of the systems' table [`Self::systems`] is written against; `0` names none.
+    pub table: u16,
+    /// The world's systems, a bit each, lowest first, in that table's order.
+    pub systems: Vec<u8>,
     /// The server software, as it names itself.
     pub software: String,
     pub version: String,
@@ -186,8 +192,8 @@ fn put_str(out: &mut Vec<u8>, s: &str) {
 }
 
 impl Status {
-    /// Reads the answer to an ask: the state, the players, the era and its systems (skipped), the
-    /// software, its version and the world's name. Bytes after them are a later version's and are
+    /// Reads the answer to an ask: the state, the players, the era and its systems, the software,
+    /// its version and the world's name. Bytes after them are a later version's and are
     /// ignored. `None` for anything else, for one cut short, and for one over
     /// [`MAX_ANSWER_LEN`].
     #[must_use]
@@ -203,27 +209,33 @@ impl Status {
         };
         let state = r.u8()?;
         let players = r.u16()?;
-        let _era = r.bytes()?;
-        let _table = r.u16()?;
-        let _systems = r.bytes()?;
+        let era = r.string()?;
+        let table = r.u16()?;
+        let systems = r.bytes()?.to_vec();
         Some(Self {
             state,
             players,
+            era,
+            table,
+            systems,
             software: r.string()?,
             version: r.string()?,
             name: r.string()?,
         })
     }
 
-    /// The answer as a world writes it, with no era named and no systems: for a stand-in world.
+    /// The answer as a world writes it: for a stand-in world. At most 255 bytes of systems are
+    /// written.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut out = status_header(STATUS, 1);
         out.push(self.state);
         out.extend_from_slice(&self.players.to_le_bytes());
-        put_str(&mut out, "");
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.push(0);
+        put_str(&mut out, &self.era);
+        out.extend_from_slice(&self.table.to_le_bytes());
+        let systems = &self.systems[..self.systems.len().min(255)];
+        out.push(u8::try_from(systems.len()).unwrap_or(u8::MAX));
+        out.extend_from_slice(systems);
         put_str(&mut out, &self.software);
         put_str(&mut out, &self.version);
         put_str(&mut out, &self.name);
@@ -268,13 +280,16 @@ mod tests {
         }
     }
 
-    /// Spec: hub: a world's status answer is read for its state, players, software, version and
-    /// name, a later version's bytes after them ignored, and one cut short refused.
+    /// Spec: hub: a world's status answer is read for its state, players, era, systems, software,
+    /// version and name, a later version's bytes after them ignored, and one cut short refused.
     #[test]
     fn a_status_answer_reads_back_and_ignores_what_a_later_version_appends() {
         let status = Status {
             state: 1,
             players: 3,
+            era: "infiltration".into(),
+            table: 1,
+            systems: vec![0x00, 0x00, 0xff],
             software: "Empyrean".into(),
             version: "0.3.3".into(),
             name: "Stand-in".into(),

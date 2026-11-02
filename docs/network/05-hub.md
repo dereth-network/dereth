@@ -132,6 +132,7 @@ below only make it slower and costlier).
 | `GET /v1/status` | the network's totals over every game: `total`, `counts` (worlds by state), `playersOnline`, `reportingServers`, `demoServers`, `federatedServers`; and `games`, the same six for each game's worlds alone (`{"dereth": {...}, "auberean": {...}}`), which add up to the whole |
 | `GET /v1/network` | the federated worlds and which have a link up |
 | `POST /v1/servers/<slug>/heartbeat` | records a heartbeat (key required): `{"state", "playersOnline"?, "playersKind"?, "message"?, "emulatorVersion"?, "uptimeSeconds"?, "adapter"?, "game"?}`, where `adapter` is `{"kind", "version"}`, its kind one of `ace-mod`, `agent`, `manual`, `empyrean` and `yalain` |
+| `POST /v1/servers/<slug>/web` | announces the world's WebSocket endpoint (key required): `{"websocketUrl"}`, a URL within the link's rule, or `null` to withdraw it; answers `{"websocketUrl", "expiresAt"}`. For a world whose link names none: a relay run beside a server that speaks only UDP (below) |
 | `GET /compat/thwarg/Servers.xml` | the registry's `dereth` worlds as a community list, for launchers that read that format |
 | `GET /compat/treestats/player_counts-latest.json` | population counts of the `dereth` worlds, in the shape character-statistics sites read |
 | `GET /v1/servers/<slug>/link` (upgrade) | a world's link ([02](02-link-protocol.md)) |
@@ -164,6 +165,21 @@ in place of a relay on the player's machine. The hub keeps what each `hello` nam
 registry record (`websocketUrl` and `statusUrl` beside its other fields, so the registry's schema
 does not change, and a hub of an earlier version reading it leaves them be), each in place of the
 last, and a `hello` naming neither clears both.
+
+A world whose link names no WebSocket endpoint, or that has no link (GDLE, or ACE without the
+network's mod), may announce one over HTTP instead (`POST /v1/servers/<slug>/web`): the address
+of a relay its operator runs beside it, carrying the browser's frames to the world's UDP ports.
+The same rule holds for it, and the same refusals as a heartbeat's (an unclaimed listing or a
+`pending` world cannot announce). Which address `websocketUrl` lists:
+
+1. while the world's link is up and its `hello` named one, that one;
+2. else the one it announced, while the announcement is no older than a heartbeat's lifetime (180
+   seconds), so a relay announces again every minute or so, and one that stops is delisted;
+3. else `null`.
+
+The announced address and when it was announced are kept in the world's registry record too
+(`announcedWebsocketUrl`, `webAnnouncedAt`), so the schema does not change; announcing `null`
+removes both.
 
 `GET /v1/config` answers `{"baseDomain", "heartbeatTtlSeconds", "authEnabled", "signIn",
 "broker"}`, where `authEnabled` says whether operators can sign in on this hub, `signIn` is the
@@ -226,6 +242,31 @@ nothing more than that it is there. The address is the caller's own, so a launch
   the hub's own limit takes nothing from the caller's.
 - **Nothing is kept** but the limits' counters, in memory: no address, port or answer is written
   or logged.
+
+**What a world says when the hub asks it.** The hub asks each Empyrean world of the public lists
+how it is, with the status ping alone ([networking 06](../networking/06-status-ping.md)), and
+lists what it said. A launcher on the desktop asks each world itself; a launcher's web page, which
+cannot send a datagram, reads the world's era, systems and version here instead.
+
+- **Which worlds.** A world of `dereth` whose emulator family is `Empyrean` (in any case), with an
+  address and a game port from 1024 to 65535. Every other server drops the status ping unread, so
+  no other world is ever sent it. The address is looked up as the hub looks up any name, and tried
+  only when the hub would reach it on the internet, by the same rule as a probe's (the hub's own
+  ranges, `--deny-fetch`, are never tried).
+- **How often.** A world that answered is asked again a minute later, and one that said nothing
+  ten minutes later. Each ask sends the hello, then the ask with the token, each at most three
+  times a second apart, within 4 seconds: one hello and one ask a minute for a world that answers,
+  within Empyrean's own limits. At most four worlds are asked at once.
+- **What is listed.** Each world in the public answers carries `statusPing`: `null` until the world
+  has answered, or `{"state", "playersOnline", "era", "eraFeatures", "software", "version",
+  "name", "askedAt", "expiresAt"}`, as it said: `state` is `open`, `starting`, `shutting-down` or
+  `unknown`; `era` is the era it plays (`eor`, `infiltration`), `null` when it names none;
+  `eraFeatures` its systems as the Dereth client's `--era-features` takes them (`1:0000ff`), `null`
+  when it names none. An answer is listed until `expiresAt`, as long as a heartbeat counts (180
+  seconds), and only while the world's endpoint is the one that answered. The world's text is
+  listed with its hidden characters taken out.
+- **Nothing is written or logged:** the answers are kept in memory only, and a restarted hub has
+  each again within a minute.
 
 **The client address.** A request's client address is the address it came from, unless that is a
 **trusted proxy** the hub's configuration names (`--trusted-proxy`, an address or a CIDR range,
@@ -714,7 +755,9 @@ hub's operator), the game set by a registration (`game-set`) or named by a heart
 a room of the world's mirrored into Discord or no longer (`discord-mirror`, section 5.7), by its
 operator, by the admin who took it away, or by the hub as the room that carries the Global room
 changed, and where the world carries the Global room (`global-room`, section 5.10), by its operator
-or by the world. Sign-in and sign-out are the operator's own events.
+or by the world. A WebSocket endpoint the world announces over HTTP is logged by the world each
+time it changes or is withdrawn (`websocket-announced`, its `websocketUrl` or `null`), not each
+time the same one is announced again. Sign-in and sign-out are the operator's own events.
 A change to the hub's settings is an event of the hub's own settings log (section 2.14).
 No key, token, session id, Discord token, bot token, client secret or fetched page is ever
 written to the log or the database. The one secret the registry keeps is the webhook an operator

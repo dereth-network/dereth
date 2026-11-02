@@ -1625,6 +1625,83 @@ impl Registry {
         Ok(())
     }
 
+    /// Keeps the WebSocket endpoint a world announces over HTTP, for a world whose link does not
+    /// name one (a relay run beside a server that speaks only UDP): `url` in place of the last, or
+    /// `None` to withdraw it. Kept in the world's registry record (`announcedWebsocketUrl`, with
+    /// when, `webAnnouncedAt`) and shown, as [`Self::server`] renders the world, while it is no
+    /// older than a heartbeat's lifetime ([`HEARTBEAT_TTL_SECS`]). Answers the URL kept and when
+    /// it expires.
+    ///
+    /// # Errors
+    /// 400 for a URL outside the rule of [`dereth_network_protocol::web`], 404, 409 for an
+    /// unclaimed listing or a `pending` world.
+    pub fn announce_websocket(&self, slug: &str, url: Option<&str>) -> Result<Value> {
+        if url.is_some_and(|u| !dereth_network_protocol::web::is_websocket_url(u)) {
+            return Err(RegistryError::bad(
+                "websocketUrl must be a wss:// URL, or ws:// to this machine, of at most 200 bytes",
+            ));
+        }
+        let row = self.row(slug)?.ok_or_else(RegistryError::not_found)?;
+        if row.registry["state"] == "unclaimed" {
+            return Err(RegistryError::conflict(
+                "Unclaimed listings cannot announce a WebSocket endpoint",
+            ));
+        }
+        if row.state() == "pending" {
+            return Err(RegistryError::conflict(
+                "Verify this world before it announces",
+            ));
+        }
+        let mut registry = row.registry.clone();
+        let Some(record) = registry.as_object_mut() else {
+            return Err(RegistryError::conflict(
+                "This world's record cannot be changed",
+            ));
+        };
+        let now = self.now();
+        let expires = match url {
+            Some(u) => {
+                record.insert("announcedWebsocketUrl".into(), json!(u));
+                record.insert("webAnnouncedAt".into(), json!(iso(now)));
+                json!(iso(now + Duration::from_secs(HEARTBEAT_TTL_SECS)))
+            }
+            None => {
+                record.remove("announcedWebsocketUrl");
+                record.remove("webAnnouncedAt");
+                Value::Null
+            }
+        };
+        if registry != row.registry {
+            self.db.execute(
+                "UPDATE servers SET registry = ? WHERE id = ?",
+                params![registry.to_string(), row.id],
+            )?;
+        }
+        // A new address, or one withdrawn, is a registry event of the world's own; the same
+        // address announced again to keep it fresh is not.
+        if row.registry["announcedWebsocketUrl"].as_str() != url {
+            self.event_by(
+                &row.id,
+                "websocket-announced",
+                Some("world"),
+                &json!({ "websocketUrl": url }),
+            )?;
+        }
+        Ok(json!({ "websocketUrl": url, "expiresAt": expires }))
+    }
+
+    /// The WebSocket endpoint `row` announced, while the announcement is fresh at `at`.
+    fn announced_websocket(row: &Row, at: SystemTime) -> Value {
+        let fresh = row.registry["webAnnouncedAt"]
+            .as_str()
+            .and_then(parse_iso)
+            .is_some_and(|t| t + Duration::from_secs(HEARTBEAT_TTL_SECS) > at);
+        match row.registry["announcedWebsocketUrl"].as_str() {
+            Some(u) if fresh => json!(u),
+            _ => Value::Null,
+        }
+    }
+
     /// Records a heartbeat from a world. For an observed endpoint, `source` is the address it came
     /// from, which becomes the world's address.
     ///
@@ -1768,6 +1845,7 @@ impl Registry {
             "status": self.status(row, at),
             "websocketUrl": row.registry["websocketUrl"],
             "statusUrl": row.registry["statusUrl"],
+            "announcedWebsocketUrl": Self::announced_websocket(row, at),
             "links": {
                 "web": format!("{}/worlds/?q={}", self.site, row.slug),
                 "status": format!("{}/v1/servers/{}/status", self.public_url, row.slug),
@@ -3150,6 +3228,51 @@ mod tests {
             Registration::from_json(&odd).map_err(|e| e.status),
             Err(400),
             "a game this hub does not know"
+        );
+    }
+
+    /// Spec: hub: a world's announced WebSocket endpoint is in its audit log each time it changes
+    /// or is withdrawn, as the world's own event; announcing the same address again to keep it
+    /// fresh logs nothing.
+    #[test]
+    fn a_change_of_announced_websocket_endpoint_is_audited() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("ironwood")).expect("registered");
+        let announced = |r: &Registry| -> Vec<Value> {
+            r.audit("ironwood")
+                .expect("the log")
+                .as_array()
+                .expect("events")
+                .iter()
+                .filter(|e| e["kind"] == "websocket-announced")
+                .cloned()
+                .collect()
+        };
+        let a = "wss://relay.example.org/";
+        let b = "wss://relay2.example.org/";
+        r.announce_websocket("ironwood", Some(a)).expect("a");
+        r.announce_websocket("ironwood", Some(a)).expect("a again");
+        r.announce_websocket("ironwood", Some(b)).expect("b");
+        r.announce_websocket("ironwood", None).expect("withdrawn");
+        r.announce_websocket("ironwood", None)
+            .expect("withdrawn again");
+        let log = announced(&r);
+        let urls: Vec<Value> = log
+            .iter()
+            .map(|e| e["details"]["websocketUrl"].clone())
+            .collect();
+        assert_eq!(
+            urls,
+            [Value::Null, json!(b), json!(a)],
+            "newest first: {log:?}"
+        );
+        assert!(log.iter().all(|e| e["actor"] == "world"), "{log:?}");
+        assert!(
+            r.announce_websocket("ironwood", Some("https://relay.example.org/"))
+                .is_err()
+                && announced(&r).len() == 3,
+            "a refused address logs nothing"
         );
     }
 

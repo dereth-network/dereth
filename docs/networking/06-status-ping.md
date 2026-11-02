@@ -7,7 +7,8 @@ server ignores it.
 
 The code is `dereth_transport::status_ping` (the datagrams), `empyrean_net::status_ping` (the
 server's tokens and limits), `dereth_launch::probe` (the launcher's two steps) and
-`dereth_network_protocol::probe` (the hub's copy, which tries a world from outside for its host).
+`dereth_network_protocol::probe` (the hub's copy, which tries a world from outside for its host,
+and asks the Empyrean worlds it lists how they are, for a launcher's web page to read).
 
 ## Summary
 

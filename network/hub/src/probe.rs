@@ -106,6 +106,19 @@ fn socket_for(to: SocketAddr) -> io::Result<UdpSocket> {
 /// how it is too (an Empyrean answers both).
 #[must_use]
 pub fn probe(to: SocketAddr, timing: Timing) -> Answer {
+    ask(to, timing, true)
+}
+
+/// Asks the world at `to` the status ping alone, [`COPIES`] times, until it says how it is or the
+/// wait is over: what the hub asks the Empyrean worlds it lists ([`crate::ping`]). A server other
+/// than Empyrean drops it unread, so it is never reached this way.
+#[must_use]
+pub fn status_ping(to: SocketAddr, timing: Timing) -> Answer {
+    ask(to, timing, false)
+}
+
+/// The status ping, and the server-tracker login beside it when `login`.
+fn ask(to: SocketAddr, timing: Timing, login: bool) -> Answer {
     let mut answer = Answer {
         reached: false,
         status: None,
@@ -127,7 +140,9 @@ pub fn probe(to: SocketAddr, timing: Timing) -> Answer {
         if sent < COPIES && now >= next_copy {
             // A copy that cannot be sent is the next copy's to make up.
             let _ = socket.send(&probe::status_hello());
-            let _ = socket.send(&probe::TRACKER_LOGIN);
+            if login {
+                let _ = socket.send(&probe::TRACKER_LOGIN);
+            }
             sent += 1;
             next_copy = now + timing.every;
         }
@@ -280,7 +295,7 @@ struct Ask {
 }
 
 /// The world's state, in words.
-fn state_word(state: u8) -> &'static str {
+pub(crate) fn state_word(state: u8) -> &'static str {
     match state {
         1 => "open",
         2 => "starting",
@@ -544,6 +559,7 @@ mod tests {
                 software: "Empyrean".into(),
                 version: "0.3.3".into(),
                 name: "Stand-in".into(),
+                ..Status::default()
             }),
         };
         let v = answer_json(ip("203.0.113.9"), 9000, &reached);

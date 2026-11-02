@@ -532,8 +532,9 @@ fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
     Some(w)
 }
 
-/// Where a browser reaches the world a hub row shows, as the hub names it while the world is
-/// linked: its WebSocket endpoint and its status document, each only within the rule a launcher
+/// Where a browser reaches the world a hub row shows, as the hub names it: its WebSocket endpoint
+/// (the one its link names while linked, else one it announced lately, such as a relay beside a
+/// server that speaks only UDP) and its status document, each only within the rule a launcher
 /// connects by ([`crate::direct`]).
 pub(crate) fn hub_web_addresses(row: &Value) -> (Option<String>, Option<String>) {
     let url =

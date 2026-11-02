@@ -35,10 +35,10 @@ pub(crate) fn hub_with(config: HubConfig) -> (Running, Vec<(String, String)>, (S
 }
 
 /// A world's slug and its key.
-type World = (String, String);
+pub(crate) type World = (String, String);
 
 /// [`hub_with`], and the hub's clock for the suite to let time pass on.
-fn hub_with_clock(config: HubConfig) -> (Running, Vec<World>, World, HubClock) {
+pub(crate) fn hub_with_clock(config: HubConfig) -> (Running, Vec<World>, World, HubClock) {
     let passed = Arc::new(Mutex::new(Duration::ZERO));
     let read = Arc::clone(&passed);
     let registry = Registry::open(

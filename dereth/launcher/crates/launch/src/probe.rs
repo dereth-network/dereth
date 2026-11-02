@@ -135,9 +135,9 @@ mod tests {
         assert!(!is_reply(&ask));
     }
 
-    /// The hub tries a world from outside with its own copy of both probes: the same tracker login
-    /// and status-ping hello, byte for byte, the same ask for a token, and the same reading of a
-    /// world's status.
+    /// The hub asks a world with its own copy of both probes: the same tracker login and
+    /// status-ping hello, byte for byte, the same ask for a token, and the same reading of a
+    /// world's status, its era and systems included.
     #[test]
     fn the_hubs_probes_are_the_launchers() {
         use dereth_network_protocol::probe as hub;
@@ -170,15 +170,24 @@ mod tests {
             ("Empyrean", "0.3.3")
         );
         assert_eq!(read.name, "Loopback");
+        assert_eq!(
+            (read.era.as_str(), read.table, read.systems.as_slice()),
+            ("eor", 1, [0xff, 0x0f].as_slice())
+        );
         let stand_in = hub::Status {
             state: 1,
             players: 2,
+            era: "infiltration".into(),
+            table: 1,
+            systems: vec![0x00, 0x00, 0xff],
             software: "Empyrean".into(),
             version: "1.0.0".into(),
             name: "Stand-in".into(),
         };
         let live = status_reply(&stand_in.encode()).expect("a stand-in's answer is a status");
         assert_eq!(live.world_name.as_deref(), Some("Stand-in"));
+        assert_eq!(live.era.as_deref(), Some("infiltration"));
+        assert!(live.era_features.is_some(), "its systems are read");
     }
 
     #[test]
