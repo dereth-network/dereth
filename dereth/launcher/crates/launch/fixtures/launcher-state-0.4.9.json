@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "retail": {
+    "id": "retail",
+    "path": "C:\\Turbine\\Asheron's Call",
+    "exe": "acclient.exe",
+    "kind": "retail",
+    "client_id": "unknown",
+    "identified_by": "version_resource_only",
+    "modifications": [],
+    "multi_instance": false,
+    "own_dats": {
+      "portal": 2072,
+      "cell": 982,
+      "local": 994,
+      "highres": 497
+    }
+  },
+  "dat_sets": [
+    {
+      "id": "eor",
+      "path": "C:\\Turbine\\Asheron's Call",
+      "kind": "modern",
+      "origin": {
+        "kind": "shared"
+      },
+      "files": [
+        {
+          "role": "portal",
+          "file_name": "client_portal.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 2072
+        },
+        {
+          "role": "cell",
+          "file_name": "client_cell_1.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 982
+        },
+        {
+          "role": "local",
+          "file_name": "client_local_English.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 994
+        },
+        {
+          "role": "highres",
+          "file_name": "client_highres.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 497
+        }
+      ],
+      "created_by_launcher": false
+    },
+    {
+      "id": "d1",
+      "path": "D:\\Dats\\2016",
+      "kind": "modern",
+      "origin": {
+        "kind": "unassigned"
+      },
+      "files": [
+        {
+          "role": "portal",
+          "file_name": "client_portal.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 2072
+        },
+        {
+          "role": "cell",
+          "file_name": "client_cell_1.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 982
+        },
+        {
+          "role": "local",
+          "file_name": "client_local_English.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 994
+        },
+        {
+          "role": "highres",
+          "file_name": "client_highres.dat",
+          "size": 6656,
+          "modified": 1793588221,
+          "read_only": false,
+          "iterations": 497
+        }
+      ],
+      "created_by_launcher": false
+    }
+  ],
+  "accounts": [
+    {
+      "world_slug": "eulmore",
+      "username": "player",
+      "label": "main",
+      "remember": true,
+      "created_by_launcher": false
+    },
+    {
+      "world_slug": "achard",
+      "username": "alt",
+      "remember": false,
+      "created_by_launcher": true
+    }
+  ],
+  "favourites": [
+    {
+      "id": "f1",
+      "name": "Main",
+      "world_slug": "eulmore",
+      "account": "player",
+      "client": "dereth",
+      "dat_set_id": "eor"
+    }
+  ],
+  "recent": [
+    {
+      "world_slug": "achard",
+      "account": "player",
+      "client": "retail",
+      "dat_set_id": "eor",
+      "last_played": 20
+    },
+    {
+      "world_slug": "eulmore",
+      "account": "player",
+      "client": "dereth",
+      "dat_set_id": "eor",
+      "last_played": 10
+    }
+  ],
+  "custom_worlds": [
+    {
+      "slug": "custom-1",
+      "name": "Home",
+      "host": "127.0.0.1",
+      "port": 9000,
+      "ruleset": "PvE",
+      "emulator": "empyrean"
+    }
+  ],
+  "world_prefs": {
+    "achard": {
+      "client": "retail",
+      "dat_set_id": "eor",
+      "account": "player",
+      "last_played": 20
+    },
+    "eulmore": {
+      "client": "dereth",
+      "dat_set_id": "eor",
+      "account": "player",
+      "last_played": 10
+    }
+  },
+  "settings": {
+    "allow_play_anyway": true,
+    "auto_update": false,
+    "discord_presence": false,
+    "realm": "auberean"
+  }
+}

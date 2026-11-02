@@ -28,7 +28,7 @@ use dereth_launch::plugins::{
     keep_tool, AutoUpdate, PluginError, PluginsView, Refresh, Shelf, TOOL_FILE,
 };
 use dereth_launch::serverlist::{ListCache, ListSource};
-use dereth_launch::state::{Account, Favourite, LauncherState, Realm, Recent, WorldPrefs};
+use dereth_launch::state::{Account, Favourite, LauncherState, Loaded, Realm, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, SecretFile, Vault};
 #[cfg(test)]
@@ -250,7 +250,15 @@ struct Running {
     dat_set_id: Option<String>,
     /// What Discord shows while it runs: its world, client and era, from when it started.
     activity: Activity,
+    /// The file the client's own words go in, when the launcher keeps them (Auberean's), so a
+    /// client that stops as it starts can say why ([`QUICK_EXIT`]).
+    log: Option<PathBuf>,
+    started: Instant,
 }
+
+/// A client that stops with an error within this long of its start stopped as it started: the
+/// page says so, with the last thing it said.
+const QUICK_EXIT: Duration = Duration::from_secs(10);
 
 /// A long job, as the page shows it.
 #[derive(Debug, Clone, Serialize)]
@@ -467,6 +475,108 @@ pub enum LaunchOutcome {
     },
 }
 
+/// What the page says when the state file in `dir` did not read whole (`loaded`), the parts that
+/// did not named in words; and why each did not, in the launcher's log, with the file's path.
+fn load_notice(dir: &Path, loaded: &Loaded) -> Option<Message> {
+    let path = dir.join(dereth_launch::state::STATE_FILE);
+    let text = match loaded {
+        Loaded::Fresh | Loaded::Read => return None,
+        Loaded::SetAside(bad) => {
+            eprintln!(
+                "dereth-launcher: {} is not a launcher state; set aside as {}",
+                path.display(),
+                bad.display()
+            );
+            "Your saved settings couldn't be read and were reset.".to_owned()
+        }
+        Loaded::Partly { bad, reset } => {
+            for r in reset {
+                eprintln!(
+                    "dereth-launcher: {}: its {} could not be read and was reset ({}); the file as \
+                     it was is {}",
+                    path.display(),
+                    r.part,
+                    r.error,
+                    bad.display()
+                );
+            }
+            let names: Vec<&str> = reset
+                .iter()
+                .map(|r| dereth_launch::state::part_name(r.part))
+                .collect();
+            format!(
+                "Some saved settings couldn't be read and were reset: {}.",
+                names.join(", ")
+            )
+        }
+    };
+    Some(Message { text, error: true })
+}
+
+/// What PLAY comes to when no password is typed and none is kept for `account`.
+pub fn need_password(account: &str) -> LaunchOutcome {
+    LaunchOutcome::NeedPassword {
+        message: format!("Enter the password for {account}."),
+    }
+}
+
+/// What the page says of a client of `kind` that stopped as it started: the last thing it said
+/// in its `log` ([`last_said`]), or where that is.
+fn stopped_at_once(kind: ClientKind, log: &Path) -> String {
+    let name = match kind {
+        ClientKind::Auberean => "Auberean",
+        ClientKind::Dereth => "The Dereth client",
+        ClientKind::Retail => "The retail client",
+    };
+    match std::fs::read(log)
+        .ok()
+        .and_then(|b| last_said(&String::from_utf8_lossy(&b)))
+    {
+        Some(said) => format!("{name} stopped at once: {said}"),
+        None => format!("{name} stopped at once. Its log is {}.", log.display()),
+    }
+}
+
+/// The last thing a program said in `log`: its last error line (`auberean: ...`, how it says why
+/// it stopped), else its last line that is not a hint about backtraces, its colors taken out.
+#[must_use]
+pub fn last_said(log: &str) -> Option<String> {
+    let lines: Vec<String> = log
+        .lines()
+        .map(|l| plain(l).trim().to_owned())
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("auberean: ").map(str::to_owned))
+        .or_else(|| {
+            lines
+                .iter()
+                .rev()
+                .find(|l| !l.starts_with("note: run with `RUST_BACKTRACE"))
+                .cloned()
+        })
+}
+
+/// `line` without the terminal's color codes (`ESC [ ... m`).
+fn plain(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn can_run(kind: ClientKind) -> bool {
     kind != ClientKind::Retail || RETAIL_HERE
 }
@@ -475,9 +585,9 @@ fn can_run(kind: ClientKind) -> bool {
 /// launcher offers the Dereth client alone and never takes a folder's `acclient.exe`.
 const RETAIL_HERE: bool = cfg!(windows);
 
-/// The file in the data folder that keeps the secrets the launcher made for Asheron's Call 2
-/// accounts when the system has no secret store to keep them in (a Linux desktop with no keyring):
-/// the player's alone.
+/// The file in the data folder where earlier launchers kept the passwords they made for Asheron's
+/// Call 2 accounts when the system had no secret store to keep them in (a Linux desktop with no
+/// keyring): the player's alone, read and never added to.
 pub const SECRETS_FILE: &str = "auberean/secrets.json";
 
 /// The launcher's state and everything it is doing.
@@ -503,8 +613,8 @@ pub struct Backend {
     message: Option<Message>,
     vault: Box<dyn Vault + Send>,
     vault_name: &'static str,
-    /// Where an Asheron's Call 2 account's secret the launcher made is kept when the vault cannot
-    /// keep it ([`SECRETS_FILE`]).
+    /// Where an earlier launcher kept an Asheron's Call 2 account's password it made, when the
+    /// vault could not keep it ([`SECRETS_FILE`]).
     secrets: SecretFile,
     /// The preferences file the Dereth client reads when the launcher starts it, which names the
     /// interface it starts in ([`interface::preferences_file`]).
@@ -547,10 +657,23 @@ impl Backend {
         vault_name: &'static str,
         client_preferences: Option<PathBuf>,
     ) -> Self {
-        let (mut state, _) = LauncherState::load(&folders.config);
+        let (mut state, loaded, renamed) = LauncherState::load_moving(&folders.config);
+        let notice = load_notice(&folders.config, &loaded);
+        if matches!(loaded, Loaded::Partly { .. }) {
+            // What did read is kept from now on, so the next start reads it whole.
+            let _ = state.save(&folders.config);
+        }
+        // The one install folder an older launcher kept for Auberean's realm joins its library.
+        if state.adopt_auberean_install() {
+            let _ = state.save(&folders.config);
+        }
         // Files change outside the launcher (a patch, a copy, a deleted folder); each set's four
-        // headers are re-read once at start, which costs a few small reads.
-        for set in &mut state.dat_sets {
+        // headers are re-read once at start, which costs a few small reads. Both realms' sets.
+        for set in state
+            .dat_sets
+            .iter_mut()
+            .chain(state.auberean.dat_sets.iter_mut())
+        {
             set.refresh(now());
         }
         let dereth = dereth_exe.as_deref().and_then(library::dereth_client);
@@ -577,7 +700,25 @@ impl Backend {
         // The launcher asks each world how it is itself, with the status ping.
         list.set_asks_worlds(true);
         let plugins = Shelf::open(folders.plugins());
-        let secrets = SecretFile::new(folders.data.join(SECRETS_FILE));
+        let mut secrets = SecretFile::new(folders.data.join(SECRETS_FILE));
+        let mut vault = vault;
+        // A world added for Auberean that was given a name of its own takes its saved passwords
+        // and its hosted world's link with it.
+        for r in &renamed {
+            for a in state.accounts_for(&r.to) {
+                let (from, to) = (target(&r.from, &a.username), target(&r.to, &a.username));
+                for v in [vault.as_mut(), &mut secrets as &mut dyn Vault] {
+                    if let Ok(Some(kept)) = v.get(&from) {
+                        if v.set(&to, &a.username, &kept).is_ok() {
+                            let _ = v.delete(&from);
+                        }
+                    }
+                }
+            }
+            if let Err(e) = crate::host_publication::rename_player(&folders.data, &r.from, &r.to) {
+                eprintln!("dereth-launcher: {e}");
+            }
+        }
         Self {
             plugins,
             folders,
@@ -593,7 +734,7 @@ impl Backend {
             worlds_shown: true,
             running: Vec::new(),
             job: None,
-            message: None,
+            message: notice,
             secrets,
             vault,
             vault_name,
@@ -775,10 +916,12 @@ impl Backend {
         self.state.auberean.clone()
     }
 
-    /// Keep `install` as the player's Asheron's Call 2 install.
-    pub fn set_auberean_install(&mut self, install: PathBuf) {
-        self.state.auberean.install = Some(install);
-        self.save();
+    /// The library's Asheron's Call 2 data set `id`, else (for `None`, or an id it does not hold)
+    /// its default set.
+    pub fn auberean_dats(&self, id: Option<&str>) -> Option<DatSet> {
+        id.and_then(|id| self.state.auberean_set(id))
+            .or_else(|| self.state.auberean_default_set())
+            .cloned()
     }
 
     /// Keep `client` as the client the player plays Asheron's Call 2 with.
@@ -789,29 +932,35 @@ impl Backend {
         }
     }
 
-    /// The secret `account` logs in to the Asheron's Call 2 world `slug` with, the same at every
-    /// launch: the one typed (`typed`, kept from then on), else the one kept, else a new one, kept
-    /// with the player's other passwords ([`dereth_launch::auberean::secret_for`]).
-    pub fn auberean_secret(
-        &mut self,
-        slug: &str,
-        account: &str,
-        typed: Option<&str>,
-    ) -> Result<String, String> {
-        dereth_launch::auberean::secret_for(
-            self.vault.as_mut(),
-            &mut self.secrets,
-            slug,
-            account,
-            typed,
-            &mut crate::auberean::new_secret,
-        )
+    /// The password `username` plays the world `slug` with: the one typed, else the one kept
+    /// ([`Self::kept_password`]). `None` when there is neither, and the player is asked.
+    pub fn password_for(&self, slug: &str, username: &str, typed: Option<&str>) -> Option<String> {
+        typed
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned)
+            .or_else(|| self.kept_password(slug, username))
     }
 
-    /// The address and game port of the world `slug`, as its list row or the player names it.
-    pub fn world_address(&self, slug: &str) -> Option<(String, u16)> {
-        let endpoint = self.world(slug)?.endpoint?;
-        Some((endpoint.address, endpoint.port))
+    /// The password kept for `username` on the world `slug`: in the system's secret store, else,
+    /// for an Asheron's Call 2 account an earlier launcher made a password for on a system with no
+    /// store, in the launcher's own file ([`SECRETS_FILE`]).
+    pub fn kept_password(&self, slug: &str, username: &str) -> Option<String> {
+        let key = target(slug, username);
+        let kept = |v: &dyn Vault| v.get(&key).ok().flatten().filter(|p| !p.is_empty());
+        kept(self.vault.as_ref()).or_else(|| kept(&self.secrets))
+    }
+
+    /// After a launch that worked: keep `password` for `username` on the world `slug` when the
+    /// player asked to (`remember`), else forget any kept one.
+    pub fn keep_password(&mut self, slug: &str, username: &str, password: &str, remember: bool) {
+        let key = target(slug, username);
+        if remember {
+            if let Err(e) = self.vault.set(&key, username, password) {
+                self.say(e.to_string(), true);
+            }
+        } else {
+            self.forget_secret(&key);
+        }
     }
 
     fn running_clients(&self) -> Vec<RunningClient> {
@@ -909,16 +1058,22 @@ impl Backend {
     /// is asked with the status ping first, which tells its state, players, era, systems, software
     /// and name; one that does not answer it, and every other, with the server-tracker login.
     pub fn probe(shared: &Shared, slugs: Vec<String>) {
-        let queue: Vec<(String, String, u16, bool)> = {
+        let queue: Vec<(String, String, u16, bool, bool)> = {
             let mut b = lock(shared);
-            let targets: Vec<(String, String, u16, bool)> = slugs
+            let targets: Vec<(String, String, u16, bool, bool)> = slugs
                 .iter()
                 .filter(|s| !b.probing.contains(*s))
                 .filter_map(|s| b.world(s))
                 .filter_map(|w| {
+                    // Empyrean and Yalain answer the status ping on their login port.
                     let ping = w.status_method != StatusMethod::EmpyreanHttp
-                        && matches!(w.emulator, Emulator::Empyrean | Emulator::Unknown);
-                    w.endpoint.map(|e| (w.slug, e.address, e.port, ping))
+                        && matches!(
+                            w.emulator,
+                            Emulator::Empyrean | Emulator::Yalain | Emulator::Unknown
+                        );
+                    let yalain = w.emulator == Emulator::Yalain;
+                    w.endpoint
+                        .map(|e| (w.slug, e.address, e.port, ping, yalain))
                 })
                 .collect();
             for (slug, ..) in &targets {
@@ -934,11 +1089,13 @@ impl Backend {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .pop();
-                let Some((slug, host, port, ping)) = next else {
+                let Some((slug, host, port, ping, yalain)) = next else {
                     break;
                 };
                 let live = ping.then(|| ping_status(&host, port)).flatten();
-                let up = live.is_some() || probe_host(&host, port);
+                // The server-tracker login is Asheron's Call's: an Asheron's Call 2 world is up
+                // by its ping alone.
+                let up = live.is_some() || (!yalain && probe_host(&host, port));
                 let mut b = lock(&shared);
                 b.probing.remove(&slug);
                 b.probed.insert(slug.clone(), up);
@@ -1040,8 +1197,18 @@ impl Backend {
         let mut dirty = false;
         let mut i = 0;
         while i < self.running.len() {
-            if matches!(self.running[i].child.try_wait(), Ok(Some(_)) | Err(_)) {
+            let ended = match self.running[i].child.try_wait() {
+                Ok(Some(status)) => Some(status.success()),
+                Err(_) => Some(false),
+                Ok(None) => None,
+            };
+            if let Some(succeeded) = ended {
                 let r = self.running.remove(i);
+                if let (false, true, Some(log)) =
+                    (succeeded, r.started.elapsed() < QUICK_EXIT, &r.log)
+                {
+                    self.say(stopped_at_once(r.kind, log), true);
+                }
                 // A patching world may have written to the set during the session.
                 if let Some(set) = r
                     .dat_set_id
@@ -1125,11 +1292,7 @@ impl Backend {
     }
 
     pub fn has_password(&self, slug: &str, username: &str) -> bool {
-        self.vault
-            .get(&target(slug, username))
-            .ok()
-            .flatten()
-            .is_some()
+        self.kept_password(slug, username).is_some()
     }
 
     // ----- PLAY ----------------------------------------------------------------------------------
@@ -1184,17 +1347,10 @@ impl Backend {
         if dereth && blocked {
             return err("This world is on your overlay blocklist, so it can't be played.".into());
         }
-        let key = target(&world.slug, &choice.account);
-        let password = match choice.password.clone().filter(|p| !p.is_empty()) {
-            Some(p) => p,
-            None => match self.vault.get(&key).ok().flatten() {
-                Some(p) => p,
-                None => {
-                    return LaunchOutcome::NeedPassword {
-                        message: format!("Enter the password for {}.", choice.account),
-                    };
-                }
-            },
+        let Some(password) =
+            self.password_for(&world.slug, &choice.account, choice.password.as_deref())
+        else {
+            return need_password(&choice.account);
         };
         if hosted.as_ref().is_some_and(|h| {
             world
@@ -1268,30 +1424,26 @@ impl Backend {
         };
 
         // Remember what worked. The password goes in the vault only when asked to.
-        if choice.remember {
-            if let Err(e) = self.vault.set(&key, &choice.account, &password) {
-                self.say(e.to_string(), true);
-            }
-        } else {
-            let _ = self.vault.delete(&key);
-        }
+        self.keep_password(&world.slug, &choice.account, &password, choice.remember);
         let choice = Choice {
             dat_set_id,
             classic_set_id,
             ..choice
         };
-        self.launched(&world, &choice, child, install.multi_instance)
+        self.launched(&world, &choice, child, install.multi_instance, None)
     }
 
     /// What follows every launch, of either game's client: the account kept for the world, what
     /// was played there last, the combination first among the recent ones, and the running game,
     /// which Discord shows.
+    /// `log` is the file the client's own words go in, when the launcher keeps them.
     pub fn launched(
         &mut self,
         world: &World,
         choice: &Choice,
         child: Child,
         multi_instance: bool,
+        log: Option<PathBuf>,
     ) -> LaunchOutcome {
         let existing = self
             .state
@@ -1333,6 +1485,8 @@ impl Backend {
             dat_set_id: choice.dat_set_id.clone(),
             // The launcher never learns which character is played, so the activity names none.
             activity: Activity::new(world, choice.client, None, now()),
+            log,
+            started: Instant::now(),
         });
         LaunchOutcome::Launched {
             world: world.name.clone(),
@@ -1342,8 +1496,12 @@ impl Backend {
 
     // ----- the library ---------------------------------------------------------------------------
 
-    pub fn read_folder(&self, path: &Path) -> FolderFind {
-        let find = library::read_folder(path, &self.state);
+    /// Read a folder for `game`'s library: Asheron's Call's, or Auberean's realm's.
+    pub fn read_folder(&self, path: &Path, game: Game) -> FolderFind {
+        let find = match game {
+            Game::Dereth => library::read_folder(path, &self.state),
+            Game::Auberean => dereth_launch::auberean::read_folder(path, &self.state),
+        };
         if RETAIL_HERE {
             find
         } else {
@@ -1402,13 +1560,20 @@ impl Backend {
         Ok(())
     }
 
-    pub fn forget_retail(&mut self) {
-        self.state.forget_retail();
+    /// Forget `game`'s retail client. Nothing on disk is touched.
+    pub fn forget_retail(&mut self, game: Game) {
+        *self.state.retail_mut(game) = None;
         self.save();
     }
 
     /// Forget a set; delete its files too when the launcher made them, and only inside the library.
+    /// A set of Auberean's realm's is the player's own folder, only ever forgotten.
     pub fn delete_set(&mut self, id: &str) -> Result<(), String> {
+        if self.state.auberean_set(id).is_some() {
+            self.state.auberean.dat_sets.retain(|d| d.id != id);
+            self.save();
+            return Ok(());
+        }
         let set = self.state.dat_set(id).cloned().ok_or("No such set.")?;
         if set.created_by_launcher {
             let library = self.library_dir();
@@ -1520,9 +1685,9 @@ impl Backend {
         });
     }
 
-    /// Check the retail client's whole folder against its build's manifest, in the background.
-    pub fn verify_retail(shared: &Shared) {
-        let Some(inst) = lock(shared).state.retail.clone() else {
+    /// Check `game`'s retail client's whole folder against its build's manifest, in the background.
+    pub fn verify_retail(shared: &Shared, game: Game) {
+        let Some(inst) = lock(shared).state.retail_mut(game).clone() else {
             return;
         };
         let done_to = shared.clone();
@@ -1534,8 +1699,9 @@ impl Backend {
                 dereth_launch::install::verify(&mut inst, now());
                 let mut b = lock(&done_to);
                 let summary = inst.manifest_result.as_ref().map(|r| r.summary());
-                if b.state.retail.as_ref().is_some_and(|r| r.path == inst.path) {
-                    b.state.retail = Some(inst);
+                let kept = b.state.retail_mut(game);
+                if kept.as_ref().is_some_and(|r| r.path == inst.path) {
+                    *kept = Some(inst);
                 }
                 b.save();
                 if let Some(s) = summary {
@@ -1573,7 +1739,14 @@ impl Backend {
     pub fn add_custom_world(&mut self, s: &NewServer) -> Result<String, String> {
         let slug = self
             .state
-            .add_custom_world(&s.name, &s.host, &s.port, s.ruleset.as_deref(), s.emulator)
+            .add_custom_world_for(
+                s.game,
+                &s.name,
+                &s.host,
+                &s.port,
+                s.ruleset.as_deref(),
+                s.emulator,
+            )
             .map_err(|e| e.to_string())?;
         self.state.set_custom_world_game(&slug, s.game);
         self.save();
@@ -1595,12 +1768,9 @@ impl Backend {
             },
             game: definition.game,
         })?;
-        // A Yalain world is played over the player's own Asheron's Call 2 install, which the
-        // realm keeps; an Empyrean world's game data goes in the Library.
-        if definition.game == Game::Dereth {
-            let find = self.read_folder(&settings.dats);
-            self.add_folder(find);
-        }
+        // The world's game data goes in its realm's Library.
+        let find = self.read_folder(&settings.dats, definition.game);
+        self.add_folder(find);
         crate::host_publication::register_player(&self.folders.data, &definition.id, &slug)?;
         Ok(slug)
     }
@@ -1910,7 +2080,7 @@ mod tests {
     use super::*;
     use dereth_launch::plugins as launcher_plugins;
     use dereth_launch::serverlist;
-    use dereth_launch::testing::write_dat_set;
+    use dereth_launch::testing::{write_auberean_set, write_dat_set};
     use dereth_launch::vault::MemoryVault;
     use dereth_launch::world::{Emulator, Endpoint, Told};
     use dereth_launch::Iterations;
@@ -1996,38 +2166,255 @@ mod tests {
         }
     }
 
-    /// With no secret store, the secret the launcher makes for an Asheron's Call 2 account is kept
-    /// in its own data folder: the same at every launch and after the launcher starts again,
-    /// until the account is forgotten.
+    /// An account's password is the player's in both realms: the one typed, else the one kept, else
+    /// none (and the player is asked); kept after a launch only when the player asked, however the
+    /// account's name was typed.
     #[test]
-    fn with_no_keyring_an_asheron_s_call_2_secret_is_kept_in_the_data_folder() {
+    fn a_password_is_typed_or_kept_and_kept_only_when_asked() {
+        let (mut b, dir) = backend("password");
+        assert_eq!(b.password_for("shardfall", "player", None), None);
+        assert_eq!(b.password_for("shardfall", "player", Some("")), None);
+        assert_eq!(
+            b.password_for("shardfall", "player", Some("hunter2"))
+                .as_deref(),
+            Some("hunter2")
+        );
+        b.keep_password("shardfall", "player", "hunter2", false);
+        assert!(!b.has_password("shardfall", "player"));
+        b.keep_password("shardfall", "Player", "hunter2", true);
+        assert!(b.has_password("shardfall", "player"));
+        assert_eq!(
+            b.password_for("shardfall", "player", None).as_deref(),
+            Some("hunter2")
+        );
+        assert_eq!(
+            b.password_for("shardfall", "player", Some("other"))
+                .as_deref(),
+            Some("other"),
+            "the one typed wins"
+        );
+        b.keep_password("shardfall", "player", "hunter2", false);
+        assert_eq!(b.kept_password("shardfall", "player"), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// With no secret store, a password an earlier launcher made up for an Asheron's Call 2 account
+    /// and kept in its own data folder still plays the account, shows as saved and can be read,
+    /// and is forgotten with the account.
+    #[test]
+    fn with_no_keyring_a_password_an_earlier_launcher_made_up_still_plays() {
         let dir = tmp("no-keyring");
+        let mut b = Backend::new(
+            Folders::single(dir.join("state")),
+            Vec::new(),
+            None,
+            Box::new(NoKeyring),
+            "nothing",
+            None,
+        );
+        let file = b.folders.data.join(SECRETS_FILE);
+        SecretFile::new(&file)
+            .set(&target("shardfall", "player"), "player", "made-up")
+            .unwrap();
+        assert!(b.has_password("shardfall", "Player"));
+        assert_eq!(
+            b.kept_password("shardfall", "player").as_deref(),
+            Some("made-up")
+        );
+        assert_eq!(
+            b.password_for("shardfall", "player", None).as_deref(),
+            Some("made-up")
+        );
+        b.forget_account("shardfall", "player");
+        assert!(!file.exists(), "forgotten with the account");
+        assert_eq!(b.password_for("shardfall", "player", None), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The last thing a client said: its last error line, else its last line but a hint about
+    /// backtraces, without its terminal colors.
+    #[test]
+    fn the_last_thing_a_client_said_is_its_error_line_else_its_last_line() {
+        let usage = "auberean: You must specify a host name\n\nusage: auberean --host <name> ...\n";
+        assert_eq!(
+            last_said(usage).as_deref(),
+            Some("You must specify a host name")
+        );
+        let panicked = "\u{1b}[32m INFO\u{1b}[0m settings\nthread 'main' panicked at src/main.rs:9:5:\nno adapter\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n";
+        assert_eq!(last_said(panicked).as_deref(), Some("no adapter"));
+        assert_eq!(
+            last_said("\u{1b}[31mERROR\u{1b}[0m the device was lost\n").as_deref(),
+            Some("ERROR the device was lost")
+        );
+        assert_eq!(last_said("\n  \n"), None);
+    }
+
+    /// A process that ends at once with an error.
+    fn a_failing_process() -> Child {
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit 1"]);
+            c
+        } else {
+            Command::new("false")
+        };
+        cmd.spawn().unwrap()
+    }
+
+    /// A client the launcher keeps the words of that stops with an error as it starts has the
+    /// page say so, with the last thing it said; one that ends well, or whose words it does not
+    /// keep, has nothing said.
+    #[test]
+    fn a_client_that_stops_at_once_has_the_page_say_why() {
+        let (mut b, dir) = backend("quick-exit");
+        let world = b.world("eulmore").unwrap();
+        let ac2 = Choice {
+            client: ClientKind::Auberean,
+            ..choice(None)
+        };
+        let log = dir.join("auberean-player.log");
+        std::fs::write(
+            &log,
+            "auberean: You must specify a host name\n\nusage: auberean ...\n",
+        )
+        .unwrap();
+        let ended = |b: &mut Backend| {
+            let until = Instant::now() + Duration::from_secs(30);
+            while !b.running.is_empty() && Instant::now() < until {
+                b.poll_running();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(b.running.is_empty());
+        };
+        b.launched(&world, &choice(None), a_failing_process(), true, None);
+        b.launched(&world, &ac2, a_process(), true, Some(log.clone()));
+        ended(&mut b);
+        assert!(
+            b.message.is_none(),
+            "{:?}",
+            b.message.as_ref().map(|m| &m.text)
+        );
+        b.launched(&world, &ac2, a_failing_process(), true, Some(log.clone()));
+        ended(&mut b);
+        let said = b.message.take().expect("said");
+        assert!(said.error);
+        assert_eq!(
+            said.text,
+            "Auberean stopped at once: You must specify a host name"
+        );
+        std::fs::write(&log, "").unwrap();
+        b.launched(&world, &ac2, a_failing_process(), true, Some(log.clone()));
+        ended(&mut b);
+        let said = b.message.take().expect("said");
+        assert!(
+            said.text
+                .starts_with("Auberean stopped at once. Its log is "),
+            "{}",
+            said.text
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A state file with parts that do not read starts the launcher with the rest of it, the page
+    /// saying in words which were reset; what did read is kept from then on, so the next start
+    /// reads it whole and says nothing. A file that is not a state at all says everything was.
+    #[test]
+    fn a_state_with_parts_that_do_not_read_says_which_were_reset() {
+        let dir = tmp("state-partly");
+        let state = dir.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        let file = state.join(dereth_launch::state::STATE_FILE);
+        std::fs::write(
+            &file,
+            r#"{"schema":1,"accounts":[{"world_slug":"eulmore","username":"player"}],
+               "recent":"not a list","settings":{"auto_update":"maybe","discord_presence":false}}"#,
+        )
+        .unwrap();
         let open = || {
             Backend::new(
-                Folders::single(dir.join("state")),
+                Folders::single(&state),
                 Vec::new(),
                 None,
-                Box::new(NoKeyring),
-                "nothing",
+                Box::new(MemoryVault::default()),
+                "memory",
                 None,
             )
         };
-        let mut b = open();
-        let first = b.auberean_secret("shardfall", "player", None).unwrap();
+        let b = open();
+        let said = b.message.as_ref().expect("said");
+        assert!(said.error);
         assert_eq!(
-            b.auberean_secret("shardfall", "Player", None),
-            Ok(first.clone())
+            said.text,
+            "Some saved settings couldn't be read and were reset: your recent games, your settings."
+        );
+        assert_eq!(b.state.accounts[0].username, "player", "the rest kept");
+        assert!(state.join("launcher-state.json.bad").is_file());
+        let again = open();
+        assert!(again.message.is_none());
+        assert_eq!(again.state.accounts[0].username, "player");
+
+        std::fs::write(&file, "not a state").unwrap();
+        let b = open();
+        assert_eq!(
+            b.message.as_ref().map(|m| m.text.as_str()),
+            Some("Your saved settings couldn't be read and were reset.")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A world added for Auberean under an older name, `custom-<n>`, is given one of its own at
+    /// start, and its saved passwords (in the store and in the launcher's own file) and its hosted
+    /// world's link go with it.
+    #[test]
+    fn a_world_of_auberean_s_renamed_at_start_keeps_its_passwords_and_its_hosted_world() {
+        let dir = tmp("auberean-rename");
+        let state = dir.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(
+            state.join(dereth_launch::state::STATE_FILE),
+            r#"{"schema":1,
+               "custom_worlds":[{"slug":"custom-1","name":"Trial","host":"127.0.0.1","port":9200,
+                                 "emulator":"yalain","game":"auberean"}],
+               "accounts":[{"world_slug":"custom-1","username":"trialist","remember":true},
+                           {"world_slug":"custom-1","username":"alt","remember":true}],
+               "recent":[{"world_slug":"custom-1","account":"trialist","client":"auberean","last_played":5}]}"#,
+        )
+        .unwrap();
+        std::fs::write(state.join("host-worlds.json"), r#"{"custom-1":"host-1"}"#).unwrap();
+        let mut vault = MemoryVault::default();
+        vault
+            .set(&target("custom-1", "trialist"), "trialist", "typed")
+            .unwrap();
+        SecretFile::new(state.join(SECRETS_FILE))
+            .set(&target("custom-1", "alt"), "alt", "made-up")
+            .unwrap();
+        let b = Backend::new(
+            Folders::single(&state),
+            Vec::new(),
+            None,
+            Box::new(vault),
+            "memory",
+            None,
+        );
+        assert_eq!(b.state.custom_worlds[0].slug, "auberean-1");
+        assert_eq!(b.state.recent[0].world_slug, "auberean-1");
+        assert_eq!(
+            b.kept_password("auberean-1", "trialist").as_deref(),
+            Some("typed")
         );
         assert_eq!(
-            open().auberean_secret("shardfall", "player", None),
-            Ok(first.clone()),
-            "the next launcher's"
+            b.kept_password("auberean-1", "alt").as_deref(),
+            Some("made-up")
         );
-        let file = b.folders.data.join(SECRETS_FILE);
-        assert!(std::fs::read_to_string(&file).unwrap().contains(&first));
-        b.forget_account("shardfall", "player");
-        assert!(!file.exists(), "forgotten with the account");
-        assert_ne!(b.auberean_secret("shardfall", "player", None), Ok(first));
+        assert_eq!(b.kept_password("custom-1", "trialist"), None);
+        assert_eq!(b.kept_password("custom-1", "alt"), None);
+        let links = std::fs::read_to_string(state.join("host-worlds.json")).unwrap();
+        assert_eq!(links, r#"{"auberean-1":"host-1"}"#);
+        let file = std::fs::read_to_string(state.join(dereth_launch::state::STATE_FILE)).unwrap();
+        assert!(
+            !file.contains("custom-1") && !file.contains("auberean"),
+            "{file}"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2111,7 +2498,7 @@ mod tests {
             dat_set_id: None,
             classic_set_id: None,
         };
-        let out = b.launched(&world, &choice, a_process(), true);
+        let out = b.launched(&world, &choice, a_process(), true, None);
         assert!(matches!(out, LaunchOutcome::Launched { .. }));
         assert!(b.state.account(&slug, "player").is_some());
         let recent = &b.state.recent[0];
@@ -2868,13 +3255,74 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Auberean's realm's Library takes its folders as Dereth's does, into a library of its own:
+    /// the retail client and its data set, a second set beside it, the default changed, a set
+    /// removed (its files kept) and the retail client forgotten, Asheron's Call's untouched.
+    #[test]
+    fn auberean_s_library_keeps_its_own_retail_client_and_data_sets() {
+        let (mut b, dir) = backend("ac2-library");
+        let (install, older) = (dir.join("ac2"), dir.join("ac2-2005"));
+        write_auberean_set(&install, dereth_launch::auberean::END_OF_RETAIL);
+        std::fs::write(install.join("AC2client.exe"), b"MZ").unwrap();
+        let older_files = Iterations {
+            portal: Some(5085),
+            cell: Some(612),
+            local: Some(1605),
+            highres: Some(2165),
+        };
+        write_auberean_set(&older, older_files);
+        let dereth_sets = b.state.dat_sets.clone();
+
+        let find = b.read_folder(&install, Game::Auberean);
+        assert_eq!(find.game, Game::Auberean);
+        b.add_folder(find);
+        let find = b.read_folder(&older, Game::Auberean);
+        b.add_folder(find);
+        let sets = b.state.auberean.dat_sets.clone();
+        assert_eq!(
+            sets.iter()
+                .map(|s| (s.iterations(), s.origin.clone()))
+                .collect::<Vec<_>>(),
+            [
+                (dereth_launch::auberean::END_OF_RETAIL, DatOrigin::Shared),
+                (older_files, DatOrigin::Unassigned),
+            ]
+        );
+        assert_eq!(b.auberean_dats(None).map(|s| s.path), Some(install.clone()));
+        assert_eq!(
+            b.auberean_dats(Some(&sets[1].id)).map(|s| s.path),
+            Some(older.clone())
+        );
+        assert_eq!(
+            b.state.auberean.retail.is_some(),
+            RETAIL_HERE,
+            "the retail client only where it runs"
+        );
+
+        b.set_default_set(&sets[1].id).unwrap();
+        assert_eq!(b.auberean_dats(None).map(|s| s.path), Some(older.clone()));
+        b.delete_set(&sets[1].id).unwrap();
+        assert!(
+            older.join("portal.dat").is_file(),
+            "a removed set's files stay"
+        );
+        assert_eq!(b.state.auberean.dat_sets.len(), 1);
+        b.forget_retail(Game::Auberean);
+        assert!(b.state.auberean.retail.is_none());
+        assert_eq!(
+            b.state.dat_sets, dereth_sets,
+            "Asheron's Call's library is untouched"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn a_retail_folder_offers_the_retail_client_and_leaves_the_default_set_alone() {
         let (mut b, dir) = backend("retail");
         let game = dir.join("game");
         write_dat_set(&game, Iterations::END_OF_RETAIL);
         std::fs::write(game.join("acclient.exe"), b"MZ").unwrap();
-        let find = b.read_folder(&game);
+        let find = b.read_folder(&game, Game::Dereth);
         b.add_folder(find);
         assert_eq!(
             b.state.shared_set().unwrap().path,
@@ -3220,7 +3668,7 @@ mod tests {
         std::fs::create_dir_all(&classic).unwrap();
         std::fs::write(classic.join("portal.dat"), b"p").unwrap();
         std::fs::write(classic.join("cell.dat"), b"c").unwrap();
-        let find = b.read_folder(&classic);
+        let find = b.read_folder(&classic, Game::Dereth);
         let id = find.classic.as_ref().unwrap().id.clone();
         b.add_folder(find);
         b.list.worlds_mut()[0].era = None;
@@ -3243,7 +3691,7 @@ mod tests {
         std::fs::create_dir_all(&classic).unwrap();
         std::fs::write(classic.join("portal.dat"), b"p").unwrap();
         std::fs::write(classic.join("cell.dat"), b"c").unwrap();
-        let find = b.read_folder(&classic);
+        let find = b.read_folder(&classic, Game::Dereth);
         let id = find.classic.as_ref().unwrap().id.clone();
         b.add_folder(find);
         b.live.insert(
@@ -3950,6 +4398,8 @@ mod tests {
             multi_instance: true,
             dat_set_id: None,
             activity: Activity::new(world, kind, None, 1_700_000_000),
+            log: None,
+            started: Instant::now(),
         }
     }
 

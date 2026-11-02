@@ -109,7 +109,9 @@ Rules (each a row of `check` or `ci tier0`):
 
 Tests:
   build [--game G] [ARGS]   cargo build of one game's products and tools, or both (ARGS go to cargo:
-                            `cargo xtask build --game auberean --release`)
+                            `cargo xtask build --game auberean --release`); on Windows, Asheron's
+                            Call 2's also builds the retail client's friends library
+                            (auberean_friends.dll) beside the programs
   test | clippy             cargo test / clippy -D warnings over the whole workspace (clippy with
                             `retail-dats` on, so the data and device tests are linted too)
   gate <name>               one area's whole suite, data and device tiers included (--serial);
@@ -272,7 +274,20 @@ fn main() {
                 let mut argv = vec!["build"];
                 argv.extend(game.selection());
                 argv.extend(rest.iter().map(String::as_str));
-                i32::from(!run(&workspace_root(), "cargo", &argv))
+                if !run(&workspace_root(), "cargo", &argv) {
+                    1
+                } else if cfg!(windows) && game.auberean() {
+                    // The retail client's friends library, beside the launcher built here.
+                    match package::friends_dll::build_beside(&rest) {
+                        Ok(_) => 0,
+                        Err(e) => {
+                            eprintln!("the retail AC2 client's friends library: {e}");
+                            1
+                        }
+                    }
+                } else {
+                    0
+                }
             }
             Err(e) => {
                 eprintln!("{e}");

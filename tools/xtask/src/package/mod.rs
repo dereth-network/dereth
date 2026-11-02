@@ -46,6 +46,7 @@ pub(crate) mod targets;
 pub mod version;
 pub mod web;
 pub mod yalain;
+pub mod yalain_declaration;
 
 #[cfg(test)]
 mod auberean_tests;

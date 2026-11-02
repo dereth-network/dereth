@@ -7,6 +7,10 @@
 //! into the library too, so the Dereth client can use them. A folder may hold both kinds of set.
 //!
 //! The Dereth client is not added: it ships beside the launcher, and [`dereth_client`] reads it.
+//!
+//! Auberean's realm has a library of its own, kept apart in the same file
+//! ([`crate::state::AubereanSettings`]): the retail client `AC2client.exe` and Asheron's Call 2's
+//! data sets, read by [`crate::auberean::read_folder`] and added here by the same rules.
 
 use std::path::Path;
 
@@ -17,10 +21,15 @@ use crate::datset::{
 };
 use crate::install::{identify_dereth, identify_retail, Installation};
 use crate::state::LauncherState;
+use crate::world::Game;
 
 /// What a folder the player pointed at holds.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FolderFind {
+    /// Which game's library the folder was read for: Asheron's Call's (`acclient.exe`, Modern and
+    /// Classic sets) or Asheron's Call 2's (`AC2client.exe`, its one kind of set).
+    #[serde(default)]
+    pub game: Game,
     pub folder: String,
     /// A retail client, when the folder holds `acclient.exe`.
     pub retail: Option<Installation>,
@@ -96,6 +105,7 @@ pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
         }
     });
     FolderFind {
+        game: Game::Dereth,
         folder: path.display().to_string(),
         retail,
         dats,
@@ -104,38 +114,45 @@ pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
     }
 }
 
-/// Add what a folder held. Its retail client replaces the one before; its sets join the library,
-/// or update the set of the same kind already there for the same folder. The first set of each
-/// kind added is that kind's default; the player can make another one the default later
+/// Add what a folder held to the library of the game it was read for ([`FolderFind::game`]). Its
+/// retail client replaces the one before; its sets join the library, or update the set of the same
+/// kind already there for the same folder. The first set of each kind added is that kind's
+/// default; the player can make another one the default later
 /// ([`LauncherState::set_default_set`]).
 pub fn add_find(s: &mut LauncherState, find: FolderFind) {
+    let game = find.game;
     if let Some(retail) = find.retail {
-        s.retail = Some(retail);
+        *s.retail_mut(game) = Some(retail);
     }
     for mut set in find.dats.into_iter().chain(find.classic) {
         let same = |d: &DatSet| d.path == set.path && d.kind == set.kind;
-        if let Some(existing) = s.dat_sets.iter().find(|d| same(d)) {
+        if let Some(existing) = s.sets(game).iter().find(|d| same(d)) {
             set.id = existing.id.clone();
             set.origin = existing.origin.clone();
         } else {
             // Ids come from the folder's reading; one taken since (by the other kind's set from
             // the same reading, say) is replaced.
-            if s.dat_set(&set.id).is_some() {
-                set.id = s.new_id(if set.kind == SetKind::Classic {
-                    "c"
-                } else {
-                    "d"
+            if s.sets(game).iter().any(|d| d.id == set.id) {
+                set.id = s.new_id(match set.kind {
+                    SetKind::Classic => "c",
+                    SetKind::Modern => "d",
+                    SetKind::Auberean => "a",
                 });
             }
-            if s.default_set(set.kind).is_none() {
+            if !s
+                .sets(game)
+                .iter()
+                .any(|d| d.kind == set.kind && d.origin == DatOrigin::Shared)
+            {
                 set.origin = DatOrigin::Shared;
                 if set.kind == SetKind::Modern && s.dat_set(SHARED_SET_ID).is_none() {
                     set.id = SHARED_SET_ID.into();
                 }
             }
         }
-        s.dat_sets.retain(|d| !same(d));
-        s.dat_sets.push(set);
+        let sets = s.sets_mut(game);
+        sets.retain(|d| !same(d));
+        sets.push(set);
     }
 }
 

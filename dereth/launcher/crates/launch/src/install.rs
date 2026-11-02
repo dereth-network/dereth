@@ -116,6 +116,21 @@ pub const KNOWN_BUILDS: &[KnownBuild] = &[
         multi_instance: false,
         manifest: None,
     },
+    // Asheron's Call 2's retail client of September 2013, the last its live service patched to
+    // ([`crate::auberean::identify_retail`]). Its manifest is the files its installer put in the
+    // folder, as the live service left them: the program, its libraries and its interface's
+    // content; not its data files, its saved settings, its keymaps, or what players have added
+    // beside it.
+    KnownBuild {
+        exe_sha256: "3cb705f1c4d17544baec2ff7708496d2080f30d24b566a09058872d17bd07263",
+        client_id: "ac2client-0930",
+        version: "00.00.00.0930",
+        build_date: "2013-09-30",
+        net_version: None,
+        modifications: &[],
+        multi_instance: false,
+        manifest: Some(include_str!("../manifests/ac2client-0930.sha256")),
+    },
 ];
 
 pub fn known_build(exe_sha256: &str) -> Option<&'static KnownBuild> {
@@ -187,13 +202,22 @@ impl Installation {
         known_build_by_id(&self.client_id)
     }
 
+    /// The client's family: "Dereth client", "Auberean", or a retail client by its program's own
+    /// name, "acclient" or Asheron's Call 2's "AC2client".
+    pub fn family(&self) -> &str {
+        match self.kind {
+            ClientKind::Dereth => "Dereth client",
+            ClientKind::Auberean => "Auberean",
+            ClientKind::Retail => Path::new(&self.exe)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("acclient"),
+        }
+    }
+
     /// "acclient 00.00.11.6096 (12 June 2015)", or the best that can be said.
     pub fn display_name(&self) -> String {
-        let family = match self.kind {
-            ClientKind::Dereth => "Dereth client",
-            ClientKind::Retail => "acclient",
-            ClientKind::Auberean => "Auberean",
-        };
+        let family = self.family();
         match (&self.version, &self.build_date) {
             (Some(v), Some(d)) => format!("{family} {v} ({})", long_date(d)),
             (Some(v), None) => format!("{family} {v}"),
@@ -294,7 +318,9 @@ pub fn identify_dereth(exe: &Path) -> Result<Installation, IdentifyError> {
     identify_exe(folder, name, ClientKind::Dereth, "dereth".into())
 }
 
-fn identify_exe(
+/// Identify the program `exe` in `folder` as a client of `kind`: its hash looked up among the
+/// builds the launcher knows, else what its version resource and link date say.
+pub(crate) fn identify_exe(
     folder: &Path,
     exe: &str,
     kind: ClientKind,
@@ -547,7 +573,13 @@ mod tests {
                     !m.contains(".dat\n"),
                     "dats are identified by iteration, not hash"
                 );
-                assert!(m.contains("acclient.exe"));
+                // Each manifest lists its own program: Asheron's Call's, or Asheron's Call 2's.
+                let program = if b.client_id.starts_with("ac2client-") {
+                    "AC2client.exe"
+                } else {
+                    "acclient.exe"
+                };
+                assert!(m.contains(program), "{} lists no {program}", b.client_id);
             }
         }
     }

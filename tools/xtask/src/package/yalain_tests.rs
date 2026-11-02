@@ -1,11 +1,14 @@
 //! Behaviour: none (tooling: Yalain's release archives: their names, their allowlist and deny scan,
-//! the program's header check, the build's targets, the index and the release workflow).
+//! the program's header check, the build's targets, the index, the upgrade declaration and the
+//! release workflow).
 
 use super::archive::{self, Member};
+use super::declaration::parse_entries_from;
 use super::headers::{self, Role};
 use super::targets::{self, Os, Target};
 use super::tests::pe;
 use super::yalain::{self, Asset};
+use super::yalain_declaration::{self as declaration, Facts};
 use crate::util::workspace_root;
 
 const V: &str = "0.1.0";
@@ -155,19 +158,22 @@ fn the_index_lists_every_archive_with_its_checksum() {
         epoch: 1_700_000_000,
         source_url: super::DEFAULT_SOURCE_URL.to_owned(),
     };
-    yalain::write_index(&scratch.0, V, &facts).expect("writes the index");
+    yalain::write_index(&workspace_root(), &scratch.0, V, &facts).expect("writes the index");
     let read = |name: &str| std::fs::read_to_string(scratch.0.join(name)).expect(name);
     let release: serde_json::Value = serde_json::from_str(&read("release.json")).expect("json");
     assert_eq!(release["product"], "yalain");
     assert_eq!(release["tag"], "yalain-v0.1.0");
     assert_eq!(release["assets"].as_array().map(Vec::len), Some(1));
+    assert_eq!(release["schema"], 2);
+    assert_eq!(release["upgrade"]["kind"], "initial");
+    assert_eq!(release["upgrade"]["upgrades_from"], V);
     let sums = read("SHA256SUMS");
     assert!(
         sums.contains("  yalain-0.1.0-x86_64-unknown-linux-gnu.tar.gz\n"),
         "{sums}"
     );
     std::fs::write(scratch.0.join("stray.zip"), "x").expect("stray");
-    assert!(yalain::write_index(&scratch.0, V, &facts).is_err());
+    assert!(yalain::write_index(&workspace_root(), &scratch.0, V, &facts).is_err());
 }
 
 /// The program is held to the server's header rules: on Windows a console program with its icon,
@@ -219,4 +225,141 @@ fn the_release_workflow_builds_and_labels_every_yalain_target() {
             t.triple
         );
     }
+}
+
+fn facts(store: i64, world: &str) -> Facts {
+    Facts {
+        store,
+        world_database: world.to_owned(),
+    }
+}
+
+/// The tree's own version declares cleanly against the tree's `releases.toml`, and the tree's
+/// facts are read from the code: the database's schema version and the world database it pins.
+#[test]
+fn the_trees_yalain_version_has_a_declaration() {
+    let ws = workspace_root();
+    let v = super::version::Product::Yalain
+        .version(&ws)
+        .expect("the version");
+    let d = declaration::for_release(&ws, &v).expect("declared");
+    assert!(
+        d["upgrades_from"].as_str().is_some_and(|s| !s.is_empty()),
+        "{d}"
+    );
+    assert!(
+        d["databases"]["store"].as_i64().is_some_and(|n| n >= 1),
+        "{d}"
+    );
+    assert!(
+        d["world_database"]
+            .as_str()
+            .is_some_and(|t| t.starts_with('v')),
+        "{d}"
+    );
+}
+
+/// A minor release lists its database migration and a world database to fetch, with its entry's
+/// upgrades_from, configuration and notes; a patch release that migrates, or has an entry, is
+/// refused; one that pins a patch of the world database declares the fetch, one that pins a minor
+/// release of it is refused; a minor release without an entry is refused.
+#[test]
+fn a_yalain_release_declares_its_migration_and_world_database() {
+    let entries = parse_entries_from(
+        r#"
+        [[release]]
+        version = "0.1.0"
+        upgrades_from = "0.1.0"
+        [[release]]
+        version = "0.2.0"
+        upgrades_from = "0.1.0"
+        config = [{ key = "server.motd", change = "removed", note = "use the welcome" }]
+        notes = "Back up first."
+        [[release]]
+        version = "0.2.1"
+        upgrades_from = "0.2.0"
+        "#,
+        "releases.toml",
+    )
+    .expect("entries");
+    let old = facts(2, "v0.21.0");
+    let d = declaration::declare(
+        "0.2.0",
+        Some(("0.1.3", &old)),
+        &facts(3, "v0.22.0"),
+        &entries,
+    )
+    .expect("declared");
+    assert_eq!(d["kind"], "minor");
+    assert_eq!(d["previous"], "0.1.3");
+    assert_eq!(d["upgrades_from"], "0.1.0");
+    assert_eq!(
+        d["migrations"],
+        serde_json::json!([{"database": "store", "from": 2, "to": 3}])
+    );
+    assert_eq!(d["world_database"], "v0.22.0");
+    assert_eq!(d["world_database_fetch"], true);
+    assert_eq!(d["config"][0]["key"], "server.motd");
+    assert_eq!(d["notes"], "Back up first.");
+
+    let patch = declaration::declare(
+        "0.1.4",
+        Some(("0.1.3", &old)),
+        &facts(2, "v0.21.1"),
+        &entries,
+    )
+    .expect("a patch with a patch of the world database");
+    assert_eq!(
+        (
+            patch["kind"].as_str(),
+            patch["world_database_fetch"].as_bool()
+        ),
+        (Some("patch"), Some(true))
+    );
+    assert_eq!(patch["upgrades_from"], "0.1.0", "inherited");
+    assert!(
+        declaration::declare(
+            "0.1.4",
+            Some(("0.1.3", &old)),
+            &facts(2, "v0.22.0"),
+            &entries
+        )
+        .is_err(),
+        "a patch with a minor release of the world database"
+    );
+    assert!(
+        declaration::declare(
+            "0.1.4",
+            Some(("0.1.3", &old)),
+            &facts(3, "v0.21.0"),
+            &entries
+        )
+        .is_err(),
+        "a patch that migrates"
+    );
+    assert!(
+        declaration::declare(
+            "0.2.1",
+            Some(("0.2.0", &old)),
+            &facts(2, "v0.21.0"),
+            &entries
+        )
+        .is_err(),
+        "a patch with an entry"
+    );
+    assert!(
+        declaration::declare(
+            "0.3.0",
+            Some(("0.2.0", &old)),
+            &facts(2, "v0.21.0"),
+            &entries
+        )
+        .is_err(),
+        "a minor release without an entry"
+    );
+    let first = declaration::declare("0.1.0", None, &facts(2, "v0.21.0"), &entries).expect("first");
+    assert_eq!(
+        (first["kind"].as_str(), first["previous"].is_null()),
+        (Some("initial"), true)
+    );
 }

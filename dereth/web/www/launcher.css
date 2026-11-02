@@ -217,6 +217,14 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
  * inward; the other waits, dimmed and still. Changing realm opens the new realm's painting out from
  * the portal picked. A launcher that offers one game has none. */
 .realm { display: flex; justify-content: space-around; width: 176px; flex: none; padding: 2px 0; }
+/* Auberean's realm says, on every screen, how early its games are. */
+.realm-note {
+  display: none; width: 176px; box-sizing: border-box; margin: 0; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--glass);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  font-size: 13px; line-height: 1.35; color: var(--realm-bright); text-align: center;
+}
+:root[data-realm="auberean"] .realm-note { display: block; }
 .realm:empty { display: none; }
 .realm .pick {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -462,8 +470,9 @@ select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220p
 .row .sub { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .end { color: var(--muted); font-size: 15px; white-space: nowrap; }
 /* A row's pin, on Home and in the world list: a favorite shows its star, and on hover the button that
- * takes it off; any other row shows, on hover, the button that makes it a favorite. */
-.pin { width: 34px; display: flex; justify-content: center; align-items: center; margin-left: auto; }
+ * takes it off; any other row shows, on hover, the button that makes it a favorite. The pin keeps the
+ * star's height and the button stands out of it, so a row is the same size hovered or not. */
+.pin { width: 34px; height: 18px; display: flex; justify-content: center; align-items: center; margin-left: auto; }
 .pin .btn { display: none; }
 .pin .star { color: var(--gold-bright); font-size: 18px; line-height: 1; }
 .row:hover .pin .btn, table.worlds tr:hover .pin .btn { display: inline-flex; }
@@ -490,6 +499,7 @@ table.worlds col.c-players { width: 84px; }
 table.worlds col.c-end { width: 50px; }
 table.worlds select.field.mini { width: 100%; min-width: 0; }
 table.worlds td { overflow: hidden; text-overflow: ellipsis; }
+table.worlds td.end { overflow: visible; }
 /* PLAY in an open row: the same green plate, small. */
 .play.mini {
   width: auto; height: 44px; flex: none;
@@ -530,6 +540,8 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
 .detail-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .detail-body .strip b, .era-line b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 6px; }
 .era-line { display: flex; align-items: center; gap: 4px; font-size: 16px; }
+/* The one word beside an era: verified or assumed. */
+.era-note { margin-left: 5px; font-size: 12px; color: var(--muted); }
 .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; }
 .features .check { font-size: 15px; gap: 8px; }
 .features .check input { width: 15px; height: 15px; }
@@ -705,6 +717,8 @@ textarea.field.area { height: auto; min-height: 60px; padding: 7px 12px; resize:
 .program-line > span:first-child { color: var(--text); }
 .program-line .btns { margin-left: auto; }
 .program-line.first { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-small); background: rgba(181, 138, 60, 0.08); }
+/* Play's line for a client not yet downloaded, with room under it before the worlds. */
+.client-line { margin: 8px 0 12px; }
 .program-line + .bar { margin: 6px 0 2px; max-width: 360px; }
 
 /* A section of a world's page that folds: its heading opens and shuts it. */

@@ -2,6 +2,11 @@
 //! folder, with its configuration, databases, log and its own copy of the server it runs. A world
 //! is Empyrean's, of Asheron's Call, or Yalain's, of Asheron's Call 2 ([`crate::host_yalain`]): the
 //! two are made, listed, started, stopped and deleted alike, and each realm's page lists its own.
+//!
+//! Yalain's worlds are in `hosts-auberean/<id>` beside `hosts` ([`AUBEREAN_HOSTS`]), where a
+//! launcher from before Auberean's realm (Dereth 0.4.9), which takes every world in `hosts` for
+//! Empyrean's, never looks. One made in `hosts` by an earlier build is moved there at start while
+//! it is stopped and runs no system service ([`move_yalain_worlds`]).
 
 use crate::host_config::Settings;
 use crate::host_runtime::{self, Definition, Status};
@@ -87,9 +92,26 @@ fn lock(shared: &Shared) -> std::sync::MutexGuard<'_, Store> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+/// The folder of Yalain's worlds in the launcher's data folder, beside `hosts`.
+pub const AUBEREAN_HOSTS: &str = "hosts-auberean";
+
+/// The folder of the worlds of `game` whose servers' folder (Empyrean's) is `root`.
+fn root_of(root: &Path, game: Game) -> PathBuf {
+    match game {
+        Game::Dereth => root.to_path_buf(),
+        Game::Auberean => root.with_file_name(AUBEREAN_HOSTS),
+    }
+}
+
+/// The store over the launcher's data folder `root`, Yalain's worlds made by an earlier build in
+/// `hosts` moved to their own folder first.
 pub fn new(root: PathBuf) -> Shared {
+    let hosts = root.join("hosts");
+    for said in move_yalain_worlds(&hosts, &root_of(&hosts, Game::Auberean)) {
+        eprintln!("dereth-launcher: {said}");
+    }
     Arc::new(Mutex::new(Store {
-        root: root.join("hosts"),
+        root: hosts,
         busy: BTreeMap::new(),
         children: Vec::new(),
         messages: BTreeMap::new(),
@@ -97,11 +119,155 @@ pub fn new(root: PathBuf) -> Shared {
         creating: false,
     }))
 }
+/// Move each Yalain world in `hosts` to `to` (its own folder, [`AUBEREAN_HOSTS`]) while it is
+/// stopped and runs no system service, whose registration names its folder: renamed in place,
+/// then every path its files name inside its old folder named in the new one ([`relocate`]). What
+/// was moved or left, in words for the launcher's log.
+pub fn move_yalain_worlds(hosts: &Path, to: &Path) -> Vec<String> {
+    let mut said = Vec::new();
+    // One moved whose files still name its old folder (a move cut short) has them named again.
+    for e in std::fs::read_dir(to).into_iter().flatten().flatten() {
+        let Ok(definition) = host_runtime::read_definition(&e.path()) else {
+            continue;
+        };
+        let old = hosts.join(&definition.id);
+        if definition.wrapper.starts_with(&old) {
+            if let Err(e) = relocate(&e.path(), &old) {
+                said.push(format!(
+                    "{}'s paths could not be named again: {e}",
+                    definition.id
+                ));
+            }
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(hosts) else {
+        return said;
+    };
+    for e in entries.flatten() {
+        let from = e.path();
+        let Ok(definition) = host_runtime::read_definition(&from) else {
+            continue;
+        };
+        if definition.game != Game::Auberean {
+            continue;
+        }
+        if host_runtime::active(&from) || crate::host_service::installed(&from) {
+            said.push(format!(
+                "{} is running or runs as a system service; it stays in {} until it does not",
+                definition.id,
+                hosts.display()
+            ));
+            continue;
+        }
+        let dest = to.join(&definition.id);
+        let moved = std::fs::create_dir_all(to)
+            .and_then(|()| std::fs::rename(&from, &dest))
+            .map_err(|e| e.to_string())
+            .and_then(|()| relocate(&dest, &from));
+        said.push(match moved {
+            Ok(()) => format!("{} moved to {}", definition.id, dest.display()),
+            Err(e) => format!(
+                "{} could not be moved to {}: {e}",
+                definition.id,
+                to.display()
+            ),
+        });
+    }
+    said
+}
+
+/// `value` named in `dir` when it names something in `old`, its old folder: the same place in it.
+fn moved_path(value: &str, old: &Path, dir: &Path) -> Option<String> {
+    let rest = Path::new(value).strip_prefix(old).ok()?;
+    Some(dir.join(rest).to_string_lossy().into_owned())
+}
+
+/// Every path the world now in `dir` names inside `old`, its old folder, named in `dir`: in its
+/// definition, its settings, its update records and its publications.
+fn relocate(dir: &Path, old: &Path) -> Result<(), String> {
+    fn json(v: &mut serde_json::Value, old: &Path, dir: &Path) {
+        match v {
+            serde_json::Value::String(s) => {
+                if let Some(p) = moved_path(s, old, dir) {
+                    *s = p;
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|v| json(v, old, dir)),
+            serde_json::Value::Object(o) => o.values_mut().for_each(|v| json(v, old, dir)),
+            _ => {}
+        }
+    }
+    fn toml(t: &mut dyn toml_edit::TableLike, old: &Path, dir: &Path) {
+        for (_, item) in t.iter_mut() {
+            if let Some(t) = item.as_table_like_mut() {
+                toml(t, old, dir);
+            } else if let Some(v) = item.as_value_mut() {
+                if let Some(p) = v.as_str().and_then(|s| moved_path(s, old, dir)) {
+                    let decor = v.decor().clone();
+                    *v = toml_edit::Value::from(p);
+                    *v.decor_mut() = decor;
+                }
+            }
+        }
+    }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    if let Ok(published) = std::fs::read_dir(dir.join("published")) {
+        files.extend(
+            published
+                .flatten()
+                .map(|e| e.path().join("publication.json")),
+        );
+    }
+    for file in files.into_iter().filter(|f| f.is_file()) {
+        let Some(kind) = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .filter(|k| ["json", "toml"].contains(k))
+        else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let out = match kind {
+            "json" => {
+                let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                json(&mut v, old, dir);
+                serde_json::to_string(&v).map_err(|e| e.to_string())?
+            }
+            "toml" => {
+                let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else {
+                    continue;
+                };
+                toml(doc.as_table_mut(), old, dir);
+                doc.to_string()
+            }
+            _ => continue,
+        };
+        if out != text {
+            std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// The folder of the world `id`: in Empyrean's worlds' folder `root`, or in Yalain's beside it.
 fn host_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
         return Err("Invalid world identity.".into());
     }
-    let dir = root.join(id);
+    let own = root_of(root, Game::Auberean).join(id);
+    let dir = if own.join("host.json").is_file() {
+        own
+    } else {
+        root.join(id)
+    };
     let definition = host_runtime::read_definition(&dir)?;
     if definition.id != id {
         return Err("The world's identity does not match its folder.".into());
@@ -114,17 +280,20 @@ pub fn views(shared: &Shared) -> Vec<View> {
         .children
         .retain_mut(|(_, c)| !matches!(c.try_wait(), Ok(Some(_))));
     let mut views = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&store.root) else {
-        return views;
-    };
+    let entries = [Game::Dereth, Game::Auberean]
+        .into_iter()
+        .filter_map(|game| std::fs::read_dir(root_of(&store.root, game)).ok())
+        .flatten();
     for e in entries.flatten() {
         let dir = e.path();
         let Ok(definition) = host_runtime::read_definition(&dir) else {
             continue;
         };
-        // A Yalain world keeps no empyrean.toml: nothing below reads it for one.
-        let text = std::fs::read_to_string(dir.join("empyrean.toml")).unwrap_or_default();
+        // Its configuration file: Empyrean's empyrean.toml, or Yalain's yalain.toml in its form.
+        let text = std::fs::read_to_string(dir.join(host_runtime::config_file(definition.game)))
+            .unwrap_or_default();
         let settings = host_runtime::read_settings(&dir, definition.game).unwrap_or_default();
+        let program = definition.program.clone();
         let logs = std::fs::read(dir.join("log.json"))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -134,6 +303,8 @@ pub fn views(shared: &Shared) -> Vec<View> {
             .flatten()
             .map(|(_, p)| p);
         let source_gone = publication.as_ref().is_some_and(|p| !p.source.is_file());
+        // The world file of a Lyceum world and of an Athenaeum world have the same shape: its
+        // sources are it and its packs.
         let unpublished_changes = publication.as_ref().and_then(|p| {
             if p.sources.is_empty() || !p.source.is_file() {
                 return None;
@@ -158,7 +329,10 @@ pub fn views(shared: &Shared) -> Vec<View> {
             source_gone,
             federation_slug: federation_slug(&text),
             listed: false,
-            plays: crate::host_config::plays(&text, &dir),
+            plays: match definition.game {
+                Game::Dereth => crate::host_config::plays(&text, &dir),
+                Game::Auberean => crate::host_yalain::plays(&text, &dir, Some(&program)),
+            },
             folder: dir,
         });
     }
@@ -238,21 +412,25 @@ pub async fn create_host(
         return Err("The game data folder does not exist.".into());
     }
     crate::host_config::check_game_data(&settings.era, &settings.dats)?;
-    // The status endpoint the launcher counts the world's players at, on this computer: a port
-    // no other world names and nothing holds now, kept from here on.
-    let taken: Vec<u16> = views(&shared)
-        .iter()
-        .map(|h| h.settings.status_port)
-        .collect();
-    settings.status_port = crate::host_config::free_status_port(&taken, |port| {
-        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_ok()
-    })
-    .ok_or("No port is free on this computer for the world's status.")?;
+    settings.status_port = free_status_port(&shared)?;
     let server = crate::components::server(&components)?;
     let write = move |program: &Path, dir: &Path| {
         validate_config(program, dir, &settings.update_config("")?)
     };
     create(shared.inner(), server, Game::Dereth, write).await
+}
+
+/// The status endpoint the launcher counts a new world's players at, on this computer: a port no
+/// other world of either game names and nothing holds now, kept from here on.
+fn free_status_port(shared: &Shared) -> Result<u16, String> {
+    let taken: Vec<u16> = views(shared)
+        .iter()
+        .map(|h| h.settings.status_port)
+        .collect();
+    crate::host_config::free_status_port(&taken, |port| {
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_ok()
+    })
+    .ok_or_else(|| "No port is free on this computer for the world's status.".into())
 }
 
 /// Make a Yalain world with `settings`, as an Empyrean world is made: a folder of its own, its own
@@ -261,9 +439,10 @@ pub async fn create_host(
 pub async fn create_yalain_host(
     shared: State<'_, Shared>,
     components: State<'_, crate::components::Shared>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<String, String> {
     crate::host_yalain::validate(&settings)?;
+    settings.status_port = free_status_port(&shared)?;
     let server =
         crate::components::server_of(&components, dereth_launch::components::Product::Yalain)?;
     let write = move |_: &Path, dir: &Path| crate::host_yalain::write(dir, &settings);
@@ -284,7 +463,7 @@ async fn create(
         if store.closing || store.creating {
             return Err("The launcher is busy. Try again in a moment.".into());
         }
-        let root = std::path::absolute(&store.root).map_err(|e| e.to_string())?;
+        let root = std::path::absolute(root_of(&store.root, game)).map_err(|e| e.to_string())?;
         store.creating = true;
         root
     };
@@ -386,6 +565,19 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
     let dir = begin(&shared, &id, "Downloading the world database...")?;
     let game = host_runtime::read_definition(&dir).map_or(Game::Dereth, |d| d.game);
     if game == Game::Auberean {
+        if crate::host_yalain::prepared(&dir) {
+            finish(&shared, &id, Ok(()), "The world database is ready.");
+            return Ok(());
+        }
+        if host_runtime::active(&dir) {
+            finish(
+                &shared,
+                &id,
+                Err("Stop the world before getting its world database.".into()),
+                "",
+            );
+            return Ok(());
+        }
         std::thread::spawn(move || {
             let result = host_runtime::read_definition(&dir)
                 .and_then(|d| crate::host_yalain::fetch(&d.program, &dir));
@@ -460,6 +652,28 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
     });
     Ok(())
 }
+
+/// Bring the supervisor of the stopped world in `dir` (`wrapper`, the launcher copied into the
+/// world's `manager` folder when it was made) up to the launcher `launcher` when they differ, so a
+/// world made by an older launcher runs this one's supervisor. A running world's (its run lock
+/// held) is never touched. The launcher is written into the file that is there, which keeps what a
+/// system service was granted on it. Whether it was brought up.
+///
+/// # Errors
+/// A file that will not read or write.
+fn refresh_supervisor(dir: &Path, wrapper: &Path, launcher: &Path) -> Result<bool, String> {
+    if host_runtime::active(dir) {
+        return Ok(false);
+    }
+    let new = std::fs::read(launcher).map_err(|e| format!("{}: {e}", launcher.display()))?;
+    if std::fs::read(wrapper).is_ok_and(|old| old == new) {
+        return Ok(false);
+    }
+    std::fs::write(wrapper, new)
+        .map_err(|e| format!("Could not bring the world's supervisor up to date: {e}"))?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn start_host(
     shared: State<'_, Shared>,
@@ -486,6 +700,13 @@ pub fn start_host(
             here.shared_address,
         )?;
         crate::host_yalain::keep_advertised(&dir, address)?;
+    }
+    // A world made by an older launcher runs this one's supervisor.
+    if let Err(e) = std::env::current_exe()
+        .map_err(|e| e.to_string())
+        .and_then(|me| refresh_supervisor(&dir, &definition.wrapper, &me))
+    {
+        eprintln!("dereth-launcher: {e}");
     }
     if crate::host_service::installed(&dir) {
         return crate::host_service::start(&dir);
@@ -558,7 +779,13 @@ pub async fn save_yalain_host(
     crate::host_yalain::validate(&settings)?;
     let shared = shared.inner().clone();
     let dir = begin(&shared, &id, "Saving the settings...")?;
-    let result = crate::host_yalain::write(&dir, &settings);
+    let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap_or_default();
+    let result =
+        if settings.federation.enabled && !crate::host_config::plays(&text, &dir).network_key {
+            Err("Save the world's key before linking it to the Dereth Network.".to_owned())
+        } else {
+            crate::host_yalain::write(&dir, &settings)
+        };
     let running = host_runtime::active(&dir);
     finish(
         &shared,
@@ -587,10 +814,13 @@ pub async fn save_host_key(
     let dir = begin(&shared, &id, "Saving the key...")?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         let definition = host_runtime::read_definition(&dir)?;
-        let text = std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?;
+        let config = host_runtime::config_file(definition.game);
+        let text = std::fs::read_to_string(dir.join(config)).map_err(|e| e.to_string())?;
         let next = crate::host_config::save_network_key(&dir, &text, &key)?;
         if next == text {
             Ok(())
+        } else if definition.game == Game::Auberean {
+            crate::host_yalain::keep_config(&dir, &next)
         } else {
             validate_config(&definition.program, &dir, &next)
         }
@@ -607,6 +837,7 @@ fn dir_of(shared: &Shared, id: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 pub fn open_host_config(shared: State<'_, Shared>, id: String) -> Result<(), String> {
     let dir = dir_of(&shared, &id)?;
+    let config = host_runtime::config_file(host_runtime::read_definition(&dir)?.game);
     let editor = if cfg!(windows) {
         "notepad.exe"
     } else if cfg!(target_os = "macos") {
@@ -620,7 +851,7 @@ pub fn open_host_config(shared: State<'_, Shared>, id: String) -> Result<(), Str
         command.arg("-t");
     }
     command
-        .arg(dir.join("empyrean.toml"))
+        .arg(dir.join(config))
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -631,13 +862,15 @@ pub fn open_host_folder(shared: State<'_, Shared>, id: String) -> Result<(), Str
     crate::components::open_folder(&dir_of(&shared, &id)?)
 }
 
-/// Show one of a world's files in the system's file browser: its `config` (`empyrean.toml`), its
-/// `log`, or its `folder`.
+/// Show one of a world's files in the system's file browser: its `config` (`empyrean.toml` or
+/// `yalain.toml`), its `log`, or its `folder`.
 #[tauri::command]
 pub fn reveal_host(shared: State<'_, Shared>, id: String, place: String) -> Result<(), String> {
     let dir = dir_of(&shared, &id)?;
     let path = match place.as_str() {
-        "config" => dir.join("empyrean.toml"),
+        "config" => dir.join(host_runtime::config_file(
+            host_runtime::read_definition(&dir)?.game,
+        )),
         "log" => dir.join(host_runtime::LOG_FILE),
         "folder" => dir,
         _ => return Err("The launcher does not know where that is.".into()),
@@ -693,14 +926,20 @@ pub async fn set_host_service(
     )?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         if enabled {
-            let game = host_runtime::read_definition(&dir)?.game;
+            let definition = host_runtime::read_definition(&dir)?;
+            let game = definition.game;
             if !prepared(&dir, game) {
                 return Err("Get the world database first.".into());
             }
-            if host_runtime::read_definition(&dir)?.checkout {
+            if definition.checkout {
                 return Err(
                     "A world on this checkout's build runs only while the launcher is open.".into(),
                 );
+            }
+            // A Windows service runs as an account of its own, which cannot read the world
+            // database Yalain keeps in the player's own cache: the world keeps it in its folder.
+            if cfg!(windows) && game == Game::Auberean {
+                crate::host_yalain::keep_own_world_database(&definition.program, &dir)?;
             }
             crate::host_service::install(&dir)
         } else {
@@ -825,10 +1064,20 @@ pub fn confirm_close(
 /// own message; the server's line is left alone.
 /// Whether the world `id` is an Empyrean world: the only kind the launcher updates from a release
 /// (a Yalain world runs the Yalain it was made with).
+/// The server a world of `game` runs, by name.
+fn server_name(game: Game) -> &'static str {
+    match game {
+        Game::Dereth => "Empyrean",
+        Game::Auberean => "Yalain",
+    }
+}
+
+/// Whether the world `id` is one whose server takes updates: every world the launcher keeps,
+/// Empyrean's and Yalain's (a local build's says so when asked).
 fn updatable(shared: &Shared, id: &str) -> bool {
     dir_of(shared, id)
         .and_then(|dir| host_runtime::read_definition(&dir))
-        .is_ok_and(|d| d.game == Game::Dereth)
+        .is_ok()
 }
 
 fn check_update(shared: &Shared, id: &str) -> Result<(), String> {
@@ -880,9 +1129,10 @@ pub async fn approve_host_update(
 ) -> Result<(), String> {
     let shared = shared.inner().clone();
     if !updatable(&shared, &id) {
-        return Err("A Yalain world is not updated from Empyrean's releases.".into());
+        return Err("No such world.".into());
     }
-    let dir = begin(&shared, &id, &format!("Downloading Empyrean {version}..."))?;
+    let server = server_name(host_runtime::read_definition(&dir_of(&shared, &id)?)?.game);
+    let dir = begin(&shared, &id, &format!("Downloading {server} {version}..."))?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         crate::host_updates::stage(&dir, Some(&version))
     })
@@ -899,9 +1149,10 @@ pub async fn rollback_host_update(
     shared: State<'_, Shared>,
     id: String,
 ) -> Result<(), String> {
+    let server = server_name(host_runtime::read_definition(&dir_of(&shared, &id)?)?.game);
     if !app
         .dialog()
-        .message("Go back to the previous Empyrean and the databases from before the update? Anything played since the update is lost.")
+        .message(format!("Go back to the previous {server} and the databases from before the update? Anything played since the update is lost."))
         .title("Undo update")
         .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancel)
         .blocking_show()
@@ -937,6 +1188,10 @@ pub async fn publish_host_world(
     id: String,
     world: Option<PathBuf>,
 ) -> Result<(), String> {
+    let game = host_runtime::read_definition(&dir_of(&shared, &id)?)?.game;
+    if game == Game::Auberean {
+        return publish_athenaeum_world(app, shared, id, world).await;
+    }
     let world = match world {
         Some(world) => world,
         None => match app
@@ -973,17 +1228,57 @@ pub async fn publish_host_world(
     Ok(())
 }
 
-/// Put the world back on its era's world database, so it no longer plays the Lyceum world
-/// published to it.
+/// Publish the Athenaeum world `world` (its folder; asked for when `None`) to the Yalain world
+/// `id`, with the world's own Yalain.
+async fn publish_athenaeum_world(
+    app: tauri::AppHandle,
+    shared: State<'_, Shared>,
+    id: String,
+    world: Option<PathBuf>,
+) -> Result<(), String> {
+    let world = match world {
+        Some(world) => world,
+        None => match app
+            .dialog()
+            .file()
+            .set_title("Choose the Athenaeum world to publish (its folder)")
+            .blocking_pick_folder()
+        {
+            Some(folder) => folder.into_path().map_err(|e| e.to_string())?,
+            None => return Ok(()),
+        },
+    };
+    let dir = dir_of(&shared, &id)?;
+    if let Some(why) = crate::host_publication::gone(&dir, &world) {
+        return Err(why);
+    }
+    let yalain = host_runtime::read_definition(&dir)?.program;
+    let shared = shared.inner().clone();
+    let dir = begin(&shared, &id, "Publishing the world...")?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::host_publication::publish_athenaeum(&dir, &world, &yalain).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+    finish(&shared, &id, result, "");
+    Ok(())
+}
+
+/// Put the world back on its era's world database (a Yalain world, on the one its Yalain pins), so
+/// it no longer plays the Lyceum or Athenaeum world published to it.
 #[tauri::command]
 pub async fn unpublish_host_world(shared: State<'_, Shared>, id: String) -> Result<(), String> {
+    let game = host_runtime::read_definition(&dir_of(&shared, &id)?)?.game;
     let shared = shared.inner().clone();
     let dir = begin(&shared, &id, "Restoring the world base...")?;
-    let result =
-        tauri::async_runtime::spawn_blocking(move || crate::host_publication::unpublish(&dir))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r);
+    let result = tauri::async_runtime::spawn_blocking(move || match game {
+        Game::Dereth => crate::host_publication::unpublish(&dir),
+        Game::Auberean => crate::host_publication::unpublish_athenaeum(&dir),
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
     finish(&shared, &id, result, "");
     Ok(())
 }
@@ -996,6 +1291,7 @@ pub fn open_host_world(
 ) -> Result<String, String> {
     let dir = dir_of(&shared, &id)?;
     let slug = crate::backend::lock(&backend).open_host_world(&dir)?;
+    // Each answers the status ping on its login port, Yalain as Empyrean.
     crate::backend::Backend::probe(&backend, vec![slug.clone()]);
     Ok(slug)
 }
@@ -1003,6 +1299,170 @@ pub fn open_host_world(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A world of `game` in `dir`, made as the launcher makes one: its definition naming its own
+    /// copy of the server and its supervisor inside it.
+    fn world_in(dir: &Path, game: Game) {
+        std::fs::create_dir_all(dir.join("runtime/0.1.0")).unwrap();
+        std::fs::create_dir_all(dir.join("manager")).unwrap();
+        let id = dir.file_name().unwrap().to_string_lossy().into_owned();
+        host_runtime::write_json(
+            &dir.join("host.json"),
+            &Definition {
+                id,
+                version: "0.1.0".into(),
+                program: dir.join("runtime/0.1.0/server.exe"),
+                wrapper: dir.join("manager/dereth-host.exe"),
+                checkout: false,
+                game,
+            },
+        )
+        .unwrap();
+    }
+
+    /// A Yalain world an earlier build made in `hosts` is moved at start to Yalain's own folder,
+    /// where a launcher from before Auberean's realm never looks, every path its files name inside
+    /// its old folder following it; a running one, one run as a system service, and Empyrean's
+    /// stay where they are. Both folders are listed, and each world is found by its identity.
+    #[test]
+    fn yalain_worlds_move_to_a_folder_of_their_own_while_stopped() {
+        let root = tempfile::tempdir().unwrap();
+        let hosts = root.path().join("hosts");
+        let (yalain, empyrean) = (hosts.join("host-a"), hosts.join("host-b"));
+        world_in(&yalain, Game::Auberean);
+        world_in(&empyrean, Game::Dereth);
+        // Its store, which is no text.
+        std::fs::write(yalain.join("yalain.sqlite"), [0xFF_u8, 0xFE, 0x00, 0x9F]).unwrap();
+        let served = yalain.join("published/snapshot-0/world");
+        std::fs::create_dir_all(&served).unwrap();
+        let elsewhere = root.path().join("ac2");
+        let mut doc = toml_edit::DocumentMut::new();
+        doc["server"] = toml_edit::Item::Table(toml_edit::Table::new());
+        doc["server"]["world_database_path"] = toml_edit::value(served.to_string_lossy().as_ref());
+        doc["server"]["world_base_path"] = toml_edit::value("world-database/v0.23.0");
+        doc["server"]["dat_files_directory"] =
+            toml_edit::value(elsewhere.to_string_lossy().as_ref());
+        std::fs::write(yalain.join("yalain.toml"), doc.to_string()).unwrap();
+        std::fs::write(
+            yalain.join("update-rollback.json"),
+            serde_json::json!({
+                "program": yalain.join("runtime/0.0.9/yalain.exe"),
+                "version": "0.0.9",
+                "backup": yalain.join("yalain.sqlite.backup"),
+                "fetched": "v0.23.0",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // One running, and one run as a system service.
+        let (running, service) = (hosts.join("host-c"), hosts.join("host-d"));
+        world_in(&running, Game::Auberean);
+        world_in(&service, Game::Auberean);
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(running.join("run.lock"))
+            .unwrap();
+        lock.try_lock().unwrap();
+        std::fs::write(service.join("service.json"), "\"unit\"").unwrap();
+
+        let own = root.path().join(AUBEREAN_HOSTS);
+        // One whose move was cut short: in its new folder, its files naming the old.
+        world_in(&hosts.join("host-e"), Game::Auberean);
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::rename(hosts.join("host-e"), own.join("host-e")).unwrap();
+        let said = move_yalain_worlds(&hosts, &own);
+        assert_eq!(said.len(), 3, "{said:?}");
+        assert!(said.iter().all(|s| !s.contains("could not")), "{said:?}");
+        assert_eq!(
+            host_runtime::read_definition(&own.join("host-e"))
+                .unwrap()
+                .wrapper,
+            own.join("host-e/manager/dereth-host.exe")
+        );
+        assert_eq!(
+            std::fs::read(own.join("host-a/yalain.sqlite")).unwrap(),
+            [0xFF, 0xFE, 0x00, 0x9F]
+        );
+        let moved = own.join("host-a");
+        assert!(!yalain.exists() && moved.join("host.json").is_file());
+        assert!(empyrean.join("host.json").is_file() && !own.join("host-b").exists());
+        assert!(running.is_dir() && service.is_dir(), "left where they are");
+        let definition = host_runtime::read_definition(&moved).unwrap();
+        assert_eq!(definition.program, moved.join("runtime/0.1.0/server.exe"));
+        assert_eq!(definition.wrapper, moved.join("manager/dereth-host.exe"));
+        let doc: toml_edit::DocumentMut = std::fs::read_to_string(moved.join("yalain.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let path = |k: &str| PathBuf::from(doc["server"][k].as_str().unwrap());
+        assert_eq!(
+            path("world_database_path"),
+            moved.join("published/snapshot-0/world")
+        );
+        assert_eq!(
+            path("world_base_path"),
+            PathBuf::from("world-database/v0.23.0")
+        );
+        assert_eq!(path("dat_files_directory"), elsewhere);
+        let undo: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(moved.join("update-rollback.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            PathBuf::from(undo["program"].as_str().unwrap()),
+            moved.join("runtime/0.0.9/yalain.exe")
+        );
+        assert_eq!(undo["version"], "0.0.9");
+
+        // Both folders listed; each world found by its identity.
+        drop(lock);
+        let store = new(root.path().to_path_buf());
+        let ids: Vec<String> = views(&store).into_iter().map(|v| v.id).collect();
+        assert_eq!(ids, ["host-a", "host-b", "host-c", "host-d", "host-e"]);
+        assert_eq!(dir_of(&store, "host-a").unwrap(), moved);
+        assert_eq!(dir_of(&store, "host-b").unwrap(), empyrean);
+        assert_eq!(
+            dir_of(&store, "host-c").unwrap(),
+            own.join("host-c"),
+            "moved once stopped"
+        );
+        assert_eq!(
+            dir_of(&store, "host-d").unwrap(),
+            service,
+            "still a service"
+        );
+    }
+
+    /// A world made by an older launcher has its supervisor brought up to this launcher when it
+    /// starts, once; a running world's supervisor is left as it is.
+    #[test]
+    fn a_stopped_worlds_old_supervisor_is_replaced_at_start_and_a_running_ones_is_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let wrapper = dir.join("manager").join("dereth-host.exe");
+        std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        std::fs::write(&wrapper, b"an older launcher").unwrap();
+        let launcher = dir.join("dereth.exe");
+        std::fs::write(&launcher, b"this launcher").unwrap();
+
+        // Running: its supervisor holds the run lock.
+        let held = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("run.lock"))
+            .unwrap();
+        held.try_lock().unwrap();
+        assert!(!refresh_supervisor(dir, &wrapper, &launcher).unwrap());
+        assert_eq!(std::fs::read(&wrapper).unwrap(), b"an older launcher");
+        drop(held);
+
+        // Stopped: brought up, then left alone while it is the same.
+        assert!(refresh_supervisor(dir, &wrapper, &launcher).unwrap());
+        assert_eq!(std::fs::read(&wrapper).unwrap(), b"this launcher");
+        assert!(!refresh_supervisor(dir, &wrapper, &launcher).unwrap());
+    }
 
     /// A world is listed on the Dereth Network when the slug its configuration names is on the
     /// hub's list, read here from a stand-in hub's page; a world with no slug, or one the hub does

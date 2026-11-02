@@ -14,12 +14,11 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, host and update worlds with Yalain, and build, publish and export worlds with Athenaeum.
+- The launcher is now Dereth Network, with its own icon.
+- Launcher: a settings file it can't fully read now keeps everything it can, and says what was reset.
 - Web: ACE and GDLE worlds can host the web relay, so players install nothing.
 - Web: the front page is now the launcher.
-- Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean, run a world with Yalain, and build with Athenaeum.
-- Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, run a world with Yalain, and build with Athenaeum.
-- Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, host worlds with Yalain, and build with Athenaeum.
-- The launcher is now Dereth Network, with its own icon.
 
 ## 0.4.9 (2026-11-01)
 

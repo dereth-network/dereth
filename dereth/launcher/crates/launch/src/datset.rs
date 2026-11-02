@@ -1,8 +1,11 @@
-//! Dat sets: a folder of the game's data files, Modern or Classic ([`SetKind`]).
+//! Dat sets: a folder of the game's data files, Modern or Classic ([`SetKind`]), or Asheron's Call
+//! 2's.
 //!
 //! A Modern set is the four later files, identified by what a world compares. A Classic set is the
 //! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair. One
-//! folder may hold both: the names never collide, and the launcher lists them as two sets.
+//! folder may hold both: the names never collide, and the launcher lists them as two sets. An
+//! Asheron's Call 2 set is that game's four files, read as [`crate::auberean::scan_dir`] reads
+//! them, in the same roles.
 //!
 //! **Identity is iterations, not file hashes.** Two correct end-of-retail sets can hash differently:
 //! the 6096 and 4186 installs have the same `client_local_English.dat` contents in a different
@@ -210,6 +213,10 @@ pub enum SetKind {
     /// The files from before Throne of Destiny, `portal.dat` and `cell.dat`, which always come as
     /// a pair: the world of an era before it, and the classic interface and looks for any other.
     Classic,
+    /// Asheron's Call 2's files: `portal.dat`, `cell_1.dat`, `local_English.dat` and
+    /// `highres.dat`, in the same four roles. Kept in Auberean's realm's own library, never offered
+    /// to a world of Asheron's Call.
+    Auberean,
 }
 
 /// The two files of a Classic set, by the role each plays: the portal file and the cell file.
@@ -270,9 +277,17 @@ impl DatSet {
     /// Returns whether any iteration rose, which after a session on a patching world means the
     /// world wrote to the set; `now` is recorded as the time it did.
     pub fn refresh(&mut self, now: u64) -> bool {
-        if self.kind == SetKind::Classic {
-            self.files = scan_classic_dir(&self.path);
-            return false;
+        match self.kind {
+            SetKind::Classic => {
+                self.files = scan_classic_dir(&self.path);
+                return false;
+            }
+            // No Asheron's Call 2 world patches its players' files.
+            SetKind::Auberean => {
+                self.files = crate::auberean::scan_dir(&self.path, &self.files);
+                return false;
+            }
+            SetKind::Modern => {}
         }
         let before = self.iterations();
         self.files = scan_files(&self.path, &self.files);
@@ -421,8 +436,8 @@ fn reading(
 }
 
 /// The role a file named `name` plays in a set of `kind`: the later set's four files (any
-/// language's local file), or the older set's `portal.dat` and `cell.dat`. `None` for a name that
-/// is no file of such a set.
+/// language's local file), the older set's `portal.dat` and `cell.dat`, or Asheron's Call 2's
+/// four. `None` for a name that is no file of such a set.
 #[must_use]
 pub fn role_of(kind: SetKind, name: &str) -> Option<DatRole> {
     let lower = name.to_ascii_lowercase();
@@ -439,6 +454,7 @@ pub fn role_of(kind: SetKind, name: &str) -> Option<DatRole> {
                 (lower.starts_with("client_local_") && lower.ends_with(".dat"))
                     .then_some(DatRole::Local)
             }),
+        SetKind::Auberean => crate::auberean::role_of(name),
     }
 }
 
@@ -457,6 +473,8 @@ pub fn file_in_storage(
     let era = match kind {
         SetKind::Modern => ContainerEra::Modern,
         SetKind::Classic => ContainerEra::Classic,
+        // Asheron's Call 2's files are read from a folder only.
+        SetKind::Auberean => return None,
     };
     let (iterations, error) = reading(role, era, read_dat_from(name, storage));
     Some(DatFileState {

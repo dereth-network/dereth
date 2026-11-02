@@ -46,6 +46,7 @@ use dereth_launch::folders::{self, Folders, System};
 use dereth_launch::library::FolderFind;
 use dereth_launch::serverlist;
 use dereth_launch::state::{Favourite, Realm};
+use dereth_launch::world::Game;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -132,7 +133,7 @@ fn snapshot(
         shortcut: shortcut::OFFERED,
         development: components::checkout_builds(&c),
         devtools: DEVTOOLS,
-        auberean: auberean::view(&a, &b),
+        auberean: auberean::view(&a, &b, &c),
     }
 }
 
@@ -285,6 +286,12 @@ fn has_password(b: State<'_, Shared>, slug: String, username: String) -> bool {
     lock(&b).has_password(&slug, &username)
 }
 
+/// The password kept for an account, for the player to read when they ask to see it.
+#[tauri::command]
+fn kept_password(b: State<'_, Shared>, slug: String, username: String) -> Option<String> {
+    lock(&b).kept_password(&slug, &username)
+}
+
 /// Start the client a choice names: an Asheron's Call 2 world's through Auberean's realm
 /// ([`auberean::launch`]), which asks the world for its friends service first, every other
 /// through the backend.
@@ -307,18 +314,20 @@ async fn launch(
         .map_err(|e| e.to_string())
 }
 
-/// Ask for a folder and read it. `None` when the player cancels.
+/// Ask for a folder and read it for `game`'s library (Asheron's Call's when none is named). `None`
+/// when the player cancels.
 #[tauri::command]
 async fn pick_folder(
     app: tauri::AppHandle,
     b: State<'_, Shared>,
     title: String,
+    game: Option<Game>,
 ) -> Cmd<Option<FolderFind>> {
     let picked = app.dialog().file().set_title(title).blocking_pick_folder();
     let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
         return Ok(None);
     };
-    Ok(Some(lock(&b).read_folder(&path)))
+    Ok(Some(lock(&b).read_folder(&path, game.unwrap_or_default())))
 }
 
 #[tauri::command]
@@ -360,13 +369,13 @@ fn delete_set(b: State<'_, Shared>, id: String) -> Cmd<()> {
 }
 
 #[tauri::command]
-fn forget_retail(b: State<'_, Shared>) {
-    lock(&b).forget_retail();
+fn forget_retail(b: State<'_, Shared>, game: Option<Game>) {
+    lock(&b).forget_retail(game.unwrap_or_default());
 }
 
 #[tauri::command]
-fn verify_retail(b: State<'_, Shared>) {
-    Backend::verify_retail(&b);
+fn verify_retail(b: State<'_, Shared>, game: Option<Game>) {
+    Backend::verify_retail(&b, game.unwrap_or_default());
 }
 
 #[tauri::command]
@@ -867,19 +876,21 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
-            worlds_shown,
-            auberean::set_auberean_install,
             auberean::choose_auberean_install,
-            auberean::probe_auberean_friends,
             auberean::set_auberean_client,
             auberean::open_athenaeum,
             auberean::choose_athenaeum_world,
             auberean::new_athenaeum_world,
             auberean::open_athenaeum_folder,
+            auberean::delete_athenaeum_world,
+            auberean::export_athenaeum_world,
+            auberean::choose_athenaeum_parent,
+            worlds_shown,
             restart_to_update,
             refresh,
             world_view,
             has_password,
+            kept_password,
             launch,
             pick_folder,
             add_folder,
@@ -1062,7 +1073,7 @@ mod tests {
     }
 
     /// In Auberean's realm, Play, a world's page, Accounts, the Library and the world servers are
-    /// Dereth's own screens, with Asheron's Call 2's clients, game files and server where they
+    /// Dereth's own screens, with Asheron's Call 2's clients, data sets and server where they
     /// differ; the world builder's page is Athenaeum's; and the first start's questions about
     /// Dereth's game files and interface are Dereth's realm's alone.
     #[test]
@@ -1077,16 +1088,32 @@ mod tests {
         }
         assert!(page_function("makePage")
             .contains(r#"if (ui.realm !== "dereth") return athenaeumPage();"#));
-        assert!(page_function("library")
-            .contains(r#"if (realmGame() === "auberean") return aubereanLibrary();"#));
+        // One Library for both realms, each with its own retail client and data sets.
+        let library = page_function("library");
+        assert!(library.contains("const r = ac2Realm ? s.auberean?.retail : s.retail;"));
+        assert!(library.contains("The *.dat files from an install."));
         // Play lists the realm's own combinations, and plays them with the realm's clients.
         assert!(page_function("homeEntries").contains("inRealm(worldBy(e.world_slug))"));
         assert!(page_function("home").contains("clientOf(sel.client, game)"));
-        // A world's page: Auberean or the retail client, the install, and a password kept for it.
+        // A world's page: Auberean or the retail client and the install, and Dereth's password
+        // field and checkbox, the one field of both realms: no PLAY with no password typed or kept.
         let world = page_function("worldPage");
         assert!(world.contains("${isAc2 ? ac2Client : "), "{world}");
-        assert!(world.contains("The launcher keeps the password for this world."));
-        assert!(page_function("formChoice").contains("!ac2World(w)"));
+        assert_eq!(
+            world.matches(r#"<input id="password""#).count(),
+            1,
+            "{world}"
+        );
+        assert!(world.contains(r#"placeholder="${f.remembered && !f.password ? "saved" : ""}""#));
+        assert!(world.contains(r#"<input type="checkbox" id="remember""#));
+        assert!(!world.contains("made for a new account") && !world.contains("kept\""));
+        assert!(
+            page_function("formChoice").contains("if (!f.password && !f.remembered) return null;")
+        );
+        // Its Accounts page shows an account's kept password when asked.
+        let accounts = page_function("accounts");
+        assert!(accounts.contains(r#"ac2Realm ? `<button class="btn" data-show-password="#));
+        assert!(include_str!("../ui/app.js").contains(r#"await api("kept_password""#));
         // The world servers: Yalain's, made and saved as Yalain's.
         assert!(page_function("serverList").contains("(h.game ?? \"dereth\") === game"));
         let page = include_str!("../ui/app.js");
@@ -1102,15 +1129,54 @@ mod tests {
             2,
             "{pull}"
         );
-        // A world's page asks whether the world serves its friends service, and says what it
-        // answered.
-        assert!(page_function("openWorld").contains(r#"api("probe_auberean_friends", { slug })"#));
-        assert!(page.contains("Friends and tells across worlds: ${on ? \"on\" : \"off\"}"));
+        // A world's page says nothing of its friends service: the launch asks it, and that decides
+        // the clients' friends options.
+        assert!(!page.contains("probe_auberean_friends"));
+        assert!(!page.contains("Friends and tells"));
         // The Library's Discord setting is the same one in both realms.
-        assert_eq!(
-            page.matches("${discordRow()}").count() + page.matches("discordRow();").count(),
-            2
+        assert_eq!(page.matches("${discordRow()}").count(), 1);
+    }
+
+    /// An Athenaeum world's row has Export For, as a Lyceum world's, for Yalain, above Publish To.
+    #[test]
+    fn an_athenaeum_world_exports_for_yalain_as_a_lyceum_world_exports() {
+        let row = page_function("athenaeumRow");
+        let export = row.find("data-ath-export=").expect("Export For");
+        assert!(row[export..].contains(">Export For</button>"), "{row}");
+        assert!(row.contains("<option>Yalain</option>"), "{row}");
+        assert!(export < row.find("data-ath-publish=").unwrap(), "{row}");
+        assert!(include_str!("../ui/app.js")
+            .contains(r#"await act("export_athenaeum_world", { world: d.athExport })"#));
+    }
+
+    /// The Library names a retail client's modifications when it has some, and says nothing of an
+    /// unmodified one, in either realm.
+    #[test]
+    fn the_library_says_nothing_of_an_unmodified_retail_client() {
+        let library = page_function("library");
+        assert!(
+            library.contains(r#"r.modifications.length ? "modified" : null"#),
+            "{library}"
         );
+        assert!(!library.contains("\"stock\""), "{library}");
+    }
+
+    /// The retail client's friends library is the launcher's own business: no page speaks of it,
+    /// as Dereth's pages say nothing of what the launcher carries.
+    #[test]
+    fn no_page_speaks_of_the_friends_library() {
+        let page = include_str!("../ui/app.js");
+        assert!(!page.contains("friends library"));
+        assert!(!page.contains("friends_dll"));
+    }
+
+    /// The backend's error (a client that stopped at once, say) shows over the page's own
+    /// "Launching..." notice, which would otherwise hide it until both are gone.
+    #[test]
+    fn the_backend_s_error_shows_over_the_page_s_own_notice() {
+        assert!(page_function("statusArea").contains(
+            "const msg = (s.message?.error ? s.message : null) ?? localToast ?? s.message;"
+        ));
     }
 
     /// Every command the page calls is one the app registers, and one the demo backend answers, so

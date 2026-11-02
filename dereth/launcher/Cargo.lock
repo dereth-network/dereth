@@ -935,7 +935,6 @@ dependencies = [
  "dereth-launch",
  "dereth-plugin-template",
  "flate2",
- "getrandom 0.4.3",
  "gilrs",
  "glib",
  "keyring",

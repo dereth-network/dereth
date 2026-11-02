@@ -167,9 +167,10 @@ pub fn dat_dirs_for(
     modern: Option<&Path>,
     classic: Option<&Path>,
 ) -> Result<DatDirs, MissingSet> {
-    match required_set_for(world) {
-        SetKind::Modern => dat_dirs(None, modern, classic),
-        SetKind::Classic => dat_dirs(Some(EraId::Infiltration.name()), modern, classic),
+    if required_set_for(world) == SetKind::Classic {
+        dat_dirs(Some(EraId::Infiltration.name()), modern, classic)
+    } else {
+        dat_dirs(None, modern, classic)
     }
 }
 
@@ -227,22 +228,19 @@ pub fn dat_dirs(
     modern: Option<&Path>,
     classic: Option<&Path>,
 ) -> Result<DatDirs, MissingSet> {
-    match crate::eras::required_set(era) {
-        SetKind::Modern => {
-            let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
-            Ok(DatDirs {
-                dat_dir,
-                classic_dat_dir: classic.map(Path::to_path_buf),
-            })
-        }
-        SetKind::Classic => {
-            let classic = classic.ok_or(MissingSet::Classic)?;
-            let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
-            Ok(DatDirs {
-                classic_dat_dir: (dat_dir != classic).then(|| classic.to_path_buf()),
-                dat_dir,
-            })
-        }
+    if crate::eras::required_set(era) == SetKind::Classic {
+        let classic = classic.ok_or(MissingSet::Classic)?;
+        let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
+        Ok(DatDirs {
+            classic_dat_dir: (dat_dir != classic).then(|| classic.to_path_buf()),
+            dat_dir,
+        })
+    } else {
+        let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
+        Ok(DatDirs {
+            dat_dir,
+            classic_dat_dir: classic.map(Path::to_path_buf),
+        })
     }
 }
 

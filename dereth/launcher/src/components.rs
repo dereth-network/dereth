@@ -577,7 +577,7 @@ fn version_from(product: Product, said: &str) -> Option<String> {
 }
 
 /// What `lyceum facts` prints of a world: one JSON object of what it changes, counted.
-fn facts_from(said: &str) -> Option<serde_json::Value> {
+pub(crate) fn facts_from(said: &str) -> Option<serde_json::Value> {
     said.lines()
         .rev()
         .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
@@ -618,7 +618,7 @@ fn identity(path: &Path) -> PathBuf {
 /// `world.toml`), the ones opened lately first and the rest by name; then the others in
 /// `opened`, the worlds Lyceum or the launcher opened, newest first. Each is listed once, as a
 /// person writes it, with whether it is in `home`; a world no longer there is not.
-fn list_worlds(home: Option<&Path>, opened: &[PathBuf]) -> Vec<(PathBuf, bool)> {
+pub(crate) fn list_worlds(home: Option<&Path>, opened: &[PathBuf]) -> Vec<(PathBuf, bool)> {
     let home_id = home.map(identity);
     let in_home = |world: &Path| {
         home_id
@@ -1683,16 +1683,14 @@ pub async fn delete_lyceum_world(shared: State<'_, Shared>, world: PathBuf) -> R
 
 /// Delete the world `world` ([`crate::lyceum_world::deletable`] says which folder, and refuses
 /// any other), then forget it in the launcher's own list in its data folder `root` and in
-/// Lyceum's recent worlds file `recent`. The folder is first moved aside to a hidden folder
-/// beside it, which fails while a program holds one of its files, and then nothing is changed;
-/// only once it is moved is the world forgotten and the moved folder deleted.
+/// Lyceum's recent worlds file `recent` ([`delete_folder`]).
 fn delete_world(
     world: &Path,
     home: Option<&Path>,
     root: &Path,
     recent: Option<&Path>,
 ) -> Result<(), String> {
-    let folder = crate::lyceum_world::deletable(world, home)?;
+    let folder = crate::lyceum_world::deletable(world, home, "Lyceum")?;
     let file = folder.join("world.toml");
     // Which entries name it is read while it is there to compare.
     let names = |w: &Path| {
@@ -1709,41 +1707,52 @@ fn delete_world(
     let recent_text = recent
         .and_then(|r| std::fs::read_to_string(r).ok())
         .and_then(|t| without_recent(&t, &names));
-    let aside = aside_of(&folder)?;
-    std::fs::rename(&folder, &aside).map_err(|_| "Cannot delete while Lyceum is open")?;
-    if opened.len() != opened_before {
-        if let Ok(bytes) = serde_json::to_vec_pretty(&opened) {
-            let _ = std::fs::write(root.join(OPENED_FILE), bytes);
+    delete_folder(&folder, "Lyceum", || {
+        if opened.len() != opened_before {
+            if let Ok(bytes) = serde_json::to_vec_pretty(&opened) {
+                let _ = std::fs::write(root.join(OPENED_FILE), bytes);
+            }
         }
-    }
-    if let (Some(recent), Some(text)) = (recent, recent_text) {
-        let _ = std::fs::write(recent, text);
-    }
+        if let (Some(recent), Some(text)) = (recent, recent_text) {
+            let _ = std::fs::write(recent, text);
+        }
+    })
+}
+
+/// Delete a world's folder `folder`, one [`crate::lyceum_world::deletable`] allowed, of the world
+/// builder `builder` (Lyceum, Athenaeum). The folder is first moved aside to a hidden folder beside
+/// it, which fails while a program holds one of its files, and then nothing is changed; only once
+/// it is moved is the world forgotten (`forget`) and the moved folder deleted.
+pub(crate) fn delete_folder(
+    folder: &Path,
+    builder: &str,
+    forget: impl FnOnce(),
+) -> Result<(), String> {
+    let failed = || format!("Failed to delete {builder} world");
+    let aside = aside_of(folder).ok_or_else(failed)?;
+    std::fs::rename(folder, &aside)
+        .map_err(|_| format!("Cannot delete while {builder} is open"))?;
+    forget();
     std::fs::remove_dir_all(&aside).map_err(|e| {
         eprintln!(
             "dereth-launcher: what is left of a deleted world is in {}: {e}",
             plain_path(&aside).display()
         );
-        FAILED.to_owned()
+        failed()
     })
 }
-
-/// What a delete of a world says when it fails for any reason but Lyceum being open or the
-/// folder holding no world.
-const FAILED: &str = "Failed to delete Lyceum world";
 
 /// The start of the name of a world's folder while it is being deleted; such a folder is never
 /// listed.
 const DELETING: &str = ".deleting-";
 
 /// A free name beside `folder` to move it to while it is deleted: `.deleting-<name>-<n>`.
-fn aside_of(folder: &Path) -> Result<PathBuf, String> {
-    let parent = folder.parent().ok_or(FAILED)?;
-    let name = folder.file_name().ok_or(FAILED)?.to_string_lossy();
+fn aside_of(folder: &Path) -> Option<PathBuf> {
+    let parent = folder.parent()?;
+    let name = folder.file_name()?.to_string_lossy();
     (0..1000)
         .map(|n| parent.join(format!("{DELETING}{name}-{n}")))
         .find(|p| std::fs::symlink_metadata(p).is_err())
-        .ok_or_else(|| FAILED.to_owned())
 }
 
 /// Lyceum's recent worlds file `text` without the worlds `names` matches, the rest of it as it

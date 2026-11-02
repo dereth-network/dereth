@@ -2,10 +2,14 @@
 //! check, and the command lines that start Yalain (a world on this computer), the Auberean client
 //! and the retail client, with a world's friends service when it has one.
 //!
-//! # The install
+//! # The library
 //!
-//! Nothing of Asheron's Call 2 ships with the launcher: the player names the folder of their own
-//! install, and the launcher checks it before anything reads it. The check is the one the Library
+//! Nothing of Asheron's Call 2 ships with the launcher: the player names the folders of their own
+//! installs, as for Asheron's Call ([`crate::library`]). A folder holding `AC2client.exe` is the
+//! retail client ([`identify_retail`], one at a time), checked against its build's manifest on
+//! request as `acclient.exe` is; a folder holding the data files is a data set ([`read_folder`]),
+//! each file read for its iterations ([`scan_dir`]), the default set the one the programs are
+//! given. The launcher checks a set before anything reads it. The check is the one the Library
 //! makes of Asheron's Call's data files ([`crate::dat`]): each file the client and the server open
 //! is there, and its header says it is that file. An Asheron's Call 2 data file keeps its header
 //! further in than an Asheron's Call one, with the same container under it: a mark, the size the
@@ -22,18 +26,17 @@
 //! world on this computer is Yalain on [`LOCAL_LOGIN_PORT`] (and the three ports after it), over
 //! the install, keeping its accounts and characters in one database file in the launcher's data
 //! folder, and serving the world database its release pins, which `yalain world fetch` puts in the
-//! player's cache. The client connects to a world's address with an account and its secret.
+//! player's cache. The client connects to a world's address with an account and its password.
 //!
 //! # Playing
 //!
 //! - **The clients.** Auberean, downloaded; or, on Windows, the retail client of September 2013
 //!   when the player's install has it ([`find_retail`]), started from its own folder. The launcher
 //!   never writes into the install.
-//! - **The secret.** A world makes an account the first time it logs in, with the secret it logs
-//!   in with, and admits only that secret from then on. So the launcher keeps one secret for each
-//!   world and account, with the player's other passwords, and gives it to either client at every
-//!   launch ([`secret_for`]): the one the player typed, else one it made. A world on this computer
-//!   asks the player for none.
+//! - **The password.** The player's own, as for Asheron's Call's worlds: typed on the world's
+//!   page, or the one kept with the player's other passwords when they asked for it to be
+//!   ([`crate::vault`]). A world makes an account the first time it logs in, with the password it
+//!   logs in with, so the account is the player's on any launcher, or the retail client alone.
 //! - **The friends service.** Before each launch the launcher asks the world whether it serves the
 //!   friends stream on its login port ([`FriendsProbe`], over the host's connection). When it does, the client is given the
 //!   friends options in the retail client's own spelling and the friends ticket, made from the
@@ -50,8 +53,14 @@ use std::time::Duration;
 use auberean_friends::{ClientConfig, ClientOut, ClientSession, Ticket, Welcome};
 use serde::{Deserialize, Serialize};
 
+use dereth_dat::{ContainerEra, ContainerLayout, DatFile, EntryLayout, HeaderLayout};
+
+use crate::datset::{DatFileState, DatOrigin, DatRole, DatSet, Iterations, SetKind};
+use crate::install::{ClientKind, IdentifyError, Installation};
 use crate::launch::{Arg, LaunchPlan};
-use crate::vault::{self, Vault};
+use crate::library::FolderFind;
+use crate::state::LauncherState;
+use crate::world::Game;
 
 /// Where an Asheron's Call 2 data file's header starts, and the mark it starts with.
 const HEADER_AT: usize = 0x12C;
@@ -239,6 +248,200 @@ pub fn check_install(dir: &Path) -> InstallCheck {
     }
 }
 
+// ----- the library --------------------------------------------------------------------------------
+
+/// This game's data file layout, as the shared container reads it: the header at `0x12C` in the
+/// later files' order (with the data set and subset words), and 16-byte directory entries `{id,
+/// first block, size, time}`. Neither the header nor an entry keeps an iteration: a file's
+/// iterations are its `0xFFFF0001` list alone.
+pub const LAYOUT: ContainerLayout = ContainerLayout {
+    header: HeaderLayout {
+        at: 0x12C,
+        bytes: 0x54,
+        file_size: 0x08,
+        data_set: Some(0x0C),
+        data_subset: Some(0x10),
+        free_head: 0x14,
+        free_tail: 0x18,
+        free_count: 0x1C,
+        btree_root: 0x20,
+        young_lru: Some(0x24),
+        old_lru: Some(0x28),
+        use_lru: Some(0x2C),
+        master_map_id: Some(0x30),
+        eng_pack_vnum: Some(0x34),
+        game_pack_vnum: Some(0x38),
+        version_major: Some(0x40),
+        version_minor: Some(0x50),
+        iteration: None,
+    },
+    entry: EntryLayout {
+        bytes: 16,
+        bits: None,
+        id: 0,
+        offset: 4,
+        size: 8,
+        date: Some(12),
+        iteration: None,
+    },
+    transaction: Some(dereth_dat::TransactionSlot {
+        at: 0x100,
+        bytes: 0x2C,
+        journal: false,
+    }),
+    // The shared container's choice among the first game's record layouts; no reading here
+    // decodes a record.
+    era: ContainerEra::Modern,
+};
+
+/// The iterations every client reported to the servers in their last weeks, at the end of retail:
+/// the portal file's 137, the first region's cells' 7, the English strings' 9 and the
+/// high-resolution pictures' 7.
+pub const END_OF_RETAIL: Iterations = Iterations {
+    portal: Some(137),
+    cell: Some(7),
+    local: Some(9),
+    highres: Some(7),
+};
+
+/// A set's files, by the role each plays in a set ([`DatRole`]), with what its header must say it
+/// is. The cell file is the first region's, and the strings the English ones, as the client opens.
+const SET_FILES: [(DatRole, &str, Kind); 4] = [
+    (DatRole::Portal, "portal.dat", Kind::Portal),
+    (DatRole::Cell, "cell_1.dat", Kind::Cell { region: 1 }),
+    (DatRole::Local, "local_English.dat", Kind::Local),
+    (DatRole::Highres, "highres.dat", Kind::HighRes),
+];
+
+/// The role a file named `name` plays in a set, in any case. `None` for a name that is no file of
+/// a set.
+#[must_use]
+pub fn role_of(name: &str) -> Option<DatRole> {
+    SET_FILES
+        .iter()
+        .find(|(_, n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(role, _, _)| *role)
+}
+
+/// Read a set's files in the folder `dir`: each that is there, by its size, time and the
+/// iterations its list holds, or with why it is not the file its name says ([`check_install`]'s
+/// words). A file whose size and time are those of its reading in `previous` keeps that reading:
+/// a few small reads a file however large, and none for a file that has not changed.
+#[must_use]
+pub fn scan_dir(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
+    let mut out = Vec::new();
+    for (role, name, kind) in SET_FILES {
+        let Some(path) = find_file(dir, name) else {
+            continue;
+        };
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let file_name = path
+            .file_name()
+            .map_or_else(|| name.to_owned(), |n| n.to_string_lossy().into_owned());
+        let size = meta.len();
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        let read_only = meta.permissions().readonly();
+        if let Some(p) = previous.iter().find(|p| {
+            p.role == role
+                && p.file_name == file_name
+                && p.size == size
+                && p.modified == modified
+                && p.error.is_none()
+        }) {
+            out.push(DatFileState {
+                read_only,
+                ..p.clone()
+            });
+            continue;
+        }
+        let (iterations, error) = match check_file(&path, kind) {
+            Some(why) => (None, Some(why)),
+            None => match DatFile::read_iterations_as(&path, &LAYOUT) {
+                Ok(read) => (Some(read.count), None),
+                Err(e) => (
+                    None,
+                    Some(format!("its list of iterations does not read: {e}")),
+                ),
+            },
+        };
+        out.push(DatFileState {
+            role,
+            file_name,
+            size,
+            modified,
+            read_only,
+            iterations,
+            error,
+        });
+    }
+    out
+}
+
+/// Identify the retail client in `dir`, which must hold `AC2client.exe` (in any case): its build,
+/// when the launcher knows it, else what the program says of itself. The quick step only;
+/// [`crate::install::verify`] checks its folder against its build's manifest.
+///
+/// # Errors
+/// [`IdentifyError::NoClient`] for a folder without the program.
+pub fn identify_retail(dir: &Path) -> Result<Installation, IdentifyError> {
+    let exe = find_file(dir, RETAIL_EXE).ok_or(IdentifyError::NoClient)?;
+    let name = exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or(IdentifyError::NoClient)?;
+    crate::install::identify_exe(dir, name, ClientKind::Retail, "retail".into())
+}
+
+/// Read a folder for Auberean's realm's library: whether it holds the retail client, and whether
+/// it holds a data set, as [`crate::library::read_folder`] reads one for Asheron's Call. A set is
+/// the portal, cell and English files, with the high-resolution pictures when the folder has them;
+/// a folder with only some of them is refused, naming what is missing.
+#[must_use]
+pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
+    let retail = identify_retail(path).ok();
+    let files = scan_dir(path, &[]);
+    let missing: Vec<&str> = SET_FILES
+        .iter()
+        .filter(|(role, _, _)| *role != DatRole::Highres && !files.iter().any(|f| f.role == *role))
+        .map(|(_, name, _)| *name)
+        .collect();
+    let dats = missing.is_empty().then(|| DatSet {
+        id: state.new_id("a"),
+        path: path.to_path_buf(),
+        kind: SetKind::Auberean,
+        origin: DatOrigin::Unassigned,
+        files: files.clone(),
+        last_patched_by_server: None,
+        created_by_launcher: false,
+    });
+    let error = dats.is_none().then(|| {
+        if files.is_empty() {
+            "No Asheron's Call 2 data files in this folder: a set is portal.dat, cell_1.dat and              local_English.dat, with highres.dat when there is one."
+                .to_owned()
+        } else {
+            format!(
+                "This folder has only some of the data files: {} {} missing.",
+                missing.join(", "),
+                if missing.len() == 1 { "is" } else { "are" }
+            )
+        }
+    });
+    FolderFind {
+        game: Game::Auberean,
+        folder: path.display().to_string(),
+        retail,
+        dats,
+        classic: None,
+        error,
+    }
+}
+
 /// The port a world on this computer takes for logins. Its world service takes the port two
 /// above, and each takes the port after it too: four in all.
 pub const LOCAL_LOGIN_PORT: u16 = 9200;
@@ -275,11 +478,12 @@ pub fn yalain_args(install: &Path, database: &Path, login_port: u16) -> Vec<OsSt
 /// The arguments that fetch the world database Yalain's release pins into the player's cache.
 pub const WORLD_FETCH_ARGS: [&str; 2] = ["world", "fetch"];
 
-/// Whether Yalain's log says it is ready for logins: it names where it listens once it has read
-/// its data and compiled its world.
+/// Whether Yalain's log says it is ready for logins: once it has read its data and compiled its
+/// world it says where it listens, on a line ending in the tag `[listening]` that programs read
+/// (the words before the tag may change; the tag does not).
 #[must_use]
 pub fn is_ready(log: &str) -> bool {
-    log.lines().any(|l| l.contains("listening on"))
+    log.lines().any(|l| l.trim_end().ends_with(" [listening]"))
 }
 
 /// What is wrong with an account name the player gave, in words for a person.
@@ -325,7 +529,7 @@ pub fn account_name(raw: &str) -> Result<&str, AccountError> {
 //
 // Two clients play a world of Asheron's Call 2's: Auberean, which the launcher downloads, and the
 // retail client of September 2013 in the player's own install, on Windows. Each logs in with an
-// account and its secret, which the launcher keeps for each world and account ([`secret_for`]).
+// account and its password.
 
 /// Which client plays.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -386,75 +590,6 @@ pub fn find_retail(dir: &Path) -> Option<RetailClient> {
 #[must_use]
 pub fn retail_takes(secret: &str) -> bool {
     !secret.is_empty() && !secret.chars().any(|c| c == '"' || c.is_control())
-}
-
-// ----- the secret ---------------------------------------------------------------------------------
-
-/// The name the world on this computer's accounts are kept under, as a listed world's are under its
-/// slug.
-pub const LOCAL_SLUG: &str = "auberean-this-computer";
-
-/// A new secret from 16 random bytes (the host's random source's): URL-safe base64 without
-/// padding, 22 letters, digits, `-` and `_`, which any command line carries as is.
-#[must_use]
-pub fn secret_from(random: &[u8; 16]) -> String {
-    base64url(random)
-}
-
-/// `bytes` in base64url, without padding.
-fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            chunk.get(1).copied().unwrap_or(0),
-            chunk.get(2).copied().unwrap_or(0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for i in 0..=chunk.len() {
-            out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
-        }
-    }
-    out
-}
-
-/// The secret `account` logs in to the world `slug` with: the same at every launch, for both
-/// clients. A world makes an account the first time it logs in, and from then on admits only the
-/// secret it was made with, so the secret is kept with the player's other passwords ([`Vault`]):
-/// the one the player typed, which is kept from then on; else the one kept; else a new one
-/// (`fresh`), which is kept before it is used. A new one the store cannot keep (a system with no
-/// secret store) is kept in `spare` instead, the launcher's own file ([`vault::SecretFile`]), and
-/// found there at the next launch; a typed one never is, as no typed password is.
-///
-/// # Errors
-/// In words for a person, when a new secret cannot be made or kept: one not kept would lock the
-/// account out at the next launch.
-pub fn secret_for(
-    vault: &mut dyn Vault,
-    spare: &mut dyn Vault,
-    slug: &str,
-    account: &str,
-    typed: Option<&str>,
-    fresh: &mut dyn FnMut() -> Result<String, String>,
-) -> Result<String, String> {
-    let key = vault::target(slug, account);
-    if let Some(typed) = typed.filter(|t| !t.is_empty()) {
-        // Kept if it can be; the player can type it again if not.
-        let _ = vault.set(&key, account, typed);
-        return Ok(typed.to_owned());
-    }
-    let kept = |v: &dyn Vault| v.get(&key).ok().flatten().filter(|k| !k.is_empty());
-    if let Some(kept) = kept(vault).or_else(|| kept(spare)) {
-        return Ok(kept);
-    }
-    let secret = fresh()?;
-    if let Err(e) = vault.set(&key, account, &secret) {
-        spare
-            .set(&key, account, &secret)
-            .map_err(|f| format!("The account's secret could not be kept: {e} {f}"))?;
-    }
-    Ok(secret)
 }
 
 // ----- the friends service ------------------------------------------------------------------------
@@ -596,8 +731,9 @@ fn plain(s: impl Into<String>) -> Arg {
 }
 
 /// The plan that starts the Auberean client `program` over `install`, logging in to the world at
-/// `server` as `account` (with its secret, put in at spawn), and naming the world's friends service
-/// when it answered. Auberean takes no library.
+/// `server` as `account` with its secret (put in at spawn) in the retail client's own options,
+/// which Auberean reads as the retail client does, and naming the world's friends service when it
+/// answered. Auberean takes no library.
 #[must_use]
 pub fn auberean_plan(
     program: &Path,
@@ -609,10 +745,14 @@ pub fn auberean_plan(
     let mut args = vec![
         plain("--dats"),
         plain(install.display().to_string()),
-        plain("--server"),
-        plain(server.to_string()),
+        plain("--host"),
+        plain(server.ip().to_string()),
+        plain("--port"),
+        plain(server.port().to_string()),
         plain("--account"),
-        Arg::AccountAndPassword(account.to_owned()),
+        plain(account),
+        plain("--glsticketdirect"),
+        Arg::Password,
     ];
     if let Some(f) = friends {
         let own = Friends {
@@ -844,6 +984,150 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    use crate::testing::{write_auberean_file as container, write_auberean_set as set_of};
+
+    #[test]
+    fn a_folder_of_the_game_s_files_is_a_data_set_with_each_file_s_iterations() {
+        let d = tmp("ac2-set");
+        set_of(&d, END_OF_RETAIL);
+        let find = read_folder(&d, &LauncherState::default());
+        assert_eq!(find.game, Game::Auberean);
+        assert_eq!((find.retail.as_ref(), find.error.as_deref()), (None, None));
+        let set = find.dats.unwrap();
+        assert_eq!(set.kind, SetKind::Auberean);
+        assert_eq!(set.iterations(), END_OF_RETAIL);
+        assert_eq!(
+            set.files
+                .iter()
+                .map(|f| f.file_name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "portal.dat",
+                "cell_1.dat",
+                "local_English.dat",
+                "highres.dat"
+            ]
+        );
+        // The installs check as sound, and the high-resolution pictures stay optional.
+        assert!(check_install(&d).ok);
+        std::fs::remove_file(d.join("highres.dat")).unwrap();
+        let set = read_folder(&d, &LauncherState::default()).dats.unwrap();
+        assert_eq!(set.iterations().highres, None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_set_read_again_takes_a_patched_file_s_new_iterations() {
+        let d = tmp("ac2-set-again");
+        set_of(&d, END_OF_RETAIL);
+        let mut set = read_folder(&d, &LauncherState::default()).dats.unwrap();
+        container(&d, "portal.dat", 1, 0, 140);
+        // The rewrite can land in the same second at the same size; age the kept readings so this
+        // tests the new reading, not the file system's clock.
+        for f in &mut set.files {
+            f.modified = 0;
+        }
+        assert!(
+            !set.refresh(5),
+            "no world of this game patches its players' files"
+        );
+        assert_eq!(set.iterations().portal, Some(140));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_folder_with_only_some_files_or_a_file_under_another_s_name_says_so() {
+        let d = tmp("ac2-set-some");
+        set_of(
+            &d,
+            Iterations {
+                cell: None,
+                highres: None,
+                ..END_OF_RETAIL
+            },
+        );
+        let find = read_folder(&d, &LauncherState::default());
+        assert!(find.dats.is_none());
+        assert_eq!(
+            find.error.as_deref(),
+            Some("This folder has only some of the data files: cell_1.dat is missing.")
+        );
+        // The portal file under the cells' name is listed, with why, and no iterations.
+        container(&d, "cell_1.dat", 1, 0, 3);
+        let files = scan_dir(&d, &[]);
+        let cell = files.iter().find(|f| f.role == DatRole::Cell).unwrap();
+        assert_eq!(cell.iterations, None);
+        assert_eq!(
+            cell.error.as_deref(),
+            Some("is another of the game's data files under this name")
+        );
+        let empty = tmp("ac2-set-none");
+        std::fs::create_dir_all(&empty).unwrap();
+        assert!(read_folder(&empty, &LauncherState::default())
+            .error
+            .unwrap()
+            .starts_with("No Asheron's Call 2 data files in this folder"));
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn the_retail_client_and_its_files_go_into_auberean_s_library_and_never_asheron_s_call_s() {
+        let one = tmp("ac2-lib-one");
+        set_of(&one, END_OF_RETAIL);
+        std::fs::write(one.join("AC2client.exe"), program(RETAIL_STAMP)).unwrap();
+        let mut s = LauncherState::default();
+        let find = read_folder(&one, &s);
+        let retail = find.retail.clone().unwrap();
+        assert_eq!(retail.kind, ClientKind::Retail);
+        assert_eq!(retail.family(), "AC2client");
+        assert_eq!(retail.path, one);
+        crate::library::add_find(&mut s, find);
+        assert_eq!(s.auberean.retail.as_ref().map(|r| &r.path), Some(&one));
+        assert_eq!(s.auberean_default_set().map(|d| &d.path), Some(&one));
+        assert!(s.retail.is_none() && s.dat_sets.is_empty());
+        // The same folder again is read again, not added twice.
+        let again = read_folder(&one, &s);
+        crate::library::add_find(&mut s, again);
+        assert_eq!(s.auberean.dat_sets.len(), 1);
+
+        // A second set is not the default until it is made one; ids are never shared with the
+        // other game's sets.
+        let two = tmp("ac2-lib-two");
+        set_of(&two, END_OF_RETAIL);
+        let find = read_folder(&two, &s);
+        crate::library::add_find(&mut s, find);
+        let second = s.auberean.dat_sets[1].clone();
+        assert_eq!(second.origin, DatOrigin::Unassigned);
+        assert_ne!(second.id, s.auberean.dat_sets[0].id);
+        assert!(s.set_default_set(&second.id));
+        assert_eq!(s.auberean_default_set().map(|d| &d.id), Some(&second.id));
+        assert_eq!(s.auberean.dat_sets[0].origin, DatOrigin::Unassigned);
+        assert_eq!(s.new_id("a"), "a3");
+        let _ = std::fs::remove_dir_all(&one);
+        let _ = std::fs::remove_dir_all(&two);
+    }
+
+    #[test]
+    fn an_older_launcher_s_install_folder_is_taken_into_the_library_once() {
+        let d = tmp("ac2-adopt");
+        set_of(&d, END_OF_RETAIL);
+        std::fs::write(d.join("AC2client.exe"), program(RETAIL_STAMP)).unwrap();
+        let json = format!(
+            r#"{{"schema": 1, "auberean": {{"install": {}, "account": "player"}}}}"#,
+            serde_json::to_string(&d).unwrap()
+        );
+        let mut s: LauncherState = serde_json::from_str(&json).unwrap();
+        assert!(s.adopt_auberean_install());
+        assert_eq!(s.auberean_default_set().map(|d| &d.path), Some(&d));
+        assert_eq!(s.auberean.retail.as_ref().map(|r| &r.path), Some(&d));
+        assert_eq!(s.auberean.account.as_deref(), Some("player"));
+        assert!(!s.adopt_auberean_install(), "only once");
+        let written = serde_json::to_string(&s).unwrap();
+        assert!(!written.contains("\"install\""), "{written}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn the_files_are_found_whatever_the_case_of_their_names() {
         let d = tmp("ac2-install-case");
@@ -890,7 +1174,13 @@ mod tests {
             "reading the install\ncompiling the world database\n"
         ));
         assert!(is_ready(
-            "the level table read\nlistening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world)\n"
+            "the level table read\n2026-11-01T10:00:00Z  INFO yalain: listening on 127.0.0.1:9200/9201 \
+             (login) and 127.0.0.1:9202/9203 (world, referred as 127.0.0.1) [listening]\r\n"
+        ));
+        // Read by its tag, not its words: the friends service's own line is not it.
+        assert!(!is_ready(
+            "2026-11-01T10:00:00Z  INFO yalain::friends: friends service listening on TCP \
+             127.0.0.1:9200\n"
         ));
     }
 
@@ -915,17 +1205,21 @@ mod tests {
             [
                 "--dats",
                 "ac2",
-                "--server",
-                "127.0.0.1:9200",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "9200",
                 "--account",
-                "player:s3cret"
+                "player",
+                "--glsticketdirect",
+                "s3cret"
             ]
         );
         assert_eq!(plan.exe, program);
         assert_eq!(plan.working_dir, Path::new("/apps/auberean"));
         let shown = plan.redacted();
         assert!(
-            shown.ends_with("--account player:***") && !shown.contains("s3cret"),
+            shown.ends_with("--account player --glsticketdirect ***") && !shown.contains("s3cret"),
             "{shown}"
         );
         assert_eq!(account_name("  Asheron "), Ok("Asheron"));
@@ -947,7 +1241,7 @@ mod tests {
         );
         let argv = plan.argv("secret");
         assert_eq!(
-            argv[6..],
+            argv[10..],
             [
                 "--gunserver",
                 "127.0.0.1",
@@ -958,7 +1252,7 @@ mod tests {
                 "a1.cGxheWVy.c2VjcmV0"
             ]
         );
-        let ticket = Ticket::decode(&argv[12]).unwrap();
+        let ticket = Ticket::decode(&argv[16]).unwrap();
         assert_eq!(
             (ticket.account.as_str(), ticket.secret.as_str()),
             ("player", "secret")
@@ -1022,193 +1316,12 @@ mod tests {
         assert!(!retail_takes(""));
     }
 
-    /// A world admits an account only with the secret it was made with, so every launch for one
-    /// world and account passes one secret, to either client and in its friends ticket.
-    #[test]
-    fn two_launches_for_the_same_world_and_account_pass_the_same_secret() {
-        let mut vault = crate::vault::MemoryVault::default();
-        let mut spare = crate::vault::MemoryVault::default();
-        let mut made = 0;
-        let mut fresh = || {
-            made += 1;
-            Ok(format!("made-{made}"))
-        };
-        let first = secret_for(
-            &mut vault, &mut spare, LOCAL_SLUG, "Player", None, &mut fresh,
-        )
-        .unwrap();
-        let second = secret_for(
-            &mut vault, &mut spare, LOCAL_SLUG, "player", None, &mut fresh,
-        )
-        .unwrap();
-        assert_eq!(first, second);
-        assert_eq!(first, "made-1");
-        let launch = |secret: &str| {
-            let with = friends(Some("C:/launcher/auberean_friends.dll"));
-            let own = auberean_plan(
-                Path::new("auberean"),
-                Path::new("ac2"),
-                local(),
-                "player",
-                Some(&with),
-            );
-            let retail = retail_plan(Path::new("AC2client.exe"), local(), "player", Some(&with));
-            (own.argv(secret), retail.argv(secret))
-        };
-        assert_eq!(launch(&first), launch(&second));
-        // Another account, or the same name on another world, has its own.
-        let other = secret_for(
-            &mut vault, &mut spare, LOCAL_SLUG, "someone", None, &mut fresh,
-        )
-        .unwrap();
-        let elsewhere = secret_for(
-            &mut vault, &mut spare, "dawnsong", "player", None, &mut fresh,
-        )
-        .unwrap();
-        assert_eq!((other.as_str(), elsewhere.as_str()), ("made-2", "made-3"));
-        // A secret the player types is used and kept from then on.
-        let typed = secret_for(
-            &mut vault,
-            &mut spare,
-            "dawnsong",
-            "player",
-            Some("hunter2"),
-            &mut fresh,
-        );
-        assert_eq!(typed.as_deref(), Ok("hunter2"));
-        let again = secret_for(
-            &mut vault,
-            &mut spare,
-            "dawnsong",
-            "player",
-            Some(""),
-            &mut fresh,
-        );
-        assert_eq!(again.as_deref(), Ok("hunter2"));
-        assert_eq!(made, 3);
-        assert!(
-            spare.list("").unwrap().is_empty(),
-            "the store kept them all"
-        );
-    }
-
-    /// A store that keeps nothing.
-    #[derive(Debug)]
-    struct Broken;
-
-    impl Vault for Broken {
-        fn get(&self, _: &str) -> Result<Option<String>, crate::vault::VaultError> {
-            Ok(None)
-        }
-        fn set(&mut self, _: &str, _: &str, _: &str) -> Result<(), crate::vault::VaultError> {
-            Err(crate::vault::VaultError("no store".into()))
-        }
-        fn delete(&mut self, _: &str) -> Result<(), crate::vault::VaultError> {
-            Ok(())
-        }
-        fn list(&self, _: &str) -> Result<Vec<String>, crate::vault::VaultError> {
-            Ok(Vec::new())
-        }
-    }
-
-    #[test]
-    fn a_secret_that_cannot_be_kept_is_not_used_but_a_typed_one_is() {
-        let mut fresh = || Ok("made".to_owned());
-        let made = secret_for(
-            &mut Broken,
-            &mut Broken,
-            LOCAL_SLUG,
-            "player",
-            None,
-            &mut fresh,
-        );
-        assert!(made.unwrap_err().contains("could not be kept"));
-        let typed = secret_for(
-            &mut Broken,
-            &mut Broken,
-            "dawnsong",
-            "player",
-            Some("hunter2"),
-            &mut fresh,
-        );
-        assert_eq!(typed.as_deref(), Ok("hunter2"));
-    }
-
-    /// With no secret store (a Linux desktop with no keyring), the secret the launcher makes is
-    /// kept in its own file, and every later launch passes it; a typed one is not written there.
-    #[test]
-    fn with_no_secret_store_a_new_secret_is_kept_in_the_launchers_file_and_reused() {
-        let mut spare = crate::vault::MemoryVault::default();
-        let mut made = 0;
-        let mut fresh = || {
-            made += 1;
-            Ok(format!("made-{made}"))
-        };
-        let first = secret_for(
-            &mut Broken,
-            &mut spare,
-            LOCAL_SLUG,
-            "player",
-            None,
-            &mut fresh,
-        );
-        let second = secret_for(
-            &mut Broken,
-            &mut spare,
-            LOCAL_SLUG,
-            "Player",
-            None,
-            &mut fresh,
-        );
-        assert_eq!(first.as_deref(), Ok("made-1"));
-        assert_eq!(second, first);
-        let key = vault::target(LOCAL_SLUG, "player");
-        assert_eq!(spare.get(&key).unwrap().as_deref(), Some("made-1"));
-        let typed = secret_for(
-            &mut Broken,
-            &mut spare,
-            "dawnsong",
-            "player",
-            Some("hunter2"),
-            &mut fresh,
-        );
-        assert_eq!(typed.as_deref(), Ok("hunter2"));
-        assert_eq!(
-            spare.get(&vault::target("dawnsong", "player")).unwrap(),
-            None
-        );
-        // A store that has one wins over the file.
-        let mut store = crate::vault::MemoryVault::default();
-        store.set(&key, "player", "kept").unwrap();
-        let kept = secret_for(
-            &mut store, &mut spare, LOCAL_SLUG, "player", None, &mut fresh,
-        );
-        assert_eq!(kept.as_deref(), Ok("kept"));
-        assert_eq!(made, 1);
-    }
-
-    #[test]
-    fn a_new_secret_is_its_random_bytes_and_carried_by_any_command_line() {
-        let a = secret_from(&[0; 16]);
-        let b = secret_from(&[0xFF; 16]);
-        assert_eq!(a, "AAAAAAAAAAAAAAAAAAAAAA");
-        assert_eq!(b, "_____________________w");
-        for s in [&a, &b] {
-            assert_eq!(s.len(), 22, "{s}");
-            assert!(retail_takes(s));
-        }
-    }
-
     #[test]
     fn the_friends_ticket_is_the_streams_own_writing_and_one_it_cannot_carry_is_none() {
         assert_eq!(
             friends_ticket("player", "secret").as_deref(),
             Some("a1.cGxheWVy.c2VjcmV0")
         );
-        assert_eq!(base64url(b"a"), "YQ");
-        assert_eq!(base64url(b"ab"), "YWI");
-        assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
-        assert_eq!(base64url(b""), "");
         let ticket = friends_ticket("Ölaf", "p@ss word:1").unwrap();
         assert!(
             ticket

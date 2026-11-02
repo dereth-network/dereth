@@ -423,15 +423,9 @@ pub fn install_elevated(dir: &Path, remove: bool) -> Result<(), String> {
                 "/Q",
             ],
         )?;
-        let settings = crate::host_config::Settings::from_config(
-            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
-        )?;
-        let files = dereth_launch::datset::scan_dir(&settings.dats);
-        if files.len() < 3 || files.iter().any(|f| f.error.is_some()) {
-            return Err("The game data files could not be read.".into());
-        }
-        let mut permissions = vec![settings.dats.clone()];
-        permissions.extend(files.into_iter().map(|f| settings.dats.join(f.file_name)));
+        let (dats, files) = game_data(dir)?;
+        let mut permissions = vec![dats.clone()];
+        permissions.extend(files.into_iter().map(|f| dats.join(f.file_name)));
         for path in &permissions {
             reject_redirected_path(path)?;
         }
@@ -477,15 +471,31 @@ pub fn install_elevated(dir: &Path, remove: bool) -> Result<(), String> {
     }
     Ok(())
 }
+/// The game data the world in `dir` reads, which its service's account is given: the folder and
+/// its files, Empyrean's Modern set or Yalain's Asheron's Call 2 set, each file read and sound.
+fn game_data(dir: &Path) -> Result<(PathBuf, Vec<dereth_launch::datset::DatFileState>), String> {
+    let (dats, files) =
+        if host_runtime::read_definition(dir)?.game == dereth_launch::world::Game::Auberean {
+            let dats = crate::host_yalain::read(dir)?.dats;
+            let files = dereth_launch::auberean::scan_dir(&dats, &[]);
+            (dats, files)
+        } else {
+            let dats = crate::host_config::Settings::from_config(
+                &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
+            )?
+            .dats;
+            let files = dereth_launch::datset::scan_dir(&dats);
+            (dats, files)
+        };
+    if files.len() < 3 || files.iter().any(|f| f.error.is_some()) {
+        return Err("The game data files could not be read.".into());
+    }
+    Ok((dats, files))
+}
+
 pub fn elevated(dir: &Path, remove: bool) -> Result<(), String> {
     if !remove {
-        let settings = crate::host_config::Settings::from_config(
-            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
-        )?;
-        let files = dereth_launch::datset::scan_dir(&settings.dats);
-        if files.len() < 3 || files.iter().any(|f| f.error.is_some()) {
-            return Err("The game data files could not be read.".into());
-        }
+        game_data(dir)?;
         let output = crate::components::command(&tool("whoami.exe"))
             .args(["/user", "/fo", "csv", "/nh"])
             .output()

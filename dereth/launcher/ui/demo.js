@@ -20,6 +20,11 @@
     { role: "portal", file_name: "portal.dat", size: 420 * 1048576, modified: 0, read_only: ro, iterations: 2112 },
     { role: "cell", file_name: "cell.dat", size: 480 * 1048576, modified: 0, read_only: ro, iterations: 1593 },
   ];
+  // Asheron's Call 2's files at the end of retail, and as the 2005 install has them.
+  const AC2_EOR = { portal: 137, cell: 7, local: 9, highres: 7 };
+  const AC2_2005 = { portal: 5085, cell: 612, local: 1605, highres: 2165 };
+  const ac2Files = (it) => [["portal", "portal.dat"], ["cell", "cell_1.dat"], ["local", "local_English.dat"], ["highres", "highres.dat"]]
+    .map(([role, file_name]) => ({ role, file_name, size: 512 * 1048576, modified: 0, read_only: false, iterations: it[role] }));
 
   // The client's era table, as the backend sends it.
   const NAMES = ["ratings", "consolidated_weapon_skills", "item_spell_auras", "assessed_armor_and_ratings", "swear_to_lower_level", "pre_order_items_and_rares", "dual_wield", "weapon_masteries", "innate_augmentations", "aetheria", "luminance", "contracts", "titles", "cloaks", "trinkets", "journal", "trade", "housing", "apartments", "tinkering", "cantrips", "spell_research", "chess", "swear_xp_cost"];
@@ -121,7 +126,8 @@
     settings: { allow_play_anyway: false, auto_update: true, discord_presence: true, realm },
     custom_worlds: [{ slug: "custom-1", name: "My test world", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
   };
-  const vault = new Set(["eulmore/player", "achard/player2", "lumenvale/player", "shardfall/alt1"]);
+  // The kept passwords, by world and account; shardfall's player's is one an earlier launcher made up.
+  const vault = new Map([["eulmore/player", "hunter2"], ["achard/player2", "hunter2"], ["lumenvale/player", "hunter2"], ["shardfall/player", "Vx3kQ9-rT2mLpZ8aWc4bNd"], ["shardfall/alt1", "hunter2"]]);
   // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
   let chosenInterface = location.hash === "#interface" ? null : "Horizon";
   const interfaceOffers = [
@@ -268,7 +274,7 @@
   };
   const checkout = { empyrean: "C:\\code\\dereth\\target\\release\\empyrean-server.exe", lyceum: "C:\\code\\dereth\\target\\release\\lyceum-editor.exe" };
   // Dereth's package: the Dereth client beside the launcher, Auberean's fetched when asked.
-  const packaged = { dereth: { version: "0.4.9", executable: "C:\Games\Dereth\dereth-client.exe", notes: "" } };
+  const packaged = { dereth: { version: "0.4.9", executable: "C:\\Games\\Dereth\\dereth-client.exe", notes: "" } };
   const components = ["empyrean", "lyceum", "dereth", "auberean", "yalain", "athenaeum"].map((product) => ({
     product, installed: packaged[product] ?? null, bundled: !!packaged[product], checkout: development ? checkout[product] : null, checkout_version: development ? { empyrean: "0.4.0", lyceum: "0.1.1" }[product] : null,
     latest: null, latest_notes: "", latest_size: null,
@@ -286,12 +292,44 @@
     files: ["portal.dat", "cell_1.dat", "local_English.dat", "highres.dat"].map((name) => ({ name, required: name !== "highres.dat", found: true, problem: null })),
   };
   const auberean = {
-    check: null, editing: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
-    worlds: ["C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp"],
-    retail: null, client: "auberean", friends: {}, friends_dll: true,
+    check: null, editing: false, busy: false, home: "C:\\Users\\you\\Documents\\Athenaeum", message: null, error: false,
+    worlds: [
+      { path: "C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp", home: true, saved: Math.floor(Date.now() / 1000) - 600,
+        facts: { rows: { object: 12, camp: 2, talk: 5, place: 1 }, removed: 1, problems: 0 } },
+      { path: "D:\\Builds\\arwic-markets", home: false, saved: Math.floor(Date.now() / 1000) - 5 * 86400, facts: { rows: {}, removed: 0, problems: 0 } },
+    ],
+    retail: null, client: "auberean",
   };
-  // The install the page chooses has the retail client of September 2013 in it.
-  const AC2_RETAIL = { exe: "C:\\Games\\Asheron's Call 2\\AC2client.exe", september_2013: true };
+  // The folder the page chooses holds the retail client of September 2013 and its data files.
+  const AC2_DIR = "C:\\Games\\Asheron's Call 2";
+  const AC2_RETAIL = { exe: `${AC2_DIR}\\AC2client.exe`, september_2013: true };
+  const ac2Retail = () => inst("retail", "retail", "ac2client-0930", "00.00.00.0930", "2013-09-30", AC2_DIR, { exe: "AC2client.exe", net_version: null, multi_instance: false });
+  // What a folder holds, read for Auberean's realm: the install, or the 2005 one with no client.
+  const ac2Find = (dir = AC2_DIR, it = AC2_EOR, retail = true) => ({
+    game: "auberean", folder: dir, retail: retail ? { ...ac2Retail(), path: dir } : null, classic: null, error: null,
+    dats: { id: `a${(state.auberean?.dat_sets ?? []).length + 1}`, kind: "auberean", path: dir, origin: { kind: "unassigned" }, files: ac2Files(it), created_by_launcher: false },
+  });
+  // The realm's view follows its library: the default set's check, and the retail client.
+  const ac2Sync = () => {
+    const lib = state.auberean ?? {};
+    const set = (lib.dat_sets ?? []).find((d) => d.origin.kind === "shared");
+    auberean.check = set ? { ...AC2_CHECK, dir: set.path } : null;
+    auberean.retail = lib.retail ? { exe: `${lib.retail.path}\\AC2client.exe`, september_2013: true } : null;
+  };
+  // Add what a folder held to its game's library, as the backend does.
+  const addFind = (find) => {
+    if (find.game !== "auberean") { if (find.retail) state.retail = find.retail; return; }
+    state.auberean = { dat_sets: [], ...(state.auberean ?? {}) };
+    const lib = state.auberean;
+    if (find.retail) lib.retail = find.retail;
+    if (find.dats) {
+      const had = lib.dat_sets.find((d) => d.path === find.dats.path);
+      const set = { ...find.dats, id: had?.id ?? find.dats.id, origin: had?.origin ?? (lib.dat_sets.some((d) => d.origin.kind === "shared") ? { kind: "unassigned" } : { kind: "shared" }) };
+      lib.dat_sets = [...lib.dat_sets.filter((d) => d.path !== set.path), set];
+    }
+    ac2Sync();
+  };
+  const setsWith = (id) => (state.dat_sets.some((d) => d.id === id) ? state.dat_sets : state.auberean?.dat_sets ?? []);
   const hosts = [];
   const hostBy = (id) => hosts.find((h) => h.id === id);
   // The other worlds on this computer, once the page has looked: an ACE world a Windows service
@@ -337,7 +375,7 @@
       const id = handlers.create_host({ settings });
       const h = hostBy(id);
       const c = components.find((x) => x.product === "yalain");
-      Object.assign(h, { game: "auberean", version: c.installed?.version ?? "0.1.0", checkout: !!c.checkout, plays: {} });
+      Object.assign(h, { game: "auberean", version: c.installed?.version ?? "0.1.0", checkout: !!c.checkout, plays: { database: "era", pack: "", published: null, base: { era: "eor", version: "v0.21.0" } } });
       return id;
     },
     save_yalain_host: ({ id, settings }) => {
@@ -426,6 +464,18 @@
     export_host_logs: () => {},
     publish_host_world: ({ id, world }) => {
       const h = hostBy(id);
+      if (h.game === "auberean") {
+        // An Athenaeum world: each publish of the same world is the next version.
+        const source = `${world ?? "C:\\Users\\you\\Documents\\Athenaeum\\frontier-camp"}\\world.toml`.replace(/\\world\.toml\\world\.toml$/, "\\world.toml");
+        const key = source.split("\\").slice(-2, -1)[0];
+        const revision = h.publication?.key === key ? h.publication.revision + 1 : 1;
+        h.publication = { source, key, packs: [`fill-${key}`], build: "0123456789abcdef", revision, sources: "fedcba", base: null };
+        h.unpublished_changes = false;
+        h.plays = { ...h.plays, database: "athenaeum", pack: `${h.folder}\\published\\snapshot-${revision - 1}\\world`, published: Math.floor(Date.now() / 1000) - 3600 };
+        h.prepared = true;
+        h.message = null;
+        return;
+      }
       const source = world ?? "C:\\Users\\you\\Documents\\Lyceum\\holtburg-hills\\world.toml";
       const key = source.split("\\").slice(-2, -1)[0];
       // As the backend: each publish of the same Lyceum world is the next version.
@@ -441,6 +491,13 @@
     },
     unpublish_host_world: ({ id }) => {
       const h = hostBy(id);
+      if (h.game === "auberean") {
+        h.publication = null;
+        h.plays = { ...h.plays, database: "era", pack: "", published: null };
+        h.unpublished_changes = null;
+        h.message = null;
+        return;
+      }
       h.publication = null;
       h.plays = { ...h.plays, database: "era", pack: "world.pack", dat_overlay: null, published: null, base: BASES[h.settings.era] };
       h.unpublished_changes = null;
@@ -467,7 +524,8 @@
       const c = components.find((c) => c.product === product);
       const r = RELEASES[product];
       c.latest = r.version;
-      c.installed = { version: r.version, notes: r.notes };
+      // Each download is in the launcher's data folder, by its version.
+      c.installed = { version: r.version, notes: r.notes, executable: `C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\components\\${product}\\${r.version}\\${product}.exe` };
       c.message = `${product[0].toUpperCase()}${product.slice(1)} ${r.version} is ready.`;
       c.offer = offerOf(c);
       if (product === "lyceum") {
@@ -494,10 +552,15 @@
       c.error = false;
     },
     // Auberean's realm: the install, as the backend checks it, and the world on this computer.
-    choose_auberean_install: () => { state.auberean = { ...(state.auberean ?? {}), install: "C:\\Games\\Asheron's Call 2" }; auberean.check = AC2_CHECK; auberean.retail = AC2_RETAIL; },
+    choose_auberean_install: () => { const f = ac2Find(); addFind(f); return f; },
     // Shardfall serves its friends service; the others do not.
-    probe_auberean_friends: ({ slug }) => { const w = worlds.find((x) => x.slug === slug); if (w?.endpoint) auberean.friends[`${w.endpoint.address}:${w.endpoint.port}`] = slug === "shardfall"; },
-    new_athenaeum_world: ({ name }) => { auberean.worlds.unshift(`C:\\Users\\you\\Documents\\Athenaeum\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`); },
+    new_athenaeum_world: ({ name, parent }) => {
+      const where = parent ?? auberean.home;
+      auberean.worlds.unshift({ path: `${where}\\${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, home: where === auberean.home, saved: Math.floor(Date.now() / 1000), facts: { rows: {}, removed: 0, problems: 0 } });
+    },
+    choose_athenaeum_parent: () => "D:\\Builds",
+    delete_athenaeum_world: ({ world }) => { auberean.worlds = auberean.worlds.filter((w) => w.path !== world); },
+    export_athenaeum_world: ({ world }) => { auberean.error = false; auberean.message = `Exported ${world.split(/[\\/]/).pop()} for Yalain, over the world database v0.23.0, to D:\\Exports.`; },
     open_athenaeum: () => { message = { kind: "info", text: "The app opens Athenaeum here." }; },
     choose_athenaeum_world: () => {},
     open_athenaeum_folder: () => {},
@@ -593,31 +656,38 @@
       };
     },
     has_password: ({ slug, username }) => vault.has(`${slug}/${username}`),
+    kept_password: ({ slug, username }) => vault.get(`${slug}/${username}`) ?? null,
     launch: ({ choice }) => {
-      const ac2world = allWorlds().find((x) => x.slug === choice.world_slug)?.game === "auberean";
-      // An Asheron's Call 2 world's secret is kept, or made and kept, whatever was typed.
-      if (!ac2world && !choice.password && !vault.has(`${choice.world_slug}/${choice.account}`)) return { kind: "need_password", message: `Enter the password for ${choice.account}.` };
-      if (choice.remember || ac2world) vault.add(`${choice.world_slug}/${choice.account}`);
+      const key = `${choice.world_slug}/${choice.account}`;
+      const password = choice.password || vault.get(key);
+      if (!password) return { kind: "need_password", message: `Enter the password for ${choice.account}.` };
+      if (choice.remember) vault.set(key, password); else vault.delete(key);
       if (!state.accounts.some((a) => a.world_slug === choice.world_slug && a.username === choice.account)) state.accounts.push({ world_slug: choice.world_slug, username: choice.account, remember: true, created_by_launcher: false });
       state.world_prefs[choice.world_slug] = { account: choice.account, client: choice.client, dat_set_id: choice.dat_set_id, last_played: Date.now() };
       const same = (r) => r.world_slug === choice.world_slug && r.account === choice.account && r.client === choice.client && (r.dat_set_id ?? null) === (choice.dat_set_id ?? null);
       state.recent = [{ world_slug: choice.world_slug, account: choice.account, client: choice.client, dat_set_id: choice.dat_set_id, last_played: Date.now() }, ...state.recent.filter((r) => !same(r))].slice(0, 5);
       return { kind: "launched", world: choice.world_slug, account: choice.account };
     },
-    pick_folder: () => ({
+    // `game` auberean reads the folder for Auberean's realm: the install with its client, or (once
+    // the library has it) the 2005 one's data files.
+    pick_folder: ({ game } = {}) => (game === "auberean"
+      ? (state.auberean?.dat_sets ?? []).some((d) => d.path === AC2_DIR) ? ac2Find("D:\\Games\\AC2 August 2005", AC2_2005, false) : ac2Find()
+      : {
       folder: "C:\\Turbine\\Asheron's Call",
       retail: state.retail ?? inst("retail", "retail", "acclient-6096", "00.00.11.6096", "2015-06-12", "C:\\Turbine\\Asheron's Call"),
       dats: { id: "d9", kind: "modern", path: "C:\\Turbine\\Asheron's Call", origin: { kind: "unassigned" }, files: files(EOR, true), created_by_launcher: false },
       classic: { id: "c9", kind: "classic", path: "C:\\Turbine\\Asheron's Call", origin: { kind: "unassigned" }, files: classicFiles(true), created_by_launcher: false },
       error: null,
     }),
-    add_folder: ({ find }) => { if (find.retail) state.retail = find.retail; },
+    add_folder: ({ find }) => addFind(find),
     set_default_set: ({ id }) => {
-      const kind = state.dat_sets.find((s) => s.id === id)?.kind;
-      for (const s of state.dat_sets) {
+      const sets = setsWith(id);
+      const kind = sets.find((s) => s.id === id)?.kind;
+      for (const s of sets) {
         if (s.kind === kind && s.origin.kind === "shared") s.origin = { kind: "unassigned" };
         if (s.id === id) s.origin = { kind: "shared" };
       }
+      ac2Sync();
     },
     add_custom_dats: () => false,
     create_private_copy: ({ slug }) => {
@@ -632,9 +702,18 @@
       }, 300);
     },
     reset_set: () => {},
-    delete_set: ({ id }) => { state.dat_sets = state.dat_sets.filter((s) => s.id !== id); },
-    forget_retail: () => { state.retail = null; },
-    verify_retail: () => { message = { text: "205 of 205 files match", error: false }; },
+    delete_set: ({ id }) => {
+      state.dat_sets = state.dat_sets.filter((s) => s.id !== id);
+      if (state.auberean) state.auberean.dat_sets = (state.auberean.dat_sets ?? []).filter((s) => s.id !== id);
+      ac2Sync();
+    },
+    forget_retail: ({ game } = {}) => { if (game === "auberean") { if (state.auberean) state.auberean.retail = null; ac2Sync(); } else state.retail = null; },
+    verify_retail: ({ game } = {}) => {
+      const total = game === "auberean" ? 264 : 205;
+      const r = game === "auberean" ? state.auberean?.retail : state.retail;
+      if (r) r.manifest_result = { total, matched: total, differing: [], missing: [] };
+      message = { text: `${total} of ${total} files match`, error: false };
+    },
     save_favourite: ({ favourite }) => { state.favourites.push({ ...favourite, id: `f${Date.now()}` }); },
     remove_favourite: ({ id }) => { state.favourites = state.favourites.filter((f) => f.id !== id); },
     set_world_favorite: ({ slug, favorite }) => {

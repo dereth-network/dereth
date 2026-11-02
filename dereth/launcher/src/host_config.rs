@@ -408,30 +408,27 @@ impl Federation {
 /// # Errors
 /// What to choose instead, in words for a person.
 pub fn check_game_data(era: &str, dats: &Path) -> Result<(), String> {
-    match dereth_launch::eras::required_set(Some(era)) {
-        SetKind::Classic => {
-            if datset::is_classic_pair(&datset::scan_classic_dir(dats)) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "{} is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it.",
-                    dereth_launch::eras::label(Some(era))
-                ))
-            }
+    if dereth_launch::eras::required_set(Some(era)) == SetKind::Classic {
+        if datset::is_classic_pair(&datset::scan_classic_dir(dats)) {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it.",
+                dereth_launch::eras::label(Some(era))
+            ))
         }
-        SetKind::Modern => {
-            let files = datset::scan_dir(dats);
-            if [DatRole::Portal, DatRole::Cell, DatRole::Local]
-                .iter()
-                .all(|r| files.iter().any(|f| f.role == *r))
-            {
-                Ok(())
-            } else {
-                Err(format!(
-                    "{} plays the Modern data files (client_portal.dat and the rest): choose those for it.",
-                    dereth_launch::eras::label(Some(era))
-                ))
-            }
+    } else {
+        let files = datset::scan_dir(dats);
+        if [DatRole::Portal, DatRole::Cell, DatRole::Local]
+            .iter()
+            .all(|r| files.iter().any(|f| f.role == *r))
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} plays the Modern data files (client_portal.dat and the rest): choose those for it.",
+                dereth_launch::eras::label(Some(era))
+            ))
         }
     }
 }
@@ -580,16 +577,8 @@ fn dat_overlay(text: &str) -> Option<String> {
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        if self.name.trim().is_empty()
-            || self.name.len() > 128
-            || self.name.chars().any(char::is_control)
-        {
-            return Err("Give the world a name of up to 128 characters.".into());
-        }
-        self.bind
-            .parse::<IpAddr>()
-            .map_err(|_| "Enter an IP address to listen on.")?;
-        if self.port == 0 || self.port == u16::MAX {
+        self.validate_shared()?;
+        if self.port == u16::MAX {
             return Err(
                 "Choose a port from 1 to 65534: the world takes it and the one after it.".into(),
             );
@@ -602,6 +591,38 @@ impl Settings {
         }
         if !ERAS.contains(&self.era.as_str()) {
             return Err("Choose an era the world can play.".into());
+        }
+        let names = system_names();
+        if let Some(unknown) = self.systems.keys().find(|k| !names.contains(&k.as_str())) {
+            return Err(format!("{unknown} is not one of the era's systems."));
+        }
+        self.websocket.validate()?;
+        if !(0..=i64::from(u32::MAX)).contains(&self.patching.records_per_minute)
+            || !(1..=i64::from(u32::MAX)).contains(&self.patching.bytes_per_second)
+        {
+            return Err("Give the patching rates as whole numbers.".into());
+        }
+        Ok(())
+    }
+
+    /// What every world's settings must be, whatever its game: a name, an address to listen on,
+    /// a port, a welcome message, player limits, a shutdown warning, a log level, and network
+    /// settings that go together.
+    ///
+    /// # Errors
+    /// What is wrong, in words for a person.
+    pub fn validate_shared(&self) -> Result<(), String> {
+        if self.name.trim().is_empty()
+            || self.name.len() > 128
+            || self.name.chars().any(char::is_control)
+        {
+            return Err("Give the world a name of up to 128 characters.".into());
+        }
+        self.bind
+            .parse::<IpAddr>()
+            .map_err(|_| "Enter an IP address to listen on.")?;
+        if self.port == 0 {
+            return Err("Choose a port for the world.".into());
         }
         if self.welcome.chars().count() > 500 || !plain_text(&self.welcome, true) {
             return Err("Keep the welcome message to 500 characters of text.".into());
@@ -618,18 +639,7 @@ impl Settings {
         if !LOG_LEVELS.contains(&self.log_level.as_str()) {
             return Err("Choose a log level.".into());
         }
-        let names = system_names();
-        if let Some(unknown) = self.systems.keys().find(|k| !names.contains(&k.as_str())) {
-            return Err(format!("{unknown} is not one of the era's systems."));
-        }
-        self.websocket.validate()?;
-        self.federation.validate()?;
-        if !(0..=i64::from(u32::MAX)).contains(&self.patching.records_per_minute)
-            || !(1..=i64::from(u32::MAX)).contains(&self.patching.bytes_per_second)
-        {
-            return Err("Give the patching rates as whole numbers.".into());
-        }
-        Ok(())
+        self.federation.validate()
     }
     pub fn from_config(text: &str) -> Result<Self, String> {
         let doc = text.parse::<DocumentMut>().map_err(|e| e.to_string())?;
@@ -933,7 +943,7 @@ fn same(a: &toml_edit::Value, b: &toml_edit::Value) -> bool {
 
 /// `text` as a TOML basic string, its line ends written `\n`, as `empyrean.toml`'s own comments
 /// ask for a message of several lines.
-fn escaped(text: &str) -> Result<toml_edit::Value, String> {
+pub(crate) fn escaped(text: &str) -> Result<toml_edit::Value, String> {
     // A JSON string's escapes are all TOML basic-string escapes.
     serde_json::to_string(text)
         .map_err(|e| e.to_string())?
@@ -943,7 +953,7 @@ fn escaped(text: &str) -> Result<toml_edit::Value, String> {
 
 /// Sets `key` in the table at `path` to `next`, as [`set`] does. A key the file does not have is
 /// left out while `next` is the server's `default`, and so is a table it would be the first in.
-fn put(
+pub(crate) fn put(
     doc: &mut DocumentMut,
     path: &[&str],
     key: &str,
@@ -973,7 +983,7 @@ fn put(
 }
 
 /// Sets `item` to `next`, keeping its comment; a value that is already `next` is left as written.
-fn set(item: &mut toml_edit::Item, next: impl Into<toml_edit::Value>) {
+pub(crate) fn set(item: &mut toml_edit::Item, next: impl Into<toml_edit::Value>) {
     let next = next.into();
     if item.as_value().is_some_and(|v| same(v, &next)) {
         return;

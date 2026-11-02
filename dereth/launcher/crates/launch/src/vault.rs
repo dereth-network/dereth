@@ -4,10 +4,10 @@
 //! keeps them in Credential Manager, where the player can see and delete them; a macOS or Linux
 //! front end would use the Keychain or libsecret through the same trait.
 //!
-//! One kind of secret is kept without a store: the one the launcher makes for an account on a
-//! world of Asheron's Call 2's, which the player never typed and the world admits alone. On a
-//! system with no secret store (a Linux desktop with no keyring) it goes in a file of the
-//! launcher's own, the player's alone ([`SecretFile`]).
+//! One file of the launcher's own holds passwords: the ones earlier launchers made for accounts on
+//! worlds of Asheron's Call 2's on a system with no secret store (a Linux desktop with no keyring),
+//! the player's alone ([`SecretFile`]). They are read so those accounts keep playing, and are shown
+//! to the player when asked; no launcher makes a password any more.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -83,9 +83,9 @@ impl Vault for MemoryVault {
     }
 }
 
-/// Secrets the launcher made itself, in a file of its own: where an account's secret is kept on a
-/// system with no secret store, so the account is not locked out at the next launch. Never a
-/// password the player typed. On Unix the file is readable and writable by its owner alone.
+/// Passwords earlier launchers made themselves, in a file of their own: where an Asheron's Call 2
+/// account's password was kept on a system with no secret store. Never a password the player
+/// typed. On Unix the file is readable and writable by its owner alone.
 #[derive(Debug, Clone)]
 pub struct SecretFile {
     path: PathBuf,
@@ -130,10 +130,11 @@ impl SecretFile {
         open.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-        let mut file = open.open(&new).map_err(failed)?;
-        std::io::Write::write_all(&mut file, &bytes).map_err(failed)?;
-        file.sync_all().map_err(failed)?;
-        drop(file);
+        {
+            let mut file = open.open(&new).map_err(failed)?;
+            std::io::Write::write_all(&mut file, &bytes).map_err(failed)?;
+            file.sync_all().map_err(failed)?;
+        }
         std::fs::rename(&new, &self.path).map_err(failed)
     }
 }

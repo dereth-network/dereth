@@ -13,8 +13,26 @@
 //! # Writing
 //!
 //! Atomically: the new contents go to a temporary file which then replaces the old one, so a crash
-//! or a full disk mid-write leaves the previous state intact rather than half a file. A file that
-//! cannot be read at all is set aside as `launcher-state.json.bad` and the launcher starts fresh; a
+//! or a full disk mid-write leaves the previous state intact rather than half a file.
+//!
+//! # Two files
+//!
+//! Auberean's realm keeps its own part apart, in `auberean-state.json` beside it
+//! ([`AUBEREAN_STATE_FILE`]): its Library, and the worlds the player added for it, their accounts,
+//! and every recent combination, favourite and remembered choice that names one of those worlds or
+//! the Auberean client. The launcher holds both as one state. A launcher from before Auberean's
+//! realm (Dereth 0.4.9) sharing the folder reads `launcher-state.json` whole, since it holds nothing
+//! that launcher does not know, and never touches the other file. A state that still holds
+//! Auberean's entries in `launcher-state.json` has them moved out the first time it is read
+//! ([`LauncherState::load_moving`]), and a world added for Auberean is given a name of its own,
+//! `auberean-<n>`, so the older launcher never names a world of its own the same.
+//!
+//! # Reading
+//!
+//! A file with a part that does not read (one an older or newer launcher wrote differently) keeps
+//! every part that does: only the parts that do not are reset, each named with why
+//! ([`Loaded::Partly`]), and the file as it was is copied aside as `launcher-state.json.bad`. A
+//! file that is not a state at all is set aside under that name and the launcher starts fresh; a
 //! player loses their favourites, not their ability to play.
 
 use std::collections::BTreeMap;
@@ -28,6 +46,73 @@ use crate::install::{ClientKind, Installation};
 use crate::world::{Emulator, Endpoint, Game, World};
 
 pub const STATE_FILE: &str = "launcher-state.json";
+
+/// Auberean's realm's part of the state, beside [`STATE_FILE`] (see "Two files" above).
+pub const AUBEREAN_STATE_FILE: &str = "auberean-state.json";
+
+/// What a world the player added for Auberean is named, followed by a number.
+pub const AUBEREAN_WORLD_PREFIX: &str = "auberean-";
+
+/// Auberean's realm's file: its Library, and its worlds' entries, as the state's own parts are.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct AubereanFile {
+    #[serde(default, skip_serializing_if = "AubereanSettings::is_empty")]
+    library: AubereanSettings,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    accounts: Vec<Account>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    favourites: Vec<Favourite>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    recent: Vec<Recent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    custom_worlds: Vec<CustomWorld>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    world_prefs: BTreeMap<String, WorldPrefs>,
+}
+
+impl AubereanFile {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The file's `parts`, each read on its own, as the state's are
+    /// ([`LauncherState::from_parts`]); whether any did not read.
+    fn from_parts(parts: &serde_json::Map<String, serde_json::Value>) -> (Self, bool) {
+        let mut f = Self::default();
+        let mut failed = false;
+        let mut take = |part: &str, read: &mut dyn FnMut(serde_json::Value) -> bool| {
+            if let Some(v) = parts.get(part) {
+                failed |= !read(v.clone());
+            }
+        };
+        take("library", &mut |v| set(&mut f.library, v));
+        take("accounts", &mut |v| set(&mut f.accounts, v));
+        take("favourites", &mut |v| set(&mut f.favourites, v));
+        take("recent", &mut |v| set(&mut f.recent, v));
+        take("custom_worlds", &mut |v| set(&mut f.custom_worlds, v));
+        take("world_prefs", &mut |v| set(&mut f.world_prefs, v));
+        (f, failed)
+    }
+}
+
+/// `into` read from `value`; whether it read.
+fn set<T: serde::de::DeserializeOwned>(into: &mut T, value: serde_json::Value) -> bool {
+    match serde_json::from_value(value) {
+        Ok(v) => {
+            *into = v;
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// A world the player added for Auberean that was given a name of its own when it moved, `from`
+/// its old one: its saved passwords and its hosted world's link follow it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renamed {
+    pub from: String,
+    pub to: String,
+}
 
 /// Write `bytes` to `path` whole or not at all: to a temporary file beside it, synced, then
 /// renamed over it.
@@ -311,14 +396,24 @@ impl Default for Settings {
     }
 }
 
-/// What the player told the launcher for Auberean's realm: where their own Asheron's Call 2
-/// install is, and the account they play a world on this computer with. Never a password.
+/// What the player told the launcher for Auberean's realm: its library (the retail client and the
+/// data sets of their own Asheron's Call 2 installs, as Asheron's Call's are kept), and the account
+/// they play a world on this computer with. Never a password.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AubereanSettings {
-    /// The folder of the player's Asheron's Call 2 install, whose data files the client and a
-    /// world on this computer read ([`crate::auberean::check_install`]).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The one install folder a launcher kept before the realm had a library: read, taken into the
+    /// library at start ([`LauncherState::adopt_auberean_install`]), and never written again.
+    #[serde(default, skip_serializing)]
     pub install: Option<PathBuf>,
+    /// The retail client, `AC2client.exe` ([`crate::auberean::identify_retail`]). It plays with
+    /// the data files beside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retail: Option<Installation>,
+    /// Asheron's Call 2's data sets ([`SetKind::Auberean`]), the default one
+    /// ([`DatOrigin::Shared`]) the one Auberean, Yalain and Athenaeum are given unless another is
+    /// chosen.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dat_sets: Vec<DatSet>,
     /// The account name the player last played with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
@@ -393,8 +488,55 @@ pub enum Loaded {
     /// There was no file: a first run.
     Fresh,
     Read,
-    /// The file could not be read and was set aside under this name.
+    /// Some parts of the file did not read: they are reset and every other part kept, and the
+    /// file as it was is copied aside under `bad`.
+    Partly {
+        bad: PathBuf,
+        reset: Vec<Unread>,
+    },
+    /// The file is not a state at all: it was set aside under this name.
     SetAside(PathBuf),
+}
+
+/// A part of the state file that did not read, and why, in serde's words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    /// Its key in the file ([`PARTS`]).
+    pub part: &'static str,
+    pub error: String,
+}
+
+/// The state file's parts, by their keys, each read on its own when the whole does not read.
+pub const PARTS: [&str; 10] = [
+    "schema",
+    "retail",
+    "dat_sets",
+    "accounts",
+    "favourites",
+    "recent",
+    "custom_worlds",
+    "world_prefs",
+    "settings",
+    "auberean",
+];
+
+/// A part of the state in words for the player: `Some saved settings couldn't be read and were
+/// reset: your accounts.`
+#[must_use]
+pub fn part_name(part: &str) -> &'static str {
+    match part {
+        "schema" => "the file's version",
+        "retail" => "your retail client",
+        "dat_sets" => "your data files",
+        "accounts" => "your accounts",
+        "favourites" => "your favorites",
+        "recent" => "your recent games",
+        "custom_worlds" => "the worlds you added",
+        "world_prefs" => "each world's last choices",
+        "settings" => "your settings",
+        "auberean" => "Auberean's Library",
+        _ => "a part of them",
+    }
 }
 
 impl LauncherState {
@@ -407,20 +549,296 @@ impl LauncherState {
             }
             Err(_) => return (Self::default(), Loaded::Fresh),
         };
-        match serde_json::from_slice::<Self>(&bytes) {
-            Ok(s) => (s, Loaded::Read),
-            Err(_) => {
-                let bad = dir.join(format!("{STATE_FILE}.bad"));
+        if let Ok(s) = serde_json::from_slice::<Self>(&bytes) {
+            return (s, Loaded::Read);
+        }
+        let bad = dir.join(format!("{STATE_FILE}.bad"));
+        match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(serde_json::Value::Object(parts)) => {
+                let (state, reset) = Self::from_parts(&parts);
+                // Kept as it was, for whoever looks into what could not be read.
+                let _ = std::fs::write(&bad, &bytes);
+                (state, Loaded::Partly { bad, reset })
+            }
+            _ => {
                 let _ = std::fs::rename(&path, &bad);
                 (Self::default(), Loaded::SetAside(bad))
             }
         }
     }
 
-    /// Write atomically: a temporary file, then a rename over the old one.
+    /// The state from the file's `parts`, each read on its own: every part that reads, and the
+    /// default for each that does not, named with why. A part the file does not have is the
+    /// default, as when the whole reads.
+    fn from_parts(parts: &serde_json::Map<String, serde_json::Value>) -> (Self, Vec<Unread>) {
+        fn take<T: serde::de::DeserializeOwned>(
+            parts: &serde_json::Map<String, serde_json::Value>,
+            part: &'static str,
+            into: &mut T,
+            reset: &mut Vec<Unread>,
+        ) {
+            let Some(value) = parts.get(part) else {
+                return;
+            };
+            match serde_json::from_value(value.clone()) {
+                Ok(v) => *into = v,
+                Err(e) => reset.push(Unread {
+                    part,
+                    error: e.to_string(),
+                }),
+            }
+        }
+        let mut s = Self::default();
+        let mut reset = Vec::new();
+        take(parts, "schema", &mut s.schema, &mut reset);
+        take(parts, "retail", &mut s.retail, &mut reset);
+        take(parts, "dat_sets", &mut s.dat_sets, &mut reset);
+        take(parts, "accounts", &mut s.accounts, &mut reset);
+        take(parts, "favourites", &mut s.favourites, &mut reset);
+        take(parts, "recent", &mut s.recent, &mut reset);
+        take(parts, "custom_worlds", &mut s.custom_worlds, &mut reset);
+        take(parts, "world_prefs", &mut s.world_prefs, &mut reset);
+        take(parts, "settings", &mut s.settings, &mut reset);
+        take(parts, "auberean", &mut s.auberean, &mut reset);
+        (s, reset)
+    }
+
+    /// [`Self::load`], and Auberean's realm's file beside it with it ([`AUBEREAN_STATE_FILE`]):
+    /// the two as one state. Auberean's entries found in the state file itself (written before the
+    /// realm had a file of its own) join those of its file, and both files are written again at
+    /// once, so the state file holds none from then on. A world the player added for Auberean
+    /// under another name is given one of its own ([`AUBEREAN_WORLD_PREFIX`]); the renames, for
+    /// the caller to move what is kept by a world's name elsewhere. A file of Auberean's that does
+    /// not read is copied aside as `auberean-state.json.bad`, and said as its Library's.
+    pub fn load_moving(dir: &Path) -> (Self, Loaded, Vec<Renamed>) {
+        let (mut state, mut loaded) = Self::load(dir);
+        let held = state.auberean_part();
+        let moved_out = !held.is_empty();
+        let path = dir.join(AUBEREAN_STATE_FILE);
+        let own = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<AubereanFile>(&bytes) {
+                Ok(f) => f,
+                Err(e) => {
+                    let bad = dir.join(format!("{AUBEREAN_STATE_FILE}.bad"));
+                    let _ = std::fs::write(&bad, &bytes);
+                    let parts = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+                    let f = match parts {
+                        Some(serde_json::Value::Object(parts)) => {
+                            AubereanFile::from_parts(&parts).0
+                        }
+                        _ => AubereanFile::default(),
+                    };
+                    let unread = Unread {
+                        part: "auberean",
+                        error: e.to_string(),
+                    };
+                    loaded = match loaded {
+                        Loaded::Partly { bad, mut reset } => {
+                            reset.push(unread);
+                            Loaded::Partly { bad, reset }
+                        }
+                        Loaded::SetAside(bad) => Loaded::SetAside(bad),
+                        Loaded::Fresh | Loaded::Read => Loaded::Partly {
+                            bad,
+                            reset: vec![unread],
+                        },
+                    };
+                    f
+                }
+            },
+            Err(_) => AubereanFile::default(),
+        };
+        state.join_auberean(own, held);
+        let renamed = state.name_auberean_worlds();
+        if (moved_out || !renamed.is_empty()) && !matches!(loaded, Loaded::SetAside(_)) {
+            let _ = state.save(dir);
+        }
+        (state, loaded, renamed)
+    }
+
+    /// Whether the world the player added as `slug` is one of Auberean's.
+    fn is_auberean_world(&self, slug: &str) -> bool {
+        self.custom_worlds
+            .iter()
+            .any(|w| w.slug == slug && w.game == Game::Auberean)
+    }
+
+    /// Whether an entry for `slug` played with `client` is Auberean's realm's: the Auberean
+    /// client, or a world added for Auberean.
+    fn is_auberean_entry(&self, slug: &str, client: Option<ClientKind>) -> bool {
+        client == Some(ClientKind::Auberean) || self.is_auberean_world(slug)
+    }
+
+    /// Auberean's realm's part of the state, as its file holds it.
+    fn auberean_part(&self) -> AubereanFile {
+        let ours = |slug: &str, client| self.is_auberean_entry(slug, client);
+        AubereanFile {
+            library: self.auberean.clone(),
+            accounts: self
+                .accounts
+                .iter()
+                .filter(|a| self.is_auberean_world(&a.world_slug))
+                .cloned()
+                .collect(),
+            favourites: self
+                .favourites
+                .iter()
+                .filter(|f| ours(&f.world_slug, Some(f.client)))
+                .cloned()
+                .collect(),
+            recent: self
+                .recent
+                .iter()
+                .filter(|r| ours(&r.world_slug, Some(r.client)))
+                .cloned()
+                .collect(),
+            custom_worlds: self
+                .custom_worlds
+                .iter()
+                .filter(|w| w.game == Game::Auberean)
+                .cloned()
+                .collect(),
+            world_prefs: self
+                .world_prefs
+                .iter()
+                .filter(|(slug, p)| ours(slug, p.client))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        }
+    }
+
+    /// The state without Auberean's realm's part: what the state file holds, which a launcher from
+    /// before the realm reads whole.
+    fn without_auberean(&self) -> Self {
+        let mut s = self.clone();
+        let aub: std::collections::HashSet<String> = self
+            .custom_worlds
+            .iter()
+            .filter(|w| w.game == Game::Auberean)
+            .map(|w| w.slug.clone())
+            .collect();
+        let ours = |slug: &str, client: Option<ClientKind>| {
+            client == Some(ClientKind::Auberean) || aub.contains(slug)
+        };
+        s.auberean = AubereanSettings::default();
+        s.accounts.retain(|a| !aub.contains(&a.world_slug));
+        s.favourites
+            .retain(|f| !ours(&f.world_slug, Some(f.client)));
+        s.recent.retain(|r| !ours(&r.world_slug, Some(r.client)));
+        s.custom_worlds.retain(|w| w.game != Game::Auberean);
+        s.world_prefs.retain(|slug, p| !ours(slug, p.client));
+        s
+    }
+
+    /// Take in Auberean's realm's file `own`, and the part of it the state file still `held`
+    /// (written before the realm had a file of its own): each entry once, the file's where both
+    /// have it, the recent combinations newest first.
+    fn join_auberean(&mut self, own: AubereanFile, held: AubereanFile) {
+        let mut state = self.without_auberean();
+        state.auberean = if own.library.is_empty() {
+            held.library
+        } else {
+            own.library
+        };
+        for a in own.accounts.into_iter().chain(held.accounts) {
+            if state.account(&a.world_slug, &a.username).is_none() {
+                state.accounts.push(a);
+            }
+        }
+        for f in own.favourites.into_iter().chain(held.favourites) {
+            if state.favourites.iter().all(|x| x.id != f.id) {
+                state.favourites.push(f);
+            }
+        }
+        for r in own.recent.into_iter().chain(held.recent) {
+            let known = state
+                .recent
+                .iter()
+                .any(|x| x.same_as(&r.world_slug, &r.account, r.client, r.dat_set_id.as_deref()));
+            if !known {
+                state.recent.push(r);
+            }
+        }
+        state
+            .recent
+            .sort_by_key(|r| core::cmp::Reverse(r.last_played));
+        state.recent.truncate(RECENT_LIMIT);
+        for w in own.custom_worlds.into_iter().chain(held.custom_worlds) {
+            if state.custom_worlds.iter().all(|x| x.slug != w.slug) {
+                state.custom_worlds.push(w);
+            }
+        }
+        for (slug, p) in held.world_prefs.into_iter().chain(own.world_prefs) {
+            state.world_prefs.insert(slug, p);
+        }
+        *self = state;
+    }
+
+    /// Give each world the player added for Auberean that is named otherwise a name of its own,
+    /// `auberean-<n>`, its entries following it. The renames.
+    fn name_auberean_worlds(&mut self) -> Vec<Renamed> {
+        let old: Vec<String> = self
+            .custom_worlds
+            .iter()
+            .filter(|w| w.game == Game::Auberean && !w.slug.starts_with(AUBEREAN_WORLD_PREFIX))
+            .map(|w| w.slug.clone())
+            .collect();
+        let mut renamed = Vec::new();
+        for from in old {
+            let to = self.free_slug(AUBEREAN_WORLD_PREFIX);
+            for w in &mut self.custom_worlds {
+                if w.slug == from {
+                    w.slug.clone_from(&to);
+                }
+            }
+            for a in &mut self.accounts {
+                if a.world_slug == from {
+                    a.world_slug.clone_from(&to);
+                }
+            }
+            for f in &mut self.favourites {
+                if f.world_slug == from {
+                    f.world_slug.clone_from(&to);
+                }
+            }
+            for r in &mut self.recent {
+                if r.world_slug == from {
+                    r.world_slug.clone_from(&to);
+                }
+            }
+            if let Some(p) = self.world_prefs.remove(&from) {
+                self.world_prefs.insert(to.clone(), p);
+            }
+            renamed.push(Renamed { from, to });
+        }
+        renamed
+    }
+
+    /// The first name `<prefix><n>` no world the player added has.
+    fn free_slug(&self, prefix: &str) -> String {
+        (1u32..)
+            .map(|n| format!("{prefix}{n}"))
+            .find(|s| self.custom_worlds.iter().all(|w| &w.slug != s))
+            .expect("some slug is free")
+    }
+
+    /// Write atomically: a temporary file, then a rename over the old one. Auberean's realm's part
+    /// goes in its own file first ([`AUBEREAN_STATE_FILE`], gone when there is none), then the
+    /// rest in the state file.
     pub fn save(&self, dir: &Path) -> io::Result<()> {
         std::fs::create_dir_all(dir)?;
-        let json = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
+        let own = self.auberean_part();
+        let path = dir.join(AUBEREAN_STATE_FILE);
+        if own.is_empty() {
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+                _ => {}
+            }
+        } else {
+            let json = serde_json::to_vec_pretty(&own).map_err(io::Error::other)?;
+            write_atomic(&path, &json)?;
+        }
+        let json = serde_json::to_vec_pretty(&self.without_auberean()).map_err(io::Error::other)?;
         write_atomic(&dir.join(STATE_FILE), &json)
     }
 
@@ -501,6 +919,59 @@ impl LauncherState {
         self.retail = None;
     }
 
+    /// The data sets of `game`'s library: Asheron's Call's, or Auberean's realm's own.
+    pub fn sets(&self, game: Game) -> &Vec<DatSet> {
+        match game {
+            Game::Dereth => &self.dat_sets,
+            Game::Auberean => &self.auberean.dat_sets,
+        }
+    }
+
+    /// [`LauncherState::sets`], to change.
+    pub fn sets_mut(&mut self, game: Game) -> &mut Vec<DatSet> {
+        match game {
+            Game::Dereth => &mut self.dat_sets,
+            Game::Auberean => &mut self.auberean.dat_sets,
+        }
+    }
+
+    /// The retail client of `game`'s library, to change: `acclient.exe`, or `AC2client.exe`.
+    pub fn retail_mut(&mut self, game: Game) -> &mut Option<Installation> {
+        match game {
+            Game::Dereth => &mut self.retail,
+            Game::Auberean => &mut self.auberean.retail,
+        }
+    }
+
+    /// An Asheron's Call 2 data set, by id.
+    pub fn auberean_set(&self, id: &str) -> Option<&DatSet> {
+        self.auberean.dat_sets.iter().find(|s| s.id == id)
+    }
+
+    /// The default Asheron's Call 2 data set: the one the programs are given unless another is
+    /// chosen.
+    pub fn auberean_default_set(&self) -> Option<&DatSet> {
+        self.auberean
+            .dat_sets
+            .iter()
+            .find(|s| s.origin == DatOrigin::Shared)
+    }
+
+    /// Take the one install folder an older launcher kept for Auberean's realm into its library:
+    /// its retail client and its data set, as if the player had added the folder there. Whether it
+    /// was taken.
+    pub fn adopt_auberean_install(&mut self) -> bool {
+        let Some(dir) = self.auberean.install.take() else {
+            return false;
+        };
+        if !self.auberean.dat_sets.is_empty() || self.auberean.retail.is_some() {
+            return false;
+        }
+        let find = crate::auberean::read_folder(&dir, self);
+        crate::library::add_find(self, find);
+        true
+    }
+
     /// Worlds played, most recent first.
     pub fn recents(&self) -> Vec<(&str, &WorldPrefs)> {
         let mut v: Vec<_> = self
@@ -542,6 +1013,23 @@ impl LauncherState {
         ruleset: Option<&str>,
         emulator: Emulator,
     ) -> Result<String, CustomWorldError> {
+        self.add_custom_world_for(Game::Dereth, name, host, port, ruleset, emulator)
+    }
+
+    /// [`Self::add_custom_world`] for a world of `game`: one for Auberean is named
+    /// `auberean-<n>` ([`AUBEREAN_WORLD_PREFIX`]).
+    ///
+    /// # Errors
+    /// As [`Self::add_custom_world`].
+    pub fn add_custom_world_for(
+        &mut self,
+        game: Game,
+        name: &str,
+        host: &str,
+        port: &str,
+        ruleset: Option<&str>,
+        emulator: Emulator,
+    ) -> Result<String, CustomWorldError> {
         let host = custom_host(host)?;
         let port = custom_port(port)?;
         let name = if name.trim().is_empty() {
@@ -564,10 +1052,10 @@ impl LauncherState {
             w.emulator = emulator;
             return Ok(w.slug.clone());
         }
-        let slug = (1u32..)
-            .map(|n| format!("custom-{n}"))
-            .find(|s| self.custom_worlds.iter().all(|w| &w.slug != s))
-            .expect("some slug is free");
+        let slug = self.free_slug(match game {
+            Game::Dereth => "custom-",
+            Game::Auberean => AUBEREAN_WORLD_PREFIX,
+        });
         self.custom_worlds.push(CustomWorld {
             slug: slug.clone(),
             name,
@@ -576,7 +1064,7 @@ impl LauncherState {
             ruleset,
             emulator,
             url: None,
-            game: Game::Dereth,
+            game,
         });
         Ok(slug)
     }
@@ -646,18 +1134,26 @@ impl LauncherState {
         self.recent.truncate(RECENT_LIMIT);
     }
 
-    /// Make the set `id` the default of its kind, the one the Dereth client is offered first. Only
-    /// a set the player added can be the default: a world's private copy or a custom set belongs to
-    /// its world. The other kind's default is untouched.
+    /// Make the set `id` the default of its kind, the one the Dereth client is offered first (in
+    /// Auberean's realm, the one its programs are given). Only a set the player added can be the
+    /// default: a world's private copy or a custom set belongs to its world. The other kind's
+    /// default is untouched.
     pub fn set_default_set(&mut self, id: &str) -> bool {
+        let game = if self.dat_set(id).is_some() {
+            Game::Dereth
+        } else {
+            Game::Auberean
+        };
         let Some(kind) = self
-            .dat_set(id)
+            .sets(game)
+            .iter()
+            .find(|s| s.id == id)
             .filter(|s| matches!(s.origin, DatOrigin::Shared | DatOrigin::Unassigned))
             .map(|s| s.kind)
         else {
             return false;
         };
-        for s in &mut self.dat_sets {
+        for s in self.sets_mut(game) {
             if s.kind == kind && s.origin == DatOrigin::Shared {
                 s.origin = DatOrigin::Unassigned;
             }
@@ -674,6 +1170,7 @@ impl LauncherState {
         let taken = |id: &str| {
             id == SHARED_SET_ID
                 || self.dat_sets.iter().any(|s| s.id == id)
+                || self.auberean.dat_sets.iter().any(|s| s.id == id)
                 || self.favourites.iter().any(|f| f.id == id)
         };
         (1u32..)
@@ -697,6 +1194,260 @@ mod tests {
             remember: true,
             created_by_launcher: false,
         }
+    }
+
+    /// A state the 0.4.9 launcher wrote, every part filled through its own calls and saved by its
+    /// own code (its paths made plain).
+    const STATE_0_4_9: &str = include_str!("../fixtures/launcher-state-0.4.9.json");
+
+    /// Whether every value `written` holds is in `read` as it was, at the same place: what a
+    /// launcher wrote reads unchanged, whatever a newer one adds beside it.
+    fn holds(read: &serde_json::Value, written: &serde_json::Value) -> bool {
+        match (read, written) {
+            (serde_json::Value::Object(r), serde_json::Value::Object(w)) => w
+                .iter()
+                .all(|(k, v)| r.get(k).is_some_and(|got| holds(got, v))),
+            (serde_json::Value::Array(r), serde_json::Value::Array(w)) => {
+                r.len() == w.len() && r.iter().zip(w).all(|(a, b)| holds(a, b))
+            }
+            _ => read == written,
+        }
+    }
+
+    /// A state the 0.4.9 launcher wrote reads whole in this launcher, every part as it was.
+    #[test]
+    fn a_state_the_0_4_9_launcher_wrote_reads_unchanged() {
+        let d = tmp("state-0.4.9");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(STATE_FILE), STATE_0_4_9).unwrap();
+        let (s, how) = LauncherState::load(&d);
+        assert_eq!(how, Loaded::Read);
+        let written: serde_json::Value = serde_json::from_str(STATE_0_4_9).unwrap();
+        let read = serde_json::to_value(&s).unwrap();
+        assert!(holds(&read, &written), "{read:#}");
+        assert_eq!(s.accounts.len(), 2);
+        assert_eq!(s.recent.len(), 2);
+        assert_eq!(s.custom_worlds[0].name, "Home");
+        assert!(!s.settings.auto_update && !s.settings.discord_presence);
+        assert_eq!(s.settings.realm, Realm::Auberean);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A state with parts this launcher cannot read keeps every other part: only those are reset,
+    /// each named with why, and the file as it was is copied aside, where it stays.
+    #[test]
+    fn a_part_that_does_not_read_is_reset_and_every_other_part_kept() {
+        let d = tmp("state-partly");
+        std::fs::create_dir_all(&d).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(STATE_0_4_9).unwrap();
+        v["recent"][0]["client"] = "a client from elsewhere".into();
+        v["settings"]["auto_update"] = "not a yes or a no".into();
+        v["from_a_newer_launcher"] = serde_json::json!({ "anything": [1, 2] });
+        let bytes = serde_json::to_vec_pretty(&v).unwrap();
+        std::fs::write(d.join(STATE_FILE), &bytes).unwrap();
+        let (s, how) = LauncherState::load(&d);
+        let Loaded::Partly { bad, reset } = how else {
+            panic!("{how:?}");
+        };
+        assert_eq!(
+            reset.iter().map(|r| r.part).collect::<Vec<_>>(),
+            ["recent", "settings"]
+        );
+        assert!(reset[0].error.contains("unknown variant"), "{reset:?}");
+        assert_eq!(std::fs::read(&bad).unwrap(), bytes, "kept as it was");
+        assert!(d.join(STATE_FILE).is_file(), "the file itself stays");
+        let whole: LauncherState = serde_json::from_str(STATE_0_4_9).unwrap();
+        assert_eq!(s.recent, Vec::new());
+        assert_eq!(s.settings, Settings::default());
+        assert_eq!(
+            (&s.retail, &s.dat_sets, &s.accounts, &s.favourites),
+            (
+                &whole.retail,
+                &whole.dat_sets,
+                &whole.accounts,
+                &whole.favourites
+            )
+        );
+        assert_eq!(
+            (&s.custom_worlds, &s.world_prefs),
+            (&whole.custom_worlds, &whole.world_prefs)
+        );
+        assert_eq!(part_name("recent"), "your recent games");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Every part of the file is one the load reads on its own.
+    #[test]
+    fn every_part_of_the_file_is_read_on_its_own() {
+        let mut s: LauncherState = serde_json::from_str(STATE_0_4_9).unwrap();
+        s.auberean.account = Some("player".into());
+        let v = serde_json::to_value(&s).unwrap();
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut parts = PARTS.to_vec();
+        parts.sort_unstable();
+        let mut keys = keys;
+        keys.sort_unstable();
+        assert_eq!(keys, parts);
+        for part in PARTS {
+            assert_ne!(part_name(part), "a part of them", "{part}");
+        }
+    }
+
+    /// The 0.4.9 launcher's state with Auberean's realm played beside it: its Library, a world
+    /// added for it (`slug`) with an account, a recent combination, a favourite and a remembered
+    /// choice there, and a recent combination with Auberean on a listed world.
+    fn with_auberean_played(slug: &str) -> LauncherState {
+        let mut s: LauncherState = serde_json::from_str(STATE_0_4_9).unwrap();
+        s.auberean.account = Some("player".into());
+        s.auberean.client = crate::auberean::Client::Retail;
+        s.custom_worlds.push(CustomWorld {
+            slug: slug.into(),
+            name: "Trial".into(),
+            host: "127.0.0.1".into(),
+            port: 9200,
+            ruleset: None,
+            emulator: Emulator::Yalain,
+            url: None,
+            game: Game::Auberean,
+        });
+        s.upsert_account(account(slug, "trialist"));
+        s.favourites.push(Favourite {
+            id: "f-ac2".into(),
+            name: None,
+            world_slug: slug.into(),
+            account: "trialist".into(),
+            client: ClientKind::Retail,
+            dat_set_id: None,
+            classic_set_id: None,
+        });
+        for (world, at) in [(slug, 30), ("shardfall", 40)] {
+            s.record_recent(Recent {
+                world_slug: world.into(),
+                account: "trialist".into(),
+                client: ClientKind::Auberean,
+                dat_set_id: Some("a1".into()),
+                classic_set_id: None,
+                last_played: at,
+            });
+        }
+        s.remember_launch(
+            slug,
+            WorldPrefs {
+                client: Some(ClientKind::Auberean),
+                account: Some("trialist".into()),
+                last_played: Some(30),
+                ..Default::default()
+            },
+        );
+        s
+    }
+
+    /// After Auberean's realm is played, the state file holds exactly what the 0.4.9 launcher
+    /// wrote, nothing it cannot read, so that launcher reads it whole; Auberean's part is in its
+    /// own file, and the two read back as the one state.
+    #[test]
+    fn auberean_s_part_is_kept_apart_where_the_0_4_9_launcher_never_reads() {
+        let d = tmp("state-apart");
+        let s = with_auberean_played("auberean-1");
+        s.save(&d).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(d.join(STATE_FILE)).unwrap()).unwrap();
+        let before: serde_json::Value = serde_json::from_str(STATE_0_4_9).unwrap();
+        assert_eq!(
+            written, before,
+            "the state file is the 0.4.9 launcher's own"
+        );
+        let own = std::fs::read_to_string(d.join(AUBEREAN_STATE_FILE)).unwrap();
+        for part in [
+            "\"library\"",
+            "auberean-1",
+            "trialist",
+            "shardfall",
+            "\"yalain\"",
+        ] {
+            assert!(own.contains(part), "{part}: {own}");
+        }
+        let (back, how, renamed) = LauncherState::load_moving(&d);
+        assert_eq!((how, renamed), (Loaded::Read, Vec::new()));
+        assert_eq!(back, s);
+        // With no Auberean part left, its file goes.
+        LauncherState::default().save(&d).unwrap();
+        assert!(!d.join(AUBEREAN_STATE_FILE).exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A state written before Auberean's realm had a file of its own, its part in the state file
+    /// and its world named `custom-<n>`, has that part moved to the realm's file the first time it
+    /// is read, its world given a name of its own with everything that names it; the second read
+    /// moves nothing.
+    #[test]
+    fn auberean_s_part_in_the_state_file_moves_out_on_the_first_read() {
+        let d = tmp("state-move");
+        std::fs::create_dir_all(&d).unwrap();
+        let old = with_auberean_played("custom-2");
+        std::fs::write(d.join(STATE_FILE), serde_json::to_vec_pretty(&old).unwrap()).unwrap();
+        let (s, how, renamed) = LauncherState::load_moving(&d);
+        assert_eq!(how, Loaded::Read);
+        assert_eq!(
+            renamed,
+            [Renamed {
+                from: "custom-2".into(),
+                to: "auberean-1".into(),
+            }]
+        );
+        assert_eq!(s, with_auberean_played("auberean-1"));
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(d.join(STATE_FILE)).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            serde_json::from_str::<serde_json::Value>(STATE_0_4_9).unwrap()
+        );
+        let (again, _, renamed) = LauncherState::load_moving(&d);
+        assert!(renamed.is_empty());
+        assert_eq!(again, s);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A world the 0.4.9 launcher adds while Auberean's realm has its own takes the first free
+    /// `custom-<n>`, which no world of Auberean's is ever named: both are kept, each with its own.
+    #[test]
+    fn a_world_the_0_4_9_launcher_adds_never_meets_one_of_auberean_s() {
+        let d = tmp("state-names");
+        let mut s = with_auberean_played("auberean-1");
+        s.save(&d).unwrap();
+        // The 0.4.9 launcher reads its file, adds a world, and writes it back.
+        let mut older: LauncherState =
+            serde_json::from_slice(&std::fs::read(d.join(STATE_FILE)).unwrap()).unwrap();
+        let slug = older
+            .add_custom_world("Mine", "play.example", "9000", None, Emulator::Ace)
+            .unwrap();
+        assert_eq!(slug, "custom-2");
+        std::fs::write(
+            d.join(STATE_FILE),
+            serde_json::to_vec_pretty(&older).unwrap(),
+        )
+        .unwrap();
+        let (back, _, renamed) = LauncherState::load_moving(&d);
+        assert!(renamed.is_empty());
+        assert!(back.is_auberean_world("auberean-1"));
+        assert!(back
+            .custom_worlds
+            .iter()
+            .any(|w| w.slug == "custom-2" && w.game == Game::Dereth));
+        // A world added for Auberean now is named as its own.
+        assert_eq!(
+            s.add_custom_world_for(
+                Game::Auberean,
+                "Next",
+                "127.0.0.1",
+                "9300",
+                None,
+                Emulator::Yalain
+            )
+            .unwrap(),
+            "auberean-2"
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1072,13 +1823,21 @@ mod tests {
         assert_ne!(s.new_id("eo"), "eor");
     }
 
-    /// The player's Asheron's Call 2 install and account are kept, and a file without them reads as
-    /// it did; nothing of them is written until they are given.
+    /// Auberean's realm's library and account are kept, and a file without them reads as it did;
+    /// nothing of them is written until they are given.
     #[test]
-    fn the_auberean_install_and_account_round_trip_and_are_written_only_once_given() {
+    fn the_auberean_library_and_account_round_trip_and_are_written_only_once_given() {
         let mut s = LauncherState::default();
         assert!(!serde_json::to_string(&s).unwrap().contains("auberean"));
-        s.auberean.install = Some(PathBuf::from("ac2"));
+        s.auberean.dat_sets.push(DatSet {
+            id: "a1".into(),
+            path: PathBuf::from("ac2"),
+            kind: SetKind::Auberean,
+            origin: DatOrigin::Shared,
+            files: Vec::new(),
+            last_patched_by_server: None,
+            created_by_launcher: false,
+        });
         s.auberean.account = Some("player".into());
         let json = serde_json::to_string(&s).unwrap();
         let back: LauncherState = serde_json::from_str(&json).unwrap();

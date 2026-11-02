@@ -3,6 +3,10 @@
 //! The supervisor owns the server's console: it writes the server's output to the log, and passes
 //! it the commands the launcher queues in the world's `console` folder ([`queue_command`]), one
 //! file a line, so a world running in the background takes them as one the launcher started does.
+//! It stops the server through that console, which saves everyone in the world. A Yalain world
+//! also stops by itself, saving, once its console's input ends ([`crate::host_yalain::update_config`]): a
+//! supervisor that dies without stopping it takes its world down cleanly rather than leaving it
+//! running with nobody holding its console.
 
 use crate::host_config::Settings;
 use dereth_launch::world::Game;
@@ -31,15 +35,24 @@ pub struct Definition {
     pub game: Game,
 }
 
-/// A world's settings, wherever its server keeps them: Empyrean's `empyrean.toml`, or Yalain's
-/// `yalain.json`.
+/// The configuration file a world of `game` keeps its settings in, in its folder: Empyrean's
+/// `empyrean.toml`, or Yalain's `yalain.toml`, which takes its form.
+#[must_use]
+pub fn config_file(game: Game) -> &'static str {
+    match game {
+        Game::Dereth => "empyrean.toml",
+        Game::Auberean => crate::host_yalain::CONFIG,
+    }
+}
+
+/// A world's settings, read from its configuration file ([`config_file`]).
 ///
 /// # Errors
 /// When they are not there or do not read.
 pub fn read_settings(dir: &Path, game: Game) -> Result<Settings, String> {
     match game {
         Game::Dereth => Settings::from_config(
-            &std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?,
+            &std::fs::read_to_string(dir.join(config_file(game))).map_err(|e| e.to_string())?,
         ),
         Game::Auberean => crate::host_yalain::read(dir),
     }
@@ -369,6 +382,18 @@ impl Drop for Parent {
     }
 }
 
+/// What a world's page says of `server` ended by itself with `code` (`said` in words): Yalain's
+/// code 3 is "the ports are taken", which it prints a `[ports-taken]` line for; anything else is
+/// the code, and the log to look in.
+fn ended(server: &str, code: Option<i32>, said: &str) -> String {
+    if server == "Yalain" && code == Some(3) {
+        return "Another program holds this world's ports. Choose another port in its Settings, \
+                or close that program."
+            .to_owned();
+    }
+    format!("{server} exited with {said}. Check the logs.")
+}
+
 /// What the server's console is given to stop: Empyrean's `exit`, and Yalain's `stop-now`, which
 /// saves everyone in the world and exits at once (its `shutdown` counts two minutes down for the
 /// players). Neither is killed: what players did since the last save would be lost.
@@ -377,6 +402,14 @@ fn stop_word(game: Game) -> &'static [u8] {
         Game::Auberean => b"stop-now\n",
         Game::Dereth => b"exit\n",
     }
+}
+
+/// The world in `dir` as it starts: a downloaded update of its server's release put in first, then
+/// its definition read, so the start runs the program the update put in (a Yalain release goes in
+/// beside the old one, in a folder of its own).
+fn updated_definition(dir: &Path) -> Result<Definition, String> {
+    crate::host_updates::apply_pending(dir)?;
+    read_definition(dir)
 }
 
 /// Runs without a web view. Stop asks the server to save and exit; it never kills it.
@@ -404,13 +437,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     guard
         .try_lock()
         .map_err(|_| "This world is already running.")?;
-    // Updates of the server's release are Empyrean's alone.
-    let pending = if yalain {
-        Ok(())
-    } else {
-        crate::host_updates::apply_pending(dir)
-    };
-    pending.inspect_err(|error| {
+    let definition = updated_definition(dir).inspect_err(|error| {
         let _ = write_json(
             &dir.join("status.json"),
             &Status {
@@ -432,7 +459,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
         up: false,
     }));
     let args: Vec<std::ffi::OsString> = if yalain {
-        crate::host_yalain::args(dir, &settings)
+        crate::host_yalain::args(dir)
     } else {
         vec!["--config".into(), dir.join("empyrean.toml").into()]
     };
@@ -506,13 +533,16 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
             }
             if !stopping && yalain {
                 // Up once its log has said where it listens (the world database's notes may
-                // follow by the thousand); it counts no players for the launcher.
+                // follow by the thousand), or its status endpoint answers, where its players are
+                // counted as Empyrean's are.
+                let players = health(&settings);
                 let up = log
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .up;
-                if up {
+                if up || players.is_some() {
                     state.phase = "running".into();
+                    state.players = players;
                     state.message = None;
                 } else if started.elapsed() > Duration::from_secs(300) {
                     state.message = Some("Waiting for the world to start. Check its log.".into());
@@ -545,9 +575,9 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     state.message = if clean {
         None
     } else {
-        Some(format!("{server} exited with {result}. Check the logs."))
+        Some(ended(server, result.code(), &result.to_string()))
     };
-    let update_result = if result.success() && !yalain {
+    let update_result = if clean {
         crate::host_updates::apply_pending(dir)
     } else {
         Ok(())
@@ -569,6 +599,60 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Yalain world whose update to 0.1.1 was downloaded starts the program that update put in
+    /// (`runtime/0.1.1`), not the one it ran before: the definition is read once the update is in.
+    #[test]
+    fn a_yalain_world_starts_the_release_its_update_just_put_in() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let exe = format!("yalain{}", std::env::consts::EXE_SUFFIX);
+        let old = dir.join("runtime/0.1.0").join(&exe);
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, b"the old program").unwrap();
+        write_json(
+            &dir.join("host.json"),
+            &Definition {
+                id: "host-test".into(),
+                version: "0.1.0".into(),
+                program: old.clone(),
+                wrapper: dir.join("wrapper"),
+                checkout: false,
+                game: Game::Auberean,
+            },
+        )
+        .unwrap();
+        std::fs::write(dir.join(crate::host_yalain::CONFIG), "[server]\n").unwrap();
+        let download = dir.join("update-download");
+        let new = download.join("yalain-0.1.1").join(&exe);
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&new, b"the new program").unwrap();
+        std::fs::write(
+            download.join("checked-release.json"),
+            serde_json::json!({
+                "version": "0.1.1",
+                "upgrade": { "kind": "patch", "previous": "0.1.0", "upgrades_from": "0.1.0",
+                             "world_database": "v0.23.0", "world_database_fetch": false },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("update.json"),
+            serde_json::json!({ "pending": true, "notes": "", "rollback": false }).to_string(),
+        )
+        .unwrap();
+        assert_eq!(read_definition(dir).unwrap().program, old);
+        let starting = updated_definition(dir).unwrap();
+        assert_eq!(starting.version, "0.1.1");
+        assert!(starting.program.starts_with(dir.join("runtime/0.1.1")));
+        assert_eq!(
+            std::fs::read(&starting.program).unwrap(),
+            b"the new program"
+        );
+        // Nothing pending: the definition as it is.
+        assert_eq!(updated_definition(dir).unwrap().program, starting.program);
+    }
     #[test]
     fn a_missing_server_reports_failure_and_releases_the_host_lock() {
         let temp = tempfile::tempdir().unwrap();
@@ -605,6 +689,19 @@ mod tests {
         assert!(state.pid.is_none());
     }
     /// A world is asked to save and stop through its console, in its server's own word.
+    #[test]
+    fn a_yalain_that_finds_its_ports_taken_says_so_and_any_other_end_names_its_code() {
+        assert!(ended("Yalain", Some(3), "exit code: 3").starts_with("Another program holds"));
+        assert_eq!(
+            ended("Yalain", Some(1), "exit code: 1"),
+            "Yalain exited with exit code: 1. Check the logs."
+        );
+        assert_eq!(
+            ended("Empyrean", Some(3), "exit code: 3"),
+            "Empyrean exited with exit code: 3. Check the logs."
+        );
+    }
+
     #[test]
     fn a_stopping_world_is_asked_to_save_and_exit_in_its_servers_own_word() {
         assert_eq!(stop_word(Game::Auberean), b"stop-now\n");
@@ -679,7 +776,8 @@ b"
         assert!(!log.lock().unwrap().up);
         push_log(
             &log,
-            "listening on 127.0.0.1:9200/9201 (login) and 127.0.0.1:9202/9203 (world)",
+            "2026-11-01T10:00:00Z  INFO yalain: listening on 127.0.0.1:9200/9201 (login) and \
+             127.0.0.1:9202/9203 (world, referred as 127.0.0.1) [listening]",
         );
         for i in 0..1000 {
             push_log(&log, &format!("not handled yet what=a camp (c-{i})"));

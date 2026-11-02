@@ -123,10 +123,10 @@ looks again every 10 seconds. The Library's **Show what I'm playing on Discord**
 
 | What | Where |
 |---|---|
-| settings: `launcher-state.json` (the library, accounts, favorites, recent worlds) | `%APPDATA%\Dereth\launcher` on Windows, `~/Library/Application Support/Dereth/launcher` on macOS, `$XDG_CONFIG_HOME/dereth/launcher` (`~/.config`) on Linux |
+| settings: `launcher-state.json` (the library, accounts, favorites, recent worlds), and Auberean's realm's own in `auberean-state.json` beside it (its Library, the worlds added for it and everything played there), which a launcher from before the realm never reads or writes | `%APPDATA%\Dereth\launcher` on Windows, `~/Library/Application Support/Dereth/launcher` on macOS, `$XDG_CONFIG_HOME/dereth/launcher` (`~/.config`) on Linux |
 | data: private copies of data files, the web view's cache, the world list | `%LOCALAPPDATA%\Dereth\launcher` on Windows, the settings folder on macOS, `$XDG_DATA_HOME/dereth/launcher` (`~/.local/share`) on Linux |
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
-| passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (Secret Service), one entry per account per world: `dereth:world/<slug>/<account>`. With no keyring, the secrets the launcher makes for Asheron's Call 2 accounts go in the data folder's `auberean/secrets.json`, readable by you alone; a password you type is not kept |
+| passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (Secret Service), one entry per account per world: `dereth:world/<slug>/<account>`. With no keyring, the passwords earlier launchers made up for Asheron's Call 2 accounts are in the data folder's `auberean/secrets.json`, readable by you alone, and still play those accounts; no launcher makes one now |
 
 The launcher writes nothing outside its own `launcher` folders, except the interface in the
 client's preferences.
@@ -328,7 +328,8 @@ For scripts, with Lyceum closed, `dereth --publish-host <world-folder> <world.to
 | the Dereth client as downloaded (by a launcher from Auberean's release) | `components/dereth/<version>` there, the same way |
 | the world on this computer (Auberean's realm) | `auberean/yalain.sqlite` (accounts and characters) and `auberean/yalain.log` (its log, the one before it as `yalain.log.old`) in the launcher's data folder |
 | Athenaeum's worlds | `Athenaeum` in your Documents; the ones the launcher made or opened, in `athenaeum-worlds.json` in its data folder |
-| each world you host | `hosts/<id>` in the launcher's data folder: `empyrean.toml`, `auth.db` (accounts), `shard.db` (characters), `world.pack` and `world.pack.base` (the ACE release it came from), `server.log` and `server.log.old`, `runtime/<version>` (its own Empyrean), `published/snapshot-<n>` (published Lyceum worlds), `client-overlays` (the launcher's client's patches) |
+| what Auberean says as it plays | `auberean/auberean-<account>.log` in the launcher's data folder, written again at each start; when Auberean stops with an error as it starts, the page shows its last line |
+| each world you host | `hosts/<id>` in the launcher's data folder: `empyrean.toml`, `auth.db` (accounts), `shard.db` (characters), `world.pack` and `world.pack.base` (the ACE release it came from), `server.log` and `server.log.old`, `runtime/<version>` (its own Empyrean), `published/snapshot-<n>` (published Lyceum worlds), `client-overlays` (the launcher's client's patches); a Yalain world's, in `hosts-auberean/<id>` beside it, where a launcher from before Auberean's realm never looks (one an earlier build made in `hosts` moves there at start while it is stopped and runs no system service): `yalain.toml`, `yalain.sqlite` (accounts and characters) and its update backups, its log, `runtime/<version>` (its own Yalain), and `published/snapshot-<n>` (published Athenaeum worlds) |
 | backups | `auth.db.backup-update-v<old>-v<new>-<time>` and the same for `shard.db`, made before each update; the newest three are kept |
 | ACE's world release, as downloaded | Empyrean's cache: `%LOCALAPPDATA%\Empyrean\world-database`, `~/Library/Caches/Empyrean/world-database`, `$XDG_CACHE_HOME/empyrean/world-database` |
 | a world running in the background | Windows: the service `dereth-<id>`; Linux: `~/.config/systemd/user/dereth-<id>.service`; macOS: `~/Library/LaunchAgents/dereth-<id>.plist` |
@@ -345,13 +346,28 @@ opens in the one it last showed; a first run opens in the one its release names 
 launcher from Auberean's release). In Auberean's realm the rail's Empyrean and Lyceum are **Yalain**
 and **Athenaeum**, and Plugins (Dereth's alone) folds away.
 
-**Your game files.** Nothing of Asheron's Call 2 comes with the launcher or is downloaded. On Play
-(or Yalain's or Athenaeum's page), **Choose Your Asheron's Call 2 Folder** names the folder of your
-own install. The launcher checks its data files as it checks Asheron's Call's: `portal.dat`,
-`cell_1.dat` and `local_English.dat` must be there, and `highres.dat` is read when it is; each
-file's header must say it is that file, written at the size it is (a copy cut short is caught). It
-keeps the folder in `launcher-state.json` and gives it to the programs as it is; it never copies
-or changes a file in it.
+**The Library.** Nothing of Asheron's Call 2 comes with the launcher or is downloaded. The realm's
+Library is Dereth's, with the game's own things in it:
+
+- **Retail client** (Windows only): the folder that holds `AC2client.exe`, which plays with the
+  data files beside it. **Verify** checks every file of the folder against the September 2013
+  client's list of files (its data files and settings left out), **Change** points at another,
+  **Remove** forgets it.
+- **Auberean client:** its version and the folder it is in, with its update and Remove.
+- **Data sets:** the `*.dat` files from an install: `portal.dat`, `cell_1.dat` and
+  `local_English.dat`, with `highres.dat` when the folder has it. Each set shows its files'
+  iterations, portal/cell/local/highres (`End of Retail 137/7/9/7`, what every client told the
+  servers at the end; any other is `Older`). **+ Add data files** adds a folder; a folder with only
+  some of the files is refused, naming what's missing. The first set is the default, the one
+  Auberean, Yalain and Athenaeum are given unless another is chosen; **Set default** makes another
+  the default, and **Remove** forgets one (its files stay). Adding the retail client adds its data
+  files too.
+
+Each file's header must say it is that file, written at the size it is (a copy cut short is
+caught). The launcher keeps the Library in `auberean-state.json`, apart from Asheron's Call's; it
+never copies or changes a file in it. With no set yet, Play, Yalain's and Athenaeum's pages offer
+**Choose Your Asheron's Call 2 Folder**, which adds an install's retail client and data set at
+once. A launcher that kept one install folder before takes it into the Library at its next start.
 
 **The programs.** The launcher from Auberean's release has the Auberean client beside it. Yalain
 and Athenaeum, and the Auberean client for a launcher from Dereth's release, are downloaded,
@@ -369,23 +385,60 @@ the site's `https://dereth.network/join#...&game=auberean`) adds the world to Au
 link without `game` is Dereth's, as every link was before; a game this launcher does not know is
 refused. Links the launcher writes name the game only for Auberean.
 
-**Play** runs a world on this computer and logs in to it: it starts Yalain when it is not running,
-waits until Yalain says it is listening, then starts Auberean with `--dats <your folder> --server
-127.0.0.1:9200 --account <name>:`. The account is the name you type; the world makes it the first
-time it logs in, and asks no password. A world of Asheron's Call 2's on the Dereth Network opens
-from **Worlds**, with an account and a password; the password goes to the client and is kept
-nowhere. The launcher logs the client's command line with the password replaced by `***`.
+**Play** opens a world's page, a world you host as a listed one: Auberean is started with `--dats
+<data set> --host <address> --port <port> --account <name> --glsticketdirect <password>`, the
+retail client's own options. A world of Asheron's Call 2's asks, as Asheron's Call's do, for an
+account and a password of your own, with the same field and **Save password securely** box; the
+world makes the account the first time it logs in, with that password. The password goes to the
+client, and is kept in the system's secret store only when the box is checked. **Accounts** shows
+an Asheron's Call 2 account's saved password when you ask. The launcher logs the client's command
+line with the password replaced by `***`.
 
-**Yalain's page** runs the world on this computer: **Start** fetches the world database Yalain's
-release pins into your user cache when it is not there yet (`yalain world fetch`), then runs
-`yalain --dats <your folder> --data <data>/auberean/yalain.sqlite --login-port 9200 --world-port
-9202`, listening on this computer alone; **Stop** ends it at once. Its log is on the page. Closing
-the launcher stops it.
+**Yalain's page** hosts worlds as Empyrean's page does: **New World** (a name, a data set from the
+Library, a port: the world takes it and the three after it, and the two switches), each world in
+its own folder under `hosts-auberean/<id>` with its settings in `yalain.toml` (in `empyrean.toml`'s
+form), **Start** (which fetches the world database its Yalain pins into your user cache the first time,
+`yalain world fetch`), **Stop**, **Play**, **Settings**, its console and log. A world's page has
+**Athenaeum** where Empyrean's has **Lyceum**: its world base (`Yalain v0.21.0`, the world
+database its Yalain pins) and what it runs, `Unmodified.` or an Athenaeum world and its version;
+**Publish Athenaeum World** with a picker of Athenaeum's worlds (or Other...), **Publish Latest**
+once the world was saved since, and **Restore World Base**. Its Settings say `Plays the Athenaeum world <name> version <n>,
+published <date>.` The world must be stopped. Its console has Empyrean's presets (**Message
+everyone...** is `gamecast`). **Advanced** has **Check for Updates** as Empyrean's has, over
+`yalain-v<version>` releases and the `upgrade` their `release.json` declares: a patch downloads by
+itself, anything else waits for **Update to <version>**, and the download goes in at the next stop
+or start: the store backed up (`yalain.sqlite.backup-update-v<old>-v<new>-<time>`, the newest three
+kept), the world database the release pins fetched first when it pins another, then the program
+replaced in `runtime/<version>`. A release that cannot go in leaves the world on the one it ran.
+**Undo last update** puts the previous program and the store from before the update back. A world
+that finds its ports taken says so on its page. **Run via System Service** works as Empyrean's; on
+Windows the service's account cannot read your user cache, so a Yalain world set to run as one
+keeps its world database in its own folder (`world-database/<tag>`, which `[server]
+world_database_path`, or for a published Athenaeum world `world_base_path`, names) from then on.
+
+Publishing copies the saved world's own files (`world.toml`, `world.lock` and its packs; not
+`.playtest`, `build` or `characters`) into the next snapshot, `published/snapshot-<n>/world`,
+fetches the world database release the world names in its `[base]` (if it names one), compiles the
+copy against the world's data set as the server will (`yalain world compile`; a world that does
+not compile is refused and the world keeps what it played), then points `[server]
+world_database_path` at it. Each publish that changes something is the next version; the three
+newest snapshots are kept, and the one the world plays always. An Athenaeum world changes only the
+server's rows (people, objects, camps, places, talk, stores, quests), which every client is told of
+as it plays, so nothing is sent to players' data files and the retail client sees it too.
 
 **Athenaeum's page** makes and opens worlds. **New world** makes one with `athenaeum new` in an
 `Athenaeum` folder in your Documents and opens the editor on it; **Open World** opens one by its
-folder. The editor is started with `<world> --dats <your folder>`, and finds Yalain and Auberean
-beside itself.
+folder. The editor is started with `<world> --dats <default data set>`, and finds Yalain and Auberean
+beside itself. A world's row opens to when it was saved, what it changes, **Export For** and
+**Publish To**, which publishes it to one of your Yalain worlds, and **Delete**.
+
+**Export For** writes the world for a Yalain that serves it elsewhere, as a world database package,
+in a folder you choose (that folder when it is empty or an earlier export, else `<world>-yalain` in
+it): its `world.toml`, naming the release of the world database it lies over (the one it names, else
+the one Yalain pins), `world.lock` and its packs, checked with `yalain world compile` against your
+default data set, and a `README.txt` saying how to serve it (`[server] world_database_path`) and
+which release to fetch. Athenaeum changes only the server's rows, never the game's data files, so
+every client, retail too, sees its changes from the server.
 
 Started with `DERETH_SETTINGS_DIR` set, the launcher gives Auberean `AUBEREAN_SETTINGS_DIR` as a
 folder `auberean` in it, so a trial run keeps away from the player's own settings.

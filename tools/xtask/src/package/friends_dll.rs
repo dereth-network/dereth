@@ -16,6 +16,10 @@
 //! release workflows build it once, on Windows, and hand the same file to every system's job.
 //!
 //! **The check.** A 32-bit x86 Windows DLL that imports no Visual C++ runtime.
+//!
+//! **In a working build.** `cargo xtask build` on Windows, for Asheron's Call 2 (`--game auberean`
+//! or both games), builds it too, with the build's profile, and puts it beside the programs the
+//! build wrote ([`build_beside`]), where a launcher built there looks for it.
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +31,9 @@ use crate::util::{target_dir, workspace_root};
 
 /// The library's file name, beside the launcher.
 pub const FILE: &str = "auberean_friends.dll";
+
+/// The file cargo writes: named by the crate's library, which must not be the friends stream's.
+pub const BUILT: &str = "auberean_friends_dll.dll";
 
 /// Its package.
 pub const PACKAGE: &str = "auberean-friends-dll";
@@ -162,7 +169,109 @@ fn build(ws: &Path, facts: &BuildFacts) -> Result<PathBuf, String> {
         &[],
     )
     .map_err(|e| format!("{e}; is {TRIPLE} installed? `rustup target add {TRIPLE}`"))?;
-    Ok(target_dir().join(TRIPLE).join("release").join(FILE))
+    Ok(target_dir().join(TRIPLE).join("release").join(BUILT))
+}
+
+/// The profile a `cargo build` command line names: `--release`, `--profile <p>` (or
+/// `--profile=<p>`), else `dev`.
+pub fn profile_of(args: &[String]) -> String {
+    let mut profile = "dev".to_owned();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--release" || a == "-r" {
+            "release".clone_into(&mut profile);
+        } else if a == "--profile" {
+            if let Some(p) = it.next() {
+                p.clone_into(&mut profile);
+            }
+        } else if let Some(p) = a.strip_prefix("--profile=") {
+            p.clone_into(&mut profile);
+        }
+    }
+    profile
+}
+
+/// The folder of the target directory a profile's output goes in: `debug` for the dev and test
+/// profiles, `release` for the release and bench profiles, else the profile's own name.
+pub fn profile_folder(profile: &str) -> &str {
+    match profile {
+        "dev" | "test" => "debug",
+        "release" | "bench" => "release",
+        other => other,
+    }
+}
+
+/// The `--target <triple>` (or `--target=<triple>`) a `cargo build` command line names, if any.
+fn target_of(args: &[String]) -> Option<&str> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--target" {
+            return it.next().map(String::as_str);
+        }
+        if let Some(t) = a.strip_prefix("--target=") {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// Where a `cargo build` with `args` writes the programs, relative to the target directory:
+/// `<folder>`, or `<triple>/<folder>` with a `--target`.
+pub fn programs_folder(args: &[String]) -> PathBuf {
+    let profile = profile_of(args);
+    let folder = PathBuf::from(profile_folder(&profile));
+    match target_of(args) {
+        Some(triple) => PathBuf::from(triple).join(folder),
+        None => folder,
+    }
+}
+
+/// After `cargo xtask build` on Windows: the library built for [`TRIPLE`] with the build's profile
+/// (`args`, the arguments it gave cargo) and the C runtime linked in, checked, and put beside the
+/// programs the build wrote as [`FILE`]. Where it went.
+pub fn build_beside(args: &[String]) -> Result<PathBuf, String> {
+    if let Some(why) = refusal(None, &super::host()) {
+        return Err(why);
+    }
+    let ws = workspace_root();
+    let profile = profile_of(args);
+    let env = [(
+        "CARGO_ENCODED_RUSTFLAGS".to_owned(),
+        "-Ctarget-feature=+crt-static".to_owned(),
+    )];
+    run_in(
+        &ws,
+        "cargo",
+        &[
+            "build",
+            "-p",
+            PACKAGE,
+            "--target",
+            TRIPLE,
+            "--profile",
+            &profile,
+        ],
+        &env,
+        &[],
+    )?;
+    let target = target_dir();
+    let built = target
+        .join(TRIPLE)
+        .join(profile_folder(&profile))
+        .join(BUILT);
+    let described = check(&read(&built)?).map_err(|problems| {
+        format!(
+            "the header check refused {}:\n  {}",
+            built.display(),
+            problems.join("\n  ")
+        )
+    })?;
+    let dir = target.join(programs_folder(args));
+    mkdir(&dir)?;
+    let placed = dir.join(FILE);
+    copy(&built, &placed)?;
+    println!("  {FILE}: {described}");
+    Ok(placed)
 }
 
 /// `cargo xtask package friends-dll ...` (the arguments after `friends-dll`).

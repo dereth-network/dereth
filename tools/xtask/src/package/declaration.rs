@@ -143,25 +143,27 @@ pub struct Entry {
 
 /// Reads `releases.toml`.
 pub fn parse_entries(text: &str) -> Result<Vec<Entry>, String> {
-    let table: toml::Table = toml::from_str(text).map_err(|e| format!("{RELEASES_FILE}: {e}"))?;
+    parse_entries_from(text, RELEASES_FILE)
+}
+
+/// Reads a product's `releases.toml`, `file` naming it in what is refused (Yalain's has the same
+/// form).
+pub fn parse_entries_from(text: &str, file: &str) -> Result<Vec<Entry>, String> {
+    let table: toml::Table = toml::from_str(text).map_err(|e| format!("{file}: {e}"))?;
     let mut out: Vec<Entry> = Vec::new();
     let list = match table.get("release") {
         None => return Ok(out),
         Some(toml::Value::Array(a)) => a,
-        Some(_) => {
-            return Err(format!(
-                "{RELEASES_FILE}: `release` must be [[release]] tables"
-            ))
-        }
+        Some(_) => return Err(format!("{file}: `release` must be [[release]] tables")),
     };
     for item in list {
         let t = item
             .as_table()
-            .ok_or_else(|| format!("{RELEASES_FILE}: `release` must be [[release]] tables"))?;
+            .ok_or_else(|| format!("{file}: `release` must be [[release]] tables"))?;
         let s = |k: &str| t.get(k).and_then(toml::Value::as_str).map(str::to_owned);
         let version =
-            s("version").ok_or_else(|| format!("{RELEASES_FILE}: a [[release]] has no version"))?;
-        let at = |what: &str| format!("{RELEASES_FILE}, release {version}: {what}");
+            s("version").ok_or_else(|| format!("{file}: a [[release]] has no version"))?;
+        let at = |what: &str| format!("{file}, release {version}: {what}");
         for key in t.keys() {
             if !["version", "upgrades_from", "config", "notes"].contains(&key.as_str()) {
                 return Err(at(&format!("unknown key `{key}`")));
@@ -215,7 +217,7 @@ pub fn parse_entries(text: &str) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
-fn core_text(v: [u64; 3]) -> String {
+pub(crate) fn core_text(v: [u64; 3]) -> String {
     format!("{}.{}.{}", v[0], v[1], v[2])
 }
 
@@ -374,11 +376,20 @@ pub fn declare(
 
 /// The newest release tag among `tags` (not a pre-release) older than `version`'s core.
 pub fn previous_tag(tags: &[String], version: &str) -> Result<Option<String>, String> {
+    previous_tag_of(TAG_PREFIX, tags, version)
+}
+
+/// [`previous_tag`] for the product whose tags begin with `prefix`.
+pub fn previous_tag_of(
+    prefix: &str,
+    tags: &[String],
+    version: &str,
+) -> Result<Option<String>, String> {
     let core = parse_release_version(version)?;
     Ok(tags
         .iter()
         .filter_map(|t| {
-            let v = t.strip_prefix(TAG_PREFIX)?;
+            let v = t.strip_prefix(prefix)?;
             if v.contains('-') {
                 return None;
             }

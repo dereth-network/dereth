@@ -1,16 +1,31 @@
-//! A server's updates: which newer Empyrean release it may take, downloading and checking it, and
-//! handing it to Empyrean to install at the next stop or start.
+//! A server's updates: which newer Empyrean (or Yalain) release it may take, downloading and
+//! checking it, and installing it at the next stop or start.
 //!
 //! A newer release is found in the repository's releases ([`components::release_list`]). Its
 //! `release.json`, checked against the release's `SHA256SUMS`, says what upgrading to it involves.
 //! A patch of the same minor version is downloaded by itself; any other release waits for the
 //! person to approve that exact version. Empyrean then backs up the databases, installs, trial
 //! starts the new server and restores everything when that fails.
+//!
+//! A Yalain world takes its releases the same way, and installs as Yalain's releases say: with the
+//! world stopped, the program is replaced by the new release's ([`install_yalain`]), after the
+//! world database it pins is fetched when it pins another (`world_database_fetch`) and its store
+//! (`yalain.sqlite`, accounts and characters) is backed up. Undo puts the previous program and
+//! that backup back.
 
 use crate::{components, host_runtime};
 use dereth_launch::components::{self as metadata, Product, Release};
+use dereth_launch::world::Game;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The server a world of `game` runs, whose releases its updates are, and its name.
+fn server_of(game: Game) -> (Product, &'static str) {
+    match game {
+        Game::Dereth => (Product::Empyrean, "Empyrean"),
+        Game::Auberean => (Product::Yalain, "Yalain"),
+    }
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct View {
@@ -140,9 +155,11 @@ fn check_offer(dir: &Path) -> Result<(), String> {
             },
         );
     }
-    let current = metadata::version(&definition.version).ok_or("Invalid Empyrean version")?;
-    let list = components::release_list(false, &[Product::Empyrean.releases_since(current)])?;
-    let mut releases: Vec<_> = metadata::releases(&list, Product::Empyrean)?
+    let (product, server) = server_of(definition.game);
+    let current = metadata::version(&definition.version)
+        .ok_or_else(|| format!("Invalid {server} version"))?;
+    let list = components::release_list(false, &[product.releases_since(current)])?;
+    let mut releases: Vec<_> = metadata::releases(&list, product)?
         .into_iter()
         .filter(|r| metadata::version(&r.version).is_some_and(|v| v > current))
         .collect();
@@ -198,9 +215,9 @@ fn check_offer(dir: &Path) -> Result<(), String> {
                 version: Some(offered.clone()),
                 notes,
                 message: Some(if download_now {
-                    format!("Downloading Empyrean {offered}...")
+                    format!("Downloading {server} {offered}...")
                 } else {
-                    format!("Empyrean {offered} is out. Read what changed, then update.")
+                    format!("{server} {offered} is out. Read what changed, then update.")
                 }),
                 rollback: old.rollback,
                 skipped_version: old.skipped_version.clone(),
@@ -216,7 +233,7 @@ fn check_offer(dir: &Path) -> Result<(), String> {
     save(
         dir,
         &View {
-            message: Some(format!("Empyrean {} is the newest.", definition.version)),
+            message: Some(format!("{server} {} is the newest.", definition.version)),
             latest: Some(definition.version.clone()),
             rollback: old.rollback,
             skipped_version: old.skipped_version,
@@ -237,8 +254,10 @@ fn declared_sum(index: &[u8], target: &str) -> Option<String> {
 }
 
 /// Download the offered release, check it and hand it to Empyrean, which prepares it for the next
-/// stop or start. `approved` is the version the person approved, for an update that needs it.
+/// stop or start (a Yalain world's waits in the world's folder for [`install_yalain`]). `approved`
+/// is the version the person approved, for an update that needs it.
 pub fn stage(dir: &Path, approved: Option<&str>) -> Result<(), String> {
+    let (product, server) = server_of(host_runtime::read_definition(dir)?.game);
     let offer: Offer = serde_json::from_slice(
         &std::fs::read(dir.join("update-offer.json"))
             .map_err(|_| "Check for updates again first.".to_owned())?,
@@ -250,9 +269,7 @@ pub fn stage(dir: &Path, approved: Option<&str>) -> Result<(), String> {
     }
     let sums = metadata::parse_sums(&offer.sums);
     metadata::check_sum(metadata::FACTS_ASSET, &offer.index, &sums)?;
-    let (name, url) = offer
-        .release
-        .archive(Product::Empyrean, components::target())?;
+    let (name, url) = offer.release.archive(product, components::target())?;
     let bytes = components::download(url, metadata::MAX_ARCHIVE_BYTES, &mut |_, _| {})?;
     metadata::check_sum(&name, &bytes, &sums)?;
     if declared_sum(&offer.index, components::target())
@@ -275,30 +292,223 @@ pub fn stage(dir: &Path, approved: Option<&str>) -> Result<(), String> {
     }
     std::fs::create_dir(&folder).map_err(|e| e.to_string())?;
     crate::component_archive::extract(&bytes, &name, &folder)?;
-    let exe = components::find_executable(&folder, Product::Empyrean)?;
+    let exe = components::find_executable(&folder, product)?;
     let candidate = exe.parent().ok_or("Missing candidate folder")?;
     let index_path = folder.join("checked-release.json");
     std::fs::write(&index_path, &offer.index).map_err(|e| e.to_string())?;
-    let mut extra = vec![
-        std::ffi::OsStr::new("--candidate"),
-        candidate.as_os_str(),
-        std::ffi::OsStr::new("--index"),
-        index_path.as_os_str(),
-    ];
-    if let Some(version) = approved {
-        extra.extend([
-            std::ffi::OsStr::new("--approve"),
-            std::ffi::OsStr::new(version),
-        ]);
+    if product == Product::Empyrean {
+        let mut extra = vec![
+            std::ffi::OsStr::new("--candidate"),
+            candidate.as_os_str(),
+            std::ffi::OsStr::new("--index"),
+            index_path.as_os_str(),
+        ];
+        if let Some(version) = approved {
+            extra.extend([
+                std::ffi::OsStr::new("--approve"),
+                std::ffi::OsStr::new(version),
+            ]);
+        }
+        control(dir, "stage", &extra)?;
     }
-    control(dir, "stage", &extra)?;
     let mut state = view(dir);
     state.pending = true;
     state.skipped_version = None;
     state.message = Some(format!(
-        "Empyrean {version} is downloaded. It goes in the next time this world stops or starts."
+        "{server} {version} is downloaded. It goes in the next time this world stops or starts."
     ));
     save(dir, &state)
+}
+
+/// What undoing a Yalain world's last update puts back: the program and version it ran, its store
+/// as it was, and the world database release its fetch had found.
+#[derive(Serialize, Deserialize)]
+struct YalainRollback {
+    program: PathBuf,
+    version: String,
+    backup: PathBuf,
+    fetched: Option<String>,
+}
+
+/// The file a Yalain world keeps what its last update replaced in, for Undo.
+const YALAIN_ROLLBACK: &str = "update-rollback.json";
+
+/// How many backups of a Yalain world's store its updates keep, newest first.
+const KEPT_BACKUPS: usize = 3;
+
+/// The Yalain world in `dir`'s store: `[database] shard_db_path` in its configuration (relative to
+/// its folder), else `yalain.sqlite` there.
+fn yalain_store(dir: &Path) -> PathBuf {
+    let named = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG))
+        .ok()
+        .and_then(|t| t.parse::<toml::Table>().ok())
+        .and_then(|t| {
+            t.get("database")?
+                .get("shard_db_path")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| crate::host_yalain::DATABASE.to_owned());
+    let path = Path::new(&named);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        dir.join(path)
+    }
+}
+
+/// `store` with `suffix` after its name: its `-wal` and `-shm` companions, and its backups.
+fn beside(store: &Path, suffix: &str) -> PathBuf {
+    let mut name = store.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    store.with_file_name(name)
+}
+
+/// Back up the Yalain world's store (`store`, and its `-wal` and `-shm` when it has them) before
+/// the update from `from` to `to`, keeping the newest [`KEPT_BACKUPS`]. The backup's path.
+fn backup_store(store: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let backup = beside(store, &format!(".backup-update-v{from}-v{to}-{at}"));
+    if store.is_file() {
+        std::fs::copy(store, &backup).map_err(|e| format!("Could not back up the store: {e}"))?;
+    } else {
+        // A world that never started has no store yet: an empty backup stands for none.
+        std::fs::write(&backup, b"").map_err(|e| e.to_string())?;
+    }
+    for companion in ["-wal", "-shm"] {
+        let from = beside(store, companion);
+        if from.is_file() {
+            std::fs::copy(&from, beside(&backup, companion))
+                .map_err(|e| format!("Could not back up the store: {e}"))?;
+        }
+    }
+    let prefix = format!(
+        "{}.backup-update-",
+        store.file_name().unwrap_or_default().to_string_lossy()
+    );
+    let mut backups: Vec<(u64, PathBuf)> = std::fs::read_dir(store.parent().unwrap_or(store))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let rest = name.strip_prefix(&prefix)?;
+            let time = rest.rsplit('-').next()?.parse().ok()?;
+            Some((time, e.path()))
+        })
+        .collect();
+    backups.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    for (_, old) in backups.into_iter().skip(KEPT_BACKUPS) {
+        let _ = std::fs::remove_file(&old);
+        for companion in ["-wal", "-shm"] {
+            let _ = std::fs::remove_file(beside(&old, companion));
+        }
+    }
+    Ok(backup)
+}
+
+/// Install the Yalain release downloaded into the stopped world in `dir`, as its `release.json`
+/// says: its program copied into `runtime/<version>`, the world database it pins fetched by it
+/// first when the release says so (`upgrade.world_database_fetch`), the store backed up; then the
+/// world runs it. Until the last step nothing the world runs changes, and a failure on the way puts
+/// the fetch's record back. The version installed.
+///
+/// # Errors
+/// No download, or a step that failed, in words for a person.
+pub fn install_yalain(dir: &Path) -> Result<String, String> {
+    let folder = dir.join("update-download");
+    let index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(folder.join("checked-release.json"))
+            .map_err(|_| "The downloaded update is gone: check for updates again.".to_owned())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let version = index["version"]
+        .as_str()
+        .filter(|v| metadata::version(v).is_some())
+        .ok_or("The update's release.json names no version.")?
+        .to_owned();
+    let exe = components::find_executable(&folder, Product::Yalain)?;
+    let mut definition = host_runtime::read_definition(dir)?;
+    let runtime = dir.join("runtime").join(&version);
+    if runtime.exists() {
+        std::fs::remove_dir_all(&runtime).map_err(|e| e.to_string())?;
+    }
+    crate::hosts::copy_tree(exe.parent().ok_or("Missing candidate folder")?, &runtime)?;
+    let program = runtime.join(exe.file_name().ok_or("Invalid program name")?);
+    let fetched_before = std::fs::read_to_string(dir.join(crate::host_yalain::FETCHED)).ok();
+    let installed = (|| {
+        if index["upgrade"]["world_database_fetch"] == true {
+            crate::host_yalain::fetch(&program, dir)?;
+        }
+        let backup = backup_store(&yalain_store(dir), &definition.version, &version)?;
+        host_runtime::write_json(
+            &dir.join(YALAIN_ROLLBACK),
+            &YalainRollback {
+                program: definition.program.clone(),
+                version: definition.version.clone(),
+                backup,
+                fetched: fetched_before.clone(),
+            },
+        )?;
+        definition.program = program.clone();
+        definition.version = version.clone();
+        host_runtime::write_json(&dir.join("host.json"), &definition)
+    })();
+    if let Err(error) = installed {
+        if let Some(before) = &fetched_before {
+            let _ = std::fs::write(dir.join(crate::host_yalain::FETCHED), before);
+        }
+        // The new release's copy goes too: the world never ran it.
+        let _ = std::fs::remove_dir_all(&runtime);
+        return Err(error);
+    }
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(version)
+}
+
+/// Undo the stopped Yalain world in `dir`'s last update: the program it ran before, its store from
+/// the backup made then, and the world database release it played. The version it is back on.
+///
+/// # Errors
+/// No update to undo, or a file that cannot be put back.
+pub fn rollback_yalain(dir: &Path) -> Result<String, String> {
+    let record: YalainRollback = serde_json::from_slice(
+        &std::fs::read(dir.join(YALAIN_ROLLBACK))
+            .map_err(|_| "There is no update to undo.".to_owned())?,
+    )
+    .map_err(|e| format!("The undo record is damaged: {e}"))?;
+    let store = yalain_store(dir);
+    let empty = std::fs::metadata(&record.backup)
+        .map_err(|_| "The store's backup is gone.".to_owned())?
+        .len()
+        == 0;
+    for companion in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(beside(&store, companion));
+    }
+    if empty {
+        let _ = std::fs::remove_file(&store);
+    } else {
+        std::fs::copy(&record.backup, &store).map_err(|e| e.to_string())?;
+    }
+    for companion in ["-wal", "-shm"] {
+        let kept = beside(&record.backup, companion);
+        if kept.is_file() {
+            std::fs::copy(&kept, beside(&store, companion)).map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(fetched) = &record.fetched {
+        std::fs::write(dir.join(crate::host_yalain::FETCHED), fetched)
+            .map_err(|e| e.to_string())?;
+    }
+    let mut definition = host_runtime::read_definition(dir)?;
+    definition.program = record.program;
+    definition.version = record.version.clone();
+    host_runtime::write_json(&dir.join("host.json"), &definition)?;
+    let _ = std::fs::remove_file(dir.join(YALAIN_ROLLBACK));
+    Ok(record.version)
 }
 
 // Restore the control executable first: an interrupted copy may have left it unlaunchable.
@@ -367,6 +577,30 @@ pub fn apply_pending(dir: &Path) -> Result<(), String> {
     if definition.checkout {
         return Ok(());
     }
+    if definition.game == Game::Auberean {
+        if !state.pending {
+            return Ok(());
+        }
+        state.pending = false;
+        // A release that will not go in leaves the world on the one it ran, which starts as before.
+        match install_yalain(dir) {
+            Ok(version) => {
+                state.rollback = true;
+                state.message = Some(format!("Updated to Yalain {version}."));
+            }
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(dir.join("update-download"));
+                // No longer offered as it was: the page says why it did not go in, and the next
+                // check for updates finds it again.
+                state.version = None;
+                state.message = Some(format!(
+                    "The update did not go in: {error} The world runs Yalain {} as before.",
+                    definition.version
+                ));
+            }
+        }
+        return save(dir, &state);
+    }
     let journal = definition
         .program
         .parent()
@@ -424,6 +658,18 @@ pub fn apply_pending(dir: &Path) -> Result<(), String> {
 }
 
 pub fn rollback(dir: &Path) -> Result<(), String> {
+    if host_runtime::read_definition(dir)?.game == Game::Auberean {
+        let version = rollback_yalain(dir)?;
+        return save(
+            dir,
+            &View {
+                message: Some(format!(
+                    "Back on Yalain {version}, with its accounts and characters as they were before the update."
+                )),
+                ..Default::default()
+            },
+        );
+    }
     control(dir, "rollback", &[])?;
     sync_version(dir)?;
     save(
@@ -439,7 +685,11 @@ pub fn rollback(dir: &Path) -> Result<(), String> {
 }
 
 pub fn cancel(dir: &Path) -> Result<(), String> {
-    control(dir, "cancel", &[])?;
+    if host_runtime::read_definition(dir)?.game == Game::Auberean {
+        let _ = std::fs::remove_dir_all(dir.join("update-download"));
+    } else {
+        control(dir, "cancel", &[])?;
+    }
     let mut state = view(dir);
     state.pending = false;
     state.message = Some("Update canceled.".into());
@@ -450,6 +700,180 @@ pub fn cancel(dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stopped Yalain world on 0.1.0, with characters in its store and the pin its fetch found,
+    /// and the release `version` downloaded for it, whose `release.json` says whether it fetches
+    /// another world database first.
+    fn yalain_world(version: &str, fetch: bool) -> tempfile::TempDir {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let exe = format!("yalain{}", std::env::consts::EXE_SUFFIX);
+        let old = dir.join("runtime/0.1.0").join(&exe);
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, b"the old program").unwrap();
+        host_runtime::write_json(
+            &dir.join("host.json"),
+            &host_runtime::Definition {
+                id: "host-test".into(),
+                version: "0.1.0".into(),
+                program: old,
+                wrapper: dir.join("wrapper"),
+                checkout: false,
+                game: Game::Auberean,
+            },
+        )
+        .unwrap();
+        std::fs::write(dir.join(crate::host_yalain::CONFIG), "[server]\n").unwrap();
+        std::fs::write(dir.join(crate::host_yalain::DATABASE), b"characters before").unwrap();
+        std::fs::write(dir.join(crate::host_yalain::FETCHED), "v0.21.0").unwrap();
+        let download = dir.join("update-download");
+        let new = download.join(format!("yalain-{version}")).join(&exe);
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        // Not a program: a release that must fetch cannot, and says why.
+        std::fs::write(&new, b"the new program").unwrap();
+        std::fs::write(
+            download.join("checked-release.json"),
+            serde_json::json!({
+                "version": version,
+                "upgrade": { "kind": "minor", "previous": "0.1.0", "upgrades_from": "0.1.0",
+                             "world_database": "v0.23.0", "world_database_fetch": fetch },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        temp
+    }
+
+    /// A Yalain world installs a downloaded release as its `release.json` says: its store backed
+    /// up, the new program run from `runtime/<version>`; and Undo puts the old program and the
+    /// store as it was before the update back.
+    #[test]
+    fn a_yalain_world_installs_a_release_and_undo_puts_the_old_one_and_its_store_back() {
+        let temp = yalain_world("0.2.0", false);
+        let dir = temp.path();
+        save(
+            dir,
+            &View {
+                pending: true,
+                ..View::default()
+            },
+        )
+        .unwrap();
+        apply_pending(dir).unwrap();
+        let definition = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(definition.version, "0.2.0");
+        assert!(definition.program.starts_with(dir.join("runtime/0.2.0")));
+        assert_eq!(
+            std::fs::read(&definition.program).unwrap(),
+            b"the new program"
+        );
+        let state = view(dir);
+        assert!(!state.pending && state.rollback);
+        assert_eq!(state.message.as_deref(), Some("Updated to Yalain 0.2.0."));
+        assert!(!dir.join("update-download").exists());
+
+        // Played on the new release, then undone.
+        std::fs::write(dir.join(crate::host_yalain::DATABASE), b"characters after").unwrap();
+        rollback(dir).unwrap();
+        let definition = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(definition.version, "0.1.0");
+        assert_eq!(
+            std::fs::read(&definition.program).unwrap(),
+            b"the old program"
+        );
+        assert_eq!(
+            std::fs::read(dir.join(crate::host_yalain::DATABASE)).unwrap(),
+            b"characters before"
+        );
+        assert!(view(dir)
+            .message
+            .unwrap()
+            .starts_with("Back on Yalain 0.1.0"));
+        assert_eq!(
+            rollback_yalain(dir).unwrap_err(),
+            "There is no update to undo."
+        );
+    }
+
+    /// A release that must fetch the world database it pins and cannot does not go in: the world
+    /// runs the release it ran, with its fetch's record as it was, and starts as before.
+    #[test]
+    fn a_yalain_release_that_cannot_fetch_its_world_database_leaves_the_world_as_it_was() {
+        let temp = yalain_world("0.3.0", true);
+        let dir = temp.path();
+        save(
+            dir,
+            &View {
+                version: Some("0.3.0".into()),
+                pending: true,
+                ..View::default()
+            },
+        )
+        .unwrap();
+        apply_pending(dir).unwrap();
+        let definition = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(definition.version, "0.1.0");
+        assert_eq!(
+            std::fs::read(&definition.program).unwrap(),
+            b"the old program"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(crate::host_yalain::FETCHED)).unwrap(),
+            "v0.21.0"
+        );
+        let state = view(dir);
+        assert!(!state.pending && !state.rollback);
+        // Not shown as offered, so the page says why it did not go in.
+        assert_eq!(state.version, None);
+        assert!(state
+            .message
+            .unwrap()
+            .starts_with("The update did not go in:"));
+        assert!(!dir.join(YALAIN_ROLLBACK).exists());
+        assert!(!dir.join("runtime/0.3.0").exists(), "its copy is gone");
+        assert!(dir.join("runtime/0.1.0").exists());
+    }
+
+    /// Each update backs the store up beside it under the versions and the time, with its WAL,
+    /// and the newest three are kept.
+    #[test]
+    fn a_yalain_store_s_update_backups_keep_the_newest_three() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = temp.path().join("yalain.sqlite");
+        std::fs::write(&store, b"store").unwrap();
+        std::fs::write(beside(&store, "-wal"), b"wal").unwrap();
+        for (n, at) in [100u64, 200, 300, 400].iter().enumerate() {
+            let old = beside(
+                &store,
+                &format!(".backup-update-v0.{n}.0-v0.{}.0-{at}", n + 1),
+            );
+            std::fs::write(&old, b"old").unwrap();
+            std::fs::write(beside(&old, "-wal"), b"old wal").unwrap();
+        }
+        let backup = backup_store(&store, "0.4.0", "0.5.0").unwrap();
+        assert_eq!(std::fs::read(&backup).unwrap(), b"store");
+        assert_eq!(std::fs::read(beside(&backup, "-wal")).unwrap(), b"wal");
+        let mut left: Vec<String> = std::fs::read_dir(temp.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".backup-update-") && !n.ends_with("-wal"))
+            .collect();
+        left.sort();
+        assert_eq!(left.len(), 3, "{left:?}");
+        assert!(
+            left.iter().any(|n| n.ends_with("-400")) && left.iter().any(|n| n.ends_with("-300"))
+        );
+        assert!(!temp
+            .path()
+            .join("yalain.sqlite.backup-update-v0.0.0-v0.1.0-100")
+            .exists());
+        assert!(!temp
+            .path()
+            .join("yalain.sqlite.backup-update-v0.0.0-v0.1.0-100-wal")
+            .exists());
+    }
+
     fn host() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         host_runtime::write_json(

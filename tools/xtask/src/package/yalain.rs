@@ -12,7 +12,8 @@
 //! allowlist (the program, README, CHANGES and the notices), checks every file and the program's
 //! header, and writes one archive, `yalain-<version>-<target>.zip` on Windows and `.tar.gz`
 //! elsewhere, its one folder the same name without the extension; then the release's index beside
-//! the archives: `MANIFEST.txt`, `release.json` and `SHA256SUMS`. Without `--target` it packages
+//! the archives: `MANIFEST.txt`, `release.json` (with the release's upgrade declaration,
+//! [`super::yalain_declaration`], from `yalain/releases.toml` and the code) and `SHA256SUMS`. Without `--target` it packages
 //! the host's own target. `--gather` builds nothing: it checks the archives already in `<dir>` (the
 //! release workflow downloads each runner's there) and writes the index over them.
 //!
@@ -217,6 +218,8 @@ pub fn build_packages(
 ) -> Result<PathBuf, String> {
     let version = Product::Yalain.version(ws)?;
     version::parse_release_version(&version)?;
+    // A release whose upgrade declaration is refused is refused before anything is built.
+    super::yalain_declaration::for_release(ws, &version)?;
     // Everything a host lacks is said before anything is built.
     let host = super::host();
     let mut plans = Vec::new();
@@ -261,7 +264,7 @@ pub fn build_packages(
             &base.join("stage").join(format!("yalain-{}", target.triple)),
         )?;
     }
-    write_index(&out_dir, &version, &facts)?;
+    write_index(ws, &out_dir, &version, &facts)?;
     Ok(out_dir)
 }
 
@@ -269,7 +272,7 @@ pub fn build_packages(
 fn gather(ws: &Path, dir: &Path, allow_dirty: bool) -> Result<PathBuf, String> {
     let version = Product::Yalain.version(ws)?;
     let facts = facts(ws, allow_dirty)?;
-    write_index(dir, &version, &facts)?;
+    write_index(ws, dir, &version, &facts)?;
     Ok(dir.to_path_buf())
 }
 
@@ -438,7 +441,12 @@ pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Resul
 
 /// The index over a release folder: every archive scanned again, then `MANIFEST.txt`,
 /// `release.json` and `SHA256SUMS`.
-pub(crate) fn write_index(dir: &Path, version: &str, facts: &BuildFacts) -> Result<(), String> {
+pub(crate) fn write_index(
+    ws: &Path,
+    dir: &Path,
+    version: &str,
+    facts: &BuildFacts,
+) -> Result<(), String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)
@@ -487,7 +495,7 @@ pub(crate) fn write_index(dir: &Path, version: &str, facts: &BuildFacts) -> Resu
         }));
     }
     let release = serde_json::json!({
-        "schema": 1,
+        "schema": 2,
         "product": "yalain",
         "version": version,
         "tag": Product::Yalain.tag_for(version),
@@ -496,6 +504,7 @@ pub(crate) fn write_index(dir: &Path, version: &str, facts: &BuildFacts) -> Resu
         "source_url": facts.source_url,
         "prerelease": version::is_prerelease(version),
         "assets": assets,
+        "upgrade": super::yalain_declaration::for_release(ws, version)?,
     });
     let mut json = serde_json::to_string_pretty(&release).map_err(|e| e.to_string())?;
     json.push('\n');

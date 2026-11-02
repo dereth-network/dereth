@@ -186,11 +186,17 @@ pub fn current_digest(world: &Path) -> Option<String> {
 
 /// The folder a delete of the world `world` (its `world.toml`, or the folder that holds it)
 /// removes, canonical. Refused when the folder holds no `world.toml`, when it or anything in it
-/// is a link, and when it is a drive's root, Lyceum's folder for worlds `home`, or a folder that
-/// holds `home` (the person's Documents among them).
-pub fn deletable(world: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
-    let no_world = || "This folder does not appear to be a Lyceum world".to_owned();
-    let failed = || "Failed to delete Lyceum world".to_owned();
+/// is a link, and when it is a drive's root, the world builder's folder for worlds `home`, or a
+/// folder that holds `home` (the person's Documents among them). `builder` names the world
+/// builder in what a refusal says (Lyceum, or Athenaeum, whose worlds have the same shape).
+pub fn deletable(world: &Path, home: Option<&Path>, builder: &str) -> Result<PathBuf, String> {
+    let a = if builder.starts_with(['A', 'E', 'I', 'O', 'U']) {
+        "an"
+    } else {
+        "a"
+    };
+    let no_world = || format!("This folder does not appear to be {a} {builder} world");
+    let failed = || format!("Failed to delete {builder} world");
     let named = std::fs::symlink_metadata(world).map_err(|_| no_world())?;
     if named.is_symlink() {
         return Err(failed());

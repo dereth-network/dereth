@@ -78,6 +78,10 @@ export function startFront({ call, start, params, log, scale }) {
   const eraText = (w) => (w.era_state === 'checking' ? 'Checking…' : w.era_state === 'unknown' ? 'Unknown' : eraLabel(w.era || 'eor'));
   // The era among other facts, where "Unknown" alone would not say what is unknown.
   const eraFact = (w) => (w.era_state === 'checking' ? 'checking era…' : w.era_state === 'unknown' ? 'era unknown' : eraText(w));
+  // Beside the era, one word: "verified" when the world said it, "assumed" when it is the end of
+  // retail for a world that does not say; nothing while it is checking or unknown.
+  const eraNote = (w) => (w.era_state === 'checking' || w.era_state === 'unknown' ? ''
+    : `<span class="era-note">(${w.era_source === 'world' ? 'verified' : 'assumed'})</span>`);
   function emulatorLabel(w) {
     const name = { empyrean: 'Empyrean', ace: 'ACE', classic_ace: 'ClassicACE', gdle: 'GDLE', unknown: 'Unknown' }[w.emulator] ?? w.emulator;
     const v = (w.emulator_version ?? '').replace(/^v/i, '');
@@ -340,13 +344,6 @@ export function startFront({ call, start, params, log, scale }) {
     const boxes = named
       ? ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" ${on[f.name] ? 'checked' : ''} disabled>${esc(f.label)}</label>`).join('')
       : '';
-    const said = w.era_state === 'checking' ? 'Checking which era this world plays.'
-      : w.era_state === 'unknown' ? 'This world has not said its era.'
-      : w.era_state === 'assumed' ? "Assumed: the list doesn't say."
-      : !named ? `This world does not name its era: it plays ${eraText(w)}.`
-      : w.era_source !== 'world' ? `This world says the systems it has, and plays ${eraText(w)}.`
-      : w.features_source === 'world' ? 'This world says its era and the systems it has.'
-      : 'This world says its era, and has that era\'s systems.';
     const facts = [['EMULATOR', emulatorLabel(w)], ['STATUS', w.development_status ?? 'unknown'], ['RULES', w.ruleset ?? 'unknown'], ['PLAYERS', playersLabel(w)], ['REACHED', reachText(w.slug)]];
     return `<tr class="detail" data-stop><td></td><td colspan="6">
         <div class="detail-body">
@@ -359,8 +356,7 @@ export function startFront({ call, start, params, log, scale }) {
           </div>
           <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join('')}</div>
           ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join('')}</div>` : ''}
-          <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}</span></div>
-          <p class="small muted">${esc(said)}</p>
+          <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}</span>${eraNote(w)}</div>
           ${boxes ? `<div class="features">${boxes}</div>` : ''}
         </div></td></tr>`;
   }
@@ -372,7 +368,7 @@ export function startFront({ call, start, params, log, scale }) {
       : `<button class="btn icon-btn" data-world-fav="${esc(w.slug)}" title="Add to favorites">☆</button>`;
     return `<tr data-world="${esc(w.slug)}" class="${w.state === 'offline' ? 'dim' : ''} ${open ? 'open' : ''}">
         <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
-        <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
+        <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}${eraNote(w)}</td>
         <td>${esc(w.ruleset ?? '')}</td><td>${esc(playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
       + (open ? worldDetail(w) : '');
   }
@@ -575,8 +571,7 @@ export function startFront({ call, start, params, log, scale }) {
             ${links.map(([l, u]) => `<button type="button" class="btn" data-url="${esc(u)}">${l}</button>`).join('')}
             ${custom ? '<button type="button" class="btn" data-act="server-remove">Remove world</button>' : ''}</header>
           <div class="scroll">
-            <div class="facts">${bead(world.state)}<span>${esc(facts.join('  ·  '))}</span></div>
-            ${world.era_state === 'assumed' ? `<p class="muted small">Assumed: the list doesn't say.</p>` : ''}
+            <div class="facts">${bead(world.state)}<span>${facts.map((f) => f === eraFact(world) ? esc(f) + eraNote(world) : esc(f)).join('  ·  ')}</span></div>
             ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ''}
             <div class="form" style="margin-top:14px">
               <label class="lab" for="acct-name">ACCOUNT</label><input id="acct-name" name="account" class="field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="account name" value="${esc(f.account)}">

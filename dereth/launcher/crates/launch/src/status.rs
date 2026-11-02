@@ -245,6 +245,11 @@ mod tests {
         let s = from_status_reply(&r);
         assert_eq!(s.era_features, None);
         assert_eq!(s.world_name, None);
+        // A Yalain world names no era (its game has one): no era, not an empty one.
+        r.era = String::new();
+        r.software = "Yalain".into();
+        let s = from_status_reply(&r);
+        assert_eq!((s.era, s.software.as_deref()), (None, Some("Yalain")));
     }
 
     #[test]

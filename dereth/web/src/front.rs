@@ -482,9 +482,10 @@ impl Front {
             for kind in [SetKind::Modern, SetKind::Classic] {
                 if datset::role_of(kind, &name).is_some() {
                     if let Some(f) = datset::file_in_storage(kind, &name, size, storage) {
-                        match kind {
-                            SetKind::Modern => modern.push(f),
-                            SetKind::Classic => classic.push(f),
+                        if kind == SetKind::Classic {
+                            classic.push(f);
+                        } else {
+                            modern.push(f);
                         }
                     }
                     break;

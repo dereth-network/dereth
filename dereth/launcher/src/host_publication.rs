@@ -3,6 +3,13 @@
 //! Each publish of a Lyceum world is the revision after the last one ([`publish`]): the server
 //! patches every Dereth player to it, and a player who has the last one is sent what changed. The
 //! newest [`KEPT_SNAPSHOTS`] snapshots are kept, and the one the world plays always.
+//!
+//! An Athenaeum world is published to a Yalain world the same way ([`publish_athenaeum`]): a
+//! snapshot of its sources (its world file, its ids and its packs, which lie over the world
+//! database its `[base]` names), compiled against the world's data set to check it, then named by
+//! `yalain.toml`'s `[server] world_database_path`, which Yalain serves. Its rows are the server's
+//! alone (people, objects, camps, places, talk, stores and quests), which every client is told of
+//! as it plays: nothing is sent to a player's data files.
 
 use crate::{components, host_config, host_runtime};
 use dereth_launch::choices;
@@ -187,7 +194,15 @@ pub fn pack_path(dir: &Path) -> PathBuf {
         .map_or_else(|| dir.join("world.pack"), |p| resolved(dir, &p))
 }
 
+/// The published snapshot the world in `dir` plays, and its publication, when it plays one: a
+/// Lyceum world's data overlay, or (a Yalain world) an Athenaeum world's served folder.
+///
+/// # Errors
+/// A configuration that does not read, or an overlay outside the world's published snapshots.
 pub fn selected(dir: &Path) -> Result<Option<(PathBuf, Publication)>, String> {
+    if dir.join(crate::host_yalain::CONFIG).is_file() {
+        return Ok(selected_athenaeum(dir));
+    }
     let config = std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?;
     let doc = config.parse::<DocumentMut>().map_err(|e| e.to_string())?;
     let Some(overlay) = doc
@@ -215,17 +230,25 @@ pub fn selected(dir: &Path) -> Result<Option<(PathBuf, Publication)>, String> {
 }
 
 /// Why the Lyceum world `world` cannot be published to the world in `dir`, when its world file is
-/// gone: said plainly when it is the one the world plays was published from.
+/// gone: said plainly when it is the one the world plays was published from. A Yalain world's is an
+/// Athenaeum world.
 #[must_use]
 pub fn gone(dir: &Path, world: &Path) -> Option<String> {
+    let athenaeum = dir.join(crate::host_yalain::CONFIG).is_file();
+    let world = if athenaeum {
+        athenaeum_world_file(world)
+    } else {
+        world.to_path_buf()
+    };
     if world.is_file() {
         return None;
     }
+    let builder = if athenaeum { "Athenaeum" } else { "Lyceum" };
     let source = selected(dir).ok().flatten().map(|(_, p)| p.source);
     Some(if source.is_some_and(|s| s == world) {
-        "The Lyceum world it was published from is gone.".into()
+        format!("The {builder} world it was published from is gone.")
     } else {
-        "That Lyceum world is gone.".into()
+        format!("That {builder} world is gone.")
     })
 }
 
@@ -520,6 +543,306 @@ pub fn publish(dir: &Path, world: &Path, builder: &Path) -> Result<Publication, 
     built
 }
 
+// ----- Athenaeum worlds, published to Yalain worlds ----------------------------------------------
+
+/// The folder of a snapshot a published Athenaeum world is served from.
+const SERVED: &str = "world";
+
+/// The world file an Athenaeum world `world` names: `world` itself when it is a `world.toml`, else
+/// the one in that folder.
+#[must_use]
+pub fn athenaeum_world_file(world: &Path) -> PathBuf {
+    if world.file_name().is_some_and(|n| n == "world.toml") {
+        world.to_path_buf()
+    } else {
+        world.join("world.toml")
+    }
+}
+
+/// The world database `[server] world_database_path` names in the Yalain configuration `doc`, when
+/// it names a folder (empty and `pinned` are Yalain's own release).
+fn served_database(doc: &DocumentMut) -> Option<String> {
+    doc.get("server")?
+        .get("world_database_path")?
+        .as_str()
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "pinned")
+        .map(str::to_owned)
+}
+
+/// The snapshot the Yalain world in `dir` serves and its publication, when it serves a published
+/// Athenaeum world: one whose world database is a snapshot's served folder in its own `published`
+/// folder. A database named anywhere else is the world's own, not a publication.
+fn selected_athenaeum(dir: &Path) -> Option<(PathBuf, Publication)> {
+    let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).ok()?;
+    let doc = text.parse::<DocumentMut>().ok()?;
+    let served = resolved(dir, &served_database(&doc)?);
+    let folder = served.parent()?.canonicalize().ok()?;
+    let root = dir.join("published").canonicalize().ok()?;
+    if !folder.starts_with(root) {
+        return None;
+    }
+    let publication =
+        serde_json::from_slice(&std::fs::read(folder.join("publication.json")).ok()?).ok()?;
+    Some((folder, publication))
+}
+
+/// Copy the Athenaeum world whose world file is `world` into `to`: its world file, its ids
+/// (`world.lock`) and each of its packs' folders, which are what Yalain reads of a world. Its
+/// playtest, build and characters stay behind.
+pub(crate) fn copy_athenaeum_world(world: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    let from = world.parent().ok_or("Missing world folder")?;
+    std::fs::copy(world, to.join("world.toml")).map_err(|e| e.to_string())?;
+    if from.join("world.lock").is_file() {
+        std::fs::copy(from.join("world.lock"), to.join("world.lock")).map_err(|e| e.to_string())?;
+    }
+    for pack in crate::lyceum_world::header(world).folders {
+        let name = pack
+            .strip_prefix(from)
+            .map_err(|_| "A pack of the world is outside its folder.")?;
+        if !pack.is_dir() {
+            return Err(format!("The world's pack {} is not there.", name.display()));
+        }
+        crate::hosts::copy_tree(&pack, &to.join(name))?;
+    }
+    Ok(())
+}
+
+/// The release of the world database an Athenaeum world's file `text` lies over, when it names one
+/// (`[base] version`); none for the release Yalain pins.
+pub(crate) fn athenaeum_base(text: &str) -> Option<String> {
+    let doc = text.parse::<DocumentMut>().ok()?;
+    doc.get("base")?
+        .get("version")?
+        .as_str()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+}
+
+/// Run Yalain `program` in `dir` with `args`, saying what it said when it fails.
+pub(crate) fn run_yalain(
+    program: &Path,
+    args: &[&std::ffi::OsStr],
+    dir: &Path,
+) -> Result<(), String> {
+    let out = components::command(program)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("Could not run Yalain: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let said = String::from_utf8_lossy(&out.stderr);
+    let said = said
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
+    Err(said.trim().trim_start_matches("yalain: ").to_owned())
+}
+
+/// Publish the Athenaeum world `world` (its folder or its `world.toml`) to the stopped Yalain world
+/// in `dir`, run by Yalain `yalain`: the revision after its last publish there when its sources
+/// changed. Its sources are copied into the next snapshot's served folder, the release of the
+/// world database it names fetched when it names one, and the copy compiled against the world's
+/// data set as the server will (a world that does not compile is refused, the world untouched);
+/// then the world's configuration names it. The newest [`KEPT_SNAPSHOTS`] are kept.
+///
+/// # Errors
+/// A running world, an Athenaeum world that is not there or does not compile, in words for a
+/// person.
+pub fn publish_athenaeum(dir: &Path, world: &Path, yalain: &Path) -> Result<Publication, String> {
+    use std::ffi::OsStr;
+    let guard = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join("run.lock"))
+        .map_err(|e| e.to_string())?;
+    guard
+        .try_lock()
+        .map_err(|_| "Stop the world before publishing.")?;
+    let settings = crate::host_yalain::read(dir)?;
+    let world = athenaeum_world_file(world)
+        .canonicalize()
+        .map_err(|_| "That Athenaeum world is gone.")?;
+    let source = std::fs::read_to_string(&world).map_err(|e| e.to_string())?;
+    let source_doc = source.parse::<DocumentMut>().map_err(|e| e.to_string())?;
+    let key = source_doc
+        .get("key")
+        .and_then(|v| v.as_str())
+        .ok_or("The world has no key.")?
+        .to_owned();
+    let packs: Vec<String> = source_doc
+        .get("packs")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let base = athenaeum_base(&source);
+    // A world that keeps its world database in its own folder has the base fetched there, and
+    // names it; any other finds it in the player's cache.
+    let own = crate::host_yalain::keeps_own_world_database(dir);
+    let own_base = if own {
+        let tag = crate::host_yalain::fetch_release(yalain, dir, base.as_deref())
+            .map_err(|e| format!("The world database the world lies over: {e}"))?
+            .ok_or("Yalain did not say which world database it fetched.")?;
+        Some(dir.join(crate::host_yalain::OWN_DATABASE).join(tag))
+    } else {
+        if let Some(version) = &base {
+            run_yalain(
+                yalain,
+                &[
+                    OsStr::new("world"),
+                    OsStr::new("fetch"),
+                    OsStr::new("--version"),
+                    OsStr::new(version),
+                ],
+                dir,
+            )
+            .map_err(|e| {
+                format!("Could not get the world database {version} the world lies over: {e}")
+            })?;
+        }
+        None
+    };
+    let sources = crate::lyceum_world::digest(&world)?;
+    let last_folder = last_publication(dir, &key);
+    let last_published: Option<Publication> = last_folder
+        .as_ref()
+        .and_then(|p| std::fs::read(p.join("publication.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let root = dir.join("published");
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let first = snapshots(dir).first().map_or(0, |(n, _)| n + 1);
+    let folder = (first..first.saturating_add(10_000))
+        .find_map(|n| {
+            let p = root.join(format!("snapshot-{n}"));
+            match std::fs::create_dir(&p) {
+                Ok(()) => Some(Ok(p)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(e.to_string())),
+            }
+        })
+        .ok_or("Too many retained snapshots.")??;
+    let built = (|| -> Result<Publication, String> {
+        let served = folder.join(SERVED);
+        copy_athenaeum_world(&world, &served)?;
+        if crate::lyceum_world::digest(&world)? != sources {
+            return Err(
+                "The world changed during publication. Save in Athenaeum, then retry.".into(),
+            );
+        }
+        // Compiled as the server compiles it at its start, so a world that would not start it is
+        // refused here; the tables written for that are not kept.
+        let compiled = folder.join("compiled");
+        let mut compile = vec![
+            OsStr::new("world"),
+            OsStr::new("compile"),
+            OsStr::new("--dats"),
+            settings.dats.as_os_str(),
+            OsStr::new("--world-db"),
+            served.as_os_str(),
+            OsStr::new("--out"),
+            compiled.as_os_str(),
+        ];
+        if let Some(own) = &own_base {
+            compile.extend([OsStr::new("--world-base"), own.as_os_str()]);
+        }
+        let checked = run_yalain(yalain, &compile, dir);
+        let _ = std::fs::remove_dir_all(&compiled);
+        checked.map_err(|e| format!("The world does not compile: {e}"))?;
+        let mut files = BTreeMap::new();
+        inventory(&folder, &served, &mut files)?;
+        let build = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&files).map_err(|e| e.to_string())?)
+        );
+        let publication = Publication {
+            revision: next_revision(last_published.as_ref(), &build),
+            source: world.clone(),
+            key,
+            packs,
+            build,
+            files,
+            sources,
+            base: base.clone(),
+        };
+        host_runtime::write_json(&folder.join("publication.json"), &publication)?;
+        let config = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG))
+            .map_err(|e| e.to_string())?;
+        let mut doc = config.parse::<DocumentMut>().map_err(|e| e.to_string())?;
+        if doc.get("server").is_none() {
+            doc["server"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        if !doc["server"].is_table() {
+            return Err("server must be a table.".into());
+        }
+        doc["server"]["world_database_path"] = value(served.to_string_lossy().as_ref());
+        if let Some(tag) = own_base.as_deref().and_then(Path::file_name) {
+            doc["server"]["world_base_path"] = value(format!(
+                "{}/{}",
+                crate::host_yalain::OWN_DATABASE,
+                tag.to_string_lossy()
+            ));
+        }
+        crate::host_yalain::keep_config(dir, &doc.to_string())?;
+        Ok(publication)
+    })();
+    match &built {
+        Ok(_) => {
+            prune(dir);
+        }
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(&folder);
+        }
+    }
+    built
+}
+
+/// Put the stopped Yalain world in `dir` back on the world database its Yalain pins, so it no
+/// longer plays the Athenaeum world published to it. The published snapshots stay on disk.
+///
+/// # Errors
+/// A world that is running, or a configuration that does not read.
+pub fn unpublish_athenaeum(dir: &Path) -> Result<(), String> {
+    let guard = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join("run.lock"))
+        .map_err(|e| e.to_string())?;
+    guard
+        .try_lock()
+        .map_err(|_| "Stop the world before it stops playing the Athenaeum world.")?;
+    let config =
+        std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).map_err(|e| e.to_string())?;
+    let mut doc = config.parse::<DocumentMut>().map_err(|e| e.to_string())?;
+    if let Some(server) = doc
+        .get_mut("server")
+        .and_then(toml_edit::Item::as_table_like_mut)
+    {
+        server.remove("world_database_path");
+        server.remove("world_base_path");
+    }
+    crate::host_yalain::keep_config(dir, &doc.to_string())?;
+    // A world that keeps its world database in its own folder serves its pin from there again.
+    match crate::host_yalain::pinned_release(dir) {
+        Some(tag) if crate::host_yalain::keeps_own_world_database(dir) => {
+            crate::host_yalain::serve_own(dir, "world_database_path", &tag)
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Puts the stopped world in `dir` back on its era's world database with no data overlay, so it no
 /// longer plays the Lyceum world it was published as and its era and game data may change again.
 /// The published snapshots stay on disk. This locks the stopped host.
@@ -619,6 +942,19 @@ pub fn register_player(root: &Path, id: &str, slug: &str) -> Result<(), String> 
     let mut worlds = player_worlds(root)?;
     worlds.insert(slug.into(), id.into());
     host_runtime::write_json(&root.join("host-worlds.json"), &worlds)
+}
+
+/// The world in the list named `from` is named `to` now.
+///
+/// # Errors
+/// A list that does not read or cannot be written.
+pub fn rename_player(root: &Path, from: &str, to: &str) -> Result<(), String> {
+    let mut worlds = player_worlds(root)?;
+    if let Some(id) = worlds.remove(from) {
+        worlds.insert(to.into(), id);
+        host_runtime::write_json(&root.join("host-worlds.json"), &worlds)?;
+    }
+    Ok(())
 }
 
 pub fn forget_player(root: &Path, slug: &str) -> Result<(), String> {
@@ -721,9 +1057,10 @@ impl PlayInputs {
             era: Some(self.era.clone()),
             ..dereth_launch::World::default()
         };
-        let (modern, classic) = match choices::required_set_for(&world) {
-            SetKind::Modern => (Some(self.dats.as_path()), classic),
-            SetKind::Classic => (modern, Some(self.dats.as_path())),
+        let (modern, classic) = if choices::required_set_for(&world) == SetKind::Classic {
+            (modern, Some(self.dats.as_path()))
+        } else {
+            (Some(self.dats.as_path()), classic)
         };
         choices::dat_dirs_for(&world, modern, classic).map_err(|e| e.to_string())
     }
@@ -1226,5 +1563,297 @@ mod tests {
         let base = dir.join("base-patches");
         std::fs::create_dir(&base).unwrap();
         assert!(!superseded_patch(&base, Some(&old)).unwrap());
+    }
+
+    // ----- Athenaeum worlds published to Yalain worlds -------------------------------------------
+
+    /// A stopped Yalain world, its game data the temporary folder itself.
+    fn yalain_host() -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("hosts/host-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings = host_config::Settings {
+            dats: root.path().to_path_buf(),
+            ..Default::default()
+        };
+        crate::host_yalain::write(&dir, &settings).unwrap();
+        host_runtime::write_json(
+            &dir.join("host.json"),
+            &host_runtime::Definition {
+                id: "host-test".into(),
+                version: "0.1.0".into(),
+                program: dir.join("runtime/yalain"),
+                wrapper: dir.join("wrapper"),
+                checkout: false,
+                game: dereth_launch::world::Game::Auberean,
+            },
+        )
+        .unwrap();
+        (root, dir)
+    }
+
+    /// An Athenaeum world in the folder `dir`, keyed `key`, over the release `version` (else the one
+    /// Yalain pins): its world file, its ids, a pack with a row, and what playing and building it
+    /// leave beside them.
+    fn athenaeum_world(dir: &Path, key: &str, version: Option<&str>) -> PathBuf {
+        let pack = format!("fill-{key}");
+        std::fs::create_dir_all(dir.join(&pack).join("server")).unwrap();
+        let base = version.map_or(String::new(), |v| format!("version = \"{v}\"\n"));
+        std::fs::write(
+            dir.join("world.toml"),
+            format!("key = \"{key}\"\ngame = \"ac2\"\npacks = [\"{pack}\"]\n[base]\ndb = \"yalain-world\"\n{base}"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("world.lock"), "# ids\n").unwrap();
+        std::fs::write(dir.join(&pack).join("pack.toml"), "name = \"fill\"\n").unwrap();
+        std::fs::write(dir.join(&pack).join("server/people.toml"), "[[person]]\n").unwrap();
+        for left in [".playtest", "build", "characters"] {
+            std::fs::create_dir_all(dir.join(left)).unwrap();
+            std::fs::write(dir.join(left).join("kept.txt"), "not the world's").unwrap();
+        }
+        dir.to_path_buf()
+    }
+
+    /// A Yalain that answers every command as `ok` says, keeping each command line it was given in
+    /// `said.txt` beside it.
+    fn fake_yalain(dir: &Path, ok: bool) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        if cfg!(windows) {
+            let p = dir.join("yalain.cmd");
+            let end = if ok {
+                "@echo cached 3 files in C:\\cache\\v0.21.0\r\n@exit /b 0"
+            } else {
+                "@echo yalain: the world does not compile: a row names nothing 1>&2\r\n@exit /b 1"
+            };
+            std::fs::write(&p, format!("@echo %* >> \"%~dp0said.txt\"\r\n{end}\r\n")).unwrap();
+            p
+        } else {
+            let p = dir.join("yalain");
+            let end = if ok {
+                "echo 'cached 3 files in /cache/v0.21.0'; exit 0"
+            } else {
+                "echo 'yalain: the world does not compile: a row names nothing' >&2; exit 1"
+            };
+            std::fs::write(
+                &p,
+                format!("#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/said.txt\"\n{end}\n"),
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            p
+        }
+    }
+
+    fn served_path(dir: &Path) -> Option<String> {
+        let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap();
+        served_database(&text.parse::<DocumentMut>().unwrap())
+    }
+
+    /// An Athenaeum world is published to a Yalain world as Lyceum's are to Empyrean's: a
+    /// snapshot of its world file, its ids and its packs (not what playing and building it leave),
+    /// compiled against the world's data set, then served; each publish that changes something is
+    /// the next version, the world's page knows what it plays, and Restore World Base puts the
+    /// world back on the release its Yalain pins, the snapshots kept.
+    #[test]
+    fn an_athenaeum_world_is_published_to_a_yalain_world_as_a_snapshot_it_serves() {
+        let (root, dir) = yalain_host();
+        let world = athenaeum_world(&root.path().join("Athenaeum/frontier"), "frontier", None);
+        let yalain = fake_yalain(&root.path().join("bin"), true);
+
+        let first = publish_athenaeum(&dir, &world, &yalain).unwrap();
+        assert_eq!((first.key.as_str(), first.revision), ("frontier", 1));
+        assert_eq!(first.packs, ["fill-frontier"]);
+        assert_eq!(first.base, None, "the release Yalain pins");
+        let served = dir.join("published/snapshot-0/world");
+        assert_eq!(served_path(&dir).map(PathBuf::from), Some(served.clone()));
+        for kept in [
+            "world.toml",
+            "world.lock",
+            "fill-frontier/pack.toml",
+            "fill-frontier/server/people.toml",
+        ] {
+            assert!(served.join(kept).is_file(), "{kept}");
+        }
+        for left in [".playtest", "build", "characters"] {
+            assert!(!served.join(left).exists(), "{left}");
+        }
+        let said = std::fs::read_to_string(root.path().join("bin/said.txt")).unwrap();
+        assert!(said.contains("world compile --dats"), "{said}");
+        let compiled = said.split("--world-db").nth(1).unwrap_or("");
+        assert!(
+            compiled.contains("snapshot-0") && compiled.contains("world"),
+            "{said}"
+        );
+        assert!(
+            !dir.join("published/snapshot-0/compiled").exists(),
+            "the check's tables go"
+        );
+        let (folder, playing) = selected(&dir).unwrap().unwrap();
+        assert_eq!(
+            folder,
+            dir.join("published/snapshot-0").canonicalize().unwrap()
+        );
+        assert_eq!(playing.build, first.build);
+        assert_eq!(gone(&dir, &world), None);
+        let plays = crate::host_yalain::plays(
+            &std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap(),
+            &dir,
+            None,
+        );
+        assert_eq!(plays.database, "athenaeum");
+        assert!(plays.published.is_some());
+
+        // Published again unchanged it is the same version; changed, the next.
+        assert_eq!(
+            publish_athenaeum(&dir, &world, &yalain).unwrap().revision,
+            1
+        );
+        std::fs::write(
+            world.join("fill-frontier/server/people.toml"),
+            "[[person]]\n# moved\n",
+        )
+        .unwrap();
+        let next = publish_athenaeum(&dir, &world.join("world.toml"), &yalain).unwrap();
+        assert_eq!(next.revision, 2);
+        assert_ne!(next.sources, first.sources);
+        assert!(served_path(&dir).unwrap().contains("snapshot-2"));
+
+        unpublish_athenaeum(&dir).unwrap();
+        assert_eq!(served_path(&dir), None);
+        assert!(selected(&dir).unwrap().is_none());
+        assert!(
+            dir.join("published/snapshot-2/world/world.toml").is_file(),
+            "snapshots stay"
+        );
+        // A world whose source is gone says so as Lyceum's do.
+        std::fs::remove_dir_all(&world).unwrap();
+        assert_eq!(
+            gone(&dir, &world).as_deref(),
+            Some("That Athenaeum world is gone.")
+        );
+    }
+
+    /// An Athenaeum world that does not compile is refused in Yalain's words, and the Yalain world
+    /// keeps playing what it played, with no snapshot left behind; a running world is not
+    /// published to at all.
+    #[test]
+    fn an_athenaeum_world_that_does_not_compile_is_refused_and_the_world_keeps_what_it_played() {
+        let (root, dir) = yalain_host();
+        let world = athenaeum_world(&root.path().join("Athenaeum/broken"), "broken", None);
+        let config = std::fs::read(dir.join(crate::host_yalain::CONFIG)).unwrap();
+        let why = publish_athenaeum(&dir, &world, &fake_yalain(&root.path().join("bad"), false))
+            .unwrap_err();
+        assert_eq!(
+            why,
+            "The world does not compile: the world does not compile: a row names nothing"
+        );
+        assert_eq!(
+            std::fs::read(dir.join(crate::host_yalain::CONFIG)).unwrap(),
+            config
+        );
+        assert!(!dir.join("published/snapshot-0").exists());
+
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("run.lock"))
+            .unwrap();
+        held.try_lock().unwrap();
+        let ok = fake_yalain(&root.path().join("good"), true);
+        assert_eq!(
+            publish_athenaeum(&dir, &world, &ok).unwrap_err(),
+            "Stop the world before publishing."
+        );
+    }
+
+    /// A world that names the release of the world database it lies over has that release fetched
+    /// before it is compiled, and its publication names it.
+    #[test]
+    fn an_athenaeum_world_over_a_named_release_has_it_fetched_first() {
+        let (root, dir) = yalain_host();
+        let world = athenaeum_world(&root.path().join("Athenaeum/old"), "old", Some("v0.20.0"));
+        let yalain = fake_yalain(&root.path().join("bin"), true);
+        let published = publish_athenaeum(&dir, &world, &yalain).unwrap();
+        assert_eq!(published.base.as_deref(), Some("v0.20.0"));
+        let said = std::fs::read_to_string(root.path().join("bin/said.txt")).unwrap();
+        let fetch = said.find("world fetch --version v0.20.0").expect("fetched");
+        assert!(fetch < said.find("world compile").unwrap(), "{said}");
+    }
+
+    /// A world kept to run as a Windows service keeps its world database in its own folder: the pin
+    /// fetched there and served from there; an Athenaeum world published to it lies over a base
+    /// fetched there, compiled over it; Restore World Base serves the pin from there again.
+    #[test]
+    fn a_world_kept_as_a_service_serves_its_world_database_from_its_own_folder() {
+        let (root, dir) = yalain_host();
+        let yalain = fake_yalain(&root.path().join("bin"), true);
+        let key = |key: &str| -> Option<String> {
+            let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap();
+            let doc = text.parse::<DocumentMut>().unwrap();
+            doc["server"].get(key)?.as_str().map(str::to_owned)
+        };
+        crate::host_yalain::keep_own_world_database(&yalain, &dir).unwrap();
+        assert!(dir.join(crate::host_yalain::OWN_DATABASE).is_dir());
+        assert_eq!(
+            key("world_database_path").as_deref(),
+            Some("world-database/v0.21.0")
+        );
+        assert_eq!(
+            crate::host_yalain::pinned_release(&dir).as_deref(),
+            Some("v0.21.0")
+        );
+        let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap();
+        assert_eq!(
+            crate::host_yalain::plays(&text, &dir, None).database,
+            "era",
+            "its pin, kept here"
+        );
+        let said = std::fs::read_to_string(root.path().join("bin/said.txt")).unwrap();
+        assert!(said.contains("world fetch --dir"), "{said}");
+
+        let world = athenaeum_world(&root.path().join("Athenaeum/kept"), "kept", None);
+        publish_athenaeum(&dir, &world, &yalain).unwrap();
+        assert!(key("world_database_path").unwrap().contains("snapshot-0"));
+        assert_eq!(
+            key("world_base_path").as_deref(),
+            Some("world-database/v0.21.0")
+        );
+        let said = std::fs::read_to_string(root.path().join("bin/said.txt")).unwrap();
+        assert!(said.contains("--world-base"), "{said}");
+
+        unpublish_athenaeum(&dir).unwrap();
+        assert_eq!(
+            key("world_database_path").as_deref(),
+            Some("world-database/v0.21.0")
+        );
+        assert_eq!(key("world_base_path"), None);
+    }
+
+    /// A world database named anywhere but the world's own published snapshots is the world's own:
+    /// no publication, and the page says it plays its own.
+    #[test]
+    fn a_world_database_named_elsewhere_is_the_world_s_own() {
+        let (root, dir) = yalain_host();
+        let text = std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap();
+        let mut doc = text.parse::<DocumentMut>().unwrap();
+        let elsewhere = athenaeum_world(&root.path().join("checkout"), "mine", None);
+        doc["server"]["world_database_path"] = value(elsewhere.to_string_lossy().as_ref());
+        crate::host_yalain::keep_config(&dir, &doc.to_string()).unwrap();
+        assert!(selected(&dir).unwrap().is_none());
+        let plays = crate::host_yalain::plays(&doc.to_string(), &dir, None);
+        assert_eq!(
+            (plays.database, plays.pack.as_str()),
+            ("own", elsewhere.to_str().unwrap())
+        );
+        doc["server"]["world_database_path"] = value("pinned");
+        assert_eq!(
+            crate::host_yalain::plays(&doc.to_string(), &dir, None).database,
+            "era"
+        );
     }
 }

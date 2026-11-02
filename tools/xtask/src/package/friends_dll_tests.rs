@@ -136,3 +136,67 @@ fn the_release_workflows_build_the_library_once_and_every_package_carries_it() {
         }
     }
 }
+
+/// Cargo writes the library under a name of its own, apart from the friends stream's (two
+/// libraries of one name in a workspace overwrite each other's files), and the packages and a
+/// working build name it as the launcher looks for it.
+#[test]
+fn the_library_is_built_under_a_name_of_its_own_and_carried_under_the_players_name() {
+    let out = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("cargo metadata");
+    assert!(out.status.success(), "cargo metadata");
+    let meta: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata");
+    let mut owners: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut ours = None;
+    for package in meta["packages"].as_array().expect("packages") {
+        let name = package["name"].as_str().unwrap_or_default();
+        for t in package["targets"].as_array().into_iter().flatten() {
+            let library = t["kind"].as_array().is_some_and(|ks| {
+                ks.iter()
+                    .any(|k| matches!(k.as_str(), Some("lib" | "rlib" | "cdylib" | "dylib")))
+            });
+            if library {
+                let lib = t["name"].as_str().unwrap_or_default().to_owned();
+                if name == friends_dll::PACKAGE {
+                    ours = Some(lib.clone());
+                }
+                owners.entry(lib).or_default().push(name.to_owned());
+            }
+        }
+    }
+    let shared: Vec<_> = owners.iter().filter(|(_, p)| p.len() > 1).collect();
+    assert!(shared.is_empty(), "libraries of one name: {shared:?}");
+    let ours = ours.expect("the library's package is in the workspace");
+    assert_eq!(format!("{ours}.dll"), friends_dll::BUILT);
+    assert_ne!(friends_dll::BUILT, FILE);
+}
+
+/// A working build on Windows puts the library beside the programs it wrote: the profile's folder
+/// (cargo's `debug` for the dev profile), under the target's triple when one is named.
+#[test]
+fn a_working_build_puts_the_library_beside_the_programs_of_its_profile() {
+    let args = |words: &[&str]| -> Vec<String> { words.iter().map(|w| (*w).to_owned()).collect() };
+    let folder = |words: &[&str]| friends_dll::programs_folder(&args(words));
+    assert_eq!(friends_dll::profile_of(&args(&[])), "dev");
+    assert_eq!(folder(&[]), std::path::PathBuf::from("debug"));
+    assert_eq!(folder(&["--release"]), std::path::PathBuf::from("release"));
+    assert_eq!(
+        folder(&["--profile", "test-release"]),
+        std::path::PathBuf::from("test-release")
+    );
+    assert_eq!(
+        folder(&["--profile=dev"]),
+        std::path::PathBuf::from("debug")
+    );
+    assert_eq!(
+        folder(&["--release", "--target", "x86_64-pc-windows-msvc"]),
+        std::path::Path::new("x86_64-pc-windows-msvc").join("release")
+    );
+    assert_eq!(
+        friends_dll::profile_of(&args(&["--locked", "--profile", "test-release"])),
+        "test-release"
+    );
+}

@@ -41,6 +41,53 @@ pub fn write_dat_set(dir: &Path, it: Iterations) {
     }
 }
 
+/// Write a folder of Asheron's Call 2's four data files with the given iteration counts, each a
+/// container in the game's own layout ([`crate::auberean::LAYOUT`]) written by the shared
+/// container's writer, its list holding the iterations 1 to its count. Missing counts are missing
+/// files.
+pub fn write_auberean_set(dir: &Path, it: Iterations) {
+    for (role, name, set, subset) in [
+        (DatRole::Portal, "portal.dat", 1, 0),
+        (DatRole::Cell, "cell_1.dat", 2, 1),
+        (DatRole::Local, "local_English.dat", 3, 0x8000_0001),
+        (DatRole::Highres, "highres.dat", 1, 0x6946_6948),
+    ] {
+        if let Some(n) = it.get(role) {
+            write_auberean_file(dir, name, set, subset, n);
+        }
+    }
+}
+
+/// Write one of Asheron's Call 2's data files at `dir/name`, its header saying `set` and `subset`,
+/// with the iterations 1 to `n` in its list.
+pub fn write_auberean_file(dir: &Path, name: &str, set: u32, subset: u32, n: u32) {
+    std::fs::create_dir_all(dir).expect("create the test folder");
+    let info = dereth_dat::DiskFileInfo {
+        magic: 0x5442,
+        block_size: 0x400,
+        file_size: 0x400 + 0x400 * 16,
+        data_set: set,
+        data_subset: subset,
+        free_head: 0,
+        free_tail: 0,
+        free_count: 0,
+        btree_root: 0,
+        young_lru: 0,
+        old_lru: 0,
+        use_lru: false,
+        master_map_id: 0,
+        eng_pack_vnum: 104,
+        game_pack_vnum: 3,
+        version_major: [0; 16],
+        version_minor: 0x2E01,
+    };
+    let mut w = dereth_dat::DatWriter::create_as(&dir.join(name), &crate::auberean::LAYOUT, &info)
+        .expect("create a test data file");
+    let list = dereth_dat::iteration::encode(&(1..=n).collect::<Vec<_>>());
+    w.save(dereth_dat::ITERATION_LIST, &list, 1, 0, 0)
+        .expect("write its iterations");
+}
+
 /// One world list as every launcher reads it: what its sources answer, and the worlds a launcher
 /// shows from those answers. Each launcher's own test reads it through that launcher and compares
 /// what it shows with [`from_the_hub`] and [`from_the_community`].
