@@ -11,8 +11,11 @@
 //!   land is kept in a list of free blocks, twice as many as the window holds, the oldest given up
 //!   first: a block the window comes back to while it is on that list is found again as it was;
 //!   otherwise the oldest free block is given up and the new one made.
+//! - **A block's objects fade in.** Each block handed to the window, made or found again, is
+//!   stamped with the time; for the second after, its objects are drawn at the time since as their
+//!   opacity ([`NearBlocks::fade`]).
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use auberean_physics::land::{Block, Land};
@@ -39,6 +42,8 @@ pub(crate) struct Makers<'a> {
     pub trees: &'a mut Trees,
     /// The blocks whose interior cells were loaded already.
     pub interiors: &'a mut HashSet<(u8, u8)>,
+    /// The client's running time, seconds: a block handed out is stamped with it.
+    pub now: f64,
 }
 
 /// The near window and the free blocks.
@@ -51,6 +56,11 @@ pub(crate) struct NearBlocks {
     free: VecDeque<Free>,
     /// The cell the player stood in when the window was last looked at.
     last_cell: u32,
+    /// The blocks let go of since last taken.
+    released: Vec<(u8, u8)>,
+    /// When each block of the window was handed out (made, or found again among the free
+    /// blocks), by block.
+    stamps: HashMap<(u8, u8), f64>,
 }
 
 impl std::fmt::Debug for NearBlocks {
@@ -70,6 +80,8 @@ impl Default for NearBlocks {
             center: 0,
             free: VecDeque::new(),
             last_cell: 0,
+            released: Vec::new(),
+            stamps: HashMap::new(),
         };
         n.init_free_blocks();
         n
@@ -114,6 +126,12 @@ impl NearBlocks {
         self.init_free_blocks();
     }
 
+    /// The blocks let go of since last asked, oldest first: the objects standing in their cells
+    /// are to leave the world.
+    pub(crate) fn take_released(&mut self) -> Vec<(u8, u8)> {
+        std::mem::take(&mut self.released)
+    }
+
     /// The blocks the window holds.
     pub(crate) fn blocks(&self) -> impl Iterator<Item = (u8, u8)> + '_ {
         self.window.iter().flatten().copied()
@@ -133,6 +151,8 @@ impl NearBlocks {
     /// A block let go of: no longer found, its land kept at the end of the free blocks.
     // D2-10785
     fn release_block(&mut self, land: &Land, block: (u8, u8)) {
+        self.released.push(block);
+        self.stamps.remove(&block);
         if let Some(b) = land.release_block(block.0, block.1) {
             self.free.push_back(Free::Kept(b));
         } else {
@@ -151,7 +171,9 @@ impl NearBlocks {
             .position(|f| matches!(f, Free::Kept(b) if (b.x, b.y) == (x, y)));
         if let Some(i) = kept {
             if let Some(Free::Kept(b)) = self.free.remove(i) {
+                // D2-03633
                 m.land.recover_block(b);
+                self.stamps.insert((x, y), m.now);
                 return Some((x, y));
             }
         }
@@ -164,7 +186,30 @@ impl NearBlocks {
         if m.interiors.insert((x, y)) {
             auberean_physics::interior::add_block_cells(m.land, m.records, m.trees, x, y);
         }
+        self.stamps.insert((x, y), m.now);
         Some((x, y))
+    }
+
+    /// The blocks whose objects are drawn at less than full opacity at time `now`, and the
+    /// opacity: the time since the block was handed out, while that is more than 0 and less than a
+    /// second (at its very handing out, and after, they are drawn whole).
+    // D2-03691
+    pub(crate) fn fade(&self, now: f64) -> Vec<((u8, u8), f32)> {
+        let mut out: Vec<((u8, u8), f32)> = self
+            .blocks()
+            .filter_map(|b| {
+                let since = now - self.stamps.get(&b)?;
+                #[allow(clippy::cast_possible_truncation)]
+                (since > 0.0 && since < 1.0).then_some((b, since as f32))
+            })
+            .collect();
+        out.sort_by_key(|(b, _)| *b);
+        out
+    }
+
+    /// When block `block` was handed out to the window; `None` for a block it does not hold.
+    pub(crate) fn stamp(&self, block: (u8, u8)) -> Option<f64> {
+        self.stamps.get(&block).copied()
     }
 
     /// Every block of the window let go of; no window.

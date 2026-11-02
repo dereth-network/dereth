@@ -13,14 +13,14 @@ pub static ROWS: &[Behaviour] = &[
                in the next landblock, the landblocks of this world being 160 m long.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CAMERA-BLOCK"),
-        station: "auberean-physics::cpu::camera::a_line_meets_what_stands_in_the_next_landblock",
+        station: "auberean-physics::cpu::motion::camera::a_line_meets_what_stands_in_the_next_landblock",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "motion.camera.inside-doorways-do-not-stop-the-camera",
         says: "Inside, a cell's doorways do not stop the chase camera's lines: only the walls, \
                floors and ceilings the cells' collision trees hold do, so beside a doorway the \
-               camera stands where it wants to, 4.5 m from the top of the body.",
+               camera stands where it wants to, 4.5 m from the top of the body, in the room beyond.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-CAMERA-DOORWAYS"),
         station: "auberean-physics::dat::interior::inside_doorways_do_not_stop_the_camera",
@@ -49,11 +49,12 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "motion.camera.solid-objects-stop-the-second-line",
         says: "The camera's second line, from the shoulder to where the camera wants to be, stops \
-               at solid objects standing in the world (and at moving ones), and outdoors the \
-               camera stands where it stopped; in the map view only the surroundings stop it.",
+               at solid objects standing in the world, but not at the player's own body, and \
+               outdoors the camera stands where it stopped, in the land cell there; in the map view \
+               only the surroundings stop it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-CAMERA-OBJECTS"),
-        station: "auberean-physics::cpu::camera::solid_objects_stop_the_second_line",
+        station: "auberean-physics::cpu::motion::camera::solid_objects_stop_the_second_line",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -63,7 +64,7 @@ pub static ROWS: &[Behaviour] = &[
                scales both the distance and the look-at height.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-CAMERA"),
-        station: "auberean-physics::cpu::camera::the_camera_starts_behind_and_above",
+        station: "auberean-physics::cpu::motion::camera::the_camera_starts_behind_and_above",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -72,7 +73,7 @@ pub static ROWS: &[Behaviour] = &[
                its look-at point meets the ground.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-CAMERA-TRACE"),
-        station: "auberean-physics::cpu::camera::the_camera_stops_at_the_ground",
+        station: "auberean-physics::cpu::motion::camera::the_camera_stops_at_the_ground",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -104,7 +105,7 @@ pub static ROWS: &[Behaviour] = &[
                drag of its velocity each second, decayed tick by tick.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DRAG"),
-        station: "auberean-physics::cpu::steering::a_body_on_dragging_ground_slows_by_its_drag",
+        station: "auberean-physics::cpu::motion::steering::a_body_on_dragging_ground_slows_by_its_drag",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -115,7 +116,7 @@ pub static ROWS: &[Behaviour] = &[
                body as drawn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-DRAW-BETWEEN-TICKS"),
-        station: "auberean-physics::cpu::moving::a_body_is_drawn_between_its_last_two_ticks",
+        station: "auberean-physics::cpu::motion::moving::a_body_is_drawn_between_its_last_two_ticks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -127,7 +128,7 @@ pub static ROWS: &[Behaviour] = &[
                unevenly, a body with a physics tree is marked so.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE"),
-        station: "auberean-physics::cpu::objects::a_body_takes_what_its_qualities_say_of_it",
+        station: "auberean-physics::cpu::contact::objects::a_body_takes_what_its_qualities_say_of_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -137,7 +138,7 @@ pub static ROWS: &[Behaviour] = &[
                is and its movement stops.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATE"),
-        station: "auberean-physics::cpu::element::a_body_that_is_not_mobile_stays",
+        station: "auberean-physics::cpu::motion::element::a_body_that_is_not_mobile_stays",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -148,7 +149,7 @@ pub static ROWS: &[Behaviour] = &[
                nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DOMODE"),
-        station: "auberean-physics::cpu::element::a_fall_toward_deep_water_asks_for_the_air_mode",
+        station: "auberean-physics::cpu::motion::element::a_fall_toward_deep_water_asks_for_the_air_mode",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -157,7 +158,7 @@ pub static ROWS: &[Behaviour] = &[
                jumping, into the air; landing, back onto the earth.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ELEMENT-ANIMATION"),
-        station: "auberean-physics::cpu::element::a_new_element_goes_to_the_animation",
+        station: "auberean-physics::cpu::motion::element::a_new_element_goes_to_the_animation",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -166,7 +167,7 @@ pub static ROWS: &[Behaviour] = &[
                setter does nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HOVER-IGNORED"),
-        station: "auberean-physics::cpu::element::a_sent_hover_height_is_ignored",
+        station: "auberean-physics::cpu::motion::element::a_sent_hover_height_is_ignored",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -175,7 +176,7 @@ pub static ROWS: &[Behaviour] = &[
                takes it off the ground and out of gravity until the lift stops.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-PUSHERS"),
-        station: "auberean-physics::cpu::element::pushers_carry_and_lift",
+        station: "auberean-physics::cpu::motion::element::pushers_carry_and_lift",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -186,7 +187,7 @@ pub static ROWS: &[Behaviour] = &[
                animation is frozen.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-ACCEL"),
-        station: "auberean-physics::cpu::element::the_animation_speed_takes_the_acceleration_over_each_step",
+        station: "auberean-physics::cpu::motion::element::the_animation_speed_takes_the_acceleration_over_each_step",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -195,7 +196,7 @@ pub static ROWS: &[Behaviour] = &[
                what is walkable under it; a body out of the world answers its own place.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-GROUND-POSITION"),
-        station: "auberean-physics::cpu::moving::the_ground_under_a_body_is_its_height_above_walkable_below",
+        station: "auberean-physics::cpu::motion::moving::the_ground_under_a_body_is_its_height_above_walkable_below",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -205,7 +206,7 @@ pub static ROWS: &[Behaviour] = &[
                line a tenth up below it, standing, it walks the sea floor.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ELEMENT"),
-        station: "auberean-physics::cpu::element::water_decides_swimming_and_the_sea_floor",
+        station: "auberean-physics::cpu::motion::element::water_decides_swimming_and_the_sea_floor",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -214,7 +215,7 @@ pub static ROWS: &[Behaviour] = &[
                and by its lift times its depth within a meter, against gravity.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-LIFT"),
-        station: "auberean-physics::cpu::element::water_lifts_by_depth",
+        station: "auberean-physics::cpu::motion::element::water_lifts_by_depth",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -224,7 +225,7 @@ pub static ROWS: &[Behaviour] = &[
                holder with no bones cannot hold it so.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STICKY-PARENT"),
-        station: "auberean-physics::cpu::moving::holding::a_body_sticks_to_the_bone_nearest_it",
+        station: "auberean-physics::cpu::motion::moving::holding::a_body_sticks_to_the_bone_nearest_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -235,7 +236,7 @@ pub static ROWS: &[Behaviour] = &[
                with no hanging point it hangs at the holder's own frame.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HOLD-PLACE"),
-        station: "auberean-physics::cpu::moving::holding::a_child_hangs_where_its_holder_is_drawn",
+        station: "auberean-physics::cpu::motion::moving::holding::a_child_hangs_where_its_holder_is_drawn",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -246,7 +247,7 @@ pub static ROWS: &[Behaviour] = &[
                the world.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HOLD-LET-GO"),
-        station: "auberean-physics::cpu::moving::holding::a_child_let_go_of_tells_its_holder",
+        station: "auberean-physics::cpu::motion::moving::holding::a_child_let_go_of_tells_its_holder",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -257,7 +258,7 @@ pub static ROWS: &[Behaviour] = &[
                never does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HOLD-FADE"),
-        station: "auberean-physics::cpu::moving::holding::a_held_child_fades_in_water",
+        station: "auberean-physics::cpu::motion::moving::holding::a_held_child_fades_in_water",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -267,7 +268,7 @@ pub static ROWS: &[Behaviour] = &[
                scale the holder's look gives what it holds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TOTAL-SCALE"),
-        station: "auberean-physics::cpu::moving::holding::a_held_childs_scale_takes_its_holders",
+        station: "auberean-physics::cpu::motion::moving::holding::a_held_childs_scale_takes_its_holders",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -278,7 +279,7 @@ pub static ROWS: &[Behaviour] = &[
                temporary, and knows its holder.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HOLD-TAKE-UP"),
-        station: "auberean-physics::cpu::moving::holding::a_holder_takes_up_a_child_which_leaves_the_world",
+        station: "auberean-physics::cpu::motion::moving::holding::a_holder_takes_up_a_child_which_leaves_the_world",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -287,7 +288,7 @@ pub static ROWS: &[Behaviour] = &[
                it is, not turned by the body's heading.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-LOCAL-VELOCITY"),
-        station: "auberean-physics::cpu::element::a_local_velocity_is_not_turned",
+        station: "auberean-physics::cpu::motion::element::a_local_velocity_is_not_turned",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -297,7 +298,7 @@ pub static ROWS: &[Behaviour] = &[
                push is divided by the distance once more.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-IMPULSE"),
-        station: "auberean-physics::cpu::element::a_targeted_impulse_pushes_away",
+        station: "auberean-physics::cpu::motion::element::a_targeted_impulse_pushes_away",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -337,7 +338,7 @@ pub static ROWS: &[Behaviour] = &[
                it asked.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-INTERP-BLIP"),
-        station: "auberean-physics::cpu::steering::a_body_far_behind_is_put_at_the_end",
+        station: "auberean-physics::cpu::motion::steering::a_body_far_behind_is_put_at_the_end",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -347,7 +348,7 @@ pub static ROWS: &[Behaviour] = &[
                path, never back along it, and comes to rest on the last.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-INTERP"),
-        station: "auberean-physics::cpu::steering::a_body_follows_the_positions_it_is_sent",
+        station: "auberean-physics::cpu::motion::steering::a_body_follows_the_positions_it_is_sent",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -356,7 +357,7 @@ pub static ROWS: &[Behaviour] = &[
                one farther away is taken at once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-INTERP-FAR"),
-        station: "auberean-physics::cpu::element::a_sent_position_far_away_is_taken_at_once",
+        station: "auberean-physics::cpu::motion::element::a_sent_position_far_away_is_taken_at_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -366,7 +367,7 @@ pub static ROWS: &[Behaviour] = &[
                half a second.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-JUMP"),
-        station: "auberean-physics::cpu::moving::a_jump_follows_its_arc_and_waits_to_repeat",
+        station: "auberean-physics::cpu::motion::moving::a_jump_follows_its_arc_and_waits_to_repeat",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -376,7 +377,7 @@ pub static ROWS: &[Behaviour] = &[
                at once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-JUMP-LEADIN"),
-        station: "auberean-physics::cpu::element::a_slow_player_leads_in_before_jumping",
+        station: "auberean-physics::cpu::motion::element::a_slow_player_leads_in_before_jumping",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -386,7 +387,7 @@ pub static ROWS: &[Behaviour] = &[
                stays open until the server ends it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-MOVETO"),
-        station: "auberean-physics::cpu::steering::a_body_turns_then_walks_to_the_place_and_stops",
+        station: "auberean-physics::cpu::motion::steering::a_body_turns_then_walks_to_the_place_and_stops",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -394,7 +395,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A turn to a heading slows to nothing on the heading and never turns past it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TURNTO"),
-        station: "auberean-physics::cpu::steering::a_turn_stops_on_its_heading",
+        station: "auberean-physics::cpu::motion::steering::a_turn_stops_on_its_heading",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -404,7 +405,7 @@ pub static ROWS: &[Behaviour] = &[
                anyone else's body stays.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-MOVETO-ORDER"),
-        station: "auberean-physics::cpu::element::only_the_player_takes_an_ordered_move",
+        station: "auberean-physics::cpu::motion::element::only_the_player_takes_an_ordered_move",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -413,7 +414,7 @@ pub static ROWS: &[Behaviour] = &[
                scale times its own.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-WHOLE-SCALE"),
-        station: "auberean-physics::cpu::objects::a_body_is_placed_at_its_whole_scale",
+        station: "auberean-physics::cpu::contact::objects::a_body_is_placed_at_its_whole_scale",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -422,7 +423,7 @@ pub static ROWS: &[Behaviour] = &[
                radius 0.1 resting on its origin, unscaled.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-NO-SPHERES"),
-        station: "auberean-physics::cpu::objects::a_body_of_no_spheres_is_placed_as_a_small_sphere",
+        station: "auberean-physics::cpu::contact::objects::a_body_of_no_spheres_is_placed_as_a_small_sphere",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -431,7 +432,7 @@ pub static ROWS: &[Behaviour] = &[
                placement when the order asks; a place that names no kind of cell has no cell.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SET-POSITION"),
-        station: "auberean-physics::cpu::objects::a_body_put_on_open_ground_lands_there",
+        station: "auberean-physics::cpu::contact::objects::a_body_put_on_open_ground_lands_there",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -440,7 +441,7 @@ pub static ROWS: &[Behaviour] = &[
                it off its list of what it holds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-MISSILE-LET-GO"),
-        station: "auberean-physics::cpu::objects::a_missile_put_in_the_world_is_let_go_of",
+        station: "auberean-physics::cpu::contact::objects::a_missile_put_in_the_world_is_let_go_of",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -450,7 +451,7 @@ pub static ROWS: &[Behaviour] = &[
                blocked, it takes the first place around it a roll gives that is free.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SET-POSITION-TAKEN"),
-        station: "auberean-physics::cpu::objects::a_taken_place_is_refused_forced_or_scattered",
+        station: "auberean-physics::cpu::contact::objects::a_taken_place_is_refused_forced_or_scattered",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -460,7 +461,7 @@ pub static ROWS: &[Behaviour] = &[
                velocity; each cell is asked once an attempt.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-RULES"),
-        station: "auberean-physics::cpu::rules::this_worlds_transition_settings",
+        station: "auberean-physics::cpu::motion::rules::this_worlds_transition_settings",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -470,7 +471,7 @@ pub static ROWS: &[Behaviour] = &[
                and jumps as fast as any other.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SPEED-OWN-SCALE"),
-        station: "auberean-physics::cpu::element::a_body_runs_and_jumps_at_its_own_scale_not_its_looks",
+        station: "auberean-physics::cpu::motion::element::a_body_runs_and_jumps_at_its_own_scale_not_its_looks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -480,7 +481,7 @@ pub static ROWS: &[Behaviour] = &[
                0.525, 0.275 and 0.075 m.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-RUN"),
-        station: "auberean-physics::cpu::moving::a_run_starts_and_stops_tick_by_tick",
+        station: "auberean-physics::cpu::motion::moving::a_run_starts_and_stops_tick_by_tick",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -488,7 +489,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Backing up runs at 4 m/s and sidestepping at 4.5.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-SPEEDS"),
-        station: "auberean-physics::cpu::moving::backward_and_sideways_speeds",
+        station: "auberean-physics::cpu::motion::moving::backward_and_sideways_speeds",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -497,7 +498,7 @@ pub static ROWS: &[Behaviour] = &[
                part runs at the forward speed and the whole is cut to the forward speed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-DIAGONAL"),
-        station: "auberean-physics::cpu::moving::diagonals_are_not_faster",
+        station: "auberean-physics::cpu::motion::moving::diagonals_are_not_faster",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -508,7 +509,7 @@ pub static ROWS: &[Behaviour] = &[
                ahead), and a newer stamp is kept; an equal or older one is refused.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STAMPS"),
-        station: "auberean-physics::cpu::moving::a_newer_stamp_is_kept_and_an_older_one_refused",
+        station: "auberean-physics::cpu::motion::moving::a_newer_stamp_is_kept_and_an_older_one_refused",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -519,7 +520,7 @@ pub static ROWS: &[Behaviour] = &[
                context it followed by, and letting go asks the other to stop.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TARGET"),
-        station: "auberean-physics::cpu::moving::a_followed_body_tells_its_follower_where_it_is",
+        station: "auberean-physics::cpu::motion::moving::a_followed_body_tells_its_follower_where_it_is",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -531,16 +532,17 @@ pub static ROWS: &[Behaviour] = &[
                older stamp does nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TELEPORT-LEAVE"),
-        station: "auberean-physics::cpu::moving::a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out",
+        station: "auberean-physics::cpu::motion::moving::a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "motion.tick.animation-steps-by-the-frames-time",
         says: "Animation steps once a frame at least a thirtieth of a second after the last, by \
-               all the time since but never more than a fifth of a second at once.",
+               all the time since up to a fifth of a second; after a longer gap it steps a \
+               twentieth of a second only.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-CLOCK"),
-        station: "auberean-physics::cpu::moving::animation_steps_by_the_frames_time",
+        station: "auberean-physics::cpu::motion::moving::animation_steps_by_the_frames_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -549,7 +551,7 @@ pub static ROWS: &[Behaviour] = &[
                second is dropped rather than run.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-TICK"),
-        station: "auberean-physics::cpu::moving::physics_runs_in_tenths_of_a_second",
+        station: "auberean-physics::cpu::motion::moving::physics_runs_in_tenths_of_a_second",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -559,7 +561,7 @@ pub static ROWS: &[Behaviour] = &[
                instant).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DO-MOTION"),
-        station: "auberean-physics::cpu::moving::a_motion_with_a_heading_moves_and_turns_to_it",
+        station: "auberean-physics::cpu::motion::moving::a_motion_with_a_heading_moves_and_turns_to_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -568,7 +570,7 @@ pub static ROWS: &[Behaviour] = &[
                sent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SET-HEADING"),
-        station: "auberean-physics::cpu::element::a_set_heading_falls_to_a_255th_of_a_turn",
+        station: "auberean-physics::cpu::motion::element::a_set_heading_falls_to_a_255th_of_a_turn",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -577,7 +579,7 @@ pub static ROWS: &[Behaviour] = &[
                turn is up to speed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-TURN"),
-        station: "auberean-physics::cpu::moving::standing_turns_at_the_still_rate",
+        station: "auberean-physics::cpu::motion::moving::standing_turns_at_the_still_rate",
         tier: Tier::Cpu,
     },
     behaviour! {

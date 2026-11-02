@@ -466,6 +466,7 @@ impl AllegiancePage {
             kind: kind::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.update_buttons(ui);
     }
@@ -488,6 +489,7 @@ impl AllegiancePage {
             kind: kind::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.update_buttons(ui);
     }
@@ -705,7 +707,22 @@ impl AllegiancePage {
     }
 }
 
+impl AllegiancePage {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x436, 0x431, 0x432, 0x434, 0x435, 0x408, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for AllegiancePage {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

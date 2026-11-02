@@ -146,8 +146,8 @@ pub struct CraftSkill {
 }
 
 impl CraftSkill {
-    /// From its adaptor.
-    // D2-12352, D2-12353
+    /// From its adaptor: a copy of each of its fields.
+    // D2-12352, D2-12353, D2-12355, D2-12354
     #[must_use]
     pub fn of(o: &NativeObject) -> Option<Self> {
         let f = fields(o).cloned().unwrap_or_default();
@@ -202,8 +202,8 @@ pub struct Recipe {
 }
 
 impl Recipe {
-    /// From its adaptor.
-    // D2-12362, D2-12363
+    /// From its adaptor: a copy of each of its fields.
+    // D2-12362, D2-12363, D2-12365
     #[must_use]
     pub fn of(o: &NativeObject) -> Option<Self> {
         if !matches!(
@@ -256,8 +256,8 @@ pub struct Ingredient {
 }
 
 impl Ingredient {
-    /// From its adaptor.
-    // D2-12366, D2-12367
+    /// From its adaptor: a copy of each of its fields.
+    // D2-12366, D2-12367, D2-12369, D2-12368
     #[must_use]
     pub fn of(o: &NativeObject) -> Option<Self> {
         if !matches!(
@@ -482,7 +482,7 @@ pub const INGREDIENT_TABLE: u32 = 0x08;
 /// The packed form of the table of the items in a recipe's slots, by ordinal, as the interface
 /// hands it to the scripts: a new table (47 buckets), each entry put at the head of its bucket in
 /// the order given.
-// D2-00443, D2-01207
+// D2-00443, D2-01207, D2-01018
 #[must_use]
 pub fn ingredient_table(ingredients: &[(u32, u64)]) -> Vec<u8> {
     use auberean_script::library::Elem;
@@ -637,8 +637,8 @@ impl Asker<'_> {
         self.word_of_args(function::INGREDIENT_AUTO_POPULATES, &[ordinal, did]) != 0
     }
 
-    /// The player's items, in the scripts' order.
-    // D2-01159
+    /// The player's items, in the scripts' order (none with no player here).
+    // D2-01159, D2-00477, D2-01017
     fn inventory(&mut self) -> Vec<u64> {
         let a = self.ask_with(None, INVENTORY_LIST, &[Slot::New(LONG_LIST)], &[], false);
         match a.and_then(|a| a.objects.into_iter().next().flatten()) {

@@ -132,6 +132,7 @@ impl Waveform {
         }
     }
 
+    // D2-06942
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             kind: r.u32()?,
@@ -176,7 +177,7 @@ impl Position {
 pub struct Color32(pub u32);
 
 impl Color32 {
-    // D2-13248
+    // D2-13248, D2-10449, D2-12517
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self(r.u32()?))
     }

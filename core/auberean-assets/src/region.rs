@@ -243,7 +243,7 @@ pub struct AmbientSound {
 // D2-07636, D2-07641, D2-07642, D2-07647
 impl AmbientSound {
     /// The kind, the environment, the intermittent sounds, then the continuous ones.
-    // D2-07638
+    // D2-07638, D2-07644, D2-07646
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             kind: r.u32()?,
@@ -264,7 +264,7 @@ pub struct SoundDesc {
 // D2-07625, D2-07630, D2-07632, D2-05030, D2-07631, D2-07634
 impl Decode for SoundDesc {
     /// The id, a version word, then a counted list of ambient sounds.
-    // D2-07627
+    // D2-07627, D2-07633
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         Ok(Self {
@@ -685,7 +685,7 @@ pub struct EncounterRow {
 
 // D2-12502, D2-12503, D2-12504, D2-07513
 impl EncounterRow {
-    // D2-12505
+    // D2-12505, D2-12506
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             index: r.u32()?,
@@ -707,7 +707,7 @@ pub struct EncounterDesc {
 // D2-07505, D2-07507, D2-05034, D2-07506, D2-07509
 impl Decode for EncounterDesc {
     /// A version word **before** the id, the id, the block map, a counted list of rows.
-    // D2-07503
+    // D2-07503, D2-07515
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         let version = r.u32()?;
         r.expect_id(id)?;
@@ -799,7 +799,7 @@ pub struct PropertyDesc {
 // D2-12578, D2-12580, D2-05038, D2-12579, D2-12583
 impl Decode for PropertyDesc {
     /// The id, a version word, a counted list of mapped properties.
-    // D2-07627
+    // D2-07627, D2-12588
     fn decode(r: &mut Reader<'_>, id: u32, ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         Ok(Self {
@@ -1382,7 +1382,7 @@ pub struct DetailMap {
 // D2-07602, D2-05076, D2-07603, D2-07604, D2-07616
 impl Decode for DetailMap {
     /// The id, the block map, a counted list of rows.
-    // D2-07627
+    // D2-07627, D2-07610
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         Ok(Self {

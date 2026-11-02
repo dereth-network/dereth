@@ -10,6 +10,7 @@ use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::MotionInput;
+use auberean_physics::world::World;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::common::need_world;
@@ -161,22 +162,73 @@ fn inside_the_camera_stops_at_the_walls() {
     let camera = Camera::new(CameraSettings::default());
     let away = (b.heading + 180.0).rem_euclid(360.0);
     let (look, wanted) = camera.wanted(at.frame.origin, away);
-    let v = camera.place_inside(&land, at.cell, at.frame.origin, away);
+    let world = with_the_player(w, &land, &mut b);
+    let seen = sighted(&world, &land, &at, look, wanted);
     let dist =
         |a: Vec3, c: Vec3| ((a.x - c.x).powi(2) + (a.y - c.y).powi(2) + (a.z - c.z).powi(2)).sqrt();
     assert!(dist(look, wanted) > 4.4, "it wants 4.5 m");
-    let got = dist(v.look_at, v.eye);
+    let got = dist(seen.look.frame.origin, seen.eye.frame.origin);
     assert!(got < 4.0, "pulled in from the wall: {got} m");
-    let inside = (0x100u32..0x200).any(|k| {
-        land.cell(CellId(0x0298_0000 | k)).is_some_and(|g| {
-            let l = dereth_physics::math::globaltolocal(&g.frame, v.eye);
-            !g.portals.is_empty()
-                && g.cell_bsp
-                    .as_ref()
-                    .is_some_and(|t| t.point_inside_cell_bsp(l))
-        })
-    });
-    assert!(inside, "the camera is inside a hall cell: {:?}", v.eye);
+    assert!(
+        holds(&land, &seen.eye),
+        "the camera stands in a hall cell that holds it: {:?}",
+        seen.eye
+    );
+}
+
+/// The camera's lines of sight for a body at `at` looking at `look` from where it wants to be,
+/// `wanted` (both in the body's landblock frame).
+pub(crate) fn sighted(
+    world: &World,
+    land: &Land,
+    at: &Position,
+    look: Vec3,
+    wanted: Vec3,
+) -> auberean_physics::camera::Sighted {
+    let o = at.frame.origin;
+    auberean_physics::camera::sight_lines(
+        world,
+        &auberean_physics::camera::Lines {
+            land,
+            cell: at.cell,
+            origin: o,
+            target_offset: Vec3::new(look.x - o.x, look.y - o.y, look.z - o.z),
+            wanted,
+            env_only: false,
+        },
+    )
+    .expect("the body's cell is loaded")
+}
+
+/// A world holding body `b` as the player's, of the physics type the recorded players' are (one
+/// the camera passes through), with the install's property list.
+pub(crate) fn with_the_player(w: &crate::common::World, land: &Land, b: &mut Body) -> World {
+    let mut world = World::new();
+    if let Some(list) = w
+        .records
+        .get::<auberean_assets::property::PropertyList>(0x3400_0000)
+    {
+        world.set_property_list(list);
+    }
+    let key = world.insert_body(land, 0x5000_0001, b);
+    world.set_ethereality(
+        key,
+        auberean_physics::solid::Ethereality {
+            physics_type: 0x0480_0020,
+            ..auberean_physics::solid::Ethereality::default()
+        },
+    );
+    world
+}
+
+/// Whether interior cell `at.cell` holds `at`'s point.
+pub(crate) fn holds(land: &Land, at: &Position) -> bool {
+    land.cell(at.cell).is_some_and(|g| {
+        let l = dereth_physics::math::globaltolocal(&g.frame, at.frame.origin);
+        g.cell_bsp
+            .as_ref()
+            .is_some_and(|t| t.point_inside_cell_bsp(l))
+    })
 }
 
 /// The place in the training hall where a new character stands, facing the platform of steps the
@@ -236,7 +288,8 @@ fn a_body_steps_onto_what_stands_in_the_cells() {
 }
 
 /// Inside, a cell's doorways do not stop the camera's lines: at the hall's starting place, 0.9 m
-/// from the doorway behind it, the camera stands where it wants to, 4.5 m from the top of the body.
+/// from the doorway behind it, the camera stands where it wants to, 4.5 m from the top of the body,
+/// in the room beyond the doorway, which holds it.
 ///
 /// Behaviour: motion.camera.inside-doorways-do-not-stop-the-camera
 #[test]
@@ -254,12 +307,13 @@ fn inside_doorways_do_not_stop_the_camera() {
         look.x < 60.0 && eye.x > 60.0,
         "the doorway is between: {look:?} {eye:?}"
     );
-    let v = camera.place_inside(&land, at.cell, at.frame.origin, 270.0);
-    let d = ((v.eye.x - v.look_at.x).powi(2)
-        + (v.eye.y - v.look_at.y).powi(2)
-        + (v.eye.z - v.look_at.z).powi(2))
-    .sqrt();
-    assert!((d - 4.5).abs() < 0.01, "4.5 m back: {d} ({v:?})");
+    let world = with_the_player(w, &land, &mut body(w, at, 270.0));
+    let seen = sighted(&world, &land, &at, look, eye);
+    let (l, e) = (seen.look.frame.origin, seen.eye.frame.origin);
+    let d = ((e.x - l.x).powi(2) + (e.y - l.y).powi(2) + (e.z - l.z).powi(2)).sqrt();
+    assert!((d - 4.5).abs() < 0.01, "4.5 m back: {d} ({seen:?})");
+    assert_ne!(seen.eye.cell, at.cell, "through the doorway");
+    assert!(holds(&land, &seen.eye), "in the room beyond: {seen:?}");
 }
 
 /// Inside, the camera's first line, from the body up to the top of it, stops only at the cells'
@@ -276,23 +330,26 @@ fn inside_the_first_line_passes_what_stands_in_the_cells() {
     add_block_cells(&land, &w.records, &mut Trees::default(), 0x02, 0x98);
     let cell = CellId(0x0298_0109);
     let inside = Vec3::new(49.7, 240.2, -44.9);
-    // The platform's top is above that place.
-    let up = auberean_physics::interior::trace(
-        &land,
-        cell,
-        inside,
-        Vec3::new(inside.x, inside.y, inside.z + 2.0),
-        true,
+    let at = Position::new(cell, Frame::new(inside, Quat::IDENTITY));
+    let world = with_the_player(w, &land, &mut body(w, at, 270.0));
+    // The platform's top is above that place: a line of sight up from it that stops at what
+    // stands in the cells is stopped.
+    let mut up = auberean_physics::ethereal::SightLine::default();
+    up.set_ray(
+        auberean_physics::geom::Ray::from_offset(inside, Vec3::new(0.0, 0.0, 2.0)),
+        cell.0,
     );
-    assert!(up.is_some(), "the platform is over the place");
+    assert!(world.los_check(&land, &mut up));
+    assert!(up.delta < 1.0, "the platform is over the place");
     let camera = Camera::new(CameraSettings::default());
-    let (look, _) = camera.wanted(inside, 270.0);
-    let v = camera.place_inside(&land, cell, inside, 270.0);
+    let (look, wanted) = camera.wanted(inside, 270.0);
+    let seen = sighted(&world, &land, &at, look, wanted);
+    let l = seen.look.frame.origin;
     assert!(
-        (v.look_at.z - look.z).abs() < 0.001,
-        "looks at the top of the body: {:?} wanted {look:?}",
-        v.look_at
+        (l.z - look.z).abs() < 0.001,
+        "looks at the top of the body: {l:?} wanted {look:?}"
     );
-    let d = ((v.eye.x - v.look_at.x).powi(2) + (v.eye.y - v.look_at.y).powi(2)).sqrt();
-    assert!(d > 3.0, "the camera stands back: {d} m ({v:?})");
+    let e = seen.eye.frame.origin;
+    let d = ((e.x - l.x).powi(2) + (e.y - l.y).powi(2)).sqrt();
+    assert!(d > 3.0, "the camera stands back: {d} m ({seen:?})");
 }

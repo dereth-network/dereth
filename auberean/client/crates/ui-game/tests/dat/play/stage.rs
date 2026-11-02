@@ -1,9 +1,12 @@
-//! A play screen in the world for the trade, shop, book, pet and story panels' tests: the player
-//! with a sword and a stack of ore in the main pack, the clock moving a twentieth of a second a
-//! frame.
+//! A play screen in the world for the trade, shop, book, pet, story and chat panels' tests: the
+//! player with a sword and a stack of ore in the main pack, the clock moving a twentieth of a
+//! second a frame; and the install's records with a string table the data lacks.
 
+use std::sync::{Arc, Mutex};
+
+use auberean_text::StringInfo;
 use auberean_ui::types::button_id;
-use auberean_ui::{Handle, Token, Ui};
+use auberean_ui::{Assets, Handle, Token, Ui};
 use auberean_ui_game::gameplay::{GamePlay, Notice, Record, Request, View};
 use auberean_ui_game::inventory::{Container, Contents, Facts, ItemFacts};
 use auberean_ui_game::shop::Facts as ShopFacts;
@@ -103,6 +106,73 @@ pub fn dialog(out: &[Request]) -> Option<(u32, String)> {
     })
 }
 
+/// The install's records, with one string table the data lacks: a reference to it waits until
+/// the test says the table came, then writes as the server's text.
+pub struct Lacking {
+    records: Arc<auberean_ui::DatAssets>,
+    waiting: Mutex<bool>,
+}
+
+pub const LACKING: u32 = 0x2502_0001;
+
+impl Lacking {
+    /// The install's records, the table not yet come.
+    #[must_use]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            records: records(),
+            waiting: Mutex::new(true),
+        })
+    }
+
+    /// The table came.
+    pub fn arrive(&self) {
+        *self.waiting.lock().unwrap() = false;
+    }
+}
+
+impl Assets for Lacking {
+    fn layout(&self, id: u32) -> Option<Arc<auberean_assets::ui::UiLayout>> {
+        self.records.layout(id)
+    }
+    fn image(&self, id: u32) -> Option<Arc<auberean_ui::Image>> {
+        self.records.image(id)
+    }
+    fn font(&self, id: u32) -> Option<Arc<auberean_assets::ui::Font>> {
+        self.records.font(id)
+    }
+    fn string(&self, table: u32, token: u32) -> Option<String> {
+        self.records.string(table, token)
+    }
+    fn data_id_by_enum(&self, value: u32, mapping: u32) -> u32 {
+        self.records.data_id_by_enum(value, mapping)
+    }
+    fn text(&self, table: u32, token: u32) -> Option<String> {
+        self.records.text(table, token)
+    }
+    fn write(&self, info: &StringInfo) -> Option<String> {
+        self.records.write(info)
+    }
+    fn write_valid(&self, info: &StringInfo) -> Option<String> {
+        if info.table == LACKING {
+            return Some(String::new());
+        }
+        self.records.write_valid(info)
+    }
+    fn element_text(&self, info: &StringInfo) -> Vec<u16> {
+        if info.table == LACKING {
+            return "From the server\n".encode_utf16().collect();
+        }
+        self.records.element_text(info)
+    }
+    fn start_string_download(&self, info: &StringInfo) -> Option<u32> {
+        (info.table == LACKING).then_some(1)
+    }
+    fn string_download_waiting(&self, _download: u32) -> bool {
+        *self.waiting.lock().unwrap()
+    }
+}
+
 pub struct World {
     pub ui: Ui,
     pub play: GamePlay,
@@ -115,7 +185,13 @@ pub struct World {
 impl World {
     #[must_use]
     pub fn new() -> Self {
-        let mut ui = Ui::new(records(), 1024, 768);
+        Self::over(records())
+    }
+
+    /// The same over other records.
+    #[must_use]
+    pub fn over(assets: Arc<dyn Assets + Send + Sync>) -> Self {
+        let mut ui = Ui::new(assets, 1024, 768);
         let mut out = Vec::new();
         let mut play = GamePlay::new(&mut ui, &mut out);
         play.login_finished(&mut ui, &mut out);

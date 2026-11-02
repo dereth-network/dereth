@@ -303,6 +303,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-audio"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-primitives",
+ "auberean-world",
+ "dereth-audio",
+ "dereth-primitives",
+ "tracing",
+]
+
+[[package]]
 name = "auberean-client"
 version = "0.1.0"
 dependencies = [
@@ -317,6 +330,9 @@ dependencies = [
  "auberean-ui",
  "auberean-world",
  "bytemuck",
+ "chrono",
+ "dereth-audio",
+ "dereth-audio-out",
  "dereth-primitives",
  "embed-resource",
  "png",
@@ -374,6 +390,7 @@ dependencies = [
  "auberean-text",
  "auberean-world",
  "dereth-primitives",
+ "dereth-protocol",
 ]
 
 [[package]]
@@ -477,6 +494,7 @@ name = "auberean-interface"
 version = "0.0.0"
 dependencies = [
  "auberean-assets",
+ "auberean-audio",
  "auberean-client-sdk",
  "auberean-dat",
  "auberean-draw",
@@ -568,6 +586,7 @@ version = "0.0.0"
 dependencies = [
  "auberean-animation",
  "auberean-assets",
+ "auberean-audio",
  "auberean-client-sdk",
  "auberean-dat",
  "auberean-draw",
@@ -576,6 +595,7 @@ dependencies = [
  "auberean-scene",
  "auberean-testkit",
  "auberean-world",
+ "dereth-audio",
  "dereth-primitives",
  "tracing",
 ]
@@ -648,7 +668,9 @@ version = "0.0.0"
 dependencies = [
  "auberean-assets",
  "auberean-dat",
+ "auberean-glue",
  "auberean-primitives",
+ "auberean-script",
  "auberean-testkit",
  "dereth-landscape",
  "dereth-primitives",

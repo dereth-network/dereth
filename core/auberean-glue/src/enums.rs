@@ -6,16 +6,28 @@
 //!   enumeration has no name for the value) and answers whether it was found.
 //! - **The value of a name** (letter case ignored) fills a number the scripts reach through a
 //!   reference (left as it was when not found) and answers whether it was found.
+//! - **A value's name as a new string** (the plain name and the one for logs are the same): empty
+//!   when the enumeration has no name for it.
+//! - **The value of a name in a record** named directly (an enum map or an id map), as the value of
+//!   a name.
+//! - **How many values, every value, every name** of an enumeration: the count, and new lists of
+//!   words and of new strings, in the enumeration's order.
 //! - **The record of a value** in an enumeration mapping (the master map names the mapping's map,
 //!   which names the record): 0 when either map lacks it.
 
 use std::sync::Arc;
 
+use auberean_script::library::Elem;
 use auberean_script::native::{Call, NativeFn, NativeTable, Status, Stop};
-use auberean_script::native_object::NativeObject;
+use auberean_script::native_object::{native_type, Item, NativeObject};
 use auberean_script::value::{tag, NULL};
 
-use crate::machine::text_of;
+use crate::machine::{new_text, text_of};
+
+/// A list of words.
+const WORD_LIST: u32 = 10;
+/// A list of references.
+const REFERENCE_LIST: u32 = 0x65;
 
 /// The enum maps' natives' package.
 const ENUM_MAPPER: u32 = 0x23;
@@ -24,7 +36,13 @@ const DB_CACHE: u32 = 0x1AC0;
 
 const NATIVES: &[(u32, u32, NativeFn)] = &[
     (ENUM_MAPPER, 0x01, inq_string),
+    (ENUM_MAPPER, 0x02, get_string),
     (ENUM_MAPPER, 0x03, inq_enum),
+    (ENUM_MAPPER, 0x04, get_log_string),
+    (ENUM_MAPPER, 0x05, enum_by_record),
+    (ENUM_MAPPER, 0x06, count),
+    (ENUM_MAPPER, 0x07, all_values),
+    (ENUM_MAPPER, 0x08, all_names),
     (DB_CACHE, 0x01, did_from_enum),
 ];
 
@@ -74,10 +92,108 @@ fn inq_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// The name of a value (`fp[-3]`) of an enumeration (`fp[-2]`) as a new string at `fp[-4]`, empty
+/// when it has none.
+fn name_as_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let map = c.cx.at(-2)?;
+    let value = c.cx.at(-3)?;
+    let name = c
+        .host
+        .database()
+        .and_then(|db| db.enumeration_name(map, value))
+        .unwrap_or_default();
+    let id = new_text(c, name.encode_utf16().collect());
+    c.write(-4, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+// D2-08545
+fn get_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    name_as_string(c)
+}
+
+// D2-08544
+fn get_log_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    name_as_string(c)
+}
+
+/// The value of a name (the string at `fp[-3]`, letter case ignored) in a record (`fp[-2]`: an enum
+/// map or an id map), into the number the reference at `fp[-4]` reaches (tagged as written by a
+/// native, found or not); whether it was found in `fp[-5]`.
+// D2-08547
+fn enum_by_record(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let did = c.cx.at(-2)?;
+    let name: String = char::decode_utf16(text_of(c, c.cx.at(-3)?)?)
+        .map(|r| r.unwrap_or('?'))
+        .collect();
+    let out = c.cx.at(-4)?;
+    let value = c.host.database().and_then(|db| db.value_by_did(did, &name));
+    let prog = Arc::clone(c.vm.program());
+    c.vm.write_slot(c.host, c.cx, out, 0, value, tag::MIXED, &prog)?;
+    c.write(-5, u32::from(value.is_some()), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// How many values an enumeration (`fp[-2]`) has, at `fp[-3]`.
+// D2-08542
+fn count(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let map = c.cx.at(-2)?;
+    let n = c.host.database().map_or(0, |db| db.enumeration_len(map));
+    #[allow(clippy::cast_possible_truncation)]
+    c.write(-3, n as u32, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Every value of an enumeration (`fp[-2]`), as a new list of words at `fp[-3]`.
+// D2-08543, D2-01544
+fn all_values(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let map = c.cx.at(-2)?;
+    let values = c
+        .host
+        .database()
+        .map(|db| db.enumeration_values(map))
+        .unwrap_or_default();
+    let l = NativeObject::Sequence {
+        item: Elem::Word,
+        items: values.into_iter().map(Item::Word).collect(),
+    };
+    let id = c.vm.heap.add_native(WORD_LIST, l);
+    c.write(-3, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// Every name of an enumeration (`fp[-2]`), each a new string, as a new list of references at
+/// `fp[-3]`.
+// D2-08546, D2-01053
+fn all_names(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let map = c.cx.at(-2)?;
+    let names = c
+        .host
+        .database()
+        .map(|db| db.enumeration_names(map))
+        .unwrap_or_default();
+    let items = names
+        .into_iter()
+        .map(|n| {
+            Item::Ref(c.vm.heap.add_native(
+                native_type::WP_STRING,
+                NativeObject::Text(n.encode_utf16().collect()),
+            ))
+        })
+        .collect();
+    let l = NativeObject::Sequence {
+        item: Elem::Ref,
+        items,
+    };
+    let id = c.vm.heap.add_native(REFERENCE_LIST, l);
+    c.write(-3, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
 /// The record a value (`fp[-2]`) maps to in an enumeration mapping (`fp[-3]`), into `fp[-4]`; the
 /// receiver is not read.
 // D2-08474, D2-12601, D2-12602
-fn did_from_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
+pub(crate) fn did_from_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
     let value = c.cx.at(-2)?;
     let mapping = c.cx.at(-3)?;
     let did = c.host.data_id_by_enum(value, mapping);

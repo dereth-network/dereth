@@ -520,7 +520,7 @@ impl CollisionReport {
 }
 
 impl Pack for CollisionReport {
-    // D2-15558
+    // D2-15558, D2-04334, D2-04357
     fn pack(&self, w: &mut Writer) {
         write_packs(w, &self.records);
         write_packs(w, &self.object_properties);

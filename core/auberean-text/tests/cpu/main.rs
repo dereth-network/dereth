@@ -1,10 +1,12 @@
-//! The formatter without data: the meta language, numbers, and references over tables made here.
+//! The formatter without data: the meta language, numbers, and references over tables made here;
+//! and the string library's rules for wide text, by cases read from the client's machine code.
 
 mod meta;
 mod names;
 mod numbers;
 mod places;
 mod references;
+mod wide;
 
 use auberean_text::Language;
 

@@ -236,6 +236,7 @@ impl FellowshipPage {
             kind: kind::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.recruit = id;
     }
@@ -421,7 +422,25 @@ impl FellowshipPage {
     }
 }
 
+impl FellowshipPage {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x41E, 0x41F, 0x423, 0x424, 0x429, 0x1_040C, 0x436, 0x420, 0x48C, 0x421, 0x422, 0x408,
+        0x46D, 0x425, 0x426, 0x427, 0x428,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for FellowshipPage {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

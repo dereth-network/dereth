@@ -34,7 +34,8 @@ fn the_landscape_preferences_set_the_far_landscape_and_the_frills() {
         Landscape {
             far_radius: 8,
             frill_radius: 1,
-            frill_reach: 1.0
+            frill_reach: 1.0,
+            shore_effects: 2,
         }
     );
     assert_eq!(
@@ -42,4 +43,23 @@ fn the_landscape_preferences_set_the_far_landscape_and_the_frills() {
         4,
         "the draw distance's own default, medium"
     );
+}
+
+/// The landscape's shore effects preference says what the shores draw: nothing when disabled,
+/// their strips in the frame's alpha at medium (its own default), those and their foam at high
+/// (the highest overall quality's).
+///
+/// Behaviour: desktop.world.the-shore-effects-preference-sets-what-the-shores-draw
+#[test]
+fn the_shore_effects_preference_sets_what_the_shores_draw() {
+    let with = |v: f32| {
+        let mut g = Graphics::default();
+        assert!(g.set(key::LANDSCAPE_SHORE_EFFECTS, v));
+        Landscape::of(&g).shore_effects
+    };
+    assert_eq!([0.0, 1.0, 2.0].map(with), [0, 1, 2]);
+    assert_eq!(Landscape::of(&Graphics::default()).shore_effects, 1);
+    let mut highest = Graphics::default();
+    highest.set_overall(HIGHEST);
+    assert_eq!(Landscape::of(&highest).shore_effects, 2);
 }

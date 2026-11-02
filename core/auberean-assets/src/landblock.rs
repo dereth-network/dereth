@@ -2,7 +2,7 @@
 //! (`0xXXYYFFFC`) and their interior cells (`0xXXYY0100` and up).
 
 use auberean_dat::reader::Result;
-use auberean_dat::{Reader, Writer};
+use auberean_dat::{QualifiedIds, Reader, RecordType, Writer};
 use auberean_primitives::{CellId, DataId, Frame, Vec3};
 
 use crate::entity::EntityGroup;
@@ -23,6 +23,16 @@ pub struct Landblock {
     pub path_map: DataId,
     pub heights: Vec<u8>,
     pub vertices: Vec<u32>,
+}
+
+impl Landblock {
+    /// The records the landblock names, as the data cache gathers them: its info and its path
+    /// map.
+    // D2-03700
+    pub fn sub_ids(&self, out: &mut QualifiedIds) {
+        out.add_typed(self.info.0, RecordType::LANDBLOCK_INFO.0);
+        out.add_typed(self.path_map.0, RecordType::PATH_MAP.0);
+    }
 }
 
 impl Decode for Landblock {
@@ -62,6 +72,18 @@ pub struct LandblockInfo {
     pub properties: PropertyCollection,
     /// The interior cells visible from outside, by low word.
     pub outside_visible: Vec<u32>,
+}
+
+impl LandblockInfo {
+    /// The records the info names, as the data cache gathers them: what its entities and its
+    /// properties name, and its light record. (Its interior cells are not among them: the
+    /// client never fills in the list they would be named from.)
+    // D2-03733
+    pub fn sub_ids(&self, out: &mut QualifiedIds) {
+        self.entities.sub_ids(out);
+        self.properties.sub_ids(out);
+        out.add_typed(self.light_info.0, RecordType::LIGHT_INFO.0);
+    }
 }
 
 impl Decode for LandblockInfo {
@@ -209,6 +231,21 @@ fn u16_list(r: &mut Reader<'_>) -> Result<Vec<u16>> {
     let v = r.list(2, Reader::u16)?;
     r.align()?;
     Ok(v)
+}
+
+impl Cell {
+    /// The records the cell names, as the data cache gathers them: its geometry, and what its
+    /// entities and its properties name.
+    // D2-03493
+    pub fn sub_ids(&self, out: &mut QualifiedIds) {
+        out.add(self.mesh.0);
+        if let Some(g) = &self.entities {
+            g.sub_ids(out);
+        }
+        if let Some(p) = &self.properties {
+            p.sub_ids(out);
+        }
+    }
 }
 
 impl Decode for Cell {

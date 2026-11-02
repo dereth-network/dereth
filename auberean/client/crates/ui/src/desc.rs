@@ -65,6 +65,12 @@ pub struct LayoutInfo {
     pub height: u16,
     pub string_table: u32,
     roots: HashMap<Token, DescIx>,
+    /// How many elements stand made from it.
+    refs: i32,
+    /// Let go once its last element went: loading its record again reads the record anew.
+    released: bool,
+    /// The record it was indexed from.
+    record: std::sync::Arc<UiLayout>,
 }
 
 /// Every loaded layout's descriptions.
@@ -100,8 +106,17 @@ impl Library {
         Self::default()
     }
 
-    /// Index a layout record; returns the layout's place in the library.
-    pub fn add(&mut self, id: u32, layout: &UiLayout) -> LayoutIx {
+    /// Index a layout record; returns the layout's place in the library. A layout let go whose
+    /// record reads the same is taken back as it was.
+    pub fn add(&mut self, id: u32, layout: &std::sync::Arc<UiLayout>) -> LayoutIx {
+        if let Some(i) = self
+            .layouts
+            .iter()
+            .position(|l| l.id == id && l.released && *l.record == **layout)
+        {
+            self.layouts[i].released = false;
+            return LayoutIx(u32::try_from(i).unwrap_or(u32::MAX));
+        }
         let ix = LayoutIx(u32::try_from(self.layouts.len()).unwrap_or(u32::MAX));
         let mut roots = HashMap::new();
         for e in &layout.elements {
@@ -114,8 +129,38 @@ impl Library {
             height: layout.height,
             string_table: layout.string_table.0,
             roots,
+            refs: 0,
+            released: false,
+            record: layout.clone(),
         });
         ix
+    }
+
+    /// One more element made from a layout.
+    pub(crate) fn add_ref(&mut self, l: LayoutIx) {
+        if let Some(info) = self.layouts.get_mut(l.0 as usize) {
+            info.refs += 1;
+        }
+    }
+
+    /// One element made from a layout goes; the last one lets the layout go.
+    pub(crate) fn drop_ref(&mut self, l: LayoutIx) {
+        let Some(info) = self.layouts.get_mut(l.0 as usize) else {
+            return;
+        };
+        info.refs -= 1;
+        if info.refs == 0 {
+            self.release_layout(l);
+        }
+    }
+
+    /// Let a layout go: it is no longer found by its record id, so the next load reads it again.
+    /// What was made from it keeps its descriptions.
+    // D2-11243
+    pub fn release_layout(&mut self, l: LayoutIx) {
+        if let Some(info) = self.layouts.get_mut(l.0 as usize) {
+            info.released = true;
+        }
     }
 
     fn add_element(&mut self, layout: LayoutIx, e: &Element) -> DescIx {
@@ -172,12 +217,12 @@ impl Library {
         &self.layouts[ix.0 as usize]
     }
 
-    /// The layout with record id `id`, if loaded.
+    /// The layout with record id `id`, if loaded (and not let go since).
     #[must_use]
     pub fn layout_by_id(&self, id: u32) -> Option<LayoutIx> {
         self.layouts
             .iter()
-            .position(|l| l.id == id)
+            .position(|l| l.id == id && !l.released)
             .map(|i| LayoutIx(u32::try_from(i).unwrap_or(u32::MAX)))
     }
 
@@ -225,8 +270,10 @@ impl Library {
     }
 
     /// A copy of an element's description, for an element that changes its own: its states with
-    /// their attributes, media, transitions and children the same.
+    /// their attributes, media (each kind's fields), transitions and children the same.
     // D2-11083, D2-11081, D2-11090
+    // D2-11109, D2-11117, D2-11122, D2-11127, D2-11130, D2-11134, D2-11138, D2-11142, D2-11146
+    // D2-11150
     pub fn copy(&mut self, d: DescIx) -> DescIx {
         let e = self.get(d).clone();
         self.elements.push(e);

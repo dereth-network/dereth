@@ -2,18 +2,23 @@
 //! world.
 //!
 //! The camera orbits the body: a direction (turned about the body's heading, pitched up from
-//! level) and a distance from a look-at point above the body. Each frame it traces a line from the
-//! body up to the look-at point against the ground and walls, then from there to where it wants to
-//! be against the ground, walls and solid objects; outdoors it stands where the second line stops.
-//! Inside, the lines are traced against the walls, floors and ceilings of the body's cell and the
-//! cells it sees, and where the second line stops on a surface a third goes 0.2 m out along the
-//! surface's normal, and the camera stands there.
+//! level) and a distance from a look-at point above the body. Each frame three lines of sight
+//! through the world's cells keep it off the world ([`sight_lines`]): one from the body up to the
+//! look-at point against the walls, floors and ground, one from where that ended to where the
+//! camera wants to be against those and what stands in the world, and inside, one 0.2 m out from
+//! the surface the second stopped at. The camera stands where the last ended, in the cell it ended
+//! in.
 
 use dereth_physics::V3;
 use dereth_primitives::num::math;
-use dereth_primitives::{LandblockId, Vec3};
+use dereth_primitives::{CellId, Frame, LandblockId, Position, Quat, Vec3};
 
+use crate::body::ENVIRONMENT_ONLY;
+use crate::ethereal::{ObjectEthereality, SightLine};
+use crate::geom::Ray;
+use crate::interior::is_interior;
 use crate::land::Land;
+use crate::world::{World, PHYSICS_SHAPES};
 
 /// How far off the surface it stopped at the camera stands inside, meters.
 pub const OFF_THE_WALL: f32 = 0.2;
@@ -137,44 +142,6 @@ impl Camera {
             pitch: math::atan2f(d.z, flat).to_degrees(),
         }
     }
-
-    /// The camera inside interior cell `cell`: the first line stops at the cells' walls, floors and
-    /// ceilings, the second at those and the solid parts of what stands in the cells, and where it
-    /// stopped on a surface the camera stands 0.2 m out from it (where a third line from there
-    /// reaches). Doorways do not stop a line.
-    // D2-10662, D2-10676
-    #[must_use]
-    pub fn place_inside(
-        &self,
-        land: &Land,
-        cell: dereth_primitives::CellId,
-        origin: Vec3,
-        heading: f32,
-    ) -> View {
-        use crate::interior::trace;
-        let (look, eye) = self.wanted(origin, heading);
-        let start = Vec3::new(origin.x, origin.y, origin.z + 0.0004);
-        let look = trace(land, cell, start, look, false).map_or(look, |(p, _)| p);
-        let eye = match trace(land, cell, look, eye, true) {
-            Some((p, n)) => {
-                let out = Vec3::new(
-                    p.x + n.x * OFF_THE_WALL,
-                    p.y + n.y * OFF_THE_WALL,
-                    p.z + n.z * OFF_THE_WALL,
-                );
-                trace(land, cell, p, out, true).map_or(out, |(q, _)| q)
-            }
-            None => eye,
-        };
-        let d = Vec3::new(look.x - eye.x, look.y - eye.y, look.z - eye.z);
-        let flat = (d.x * d.x + d.y * d.y).sqrt();
-        View {
-            eye,
-            look_at: look,
-            heading: math::atan2f(d.x, d.y).to_degrees().rem_euclid(360.0),
-            pitch: math::atan2f(d.z, flat).to_degrees(),
-        }
-    }
 }
 
 /// The lines the camera is kept off the world by, from a body in `cell` standing at `origin` (in
@@ -246,65 +213,21 @@ pub fn placed_hit(
     best
 }
 
-/// The first thing the line from `from` to `to` (in `cell`'s landblock frame) meets, as the fraction
-/// of the way, the way back out, and whether it is an object: the walls, floors and ground (along
-/// their normals) and, unless only the surroundings count, the solid parts of what stands in the
-/// world, the objects placed in it and whatever `objects` says it meets (straight back along the
-/// line).
-fn first_met(
-    land: &Land,
-    cell: dereth_primitives::CellId,
-    from: Vec3,
-    to: Vec3,
-    env_only: bool,
-    objects: &dyn Fn(Vec3, Vec3) -> Option<f32>,
-) -> Option<(f32, Vec3, bool)> {
-    let along = to.sub(from);
-    let len = along.mag2().sqrt();
-    let mut hit: Option<(f32, Vec3, bool)> = if crate::interior::is_interior(cell) {
-        crate::interior::trace(land, cell, from, to, !env_only)
-    } else {
-        land.trace(cell.landblock(), from, to, !env_only)
-    }
-    .map(|(p, n)| {
-        let t = if len > 0.0 {
-            p.sub(from).mag2().sqrt() / len
-        } else {
-            0.0
-        };
-        (t, n, false)
-    });
-    if !env_only && len > 0.0 {
-        let back = Vec3::new(-along.x / len, -along.y / len, -along.z / len);
-        for t in [placed_hit(land, cell, from, to), objects(from, to)]
-            .into_iter()
-            .flatten()
-        {
-            if hit.is_none_or(|(b, _, _)| t < b) {
-                hit = Some((t, back, true));
-            }
-        }
-    }
-    hit
-}
-
-/// Where the camera stands, kept off the world as the client keeps it each frame. The first line
-/// runs from the body (0.0004 m up) along the target offset and stops at the walls, floors and
-/// ground only. The second runs from where the first stopped to the wanted place and stops at
-/// those and, unless only the surroundings count, at the solid parts of what stands in the world,
-/// the objects placed in it, and whatever `objects` says it meets (a fraction of the way, as
-/// [`placed_hit`] gives). Outside, the camera stands where the second line stopped. Inside, where
-/// the second line stopped on a wall a third line runs 0.2 m out from it along the wall's normal,
-/// stopping at the same things, and the camera stands where that one stops; where it stopped on an
-/// object the camera stands there (the client's third line starts on the object and goes
-/// nowhere). None when the body's cell is not loaded: the camera keeps its last place.
+/// Where the camera stands, and the cell it stands in, kept off the world as the client keeps it
+/// each frame by three lines of sight through the world's cells and what stands in them
+/// ([`World::los_check`]). The first runs from the body (0.0004 m up) along the target offset, from
+/// the body's cell, and stops only at the walls, floors and ground. The second runs from where the
+/// first ended, from the cell it ended in, to the wanted place, and stops at those and, unless only
+/// the surroundings count, at what stands in the world that the camera does not pass through (the
+/// physics types the camera passes, every object otherwise solid). Outside, the camera stands
+/// where the second line ended, in the land cell there. Inside, a third line runs 0.2 m out from
+/// where the second ended along the normal of the surface it stopped at (nowhere, when it stopped
+/// at an object or at nothing), stopping at the same things, and the camera stands where it ends, in
+/// the cell it ended in. Each place comes back in its cell's landblock's frame. None, the camera
+/// keeping its last place, when a line has no loaded cell to start from.
 // D2-10662
 #[must_use]
-pub fn keep_off_the_world(
-    lines: &Lines<'_>,
-    objects: &dyn Fn(Vec3, Vec3) -> Option<f32>,
-) -> Option<Vec3> {
-    use crate::interior::{is_interior, trace};
+pub fn sight_lines(world: &World, lines: &Lines<'_>) -> Option<Sighted> {
     let Lines {
         land,
         cell,
@@ -313,31 +236,59 @@ pub fn keep_off_the_world(
         wanted,
         env_only,
     } = *lines;
-    let inside = is_interior(cell);
-    if inside && land.cell(cell).is_none() {
+    let start = Vec3::new(origin.x, origin.y, origin.z + 0.0004);
+    let mut first = SightLine::default();
+    first.set_ray(Ray::from_offset(start, target_offset), cell.0);
+    first.set_intersect_type(ENVIRONMENT_ONLY);
+    if !world.los_check(land, &mut first) {
         return None;
     }
-    let block = cell.landblock();
-    let start = Vec3::new(origin.x, origin.y, origin.z + 0.0004);
-    let look = start.add(target_offset);
-    let look = if inside {
-        trace(land, cell, start, look, false)
+    let look = at(CellId(first.final_cell), first.end_point());
+    let mut solid = ObjectEthereality::default();
+    solid.set_to_solid();
+    let passes = world.camera_ethereal();
+    let mut second = SightLine::default();
+    second.set_from_begin_and_end_position(&look, &at(cell, wanted));
+    second.set_intersect_type(if env_only {
+        ENVIRONMENT_ONLY
     } else {
-        land.trace(block, start, look, false)
-    }
-    .map_or(look, |(p, _)| p);
-    let Some((t, n, object)) = first_met(land, cell, look, wanted, env_only, objects) else {
-        return Some(wanted);
+        PHYSICS_SHAPES
+    });
+    second.set_los_params(&solid, passes);
+    let mut traced = world.los_check(land, &mut second);
+    let end = at(CellId(second.final_cell), second.end_point());
+    let stands = if is_interior(end.cell) {
+        let n = second.impact_normal;
+        let mut third = SightLine::default();
+        third.set_ray(
+            Ray::from_offset(end.frame.origin, n.mul(OFF_THE_WALL)),
+            end.cell.0,
+        );
+        third.set_intersect_type(PHYSICS_SHAPES);
+        third.set_los_params(&solid, passes);
+        traced &= world.los_check(land, &mut third);
+        at(CellId(third.final_cell), third.end_point())
+    } else {
+        let (mut c, mut p) = (end.cell, end.frame.origin);
+        if crate::cells::adjust_to_outside(&mut c, &mut p) {
+            at(c, p)
+        } else {
+            end
+        }
     };
-    let p = look.add(wanted.sub(look).mul(t));
-    if !inside || object {
-        return Some(p);
-    }
-    let out = p.add(n.mul(OFF_THE_WALL));
-    Some(
-        first_met(land, cell, p, out, false, objects)
-            .map_or(out, |(t, _, _)| p.add(out.sub(p).mul(t))),
-    )
+    traced.then_some(Sighted { look, eye: stands })
+}
+
+/// Where the camera's lines of sight left it: the point it looks from the body to (where the first
+/// line ended) and the place it stands, each with its cell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sighted {
+    pub look: Position,
+    pub eye: Position,
+}
+
+fn at(cell: CellId, origin: Vec3) -> Position {
+    Position::new(cell, Frame::new(origin, Quat::IDENTITY))
 }
 
 /// Whether interior cell `cell` has a doorway out to the open world.
@@ -347,63 +298,4 @@ pub fn touches_outside(cell: &dereth_physics::source::EnvCellGeometry) -> bool {
     cell.portals
         .iter()
         .any(|p| p.other_cell_id == crate::cells::OUTDOORS)
-}
-
-/// The cell the camera at `point` stands in, which chooses what a frame of the world draws:
-/// `cell` is the cell the camera's sight starts from (the body's), `point` in its landblock's
-/// frame. From an interior cell, that cell or one it sees that holds the point; else, when one of
-/// them has a doorway out to the open world, the land cell under the point outside (the camera
-/// has gone out through the doorway), and otherwise `cell` itself (the camera keeps to the rooms,
-/// as the client's own camera, moved from cell to cell through their doorways, always does). From
-/// a land cell, the land cell under the point, unless an interior cell of its block with a doorway
-/// out holds the point (the camera has slipped into a room through its doorway). The cell comes
-/// back with the point carried into its landblock's frame; `None` when the point is off the map or
-/// the interior cell is not loaded.
-#[must_use]
-pub fn camera_cell(
-    land: &Land,
-    cell: dereth_primitives::CellId,
-    point: Vec3,
-) -> Option<(dereth_primitives::CellId, Vec3)> {
-    use crate::interior::is_interior;
-    use dereth_physics::cell::CellResolver;
-    let resolver = CellResolver::new(land);
-    let (mut id, mut at) = (cell, point);
-    let inside = is_interior(cell);
-    if inside {
-        let start = resolver.get_visible(cell)?;
-        if let Some(child) = resolver.find_visible_child_cell(&start, point) {
-            let to = child.id();
-            let off = dereth_physics::landdefs::get_block_offset(cell, to);
-            return Some((to, point.sub(off)));
-        }
-        let home = land.cell(cell)?;
-        let leads_out = std::iter::once(cell)
-            .chain(home.stab_list.iter().copied())
-            .any(|id| land.cell(id).is_some_and(|c| touches_outside(&c)));
-        if !leads_out {
-            return Some((cell, point));
-        }
-    }
-    if !crate::cells::adjust_to_outside(&mut id, &mut at) {
-        return None;
-    }
-    if inside {
-        return Some((id, at));
-    }
-    let block = id.0 & 0xFFFF_0000;
-    for room in land.interior_cells_of(block) {
-        let Some(geom) = land.cell(room) else {
-            continue;
-        };
-        if !touches_outside(&geom) {
-            continue;
-        }
-        if let Some(c) = resolver.get_visible(room) {
-            if c.point_in_cell(at) {
-                return Some((room, at));
-            }
-        }
-    }
-    Some((id, at))
 }

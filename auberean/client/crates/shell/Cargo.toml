@@ -26,6 +26,9 @@ auberean-scene.workspace = true
 auberean-client-sdk.workspace = true
 # Float-to-integer conversion, the same on every host.
 dereth-primitives.workspace = true
+# The game's sound manager, and the sound device's seam a host plays it through.
+auberean-audio.workspace = true
+dereth-audio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

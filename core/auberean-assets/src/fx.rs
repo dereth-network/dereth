@@ -23,6 +23,7 @@ pub struct WaveformVec3 {
 }
 
 impl WaveformVec3 {
+    // D2-06941
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             x: Waveform::read(r)?,
@@ -135,7 +136,7 @@ impl Repulsor {
 }
 
 /// An appearance key applied by an effect, with its strength.
-// D2-13962, D2-13966, D2-13963, D2-03201, D2-00015
+// D2-13962, D2-13966, D2-13963, D2-03201, D2-00015, D2-00019
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct AppearanceKey {
     pub key: u32,

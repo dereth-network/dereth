@@ -9,13 +9,29 @@ use crate::token::{attr, Token};
 
 /// A kept place: whether the element shows, and its upper left and lower right corners in clip
 /// space.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+// D2-13090, D2-13088
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Location {
     pub visible: bool,
     pub x0: f32,
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
+}
+
+/// A new kept place: hidden, every corner at -3 (off the screen, whose clip space runs from -1 to
+/// 1).
+impl Default for Location {
+    // D2-13089
+    fn default() -> Self {
+        Self {
+            visible: false,
+            x0: -3.0,
+            y0: -3.0,
+            x1: -3.0,
+            y1: -3.0,
+        }
+    }
 }
 
 /// A pixel `(x, y)` of a screen `w` by `h` in clip space: twice it over the size less one, the

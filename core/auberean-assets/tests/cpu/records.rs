@@ -137,3 +137,31 @@ fn a_map_of_pairs_reads_back_and_a_short_one_does_not() {
     assert!(PairMap::read(&mut Reader::new(&words(&[3, 1, 2]))).is_err());
     assert!(PairMap::read(&mut Reader::new(&[1, 0])).is_err());
 }
+
+#[test]
+fn a_qualities_records_description_names_its_icon_and_its_names_tables() {
+    use auberean_assets::property::StringInfo;
+    use auberean_assets::script::ObjectDescription;
+    use auberean_dat::QualifiedIds;
+    use auberean_primitives::DataId;
+    let named = |table: u32| StringInfo {
+        table: DataId(table),
+        ..StringInfo::default()
+    };
+    let d = ObjectDescription {
+        icon: Some(DataId(0x0600_1234)),
+        name: Some(named(0x2300_0001)),
+        plural_name: Some(named(0x2300_0002)),
+        ..ObjectDescription::default()
+    };
+    let mut out = QualifiedIds::new();
+    d.sub_ids(&mut out);
+    let ids: Vec<u32> = out.iter().map(|q| q.id).collect();
+    assert_eq!(ids.len(), 3, "{ids:x?}");
+    for id in [0x0600_1234, 0x2300_0001, 0x2300_0002] {
+        assert!(ids.contains(&id), "{id:x} in {ids:x?}");
+    }
+    let mut none = QualifiedIds::new();
+    ObjectDescription::default().sub_ids(&mut none);
+    assert_eq!(none.iter().count(), 0, "no icon and no names name nothing");
+}

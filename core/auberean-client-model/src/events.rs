@@ -23,7 +23,10 @@
 //! incarnation is dropped. An object's creation flushes its queue. An object created as a part of
 //! another waits for its parent the same way. A queue nothing has been added to for 25 seconds is
 //! given up: the client asks the server to send the object again and drops the queue (the player's
-//! is kept). A visual queue blocked for 20 seconds is given up the same way.
+//! is kept). A visual queue blocked for more than 20 seconds is given up the same way, but only
+//! when it is looked at again: when the next visual message about the object comes, or the object
+//! is created again. A queue nothing more comes for stays blocked, and a missing message that comes
+//! late still lets everything after it through.
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap, VecDeque};
 
@@ -279,11 +282,50 @@ impl VisualQueue {
     }
 }
 
-/// The client's book on one object.
+/// The client's book on one object: its incarnation, the order of its visual messages, the cell its
+/// physics object stands in, and whether it has a physics object and a game object. A book with no
+/// game object is a stand-in: one of the camera's, or an object the client made itself.
 #[derive(Debug, Default)]
 struct Bookie {
     instance_stamp: u16,
     visual: VisualQueue,
+    cell: u32,
+    physics: bool,
+    game: bool,
+}
+
+impl Bookie {
+    /// A book on an incarnation of an object: no physics object or game object yet, in no cell,
+    /// its visual messages starting from stamp 0.
+    // D2-05617
+    fn new(instance_stamp: u16) -> Self {
+        Self {
+            instance_stamp,
+            visual: VisualQueue::default(),
+            cell: 0,
+            physics: false,
+            game: false,
+        }
+    }
+
+    /// The object's physics object is made (or let go of): it is tied to the book by the book's
+    /// id, as the game object is.
+    // D2-05631, D2-05626
+    fn set_physics_obj(&mut self, made: bool) {
+        self.physics = made;
+    }
+
+    /// The object's game object is made (or let go of), tied to the book by its id.
+    // D2-05632, D2-05626
+    fn set_game_obj(&mut self, made: bool) {
+        self.game = made;
+    }
+
+    /// The physics object entered cell `cell`, or left every cell (`None`).
+    // D2-05619
+    fn change_cell(&mut self, cell: Option<u32>) {
+        self.cell = cell.unwrap_or(0);
+    }
 }
 
 /// Messages waiting for an object's creation.
@@ -301,15 +343,21 @@ pub struct QueueStats {
     pub held_entering: u32,
     /// Messages that waited for an object.
     pub waited: u32,
+    /// Visual messages that waited for the stamps before their own.
+    pub held_visual: u32,
     /// Messages dropped: older stamps, older incarnations, unknown ordering types.
     pub dropped: u32,
     /// Objects the client asked the server to send again.
     pub force_creates: u32,
     /// Object queues given up.
     pub queues_given_up: u32,
+    /// Objects a creation of a newer incarnation replaced.
+    pub replaced: u32,
 }
 
-/// The event queue.
+/// The event queue, with the client's book on each object it has. Dropping it lets go of what it
+/// holds.
+// D2-03945, D2-05736
 #[derive(Debug)]
 pub struct EventQueue {
     state: WorldState,
@@ -326,6 +374,8 @@ pub struct EventQueue {
     destroyed: Vec<u64>,
     /// Objects to be destroyed at a time unless that is called off, by when.
     to_destroy: HashMap<u64, f64>,
+    /// Objects the client made itself with a lifetime, by when it ends.
+    temporary_ends: HashMap<u64, f64>,
     stats: QueueStats,
 }
 
@@ -348,6 +398,8 @@ impl Default for EventQueue {
 }
 
 impl EventQueue {
+    /// A queue out of the world, holding nothing and knowing no object or player.
+    // D2-03935, D2-00147, D2-05735
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -362,8 +414,95 @@ impl EventQueue {
             destroying: Vec::new(),
             destroyed: Vec::new(),
             to_destroy: HashMap::new(),
+            temporary_ends: HashMap::new(),
             stats: QueueStats::default(),
         }
+    }
+
+    /// Object `id`'s physics object entered cell `cell`, or left every cell (`None`), as the scene
+    /// placing the bodies says; an object the client does not have is ignored.
+    pub fn change_cell(&mut self, id: u64, cell: Option<u32>) {
+        if let Some(b) = self.bookies.get_mut(&id) {
+            b.change_cell(cell);
+        }
+    }
+
+    /// The cell object `id`'s physics object stands in (0 for none); `None` for an object the
+    /// client does not have.
+    #[must_use]
+    pub fn cell_of(&self, id: u64) -> Option<u32> {
+        self.bookies.get(&id).map(|b| b.cell)
+    }
+
+    /// The objects whose physics objects stand in cell `cell`, in id order.
+    #[must_use]
+    pub fn objects_in_cell(&self, cell: u32) -> Vec<u64> {
+        let mut v: Vec<u64> = self
+            .bookies
+            .iter()
+            .filter(|(_, b)| cell != 0 && b.cell == cell)
+            .map(|(id, _)| *id)
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
+    /// Whether the client's object `id` has a game object (a stand-in has only a physics object);
+    /// `None` for an object the client does not have.
+    #[must_use]
+    pub fn has_game_object(&self, id: u64) -> Option<bool> {
+        self.bookies.get(&id).map(|b| b.game)
+    }
+
+    /// Whether the client's object `id` has a physics object; `None` for an object the client does
+    /// not have.
+    #[must_use]
+    pub fn has_physics_object(&self, id: u64) -> Option<bool> {
+        self.bookies.get(&id).map(|b| b.physics)
+    }
+
+    /// A stand-in the client keeps under id `id` (the camera's place and target): a book with a
+    /// physics object and no game object, in the objects. Whether it was made: an id the client
+    /// has already makes none.
+    // D2-05696
+    pub fn create_dummy_object(&mut self, id: u64) -> bool {
+        if self.bookies.contains_key(&id) {
+            return false;
+        }
+        let mut b = Bookie::new(0);
+        b.set_physics_obj(true);
+        self.bookies.insert(id, b);
+        true
+    }
+
+    /// An object the client made itself (under a temporary id), in the objects: a book with a
+    /// physics object and no game object; with a lifetime (seconds, more than 0) it ends that long
+    /// after `now`. An id the client has already is made again.
+    // D2-05709
+    pub fn initialize_temporary_object(&mut self, id: u64, lifetime: f64, now: f64) {
+        let mut b = Bookie::new(0);
+        b.set_physics_obj(true);
+        b.set_game_obj(false);
+        self.bookies.insert(id, b);
+        if lifetime > 0.0 {
+            self.temporary_ends.insert(id, now + lifetime);
+        }
+    }
+
+    /// When the lifetime of object `id`, one the client made itself, ends.
+    #[must_use]
+    pub fn temporary_ends(&self, id: u64) -> Option<f64> {
+        self.temporary_ends.get(&id).copied()
+    }
+
+    /// Object `id` goes from the objects at once (an object the client made itself, removed by
+    /// the scene), with whatever waited for it and its times to be destroyed or to end.
+    pub fn remove_object(&mut self, id: u64) {
+        self.bookies.remove(&id);
+        self.waiting.remove(&id);
+        self.to_destroy.remove(&id);
+        self.temporary_ends.remove(&id);
+        self.destroying.retain(|d| *d != id);
     }
 
     /// An object the client has, to be destroyed after [`destruction_delay`] from `now` (a later
@@ -422,14 +561,16 @@ impl EventQueue {
         self.state = WorldState::Entering;
     }
 
-    /// The client left the world: every queue and book goes.
-    // D2-05730
+    /// The client left the world: every queue and book goes, the messages held while entering
+    /// with them.
+    // D2-05730, D2-03944
     pub fn leave_world(&mut self) {
         self.state = WorldState::NotInWorld;
         self.held.clear();
         self.waiting.clear();
         self.bookies.clear();
         self.to_destroy.clear();
+        self.temporary_ends.clear();
         self.player = None;
         self.private = PrivateStream::default();
     }
@@ -443,6 +584,7 @@ impl EventQueue {
                 WorldState::NotInWorld => {}
                 WorldState::Entering => {
                     if t != PLAYER_OBJECT && t != CHARACTER_REFUSED {
+                        // D2-03942
                         self.stats.held_entering += 1;
                         self.held.push_back(item);
                         return;
@@ -463,6 +605,7 @@ impl EventQueue {
 
     fn process(&mut self, now: f64, item: Item) {
         match ordering_type(item.blob_id) {
+            // D2-03940
             1 => {
                 let Some(p) = self.player.filter(|p| self.bookies.contains_key(p)) else {
                     match self.player {
@@ -487,7 +630,7 @@ impl EventQueue {
     }
 
     /// A visual message: wait for its object, then for the stamps before its own.
-    // D2-03936, D2-05639, D2-05628
+    // D2-03936, D2-05639
     fn visual(&mut self, now: f64, item: Item) {
         let Some(s) = subject(&item.message) else {
             self.post(now, item);
@@ -499,10 +642,17 @@ impl EventQueue {
         let Some(b) = self.bookies.get_mut(&s.id) else {
             return;
         };
+        if newer(s.other_stamp, b.visual.current.wrapping_add(1)) {
+            self.stats.held_visual += 1;
+        }
         b.visual.push(s.other_stamp, item);
         self.flush_visual(s.id, now);
     }
 
+    /// What the object's visual queue lets through goes on; a queue then blocked for more than
+    /// 20 seconds is given up (the object asked for again, what it held discarded). The client
+    /// looks at a blocked queue only here, as a visual message or a creation of the object comes.
+    // D2-05628
     fn flush_visual(&mut self, id: u64, now: f64) {
         loop {
             let Some(b) = self.bookies.get_mut(&id) else {
@@ -512,6 +662,13 @@ impl EventQueue {
                 break;
             };
             self.post(now, next);
+        }
+        if let Some(b) = self.bookies.get_mut(&id) {
+            if b.visual.heavily_blocked(now) {
+                self.force.push(id);
+                self.stats.force_creates += 1;
+                b.visual.discard_all();
+            }
         }
     }
 
@@ -548,6 +705,7 @@ impl EventQueue {
     }
 
     /// A message takes effect: object creations and removals keep the books first.
+    // D2-03938
     fn post(&mut self, now: f64, item: Item) {
         match &item.message {
             ServerMessage::PlayerObject(p) => {
@@ -555,9 +713,12 @@ impl EventQueue {
                 self.player = Some(p.id);
                 self.state = WorldState::InWorld;
                 self.ready.push_back(item);
+                // What waited while entering goes again, in order, under the world's rules: a
+                // message other than an object's creation now waits for the player's object.
+                // D2-03947
                 let held: Vec<Item> = self.held.drain(..).collect();
                 for i in held {
-                    self.process(now, i);
+                    self.receive(now, i);
                 }
             }
             ServerMessage::CreateObject(c) => {
@@ -565,7 +726,7 @@ impl EventQueue {
                 self.create(now, item, &c);
             }
             ServerMessage::ForgetObject(o) => {
-                // D2-05744, D2-05706
+                // D2-05744, D2-05706, D2-03959
                 let s = o.0;
                 if Some(s.id) == self.player {
                     return;
@@ -591,12 +752,11 @@ impl EventQueue {
 
     // D2-05743, D2-05629
     fn create(&mut self, now: f64, item: Item, c: &CreateObject) {
-        let parent = c.physics.parent;
-        if c.physics.bits & auberean_protocol::types::PhysicsDesc::PARENT != 0 && parent.parent != 0
-        {
+        let parent = c.physics.parent_id();
+        if parent != 0 {
             let s = ObjectStamp {
-                id: parent.parent,
-                instance_stamp: parent.stamp,
+                id: parent,
+                instance_stamp: c.physics.parent_instance_stamp(),
                 other_stamp: 0,
             };
             if !self.object_or_wait(s, &item, now) {
@@ -616,21 +776,42 @@ impl EventQueue {
                 self.stats.dropped += 1;
                 return;
             }
+            // A newer incarnation: the one the client has goes first, with its times to be
+            // destroyed. What waited for the object (what came about the newer one before its
+            // creation) is kept for the newer one (divergence
+            // `CD2-newer-incarnation-keeps-what-waited`).
+            let waited = self.waiting.remove(&c.id);
+            self.remove_object(c.id);
+            if let Some(w) = waited {
+                self.waiting.insert(c.id, w);
+            }
+            self.stats.replaced += 1;
         }
-        let mut b = Bookie {
-            instance_stamp: stamp,
-            visual: VisualQueue::default(),
-        };
+        let mut b = Bookie::new(stamp);
+        b.set_game_obj(true);
+        b.set_physics_obj(true);
         b.visual.created_at(visual);
         self.bookies.insert(c.id, b);
         self.ready.push_back(item);
-        // The object is here: what waited for it goes again, in order.
-        if let Some(w) = self.waiting.remove(&c.id) {
-            for i in w.items {
-                self.receive(now, i);
-            }
-        }
         self.flush_visual(c.id, now);
+        self.flush_waiting(c.id, now);
+    }
+
+    /// The object is here: what waited for it goes again, in the order it came. Only the messages
+    /// waiting as it was made go (one that must wait again joins the end of the same queue); the
+    /// queue goes once it is empty.
+    // D2-05727
+    fn flush_waiting(&mut self, id: u64, now: f64) {
+        let Some(w) = self.waiting.get_mut(&id) else {
+            return;
+        };
+        let held = std::mem::take(&mut w.items);
+        for i in held {
+            self.receive(now, i);
+        }
+        if self.waiting.get(&id).is_some_and(|w| w.items.is_empty()) {
+            self.waiting.remove(&id);
+        }
     }
 
     /// The next message to take effect.
@@ -638,12 +819,19 @@ impl EventQueue {
         self.ready.pop_front()
     }
 
-    /// The upkeep before a frame's messages: give up on queues that waited too long (the objects
-    /// the client asks the server to send again come out of [`Self::take_force_creates`]), then
+    /// The upkeep before a frame's messages: give up on objects' queues that waited too long for
+    /// their creations (the objects the client asks the server to send again come out of
+    /// [`Self::take_force_creates`], with those a blocked visual queue gave up on), then
     /// let go of the objects forgotten since the last upkeep, and of whatever waited for them
     /// (they come out of [`Self::take_destroyed`]).
     // D2-05739, D2-05723
     pub fn use_time(&mut self, now: f64) {
+        self.use_time_creating(now, |_| false);
+    }
+
+    /// The upkeep ([`Self::use_time`]), where `being_created` says which objects are being made
+    /// from their records: a queue waiting for one of them is never given up.
+    pub fn use_time_creating(&mut self, now: f64, being_created: impl Fn(u64) -> bool) {
         // Objects whose time to be destroyed came go with the forgotten ones, earliest first.
         let mut due: Vec<(f64, u64)> = self
             .to_destroy
@@ -651,6 +839,7 @@ impl EventQueue {
             .filter(|(_, t)| **t <= now)
             .map(|(id, t)| (*t, *id))
             .collect();
+        // D2-05654, D2-05657, D2-05663
         due.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         // D2-05662
         for (_, id) in due {
@@ -662,7 +851,11 @@ impl EventQueue {
         let expired: Vec<u64> = self
             .waiting
             .iter()
-            .filter(|(_, w)| !w.items.is_empty() && now - w.last_push > OBJECT_QUEUE_PATIENCE)
+            .filter(|(id, w)| {
+                !w.items.is_empty()
+                    && now - w.last_push > OBJECT_QUEUE_PATIENCE
+                    && !being_created(**id)
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
@@ -675,24 +868,13 @@ impl EventQueue {
                 self.stats.queues_given_up += 1;
             }
         }
-        let blocked: Vec<u64> = self
-            .bookies
-            .iter()
-            .filter(|(_, b)| b.visual.heavily_blocked(now))
-            .map(|(id, _)| *id)
-            .collect();
-        for id in blocked {
-            self.force.push(id);
-            self.stats.force_creates += 1;
-            if let Some(b) = self.bookies.get_mut(&id) {
-                b.visual.discard_all();
-            }
-        }
         // D2-05726, D2-05725
         for id in std::mem::take(&mut self.destroying) {
+            // D2-05627
             self.bookies.remove(&id);
             self.waiting.remove(&id);
             self.to_destroy.remove(&id);
+            self.temporary_ends.remove(&id);
             self.destroyed.push(id);
         }
     }

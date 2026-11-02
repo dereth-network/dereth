@@ -1248,7 +1248,22 @@ impl Navigation {
     }
 }
 
+impl Navigation {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x499, 0x49A, 0x49B];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Navigation {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

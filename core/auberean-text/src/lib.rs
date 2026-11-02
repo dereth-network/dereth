@@ -40,6 +40,7 @@ pub mod names;
 pub mod number;
 pub mod place;
 pub mod source;
+pub mod wide;
 
 pub use info::{Code, Entry, Source, StringInfo, Table, Value, Variable};
 pub use language::{GoreOverrides, Language};

@@ -285,6 +285,7 @@ impl ClientPage {
             kind,
             text: crate::flow::message(ui, helper::OPTION_STRINGS, text),
             modal: false,
+            info: None,
         }));
         id
     }

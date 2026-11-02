@@ -580,6 +580,10 @@ impl Scene<'_> {
                         b.set_jump_scale(e.action.0);
                     }
                 }
+                ServerMessage::LookAt(e) => {
+                    self.look_at(id, e.action.0);
+                }
+                ServerMessage::TurnHead(e) => self.look_dir(id, e.action.x, e.action.y),
                 _ => {}
             }
         }

@@ -172,8 +172,7 @@ impl StoryQuests {
             let Some(act_name) = ui.child_recursive(row, name::ACT_NAME) else {
                 continue;
             };
-            let text = ui.assets().write(&act.name).unwrap_or_default();
-            ui.set_text(act_name, &text);
+            ui.set_string_info(act_name, &act.name);
             let open = self.open.get(&act.id).copied().unwrap_or(false);
             ui.set_state(row, if open { name::HIGHLIGHT } else { name::NORMAL });
             if self.changed.get(&act.id).copied().unwrap_or(false) {
@@ -207,8 +206,7 @@ impl StoryQuests {
                 ui.set_attr(srow, name::ACT_ID, Value::Id(act.id));
                 ui.list_multi_add(list, srow);
                 if let Some(n) = ui.child_recursive(srow, name::SCENE_NAME) {
-                    let text = ui.assets().write(&scene.name).unwrap_or_default();
-                    ui.set_text(n, &text);
+                    ui.set_string_info(n, &scene.name);
                 }
             }
             ui.list_changes_done(icons);
@@ -220,7 +218,22 @@ impl StoryQuests {
     }
 }
 
+impl StoryQuests {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x41B, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for StoryQuests {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

@@ -58,14 +58,26 @@ impl Pose {
 }
 
 /// A place on the body: where it holds something, or where something attaches.
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Location {
     // D2-12878
     /// Which place this is (right hand, back...).
     pub kind: u32,
-    /// The bone it moves with.
+    /// The bone it moves with; `u32::MAX` for none.
     pub bone: u32,
     pub transform: BoneTransform,
+}
+
+impl Default for Location {
+    /// A place not yet read from a setup: kind 0, on no bone.
+    // D2-06174, D2-06175, D2-06176
+    fn default() -> Self {
+        Self {
+            kind: 0,
+            bone: u32::MAX,
+            transform: BoneTransform::default(),
+        }
+    }
 }
 
 impl Location {
@@ -98,7 +110,9 @@ pub struct DetailDistances {
     pub medium_detail: f32,
 }
 
-/// A setup (`.set`).
+/// A setup (`.set`). Copied whole into another: its meshes, bones, poses, holding and
+/// connection places, shapes and measures.
+// D2-12901
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Setup {
     // D2-12909, D2-12905, D2-12907, D2-12902
@@ -147,7 +161,7 @@ impl Decode for Setup {
     /// a counted list of spheres; the height, radius, step-up and step-down heights; the bounding
     /// and selection spheres; three sets of detail distances; the shadow kind; the physics radius;
     /// the physics bounding box.
-    // D2-12900, D2-12693, D2-13153, D2-13135, D2-12869, D2-13224
+    // D2-12900, D2-12693, D2-13153, D2-13135, D2-12869, D2-13224, D2-03466, D2-03467
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let flags = r.u32()?;

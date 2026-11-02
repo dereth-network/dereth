@@ -409,6 +409,7 @@ impl CharacterPage {
             kind: dialog::CONFIRMATION,
             text: crate::flow::message(ui, OPTION_STRINGS, text),
             modal: false,
+            info: None,
         }));
         id
     }

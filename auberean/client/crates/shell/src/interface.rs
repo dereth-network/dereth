@@ -8,7 +8,7 @@
 //!    the world's controls;
 //! 2. lets it see the game and ask for things ([`Interface::update`]): to connect to a server with an
 //!    account, to have the client act (enter the world as a character, make or delete one, log off,
-//!    call the server's scripts), to disconnect or quit ([`Request`]);
+//!    call the server's scripts), to play or stop a sound, to disconnect or quit ([`Request`]);
 //! 3. lets it draw ([`Interface::draw`]): pictures of its own the window's size, one behind the
 //!    world and one in front of it (an interface whose screens hold the world in a viewport draws
 //!    its deeper layers behind and its nearer ones in front), and rectangles in window pixels, each
@@ -75,10 +75,41 @@ pub enum Request {
     /// The key maps the player applied on the key map screen, each a list of an input and its
     /// action (keys alone, with Shift, with Ctrl): written to their files and bound from now on.
     KeyMaps([Vec<(u32, u32)>; 3]),
+    /// Preferences to keep in the preferences file now: each one's section, key and value as the
+    /// file holds them.
+    KeepPreferences(Vec<(String, String, String)>),
+    /// Play or stop a sound.
+    Sound(SoundOrder),
+    /// Where the platform's input method writes now (none: off), asked when it changes.
+    InputMethod(Option<crate::host::InputArea>),
+}
+
+/// A sound the interface asks for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SoundOrder {
+    /// Play a sound or music setting, kept in `slot` when there is one (to be stopped by it later).
+    Play {
+        data: auberean_audio::PlayRequest,
+        slot: Option<SoundSlot>,
+    },
+    /// Stop the sound a slot keeps, fading out over `fade` seconds.
+    Stop { slot: SoundSlot, fade: f32 },
+    /// A sound preference (`auberean_audio::options`) changed or applied: its key and value (the
+    /// number, the features' number, or 1 or 0 for yes or no).
+    Preference { key: u32, value: f32, applied: bool },
+}
+
+/// The sounds the interface keeps by name: the sound playing across the screens before the
+/// world, and a story's music and voice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SoundSlot {
+    Screens,
+    StoryMusic,
+    StoryVoice,
 }
 
 /// What an interface asks of the camera.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CameraRequest {
     /// Mouse look on or off.
     MouseLook(bool),
@@ -86,6 +117,9 @@ pub enum CameraRequest {
     FirstPerson(bool),
     /// A step of the zoom: in, toward the player, or out.
     Zoom { inward: bool },
+    /// The camera's options the player applied: the camera takes them, and they are kept with the
+    /// settings.
+    Options(auberean_scene::camera::Options),
 }
 
 /// The game as an interface sees it.
@@ -121,6 +155,15 @@ pub struct Game<'a> {
     pub world_pick: Option<Option<u64>>,
     /// The key maps bound and what their actions do.
     pub keys: &'a crate::keys::Keys,
+    /// Whether the sound kept across the screens before the world plays; `None` with no sound
+    /// device.
+    pub screens_sound: Option<bool>,
+    /// The notice that stopped the last session, when one did (a record the data download could
+    /// not store).
+    pub stopped: Option<u32>,
+    /// How the last session ended under the player, when the server ended it (the login failed,
+    /// or the server is gone).
+    pub ended: Option<auberean_client_sdk::runtime::SessionEnd>,
 }
 
 /// A notice the player's scripts sent the interface's panels: the native that sent it, the object
@@ -141,12 +184,15 @@ pub struct Notice {
 }
 
 /// A line the player's scripts wrote for the chat windows, as the game's text: what kind of text
-/// it is (each chat window shows some kinds) and the object it was shown about.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// it is (each chat window shows some kinds) and the object it was shown about; and the string
+/// reference it was written from, which a chat window writes again once the string tables it
+/// reads have come.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shown {
     pub kind: u32,
     pub about: Option<u64>,
     pub text: String,
+    pub info: Option<auberean_client_sdk::text::StringInfo>,
 }
 
 /// A line the player heard: a saying, a tell, a text for the chat window.
@@ -277,6 +323,15 @@ pub trait Interface {
     /// is suspended while it does.
     fn wants_pointer(&self, _game: &Game<'_>) -> bool {
         false
+    }
+
+    /// The settings the client starts with (its preferences file read), and the world's records
+    /// that name the preferences: the interface's own preferences are read from them.
+    fn set_preferences(
+        &mut self,
+        _settings: &crate::Settings,
+        _records: &auberean_world::records::WorldRecords,
+    ) {
     }
 
     /// The graphics preferences the client starts with (read from the settings, else the

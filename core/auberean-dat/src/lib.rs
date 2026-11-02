@@ -16,13 +16,23 @@
 //! retail files are is decided in [`locate`] (`fs`) and, for tests, in `testing` (the
 //! `test-support` feature) and nowhere else.
 //!
+//! A read is checked ([`checked`]): a read the storage ends early is reported as a short read, and
+//! a record that fails to decode is checked against the file it came from and read once more
+//! ([`DatFile::read_checked`]).
+//!
+//! The data files are also written, as the client writes the records the server sends while the
+//! game runs: [`disk`] is the client's disk controller (the block allocator, the directory's
+//! splits and merges, a write recorded first so a crash is put right on the next opening).
+//!
 //! The client's own text files (the key maps beside the program, the gameplay options a player
 //! exports) are bracketed text trees: [`tree`] reads and writes them.
 //!
 //! **Must never** interpret what a record means: it yields ids, bytes and readers. Decoding a
 //! record is `auberean-assets`' job.
 
+pub mod checked;
 pub mod container;
+pub mod disk;
 pub mod error;
 pub mod qualified;
 pub mod reader;
@@ -38,6 +48,7 @@ pub mod locate;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
+pub use checked::{Checked, CheckedError, Retried, ShortRead};
 pub use container::{DatFile, Entry, Header, Structure};
 /// The iteration list's encoding, the shared container's: [`iteration::decode_signed`].
 pub use dereth_dat::iteration;
@@ -46,5 +57,5 @@ pub use error::DecodeError;
 pub use qualified::{QualifiedId, QualifiedIds};
 pub use reader::Reader;
 pub use stamp::DatIdStamp;
-pub use types::{cell_type, type_of_id, DatKind, RecordType, TypeInfo};
+pub use types::{cell_type, type_of_id, DatKind, MasterMap, RecordType, TypeInfo};
 pub use writer::Writer;

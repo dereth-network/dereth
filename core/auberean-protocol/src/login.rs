@@ -78,7 +78,9 @@ impl Field for DeleteCharacter {
     }
 }
 
-/// The client: create a character with these choices.
+/// The client: create a character with these choices. A default one is a fresh result: no name,
+/// every number 0, no physique.
+// D2-11931
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CreateCharacter {
     pub account: NarrowString,
@@ -97,7 +99,7 @@ pub struct CreateCharacter {
 }
 
 impl Field for CreateCharacter {
-    // D2-05340, D2-11920, D2-11923
+    // D2-05340, D2-11920, D2-11923, D2-11921
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             account: NarrowString::read(r)?,
@@ -111,6 +113,7 @@ impl Field for CreateCharacter {
             physique: Table::read(r)?,
         })
     }
+    // D2-11919
     fn write(&self, w: &mut Writer) {
         self.account.write(w);
         self.name.write(w);
@@ -149,8 +152,10 @@ impl Field for PlayCharacter {
     }
 }
 
-/// The server: the account's characters, with how each looks.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// The server: the account's characters, with how each looks. A copy is a copy of both lists and
+/// every word.
+// D2-13109, D2-03988
+#[derive(Clone, Debug, PartialEq)]
 pub struct CharacterList {
     /// Every character, a deleted one (greyed out) included until it is gone.
     pub characters: Vec<CharacterIdentity>,
@@ -168,8 +173,25 @@ pub struct CharacterList {
     pub unknown: u32,
 }
 
+/// A new list, before the server sends one: no characters, and room for five.
+impl Default for CharacterList {
+    // D2-13103
+    fn default() -> Self {
+        Self {
+            characters: Vec::new(),
+            deleted: Vec::new(),
+            status: 0,
+            slots: 5,
+            account: NarrowString::default(),
+            uses_chat_service: 0,
+            has_expansion: 0,
+            unknown: 0,
+        }
+    }
+}
+
 impl Field for CharacterList {
-    // D2-03997, D2-13111
+    // D2-03997, D2-13111, D2-13105
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             characters: read_list(r)?,
@@ -194,7 +216,9 @@ impl Field for CharacterList {
     }
 }
 
-/// The server: the account's characters in play, by name and id only.
+/// The server: the account's characters in play, by name and id only. Dropping it lets go of the
+/// names, the ids and the account.
+// D2-03999
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CharacterNames {
     /// 0 in nearly every recorded list; 1 or 2 in a few. Its meaning is not known.
@@ -235,6 +259,8 @@ impl CharacterRefused {
     pub const NOT_OWNED: u32 = 13;
     /// The server has no room.
     pub const SERVER_FULL: u32 = 19;
+    /// The character was booted from the world (the reason a boot ends a login with).
+    pub const BOOTED: u32 = 20;
 }
 
 impl Field for CharacterRefused {
@@ -522,7 +548,7 @@ pub struct DataHeld {
 }
 
 impl Field for DataHeld {
-    // D2-12846, D2-12842
+    // D2-12846, D2-12842, D2-05163
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             language: r.u32()?,
@@ -570,7 +596,7 @@ pub struct DownloadBegins {
 }
 
 impl Field for DownloadBegins {
-    // D2-12843
+    // D2-12843, D2-05167
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             bytes: r.u32()?,

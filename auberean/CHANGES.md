@@ -15,9 +15,25 @@ not how it was done.
 - The status bar, toolbar and chat, with the game's own mouse cursors, buttons, lists, scroll bars and windows.
 - Controls shows your keys and changes them, and your keys are kept between sessions.
 - The options window's graphics settings start from the original's recommended ones.
+- The options window's client page has the camera, mouse and avatar settings, kept when applied.
+- Takes the original client's command-line options too, such as -h, -p and -a.
+- Runs in the language your preferences or -language name, when the install has it.
 - The landscape and frill draw distances change how far the world is drawn.
 - Alt+Enter switches between full screen and a window, and the choice is kept.
 - Logging in while your character is still in the world says so, instead of waiting forever.
+- The connecting screen shows the game's data being brought up to date, and the data the server sends is kept.
+- Objects whose data your game files lack now get it from the server.
+- The world around you loads from the server when your game files lack it.
+- Heads turn toward what characters look at, and yours follows the camera.
+- Other players see where your head is turned.
+- The avatar's look options (look around, at the camera, at the selection) work.
+- Text your game files lack, in chat, the story, the journal, names, dialogs and other windows, now comes from the server.
+- Names over corpses and pets change when the server renames them.
+- Letters a window's font lacks, such as accented ones, show in another of the game's fonts.
+- Being booted, or banned at login, shows the reason and ends the session.
+- Corpses and other things that never move stay where the server puts them.
+- Characters' limbs animate at the original's pace, whatever your frame rate.
+- Caves and buildings seen from outside are lit by their own lights, not the sun.
 - Messages sent as you enter the world show in the chat window.
 - Smoother movement for you, the camera and everyone around you.
 - Jumping plays its animation: a crouch before a standing jump, then the leap.
@@ -35,7 +51,16 @@ not how it was done.
 - Fires burn in their own colors, and flames, sparks and mist show over water.
 - Mist parts around people walking through it, and flowing or shimmering surfaces move.
 - Polished metal and stone catch the light with a proper shine.
-- People and creatures cast shadows, and torches and spells light the people and things around them.
+- People, creatures and placed objects cast shadows, indoors and out, and torches and spells light the people and things around them.
+- Swung weapons leave a streak of light.
+- The camera moves smoothly between the world's updates, as bodies do.
+- Water looks like the original's: its ripples, still water at Low reflections, the ground showing through it, and shorelines fading into it with foam.
+- Under water, the fog closes in with depth.
+- The graphics options for texture and material detail, scenery distance, filtering and volumetric fog now work.
+- A character a font lacks shows as a question mark.
+- Sound effects, footsteps, creature sounds and the screens' music play.
+- Each place plays its own music, chosen by the land and halls around you.
+- The options window's client page has the sound settings: volumes, sound off, music off and how many sounds play.
 - The sun, moon and clouds move smoothly, and the sun throws a lens flare.
 - Cloud shadows and water ripples move.
 - Trees, rocks and grass stay out of buildings and ruins that keep their ground clear.
@@ -53,4 +78,13 @@ not how it was done.
 - Combat plays: attacks animate, hits show their effects and damage numbers, and the dead stay down.
 - Arrows fly from the drawn bow, and in first person you see your own body in combat.
 - Friends, presence, ignore, away and /tell Name@World work on worlds with a friends service.
-- Crystals and other shiny surfaces show their reflections.
+- Crystals and other shiny surfaces show their reflections, and crystals stay lit down to the ground.
+- /logfile keeps a chat log, and /exportoptions and /importoptions save and load your options.
+- Quest and examination times read in the game's own words and count down as you watch.
+- Input methods, such as for Japanese, now work when typing in chat.
+- Chat channels such as General and Trade now send and show messages.
+- /help lists the chat commands and explains each one.
+- Losing the server now goes to the disconnected screen, and failed logins say why.
+- Attacking with auto-target on now picks the nearest enemy first.
+- Windows you move stay where you put them the next time you log in.
+- Autorun keeps going when the game window loses focus.

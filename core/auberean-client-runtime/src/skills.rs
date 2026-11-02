@@ -327,8 +327,10 @@ impl Asker<'_> {
         self.ask_object(player, shared, function, slots, args, long)
     }
 
-    /// As [`Asker::ask_tagged`], on an object's own process and instance (or a package's shared
-    /// instance): `None` when the object is not here or has no scripts.
+    /// As [`Asker::ask_tagged`], on an object's own process and instance, or a package's shared
+    /// instance in a process of its own made for the call and ended after it: `None` when the
+    /// object is not here or has no scripts.
+    // D2-16490
     pub(crate) fn ask_object(
         &mut self,
         object: u64,
@@ -339,15 +341,18 @@ impl Asker<'_> {
         long: bool,
     ) -> Option<Answer> {
         self.s.host.model.object(object)?;
-        let p = self.s.process_of(object).ok()?;
-        let receiver = match shared {
-            None => self.s.vm.instance_of(p),
+        let (p, receiver, own) = match shared {
+            None => {
+                let p = self.s.process_of(object).ok()?;
+                (p, self.s.vm.instance_of(p), false)
+            }
             Some(name) => {
                 let id = self.s.host.program.library.package_id(name)?;
                 if id == NULL {
                     return None;
                 }
-                self.s.vm.heap.singleton(STATE_BASE | (id & 0xFFFF))
+                let s = self.s.vm.heap.singleton(STATE_BASE | (id & 0xFFFF));
+                (self.s.vm.create_process(s), s, true)
             }
         };
         self.s.vm.budget = BUDGET;
@@ -415,6 +420,9 @@ impl Asker<'_> {
             Err(Stop::NullReference) => CallResult::NullReference,
             Err(e) => CallResult::Stopped(e.to_string()),
         };
+        if own {
+            self.s.vm.delete_process(p);
+        }
         self.s.vm.heap.abandon_builds();
         self.s.vm.stopped_at = None;
         if answer.result != CallResult::Completed {
@@ -425,6 +433,7 @@ impl Asker<'_> {
 
     /// A word a player's function answers, with an argument or none (0 when it could not run).
     // D2-00490, D2-00491, D2-00494, D2-00495, D2-00496, D2-00497, D2-00498, D2-00499, D2-00502
+    // D2-01147, D2-01121, D2-01187, D2-01185, D2-01076, D2-01077, D2-01075, D2-01146
     pub(crate) fn word_of(&mut self, function: u32, arg: Option<u32>) -> u32 {
         let args: Vec<u32> = arg.into_iter().collect();
         #[allow(clippy::cast_possible_truncation)]
@@ -433,7 +442,7 @@ impl Asker<'_> {
     }
 
     /// A 64-bit number a player's function answers.
-    // D2-00489, D2-00500, D2-00503
+    // D2-00489, D2-00500, D2-00503, D2-01111, D2-01148, D2-01149
     pub(crate) fn long_of(&mut self, function: u32, arg: Option<u32>) -> u64 {
         let args: Vec<u32> = arg.into_iter().collect();
         self.ask_with(None, function, &[], &args, true)
@@ -441,7 +450,7 @@ impl Asker<'_> {
     }
 
     /// The root panel of a kind of skill for the player's race, when it has one.
-    // D2-00493
+    // D2-00493, D2-01176
     fn root_panel(&mut self, kind: u32) -> Option<u32> {
         let a = self.ask_with(
             None,
@@ -454,7 +463,7 @@ impl Asker<'_> {
     }
 
     /// A skill's level: its own, and as it stands.
-    // D2-00501
+    // D2-00501, D2-01180
     fn skill_level(&mut self, skill: u32) -> (u32, u32) {
         let Some(a) = self.ask_with(
             None,
@@ -488,6 +497,7 @@ impl Asker<'_> {
     }
 
     /// A skill panel's name, through an out argument (a new string reference).
+    // D2-01530
     fn panel_name(&mut self, panel: u32) -> TextInfo {
         let a = self.ask_with(
             Some(SKILL_PANEL_MANAGER),
@@ -505,6 +515,7 @@ impl Asker<'_> {
     }
 
     /// A skill panel's icon, through an out argument.
+    // D2-01529
     fn panel_icon(&mut self, panel: u32) -> u32 {
         self.ask_with(
             Some(SKILL_PANEL_MANAGER),
@@ -518,6 +529,7 @@ impl Asker<'_> {
 
     /// A skill panel: its name, icon and nodes (the manager fills a new table of nodes by skill;
     /// each node is copied from its record).
+    // D2-01531, D2-01526, D2-01528
     fn skill_panel(&mut self, panel: u32) -> SkillPanel {
         let name = self.panel_name(panel);
         let icon = self.panel_icon(panel);

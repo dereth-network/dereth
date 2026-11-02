@@ -7,9 +7,10 @@
 //! - it hears the interface keys: the toolbar's, the status bar's and the radar's keys show and
 //!   hide them; one key hides the whole interface (not while a dialog waits on the player); the use
 //!   key uses what is selected; the log-out key ends the session at the next tick;
-//! - it hands each panel what its listener heard, the notices the player's scripts send, and what
+//! - it hands each panel what its listener heard, the notices the player's scripts send (each to
+//!   the panels registered for it, in the order they registered: [`crate::notices`]), and what
 //!   the game shows this frame ([`View`]); a panel says what it asks of the client as
-//!   [`Request`]s;
+//!   [`Request`]s, and a notice it sends the others takes effect there and then;
 //! - it keeps the dialogs it put up (please wait, death and resurrection, a confirmation, the
 //!   game's messages) by the number each was given, and acts when one closes;
 //! - it ends the session: the panels gone, the character logged off, the flow back to the
@@ -188,6 +189,10 @@ pub struct View<'a> {
     /// Lines for the chat windows, each with the kind of text it is (the client's own errors are
     /// of the error kind).
     pub lines: &'a [(u32, String)],
+    /// For each of `lines` (when given), the string reference it was written from: the chat
+    /// windows add it to their logs as a reference, written once the string tables it reads have
+    /// come.
+    pub line_infos: &'a [Option<auberean_text::StringInfo>],
     /// The chat's part of the player's options, as last read, and a new player's (the options
     /// window's chat page's defaults).
     pub chat: Option<&'a crate::chat::ChatSettings>,
@@ -243,11 +248,14 @@ pub struct Examination {
 
 /// A dialog a panel asks for: the number it knows it by (from [`crate::dialog::new_context`]),
 /// its kind, its text.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Dialog {
     pub id: u32,
     pub kind: u32,
     pub text: String,
+    /// The string reference its text is written from, when it came as one: given to the dialog's
+    /// text element, which writes it once the string tables it reads are at hand.
+    pub info: Option<auberean_text::StringInfo>,
     /// Whether it goes up at once in place of the dialog up, which waits behind it (else it waits
     /// its turn).
     pub modal: bool,
@@ -321,8 +329,13 @@ pub enum Request {
     CancelQuest {
         quest: u32,
     },
-    /// The panels' places kept with the player's options.
+    /// The panels' places kept with the player's options and sent to the server to keep.
     SaveLocations,
+    /// The panels' places put back where the player's options keep them: read from the options
+    /// that came again (`reloaded`), else asked of the player's interface.
+    PutBackLocations {
+        reloaded: bool,
+    },
     /// A line for the chat windows, as one of the client's own errors.
     ErrorLine(String),
     /// The chat panel's.
@@ -402,8 +415,21 @@ pub trait Child: Any + std::fmt::Debug {
     }
     /// What its listener heard (besides being told to show).
     fn listen(&mut self, _ui: &mut Ui, _mail: &Mail, _out: &mut Vec<Request>) {}
-    /// A notice of the player's scripts.
+    /// A notice of the player's scripts; one a panel has no handling of its own for does nothing
+    /// (its arguments let go).
+    // D2-00033, D2-00034, D2-00070, D2-00406, D2-00407, D2-00408, D2-00409, D2-00706, D2-00707
+    // D2-00708, D2-00734, D2-00735, D2-00740, D2-16962, D2-17634
     fn notice(&mut self, _ui: &mut Ui, _n: &Notice, _out: &mut Vec<Request>) {}
+    /// A notice, with what the game shows this frame (for a panel that needs the world to act on
+    /// one); by default as [`Child::notice`].
+    fn notice_seen(&mut self, ui: &mut Ui, _view: &View<'_>, n: &Notice, out: &mut Vec<Request>) {
+        self.notice(ui, n, out);
+    }
+    /// The notices it registers for as it is made, in the order it registers them, its own
+    /// panels' with its own ([`crate::notices`]): it hears no other.
+    fn notices(&self) -> Vec<u32> {
+        Vec::new()
+    }
     /// What the game shows this frame.
     fn update(&mut self, _ui: &mut Ui, _view: &View<'_>, _out: &mut Vec<Request>) {}
     /// It goes: its elements and its listening.
@@ -438,6 +464,13 @@ pub fn drive(
         child.notice(ui, n, out);
     }
     child.update(ui, view, out);
+}
+
+/// A notice handed to a panel of a framework's own, when the panel registered for it.
+pub fn hand(child: &mut dyn Child, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
+    if child.notices().contains(&n.native) {
+        child.notice(ui, n, out);
+    }
 }
 
 /// A panel not written yet: its framework, with nothing in it, at its place among the play
@@ -479,7 +512,27 @@ impl Child for Pending {
 pub struct ChildInfo {
     pub child: Box<dyn Child>,
     pub keypress: u32,
+    /// Its number among the play screen's panels, by which it is registered for its notices.
+    pub id: u32,
 }
+
+/// Who hears a notice on the play screen: the play screen itself (with its camera), or a panel by
+/// its number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handler {
+    Screen,
+    Panel(u32),
+}
+
+/// The notices the play screen registers for as it is made (its camera's with them), and those
+/// it registers for once its panels are made, after them; by their own numbers.
+const MADE_NOTICES: [u32; 14] = [
+    0x455, 0x1_0419, 0x1_0413, 0x1_0401, 0x442, 0x444, 0x445, 0x449, 0x498, 0x44E, 0x44F, 0x450,
+    0x1_0418, 0x467,
+];
+const LOGIN_NOTICES: [u32; 10] = [
+    0x41C, 0x411, 0x417, 0x1_040C, 0x451, 0x478, 0x4A4, 0x4A5, 0x4A6, 0x436,
+];
 
 /// A question the player's scripts asked through a confirmation: the two objects and two tokens
 /// it carried and its value, answered with them.
@@ -499,6 +552,9 @@ pub struct GamePlay {
     jukebox: Option<Handle>,
     /// The panels, in the play screen's list (the last made first).
     children: Vec<ChildInfo>,
+    /// Who hears which notice, in the order they registered; the next panel's number.
+    registry: crate::notices::Registry<Handler>,
+    next_panel: u32,
     /// The session ended; asked to end at the next tick; going back to the character list.
     ended: bool,
     end_asked: bool,
@@ -518,8 +574,9 @@ pub struct GamePlay {
 impl GamePlay {
     /// The play screen made: its framework; the sound of the screens before it stopped; the
     /// display at the player's own size; the camera's panel; the clock and the display's being set
-    /// up again heard. Its panels come with [`Self::login_finished`].
-    // D2-01934, D2-01935, D2-01943
+    /// up again heard; its first notices registered for. Its panels come with
+    /// [`Self::login_finished`].
+    // D2-01934, D2-01935, D2-01943, D2-11906
     pub fn new(ui: &mut Ui, out: &mut Vec<Request>) -> Self {
         let frame = ui.new_main_frame();
         out.push(Request::StopScreenSound);
@@ -531,11 +588,15 @@ impl GamePlay {
             ui.listen_for_global_message(l, global::TIME);
             ui.listen_for_global_message(l, global::REFRESH_START);
         }
+        let mut registry = crate::notices::Registry::new();
+        registry.register_all(&crate::notices::keys(&MADE_NOTICES), Handler::Screen);
         Self {
             frame,
             camera: Some(camera),
             jukebox: None,
             children: Vec::new(),
+            registry,
+            next_panel: 0,
             ended: false,
             end_asked: false,
             back: false,
@@ -626,6 +687,8 @@ impl GamePlay {
             ui.listen_for_global_message(l, global::KEY_UP);
         }
         out.push(Request::KnowCommands);
+        self.registry
+            .register_all(&crate::notices::keys(&LOGIN_NOTICES), Handler::Screen);
     }
 
     /// The panels, made in the play screen's order, each with the key that shows and hides it,
@@ -634,25 +697,25 @@ impl GamePlay {
     pub fn setup_children(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         let f = self.frame;
         self.jukebox = ui.frame_create_root(f, PLAY_LAYOUT_ENUM, name::JUKEBOX_FIELD);
-        // Made in this order.
-        let names: Box<dyn Child> = Box::new(names::Names::new(ui, f));
-        let radar: Box<dyn Child> = Box::new(radar::Radar::new(ui, f));
-        let stack: Box<dyn Child> = Box::new(crate::inventory::stack::StackSplitter::new(ui, f));
-        let selection: Box<dyn Child> = Box::new(selection::Selection::new(ui, f));
-        let status: Box<dyn Child> = Box::new(statusbar::StatusBar::new(ui, f, out));
-        let toolbar: Box<dyn Child> = Box::new(toolbar::Toolbar::new(ui, f, out));
-        let fellows: Box<dyn Child> = Box::new(crate::social::mini::MiniFellowship::new(ui, f));
-        let trade: Box<dyn Child> = Box::new(crate::trade::Trade::new(ui, f));
-        let container: Box<dyn Child> =
-            Box::new(crate::inventory::external::ExternalContainer::new(ui, f));
-        let book: Box<dyn Child> = Box::new(crate::book::Book::new(ui, f));
-        let shop: Box<dyn Child> = Box::new(crate::shop::Shop::new(ui, f));
-        let catalog: Box<dyn Child> = Box::new(crate::shop::catalog::Catalog::new(ui, f));
-        let consignments: Box<dyn Child> =
-            Box::new(crate::shop::consignment::Consignments::new(ui, f));
-        let new_sale: Box<dyn Child> = Box::new(crate::shop::new_sale::NewSale::new(ui, f));
-        let pet: Box<dyn Child> = Box::new(crate::pet::Pets::new(ui, f, out));
-        let ingredients: Box<dyn Child> = Box::new(crate::ingredients::Ingredients::new(ui, f));
+        // Made in this order, each registering for its notices as it is made.
+        let names = self.made(Box::new(names::Names::new(ui, f)));
+        let radar = self.made(Box::new(radar::Radar::new(ui, f)));
+        let stack = self.made(Box::new(crate::inventory::stack::StackSplitter::new(ui, f)));
+        let selection = self.made(Box::new(selection::Selection::new(ui, f)));
+        let status = self.made(Box::new(statusbar::StatusBar::new(ui, f, out)));
+        let toolbar = self.made(Box::new(toolbar::Toolbar::new(ui, f, out)));
+        let fellows = self.made(Box::new(crate::social::mini::MiniFellowship::new(ui, f)));
+        let trade = self.made(Box::new(crate::trade::Trade::new(ui, f)));
+        let container = self.made(Box::new(
+            crate::inventory::external::ExternalContainer::new(ui, f),
+        ));
+        let book = self.made(Box::new(crate::book::Book::new(ui, f)));
+        let shop = self.made(Box::new(crate::shop::Shop::new(ui, f)));
+        let catalog = self.made(Box::new(crate::shop::catalog::Catalog::new(ui, f)));
+        let consignments = self.made(Box::new(crate::shop::consignment::Consignments::new(ui, f)));
+        let new_sale = self.made(Box::new(crate::shop::new_sale::NewSale::new(ui, f)));
+        let pet = self.made(Box::new(crate::pet::Pets::new(ui, f, out)));
+        let ingredients = self.made(Box::new(crate::ingredients::Ingredients::new(ui, f)));
         // Put in the list in this order, each at its front: the list runs from the last put.
         let put = [
             (names, 0),
@@ -672,8 +735,58 @@ impl GamePlay {
             (ingredients, 0),
             (pet, 0),
         ];
-        for (child, keypress) in put {
-            self.children.insert(0, ChildInfo { child, keypress });
+        for ((child, id), keypress) in put {
+            self.children.insert(
+                0,
+                ChildInfo {
+                    child,
+                    keypress,
+                    id,
+                },
+            );
+        }
+    }
+
+    /// A panel just made: numbered, and registered for its notices.
+    fn made(&mut self, child: Box<dyn Child>) -> (Box<dyn Child>, u32) {
+        let id = self.next_panel;
+        self.next_panel += 1;
+        self.registry
+            .register_all(&child.notices(), Handler::Panel(id));
+        (child, id)
+    }
+
+    /// Who hears notice `native`, in the order they registered.
+    #[must_use]
+    pub fn handlers(&self, native: u32) -> &[Handler] {
+        self.registry.handlers(native)
+    }
+
+    /// The panel numbered `id`.
+    #[must_use]
+    pub fn panel(&self, id: u32) -> Option<&dyn Child> {
+        self.children
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.child.as_ref())
+    }
+
+    /// A notice handed to whoever registered for it, in the order they registered: the play
+    /// screen's own (leaving the world and quitting among them), the panels'.
+    fn deliver(&mut self, ui: &mut Ui, view: &View<'_>, n: &Notice, out: &mut Vec<Request>) {
+        for h in self.registry.handlers(n.native).to_vec() {
+            match h {
+                Handler::Screen => match n.native {
+                    crate::options::notice::LEAVE_WORLD => self.end_character_session(),
+                    crate::options::notice::QUIT => Self::logoff(out),
+                    _ => self.notice(ui, n, out),
+                },
+                Handler::Panel(id) => {
+                    if let Some(c) = self.children.iter_mut().find(|c| c.id == id) {
+                        c.child.notice_seen(ui, view, n, out);
+                    }
+                }
+            }
         }
     }
 
@@ -704,15 +817,15 @@ impl GamePlay {
             out.extend(cam.into_iter().map(Request::Camera));
         }
         for n in notices {
-            self.notice(ui, n, out);
+            self.deliver(ui, view, n, out);
         }
         for c in &mut self.children {
-            drive(c.child.as_mut(), ui, view, notices, out);
+            drive(c.child.as_mut(), ui, view, &[], out);
         }
         if let Some(s) = &mut self.story {
             s.tick(ui, out);
         }
-        self.pass_notices(ui, out);
+        self.pass_notices(ui, view, out);
     }
 
     /// The story playing over the screen, if one is.
@@ -721,48 +834,41 @@ impl GamePlay {
         self.story.as_ref()
     }
 
-    /// The panels' notices to each other, handed to every panel; what they send in turn too.
-    /// The shortcut bar resized by hand tells the options window its rows; leaving the world and
-    /// quitting (the options window's) reach the play screen itself.
-    fn pass_notices(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
-        for _ in 0..8 {
-            for r in out.iter_mut() {
-                if let Request::ShortcutRows(rows) = *r {
-                    *r = Request::Notice(Notice {
-                        native: crate::options::notice::SET_SHORTCUT_HEIGHT,
-                        words: vec![rows.cast_unsigned()],
-                        ..Notice::default()
-                    });
+    /// The panels' notices to each other, handed to whoever registered for each as it is sent:
+    /// what they ask in turn takes its place, before what was asked after the notice. The
+    /// shortcut bar resized by hand tells the options window its rows.
+    fn pass_notices(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
+        let asked = std::mem::take(out);
+        *out = self.passed(ui, view, asked, 0);
+    }
+
+    fn passed(
+        &mut self,
+        ui: &mut Ui,
+        view: &View<'_>,
+        asked: Vec<Request>,
+        depth: u32,
+    ) -> Vec<Request> {
+        let mut done = Vec::with_capacity(asked.len());
+        for r in asked {
+            let r = match r {
+                Request::ShortcutRows(rows) => Request::Notice(Notice {
+                    native: crate::options::notice::SET_SHORTCUT_HEIGHT,
+                    words: vec![rows.cast_unsigned()],
+                    ..Notice::default()
+                }),
+                r => r,
+            };
+            match r {
+                Request::Notice(n) if depth < 8 => {
+                    let mut more = Vec::new();
+                    self.deliver(ui, view, &n, &mut more);
+                    done.extend(self.passed(ui, view, more, depth + 1));
                 }
+                r => done.push(r),
             }
-            let sent: Vec<Notice> = out
-                .iter()
-                .filter_map(|r| match r {
-                    Request::Notice(n) => Some(n.clone()),
-                    _ => None,
-                })
-                .collect();
-            if sent.is_empty() {
-                return;
-            }
-            out.retain(|r| !matches!(r, Request::Notice(_)));
-            let mut more = Vec::new();
-            for n in &sent {
-                match n.native {
-                    crate::options::notice::LEAVE_WORLD => self.end_character_session(),
-                    crate::options::notice::QUIT => Self::logoff(&mut more),
-                    notice::PLAY_SEQUENCE
-                    | notice::DISPLAY_MESSAGE
-                    | crate::story::notice::FINISH_PLAY_SEQUENCE
-                    | crate::dialog::notice::UPDATE_CAN_MOUSE_LOOK => self.notice(ui, n, &mut more),
-                    _ => {}
-                }
-                for c in &mut self.children {
-                    c.child.notice(ui, n, &mut more);
-                }
-            }
-            out.append(&mut more);
         }
+        done
     }
 
     /// What the play screen's listener heard: the panels' keys (while it shows), the key that
@@ -797,6 +903,10 @@ impl GamePlay {
                 self.end_session(ui, true, out);
                 self.end_asked = false;
             }
+            Mail::Global {
+                what: global::REFRESH_START,
+                ..
+            } => out.push(Request::PutBackLocations { reloaded: false }),
             _ => {}
         }
     }
@@ -809,17 +919,14 @@ impl GamePlay {
             notice::UPDATE_DEATH_STATE => self.update_death_state(ui, n.word() != 0, out),
             notice::RELOAD_OPTIONS => self.reload_options(out),
             notice::PLAY_SEQUENCE => self.play_sequence(ui, &scenes_of(n), out),
+            // The message's string reference goes to the dialog's text element as it is; its
+            // second word says whether it goes up at once, in place of the dialog up.
             notice::DISPLAY_MESSAGE => {
-                let text = n
-                    .records
-                    .iter()
-                    .flatten()
-                    .find_map(|r| match r {
-                        Record::Text(t) => ui.assets().write(t),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                self.display_message(text, out);
+                let info = n.records.iter().flatten().find_map(|r| match r {
+                    Record::Text(t) => Some(t.clone()),
+                    _ => None,
+                });
+                self.display_message(String::new(), info, n.word_at(1) != 0, out);
             }
             notice::PORTAL_SCENE => self.portal_scene(ui, n.word() != 0, &scenes_of(n), out),
             crate::story::notice::FINISH_PLAY_SEQUENCE => {
@@ -871,11 +978,22 @@ impl GamePlay {
     }
 
     fn new_dialog(&mut self, kind: u32, text: String, modal: bool, out: &mut Vec<Request>) -> u32 {
+        Self::dialog_of(kind, text, None, modal, out)
+    }
+
+    fn dialog_of(
+        kind: u32,
+        text: String,
+        info: Option<auberean_text::StringInfo>,
+        modal: bool,
+        out: &mut Vec<Request>,
+    ) -> u32 {
         let id = crate::dialog::new_context();
         out.push(Request::Dialog(Dialog {
             id,
             kind,
             text,
+            info,
             modal,
         }));
         id
@@ -1027,10 +1145,18 @@ impl GamePlay {
         }
     }
 
-    /// A message of the scripts in a dialog of its own, kept until it closes.
+    /// A message of the scripts in a dialog of its own (written, or a string reference its text
+    /// element writes), kept until it closes; `modal`, it goes up at once in place of the dialog
+    /// up, which waits behind it.
     // D2-01919
-    pub fn display_message(&mut self, text: String, out: &mut Vec<Request>) {
-        let id = self.new_dialog(dialog::MESSAGE, text, false, out);
+    pub fn display_message(
+        &mut self,
+        text: String,
+        info: Option<auberean_text::StringInfo>,
+        modal: bool,
+        out: &mut Vec<Request>,
+    ) {
+        let id = Self::dialog_of(dialog::MESSAGE, text, info, modal, out);
         self.messages.push(id);
     }
 
@@ -1125,6 +1251,7 @@ impl GamePlay {
     // D2-01928
     pub fn cleanup_children(&mut self, ui: &mut Ui) {
         for c in self.children.drain(..) {
+            self.registry.unregister_all(Handler::Panel(c.id));
             c.child.close(ui);
         }
     }
@@ -1155,23 +1282,23 @@ impl GamePlay {
         self.ended = true;
     }
 
-    /// The panels' places changed: kept with the player's options and sent to keep.
+    /// The panels' places changed: kept with the player's options and sent to the server to
+    /// keep.
     // D2-01962
     pub fn save_locations_changed(out: &mut Vec<Request>) {
         out.push(Request::SaveLocations);
-        out.push(Request::KeepOptions);
     }
 
     /// The player's options came again: the panels' places put back from them.
     // D2-01964
     pub fn reload_options(&mut self, out: &mut Vec<Request>) {
-        out.push(Request::SaveLocations);
+        out.push(Request::PutBackLocations { reloaded: true });
     }
 
     /// The play screen goes: the session ended if it had not, the interface keys no longer heard,
     /// the message field, the dialogs, the panels and the camera gone; the display back to the
     /// screens' before the world (unless the program is ending).
-    // D2-01942
+    // D2-01942, D2-11907, D2-11908
     pub fn close(mut self, ui: &mut Ui, shutting_down: bool, out: &mut Vec<Request>) {
         if !self.ended {
             self.end_session(ui, false, out);

@@ -510,7 +510,22 @@ fn text_of(ui: &Ui, n: &Notice) -> String {
         .unwrap_or_default()
 }
 
+impl Pets {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x49E, 0x49F, 0x4A0, 0x4A1, 0x4A2, 0x408, 0x46D];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Pets {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

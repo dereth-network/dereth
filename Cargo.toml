@@ -160,6 +160,7 @@ members = [
     # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
+    "auberean/client/crates/audio",
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
     "auberean/client/crates/scene",
@@ -291,6 +292,7 @@ auberean-client-net = { path = "core/auberean-client-net" }
 auberean-client-runtime = { path = "core/auberean-client-runtime" }
 auberean-client-sdk = { path = "core/auberean-client-sdk" }
 auberean-dat = { path = "core/auberean-dat" }
+auberean-audio = { path = "auberean/client/crates/audio" }
 auberean-draw = { path = "auberean/client/crates/draw" }
 auberean-friends = { path = "core/auberean-friends" }
 auberean-glue = { path = "core/auberean-glue" }

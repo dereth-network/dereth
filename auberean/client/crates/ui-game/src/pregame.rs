@@ -115,8 +115,22 @@ pub enum Connection {
     Waiting,
     /// Connected.
     Connected,
-    /// The connection to the server at this host and port failed.
-    Failed { host: String, port: u16 },
+    /// The connection to the server at this host and port failed, with an error.
+    Failed {
+        host: String,
+        port: u16,
+        error: ConnectError,
+    },
+}
+
+/// Why a connection failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectError {
+    /// The server's address could not be understood.
+    BadAddress,
+    /// Any other error, by its identifier (`ID_ConnectionError_Generic` when the server could not
+    /// be reached; empty for one with no name).
+    Named(String),
 }
 
 /// What the client tells the screen up.
@@ -135,6 +149,8 @@ pub enum Notice {
     Net(Connection),
     /// The connection's rate of data received (bytes a second) and whether any came.
     Heartbeat { rate: f64, received: bool },
+    /// The data download's progress: an event and its value.
+    Ddd { event: u32, value: i32 },
 }
 
 /// What a screen before the world asks of the client.
@@ -272,6 +288,7 @@ pub fn please_wait(ui: &Ui, frame: FrameId, out: &mut Vec<Request>) -> u32 {
             kind: dialog::kind::WAIT,
             text: message(ui, "ID_Wait_PleaseWait", &[]),
             modal: false,
+            info: None,
         },
         parent: frame,
     });
@@ -288,6 +305,7 @@ pub fn question(text: String, frame: FrameId, out: &mut Vec<Request>) -> u32 {
             kind: dialog::kind::CONFIRMATION,
             text,
             modal: false,
+            info: None,
         },
         parent: frame,
     });

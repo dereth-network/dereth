@@ -6,7 +6,8 @@
 //! it ends the action it began, whatever was let go of in between. The action map says how each
 //! action toggles: a held one is in force from press to release, a latched one from one press to
 //! the next (autorun), a single press for its frame (a jump). Going forward or backward, or
-//! stopping, ends a latched run.
+//! stopping, ends a latched run. The window losing the keyboard lets every action in force go:
+//! the held ones end, a latched run goes on.
 //!
 //! The modifier actions in force (Shift, Ctrl, Alt) choose each action's values: Shift with
 //! forward walks (0.339 of running), with the camera's keys turns them faster. Each frame the
@@ -126,6 +127,7 @@ pub struct InForce {
 /// The modifier keys held, each other input's modifiers at its press, the actions in force, and
 /// what was pressed since the last frame.
 #[derive(Clone, Debug, Default)]
+// D2-03433, D2-03458, D2-03432, D2-03457
 pub struct Controls {
     meta: u32,
     pressed: HashMap<u32, u32>,
@@ -179,10 +181,24 @@ impl Controls {
                 // Keys let go while the window had no keyboard never come back up.
                 self.meta = 0;
                 self.pressed.clear();
-                self.actions.clear();
+                self.focus_lost(keys);
                 false
             }
             _ => false,
+        }
+    }
+
+    /// The window's keyboard gone: each action in force, in the order they began, let go through
+    /// the action handler as its input would be. A held action ends (and the movement read from
+    /// the actions in force stops, so the body's next report says so); a latched run and a single
+    /// press for this frame stay, as letting go leaves them.
+    // D2-03459
+    fn focus_lost(&mut self, keys: &Keys) {
+        for a in self.actions.clone() {
+            let modifiers = self.modifier_bitfield(keys);
+            if keys.records.values(a.action, modifiers).is_some() {
+                self.action_handler(keys, a.action, 0.0, a.device, a.input);
+            }
         }
     }
 

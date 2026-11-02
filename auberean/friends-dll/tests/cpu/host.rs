@@ -1,8 +1,8 @@
 //! The library on real sockets, against a world on loopback: the threads that dial, read and write,
 //! and the host that runs the engine on them.
 
-use auberean_friends::engine::{Message, Reply};
-use auberean_friends::host::Host;
+use auberean_friends_dll::engine::{Message, Reply};
+use auberean_friends_dll::host::Host;
 use stream::{Answer, Event, Hr, Request};
 
 use crate::common::{friends, ticket, until, LoopbackWorld, WORLD_NAME};

@@ -134,6 +134,14 @@ pub struct TestHost {
     pub sent: Vec<(u32, Vec<u8>)>,
     pub dice: auberean_glue::numbers::Random,
     pub printed: Vec<String>,
+    /// The client's folder, when the host has one: its files by name.
+    pub folder: Option<std::collections::BTreeMap<String, Vec<u8>>>,
+    /// The wall clock, when the host has one.
+    pub real_time: Option<i64>,
+    /// The table of file names: (name, record type) to id.
+    pub names: std::collections::BTreeMap<(String, u32), u32>,
+    /// The enumeration mappings: (value, mapping) to id.
+    pub enum_ids: std::collections::BTreeMap<(u32, u32), u32>,
 }
 
 impl Host for TestHost {
@@ -157,6 +165,40 @@ impl Host for TestHost {
 
     fn print(&mut self, line: &str) {
         self.printed.push(line.to_owned());
+    }
+
+    fn real_time(&self) -> Option<i64> {
+        self.real_time
+    }
+
+    fn data_id_by_name(&mut self, name: &str, record_type: u32) -> u32 {
+        self.names
+            .get(&(name.to_owned(), record_type))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn data_id_by_enum(&mut self, value: u32, mapping: u32) -> u32 {
+        self.enum_ids.get(&(value, mapping)).copied().unwrap_or(0)
+    }
+
+    fn file_name_by_id(&mut self, id: u32) -> Vec<u16> {
+        self.names
+            .iter()
+            .find(|(_, v)| **v == id)
+            .map(|((n, _), _)| n.encode_utf16().collect())
+            .unwrap_or_default()
+    }
+
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        self.folder
+            .as_mut()
+            .map(|f| f.insert(file.to_owned(), bytes.to_vec()))
+            .is_some()
+    }
+
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        self.folder.as_ref()?.get(file).cloned()
     }
 
     fn as_any(&mut self) -> &mut dyn std::any::Any {

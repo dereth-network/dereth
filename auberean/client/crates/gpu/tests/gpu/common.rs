@@ -1,6 +1,7 @@
 //! The target install's records, opened once per test binary, and a device to draw them on.
 
-use std::sync::OnceLock;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
@@ -56,11 +57,38 @@ pub fn ids_of(kind: u8) -> Vec<u32> {
         .collect()
 }
 
-/// A renderer on the machine's hardware adapter, as the client makes its own.
-pub fn renderer() -> Renderer {
-    let r = Renderer::new().unwrap_or_else(|e| panic!("a hardware device: {e}"));
-    eprintln!("adapter: {}", r.adapter);
-    r
+/// A renderer on the machine's hardware adapter, as the client makes its own, held by one test at
+/// a time: a device made while another test draws on its own has stalled the driver (both threads
+/// waiting, the hardware idle), so a test has the machine's device to itself from making its
+/// renderer until it lets it go. The tests' other work runs on the binary's threads meanwhile.
+pub fn renderer() -> Held {
+    static TURN: Mutex<()> = Mutex::new(());
+    let turn = TURN.lock().unwrap_or_else(PoisonError::into_inner);
+    let renderer = Renderer::new().unwrap_or_else(|e| panic!("a hardware device: {e}"));
+    eprintln!("adapter: {}", renderer.adapter);
+    Held {
+        renderer,
+        _turn: turn,
+    }
+}
+
+/// A test's renderer and its turn on the device: the renderer is let go of before the turn.
+pub struct Held {
+    renderer: Renderer,
+    _turn: MutexGuard<'static, ()>,
+}
+
+impl Deref for Held {
+    type Target = Renderer;
+    fn deref(&self) -> &Renderer {
+        &self.renderer
+    }
+}
+
+impl DerefMut for Held {
+    fn deref_mut(&mut self) -> &mut Renderer {
+        &mut self.renderer
+    }
 }
 
 /// Run `f` with the device's validation errors caught, and fail with the first one.

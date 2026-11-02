@@ -19,8 +19,8 @@
 //! `--uptime SECONDS` is how long the client has been running: the clouds' shadows scroll with it
 //! (default 0). `--no-shadows`, `--no-clouds` and `--no-reflections` turn the static object
 //! shadows, the cloud shadows and the water's reflections off, as their preferences do;
-//! `--no-volumes` the walking body's volume of shadow, as the dynamic object shadows preference
-//! does; `--disc` lays the simple setting's dark disc under it instead. `--no-pools` leaves out
+//! `--no-volumes` the volumes of shadow (the walking body's and the placed objects' that cast
+//! one), as the dynamic object shadows preference does; `--disc` lays the simple setting's dark disc under it instead. `--no-pools` leaves out
 //! the pools of light the placed objects' effect lights lay on the land.
 //!
 //! `--fx TABLE:EFFECT@X,Y,Z[@SECONDS]` plays an effect at a point of the block's frame for
@@ -228,6 +228,41 @@ fn open(install: &Path) -> Result<WorldRecords, String> {
     Ok(WorldRecords::new(portal, cell, highres, ctx))
 }
 
+/// The volumes of shadow the objects the world places cast in `frame` (those its builder marked
+/// that stand within reach of its camera, nearest first), added to its volumes along the sun's
+/// light outdoors, with the frame's shadow strength.
+fn placed_volumes(
+    frame: &mut auberean_draw::scene::Frame,
+    records: &WorldRecords,
+    model_detail: u32,
+    maker: &mut auberean_draw::volume::VolumeMaker,
+) {
+    use auberean_draw::volume::{placed_casters, VolumeRoom, Volumes};
+    let inside = frame.outside.is_some();
+    let sun = frame
+        .outside
+        .as_ref()
+        .unwrap_or(&frame.light)
+        .light_direction;
+    frame.volumes.strength = Volumes::strength_of(frame.light.shadow_color, inside);
+    let mut casters = placed_casters(frame, sun, auberean_draw::volume::VOLUME_REACH);
+    casters.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+    let mut room = VolumeRoom::FRAME;
+    let mut out = Vec::new();
+    for c in casters {
+        maker.cast(
+            records,
+            &frame.objects[c.draws],
+            c.toward,
+            c.detail,
+            model_detail,
+            &mut room,
+            &mut out,
+        );
+    }
+    frame.volumes.volumes.extend(out);
+}
+
 fn write_png(path: &PathBuf, pic: &auberean_gpu::Picture) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -284,6 +319,14 @@ fn run() -> Result<(), String> {
     builder.cloud_shadows = a.clouds;
     builder.water_reflections = a.reflections;
     let mut frame = builder.frame(&spot, a.fov);
+    if a.volumes {
+        placed_volumes(
+            &mut frame,
+            &records,
+            builder.model_detail,
+            &mut auberean_draw::volume::VolumeMaker::default(),
+        );
+    }
     fx::add(&mut frame, &records, &a.fx);
     let pools = a.pools.then_some((&builder, spot.time_of_day));
     fx::add_placed(&mut frame, &records, a.block, a.startup, pools);

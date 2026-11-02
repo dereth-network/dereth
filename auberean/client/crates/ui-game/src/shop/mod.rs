@@ -54,6 +54,7 @@ pub mod notice {
     /// sends it.)
     pub const UPDATE_POSITION: u32 = 0x48D;
     /// A new consignment to put up: the item (high and low), how many (none: an empty window).
+    // D2-00277
     pub const INIT_NEW_SALE: u32 = 0x494;
     /// The player's selection changed (high and low).
     pub const SELECTION_CHANGED: u32 = crate::inventory::notice::SELECTION_CHANGED;
@@ -108,6 +109,7 @@ pub mod sale_state {
 }
 
 /// One sale of a shop (or one of the player's consignments), as the scripts filled it.
+// D2-00275
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sale {
     pub item: u64,
@@ -144,7 +146,8 @@ pub struct Store {
 }
 
 impl Store {
-    /// A sale by its ordinal.
+    /// A sale by its ordinal (the first with it, in order); none when it has no such sale.
+    // D2-12381
     #[must_use]
     pub fn sale(&self, ordinal: u32) -> Option<&Sale> {
         self.sales.iter().find(|s| s.ordinal == ordinal)
@@ -238,10 +241,12 @@ pub(crate) fn texts_of(n: &Notice) -> Vec<StringInfo> {
         .collect()
 }
 
-/// A message for a dialog of its own, as the scripts' message notice shows one.
+/// A message for a dialog of its own, as the scripts' message notice shows one, going up at once
+/// in place of the dialog up (the shop's messages do).
 pub(crate) fn display_message(text: StringInfo) -> Request {
     Request::Notice(Notice {
         native: gameplay::notice::DISPLAY_MESSAGE,
+        words: vec![0, 1],
         records: vec![Some(Record::Text(text))],
         ..Notice::default()
     })
@@ -479,6 +484,7 @@ impl Shop {
             kind: gameplay::dialog::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.dialog = id;
     }
@@ -779,7 +785,24 @@ impl Shop {
     }
 }
 
+impl Shop {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x486, 0x482, 0x483, 0x48D, 0x484, 0x48F, 0x485, 0x408, 0x493, 0x436, 0x45A,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Shop {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

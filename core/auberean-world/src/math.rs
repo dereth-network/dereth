@@ -174,3 +174,101 @@ pub fn quat_axis_angle(axis: Vec3, angle: f32) -> Quat {
         z: axis.z * s,
     }
 }
+
+/// How far outside an edge a point may lie, in the edge's own units (its length times the
+/// distance), and still count as over a polygon.
+pub const OVER_BAND: f32 = 0.0002;
+
+/// One edge's value at `p`, seen from above: the edge from `prev` to `cur` turned a quarter turn,
+/// dotted with `p`'s offset from `cur`. Negative inside a counterclockwise polygon; its size is the
+/// edge's length times `p`'s distance from the edge's line. Worked in double precision.
+fn edge_value(prev: [f32; 3], cur: [f32; 3], p: [f32; 3]) -> (f64, f64, f64) {
+    let a = f64::from(prev[1]) - f64::from(cur[1]);
+    let b = f64::from(cur[0]) - f64::from(prev[0]);
+    let v = b * f64::from(p[1])
+        + a * f64::from(p[0])
+        + (-(a * f64::from(cur[0])) - b * f64::from(cur[1]));
+    (a, b, v)
+}
+
+/// Whether `p` lies over polygon `v` seen from above: on the inner side of every edge, or no more
+/// than [`OVER_BAND`] outside it. `facing_up` takes the inner side of a counterclockwise polygon,
+/// otherwise of a clockwise one. The edges are walked from the first vertex back through the last.
+// D2-04165
+#[must_use]
+pub fn over_polygon(v: &[[f32; 3]], p: [f32; 3], facing_up: bool) -> bool {
+    let Some(&first) = v.first() else {
+        return true;
+    };
+    let mut prev = first;
+    for &cur in v.iter().rev() {
+        let (_, _, value) = edge_value(prev, cur, p);
+        let band = f64::from(OVER_BAND);
+        if facing_up {
+            if value > band {
+                return false;
+            }
+        } else if value < -band {
+            return false;
+        }
+        prev = cur;
+    }
+    true
+}
+
+/// Whether a circle of radius `r` about `p` reaches polygon `v` (whose normal's height is
+/// `normal_z`) seen from above, as the land's slope check asks it. A vertical polygon is never
+/// reached. A vertex within `r` of `p` (in all three dimensions) reaches it; otherwise, walking the
+/// edges from the first vertex back through the last, an edge whose value at `p` exceeds `r` (the
+/// value grows with the edge's length, so a long edge stops the circle short of its own reach)
+/// keeps it off, and one `p` is outside of by less, with `p` beside it rather than past either
+/// end, reaches it; `p` inside every edge is over it. `facing_up` as for [`over_polygon`].
+// D2-04166
+#[must_use]
+pub fn circle_over_polygon(
+    v: &[[f32; 3]],
+    normal_z: f32,
+    p: [f32; 3],
+    facing_up: bool,
+    r: f32,
+) -> bool {
+    if normal_z == 0.0 {
+        return false;
+    }
+    let Some(&first) = v.first() else {
+        return true;
+    };
+    let r = f64::from(r);
+    let gap = |q: [f32; 3]| {
+        let d = |k: usize| f64::from(q[k]) - f64::from(p[k]);
+        d(0) * d(0) + d(1) * d(1) + d(2) * d(2)
+    };
+    if gap(first) < r * r {
+        return true;
+    }
+    let sign = if facing_up { 1.0 } else { -1.0 };
+    let (px, py) = (f64::from(p[0]), f64::from(p[1]));
+    let mut inside = true;
+    let mut prev = first;
+    for &cur in v.iter().rev() {
+        if gap(cur) < r * r {
+            return true;
+        }
+        let (a, b, value) = edge_value(prev, cur, p);
+        let value = value * sign;
+        if r < value {
+            return false;
+        }
+        if value > 0.0 {
+            inside = false;
+            let (bx, ay) = (b * px, a * py);
+            let past_start = ((bx - ay) + (a * f64::from(prev[1]) - b * f64::from(prev[0]))) * sign;
+            let short_of_end = ((ay - bx) + (b * f64::from(cur[0]) - a * f64::from(cur[1]))) * sign;
+            if past_start >= 0.0 && short_of_end >= 0.0 {
+                return true;
+            }
+        }
+        prev = cur;
+    }
+    inside
+}

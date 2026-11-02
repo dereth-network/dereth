@@ -99,6 +99,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.help-shows-a-commands-help",
+        says: "`/help` with a command's name shows that command's help as help text, the name taken \
+               in any case; a name no command's help has shows the unrecognized-command line naming \
+               it; with no name, the help list's label and every command's line, `  name -- text`, \
+               in the names' order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHELL-HELP"),
+        station: "auberean-client-runtime::corpus::chat::help_shows_a_commands_help_every_commands_line_or_that_it_knows_no_such_command",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.chat.the-chat-log-is-written-with-the-local-time",
+        says: "The chat log command, given no folder to write in, shows the player's scripts' line \
+               that the file could not be opened; given one, it opens the player's log there, named \
+               after the folder's full path, and every line the chat window is given is written to \
+               it after the local time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-CHAT-LOG"),
+        station: "auberean-client-runtime::corpus::chat::the_chat_log_says_when_it_cannot_open_and_writes_each_line_after_the_local_time",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.the-loc-alias-says-the-players-map-coordinates",
         says: "The predefined alias ;loc is said as the player's map coordinates, north or south \
                to a tenth then east or west, and /loc shows the place line with the same \
@@ -118,6 +140,24 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-CHAT-SERVER-TEXT"),
         station: "auberean-client-runtime::corpus::chat::the_servers_lines_of_text_are_shown_by_the_players_scripts",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.glue.a-copy-of-a-game-value-is-its-own",
+        says: "A copy of a quest, a list of quests, an effect, a shortcut, a keyframe, a scene or an \
+               act holds every part of the original and is owned apart from it; a new allegiance, \
+               fellowship or shop adaptor holds 0 in every word.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-VALUE-COPIES"),
+        station: "auberean-glue::cpu::copies::a_copy_of_a_game_value_holds_every_part_and_is_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-line-of-sight-is-set-up-and-read",
+        says: "A line of sight is set up through its natives as the engine's own: what it passes through copied, its test kind set, its start from a ray in a cell, a place and an offset, or one place to another across landblocks, objects added to pass through but the invalid id; after a test it answers whether it was unblocked or reached an unloaded landblock, its final ray and cell, and its end less the final cell's landblock offset.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LOS-VALUES"),
+        station: "auberean-glue::cpu::motion::a_line_of_sight_is_set_up_and_read_as_the_client_does",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.glue.a-mask-changed-by-property-is-cleared-first",
@@ -141,6 +181,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-random-selection-table-picks-each-entry-once",
+        says: "A random selection table keeps its entries as a weighted binary heap: an entry of a weight of 0 or less is not added; a choice rolls the engine's dice from 1 to the total weight and walks down from the root by the running sum, the chosen entry leaving the table and the last taking its place; an empty table answers no; starting over puts the chosen back in the order chosen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SELECTION-TABLE"),
+        station: "auberean-glue::cpu::numbers::a_random_selection_table_picks_each_entry_once_by_weight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-saved-states-records-are-gathered",
+        says: "The records a saved state needs are gathered into a set of ids, each once and in id \
+               order, never id 0, each add answering whether it added; a string reference adds its \
+               table and each nested reference's, a literal nothing; a scene adds each keyframe's \
+               video, audio and voice records and its subtitle's tables, the tracks left out when \
+               the type asked about is the one they are never fetched for; a race and sex's look \
+               adds its body, its appearance table's records, its pile's look and its music.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-RECORD-IDS"),
+        station: "auberean-glue::cpu::natives::the_records_a_saved_state_needs_are_gathered_once_each_in_id_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-word-is-found-among-a-texts-words",
         says: "A word is one of a text's words when a piece of the text, split at spaces, commas and semicolons with the empty pieces dropped, is the word, ASCII letters compared without their case; part of a piece is not.",
         since: RETAIL,
@@ -154,6 +215,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-ADAPTORS"),
         station: "auberean-glue::cpu::natives::an_adaptor_keeps_what_its_setters_give_and_a_fellowship_adds_a_fellow_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.an-arrays-new-places-hold-nothing",
+        says: "An array of references whose element count is set higher holds no reference in \
+               each new place; set lower, it keeps its first places.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ARRAY-COUNT"),
+        station: "auberean-glue::cpu::natives::an_array_of_references_made_longer_holds_no_reference_in_its_new_places",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -183,6 +253,60 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.entity-names-and-link-requirements",
+        says: "An entity's record is found by its name, and its name by its record, in the \
+               client's table of file names as an entity record's file; a link's requirements are \
+               five words, zero when new (whether an input, its type, how many links, whether \
+               required, how many required), each set and read as a word and packed in that order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ENTITY-NAMES-LINKS"),
+        station: "auberean-glue::cpu::entity::an_entity_is_found_by_name_and_a_links_requirements_are_five_words",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.enumeration-names-and-lists",
+        says: "An enumeration's natives answer from its record: a value's name as a new string (the plain name and the name for logs alike, empty when it has none), how many values it has, every value as a new list of words and every name as a new list of new strings in the enumeration's order, and a name's value in a record named directly.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ENUM-LISTS"),
+        station: "auberean-glue::dat::enums::an_enumerations_names_count_and_lists_come_from_its_record",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "script.glue.every-saved-state-names-its-records",
+        says: "Every saved state of the install, made a process and asked which records it needs \
+               as the client asks when it loads an object's state, runs the scripts' answer to its \
+               end, or is not asked when its package is not a preprocessed one; the answers hold \
+               every race and sex look's records and every packed scene's tracks and subtitles.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STATE-RECORDS"),
+        station: "auberean-glue::dat::records::every_saved_state_names_the_records_it_needs_without_stopping",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "script.glue.file-names-and-tracks-by-name",
+        says: "A file's name finds its record's id in the client's table of file names, typed by \
+               its extension (read with white space trimmed; no known extension answers 0), or by a \
+               type given; an id finds its file's name; a keyframe's video, audio and voice tracks \
+               set by a file's name take that id and are marked defined even when the table answers \
+               0, as it does for every name on an install of the relaunched game.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILE-NAMES"),
+        station: "auberean-glue::cpu::natives::a_file_name_finds_its_id_by_its_extension_and_a_keyframe_takes_its_tracks_by_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.folder-names-for-file-names",
+        says: "The folder a script builds a file's name on is the empty name, so the file stays \
+               in the folder the host keeps files in; a folder's name is made one way round, each \
+               backslash a slash or each slash a backslash as asked, narrowed, with that separator \
+               added when the name does not end in it (an empty name stays empty).",
+        since: THIS_CLIENT,
+        divergence: "CD2-files-stay-in-settings-folder",
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FOLDER-NAMES"),
+        station: "auberean-glue::cpu::strings::the_current_folder_is_the_empty_name_and_folder_names_are_made_one_way_round",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.hash-table-natives",
         says: "A hash table native adds an entry at the head of its bucket's chain, sets a value in \
                place, finds a value through an out reference, and walks its entries bucket by \
@@ -190,6 +314,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-HASH-NATIVES"),
         station: "auberean-glue::cpu::natives::a_hash_table_adds_finds_and_walks_its_entries_in_bucket_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.math-as-the-floating-point-unit",
+        says: "The math natives answer as the floating-point unit does: the trigonometric functions, logarithms, exponential, square root and remainder of doubles; a sine, cosine or tangent of a number from 2 to the 63rd is the number itself; an invalid operation answers the unit's own not-a-number; a quotient is mapped into -1 to 1 with the client's own two over pi.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MATH-UNIT"),
+        station: "auberean-glue::cpu::numbers::the_math_natives_answer_as_the_floating_point_unit_does",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -201,11 +333,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.moves-placements-headings-and-rays",
+        says: "A move's parameters, what a move reports, an order to place a body, a heading and a ray are filled and read through their natives as the engine's own: each setter raises the flags it implies, the places to pass are taken one at a time, a report answers its parts, a heading is brought into 0 to 360 and tested against a tolerance, and a ray from a start and an offset has the offset's direction and length.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MOTION-VALUES"),
+        station: "auberean-glue::cpu::motion::moves_placements_headings_and_rays_are_filled_and_read_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.multi-hash-natives",
         says: "A multi-hash native adds an entry right after the first entry with its key (at the head of its chain for a new key), finds a key's first entry and where its entries end, walks, counts and removes them, and erases the entry an iterator stands at.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-MULTI-NATIVES"),
         station: "auberean-glue::cpu::natives::a_multi_hash_keeps_a_keys_entries_together_after_its_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.multi-map-natives",
+        says: "A multi-map keeps its entries in key order, each key's in the order added; find is a \
+               key's first entry, find-last the place after its last whether the key is there or \
+               not; an iterator stays on its entry while others come and go, steps back from past \
+               the last to the last, and equals another only at the same place of one map.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MULTI-MAP"),
+        station: "auberean-glue::cpu::natives::a_multi_map_keeps_its_entries_in_key_order_and_its_iterators_on_their_entries",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -250,6 +401,58 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.strings-equal-with-case-kept-only-when-asked",
+        says: "A string's equality and difference keep case when their flag is set; otherwise \
+               each unit is lowered as the wide C library lowers it, accented capitals too, as \
+               ordering with case ignored does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GLUE-TEXT-EQUAL"),
+        station: "auberean-glue::cpu::strings::strings_are_equal_with_case_kept_only_when_asked",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.strings-ordered-hashed-trimmed-replaced-scrambled",
+        says: "A string orders against another as the C library compares (case kept: -1, 0 or 1; case ignored: the difference of the first units that differ), hashes as the client hashes, trims white space at both ends, replaces every occurrence answering how many, scrambles and unscrambles with the client's key, and appends 64-bit integers and doubles; the case-insensitive string's natives are the string's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-STRINGS-ORDER"),
+        station: "auberean-glue::cpu::strings::strings_order_hash_trim_replace_and_scramble_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.strings-read-64-bit-numbers-the-c-librarys-way",
+        says: "A string reads as a 64-bit number in base 0 as the C library reads one: signed, \
+               clamped to the least or greatest; unsigned, an overflowing magnitude is all ones, \
+               which a minus sign counts back to 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GLUE-TEXT-INT64"),
+        station: "auberean-glue::cpu::strings::strings_read_64_bit_numbers_the_c_librarys_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.text-reads-as-a-floating-point-number",
+        says: "A text counts as a floating-point number when the C library reads all of it: white \
+               space first, then each unit narrowed in the Western code page with its best fit \
+               (full-width digits read as digits), a sign, digits with one point, an exponent \
+               after e, E, d or D; the empty text counts; a number past the largest double or \
+               below the least normal one is a range error and does not count; only the first 21 \
+               significant digits count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-READS-DOUBLE"),
+        station: "auberean-glue::cpu::strings::a_text_reads_as_a_floating_point_number_as_the_c_library_reads_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.text-utilities-read-numbers-and-cut-paths",
+        says: "A text reads as a whole number as the C library reads one in base 0, all of it and \
+               in range (an unsigned number takes a minus sign; the empty text counts, a sign or a \
+               lone hexadecimal prefix does not); a path loses its extension at its last dot, or \
+               its folders up to its last separator, its wide units narrowed on the way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-TEXT-UTILITIES"),
+        station: "auberean-glue::cpu::strings::a_text_reads_as_a_whole_number_as_the_c_library_reads_it_and_paths_are_cut",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.the-normal-and-skewed-dice-roll-as-the-client-does",
         says: "The normal dice draw two numbers a try by the ratio of uniforms until one is taken, \
                the percentile is 1 to 100 from one draw, and a skewed roll is a normal number about \
@@ -257,6 +460,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-DICE-NORMAL"),
         station: "auberean-glue::cpu::numbers::the_normal_and_skewed_dice_roll_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.the-wall-clock-and-the-computed-time",
+        says: "The wall clock native answers the host's seconds since 1970, or -1 without a clock; \
+               the computed time is the game's clock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-WALL-CLOCK"),
+        station: "auberean-glue::cpu::numbers::the_wall_clock_comes_from_the_host_and_answers_minus_one_without_one",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -276,6 +488,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.vectors-and-rays-are-made-one-long",
+        says: "A vector, or a ray's direction, is made one long by one Newton step from the \
+               reciprocal square root of its squared length, each step in single precision, and \
+               becomes zero when its squared length is below 2 to the -46th; a ray keeps its start \
+               and length.",
+        since: THIS_CLIENT,
+        divergence: "CD2-normalize-as-on-sse2",
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NORMALIZE"),
+        station: "auberean-glue::cpu::motion::a_vector_and_a_rays_direction_are_made_one_long_by_one_newton_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.graph.a-hashed-key-read-in-is-hashed-through-what-it-names",
+        says: "A table key that is a hashed reference keeps its filed hash when a graph is read \
+               into the reference table, follows its object to the object's new id, and from then \
+               on is marked to be hashed through what it names rather than by the filed hash.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-HASHED-KEYS"),
+        station: "auberean-script::cpu::codec::a_hashed_reference_key_read_into_the_table_follows_its_object_and_stops_using_its_filed_hash",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.graph.a-native-copy-reverses-each-hash-chain",
+        says: "The native factory's copy of a hash table or set has as many buckets as the original \
+               with each chain reversed; a multi-hash, a list and an iterator copy as they are. A new \
+               hash or set has 47 buckets, a new multi-hash 193.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NATIVE-COPY"),
+        station: "auberean-script::cpu::codec::a_native_copy_of_a_hash_reverses_each_chain_and_keeps_everything_else_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.graph.a-saved-state-that-fails-to-read-once-is-read-again",
         says: "A saved script state whose read fails once is read again and kept; only a state that fails every time it is read counts as one that would not read.",
         since: THIS_CLIENT,
@@ -283,6 +527,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-READ-AGAIN"),
         station: "auberean-script::dat::states::a_saved_state_whose_first_read_fails_is_read_again_not_remembered_absent",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "script.graph.an-iterator-packs-its-container-and-its-steps",
+        says: "A container iterator packs its container's reference and how many steps from the \
+               container's first entry it stands (the entry count when past the last), and once \
+               read into the table with its container stands there again: on the same place, past \
+               the last, or on the same entry of a multi-hash.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ITERATOR-PACK"),
+        station: "auberean-script::cpu::codec::an_iterator_packs_its_container_and_its_steps_and_stands_there_again_when_read_in",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.graph.behavior-params-pack-what-differs",
@@ -497,6 +752,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "script.library.taken-only-from-the-machines-version",
+        says: "The script library is taken in only when its versions table names the script \
+               machine's version as 13, or does not name it; any other entry of the table is not \
+               checked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MACHINE-VERSION"),
+        station: "auberean-script::cpu::codec::a_library_is_taken_only_when_it_names_the_machine_version_the_client_runs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.library.unbound-native-fails-the-load",
         says: "A native call the native table has no entry for fails the load instead of leaving a \
                call to nothing in the code.",
@@ -537,11 +802,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.a-data-id-loaded-by-a-files-name-finds-nothing-on-the-relaunched-game",
+        says: "Setting an object's data id from a file's name asks the client's table of file \
+               names for the record, typed by its extension; a name the table does not hold sets \
+               nothing and answers 0, and on an install of the relaunched game the table holds no \
+               name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LOAD-DATA-ID"),
+        station: "auberean-client-runtime::cpu::scripts::repository::a_data_id_loaded_by_a_files_name_sets_nothing_when_the_table_has_no_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-physics-object-passes-requests-to-its-body",
+        says: "What a script asks of an object's physics object (its speed or acceleration scale, \
+               cloaking, reporting or ignoring collisions, looking at an object, a push, stopping \
+               a layer) goes to its body in order and answers 1 (stopping a layer 0); with no \
+               physics object nothing goes and it answers 0 (stopping a layer 8); a scale answers \
+               nothing and comes through the floating-point unit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-PHYSICS-ASK"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::what_a_physics_object_is_asked_goes_to_its_body_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-physics-object-reads-its-body",
+        says: "A script reads an object's physics object from its body: its speed, acceleration \
+               and jump scales, its radius and height (its top level's from the object holding \
+               it), its mode and the mode it is going to, the motion the server last asked of it; \
+               with no physics object each reads 0 (undetectable 1). Whether it is in the world is \
+               the object's own; undetectable and frozen are as the scripts last set them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-PHYSICS-READ"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::a_physics_object_reads_its_body_and_none_reads_zero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-quality-is-answered-by-the-description-then-the-object-then-its-record",
         says: "An object's quality is answered by its description, for a quality the description holds and has marked set; else by the object's own table of that kind; else by its qualities record, the record's description first and then its tables. Times, texts, positions, packages and 64-bit numbers are never the description's.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-ASK"),
-        station: "auberean-client-runtime::cpu::repository::a_quality_is_answered_by_the_description_then_the_object_then_its_record",
+        station: "auberean-client-runtime::cpu::scripts::repository::a_quality_is_answered_by_the_description_then_the_object_then_its_record",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -549,7 +849,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Removing a quality takes it out of the object's description when the description has it set (its mark cleared), else out of the object's own table; the record keeps its value, which answers again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-REMOVE"),
-        station: "auberean-client-runtime::cpu::repository::a_quality_removed_leaves_the_record_answering",
+        station: "auberean-client-runtime::cpu::scripts::repository::a_quality_removed_leaves_the_record_answering",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -557,7 +857,18 @@ pub static ROWS: &[Behaviour] = &[
         says: "Setting a quality the object's description holds sets it there and marks it set; any other is set in the object's own table of its kind. The record is never written.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-SET"),
-        station: "auberean-client-runtime::cpu::repository::a_quality_set_goes_to_the_description_when_it_holds_it",
+        station: "auberean-client-runtime::cpu::scripts::repository::a_quality_set_goes_to_the_description_when_it_holds_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-rename-replaces-the-name-the-object-was-made-with",
+        says: "A rename (the server's update of the name quality, of an object or the player) \
+               takes the place of the name the object was made with: the name is the \
+               description's, which answers for it first; the object's own qualities are left as \
+               they were.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-RENAME"),
+        station: "auberean-client-runtime::cpu::world::updates::a_rename_replaces_the_name_the_object_was_made_with",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -569,6 +880,25 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-RIDER-REFUSED"),
         station: "auberean-client-runtime::corpus::interface::a_rider_is_refused_attacks_and_emotes_by_its_scripts",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.a-server-gone-ends-the-session",
+        says: "A server that ends the login connection (the client answers its goodbye) ends the \
+               session: the server is gone, and nothing failed before it; while the server is \
+               there, the session goes on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-SERVER-GONE"),
+        station: "auberean-client-runtime::cpu::world::session::a_server_ending_the_connection_ends_the_session",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-silent-server-is-gone-after-140-seconds",
+        says: "A login server that falls silent ends the session 140 seconds after it was last \
+               heard, not before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-SERVER-SILENT"),
+        station: "auberean-client-runtime::cpu::world::session::a_silent_server_ends_the_session_after_140_seconds",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.model.a-sleeping-call-goes-on-when-its-time-comes",
@@ -593,7 +923,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Adjusting a whole number, a 64-bit number or a float adds to the object's own value; with none of its own, the record's value plus the change becomes the object's own (the change alone when the record has none); without a record nothing changes. The truncating forms hold the result between their ends, the change alone excepted.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-ADJUST"),
-        station: "auberean-client-runtime::cpu::repository::an_adjusted_quality_adds_to_its_own_value_or_its_records",
+        station: "auberean-client-runtime::cpu::scripts::repository::an_adjusted_quality_adds_to_its_own_value_or_its_records",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -614,7 +944,68 @@ pub static ROWS: &[Behaviour] = &[
                position places it, it stands in the world among the player's surroundings.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-CONTAINER-QUALITY"),
-        station: "auberean-client-runtime::cpu::updates::an_item_put_down_leaves_the_pack_for_the_world",
+        station: "auberean-client-runtime::cpu::world::updates::an_item_put_down_leaves_the_pack_for_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-object-described-again-is-drawn-by-its-flags",
+        says: "An object the server sends again in the incarnation the client has, with a body, \
+               is not drawn when its no-draw flag is set, drawn again when neither that nor its \
+               kept-hidden flag is, and left as it was when only kept hidden.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-DESCRIBED-AGAIN"),
+        station: "auberean-client-runtime::cpu::scripts::names::an_object_described_again_is_drawn_or_not_by_its_flags",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-object-without-a-template-derives-from-its-packages-qualities",
+        says: "The qualities record an object's own qualities derive from is its entity template's \
+               when its description names a template; with no template, its package's (the \
+               package's record is numbered by the low half of the package's number, the highest \
+               such number with no package); a description naming something other than a \
+               template as its entity names none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME3-PACKAGE-QUALITIES"),
+        station: "auberean-client-runtime::cpu::scripts::repository::an_object_without_a_template_derives_from_its_packages_qualities",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-objects-kind-mobility-and-detection-words",
+        says: "An object's physics record is its data id 1 (none: 0); it moves unless its \
+               mobile flag says not; it is a creature when its kind holds every creature bit; a \
+               detection reports it when the report's mask meets its two detection words, low \
+               word first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-KIND-WORDS"),
+        station: "auberean-client-runtime::cpu::scripts::names::an_objects_kind_mobility_and_detection_words_answer_as_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-objects-name-is-its-name-quality",
+        says: "An object's name and plural name are its name qualities as its repository answers \
+               them; without one, a literal string saying it has no name (or no plural name).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NAME-QUALITY"),
+        station: "auberean-client-runtime::cpu::scripts::names::an_objects_name_is_its_name_quality_or_a_literal_saying_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-objects-package-is-its-scripts",
+        says: "A script asking an object for its package is answered with the package of the \
+               object's scripts' instance, and every bit set while the object has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-MY-PACKAGE"),
+        station: "auberean-client-runtime::cpu::scripts::distributor::an_objects_package_is_its_scripts_or_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-objects-waiting-calls-go-with-it",
+        says: "An object that goes takes the calls of its scripts that wait with it: every call of \
+               its process waiting to sleep out, or to go on after a wait was closed, is dropped; \
+               other processes' calls are kept in their order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME3-WAITING-PURGED"),
+        station: "auberean-client-runtime::cpu::scripts::distributor::an_objects_waiting_calls_go_with_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -630,7 +1021,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "An adjustment whose sum moved against its change (it overflowed) takes the end it ran past: the greatest for a positive change, the least for a negative one; then the result is held to both ends.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-REPOSITORY-TRUNCATE"),
-        station: "auberean-client-runtime::cpu::repository::an_overflowing_adjustment_takes_the_end_it_ran_past",
+        station: "auberean-client-runtime::cpu::scripts::repository::an_overflowing_adjustment_takes_the_end_it_ran_past",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -662,6 +1053,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.every-recorded-rename-reaches-the-objects-name",
+        says: "Every rename the 2017 servers sent reaches the object's name as its scripts read \
+               it, through the event queue: one stamped past the object's last visual stamp takes \
+               effect at once; one stamped at or before it is dropped, the name the object's \
+               creation brought already the same; one about an object not here yet waits, and the \
+               name is the new one once the creation comes (16,313 of 16,315; the other two are \
+               renamed again first).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-RENAMES-2017"),
+        station: "auberean-client-runtime::corpus::calls::every_recorded_rename_reaches_the_objects_name",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.every-recorded-server-call-runs-against-the-model",
         says: "Every server-to-client script call recorded in 2013 and 2017, fed with the rest of \
                its capture's server messages through the client's event queue, runs against the \
@@ -687,6 +1091,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-SELECTION-SENDS"),
         station: "auberean-client-runtime::corpus::interface::selecting_what_the_recorded_player_selected_sends_what_the_recorded_client_sent",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-connections-measure-carries-the-rate-over-two-measures",
+        says: "The connection's measure the connecting screen shows carries the rate received \
+               over the last two measures (their bytes over their time), and the packets the last \
+               one counted.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-RECEIVE-RATE"),
+        station: "auberean-client-runtime::cpu::world::session::the_connections_measure_carries_the_rate_received_over_two_measures",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.model.the-crafting-page-reads-every-recorded-players-craft-skills",
@@ -720,12 +1134,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.the-log-masks-start-and-change-as-the-scripts-say",
+        says: "The client's log masks start with the file's at 420 and the console's at 0; a \
+               kind of line is logged when its mask holds all of the kind (kind 4 always to the \
+               file); the scripts set a mask, add bits to it and take bits off it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LOG-MASKS"),
+        station: "auberean-client-runtime::cpu::scripts::log_system::the_log_masks_start_at_the_clients_and_change_as_the_scripts_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.the-pack-the-scripts-list-is-what-the-player-holds",
         says: "At every recorded log-off and at the end of each capture, the player's pack as its scripts list it through the interface is there in nearly every look and holds what the recorded messages have the player hold, but for items whose container the recordings never sent (under one in twenty); what it wears likewise; every listed item the client was sent has its name (the object's description, its own qualities, else its qualities record's description and table). The pack is listed whole and in order, its four segments (the main pack, then three bags) each a window of the list following the one before; most packs hold more than 42 items, up to 78.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-INVENTORY"),
         station: "auberean-client-runtime::corpus::inventory::the_pack_the_scripts_list_is_what_the_player_holds",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.the-players-commands-go-with-the-session",
+        says: "When the character leaves the world the player's command line is made anew: the \
+               commands its scripts made known are forgotten, and the next session's scripts make \
+               theirs known again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME3-COMMANDS-RESET"),
+        station: "auberean-client-runtime::cpu::scripts::distributor::the_players_commands_go_with_the_session",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.model.the-selection-is-listed-with-the-inventory",
@@ -740,7 +1174,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "The server's update of a quality the object's description holds (an item's container, its quantity, the scale, the icon, a yes-or-no flag) goes to the description, which answers for it first; the object's own qualities are left as they were. An update of a quality the description does not hold is the object's own.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-QUALITY-UPDATES"),
-        station: "auberean-client-runtime::cpu::updates::the_servers_updates_go_to_the_description_first",
+        station: "auberean-client-runtime::cpu::world::updates::the_servers_updates_go_to_the_description_first",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -782,6 +1216,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.a-log-line-is-stamped-with-the-local-time",
+        says: "A line written with a timestamp starts with the local time, month day year, hours \
+               minutes seconds, in angle brackets and two spaces; a host with no files opens and \
+               writes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LOG-STAMP"),
+        station: "auberean-client-runtime::cpu::scripts::files::a_log_line_is_stamped_with_the_local_time_and_nothing_opens_without_a_disk",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.a-profiles-aliases-pack-in-their-tables-order",
         says: "An options profile's aliases are a table of 47 buckets keyed by the wide \
                strings' hash: a new alias goes to the head of its bucket's chain, a name held \
@@ -790,6 +1234,19 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-ALIASES"),
         station: "auberean-script::cpu::options::a_profiles_aliases_go_to_the_head_of_their_bucket_and_pack_in_bucket_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.a-skill-panel-node-keeps-what-it-is-given",
+        says: "A skill panel node starts empty with its place at -1 on both axes; each part reads \
+               back as set (a name or description as a new copy, the place into two out slots, \
+               the parents and dependencies as new lists of words); a parent or dependency listed \
+               already is not added again; a node is set from another whole, cleared, and packs \
+               as the skill, the type, the name, the description, the icon, the place, the two \
+               lists and the three flags.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SKILL-NODE"),
+        station: "auberean-glue::cpu::skill_nodes::a_skill_panel_node_keeps_what_it_is_given",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -812,6 +1269,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.natives.examination-line-answers-its-own-kind",
+        says: "An examination line answers the value of its own kind and 0 for any other (a time \
+               left -1); a line not yet given an element is drawn with the examination's text \
+               template; a copy of a profile holds its own lines and tabs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-EXAM-LINE"),
+        station: "auberean-glue::cpu::examination::a_line_answers_only_the_value_of_its_own_kind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.examination-profile-keeps-the-asked-tabs-lines",
         says: "An examination profile adds a line (a number, a float, a yes or no, a string reference, a picture, an icon, indents, a break, a time left, a 64-bit number, an effect) by noting its tabs in the profile's tab word and keeping it, at the end, only when it shows on a tab the profile's request asks for or on the first tab; a new profile answers a request about nothing with no lines; it packs as the request, the lines by kind and the tab word; two profiles are equal when their requests, tab words and every line are; a null profile crashes the context.",
         since: RETAIL,
@@ -828,7 +1295,7 @@ pub static ROWS: &[Behaviour] = &[
                is what a new request is, asking for the default tabs.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-EXAM-REQUEST"),
-        station: "auberean-client-runtime::cpu::requests::an_examination_request_packs_what_its_kind_carries",
+        station: "auberean-client-runtime::cpu::world::requests::an_examination_request_packs_what_its_kind_carries",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -836,7 +1303,27 @@ pub static ROWS: &[Behaviour] = &[
         says: "A file a script writes starts with the byte-order mark and holds 16-bit units; each line feed is written after a carriage return and a line that does not end in one gets both; writing to a file that is not open opens it to add to it, which keeps what it holds unless that does not start with the mark; opening to read needs the file; closing answers whether it was open.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-FILES"),
-        station: "auberean-client-runtime::cpu::files::a_file_is_marked_and_its_lines_end_in_a_carriage_return_and_a_line_feed",
+        station: "auberean-client-runtime::cpu::scripts::files::a_file_is_marked_and_its_lines_end_in_a_carriage_return_and_a_line_feed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.files-stay-in-the-settings-folder",
+        says: "A file the scripts name is a bare name in the client's own folder: a name with a \
+               folder, a drive, a dot or two, or nothing is refused.",
+        since: THIS_CLIENT,
+        divergence: "CD2-files-stay-in-settings-folder",
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-BARE-NAMES"),
+        station: "auberean-client-runtime::cpu::scripts::files::a_file_is_named_by_a_bare_name_and_any_other_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.options-export-and-import-through-the-hosts-files",
+        says: "Exporting the options writes them to a file and importing reads one back into the \
+               profile, each answering 0; a file not written, not read or not named answers the \
+               client's error, and a failed import leaves the profile as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-FILES"),
+        station: "auberean-glue::cpu::options::the_options_export_to_a_file_and_import_back_and_answer_the_clients_errors",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -844,7 +1331,17 @@ pub static ROWS: &[Behaviour] = &[
         says: "A selection packs its type, then, only for the type that carries them, its current health, the damage taken from other players, its maximum health, its current vigor, the vigor lost to other players and its maximum vigor; a new selection is all zeros.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SELECTION-INFO"),
-        station: "auberean-client-runtime::cpu::requests::a_selection_packs_its_numbers_only_for_the_type_that_carries_them",
+        station: "auberean-client-runtime::cpu::world::requests::a_selection_packs_its_numbers_only_for_the_type_that_carries_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.shortcuts-set-from-a-list-and-saved-places-cleared",
+        says: "A profile's shortcuts set from a list of shortcuts become a copy of each, in the \
+               list's order; clearing a table of the windows' saved places takes every window out \
+               and keeps the table's size.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SHORTCUT-ARRAY"),
+        station: "auberean-glue::cpu::options::a_profiles_shortcuts_are_set_from_a_list_and_saved_places_clear",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -867,11 +1364,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.the-client-host-keeps-files-in-its-folder",
+        says: "The client's host refuses a file name that leaves its folder even when the front end \
+               would take it, opens nothing when the front end gives no files, and writes a \
+               stamped line to the front end's folder.",
+        since: THIS_CLIENT,
+        divergence: "CD2-files-stay-in-settings-folder",
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-HOST-FILES"),
+        station: "auberean-client-runtime::cpu::scripts::files::the_client_host_refuses_names_that_leave_its_folder_and_writes_stamped_lines",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.the-stand-ins-left-to-a-host-are-the-ones-the-client-binds",
         says: "The shared natives leave to a host's own model exactly the natives the client binds from its model, and the client binds no other over one of their stand-ins (the panel notices aside).",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-HOST-STANDINS"),
-        station: "auberean-client-runtime::cpu::natives::the_stand_ins_left_to_a_host_are_the_natives_the_client_binds_from_its_model",
+        station: "auberean-client-runtime::cpu::scripts::natives::the_stand_ins_left_to_a_host_are_the_natives_the_client_binds_from_its_model",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -902,6 +1410,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-PROFILE"),
         station: "auberean-script::corpus::options::every_captured_options_profile_and_shortcut_reads_as_the_engine_holds_it_and_packs_back",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.options.the-windows-saved-places-add-and-pack-as-the-engines",
+        says: "A new table of the windows' saved places packs as no window in 47 buckets; a place \
+               added goes to the head of its chain in a new table that is copied in as its \
+               window's (so two elements in one bucket stand in the order added), one for an \
+               element held is refused, and each packs as its four corners and a shown word \
+               under its window and element.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-SAVED-PLACES"),
+        station: "auberean-script::cpu::options::the_windows_saved_places_add_and_pack_as_the_engines",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "script.replay.server-calls-run-against-the-model",

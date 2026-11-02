@@ -20,7 +20,7 @@ use auberean_ui_game::disconnected::Disconnected;
 use auberean_ui_game::flow::mode;
 use auberean_ui_game::intro::Intro;
 use auberean_ui_game::keyboard::{self, KeyData, KeyMaps, Keyboard};
-use auberean_ui_game::pregame::{self, Avatar, CharacterSet, Connection, Notice};
+use auberean_ui_game::pregame::{self, Avatar, CharacterSet, ConnectError, Connection, Notice};
 
 use crate::{hall, Retail, Shared, LABEL_STRINGS};
 
@@ -170,6 +170,19 @@ pub(crate) const fn input_word(key: auberean_shell::input::Key) -> u32 {
 /// The left button's input word, as the key map screen hears it.
 pub(crate) const LEFT_BUTTON_WORD: u32 = 0x8200_040C;
 
+/// The error a connection that could not be made is told with.
+const GENERIC_ERROR: &str = "ID_ConnectionError_Generic";
+
+/// A session's connection error as the connecting screen is told it.
+fn connect_error(e: Option<auberean_client_sdk::net::NetErrorCode>) -> ConnectError {
+    use auberean_client_sdk::net::NetErrorCode;
+    match e {
+        Some(NetErrorCode::BadServerAddress) => ConnectError::BadAddress,
+        Some(e) => ConnectError::Named(e.id_string().to_owned()),
+        None => ConnectError::Named(String::new()),
+    }
+}
+
 /// Where the session's connection stands, as the connecting screen was last told.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Net {
@@ -213,16 +226,22 @@ impl Retail {
     /// (a new list counted), the races the account may make, the server's answers about a
     /// character asked, the connection's progress.
     pub(crate) fn feed_pregame(&mut self, game: &Game<'_>) {
-        // An entry refused: the screen its reason leads to, saying why (the character list for
-        // a character still in the world).
+        // An entry refused, or the login ended: the screen its reason leads to, saying why (the
+        // character list for a character still in the world; the disconnected screen with the
+        // server's own line for a boot).
         if let Some((reason, n)) = game.client.and_then(|c| c.model.refused) {
             if n != self.refusals {
                 self.refusals = n;
-                self.flow.character_error(&self.ui, reason, None);
+                let given = game
+                    .client
+                    .and_then(|c| c.model.refused_with.as_ref())
+                    .map(auberean_client_sdk::runtime::text::from_wire);
+                self.flow.character_error(&self.ui, reason, given.as_ref());
             }
         }
         let d = &mut self.flow.flow.data;
         d.pre.pointer = self.pointer;
+        d.pre.sound_playing = game.screens_sound;
         if let Some(list) = game.client.and_then(|c| c.model.characters.as_ref()) {
             let set = character_set(list);
             if d.pre.characters.as_ref() != Some(&set) {
@@ -279,17 +298,58 @@ impl Retail {
                 Net::Connected if self.net == Net::Connecting || self.net == Net::Idle => {
                     d.pre_notices.push(Notice::Net(Connection::Connected));
                 }
-                Net::Idle if self.net == Net::Connecting => {
+                // The session ended while connecting with no reason given: the server could not
+                // be reached.
+                Net::Idle if self.net == Net::Connecting && game.ended.is_none() => {
                     if let Some(l) = &self.login {
                         let (host, port) = (l.server.ip().to_string(), l.server.port());
-                        d.pre_notices
-                            .push(Notice::Net(Connection::Failed { host, port }));
+                        d.pre_notices.push(Notice::Net(Connection::Failed {
+                            host,
+                            port,
+                            error: ConnectError::Named(GENERIC_ERROR.to_owned()),
+                        }));
                     }
                 }
                 _ => {}
             }
             self.net = net;
         }
+        // The login refused, or the login server letting its connection go, with an error: the
+        // connecting screen, while it is up, is told why, once a session.
+        let state = game
+            .client
+            .map(auberean_client_sdk::Client::session_state)
+            .or(game.ended);
+        match state.and_then(|s| s.connect_failed) {
+            None => self.failure_told = false,
+            Some(error) if !self.failure_told && self.pre::<DataPatch>().is_some() => {
+                self.failure_told = true;
+                if let Some(l) = &self.login {
+                    let (host, port) = (l.server.ip().to_string(), l.server.port());
+                    self.flow
+                        .flow
+                        .data
+                        .pre_notices
+                        .push(Notice::Net(Connection::Failed {
+                            host,
+                            port,
+                            error: connect_error(error),
+                        }));
+                }
+            }
+            Some(_) => {}
+        }
+        // The data download's events, each once (a new session's from its first).
+        let events = game
+            .client
+            .map_or(&[][..], |c| c.data_download().events.as_slice());
+        if events.len() < self.ddd_told {
+            self.ddd_told = 0;
+        }
+        for &(event, value) in &events[self.ddd_told..] {
+            ddd_notice(&mut self.flow.flow.data.pre_notices, event, value);
+        }
+        self.ddd_told = events.len();
         // The connection's health, while the connecting screen is up to show it.
         let connecting = self.pre::<DataPatch>().is_some();
         if let Some(h) = game
@@ -297,15 +357,10 @@ impl Retail {
             .and_then(auberean_client_sdk::Client::heartbeat)
             .filter(|_| connecting)
         {
-            #[allow(clippy::cast_precision_loss)]
-            let rate = if h.span > 0.0 {
-                h.bytes_in as f64 / f64::from(h.span)
-            } else {
-                0.0
-            };
+            // The rate over the last two measures; busy while packets came in the last.
             self.flow.flow.data.pre_notices.push(Notice::Heartbeat {
-                rate,
-                received: h.bytes_in > 0,
+                rate: h.rate_in,
+                received: h.packets_in > 0,
             });
         }
     }
@@ -520,6 +575,7 @@ impl Retail {
                             .and_then(|cs| cs.iter().find(|x| x.physique_type == physique))
                             .and_then(|x| x.values.get(stop).copied());
                         if let (Some(v), Some(av)) = (v, c.avatars.get_mut(&key)) {
+                            // D2-11925
                             av.values.insert(physique, v);
                         }
                     }
@@ -543,7 +599,9 @@ impl Retail {
                     }
                 }
                 P::Quit => requests.push(Request::Quit),
-                r @ (P::Restore { .. } | P::Sound(_) | P::Silence) => {
+                P::Sound(id) => requests.push(crate::sounds::screens(id)),
+                P::Silence => requests.push(crate::sounds::screens_silence()),
+                r @ P::Restore { .. } => {
                     tracing::debug!(?r, "not carried out yet");
                 }
             }
@@ -627,4 +685,12 @@ impl Retail {
         self.pre::<AvatarModification>()
             .and_then(AvatarModification::viewport)
     }
+}
+
+/// A data download event for the connecting screen.
+fn ddd_notice(out: &mut Vec<Notice>, event: u32, value: u32) {
+    out.push(Notice::Ddd {
+        event,
+        value: value.cast_signed(),
+    });
 }

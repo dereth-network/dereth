@@ -10,7 +10,9 @@
 //! the name colored by how hard the recipe is against the craft skill (from the difficulty less
 //! the skill, -50 to 50, to five colors; the sixth when the recipe is past the skill's cutoff;
 //! the recipe's own color when it has a coloring table), the panel as tall as its slots (from the
-//! fourth on, a slot's height each, to its greatest).
+//! fourth on, a slot's height each, to its greatest). Its texts are string references its text
+//! elements write: a recipe's or an ingredient's name whose string tables the data lacks shows
+//! once they have come.
 //!
 //! - **An item dropped on a slot** (only an item from somewhere, not one already in the panel
 //!   elsewhere than that slot) is asked to go in: the slot waits for the scripts, which say
@@ -162,10 +164,6 @@ fn entry(ui: &Ui, id: &str) -> StringInfo {
         .assets()
         .data_id_by_enum(flow::MESSAGES, flow::TABLE_MAPPING);
     StringInfo::entry(table, Token::of(id).raw())
-}
-
-fn text_of(ui: &Ui, info: &StringInfo) -> String {
-    ui.assets().write(info).unwrap_or_default()
 }
 
 /// A value kept between two bounds, mapped onto another range.
@@ -376,8 +374,7 @@ impl Ingredients {
         let Some(f) = self.cost_field else { return };
         let mut s = entry(ui, "ID_Craft_Cost");
         s.add_var(name::VAR_VALUE.raw(), Var::Int(cost));
-        let t = text_of(ui, &s);
-        ui.set_text(f, &t);
+        ui.set_string_info(f, &s);
     }
 
     /// The craft button: ghosted while a making is under way; while mounted, when the spinner is
@@ -402,16 +399,16 @@ impl Ingredients {
         };
         let label = |ui: &mut Ui, id| {
             if let Some(t) = self.craft_text {
-                let s = text_of(ui, &entry(ui, id));
-                ui.set_text(t, &s);
+                let s = entry(ui, id);
+                ui.set_string_info(t, &s);
             }
         };
         match why {
             Some(tip) => {
                 ui.set_attr(b, attr::GHOSTED, Value::Bool(true));
                 label(ui, "ID_Craft_CraftButton_Disabled");
-                let tip = text_of(ui, &entry(ui, tip));
-                ui.set_tooltip(b, &tip);
+                let tip = entry(ui, tip);
+                ui.set_tooltip_info(b, &tip);
             }
             None if !ghosted => {}
             None => {
@@ -531,16 +528,14 @@ impl Ingredients {
             if f.charges > 0 {
                 let mut s = entry(ui, "ID_Craft_Charges");
                 s.add_var(name::VAR_VALUE.raw(), Var::Int(f.charges));
-                let t = text_of(ui, &s);
-                ui.set_text(m, &t);
+                ui.set_string_info(m, &s);
                 ui.set_visible(m, true);
             } else {
                 ui.set_visible(m, false);
             }
         }
         if let Some(l) = self.label {
-            let t = text_of(ui, &f.name);
-            ui.set_text(l, &t);
+            ui.set_string_info(l, &f.name);
         }
         self.skill_level = f.skill_level;
         self.mask = f.mask;
@@ -570,8 +565,7 @@ impl Ingredients {
         };
         ui.set_attr(row, name::ID, Value::Id(ing.id));
         ui.set_attr(icon, name::ID, Value::Id(ing.id));
-        let t = text_of(ui, &ing.description);
-        ui.set_text(label, &t);
+        ui.set_string_info(label, &ing.description);
         let at = self
             .rows
             .range(ing.id + 1..)
@@ -614,8 +608,7 @@ impl Ingredients {
         };
         ui.set_attr(row, name::ID, Value::Id(ing.id));
         ui.set_attr(icon, name::ID, Value::Id(ing.id));
-        let t = text_of(ui, &ing.description);
-        ui.set_text(label, &t);
+        ui.set_string_info(label, &ing.description);
         if let Some(item) = self.slot_items.get(&ing.id).copied() {
             self.check_item(ui, item, ing.id, out);
         }
@@ -682,14 +675,19 @@ impl Ingredients {
         self.item_slots.remove(&item);
     }
 
-    /// The spinner's value taken: written, its arrows ghosted at its ends, then the recipe at the
-    /// value (asked for when its answer is not in).
+    /// The spinner's value taken: written when the field reads otherwise (both as unsigned
+    /// words: the field read as `wcstoul` reads, the value written unsigned, so a negative one
+    /// shows as its word, -1 as 4294967295), its arrows ghosted at its ends, then the recipe at
+    /// the value (asked for when its answer is not in).
     // D2-02231
     fn spinner_changed(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         if let Some(v) = self.value {
-            let shown: i64 = ui.text(v).and_then(|t| t.trim().parse().ok()).unwrap_or(-1);
-            if shown != i64::from(self.spinner) {
-                ui.set_text(v, &self.spinner.to_string());
+            let text: Vec<u16> = ui.text(v).unwrap_or_default().encode_utf16().collect();
+            #[allow(clippy::cast_possible_truncation)]
+            let shown = auberean_text::wide::scan(&text, 0, 32, true).value as u32;
+            let value = self.spinner.cast_unsigned();
+            if shown != value {
+                ui.set_text(v, &value.to_string());
             }
         }
         let ghost = |ui: &mut Ui, h: Option<Handle>, on: bool| {
@@ -903,20 +901,19 @@ impl Ingredients {
         if charges > 0 {
             let mut s = entry(ui, "ID_Craft_Charges");
             s.add_var(name::VAR_VALUE.raw(), Var::Int(charges));
-            let t = text_of(ui, &s);
-            ui.set_text(m, &t);
+            ui.set_string_info(m, &s);
         } else {
             ui.set_visible(m, false);
         }
     }
 
-    /// The spinner's typed value taken: within its bounds (one outside goes to the bound it
+    /// The spinner's typed value taken, read as `wcstol` reads in base 0 (a leading number,
+    /// `0x` hexadecimal, a leading 0 octal): within its bounds (one outside goes to the bound it
     /// passed).
     fn take_typed(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         let Some(v) = self.value else { return };
-        let t: i64 = ui.text(v).and_then(|t| t.trim().parse().ok()).unwrap_or(0);
-        #[allow(clippy::cast_possible_truncation)]
-        let t = t.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let text: Vec<u16> = ui.text(v).unwrap_or_default().encode_utf16().collect();
+        let t = auberean_text::wide::to_int32(&text);
         self.spinner = if t < self.min {
             self.min
         } else if self.max < t {
@@ -928,7 +925,24 @@ impl Ingredients {
     }
 }
 
+impl Ingredients {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x436, 0x448, 0x44A, 0x47A, 0x44B, 0x405, 0x406, 0x1_040C, 0x46E,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Ingredients {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

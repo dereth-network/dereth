@@ -288,8 +288,10 @@ impl Ui {
         }
     }
 
-    /// What an element does as it goes away (a menu takes its popup with it).
+    /// What an element does as it goes away (a menu takes its popup with it; a text element lets
+    /// go of what its strings wait for).
     pub(crate) fn kind_deleting(&mut self, h: Handle) {
+        self.cleanup_string_downloads(h);
         match self.kind_of(h) {
             k if k == kind::MENU => self.menu_deleting(h),
             k if k == kind::LISTBOX || k == kind::LISTBOX_MULTI_SIZE => self.listbox_deleting(h),

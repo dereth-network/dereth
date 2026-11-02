@@ -64,7 +64,22 @@ impl SkillWindow {
     }
 }
 
+impl SkillWindow {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            crate::skill_tree::SkillTree::notices_of(),
+            crate::craft::Craft::notices_of(),
+        ])
+    }
+}
+
 impl Child for SkillWindow {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -124,10 +139,10 @@ impl Child for SkillWindow {
     /// The scripts' notices reach the crafting page and the trees.
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         if let Some(c) = &mut self.craft {
-            c.notice(ui, n, out);
+            gameplay::hand(c, ui, n, out);
         }
         if let Some(t) = &mut self.tree {
-            t.notice(ui, n, out);
+            gameplay::hand(t, ui, n, out);
         }
     }
 

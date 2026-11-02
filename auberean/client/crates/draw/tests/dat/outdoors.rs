@@ -112,3 +112,138 @@ fn a_closed_room_shows_nothing_outdoors() {
     assert!(f.terrain.is_empty() && f.water.is_empty() && f.shadow.is_none());
     assert!(!f.objects.is_empty() && f.objects.iter().all(|b| !b.outside));
 }
+
+/// Outdoors the frills take the lights objects carry too, as the other draws standing there do:
+/// by the crystals of `CB94`, a torch carried among the grass lights the frills it reaches beside
+/// the sun, and those it does not reach keep the sun alone.
+///
+/// Behaviour: draw.effects.frills-take-the-carried-lights-that-reach-them
+#[test]
+fn frills_take_the_carried_lights_that_reach_them() {
+    use auberean_assets::property::PropertyCollection;
+    use auberean_world::inside::{Light, Outside};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let at = Vec3::new(127.0, 148.0, 81.0);
+    let s = Spot {
+        block: (0xCB, 0x94),
+        position: at,
+        heading: 0.0,
+        pitch: 0.0,
+        time_of_day: 0.05,
+        day: None,
+    };
+    let mut frame = builder.frame(&s, 60.0);
+    let frills: Vec<usize> = (0..frame.objects.len())
+        .filter(|&k| frame.objects[k].shade.is_some())
+        .collect();
+    assert!(frills.len() > 10, "{} frill draws", frills.len());
+    assert!(frills.iter().all(|&k| frame.objects[k].kept_by.is_some()));
+    let near = frills
+        .iter()
+        .map(|&k| frame.objects[k].kept_by.expect("kept").at)
+        .find(|p| (p.x - at.x).abs() < 20.0 && (p.y - at.y).abs() < 20.0)
+        .expect("a frill near the crystals");
+    let (mut torch, _, _) = Light::of_properties(0, Vec3::ZERO, &PropertyCollection::default());
+    torch.cell = 0xCB94_0038;
+    torch.origin = Vec3::new(near.x, near.y, near.z + 1.0);
+    torch.intensity = 1.0;
+    torch.most_intensity = Some(1.0);
+    torch.range = 8.0;
+    torch.most_range = 8.0;
+    let outside = Outside::of(&frame.light);
+    builder.light_carried(&s, &mut frame.objects, &[torch], &outside);
+    let lit = frills
+        .iter()
+        .filter(|&&k| frame.objects[k].points.count > 0)
+        .count();
+    println!("{} frill draws, {lit} take the torch", frills.len());
+    assert!(lit > 0 && lit < frills.len(), "{lit}");
+}
+
+/// The rooms of a cave seen from the land outside its mouth (block `0x6967`, the frame outdoors at
+/// noon) are lit as rooms, not by the sun: each room named in the block's list of rooms seen from
+/// outside is drawn once (the list names some twice), its mesh by the light its vertices carry (the
+/// lights its record lists, and the sun's share through its openings), with no light of its own
+/// besides; a torch carried inside the first room reaches its draws (and still no sun), while the
+/// same torch carried on the land outside reaches none of them.
+///
+/// Behaviour: draw.inside.rooms-seen-from-outside-are-lit-as-rooms
+#[test]
+fn rooms_seen_from_outside_are_lit_as_rooms() {
+    use auberean_assets::property::PropertyCollection;
+    use auberean_draw::scene::LIT_IN_VERTICES;
+    use auberean_world::inside::{Light, Outside};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let block = (0x69, 0x67);
+    let info = r.landblock_info(block.0, block.1).expect("the block");
+    let mut rooms: Vec<u32> = info
+        .outside_visible
+        .iter()
+        .map(|l| 0x6967_0000 | (l & 0xFFFF))
+        .collect();
+    let listed = rooms.len();
+    rooms.sort_unstable();
+    rooms.dedup();
+    assert!(rooms.len() < listed, "the list names a room twice");
+    let mut builder = SceneBuilder::new(r, &region);
+    let s = spot(block, Vec3::new(109.75, 92.0, 101.0));
+    let mut frame = builder.frame(&s, 60.0);
+    assert_eq!(frame.counts.cells, rooms.len(), "each room once");
+    let mouth = 0x6967_0100;
+    let walls: Vec<usize> = (0..frame.objects.len())
+        .filter(|&k| {
+            frame.objects[k]
+                .kept_by
+                .is_some_and(|kb| kb.key == (mouth, 0))
+        })
+        .collect();
+    assert!(!walls.is_empty(), "the first room's mesh, kept by the room");
+    for &k in &walls {
+        let b = &frame.objects[k];
+        assert_ne!(b.layer.switches & LIT_IN_VERTICES, 0, "lit in its vertices");
+        assert!(
+            b.points.inside && b.points.count == 0,
+            "no sun, no light of its own"
+        );
+        assert!(!b.kept_by.expect("kept").own);
+    }
+    let in_rooms = frame
+        .objects
+        .iter()
+        .filter(|b| b.kept_by.is_some_and(|kb| kb.cell & 0xFFFF >= 0x100))
+        .count();
+    let rooms_drawn: std::collections::BTreeSet<u32> = frame
+        .objects
+        .iter()
+        .filter_map(|b| b.kept_by.filter(|kb| kb.cell & 0xFFFF >= 0x100))
+        .map(|kb| kb.cell)
+        .collect();
+    assert_eq!(rooms_drawn.len(), rooms.len(), "every room lit as a room");
+    let at = frame.objects[walls[0]].kept_by.expect("kept").at;
+    let torch_in = |cell: u32| {
+        let (mut t, _, _) = Light::of_properties(0, Vec3::ZERO, &PropertyCollection::default());
+        t.cell = cell;
+        t.origin = Vec3::new(at.x, at.y, at.z + 1.0);
+        t.intensity = 1.0;
+        t.most_intensity = Some(1.0);
+        t.range = 8.0;
+        t.most_range = 8.0;
+        t
+    };
+    let outside = Outside::of(&frame.light);
+    builder.light_carried(&s, &mut frame.objects, &[torch_in(0x6967_0029)], &outside);
+    let lit = |f: &auberean_draw::scene::Frame| {
+        walls
+            .iter()
+            .filter(|&&k| f.objects[k].points.count > 0)
+            .count()
+    };
+    assert_eq!(lit(&frame), 0, "a torch on the land reaches no room");
+    builder.light_carried(&s, &mut frame.objects, &[torch_in(mouth)], &outside);
+    assert!(lit(&frame) > 0, "a torch in the room reaches it");
+    assert!(walls.iter().all(|&k| frame.objects[k].points.inside));
+    println!("{in_rooms} draws in {} rooms", rooms.len());
+}

@@ -49,13 +49,25 @@ impl Bench {
 
     /// Call a profile native with two words (`fp[-2]`, `fp[-3]`); the status and the result slot.
     fn call(&mut self, number: u32, receiver: u32, a: u32, b: u32) -> (Status, u32) {
+        self.call_in(PROFILE, number, receiver, a, b)
+    }
+
+    /// Call a native of a package with two words (`fp[-2]`, `fp[-3]`).
+    fn call_in(
+        &mut self,
+        package: u32,
+        number: u32,
+        receiver: u32,
+        a: u32,
+        b: u32,
+    ) -> (Status, u32) {
         let mut cx = Context::new(usize::MAX, 0);
         cx.push(0, tag::INT).unwrap();
         cx.push(b, tag::MIXED).unwrap();
         cx.push(a, tag::MIXED).unwrap();
         cx.push(receiver, tag::REFERENCE).unwrap();
         cx.fp = cx.sp;
-        let id = NativeId::new(PROFILE, number).0;
+        let id = NativeId::new(package, number).0;
         let Some(Binding::Ported(f)) = self.prog.table.get(id) else {
             panic!("native {id:#x} is not ported");
         };
@@ -169,4 +181,139 @@ fn a_chat_windows_filter_gains_and_loses_kinds_of_text() {
     assert_eq!(chat::filter(&o, 9), kind::TRADE_CHANNEL);
     b.call(REMOVE_FILTER, p, 4, kind::SAY | kind::GENERAL_CHANNEL);
     assert_eq!(chat::filter(&b.read(p), 4), kind::TELL);
+}
+
+/// A profile's shortcuts set from a list become a copy of each shortcut the list names, in order
+/// (later changes to the script's shortcuts leave them); clearing a table of the windows' saved
+/// places takes every window out and keeps its size.
+///
+/// Behaviour: script.natives.shortcuts-set-from-a-list-and-saved-places-cleared
+#[test]
+fn a_profiles_shortcuts_are_set_from_a_list_and_saved_places_clear() {
+    use auberean_script::library::Elem;
+    use auberean_script::native_object::Item;
+    use auberean_script::options::Shortcut;
+    let mut b = Bench::new();
+    let p = b.profile();
+    let add = |b: &mut Bench, s: Shortcut| {
+        b.vm.heap
+            .add_native(native_type::SHORTCUT_INFO, NativeObject::Shortcut(s))
+    };
+    let first = Shortcut {
+        kind: 0x4000_0001,
+        data_enum: 7,
+        ..Shortcut::default()
+    };
+    let second = Shortcut {
+        kind: 0x4000_0003,
+        text: "/wave".encode_utf16().collect(),
+        ..Shortcut::default()
+    };
+    let (a, c) = (add(&mut b, first.clone()), add(&mut b, second.clone()));
+    let list = b.vm.heap.add_native(
+        0x65,
+        NativeObject::Sequence {
+            item: Elem::Ref,
+            items: vec![Item::Ref(a), Item::Ref(c)],
+        },
+    );
+    assert_eq!(b.call(0x0A, p, list, 0).0, Status::Success);
+    if let NativeObject::Shortcut(s) = b.vm.heap.native_mut(a).unwrap() {
+        s.data_enum = 99;
+    }
+    assert_eq!(b.read(p).shortcuts, vec![first, second]);
+    assert_eq!(
+        b.call(0x0A, auberean_script::value::NULL, list, 0).0,
+        Status::Crash
+    );
+
+    // A table of 47 buckets (size place 2) holding one window with one element.
+    let words: [u32; 9] = [2 << 24 | 1, 0x10, 2 << 24 | 1, 0x20, 1, 2, 3, 4, 1];
+    let t = b.vm.heap.add_native(
+        native_type::UI_SAVE_LOCATIONS,
+        NativeObject::Packed {
+            ty: native_type::UI_SAVE_LOCATIONS,
+            bytes: words.iter().flat_map(|w| w.to_le_bytes()).collect(),
+        },
+    );
+    assert_eq!(b.call_in(0x6F, 0x01, t, 0, 0).0, Status::Success);
+    let NativeObject::Packed { bytes, .. } = b.vm.heap.native(t).unwrap() else {
+        panic!("a packed table")
+    };
+    assert_eq!(
+        bytes,
+        &(2u32 << 24).to_le_bytes().to_vec(),
+        "empty, its size kept"
+    );
+}
+
+/// `/exportoptions` writes the profile to a file in the client's folder and `/importoptions` reads
+/// one back into the profile, each answering 0; a host that writes nothing answers that the file
+/// was not written (50002), one that holds no such file that it did not read (50000), an empty
+/// name 50003; a failed import leaves the profile as it was.
+///
+/// Behaviour: script.natives.options-export-and-import-through-the-hosts-files
+#[test]
+fn the_options_export_to_a_file_and_import_back_and_answer_the_clients_errors() {
+    const EXPORT: u32 = 0x2B;
+    const IMPORT: u32 = 0x2C;
+    let mut b = crate::call::Bench::new();
+    let p = b.object(
+        native_type::GAMEPLAY_OPTIONS_PROFILE,
+        NativeObject::Options(Box::default()),
+    );
+    if let NativeObject::Options(o) = b.vm.heap.native_mut(p).unwrap() {
+        o.set_alias(
+            &";wm".encode_utf16().collect::<Vec<_>>(),
+            &"Well met".encode_utf16().collect::<Vec<_>>(),
+        );
+    }
+    let (name, empty) = (b.text("mine.txt"), b.text(""));
+    let answer = |b: &mut crate::call::Bench, n: u32, r: u32, f: u32| {
+        let (status, slots) = b.call(PROFILE, n, r, &[f], 1);
+        assert_eq!(status, Status::Success);
+        slots[0].0
+    };
+    // No folder: not written, not read.
+    assert_eq!(answer(&mut b, EXPORT, p, name), 50_002);
+    assert_eq!(answer(&mut b, IMPORT, p, name), 50_000);
+    assert_eq!(answer(&mut b, EXPORT, p, empty), 50_003);
+    b.host.folder = Some(std::collections::BTreeMap::new());
+    assert_eq!(answer(&mut b, EXPORT, p, name), 0);
+    let written = b.host.folder.as_ref().unwrap()["mine.txt"].clone();
+    let text = String::from_utf8_lossy(&written);
+    assert!(
+        text.contains("\"GAMEPLAY OPTIONS\"") && text.contains(";wm [ \"Well met\" ]"),
+        "{text}"
+    );
+    let fresh = b.object(
+        native_type::GAMEPLAY_OPTIONS_PROFILE,
+        NativeObject::Options(Box::default()),
+    );
+    assert_eq!(answer(&mut b, IMPORT, fresh, name), 0);
+    let read = |b: &crate::call::Bench, r: u32| match b.vm.heap.native(r).unwrap() {
+        NativeObject::Options(o) => (**o).clone(),
+        _ => panic!("a profile"),
+    };
+    assert_eq!(read(&b, fresh), read(&b, p));
+    // A file that does not read leaves the profile alone.
+    b.host
+        .folder
+        .as_mut()
+        .unwrap()
+        .insert("bad.txt".into(), b"[ [".to_vec());
+    let bad = b.text("bad.txt");
+    let other = b.object(
+        native_type::GAMEPLAY_OPTIONS_PROFILE,
+        NativeObject::Options(Box::default()),
+    );
+    assert_eq!(answer(&mut b, IMPORT, other, bad), 50_000);
+    assert_eq!(read(&b, other), GameplayOptions::default());
+    assert_eq!(answer(&mut b, IMPORT, other, empty), 50_003);
+    // A profile that is not there stops the call.
+    assert_eq!(
+        b.call(PROFILE, EXPORT, auberean_script::value::NULL, &[name], 1)
+            .0,
+        Status::Crash
+    );
 }

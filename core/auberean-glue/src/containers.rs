@@ -28,6 +28,7 @@ use std::sync::Arc;
 use auberean_script::heap::Heap;
 use auberean_script::library::{container_name, Container, Elem, Library};
 use auberean_script::multi_hash::{MultiHash, Node};
+use auberean_script::multi_map::MultiMap;
 use auberean_script::native::{Binding, Call, NativeFn, NativeTable, Status, Stop};
 use auberean_script::native_object::{
     native_type, Hash, HashSet, Item, NativeObject, TextInfo, BUCKET_SIZES,
@@ -35,7 +36,7 @@ use auberean_script::native_object::{
 use auberean_script::value::{join, split, tag, NativeId, NULL};
 
 /// An iterator standing past the end.
-const END: u32 = u32::MAX;
+const END: u32 = auberean_script::native_object::ITERATOR_END;
 
 /// The container methods: family, method, function. A family is the container's family name,
 /// with `Iter` for its iterators.
@@ -165,10 +166,27 @@ const METHODS: &[(&str, &str, NativeFn)] = &[
     ("MultiHashIter", "key", multi_iter_key),
     ("MultiHashIter", "data", multi_iter_data),
     ("MultiHashIter", "equals", multi_iter_equals),
+    ("MultiMap", "insert", map_insert),
+    ("MultiMap", "clear", map_clear),
+    ("MultiMap", "empty", map_empty),
+    ("MultiMap", "count", map_count),
+    ("MultiMap", "erase", map_erase),
+    ("MultiMap", "remove", map_remove),
+    ("MultiMap", "find", map_find),
+    ("MultiMap", "find_last", map_find_last),
+    ("MultiMap", "get_begin", map_begin),
+    ("MultiMap", "get_end", map_end),
+    ("MultiMap", "lower_bound", map_lower_bound),
+    ("MultiMap", "upper_bound", map_upper_bound),
+    ("MultiMapIter", "prev", map_iter_prev),
+    ("MultiMapIter", "next", map_iter_next),
+    ("MultiMapIter", "key", map_iter_key),
+    ("MultiMapIter", "data", map_iter_data),
+    ("MultiMapIter", "equals", map_iter_equals),
 ];
 
 /// Bind the container natives of every container package of the library, by family and method.
-/// Multi-hashes keyed by hashed references, and multi-maps, are left to their stand-ins.
+/// Multi-hashes keyed by hashed references are left to their stand-ins.
 pub fn bind(t: &mut NativeTable, lib: &Library) {
     for p in lib.packages.iter().filter(|p| p.is_native()) {
         let Some(name) = container_name(&p.name) else {
@@ -177,7 +195,7 @@ pub fn bind(t: &mut NativeTable, lib: &Library) {
         let (family, hashed) = match name.container {
             Container::Hash(..) => ("Hash", false),
             Container::MultiHash(k, _) => ("MultiHash", k == Elem::HashedRef),
-            Container::MultiMap(..) => ("MultiMap", true),
+            Container::MultiMap(..) => ("MultiMap", false),
             Container::HashSet(_) => ("HashSet", false),
             Container::List(_) => ("List", false),
             Container::Array(_) => ("Array", false),
@@ -637,11 +655,7 @@ fn shape(n: &NativeObject) -> Option<(usize, Elem, Option<Elem>)> {
         NativeObject::Hash(h) => (h.len(), h.key, Some(h.value)),
         NativeObject::HashSet(s) => (s.buckets.iter().map(Vec::len).sum(), s.item, None),
         NativeObject::Sequence { item, items } => (items.len(), *item, None),
-        NativeObject::MultiMap {
-            key,
-            value,
-            entries,
-        } => (entries.len(), *key, Some(*value)),
+        NativeObject::MultiMap(t) => (t.len(), t.key, Some(t.value)),
         _ => return None,
     })
 }
@@ -652,7 +666,7 @@ fn entry_at(n: &NativeObject, at: usize) -> Option<(Item, Option<Item>)> {
         NativeObject::Hash(h) => h.entries().nth(at).map(|(k, v)| (*k, Some(*v))),
         NativeObject::HashSet(s) => s.buckets.iter().flatten().nth(at).map(|k| (*k, None)),
         NativeObject::Sequence { items, .. } => items.get(at).map(|k| (*k, None)),
-        NativeObject::MultiMap { entries, .. } => entries.get(at).map(|(k, v)| (*k, Some(*v))),
+        NativeObject::MultiMap(t) => t.entries().get(at).map(|n| (n.key, Some(n.value))),
         _ => None,
     }
 }
@@ -686,10 +700,13 @@ fn remove_at(n: &mut NativeObject, at: usize) -> bool {
             items.remove(at);
             true
         }
-        NativeObject::MultiMap { entries, .. } if at < entries.len() => {
-            entries.remove(at);
-            true
-        }
+        NativeObject::MultiMap(t) => match t.entries().get(at) {
+            Some(n) => {
+                let id = n.id;
+                t.remove_node(id)
+            }
+            None => false,
+        },
         _ => false,
     }
 }
@@ -724,7 +741,7 @@ fn flush(c: &mut Call<'_>) -> Result<Status, Stop> {
         NativeObject::Hash(h) => h.buckets.iter_mut().for_each(Vec::clear),
         NativeObject::HashSet(s) => s.buckets.iter_mut().for_each(Vec::clear),
         NativeObject::Sequence { items, .. } => items.clear(),
-        NativeObject::MultiMap { entries, .. } => entries.clear(),
+        NativeObject::MultiMap(t) => t.clear(),
         NativeObject::MultiHash(t) => t.clear(),
         _ => return Err(wrong(c, "a container")),
     }
@@ -951,6 +968,7 @@ fn new_iterator(c: &mut Call<'_>, r: u32, at: u32) -> Result<u32, Stop> {
 
 /// An iterator at the first entry (the end when there is none).
 // D2-09057, D2-09120, D2-09131, D2-09189, D2-09212, D2-09268, D2-09285, D2-09344, D2-09407, D2-09427, D2-09485, D2-09499, D2-09522
+// D2-09055, D2-09118, D2-09129, D2-09186, D2-09210, D2-09266, D2-09283, D2-09342, D2-09404, D2-09425, D2-09483, D2-09497, D2-09519
 fn begin(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
     let (n, ..) = shape_of(c, r)?;
@@ -961,6 +979,7 @@ fn begin(c: &mut Call<'_>) -> Result<Status, Stop> {
 
 /// An iterator past the last entry.
 // D2-09058, D2-09121, D2-09132, D2-09190, D2-09213, D2-09269, D2-09286, D2-09345, D2-09408, D2-09428, D2-09486, D2-09500, D2-09523
+// D2-09056, D2-09119, D2-09130, D2-09188, D2-09211, D2-09267, D2-09284, D2-09343, D2-09406, D2-09426, D2-09484, D2-09498, D2-09521
 fn end(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
     shape_of(c, r)?;
@@ -970,7 +989,7 @@ fn end(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A list iterator at the last entry, for walking backwards.
-// D2-09191, D2-09409, D2-09524
+// D2-09191, D2-09409, D2-09524, D2-09187, D2-09405, D2-09520
 fn list_reverse(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
     let (n, ..) = shape_of(c, r)?;
@@ -1272,7 +1291,7 @@ fn list_position(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The item at a place, through the out reference: true when the place is in the list.
-// D2-09193, D2-09411, D2-09525
+// D2-09193, D2-09411, D2-09525, D2-09395, D2-09515
 fn list_at(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
     let (kind, _) = sequence(c, r)?;
@@ -1337,20 +1356,20 @@ fn long(i: &Item) -> u64 {
 }
 
 /// Insert before the first item it is less than, as signed integers.
-// D2-09181
+// D2-09181, D2-09178
 fn list_sort_int(c: &mut Call<'_>) -> Result<Status, Stop> {
     #[allow(clippy::cast_possible_wrap)]
     sorted_insert(c, |a, b| (word(a) as i32) < (word(b) as i32))
 }
 
 /// Insert before the first item it is less than, as floats.
-// D2-09180
+// D2-09180, D2-09177
 fn list_sort_float(c: &mut Call<'_>) -> Result<Status, Stop> {
     sorted_insert(c, |a, b| f32::from_bits(word(a)) < f32::from_bits(word(b)))
 }
 
 /// Insert before the first item it is less than, as unsigned 64-bit integers.
-// D2-09392
+// D2-09392, D2-09391
 fn list_sort_ulint(c: &mut Call<'_>) -> Result<Status, Stop> {
     sorted_insert(c, |a, b| long(a) < long(b))
 }
@@ -1427,8 +1446,8 @@ fn array_erase(c: &mut Call<'_>) -> Result<Status, Stop> {
     result(c, &mut p, u32::from(ok))
 }
 
-/// Set the item count (new places hold zero): true.
-// D2-09104, D2-09330, D2-09507
+/// Set the item count: true. New places hold zero, or no reference in a list of references.
+// D2-09104, D2-09330, D2-09507, D2-09506
 fn array_resize(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
     let (kind, _) = sequence(c, r)?;
@@ -1436,7 +1455,7 @@ fn array_resize(c: &mut Call<'_>) -> Result<Status, Stop> {
     let n = c.cx.at(p.take(1))? as usize;
     let zero = match kind {
         Elem::Long => Item::Long(0),
-        Elem::Ref => Item::Ref(0),
+        Elem::Ref => Item::Ref(NULL),
         _ => Item::Word(0),
     };
     sequence(c, r)?.1.resize(n, zero);
@@ -1666,4 +1685,229 @@ fn multi_iter_equals(c: &mut Call<'_>) -> Result<Status, Stop> {
     let mut p = Params::new();
     p.take(1);
     result(c, &mut p, u32::from(same))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Multi-maps
+// ---------------------------------------------------------------------------------------------
+
+fn map_mut<'a>(c: &'a mut Call<'_>, r: u32) -> Result<&'a mut MultiMap, Stop> {
+    let native = c.native;
+    match c.vm.heap.native_mut(r)? {
+        NativeObject::MultiMap(t) => Ok(t),
+        _ => Err(Stop::Native {
+            native,
+            what: "the receiver is not a multi-map".into(),
+        }),
+    }
+}
+
+/// The key argument, first below the receiver.
+fn map_key(c: &mut Call<'_>, r: u32) -> Result<(Item, Params), Stop> {
+    let kk = map_mut(c, r)?.key;
+    let mut p = Params::new();
+    let k = read_item(c, p.take(width(kk)), kk)?;
+    Ok((k, p))
+}
+
+/// Add an entry after every entry whose key is not greater. No result.
+// D2-09100, D2-09171, D2-09322, D2-09379
+fn map_insert(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (kk, vk) = {
+        let t = map_mut(c, r)?;
+        (t.key, t.value)
+    };
+    let mut p = Params::new();
+    let k = read_item(c, p.take(width(kk)), kk)?;
+    let v = read_item(c, p.take(width(vk)), vk)?;
+    map_mut(c, r)?.insert(k, v);
+    Ok(Status::Success)
+}
+
+/// Remove every entry.
+// D2-09091, D2-09162, D2-09315, D2-09372
+fn map_clear(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    map_mut(c, r)?.clear();
+    Ok(Status::Success)
+}
+
+/// Whether there is no entry: written into the result slot's low byte only, as the engine
+/// writes it.
+// D2-09303
+fn map_empty(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let empty = map_mut(c, r)?.is_empty();
+    let before = c.cx.at(-2)?;
+    c.write(-2, (before & !0xFF) | u32::from(empty), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// How many entries have a key.
+// D2-09153, D2-09306
+fn map_count(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, mut p) = map_key(c, r)?;
+    let n = map_mut(c, r)?.count(&k);
+    #[allow(clippy::cast_possible_truncation)]
+    result(c, &mut p, n as u32)
+}
+
+/// Remove the entry an iterator (`fp[-2]`) stands at. No result. The engine unlinks whatever
+/// node the iterator holds from this map's tree; one that is past the last, removed already or
+/// another map's stops the call here.
+// D2-09092, D2-09163
+fn map_erase(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let it = c.arg(0)?;
+    let (container, at) = iterator(c, it)?;
+    if container != r || at == END || !map_mut(c, r)?.remove_node(at) {
+        return Err(c.fail("an iterator not at one of this map's entries erased"));
+    }
+    Ok(Status::Success)
+}
+
+/// Remove every entry with a key. No result.
+// D2-09101, D2-09172, D2-09323, D2-09380
+fn map_remove(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, _) = map_key(c, r)?;
+    map_mut(c, r)?.remove_key(&k);
+    Ok(Status::Success)
+}
+
+/// An iterator at the first entry with a key (past the last when there is none).
+// D2-09093, D2-09164, D2-09316, D2-09373
+fn map_find(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, mut p) = map_key(c, r)?;
+    let at = map_mut(c, r)?.find(&k);
+    multi_iterator(c, r, &mut p, at)
+}
+
+/// An iterator after a key's last entry, whether the map holds the key or not.
+// D2-09094, D2-09165, D2-09317, D2-09374
+fn map_find_last(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, mut p) = map_key(c, r)?;
+    let at = map_mut(c, r)?.find_last(&k);
+    multi_iterator(c, r, &mut p, at)
+}
+
+/// An iterator at the first entry.
+// D2-09095, D2-09166, D2-09318, D2-09375
+fn map_begin(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let at = map_mut(c, r)?.first();
+    multi_iterator(c, r, &mut Params::new(), at)
+}
+
+/// An iterator past the last entry.
+// D2-09096, D2-09167, D2-09319, D2-09376, D2-09088, D2-09159, D2-09312, D2-09369
+fn map_end(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    map_mut(c, r)?;
+    multi_iterator(c, r, &mut Params::new(), None)
+}
+
+/// An iterator at the first entry whose key is not less than a key.
+// D2-09097, D2-09168, D2-09320, D2-09377
+fn map_lower_bound(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, mut p) = map_key(c, r)?;
+    let at = map_mut(c, r)?.lower_bound(&k);
+    multi_iterator(c, r, &mut p, at)
+}
+
+/// An iterator at the first entry whose key is greater than a key.
+// D2-09098, D2-09169, D2-09321, D2-09378
+fn map_upper_bound(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (k, mut p) = map_key(c, r)?;
+    let at = map_mut(c, r)?.upper_bound(&k);
+    multi_iterator(c, r, &mut p, at)
+}
+
+/// The map an iterator walks and the entry it stands at (`None`: past the last).
+fn map_place(c: &mut Call<'_>, it: u32) -> Result<(u32, Option<u32>), Stop> {
+    let (container, at) = iterator(c, it)?;
+    let at = (at != END).then_some(at);
+    if let Some(id) = at {
+        if map_mut(c, container)?.node(id).is_none() {
+            return Err(c.fail("an iterator at a removed entry used"));
+        }
+    }
+    Ok((container, at))
+}
+
+/// Step back to the entry before; from past the last, to the last entry. The engine steps from
+/// the first entry into its tree's insides: that stops the call here.
+// D2-09381
+fn map_iter_prev(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (container, at) = map_place(c, r)?;
+    match map_mut(c, container)?.before(at).flatten() {
+        Some(id) => set_position(c, r, id)?,
+        None => return Err(c.fail("an iterator stepped back from the first entry")),
+    }
+    Ok(Status::Success)
+}
+
+/// Step to the entry after (past the last after the last). The engine steps from past the last
+/// into its tree's insides: that stops the call here.
+// D2-09175
+fn map_iter_next(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (container, at) = map_place(c, r)?;
+    let Some(id) = at else {
+        return Err(c.fail("an iterator past the last entry stepped on"));
+    };
+    let next = map_mut(c, container)?.after(id).flatten();
+    set_position(c, r, next.unwrap_or(END))?;
+    Ok(Status::Success)
+}
+
+/// The entry an iterator stands at, which must be there.
+fn map_entry(c: &mut Call<'_>, it: u32) -> Result<(Node, Elem, Elem), Stop> {
+    let (container, at) = map_place(c, it)?;
+    let Some(id) = at else {
+        return Err(c.fail("an iterator past the last entry read"));
+    };
+    let t = map_mut(c, container)?;
+    let (kk, vk, node) = (t.key, t.value, t.node(id).copied());
+    let node = node.ok_or_else(|| c.fail("an iterator at a removed entry read"))?;
+    Ok((node, kk, vk))
+}
+
+/// The key of the entry the iterator stands at.
+// D2-09174, D2-09325
+fn map_iter_key(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (node, kk, _) = map_entry(c, r)?;
+    multi_result(c, node.key, kk)?;
+    Ok(Status::Success)
+}
+
+/// The value of the entry the iterator stands at.
+// D2-09102, D2-09173, D2-09324
+fn map_iter_data(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let (node, _, vk) = map_entry(c, r)?;
+    multi_result(c, node.value, vk)?;
+    Ok(Status::Success)
+}
+
+/// Whether two iterators (the receiver and `fp[-2]`) stand at the same place of one map (past the
+/// last of one map is its own place): written into the result slot's low byte only.
+// D2-09103
+fn map_iter_equals(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let other = c.arg(0)?;
+    let (ca, a) = iterator(c, r)?;
+    let (cb, b) = iterator(c, other)?;
+    let same = ca == cb && a == b;
+    let before = c.cx.at(-3)?;
+    c.write(-3, (before & !0xFF) | u32::from(same), tag::MIXED)?;
+    Ok(Status::Success)
 }

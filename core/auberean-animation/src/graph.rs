@@ -103,7 +103,7 @@ pub mod switch_kind {
 }
 
 /// The kind number of an animation.
-// D2-15415, D2-15339, D2-15406
+// D2-15415, D2-15339, D2-15406, D2-15380
 #[must_use]
 pub fn kind_of(a: &Animation) -> u32 {
     match &a.animator {

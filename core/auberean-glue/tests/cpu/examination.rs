@@ -155,3 +155,48 @@ fn a_profile_keeps_the_lines_of_the_tabs_asked_and_notes_every_tab() {
         Status::Crash
     );
 }
+
+/// A line answers the value of its own kind and nothing else's: a number, a 64-bit number, a
+/// float, a yes or no, a picture, a time left (none is -1); a line of no kind is drawn with the
+/// examination's text template; a copy of a profile keeps every line and its tabs.
+///
+/// Behaviour: script.natives.examination-line-answers-its-own-kind
+#[test]
+fn a_line_answers_only_the_value_of_its_own_kind() {
+    use auberean_glue::examination::{default_appearance, Node};
+    let fresh = Node::default();
+    assert_eq!((fresh.kind, fresh.tabs, fresh.value), (0, 0, 0));
+    assert_eq!(fresh.appearance, default_appearance());
+    assert_ne!(fresh.appearance, 0);
+    assert_eq!(fresh.countdown(), -1.0);
+    assert!(fresh.icon().is_empty());
+    assert_eq!(Node::new(kind::IMAGE, 1).appearance, default_appearance());
+    let with = |k: u32, value: u64| Node {
+        value,
+        ..Node::new(k, 1)
+    };
+    let long = with(kind::LONG, 5 << 32 | 9);
+    assert_eq!(long.long_int(), 5 << 32 | 9);
+    assert_eq!(long.int(), 0);
+    let float = with(kind::FLOAT, u64::from(2.5f32.to_bits()));
+    assert_eq!(float.float(), 2.5);
+    assert_eq!(float.long_int(), 0);
+    let yes = with(kind::BOOL, 1);
+    assert_eq!(yes.bool(), 1);
+    assert_eq!(yes.image(), 0);
+    assert_eq!(yes.float(), 0.0);
+    let picture = with(kind::IMAGE, 0x0600_0001);
+    assert_eq!(picture.image(), 0x0600_0001);
+    assert_eq!(picture.bool(), 0);
+    let mut time = Node::new(kind::COUNTDOWN, 1);
+    time.time = 12.5;
+    assert_eq!(time.countdown(), 12.5);
+    assert_eq!(picture.countdown(), -1.0);
+    let mut p = Profile::new();
+    p.add(long);
+    p.add(time);
+    let copy = p.clone();
+    p.nodes.clear();
+    assert_eq!(copy.nodes.len(), 2);
+    assert_eq!(copy.tabs, 1);
+}

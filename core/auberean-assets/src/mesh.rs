@@ -72,7 +72,7 @@ pub struct VertexArray {
 
 impl VertexArray {
     /// The format word, the vertex count, the vertices, alignment, then the bounding box.
-    // D2-04207
+    // D2-04207, D2-05480
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         let format = r.u32()?;
         let count = r.u32()?;
@@ -109,7 +109,7 @@ pub struct DetailLevel {
 impl DetailLevel {
     /// The degrade mode, the detail levels word, then a counted list of fragments: a material
     /// index and a counted list of 16-bit indices, then alignment.
-    // D2-07976
+    // D2-07976, D2-05481
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let degrade = r.u32()?;
         let detail = r.u32()?;
@@ -201,7 +201,7 @@ impl Mesh {
 
     /// Everything after the id, shared with cell meshes: the mesh's geometry and its materials
     /// made, as many materials as stored, its vertices, its levels of detail.
-    // D2-05539, D2-05534, D2-05531, D2-05530, D2-05533, D2-05489, D2-05532
+    // D2-05539, D2-05534, D2-05531, D2-05530, D2-05533, D2-05489, D2-05532, D2-05511
     fn read_body(r: &mut Reader<'_>) -> Result<Self> {
         let kind = r.u32()?;
         let materials = r.list(4, Reader::data_id)?;

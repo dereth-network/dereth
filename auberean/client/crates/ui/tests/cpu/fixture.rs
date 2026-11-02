@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use auberean_assets::ui::{
-    Attribute, AttributeValue, Element, ElementState, Font, Glyph, Media, Transition,
+    Attribute, AttributeValue, CharacterMap, Element, ElementState, Font, Glyph, Media, Transition,
     TransitionChange, UiLayout,
 };
 use auberean_primitives::DataId;
@@ -16,6 +16,8 @@ pub struct Records {
     pub layouts: HashMap<u32, Arc<UiLayout>>,
     pub images: HashMap<u32, Arc<Image>>,
     pub fonts: HashMap<u32, Arc<Font>>,
+    /// Record ids by enumeration value and mapping.
+    pub enums: HashMap<(u32, u32), u32>,
 }
 
 impl Assets for Records {
@@ -30,6 +32,9 @@ impl Assets for Records {
     }
     fn string(&self, _table: u32, _token: u32) -> Option<String> {
         None
+    }
+    fn data_id_by_enum(&self, value: u32, mapping: u32) -> u32 {
+        self.enums.get(&(value, mapping)).copied().unwrap_or(0)
     }
 }
 
@@ -149,7 +154,8 @@ pub fn solid(w: u32, h: u32, bgra: [u8; 4]) -> Arc<Image> {
 /// The font every text test writes in.
 pub const FONT: u32 = 0x4200_0001;
 
-/// A font of the printable ASCII characters, each 6 pixels wide and 10 high, with blank glyphs.
+/// A font of the printable ASCII characters, each 6 pixels wide and 10 high, with blank glyphs and
+/// the map of its characters, as a font read from the files has.
 pub fn font() -> Arc<Font> {
     let glyphs: Vec<Glyph> = (0x20u16..0x7F)
         .enumerate()
@@ -168,6 +174,7 @@ pub fn font() -> Arc<Font> {
         total_width,
         antialiased: true,
         pixels: vec![0; (total_width * 10) as usize],
+        character_map: CharacterMap::of(&glyphs),
         glyphs,
     })
 }
@@ -179,6 +186,11 @@ pub fn ui(elements: Vec<Element>, images: Vec<(u32, Arc<Image>)>) -> Ui {
 
 /// The same on a screen of another size.
 pub fn ui_on(elements: Vec<Element>, images: Vec<(u32, Arc<Image>)>, screen: (i32, i32)) -> Ui {
+    Ui::new(Arc::new(records(elements, images)), screen.0, screen.1)
+}
+
+/// The records [`ui`] builds over: the layout of these elements, the pictures and the test font.
+pub fn records(elements: Vec<Element>, images: Vec<(u32, Arc<Image>)>) -> Records {
     let mut r = Records::default();
     r.layouts.insert(
         LAYOUT,
@@ -192,5 +204,5 @@ pub fn ui_on(elements: Vec<Element>, images: Vec<(u32, Arc<Image>)>, screen: (i3
     );
     r.images = images.into_iter().collect();
     r.fonts.insert(FONT, font());
-    Ui::new(Arc::new(r), screen.0, screen.1)
+    r
 }

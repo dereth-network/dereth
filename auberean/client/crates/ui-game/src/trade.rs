@@ -312,6 +312,7 @@ impl Trade {
             kind: gameplay::dialog::CONFIRMATION,
             text: ui.assets().write(&s).unwrap_or_default(),
             modal: false,
+            info: None,
         }));
         self.dialog = id;
     }
@@ -565,7 +566,25 @@ fn text_record(n: &Notice) -> Option<StringInfo> {
     })
 }
 
+impl Trade {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x436, 0x45A, 0x437, 0x438, 0x439, 0x43A, 0x43B, 0x43C, 0x43D, 0x43E, 0x43F, 0x1_040C,
+        0x1_040B, 0x408, 0x42B, 0x454, 0x1_040E,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Trade {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

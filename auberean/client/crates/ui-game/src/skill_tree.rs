@@ -422,6 +422,7 @@ impl SkillTree {
             kind: dialog::kind::CONFIRMATION,
             text: text_of(ui, text),
             modal: false,
+            info: None,
         }));
         id
     }
@@ -884,7 +885,22 @@ pub enum SkillRequest {
     CancelUntrain,
 }
 
+impl SkillTree {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x436, 0x45D, 0x40D, 0x4A3, 0x415, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for SkillTree {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

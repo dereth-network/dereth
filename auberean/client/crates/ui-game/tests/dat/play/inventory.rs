@@ -769,3 +769,29 @@ fn the_world_pulled_on_drags_the_selection_not_a_pack_item() {
         "the selection asked into the pack"
     );
 }
+
+/// The stack splitter's entry holds the amount offered as the client writes it, a signed number
+/// (of which the entry shows nine characters): an amount from 2^31 up shows negative.
+///
+/// Behaviour: ui.inventory.the-stack-amount-is-written-signed
+#[test]
+fn the_stack_amount_is_written_signed() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    let field = el(&ui, "StackableField");
+    let entry = ui
+        .child_recursive(field, Token::of("AmountEntry"))
+        .expect("the entry");
+    let mut shown = |amount: u32| {
+        let ask = inventory::init_stack(1, amount, u32::MAX, 0, 0, 0);
+        tick(&mut ui, &mut p, &mut t, &f, &[ask]);
+        ui.text(entry).unwrap_or_default()
+    };
+    // The entry holds nine characters.
+    assert_eq!(shown(0x7FFF_FFFF), "214748364");
+    assert_eq!(shown(0x8000_0000), "-21474836");
+    assert_eq!(shown(u32::MAX), "-1");
+}

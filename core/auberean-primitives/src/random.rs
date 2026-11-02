@@ -16,6 +16,7 @@
 //! does its floating-point work, and rounded once where it stores them.
 
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering::Relaxed};
 
 const M1: i32 = 2_147_483_563;
@@ -179,4 +180,144 @@ pub fn percentile(r: f64) -> i32 {
     #[allow(clippy::cast_possible_truncation)]
     let k = (r * -100.0) as i32;
     1 - k
+}
+
+/// One entry of a [`SelectionTable`]: the object, its weight, and the weight of its subtree (it
+/// and every entry below it in the table's heap order). A new entry weighs nothing.
+// D2-04253
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SelectionEntry<T> {
+    pub object: T,
+    pub weight: u32,
+    pub subtree: u32,
+}
+
+/// Objects drawn at random by weight, each at most once until the table starts over: the entries
+/// not yet drawn kept as a heap (each entry's children at `2i + 1` and `2i + 2`) with each one's
+/// subtree weight, and the entries drawn. A new table is empty; a copy has the same entries.
+// D2-04290, D2-04416
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectionTable<T> {
+    pub unused: Vec<SelectionEntry<T>>,
+    pub used: Vec<SelectionEntry<T>>,
+}
+
+impl<T: Copy> SelectionTable<T> {
+    /// Adds an object of weight `weight`, adding the weight to every entry above it.
+    // D2-08926
+    pub fn add(&mut self, object: T, weight: u32) {
+        let mut i = self.unused.len();
+        self.unused.push(SelectionEntry {
+            object,
+            weight,
+            subtree: weight,
+        });
+        while i != 0 {
+            i = (i - 1) >> 1;
+            self.unused[i].subtree = self.unused[i].subtree.wrapping_add(weight);
+        }
+    }
+
+    /// Works out the subtree weights below entry `i` from the entries' own weights.
+    // D2-08921
+    pub fn initialize_weights(&mut self, i: usize) {
+        self.unused[i].subtree = self.unused[i].weight;
+        for child in [2 * i + 1, 2 * i + 2] {
+            if child < self.unused.len() {
+                self.initialize_weights(child);
+                self.unused[i].subtree = self.unused[i]
+                    .subtree
+                    .wrapping_add(self.unused[child].subtree);
+            }
+        }
+    }
+
+    /// Moves entry `i` to the drawn entries: the last entry takes its place, the weights above
+    /// both brought up to date.
+    // D2-08927
+    pub fn move_to_used(&mut self, i: usize) {
+        self.used.push(self.unused[i]);
+        let last = self.unused.len() - 1;
+        let last_weight = self.unused[last].weight;
+        let diff = last_weight.wrapping_sub(self.unused[i].weight);
+        let mut j = last;
+        while j != 0 {
+            j = (j - 1) >> 1;
+            self.unused[j].subtree = self.unused[j].subtree.wrapping_sub(last_weight);
+        }
+        self.unused[i].weight = last_weight;
+        self.unused[i].object = self.unused[last].object;
+        if diff != 0 {
+            self.unused[i].subtree = self.unused[i].subtree.wrapping_add(diff);
+            let mut j = i;
+            while j != 0 {
+                j = (j - 1) >> 1;
+                self.unused[j].subtree = self.unused[j].subtree.wrapping_add(diff);
+            }
+        }
+        self.unused.pop();
+    }
+
+    /// Puts every drawn entry back, in the order drawn.
+    // D2-08928
+    pub fn start_over(&mut self) {
+        let used = core::mem::take(&mut self.used);
+        for e in used {
+            self.add(e.object, e.weight);
+        }
+    }
+
+    /// Draws an object by weight from those not yet drawn: a roll from 1 to the total weight, and
+    /// down the heap to the entry whose span of the running total holds it. None when every
+    /// entry has been drawn.
+    // D2-08929
+    pub fn choose(&mut self, random: &Random) -> Option<T> {
+        let root = *self.unused.first()?;
+        #[allow(clippy::cast_possible_wrap)]
+        let roll = random.roll_int(1, root.subtree as i32) as u32;
+        let mut cum = root.weight;
+        let mut i = 0;
+        while cum < roll {
+            let left = 2 * i + 1;
+            // Only a table holding entries of no weight runs past its last entry here (the
+            // client then reads what its array held before); the descent stops instead.
+            let Some(l) = self.unused.get(left) else {
+                break;
+            };
+            let through = l.subtree.wrapping_add(cum);
+            if through < roll {
+                let Some(r) = self.unused.get(left + 1) else {
+                    break;
+                };
+                i = left + 1;
+                cum = r.weight.wrapping_add(through);
+            } else {
+                i = left;
+                cum = cum.wrapping_add(self.unused[i].weight);
+            }
+        }
+        let object = self.unused[i].object;
+        self.move_to_used(i);
+        Some(object)
+    }
+}
+
+impl SelectionTable<u32> {
+    /// The binary form: the count of entries not yet drawn, each entry's object, weight and
+    /// subtree weight; then the same for the drawn entries.
+    // D2-04366, D2-04367
+    #[must_use]
+    pub fn pack(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for list in [&self.unused, &self.used] {
+            #[allow(clippy::cast_possible_truncation)]
+            out.extend_from_slice(&(list.len() as u32).to_le_bytes());
+            for e in list {
+                for w in [e.object, e.weight, e.subtree] {
+                    out.extend_from_slice(&w.to_le_bytes());
+                }
+            }
+        }
+        out
+    }
 }

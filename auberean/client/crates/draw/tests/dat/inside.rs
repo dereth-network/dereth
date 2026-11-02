@@ -354,3 +354,132 @@ fn a_carried_light_lights_what_stands_near_it_and_throws_shadows_away() {
         "its shadow turns west, away from the torch: {way:?}, {alone:?} without it"
     );
 }
+
+/// A decal inside is laid on the cells' ground about it: a body's disc where the player stands in
+/// the start hall takes the hall's triangles about it (none farther than the disc's largest side,
+/// two meters), cut to the disc's box and lifted off the floor; where the box reaches through a
+/// doorway, the next cell's triangles are taken too, once.
+///
+/// Behaviour: draw.decal.a-decal-inside-is-laid-on-the-cells-ground-about-it
+#[test]
+fn a_decal_inside_is_laid_on_the_cells_ground_about_it() {
+    use auberean_draw::decal::{disc, dungeon_decal, nearby_geometry, DECAL_LIFT};
+    let r = &install().records;
+    let block = (0x02, 0x98);
+    let at = Vec3::new(101.385, 247.278, -44.215);
+    let near = nearby_geometry(r, block, 0x0120, at, 2.0);
+    assert!(near.len() >= 2, "{} triangles", near.len());
+    // every triangle's box meets the cube about the point
+    for t in &near {
+        for k in 0..3 {
+            let lo = t
+                .iter()
+                .map(|c| [c.0.x, c.0.y, c.0.z][k])
+                .fold(f32::MAX, f32::min);
+            let hi = t
+                .iter()
+                .map(|c| [c.0.x, c.0.y, c.0.z][k])
+                .fold(f32::MIN, f32::max);
+            let p = [at.x, at.y, at.z][k];
+            assert!(lo <= p + 2.0 + 1e-3 && hi >= p - 2.0 - 1e-3);
+        }
+    }
+    let floor = near
+        .iter()
+        .filter(|t| t.iter().all(|c| c.1.z > 0.9))
+        .flat_map(|t| t.iter().map(|c| c.0.z))
+        .filter(|z| *z <= at.z + 0.5)
+        .fold(f32::MIN, f32::max);
+    assert!(floor > at.z - 1.0, "a floor under the point: {floor}");
+    let desc = disc(
+        0x3100_031D,
+        Vec3::new(-0.3, -0.25, 0.0),
+        Vec3::new(0.3, 0.25, 1.8),
+        Vec3::new(1.0, 1.0, 1.0),
+        0.0,
+        Color::new(0.45, 0.45, 0.45, 1.0),
+    )
+    .expect("a disc");
+    let laid = dungeon_decal(r, block, 0x0120, at, &desc);
+    assert!(!laid.is_empty(), "laid on the floor");
+    let half = (0.5 * desc.size.x).max(0.5 * desc.size.y) + 1e-3;
+    for v in laid.iter().flatten() {
+        assert!((v.position.x - at.x).abs() <= half + DECAL_LIFT);
+        assert!((v.position.y - at.y).abs() <= half + DECAL_LIFT);
+        assert!((v.position.z - at.z).abs() <= 0.5 * desc.size.z + DECAL_LIFT + 1e-3);
+    }
+    assert!(laid
+        .iter()
+        .flatten()
+        .any(|v| (v.position.z - floor - DECAL_LIFT).abs() < 0.01));
+    // by a doorway, the next cell's ground too
+    let hall = r.cell(block.0, block.1, 0x0120).expect("the hall");
+    let mesh: auberean_assets::mesh::CellMesh = r.get(hall.mesh.0).expect("its mesh");
+    let through = hall
+        .portals
+        .iter()
+        .filter(|p| (0x100..0xFFFF).contains(&p.other_cell))
+        .find_map(|p| {
+            let d = mesh.portals.get(usize::from(p.portal))?;
+            let poly = mesh.mesh.physics_polygons.get(usize::from(d.polygon))?;
+            let v = auberean_draw::mesh::vertices(&mesh.mesh.vertices)?;
+            let k = usize::from(*poly.vertices.first()?);
+            let local = Vec3::new(v[k].position[0], v[k].position[1], v[k].position[2]);
+            let frame = Mat4::from_parts(
+                hall.frame.origin,
+                hall.frame.rotation,
+                Vec3::new(1.0, 1.0, 1.0),
+            );
+            Some((p.other_cell, frame.point(local)))
+        });
+    let (other, by_door) = through.expect("a doorway to another room");
+    // from either side of the doorway the same ground: each room's own and the other's
+    #[allow(clippy::cast_possible_truncation)]
+    let keys = |t: &[[auberean_draw::decal::Corner; 3]]| {
+        let mut k: Vec<[i64; 9]> = t
+            .iter()
+            .map(|t| {
+                let p = t.map(|c| [c.0.x, c.0.y, c.0.z]);
+                let f = p.as_flattened();
+                std::array::from_fn(|i| (f[i] * 1000.0).round() as i64)
+            })
+            .collect();
+        k.sort_unstable();
+        k
+    };
+    // a room's own triangles near the point, worked out here from its mesh's first level
+    let own = |low: u16| {
+        let c = r.cell(block.0, block.1, low).expect("the room");
+        let m: auberean_assets::mesh::CellMesh = r.get(c.mesh.0).expect("its mesh");
+        let v = auberean_draw::mesh::vertices(&m.mesh.vertices).expect("its vertices");
+        let frame = Mat4::from_parts(c.frame.origin, c.frame.rotation, Vec3::new(1.0, 1.0, 1.0));
+        let here = frame.rigid_preimage(by_door);
+        let mut out = Vec::new();
+        for f in &m.mesh.levels[0].fragments {
+            for t in f.indices.as_chunks::<3>().0 {
+                let p = [t[0], t[1], t[2]].map(|k| {
+                    let q = v[usize::from(k)].position;
+                    Vec3::new(q[0], q[1], q[2])
+                });
+                let meets = (0..3).all(|a| {
+                    let get = |p: Vec3| [p.x, p.y, p.z][a];
+                    let lo = p.iter().map(|&q| get(q)).fold(f32::MAX, f32::min);
+                    let hi = p.iter().map(|&q| get(q)).fold(f32::MIN, f32::max);
+                    lo <= get(here) + 1.0 && hi >= get(here) - 1.0
+                });
+                if meets {
+                    out.push(p.map(|q| (frame.point(q), Vec3::ZERO)));
+                }
+            }
+        }
+        keys(&out)
+    };
+    let from_hall = keys(&nearby_geometry(r, block, 0x0120, by_door, 1.0));
+    let (hall_own, other_own) = (own(0x0120), own(other));
+    assert!(!hall_own.is_empty() && !other_own.is_empty());
+    assert!(hall_own
+        .iter()
+        .chain(&other_own)
+        .all(|t| from_hall.contains(t)));
+    assert!(from_hall.len() >= hall_own.len() + other_own.len());
+}

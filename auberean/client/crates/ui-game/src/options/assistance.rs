@@ -134,6 +134,7 @@ impl AssistancePage {
             kind: dialog::MESSAGE,
             text: crate::flow::message(ui, OPTION_STRINGS, text),
             modal: false,
+            info: None,
         }));
     }
 

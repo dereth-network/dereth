@@ -501,3 +501,36 @@ fn children_hang_from_their_parents_by_lines() {
     assert_eq!(frame.get(99, 50), [0, 0, 255, 255], "a red line");
     assert_eq!(frame.get(98, 50), [0, 0, 0, 0]);
 }
+
+/// A list that selects by dragging, pressed on a row, selects it and listens for its window's own
+/// pointer moves, which the manager never sends: moving onto another row with the button held
+/// leaves the pressed row selected. The release undoes the listening.
+///
+/// Behaviour: ui.list.selecting-by-drag-stays-on-the-row-pressed
+#[test]
+fn selecting_by_drag_stays_on_the_row_pressed() {
+    let (mut u, list, rows) = five_rows(vec![
+        window(
+            vec![
+                ("click_select", V::Bool(true)),
+                ("drag_select", V::Bool(true)),
+            ],
+            vec![],
+        ),
+        row(),
+    ]);
+    let w = u.root_of(list);
+    u.pointer_move(20, 15);
+    u.pointer_press();
+    assert_eq!(u.list_selected_item(list), Some(rows[0]));
+    assert!(u.is_registered_for_object_message(list, w, auberean_ui::manager::global::MOUSE_MOVE));
+    u.pointer_move(20, 35);
+    assert_eq!(
+        u.list_selected_item(list),
+        Some(rows[0]),
+        "the moves never come"
+    );
+    u.pointer_release();
+    u.pointer_move(21, 35);
+    assert!(!u.is_registered_for_object_message(list, w, auberean_ui::manager::global::MOUSE_MOVE));
+}

@@ -46,7 +46,9 @@ pub mod kind {
 /// The mapping a string table is found through by enumeration value.
 const TABLE_ENUM_MAPPING: u32 = 0x4000_0004;
 
-/// One line of a profile.
+/// One line of a profile. A copy is a copy of every part; dropping it lets go of its string
+/// reference and icon.
+// D2-12182, D2-12192
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub kind: u32,
@@ -63,19 +65,37 @@ pub struct Node {
     pub icon: Vec<[u32; 3]>,
 }
 
+/// The element a line is drawn with until it is given one: the examination's text template.
+#[must_use]
+pub fn default_appearance() -> u32 {
+    auberean_assets::strings::token("ExaminationTextTemplate")
+}
+
+impl Default for Node {
+    /// A line of no kind on no tab, drawn with the default appearance: no value, no time, an
+    /// empty string reference and icon.
+    // D2-12191
+    fn default() -> Self {
+        Self {
+            kind: 0,
+            tabs: 0,
+            appearance: default_appearance(),
+            value: 0,
+            time: -1.0,
+            text: TextInfo::default(),
+            icon: Vec::new(),
+        }
+    }
+}
+
 impl Node {
-    /// A new line of a kind: no value, no time, an empty string reference and icon.
-    // D2-12180
+    /// A new line of a kind on its tabs, otherwise as [`Node::default`].
     #[must_use]
     pub fn new(kind: u32, tabs: u32) -> Self {
         Self {
             kind,
             tabs,
-            appearance: 0,
-            value: 0,
-            time: -1.0,
-            text: TextInfo::default(),
-            icon: Vec::new(),
+            ..Self::default()
         }
     }
 
@@ -86,6 +106,69 @@ impl Node {
         match self.kind {
             kind::INT | kind::INDENT | kind::EFFECT => (self.value & 0xFFFF_FFFF) as u32,
             _ => 0,
+        }
+    }
+
+    /// The 64-bit number of a 64-bit line, else 0.
+    // D2-12184
+    #[must_use]
+    pub fn long_int(&self) -> u64 {
+        if self.kind == kind::LONG {
+            self.value
+        } else {
+            0
+        }
+    }
+
+    /// The float of a float line, else 0.
+    // D2-12185
+    #[must_use]
+    pub fn float(&self) -> f32 {
+        if self.kind == kind::FLOAT {
+            #[allow(clippy::cast_possible_truncation)]
+            f32::from_bits(self.value as u32)
+        } else {
+            0.0
+        }
+    }
+
+    /// The word of a yes-or-no line, else 0.
+    // D2-12186
+    #[must_use]
+    pub fn bool(&self) -> u32 {
+        self.word_of(kind::BOOL)
+    }
+
+    /// The picture of a picture line, else 0.
+    // D2-12187
+    #[must_use]
+    pub fn image(&self) -> u32 {
+        self.word_of(kind::IMAGE)
+    }
+
+    /// The time left of a time-left line, else -1.
+    // D2-12188
+    #[must_use]
+    pub fn countdown(&self) -> f64 {
+        if self.kind == kind::COUNTDOWN {
+            self.time
+        } else {
+            -1.0
+        }
+    }
+
+    /// The icon's layers, whatever the kind (empty for a line that is not an icon).
+    // D2-12189
+    #[must_use]
+    pub fn icon(&self) -> &[[u32; 3]] {
+        &self.icon
+    }
+
+    fn word_of(&self, k: u32) -> u32 {
+        if self.kind == k {
+            (self.value & 0xFFFF_FFFF) as u32
+        } else {
+            0
         }
     }
 
@@ -172,7 +255,9 @@ impl Node {
 }
 
 /// A profile: the request's packed form, the lines, the tabs noted; the tabs the request asks for
-/// when its packed form leaves them out.
+/// when its packed form leaves them out. A copy is a copy of the request, every line in order and
+/// the tabs noted; dropping it lets go of its lines.
+// D2-12224, D2-12222, D2-12221, D2-12223
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Profile {
     pub request: Vec<u8>,
@@ -254,6 +339,7 @@ impl Profile {
     }
 
     /// A profile from its packed form.
+    // D2-12216
     pub fn unpack(bytes: &[u8]) -> auberean_script::wire::Result<Self> {
         let mut r = In::new(bytes);
         let start = r.pos();
@@ -277,7 +363,7 @@ impl Profile {
     }
 
     /// The packed form.
-    // D2-12190
+    // D2-12190, D2-12214
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn pack(&self) -> Vec<u8> {

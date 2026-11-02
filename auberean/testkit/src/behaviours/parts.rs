@@ -15,7 +15,7 @@ pub static ROWS: &[Behaviour] = &[
                that setup, and an array made from it afterwards takes them.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-SHARED-SETUP"),
-        station: "auberean-physics::cpu::objects::a_change_to_a_setup_reaches_every_array_of_it",
+        station: "auberean-physics::cpu::contact::objects::a_change_to_a_setup_reaches_every_array_of_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -26,7 +26,7 @@ pub static ROWS: &[Behaviour] = &[
                changes nothing; one with a mesh not in the data keeps the parts made before it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-SETUP"),
-        station: "auberean-physics::cpu::objects::a_part_array_answers_from_its_setup",
+        station: "auberean-physics::cpu::contact::objects::a_part_array_answers_from_its_setup",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -40,7 +40,7 @@ pub static ROWS: &[Behaviour] = &[
                its jump impulse times its jump scale up and down, each plus 0.1.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-REP-CALLS"),
-        station: "auberean-physics::cpu::objects::a_body_answers_for_its_shape_from_its_part_group",
+        station: "auberean-physics::cpu::contact::objects::a_body_answers_for_its_shape_from_its_part_group",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -50,7 +50,7 @@ pub static ROWS: &[Behaviour] = &[
                another pose of its setup it places its bones so and asks its figure to stand in it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-BODY"),
-        station: "auberean-physics::cpu::objects::a_body_steps_as_its_setup_says",
+        station: "auberean-physics::cpu::contact::objects::a_body_steps_as_its_setup_says",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -60,7 +60,7 @@ pub static ROWS: &[Behaviour] = &[
                and parent) are worked out only for parts weighted to bones.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-BONES"),
-        station: "auberean-physics::cpu::objects::the_nearest_bone_and_the_bones_as_points",
+        station: "auberean-physics::cpu::contact::objects::the_nearest_bone_and_the_bones_as_points",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -70,7 +70,7 @@ pub static ROWS: &[Behaviour] = &[
                found to have trees meet nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-COLLIDE"),
-        station: "auberean-physics::cpu::objects::the_parts_trees_meet_a_sphere_in_the_objects_frame",
+        station: "auberean-physics::cpu::contact::objects::the_parts_trees_meet_a_sphere_in_the_objects_frame",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -112,7 +112,7 @@ pub static ROWS: &[Behaviour] = &[
                hung, a group it no longer has goes, and one it leaves as it was keeps its parts.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-LOOK-CHANGE"),
-        station: "auberean-physics::cpu::objects::a_changed_look_remakes_adds_and_drops_groups",
+        station: "auberean-physics::cpu::contact::objects::a_changed_look_remakes_adds_and_drops_groups",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -123,7 +123,7 @@ pub static ROWS: &[Behaviour] = &[
                parent's frame. A missing animation map stops it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-HANG"),
-        station: "auberean-physics::cpu::objects::a_look_hangs_each_group_from_its_connection_point",
+        station: "auberean-physics::cpu::contact::objects::a_look_hangs_each_group_from_its_connection_point",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -134,7 +134,7 @@ pub static ROWS: &[Behaviour] = &[
                drops the material changes but keeps the opacity.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-ATOMS"),
-        station: "auberean-physics::cpu::objects::a_looks_changes_swap_meshes_and_materials",
+        station: "auberean-physics::cpu::contact::objects::a_looks_changes_swap_meshes_and_materials",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -144,7 +144,7 @@ pub static ROWS: &[Behaviour] = &[
                transform when it has none, a mesh drawing nothing adding nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-BOX"),
-        station: "auberean-physics::cpu::objects::the_box_around_what_is_drawn_takes_in_every_part",
+        station: "auberean-physics::cpu::contact::objects::the_box_around_what_is_drawn_takes_in_every_part",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -165,7 +165,7 @@ pub static ROWS: &[Behaviour] = &[
                the fraction in turn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTS-RAY"),
-        station: "auberean-physics::cpu::objects::a_ray_stops_at_the_solid_side_and_parts_multiply",
+        station: "auberean-physics::cpu::contact::objects::a_ray_stops_at_the_solid_side_and_parts_multiply",
         tier: Tier::Cpu,
     },
 ];

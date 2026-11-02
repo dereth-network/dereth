@@ -168,6 +168,97 @@ fn the_examination_window_lays_out_a_profile_line_by_line() {
     );
 }
 
+/// A profile's line whose string reference reads a string table the data lacks is laid out
+/// empty, taking the rest of its row (here on a new line, the row holding the name); when the table comes the window empties to its waiting row
+/// until the next profile, which shows the line's text.
+///
+/// Behaviour: ui.examination.a-line-waiting-on-its-string-table-empties-the-window-when-it-comes
+#[test]
+fn a_line_waiting_on_its_string_table_empties_the_window_when_it_comes() {
+    use super::stage::{Lacking, World, LACKING};
+    let assets = Lacking::new();
+    let mut w = World::over(assets.clone());
+    w.ui.key(tb::EXAMINATION_PANEL, true);
+    w.tick(&[]);
+    w.ui.key(tb::EXAMINATION_PANEL, false);
+    w.tick(&[]);
+    let list = w.el("ExaminationListBox");
+    let request = ExamRequest {
+        kind: 0x4000_0002,
+        object: 7,
+        tabs: 0x3FF,
+        data_enum: 0,
+        data_id: 0,
+    };
+    w.tick(&[note(
+        notice::EXAMINATION_REQUEST_CHANGED,
+        vec![0],
+        vec![Some(Record::Request(request))],
+    )]);
+    let mut from_server = line(kind::STRING, 0x203, 0, None);
+    from_server.text = Some(StringInfo::entry(LACKING, 0x1234));
+    let profile = Profile {
+        request,
+        tabs: 0x203,
+        lines: vec![line(kind::STRING, 0x203, 0, Some("Sword")), from_server],
+    };
+    let shown = note(
+        notice::UPDATE_EXAMINATION_PROFILE,
+        vec![0],
+        vec![Some(Record::Profile(profile))],
+    );
+    w.tick(std::slice::from_ref(&shown));
+    let rows = w.ui.list_items(list);
+    assert_eq!(rows.len(), 1, "the profile's row");
+    let row = rows[0];
+    let row_w = w.ui.node(row).expect("row").rect.width();
+    let parts: Vec<(String, i32, i32, i32)> =
+        w.ui.node(row)
+            .expect("row")
+            .children
+            .iter()
+            .filter_map(|c| {
+                let r = w.ui.node(*c)?.rect;
+                Some((w.ui.text(*c).unwrap_or_default(), r.x0, r.y0, r.width()))
+            })
+            .collect();
+    assert_eq!(parts.len(), 2, "{parts:?}");
+    let sword = parts.iter().find(|p| p.0 == "Sword").expect("the name");
+    let waiting = parts
+        .iter()
+        .find(|p| p.0.is_empty())
+        .expect("the line waiting");
+    assert!(waiting.2 > sword.2, "on a new line: {parts:?}");
+    assert_eq!(
+        (waiting.1, waiting.3),
+        (0, row_w),
+        "the whole row: {parts:?}"
+    );
+    assets.arrive();
+    w.tick(&[]);
+    w.tick(&[]);
+    let rows = w.ui.list_items(list);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        w.ui.node(rows[0]).expect("row").id,
+        Token::of("ExaminationPendingRow"),
+        "back to the waiting row"
+    );
+    w.tick(&[shown]);
+    let rows = w.ui.list_items(list);
+    let texts: Vec<String> =
+        w.ui.node(rows[0])
+            .expect("row")
+            .children
+            .iter()
+            .map(|c| w.ui.text(*c).unwrap_or_default())
+            .collect();
+    assert!(
+        texts.iter().any(|t| t.starts_with("From the server")),
+        "{texts:?}"
+    );
+}
+
 /// The player's options can make the examination window the tabbed one: it asks for the first
 /// tab and shows its tab buttons, each active (asked for), inactive (lines made for it) or
 /// disabled (none); pressing an inactive tab asks to examine with that tab's tabs.
@@ -527,5 +618,189 @@ fn an_effect_line_lays_out_the_effects_own_lines() {
     assert!(
         parts[1].1 > parts[0].1 && parts[2].1 > parts[1].1,
         "{parts:?}"
+    );
+}
+
+/// One frame at exactly `now`.
+fn at(ui: &mut Ui, p: &mut GamePlay, now: f64, notices: &[Notice]) {
+    ui.use_time(now);
+    p.tick(ui, &View::default(), notices, &mut Vec::new());
+}
+
+/// A quest under way with a time left is written in the string table's words for how much is
+/// left (above a month, months and days; above a day, days and hours; above sixty minutes, hours
+/// and minutes; else minutes and seconds), and the clock keeps the words current: each looked at
+/// again when its smallest unit runs out, until the time is out.
+///
+/// Behaviour: ui.quests.a-quests-time-left-is-written-in-words-the-clock-keeps-current
+#[test]
+fn a_quests_time_left_is_written_in_words_the_clock_keeps_current() {
+    const DAY: i32 = 86_400;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let left = [
+        (1, 2 * 31 * DAY + 3 * DAY + 7),
+        (2, 2 * DAY + 3 * 3600 + 5),
+        (3, DAY),
+        (4, 3661),
+        (5, 3600),
+        (6, 65),
+    ];
+    let all = left
+        .iter()
+        .map(|&(id, s)| Quest {
+            seconds_remaining: s,
+            ..quest(id, status::UNDER_WAY, f64::from(id), &format!("Q{id}"))
+        })
+        .collect();
+    let start = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ALL, 0],
+        vec![None, Some(Record::Quests(all))],
+    );
+    at(&mut ui, &mut p, 1000.0, &[start]);
+    at(&mut ui, &mut p, 1000.0, &[]);
+    let underway = el(&ui, "UnderwayQuestListBox");
+    let times = |ui: &Ui| -> Vec<String> {
+        let mut rows: Vec<(String, String)> = ui
+            .list_items(underway)
+            .iter()
+            .filter_map(|r| {
+                let name = ui.text(ui.child_recursive(*r, Token::of("QuestName"))?)?;
+                let time = ui.text(ui.child_recursive(*r, Token::of("QuestTime"))?)?;
+                Some((name, time))
+            })
+            .collect();
+        rows.sort();
+        rows.into_iter().map(|(_, t)| t).collect()
+    };
+    assert_eq!(
+        times(&ui),
+        [
+            "2 months, 3 days",
+            "2 days, 3 hours",
+            "24:00",
+            "1:01",
+            "60:00",
+            "1:05"
+        ]
+    );
+    at(&mut ui, &mut p, 1002.0, &[]);
+    assert_eq!(
+        times(&ui),
+        [
+            "2 months, 3 days",
+            "2 days, 3 hours",
+            "23:59",
+            "60:59",
+            "59:58",
+            "1:03"
+        ],
+        "two seconds on"
+    );
+    at(&mut ui, &mut p, 1006.0, &[]);
+    assert_eq!(
+        times(&ui),
+        [
+            "2 months, 3 days",
+            "2 days, 2 hours",
+            "23:59",
+            "60:55",
+            "59:54",
+            "0:59"
+        ],
+        "six seconds on: the days' hour runs out"
+    );
+    at(&mut ui, &mut p, 1065.0, &[]);
+    assert_eq!(times(&ui)[5], "0:00", "the time out");
+    at(&mut ui, &mut p, 1200.0, &[]);
+    assert_eq!(times(&ui)[5], "0:00", "no longer looked at once out");
+}
+
+/// A countdown line of a profile shows the time left until its end in the string table's words,
+/// as the journal's quests do, kept current by the clock; the next profile takes it away.
+///
+/// Behaviour: ui.examination.a-countdown-shows-the-time-left-the-clock-keeps-current
+#[test]
+fn a_countdown_shows_the_time_left_the_clock_keeps_current() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    key(&mut ui, &mut p, &mut t, tb::EXAMINATION_PANEL);
+    let list = el(&ui, "ExaminationListBox");
+    let request = ExamRequest {
+        kind: 0x4000_0002,
+        object: 7,
+        tabs: 0x3FF,
+        data_enum: 0,
+        data_id: 0,
+    };
+    let changed = note(
+        notice::EXAMINATION_REQUEST_CHANGED,
+        vec![0],
+        vec![Some(Record::Request(request))],
+    );
+    at(&mut ui, &mut p, 2000.0, &[changed]);
+    let countdown = |end: f64| Line {
+        time: end,
+        ..line(kind::COUNTDOWN, 0x3FF, 0, None)
+    };
+    let profile = |lines| {
+        note(
+            notice::UPDATE_EXAMINATION_PROFILE,
+            vec![0],
+            vec![Some(Record::Profile(Profile {
+                request,
+                tabs: 0x3FF,
+                lines,
+            }))],
+        )
+    };
+    let shown = profile(vec![
+        line(kind::STRING, 0x3FF, 0, Some("Haste")),
+        countdown(2000.0 + 3661.0),
+        line(kind::BREAK, 0x3FF, 0, None),
+        countdown(2000.0 + 2.0 * 86_400.0 + 5.0),
+    ]);
+    at(&mut ui, &mut p, 2000.0, &[shown]);
+    // The row's words in the order laid out.
+    let texts = |ui: &Ui| -> Vec<String> {
+        let rows = ui.list_items(list);
+        let mut parts: Vec<(i32, i32, String)> = ui
+            .node(rows[0])
+            .expect("row")
+            .children
+            .iter()
+            .filter_map(|c| {
+                let r = ui.node(*c)?.rect;
+                Some((r.y0, r.x0, ui.text(*c)?))
+            })
+            .collect();
+        parts.sort();
+        parts.into_iter().map(|(.., s)| s).collect()
+    };
+    assert_eq!(texts(&ui), ["Haste", "1:01", "2 days, 0 hours"]);
+    at(&mut ui, &mut p, 2002.0, &[]);
+    assert_eq!(
+        texts(&ui),
+        ["Haste", "60:59", "2 days, 0 hours"],
+        "two seconds on"
+    );
+    at(&mut ui, &mut p, 2006.0, &[]);
+    assert_eq!(
+        texts(&ui),
+        ["Haste", "60:55", "47:59"],
+        "six seconds on: a day or less is hours and minutes"
+    );
+    at(
+        &mut ui,
+        &mut p,
+        2006.0,
+        &[profile(vec![line(kind::STRING, 0x3FF, 0, Some("Slow"))])],
+    );
+    assert_eq!(
+        texts(&ui),
+        ["Slow"],
+        "the next profile takes the countdowns away"
     );
 }

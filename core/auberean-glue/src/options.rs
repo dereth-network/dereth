@@ -32,13 +32,15 @@ use std::sync::Arc;
 
 use auberean_script::library::Elem;
 use auberean_script::native::{Call, NativeFn, NativeTable, Status, Stop};
-use auberean_script::native_object::{native_type, Item, NativeObject, BUCKET_SIZES};
+use auberean_script::native_object::{native_type, Item, NativeObject};
 use auberean_script::options::{GameplayOptions, Shortcut, Table};
+use auberean_script::options_file;
+use auberean_script::ui_locations::{buckets_of, copy_into, UiLocations};
 use auberean_script::value::{tag, NULL};
-use auberean_script::wire::{In, Out};
 
 const PROFILE: u32 = 0x9B;
 const SHORTCUT: u32 = 0xAC;
+const UI_SAVE_LOCATIONS: u32 = 0x6F;
 
 /// The yes-or-no options: the getter's number, the setter's number and the bit.
 const BITS: &[(u32, u32, u32)] = &[
@@ -101,6 +103,8 @@ const OPTIONS: &[(u32, u32, NativeFn)] = &[
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (PROFILE, 0x2B, export),
+    (PROFILE, 0x2C, import),
     (SHORTCUT, 0x01, shortcut_kind),
     (SHORTCUT, 0x02, shortcut_item),
     (SHORTCUT, 0x03, shortcut_enum),
@@ -118,6 +122,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (PROFILE, 0x07, build_alias_list),
     (PROFILE, 0x08, set_shortcut),
     (PROFILE, 0x09, inq_shortcut),
+    (PROFILE, 0x0A, set_shortcut_array),
     (PROFILE, 0x0B, inq_shortcut_array),
     (PROFILE, 0x0C, init_shortcut_array),
     (PROFILE, 0x0D, set_shortcut_set),
@@ -133,6 +138,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (PROFILE, 0x2D, bitfield),
     (PROFILE, 0x2E, set_bitfield),
     (PROFILE, 0x31, ui_locations),
+    (UI_SAVE_LOCATIONS, 0x01, clear_ui_locations),
     (PROFILE, 0x38, set_shortcut_height),
     (PROFILE, 0x39, shortcut_height),
     (PROFILE, 0x4E, window_opacities),
@@ -353,6 +359,65 @@ fn set_profile_word(c: &mut Call<'_>, f: fn(&mut GameplayOptions, u32)) -> Resul
     Ok(Status::Success)
 }
 
+/// A file name as the options' files take it: narrow, each unit past the narrow range a `?`.
+fn narrow_name(w: &[u16]) -> String {
+    w.iter()
+        .map(|&u| char::from(u8::try_from(u).unwrap_or(b'?')))
+        .collect()
+}
+
+/// Write the receiver's profile to a file in the client's folder named by a string (`fp[-2]`);
+/// answers 0, or the error (`fp[-3]`): no name, or the file not written.
+// D2-01409
+fn export(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let name = narrow_name(&crate::machine::text_of(c, c.arg(0)?)?);
+    let Some(p) = profile_mut(c, r)? else {
+        return Ok(Status::Crash);
+    };
+    let answer = match p.export(&name) {
+        Err(e) => e,
+        Ok(bytes) if c.host.write_file(&name, &bytes) => 0,
+        Ok(_) => options_file::NOT_WRITTEN,
+    };
+    c.write(-3, answer, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Read the receiver's profile from a file in the client's folder named by a string (`fp[-2]`);
+/// answers 0, or the error (`fp[-3]`): no name, no file or one that does not read, or one holding
+/// nothing. The profile changes only when the file reads.
+// D2-01434
+fn import(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let name = narrow_name(&crate::machine::text_of(c, c.arg(0)?)?);
+    let answer = if name.is_empty() {
+        options_file::NO_FILE_NAME
+    } else {
+        match c.host.read_file(&name) {
+            None => options_file::NOT_READ,
+            Some(bytes) => match GameplayOptions::import(&name, &bytes) {
+                Err(e) => e,
+                Ok(read) => {
+                    let Some(p) = profile_mut(c, r)? else {
+                        return Ok(Status::Crash);
+                    };
+                    *p = read;
+                    0
+                }
+            },
+        }
+    };
+    c.write(-3, answer, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 /// The slot an out reference names: the object reference it holds.
 fn out_target(c: &mut Call<'_>, k: i64) -> Result<u32, Stop> {
     let out = c.cx.at(k)?;
@@ -435,6 +500,39 @@ fn inq_shortcut_array(c: &mut Call<'_>) -> Result<Status, Stop> {
         _ => return Err(c.fail("the out reference holds no list")),
     }
     c.write(-3, 1, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The profile's shortcuts become a copy of each shortcut the list (`fp[-2]`) names, in its
+/// order. No result.
+// D2-01460, D2-11953
+fn set_shortcut_array(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let list = c.arg(0)?;
+    if list == NULL {
+        return Err(Stop::NullReference);
+    }
+    let items = match c.vm.heap.native(list)? {
+        NativeObject::Sequence { items, .. } => items.clone(),
+        _ => return Err(c.fail("not a list of shortcuts")),
+    };
+    let mut shortcuts = Vec::with_capacity(items.len());
+    for item in items {
+        let Item::Ref(id) = item else {
+            return Err(c.fail("a list entry that is not a shortcut"));
+        };
+        let Some(s) = shortcut_mut(c, id)? else {
+            return Err(Stop::NullReference);
+        };
+        shortcuts.push(s.clone());
+    }
+    let Some(p) = profile_mut(c, r)? else {
+        return Ok(Status::Crash);
+    };
+    p.shortcuts = shortcuts;
     Ok(Status::Success)
 }
 
@@ -590,128 +688,37 @@ fn set_option(c: &mut Call<'_>) -> Result<Status, Stop> {
 // Tables copied as the engine copies them
 // ---------------------------------------------------------------------------------------------
 
-/// A table's buckets of keyed entries.
-type Buckets<T> = Vec<Vec<(u32, T)>>;
-
-/// Copy entries (in the source's order) into a table of `n` buckets, emptied first: each entry
-/// goes to the head of its chain; a key already there keeps the first.
-fn copy_into<T: Clone>(n: usize, from: impl IntoIterator<Item = (u32, T)>) -> Buckets<T> {
-    let mut b: Buckets<T> = vec![Vec::new(); n];
-    for (k, v) in from {
-        let chain = &mut b[k as usize % n];
-        if chain.iter().all(|(x, _)| *x != k) {
-            chain.insert(0, (k, v));
-        }
-    }
-    b
-}
-
-/// The bucket count of a size place.
-fn buckets_of(place: u8) -> usize {
-    BUCKET_SIZES.get(usize::from(place)).copied().unwrap_or(11) as usize
-}
-
-/// A table of the windows' saved places: window to (element to place).
-#[derive(Clone)]
-struct Locations {
-    place: u8,
-    entries: Buckets<Inner>,
-}
-
-/// One window's elements and their places (four floats and a shown word).
-#[derive(Clone)]
-struct Inner {
-    place: u8,
-    entries: Buckets<[u32; 5]>,
-}
-
-impl Locations {
-    fn read(bytes: &[u8]) -> Option<Self> {
-        let mut r = In::new(bytes);
-        let header = r.u32().ok()?;
-        #[allow(clippy::cast_possible_truncation)]
-        let place = (header >> 24) as u8;
-        let mut entries: Buckets<Inner> = vec![Vec::new(); buckets_of(place)];
-        for _ in 0..(header & 0x00FF_FFFF) {
-            let k = r.u32().ok()?;
-            let h = r.u32().ok()?;
-            #[allow(clippy::cast_possible_truncation)]
-            let p = (h >> 24) as u8;
-            let mut inner: Buckets<[u32; 5]> = vec![Vec::new(); buckets_of(p)];
-            for _ in 0..(h & 0x00FF_FFFF) {
-                let e = r.u32().ok()?;
-                let mut d = [0; 5];
-                for x in &mut d {
-                    *x = r.u32().ok()?;
-                }
-                let n = inner.len();
-                inner[e as usize % n].push((e, d));
-            }
-            let n = entries.len();
-            entries[k as usize % n].push((
-                k,
-                Inner {
-                    place: p,
-                    entries: inner,
-                },
-            ));
-        }
-        r.at_end().then_some(Self { place, entries })
-    }
-
-    fn write(&self) -> Vec<u8> {
-        fn count<T>(b: &Buckets<T>) -> usize {
-            b.iter().map(Vec::len).sum()
-        }
-        let mut w = Out::new();
-        #[allow(clippy::cast_possible_truncation)]
-        w.u32(count(&self.entries) as u32 | u32::from(self.place) << 24);
-        for (k, inner) in self.entries.iter().flatten() {
-            w.u32(*k);
-            #[allow(clippy::cast_possible_truncation)]
-            w.u32(count(&inner.entries) as u32 | u32::from(inner.place) << 24);
-            for (e, d) in inner.entries.iter().flatten() {
-                w.u32(*e);
-                d.iter().for_each(|x| w.u32(*x));
-            }
-        }
-        w.buf
-    }
-
-    /// This table copied over `into`: `into`'s buckets kept, each window a new table of the
-    /// source's size holding the source's elements as copied.
-    fn copied_over(&self, into: &Self) -> Self {
-        let from = self.entries.iter().flatten().map(|(k, inner)| {
-            let n = buckets_of(inner.place);
-            let copied = Inner {
-                place: inner.place,
-                entries: copy_into(n, inner.entries.iter().flatten().cloned()),
-            };
-            (*k, copied)
-        });
-        Self {
-            place: into.place,
-            entries: copy_into(buckets_of(into.place), from),
-        }
-    }
-}
-
-/// The windows' saved places of a native (a new one: an empty table of 47 buckets).
-fn locations_of(c: &Call<'_>, r: u32) -> Result<Locations, Stop> {
+/// The windows' saved places of a native (a new one: an empty table of 47 buckets, as the 32 a new
+/// table asks for become).
+// D2-13084
+fn locations_of(c: &Call<'_>, r: u32) -> Result<UiLocations, Stop> {
     let bytes = match c.vm.heap.native(r)? {
         NativeObject::Packed { bytes, .. } => bytes.clone(),
         _ => auberean_script::options::NO_UI_LOCATIONS.to_vec(),
     };
-    Locations::read(&bytes).ok_or_else(|| c.fail("a table of saved places that does not read"))
+    UiLocations::read(&bytes).ok_or_else(|| c.fail("a table of saved places that does not read"))
 }
 
-fn store_locations(c: &mut Call<'_>, r: u32, l: &Locations) -> Result<(), Stop> {
+fn store_locations(c: &mut Call<'_>, r: u32, l: &UiLocations) -> Result<(), Stop> {
     let ty = native_type::UI_SAVE_LOCATIONS;
     *c.vm.heap.native_mut(r)? = NativeObject::Packed {
         ty,
         bytes: l.write(),
     };
     Ok(())
+}
+
+/// Every window's saved places taken out of the receiver's table; its buckets stay. No result.
+// D2-09007, D2-13081
+fn clear_ui_locations(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let mut l = locations_of(c, r)?;
+    l.entries.iter_mut().for_each(Vec::clear);
+    store_locations(c, r, &l)?;
+    Ok(Status::Success)
 }
 
 /// The profile's saved places copied over the table an out reference (`fp[-2]`) names.
@@ -726,7 +733,7 @@ fn ui_locations(c: &mut Call<'_>) -> Result<Status, Stop> {
         Some(p) => p.ui_locations.clone(),
         None => return Ok(Status::Crash),
     };
-    let from = Locations::read(&held).ok_or_else(|| c.fail("saved places that do not read"))?;
+    let from = UiLocations::read(&held).ok_or_else(|| c.fail("saved places that do not read"))?;
     let into = locations_of(c, target)?;
     store_locations(c, target, &from.copied_over(&into))?;
     Ok(Status::Success)
@@ -755,7 +762,7 @@ fn set_ui_locations(c: &mut Call<'_>) -> Result<Status, Stop> {
         Some(p) => p.ui_locations.clone(),
         None => return Ok(Status::Crash),
     };
-    let into = Locations::read(&held).ok_or_else(|| c.fail("saved places that do not read"))?;
+    let into = UiLocations::read(&held).ok_or_else(|| c.fail("saved places that do not read"))?;
     let bytes = from.copied_over(&into).write();
     if let Some(p) = profile_mut(c, r)? {
         p.ui_locations = bytes;

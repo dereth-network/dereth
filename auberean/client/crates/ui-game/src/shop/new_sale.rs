@@ -274,6 +274,7 @@ impl NewSale {
             kind: gameplay::dialog::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.dialog = id;
     }
@@ -286,6 +287,7 @@ fn display_dialog(ui: &Ui, id: &str) -> Request {
         kind: gameplay::dialog::MESSAGE,
         text: write(ui, &entry(ui, id, Vec::new())),
         modal: false,
+        info: None,
     })
 }
 
@@ -313,7 +315,22 @@ fn read_long(s: &str) -> i32 {
     i32::try_from(v.clamp(i64::from(i32::MIN), i64::from(i32::MAX))).unwrap_or(0)
 }
 
+impl NewSale {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x48F, 0x492, 0x494, 0x436, 0x45A];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for NewSale {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

@@ -1,6 +1,7 @@
 //! Tests that replay the recorded sessions through the client. Without the install or the capture
 //! index, a test fails, naming the variable to set.
 
+mod download;
 #[path = "../replay/mod.rs"]
 mod replay;
 mod sessions;

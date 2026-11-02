@@ -258,7 +258,8 @@ fn pack_shape(s: &Shape, w: &mut Writer) {
     match s {
         Shape::None => {}
         Shape::Ray(r) => r.pack(w),
-        Shape::Point(p) => write_vec3(w, *p),
+        // A point streams nothing, and the stream fails there (see `Volume::unpack`).
+        Shape::Point(_) => {}
         // D2-13379
         Shape::Cone(c) => {
             write_vec3(w, c.center);
@@ -291,10 +292,11 @@ fn pack_shape(s: &Shape, w: &mut Writer) {
             write_vec3(w, b.min);
             write_vec3(w, b.max);
         }
+        // D2-13153
         Shape::Cylinder(c) => {
             write_vec3(w, c.low_pt);
-            w.f32(c.height);
             w.f32(c.radius);
+            w.f32(c.height);
         }
     }
 }
@@ -302,7 +304,7 @@ fn pack_shape(s: &Shape, w: &mut Writer) {
 fn unpack_shape(kind: u32, r: &mut Reader<'_>, ctx: &Context) -> Result<Shape> {
     Ok(match kind {
         1 => Shape::Ray(Ray::unpack(r, ctx)?),
-        2 => Shape::Point(read_vec3(r)?),
+        2 => return r.fail("a point volume cannot be read"),
         3 => Shape::Cone(Cone {
             center: read_vec3(r)?,
             radius: r.f32()?,
@@ -325,8 +327,8 @@ fn unpack_shape(kind: u32, r: &mut Reader<'_>, ctx: &Context) -> Result<Shape> {
         6 => Shape::Box(BBox::new(read_vec3(r)?, read_vec3(r)?)),
         7 => {
             let low_pt = read_vec3(r)?;
-            let height = r.f32()?;
             let radius = r.f32()?;
+            let height = r.f32()?;
             Shape::Cylinder(CylSphere {
                 low_pt,
                 radius,
@@ -338,8 +340,10 @@ fn unpack_shape(kind: u32, r: &mut Reader<'_>, ctx: &Context) -> Result<Shape> {
 }
 
 impl Pack for Volume {
-    /// The position, the kind, then the shape; an unknown kind stores nothing more.
-    // D2-15601, D2-15602, D2-15603
+    /// The position, the kind, then the shape; an unknown kind stores nothing more. A point
+    /// volume has no binary form: packing one writes the position and the kind only, and reading
+    /// one fails after them, as retail's stream gives up on a point.
+    // D2-15601, D2-15602, D2-15603, D2-15595, D2-15594
     fn pack(&self, w: &mut Writer) {
         write_position(w, &self.position);
         w.u32(self.shape.kind());
@@ -880,7 +884,7 @@ impl ObjectRays {
 }
 
 impl Pack for ObjectRays {
-    // D2-13366
+    // D2-13366, D2-06867
     fn pack(&self, w: &mut Writer) {
         w.u64(self.object);
         w.f32(self.coverage);
@@ -937,7 +941,7 @@ impl BlockRays {
 }
 
 impl Pack for BlockRays {
-    // D2-15673
+    // D2-15673, D2-15683
     fn pack(&self, w: &mut Writer) {
         w.u32(self.block);
         w.bool32(self.loaded);
@@ -1088,7 +1092,7 @@ impl InstantDetection {
 }
 
 impl Pack for InstantDetection {
-    // D2-15623
+    // D2-15623, D2-06858
     fn pack(&self, w: &mut Writer) {
         w.u32(self.context);
         self.settings.pack(w);

@@ -1,5 +1,6 @@
 //! The player's requests through the interface, made again at the moments the recorded player
-//! made them: what the player's scripts send then is what the recorded client sent.
+//! made them: what the player's scripts send then is what the recorded client sent; and what the
+//! player's position reports carry, against the recorded client's.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -626,7 +627,12 @@ impl<'a> Replay<'a> {
             return;
         }
         // The chat panel, made with the game's screen, makes the player's commands known.
-        if !self.commands_known {
+        if !self.commands_known
+            || self
+                .c
+                .with_host(|h| h.commands.names.is_empty())
+                .unwrap_or(true)
+        {
             self.commands_known = true;
             self.c.know_commands();
         }
@@ -1586,7 +1592,8 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
             return;
         }
         t.mounted += 1;
-        if !commands {
+        // Made known with each session's play screen.
+        if !commands || c.with_host(|h| h.commands.names.is_empty()).unwrap_or(true) {
             c.know_commands();
             commands = true;
         }
@@ -1638,4 +1645,82 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
         assert_eq!(t.recorded_riding.get(&f), None, "{t:?}");
         assert!(t.recorded_on_foot.get(&f).is_some_and(|n| *n > 0), "{t:?}");
     }
+}
+
+/// The client's report of where the player is.
+const CLIENT_POSITION: u32 = 0x1008E;
+
+/// Each recorded 2017 player's reports carry the stamp of the last move the server ordered its
+/// body to make, and so do this client's, fed the same messages: after the first order, 99 in 100
+/// recorded reports carry the stamp this client keeps (the rest follow orders the recordings
+/// missed, or went out just before an order arrived). Only captures that hold their player's
+/// creation are counted.
+///
+/// Behaviour: session.position.recorded-reports-carry-the-stamp-of-the-last-move-ordered
+#[test]
+fn recorded_reports_carry_the_stamp_of_the_last_move_ordered() {
+    let data = data().expect("the September 2013 install opens");
+    let data = ClientData {
+        scripts: None,
+        ..data
+    };
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.extend([PLAY_CHARACTER, CLIENT_POSITION]);
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    let (mut before, mut before_zero, mut after, mut agree) = (0u64, 0u64, 0u64, 0u64);
+    // Whether the capture holds its player's creation: one that began later began after the
+    // recorded client had kept a stamp.
+    let (mut player, mut created) = (None, false);
+    captures::messages_in_time_order(&index, &types, &[2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+            (player, created) = (None, false);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+        }
+        if m.to_client {
+            if let Ok(msg) = ServerMessage::decode(&m.raw) {
+                match &msg {
+                    ServerMessage::PlayerObject(p) => player = Some(p.id),
+                    ServerMessage::CreateObject(o) => created |= Some(o.id) == player,
+                    _ => {}
+                }
+                c.take_message(m.blob_id, msg);
+            }
+            return;
+        }
+        match ClientMessage::decode(&m.raw) {
+            Ok(ClientMessage::PlayCharacter(p)) => c.act(Action::PlayCharacter {
+                character: p.character,
+            }),
+            Ok(ClientMessage::Position(p)) if created => {
+                if c.body.move_to_stamp == 0 {
+                    before += 1;
+                    before_zero += u64::from(p.move_to_stamp == 0);
+                } else {
+                    after += 1;
+                    agree += u64::from(p.move_to_stamp == c.body.move_to_stamp);
+                }
+            }
+            _ => {}
+        }
+    })
+    .expect("the index reads");
+    eprintln!(
+        "{after} recorded reports after an order, {agree} carrying the stamp kept here; \
+         {before} before any, {before_zero} carrying 0"
+    );
+    assert!(after > 1_000_000, "only {after} reports after an order");
+    #[allow(clippy::cast_precision_loss)]
+    let share = agree as f64 / after as f64;
+    assert!(share >= 0.99, "{agree} of {after} agree");
 }

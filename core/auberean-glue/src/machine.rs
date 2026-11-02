@@ -136,7 +136,7 @@ fn instance_of(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// Free what is unused: collection runs between calls here, so nothing is freed mid-run.
-// D2-09553
+// D2-09553, D2-16471
 fn collect_unused(c: &mut Call<'_>) -> Result<Status, Stop> {
     ret(c, 0, 0, tag::MIXED)?;
     Ok(Status::Success)
@@ -149,7 +149,7 @@ fn collect_now(_: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The collector's settings: collection runs between calls here, so they change nothing.
-// D2-09550, D2-09551
+// D2-09550, D2-09551, D2-16453, D2-16454
 fn collect_setting(_: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }

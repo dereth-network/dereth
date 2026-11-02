@@ -15,7 +15,7 @@ use crate::fx::FxData;
 use crate::{Context, Decode};
 
 /// One layer of an icon: which layer, its picture, and a color it is shifted by.
-// D2-13910, D2-13908, D2-03199, D2-14015
+// D2-13910, D2-13908, D2-03199, D2-14015, D2-03200
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct IconLayer {
     pub layer: u32,
@@ -226,7 +226,7 @@ pub struct AppearanceChanges {
 impl AppearanceChanges {
     /// The intensity, then counted lists of material modifiers, opacities, mesh replacements,
     /// part-group replacements, effects and icon layers.
-    // D2-13999, D2-14018, D2-14019, D2-14020, D2-14021, D2-13996, D2-13652
+    // D2-13999, D2-14018, D2-14019, D2-14020, D2-14021, D2-13996, D2-13652, D2-03213, D2-03227, D2-03237, D2-03233, D2-03244
     fn read(r: &mut Reader<'_>, ctx: &Context) -> Result<Self> {
         Ok(Self {
             intensity: r.f32()?,
@@ -283,7 +283,7 @@ pub struct Appearance {
 impl Decode for Appearance {
     /// The id, a counted list of base appearances, a hash table from key to a counted list of
     /// changes, and a hash table from key to its step count.
-    // D2-13928, D2-13942, D2-14066, D2-07314
+    // D2-13928, D2-13942, D2-14066, D2-07314, D2-13953
     // D2-13944, D2-13947, D2-05042, D2-13943, D2-13946, D2-13945, D2-13932, D2-13934, D2-14069
     // D2-14070
     fn decode(r: &mut Reader<'_>, id: u32, ctx: &Context) -> Result<Self> {

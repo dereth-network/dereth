@@ -18,6 +18,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "protocol.physics-desc.a-scale-left-out-is-one",
+        says: "A physics description the server sends without its speed, jump or head scales has \
+               each at 1, and with no position and no parent it is in no cell and hangs from \
+               nothing: the values a new description has.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROTOCOL-PHYSICS-DESC-NEW"),
+        station: "auberean-protocol::cpu::descriptions::a_physics_description_without_its_scales_has_each_at_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "protocol.qualities.the-header-names-the-tables-that-hold-entries",
         says: "Every player's qualities the 2005, 2013 and 2017 servers sent carry the header the \
                client works out from them (the description's bit, and the bit of each table holding \
@@ -54,6 +64,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-NET-TABLE-ORDER"),
         station: "auberean-protocol::cpu::table::a_table_lays_out_its_entries_bucket_by_bucket_newest_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "protocol.weenie-desc.a-copy-holds-only-what-the-original-has",
+        says: "A copy of a weenie description holds its package only when the original holds one \
+               that is not all ones, its entity only when not 0, and its flag word whenever one of \
+               the word's four low flags is on; every other field is copied as it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROTOCOL-WEENIE-DESC-COPY"),
+        station: "auberean-protocol::cpu::descriptions::a_copied_weenie_description_holds_only_the_package_entity_and_flags_the_original_has",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "protocol.weenie-desc.a-new-one-has-a-quantity-of-one-and-no-package",
+        says: "A weenie description the server sends without a package or a quantity has a \
+               quantity of 1 and a package of all ones (none) beneath its mask: the values a new \
+               description has.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROTOCOL-WEENIE-DESC-NEW"),
+        station: "auberean-protocol::cpu::descriptions::a_weenie_description_without_a_package_or_quantity_has_none_and_one",
         tier: Tier::Cpu,
     },
 ];

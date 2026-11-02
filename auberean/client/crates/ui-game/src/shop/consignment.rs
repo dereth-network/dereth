@@ -339,6 +339,7 @@ impl Consignments {
             kind: gameplay::dialog::CONFIRMATION,
             text: write(ui, &s),
             modal: false,
+            info: None,
         }));
         self.dialog = id;
     }
@@ -596,7 +597,24 @@ fn split(v: u64) -> [u32; 2] {
     [(v >> 32) as u32, (v & 0xFFFF_FFFF) as u32]
 }
 
+impl Consignments {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x490, 0x491, 0x492, 0x48F, 0x408, 0x1_040C, 0x1_040E, 0x46E, 0x493, 0x436, 0x45A,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Consignments {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

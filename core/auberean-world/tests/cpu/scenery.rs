@@ -1,5 +1,6 @@
 //! Scenery on a synthetic flat block: which scene a vertex grows, and where a group puts its
-//! object.
+//! object; and the landscape's ambient sound points, which follow the same chain from a vertex to
+//! its scenery kind.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use auberean_world::scenery::{
     block_scenery, vertex_scene, ClearCylinder, KeptClear, SceneSource, SceneryInput,
     SceneryObject, CLEARANCE_GROUP,
 };
+use auberean_world::sound::{block_sound_points, vertex_sound};
 use auberean_world::terrain::{build_block, Surfaces};
 
 const SCENE: u32 = 0x0200_0001;
@@ -368,4 +370,153 @@ fn placed_objects_keep_their_clearance_boxes_and_cylinders() {
         "a base given as a number sets nothing"
     );
     assert!(KeptClear::of_entity(east, turned, None).boxes.is_empty());
+}
+
+// The landscape's ambient sound points.
+
+const FOREST: u32 = 0x8100_0018;
+const MEADOW: u32 = 0x8100_0019;
+
+/// The retail grid: 20-meter cells, 8 to a block side, 2 vertex steps a cell (17 vertices a
+/// side); heights 0, 1, 2, ... by height byte.
+fn sound_land() -> LandConstants {
+    #[allow(clippy::cast_precision_loss)] // 256 entries
+    let heights = (0..256).map(|h| h as f32).collect();
+    LandConstants::from_record(&Landscape {
+        cell_side: 20.0,
+        road_width: 4.0,
+        cells_per_block_side: 8,
+        pixels_per_cell_side: 2,
+        max_object_height: 200.0,
+        sky_height: 2000.0,
+        vertex_fields: VertexFields {
+            terrain: 7,
+            scene: 5,
+            encounter: 4,
+            color: 8,
+            road: 4,
+            replace: 4,
+        },
+        heights,
+    })
+    .expect("in range")
+}
+
+fn sound_terrain(index: u32, scenery: Vec<TerrainScenery>, default: Option<u32>) -> TerrainType {
+    TerrainType {
+        name: String::from("ground"),
+        surface: 0,
+        index,
+        hard_edge_angle: 0.5,
+        default_scenery: default.map(|kind| TerrainScenery { kind, index: 0 }),
+        scenery,
+    }
+}
+
+fn sound_kind(index: u32, sound: u32) -> SceneryKind {
+    SceneryKind {
+        index,
+        sound,
+        scenes: Vec::new(),
+    }
+}
+
+/// Terrain kind 1: scene field 1 grows scenery kind 5 (the forest's sound), field 2 kind 6 (no
+/// sound), field 3 kind 0, field 4 kind 9 (not described), anything else the default kind 7 (the
+/// meadow's). Terrain kind 2 has no default scenery. The default terrain grows kind 5 for field 1.
+fn sound_descs() -> (TerrainDesc, SceneDesc) {
+    let t = TerrainDesc {
+        version: 0,
+        default_terrain: Some(sound_terrain(
+            99,
+            vec![TerrainScenery { kind: 5, index: 1 }],
+            None,
+        )),
+        terrains: vec![
+            sound_terrain(
+                1,
+                vec![
+                    TerrainScenery { kind: 5, index: 1 },
+                    TerrainScenery { kind: 6, index: 2 },
+                    TerrainScenery { kind: 0, index: 3 },
+                    TerrainScenery { kind: 9, index: 4 },
+                ],
+                Some(7),
+            ),
+            sound_terrain(2, Vec::new(), None),
+        ],
+    };
+    let s = SceneDesc {
+        version: 0,
+        scene_types: vec![
+            sound_kind(5, FOREST),
+            sound_kind(6, 0),
+            sound_kind(7, MEADOW),
+            sound_kind(0, MEADOW),
+        ],
+    };
+    (t, s)
+}
+
+/// Behaviour: world.sound.a-vertex-names-its-scenery-kinds-sound
+#[test]
+fn a_vertex_names_the_sound_of_its_scenery_kind_and_nothing_past_a_gap() {
+    let (t, s) = sound_descs();
+    assert_eq!(vertex_sound(&t, &s, 1, 1), Some(FOREST));
+    // The terrain's default scenery for a field it does not list.
+    assert_eq!(vertex_sound(&t, &s, 1, 31), Some(MEADOW));
+    // A scenery kind whose sound word is 0, the scenery kind 0 (even though a kind 0 is described),
+    // and a scenery kind the scene description lacks: no sound.
+    assert_eq!(vertex_sound(&t, &s, 1, 2), None);
+    assert_eq!(vertex_sound(&t, &s, 1, 3), None);
+    assert_eq!(vertex_sound(&t, &s, 1, 4), None);
+    // A terrain kind with no scenery for the field and no default.
+    assert_eq!(vertex_sound(&t, &s, 2, 1), None);
+    // A terrain kind not listed takes the default terrain.
+    assert_eq!(vertex_sound(&t, &s, 50, 1), Some(FOREST));
+}
+
+/// Behaviour: world.sound.a-blocks-points-fall-short-of-its-far-edges
+#[test]
+fn a_blocks_points_stand_a_seventeenth_of_its_side_apart_at_their_heights() {
+    let land = sound_land();
+    let (t, s) = sound_descs();
+    // Every vertex terrain kind 1; scene field 1 (the forest) but for vertex (3, 5), field 2 (no
+    // sound); height byte = x + y.
+    let side = 17;
+    let mut vertices = vec![1 | (1 << 7); side * side];
+    vertices[3 * side + 5] = 1 | (2 << 7);
+    let heights = (0..side * side)
+        .map(|k| u8::try_from(k / side + k % side).expect("small"))
+        .collect();
+    let block = Landblock {
+        info: DataId(0),
+        path_map: DataId(0),
+        heights,
+        vertices,
+    };
+    let points = block_sound_points(&land, &t, &s, &block);
+    assert_eq!(points.len(), side * side - 1);
+    assert!(points.iter().all(|p| p.kind == FOREST));
+    let step = 160.0 / 17.0;
+    let first = points[0];
+    assert_eq!(
+        (first.origin.x, first.origin.y, first.origin.z),
+        (0.0, 0.0, 0.0)
+    );
+    // The second point is the next vertex north: y fastest.
+    assert_eq!(points[1].origin.y, step);
+    assert_eq!(points[1].origin.x, 0.0);
+    // The last row and column stop short of the block's far edges, at 16/17 of its side.
+    let last = points[points.len() - 1];
+    assert_eq!(last.origin.x, 16.0 * step);
+    assert_eq!(last.origin.y, 16.0 * step);
+    assert!(last.origin.x < 151.0);
+    assert_eq!(last.origin.z, 32.0);
+    // The vertex without a sound is left out, so x = 3's row holds sixteen points.
+    let row3 = points.iter().filter(|p| p.origin.x == 3.0 * step).count();
+    assert_eq!(row3, side - 1);
+    assert!(!points
+        .iter()
+        .any(|p| p.origin.x == 3.0 * step && p.origin.y == 5.0 * step));
 }

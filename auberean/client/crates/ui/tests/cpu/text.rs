@@ -7,7 +7,14 @@ use auberean_ui::text::Color;
 use auberean_ui::types::text::key;
 use auberean_ui::{Token, Ui};
 
-use crate::fixture::{element, state, ui, FONT, LAYOUT};
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
+
+use auberean_text::StringInfo;
+use auberean_ui::types::text::text_msg;
+use auberean_ui::{Assets, Image};
+
+use crate::fixture::{element, records, state, ui, Records, FONT, LAYOUT};
 
 /// A text element `name` at `rect` with these attributes and the test font.
 fn text(name: &str, rect: [i16; 4], attrs: Vec<(&str, V)>) -> auberean_assets::ui::Element {
@@ -259,4 +266,310 @@ fn a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves() {
     );
     u.pointer_move(350, 350);
     assert!(u.tooltip().is_none(), "gone once the pointer leaves");
+}
+
+/// The test's records with string downloads: a reference to [`LACKING`] waits until the test
+/// says its tables came; an entry writes as `t<token>`, a literal as itself.
+struct Downloads {
+    records: Records,
+    started: Mutex<u32>,
+    waiting: Mutex<BTreeSet<u32>>,
+    released: Mutex<Vec<u32>>,
+}
+
+/// The string table the data lacks.
+const LACKING: u32 = 0x2500_0002;
+
+impl Assets for Downloads {
+    fn layout(&self, id: u32) -> Option<Arc<auberean_assets::ui::UiLayout>> {
+        self.records.layout(id)
+    }
+    fn image(&self, id: u32) -> Option<Arc<Image>> {
+        self.records.image(id)
+    }
+    fn font(&self, id: u32) -> Option<Arc<auberean_assets::ui::Font>> {
+        self.records.font(id)
+    }
+    fn string(&self, _table: u32, _token: u32) -> Option<String> {
+        None
+    }
+    fn element_text(&self, info: &StringInfo) -> Vec<u16> {
+        let s = match &info.literal {
+            Some(l) => String::from_utf16_lossy(l),
+            None => format!("t{}", info.string_id),
+        };
+        s.encode_utf16().collect()
+    }
+    fn start_string_download(&self, info: &StringInfo) -> Option<u32> {
+        if info.table != LACKING {
+            return None;
+        }
+        let mut n = self.started.lock().unwrap();
+        *n += 1;
+        self.waiting.lock().unwrap().insert(*n);
+        Some(*n)
+    }
+    fn string_download_waiting(&self, n: u32) -> bool {
+        self.waiting.lock().unwrap().contains(&n)
+    }
+    fn release_string_download(&self, n: u32) {
+        self.released.lock().unwrap().push(n);
+    }
+}
+
+fn downloading(e: auberean_assets::ui::Element) -> (Ui, Arc<Downloads>) {
+    let d = Arc::new(Downloads {
+        records: records(vec![e], vec![]),
+        started: Mutex::new(0),
+        waiting: Mutex::new(BTreeSet::new()),
+        released: Mutex::new(Vec::new()),
+    });
+    (Ui::new(d.clone(), 1024, 768), d)
+}
+
+fn said_done(u: &mut Ui, h: auberean_ui::Handle) -> bool {
+    u.take_messages()
+        .iter()
+        .any(|m| m.from == h && m.what == text_msg::DOWNLOAD_DONE)
+}
+
+/// A string reference given to a text element whose tables the data lacks is added only once
+/// they have come, at the element's next tick, and the element says its download is done; what
+/// is added after it waits behind it, in order. A reference whose tables are at hand is added at
+/// once.
+///
+/// Behaviour: ui.text.a-reference-waits-for-its-string-tables
+#[test]
+fn a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it() {
+    let (mut u, d) = downloading(text("Entry", [0, 0, 199, 19], vec![]));
+    let h = entry(&mut u);
+    assert!(u.add_string_info(h, &StringInfo::entry(0x2500_0001, 1)));
+    assert_eq!(typed(&u, h), "t1", "its tables at hand: added at once");
+    assert!(!u.add_string_info(h, &StringInfo::entry(LACKING, 2)));
+    assert!(u.add_string(h, " after"));
+    u.use_time(1.0);
+    assert_eq!(typed(&u, h), "t1", "both wait for the tables");
+    u.take_messages();
+    d.waiting.lock().unwrap().clear();
+    u.use_time(2.0);
+    assert_eq!(typed(&u, h), "t1t2 after", "added in order once they came");
+    assert!(said_done(&mut u, h));
+}
+
+/// A text element's waiting strings are dropped when its text is replaced, and when it goes:
+/// each lets go of the download it waits on.
+///
+/// Behaviour: ui.text.dropped-references-let-their-downloads-go
+#[test]
+fn a_text_element_lets_go_of_its_downloads_when_its_text_is_replaced_or_it_goes() {
+    let (mut u, d) = downloading(text("Entry", [0, 0, 199, 19], vec![]));
+    let h = entry(&mut u);
+    u.add_string_info(h, &StringInfo::entry(LACKING, 2));
+    u.set_string_info(h, &StringInfo::entry(LACKING, 3));
+    assert_eq!(*d.released.lock().unwrap(), vec![1]);
+    u.remove(h);
+    assert_eq!(*d.released.lock().unwrap(), vec![1, 2]);
+}
+
+/// An element's own tip given as a string reference goes to the tooltip's text element as one:
+/// while the string table it reads is on its way the tooltip is up with no text, and its text
+/// shows once the table has come.
+///
+/// Behaviour: ui.tooltip.a-tip-given-as-a-reference-waits-for-its-string-tables
+#[test]
+fn a_tip_given_as_a_reference_waits_for_its_string_tables() {
+    let owner = element(
+        "Owner",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let d = Arc::new(Downloads {
+        records: records(vec![owner, tip], vec![]),
+        started: Mutex::new(0),
+        waiting: Mutex::new(BTreeSet::new()),
+        released: Mutex::new(Vec::new()),
+    });
+    let mut u = Ui::new(d.clone(), 1024, 768);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip_info(o, &StringInfo::entry(LACKING, 4));
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u.use_time(0.3);
+    let t = u.tooltip().expect("the tooltip shows");
+    let field = u.child_recursive(t, Token::of("TipText")).unwrap();
+    assert_eq!(u.text(field).as_deref(), Some(""), "waiting on the table");
+    d.waiting.lock().unwrap().clear();
+    u.use_time(0.35);
+    assert_eq!(u.text(field).as_deref(), Some("t4"));
+}
+
+/// A font of these characters, each `width` pixels wide and 10 high, with blank glyphs and the
+/// map of its characters, as a font read from the files has.
+fn font_of(chars: impl IntoIterator<Item = u16>, width: u32) -> Arc<auberean_assets::ui::Font> {
+    let glyphs: Vec<auberean_assets::ui::Glyph> = chars
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| auberean_assets::ui::Glyph {
+            width,
+            code_point: c,
+            unused: 0,
+            offset: u32::try_from(i).unwrap_or(0) * width,
+        })
+        .collect();
+    let total_width = u32::try_from(glyphs.len()).unwrap_or(0) * width;
+    Arc::new(auberean_assets::ui::Font {
+        max_height: 10,
+        max_width: width,
+        average_width: width,
+        total_width,
+        antialiased: true,
+        pixels: vec![0; (total_width * 10) as usize],
+        character_map: auberean_assets::ui::CharacterMap::of(&glyphs),
+        glyphs,
+    })
+}
+
+/// A string with a character the element's font lacks switches the element to the first fallback
+/// font that holds all of it (the Unicode font, then the second); when neither holds it, or the
+/// element has no font, the font stays. Each string starts from the element's own font, and
+/// measuring a string switches the font as adding it does.
+///
+/// Behaviour: ui.text.a-character-the-font-lacks-switches-to-a-fallback-font
+#[test]
+fn a_character_the_font_lacks_switches_to_a_fallback_font() {
+    const UNICODE: u32 = 0x4200_0010;
+    const SECOND: u32 = 0x4200_0011;
+    let names = ["A", "B", "C", "D", "E"];
+    let mut elements: Vec<_> = names
+        .iter()
+        .map(|n| text(n, [0, 0, 299, 19], vec![]))
+        .collect();
+    elements.push(element(
+        "Bare",
+        "text",
+        [0, 0, 299, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    ));
+    let mut r = records(elements, vec![]);
+    r.fonts
+        .insert(UNICODE, font_of((0x20u16..0x7F).chain([0xE9]), 7));
+    r.fonts
+        .insert(SECOND, font_of((0x20u16..0x7F).chain([0x416]), 9));
+    r.enums.insert((0x4000_0004, 0x4000_000B), UNICODE);
+    r.enums.insert((0x4000_0005, 0x4000_000B), SECOND);
+    let mut u = Ui::new(Arc::new(r), 1024, 768);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let make = |u: &mut Ui, n: &str| u.create_root(l, Token::of(n)).unwrap();
+    let font = |u: &Ui, h| u.text_state(h).unwrap().font;
+    let widths = |u: &Ui, h| -> Vec<i32> {
+        u.text_state(h)
+            .unwrap()
+            .glyphs
+            .glyphs
+            .iter()
+            .map(|g| g.width)
+            .collect()
+    };
+
+    let a = make(&mut u, "A");
+    u.add_string(a, "ab");
+    assert_eq!(font(&u, a), FONT, "a string the font holds keeps it");
+    u.add_string(a, "café");
+    assert_eq!(font(&u, a), UNICODE);
+    assert_eq!(
+        widths(&u, a),
+        [6, 6, 7, 7, 7, 7],
+        "the string in the fallback font"
+    );
+    u.add_string(a, "x");
+    assert_eq!(
+        font(&u, a),
+        FONT,
+        "each string is added in the element's own font first"
+    );
+
+    let b = make(&mut u, "B");
+    u.add_string(b, "\u{416}");
+    assert_eq!(
+        font(&u, b),
+        SECOND,
+        "the first fallback lacks it: the second"
+    );
+
+    let c = make(&mut u, "C");
+    u.add_string(c, "\u{2603}");
+    assert_eq!(font(&u, c), FONT, "neither holds it");
+
+    let d = make(&mut u, "D");
+    u.add_string(d, "line\none");
+    assert_eq!(font(&u, d), FONT, "a new line needs no glyph");
+
+    let e = make(&mut u, "E");
+    let measured = u.inq_size_with_margins(e, "é");
+    assert_eq!(font(&u, e), UNICODE, "measuring switches the font too");
+    assert_eq!(measured.map(|m| m.0), Some(7));
+
+    let bare = make(&mut u, "Bare");
+    u.add_string(bare, "é");
+    assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
+}
+
+/// An editable entry that takes the keyboard turns the host's input method on over the part of it
+/// that shows, in its font and color, and giving the keyboard up turns it off; an entry marked
+/// `no_IME` never turns it on.
+///
+/// Behaviour: ui.text.an-entry-taking-the-keyboard-turns-the-input-method-on
+#[test]
+fn an_entry_taking_the_keyboard_turns_the_input_method_on() {
+    let editable = |name: &str, extra: Vec<(&str, V)>| {
+        let mut a = vec![("editable", V::Bool(true))];
+        a.extend(extra);
+        text(name, [10, 20, 109, 39], a)
+    };
+    let mut u = ui(
+        vec![
+            editable("Entry", vec![]),
+            editable("Plain", vec![("no_IME", V::Bool(true))]),
+        ],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let entry = u.create_root(l, Token::of("Entry")).unwrap();
+    let plain = u.create_root(l, Token::of("Plain")).unwrap();
+    assert!(u.ime().is_none());
+    assert!(u.activate(entry));
+    let ime = *u.ime().expect("on");
+    assert_eq!(ime.area, auberean_ui::Rect::new(10, 20, 109, 39));
+    assert_eq!(ime.font, FONT);
+    assert_eq!(ime.color, Color::WHITE);
+    u.deactivate();
+    assert!(u.ime().is_none(), "the keyboard given up turns it off");
+    assert!(u.activate(plain));
+    assert!(u.ime().is_none(), "no_IME keeps it off");
 }

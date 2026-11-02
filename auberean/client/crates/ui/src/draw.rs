@@ -6,6 +6,8 @@
 //! element asks for that (`size_image_to_owner`), and otherwise repeated across it. Media items
 //! of draw mode 1 and 2 blend the picture over the layer by its alpha, keeping the layer's alpha;
 //! modes 0 and 3 copy its texels, alpha included.
+//!
+//! A top-level element marked `no_surface_object` has no layer: it is never drawn.
 
 use crate::source::Image;
 use crate::system::{Handle, Ui};
@@ -90,6 +92,28 @@ impl Blit {
             _ => Self::Copy,
         }
     }
+}
+
+/// The window `r` (inclusive) opens onto a picture `width` by `height`, pressed onto it: its left
+/// and top edges held at 0 or more, its right and bottom edges at the picture's at most and at
+/// its first column and row at least, and a window left with no width or height kept one texel
+/// wide or high inside its far edge. A window reaching off the picture paints the edge it reaches
+/// past.
+// D2-09947, D2-09948, D2-09955, D2-09956, D2-09957
+#[must_use]
+pub fn window(r: Rect, width: i32, height: i32) -> Rect {
+    let (mut x0, mut y0, mut x1, mut y1) = (r.x0, r.y0, r.x1 + 1, r.y1 + 1);
+    x0 = x0.max(0);
+    y0 = y0.max(0);
+    x1 = x1.min(width).max(1);
+    y1 = y1.min(height).max(1);
+    if x0 >= x1 {
+        x0 = x1 - 1;
+    }
+    if y0 >= y1 {
+        y0 = y1 - 1;
+    }
+    Rect::new(x0, y0, x1 - 1, y1 - 1)
 }
 
 /// One source texel onto one layer texel.
@@ -230,8 +254,11 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
             );
         }
     }
+    // Each fill is a window onto the element's own picture, filled with one texel.
+    // D2-09962, D2-09963, D2-09964
     for (r, texel) in &n.fills {
-        let Some(c) = r.offset(area.x0, area.y0).intersect(clip) else {
+        let w = window(*r, n.rect.width(), n.rect.height());
+        let Some(c) = w.offset(area.x0, area.y0).intersect(clip) else {
             continue;
         };
         for y in c.y0..=c.y1 {
@@ -399,13 +426,14 @@ pub fn draw(ui: &Ui, frame: &mut Surface) {
 
 /// Draw only the top-level elements whose depth passes `keep`, deepest first. A scene shown in a
 /// viewport stands at the viewport's depth: a host draws the elements deeper than it, the scene,
-/// then the nearer ones.
+/// then the nearer ones. Each is drawn into a transparent layer of its own, then laid over.
+// D2-11219, D2-11163
 pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
     let mut layer = Surface::new(frame.width, frame.height);
     let screen = frame.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
-        if !n.visible || !keep(z) {
+        if !n.visible || !keep(z) || !has_surface(ui, r) {
             continue;
         }
         let Some(clip) = layer_clip(ui, r, screen) else {
@@ -432,8 +460,18 @@ fn layer_clip(ui: &Ui, h: Handle, screen: Rect) -> Option<Rect> {
     Some(screen)
 }
 
+/// Whether a top-level element is drawn into a layer of its own: every one but those marked
+/// `no_surface_object`, which take the pointer and show nothing.
+// D2-11886, D2-11885
+fn has_surface(ui: &Ui, root: Handle) -> bool {
+    !ui.node(root)
+        .is_some_and(|n| n.bool_attr(attr::NO_SURFACE_OBJECT))
+}
+
 /// The top-level elements from the deepest, each with the depth it is drawn at, then an item
-/// being dragged, in front of everything.
+/// being dragged, in front of everything: each top-level element is an object of its own while it
+/// is on the screen.
+// D2-11281, D2-11220, D2-11265, D2-11152
 fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
     let mut out: Vec<(Handle, i32)> = ui
         .roots()
@@ -448,7 +486,8 @@ fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
 }
 
 /// A top-level element drawn as a whole at an alpha below one (a fade): every texel's alpha
-/// scaled by it.
+/// scaled by it, as the original sets its drawn object's material opacity.
+// D2-10436
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn fade_layer(layer: &mut Surface, area: Rect, alpha: f32) {
     if alpha >= 1.0 {
@@ -508,7 +547,7 @@ pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool)
     let screen = out.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
-        if !n.visible || !keep(z) {
+        if !n.visible || !keep(z) || !has_surface(ui, r) {
             continue;
         }
         let Some(clip) = layer_clip(ui, r, screen) else {

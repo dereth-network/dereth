@@ -150,6 +150,21 @@ impl RecordType {
         self.info().map_or((0, 0), |t| (t.cache_ideal, t.cache_max))
     }
 
+    /// Whether the authoring tools keep each of the type's records as a file of its own (`false`
+    /// for a type not in the table).
+    // D2-12738
+    #[must_use]
+    pub fn has_file(self) -> bool {
+        self.info().is_some_and(|t| t.has_file)
+    }
+
+    /// The type's pack version (0 for a type not in the table).
+    // D2-12740
+    #[must_use]
+    pub fn pack_version(self) -> u32 {
+        self.info().map_or(0, |t| t.pack_version)
+    }
+
     /// Whether a new record of the type takes the place of the oldest unused one when more are
     /// kept unused than the type's ideal number: landblocks only.
     #[must_use]
@@ -188,6 +203,93 @@ impl fmt::Display for RecordType {
     }
 }
 
+/// The type table's own state: whether it is set up, and the folders the authoring tools keep the
+/// game's and the engine's source files in. The client sets both folders as its database starts,
+/// each the project's folder followed by `/`; a player's machine has no project, so both are `/`
+/// ([`MasterMap::PLAYER_FOLDER`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MasterMap {
+    set_up: bool,
+    game_dir: String,
+    engine_dir: String,
+}
+
+impl MasterMap {
+    /// The game's and the engine's folder on a machine with no project settings.
+    pub const PLAYER_FOLDER: &'static str = "/";
+
+    /// Set the table up: `true` the first time; a table already set up is left as it is and
+    /// answers `false`.
+    // D2-12728
+    pub fn init(&mut self) -> bool {
+        if self.set_up {
+            return false;
+        }
+        self.set_up = true;
+        true
+    }
+
+    /// Let the table go (always `true`); the folders stay as they were set.
+    // D2-12729
+    pub fn cleanup(&mut self) -> bool {
+        self.set_up = false;
+        true
+    }
+
+    /// Whether the table is set up.
+    #[must_use]
+    pub fn is_set_up(&self) -> bool {
+        self.set_up
+    }
+
+    /// The game's folder.
+    #[must_use]
+    pub fn game_folder(&self) -> &str {
+        &self.game_dir
+    }
+
+    /// The engine's folder.
+    #[must_use]
+    pub fn engine_folder(&self) -> &str {
+        &self.engine_dir
+    }
+
+    /// Set the game's folder.
+    // D2-12734
+    pub fn set_game_data_dir(&mut self, dir: &str) {
+        dir.clone_into(&mut self.game_dir);
+    }
+
+    /// Set the engine's folder.
+    // D2-12735
+    pub fn set_engine_data_dir(&mut self, dir: &str) {
+        dir.clone_into(&mut self.engine_dir);
+    }
+
+    /// The folder a type's source files are kept in under the game's folder: the game's folder
+    /// followed by the type's folder name, or empty for a type with no folder name (or not in the
+    /// table).
+    // D2-12741
+    #[must_use]
+    pub fn game_data_dir(&self, ty: RecordType) -> String {
+        Self::under(&self.game_dir, ty)
+    }
+
+    /// The same under the engine's folder.
+    // D2-12742
+    #[must_use]
+    pub fn engine_data_dir(&self, ty: RecordType) -> String {
+        Self::under(&self.engine_dir, ty)
+    }
+
+    fn under(root: &str, ty: RecordType) -> String {
+        match ty.info().map_or("", |t| t.folder) {
+            "" => String::new(),
+            folder => format!("{root}{folder}"),
+        }
+    }
+}
+
 /// Which file a type's records live in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DatKind {
@@ -223,6 +325,11 @@ pub struct TypeInfo {
     /// How many records of the type the client's cache keeps ready, and at most.
     pub cache_ideal: u32,
     pub cache_max: u32,
+    /// The type's pack version (1 for every type).
+    pub pack_version: u32,
+    /// Whether the authoring tools keep each record as a file of its own (all but the landblock,
+    /// the cell, the file-id table, the qualities and the iteration list).
+    pub has_file: bool,
 }
 
 /// The client's 81 record types, in type-number order.
@@ -241,6 +348,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SCENE,
@@ -255,6 +364,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ANIM_MAP,
@@ -269,6 +380,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SETUP,
@@ -283,6 +396,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ANIMATION,
@@ -297,6 +412,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MESH,
@@ -311,6 +428,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::REGION,
@@ -325,6 +444,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SOUND_DESC,
@@ -339,6 +460,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SCENE_DESC,
@@ -353,6 +476,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::TERRAIN_DESC,
@@ -367,6 +492,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SURFACE_DESC,
@@ -381,6 +508,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ENCOUNTER_DESC,
@@ -395,6 +524,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SKY_DESC,
@@ -409,6 +540,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PROPERTY_DESC,
@@ -423,6 +556,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::WATER_DESC,
@@ -437,6 +572,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FOG_DESC,
@@ -451,6 +588,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::BLOCK_MAP,
@@ -465,6 +604,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::DAY_DESC,
@@ -479,6 +620,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::WAVE,
@@ -493,6 +636,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::QUALITIES,
@@ -507,6 +652,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: false,
     },
     TypeInfo {
         ty: RecordType::QUALITY_FILTER,
@@ -521,6 +668,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CONTENT_DB,
@@ -535,6 +684,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::VISUAL_DESC,
@@ -549,6 +700,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::APPEARANCE,
@@ -563,6 +716,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::UI_LAYOUT,
@@ -577,6 +732,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::STRING_TABLE,
@@ -591,6 +748,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ENUM_MAP,
@@ -605,6 +764,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MUSIC,
@@ -619,6 +780,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ID_MAP,
@@ -633,6 +796,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SOUND_ENVIRONMENT,
@@ -647,6 +812,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SOUND_INFO,
@@ -661,6 +828,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MUSIC_INFO,
@@ -675,6 +844,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MATERIAL,
@@ -689,6 +860,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SCRIPT_STATE,
@@ -703,6 +876,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CHARACTER_TEMPLATE,
@@ -717,6 +892,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MATERIAL_MODIFIER,
@@ -731,6 +908,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MATERIAL_INSTANCE,
@@ -745,6 +924,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PHYSICS_MATERIAL,
@@ -759,6 +940,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MOTION_DESC,
@@ -773,6 +956,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PATH_MAP,
@@ -787,6 +972,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FILE_FORMAT,
@@ -801,6 +988,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::TOOL_OBJECT,
@@ -815,6 +1004,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::TOOL_SHELL,
@@ -829,6 +1020,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::VALID_MODES,
@@ -843,6 +1036,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PICTURE,
@@ -857,6 +1052,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: true,
         cache_ideal: 256,
         cache_max: 512,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::TEXTURE,
@@ -871,6 +1068,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FONT,
@@ -885,6 +1084,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::UI_SCENE,
@@ -899,6 +1100,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::BEHAVIOR_TABLE,
@@ -913,6 +1116,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PROPERTY_LIST,
@@ -927,6 +1132,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::GAME_TIME,
@@ -941,6 +1148,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::LANDSCAPE,
@@ -955,6 +1164,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FILE_ID_TABLE,
@@ -969,6 +1180,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: false,
     },
     TypeInfo {
         ty: RecordType::PARTICLES,
@@ -983,6 +1196,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ENTITY_GROUP,
@@ -997,6 +1212,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ENTITY,
@@ -1011,6 +1228,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 64,
         cache_max: 128,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::KEY_MAP,
@@ -1025,6 +1244,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ACTION_MAP,
@@ -1039,6 +1260,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FX_TABLE,
@@ -1053,6 +1276,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::WORD_FILTER,
@@ -1067,6 +1292,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CAMERA_FX,
@@ -1081,6 +1308,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::SCRIPT_LIBRARY,
@@ -1095,6 +1324,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::LANDBLOCK,
@@ -1109,6 +1340,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 128,
+        pack_version: 1,
+        has_file: false,
     },
     TypeInfo {
         ty: RecordType::LANDBLOCK_INFO,
@@ -1123,6 +1356,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CELL,
@@ -1137,6 +1372,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 128,
+        pack_version: 1,
+        has_file: false,
     },
     TypeInfo {
         ty: RecordType::ITERATION_LIST,
@@ -1151,6 +1388,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: false,
     },
     TypeInfo {
         ty: RecordType::PLACES,
@@ -1165,6 +1404,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::STRING_STATE,
@@ -1179,6 +1420,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FX_SCRIPT,
@@ -1193,6 +1436,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CONVERSATION,
@@ -1207,6 +1452,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::LIGHT_CACHE,
@@ -1221,6 +1468,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::LIGHT_INFO,
@@ -1235,6 +1484,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 8,
         cache_max: 16,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::DETAIL_MAP,
@@ -1249,6 +1500,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::OBSTACLE_DESC,
@@ -1263,6 +1516,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::ENCODED_WAVE,
@@ -1277,6 +1532,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 1,
         cache_max: 32,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::CATEGORIES,
@@ -1291,6 +1548,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::MAP_NOTES,
@@ -1305,6 +1564,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PERFORMANCE,
@@ -1319,6 +1580,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::FONT_LOCAL,
@@ -1333,6 +1596,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 32,
         cache_max: 64,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::PICTURE_LOCAL,
@@ -1347,6 +1612,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: true,
         cache_ideal: 256,
         cache_max: 512,
+        pack_version: 1,
+        has_file: true,
     },
     TypeInfo {
         ty: RecordType::TEXTURE_LOCAL,
@@ -1361,6 +1628,8 @@ pub static TYPES: &[TypeInfo] = &[
         category_word: false,
         cache_ideal: 128,
         cache_max: 256,
+        pack_version: 1,
+        has_file: true,
     },
 ];
 

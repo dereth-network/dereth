@@ -76,6 +76,8 @@ pub(crate) fn find<V: Clone>(table: &[(u32, V)], key: u32) -> Option<V> {
 /// description and the table are written.
 #[derive(Debug)]
 pub struct Kind<V> {
+    /// The kind, in the high word beside a quality's number, as [`description::holds`] takes it.
+    pub stat: u32,
     /// The description's value, when it holds the quality and has it set.
     pub desc: fn(&WeenieDesc, u32) -> Option<V>,
     /// Set it in the description: whether the description holds the quality (and took it).
@@ -114,6 +116,7 @@ mod kinds {
 
     // D2-07398
     pub const INT: Kind<i32> = Kind {
+        stat: description::kind::INT,
         desc: description::int,
         set_desc: description::set_int,
         remove_desc: |w, k| description::int(w, k).filter(|_| description::remove_int(w, k)),
@@ -131,6 +134,7 @@ mod kinds {
 
     // D2-07399
     pub const LONG_INT: Kind<u64> = Kind {
+        stat: description::kind::LONG_INT,
         desc: description::holds_none,
         set_desc: never_set,
         remove_desc: never_removed,
@@ -144,6 +148,7 @@ mod kinds {
 
     // D2-07400
     pub const BOOL: Kind<i32> = Kind {
+        stat: description::kind::BOOL,
         desc: description::bool,
         set_desc: description::set_bool,
         remove_desc: description::remove_bool,
@@ -161,6 +166,7 @@ mod kinds {
 
     // D2-07401
     pub const FLOAT: Kind<f32> = Kind {
+        stat: description::kind::FLOAT,
         desc: description::float,
         set_desc: description::set_float,
         remove_desc: description::remove_float,
@@ -178,6 +184,7 @@ mod kinds {
 
     // D2-07402
     pub const TIMESTAMP: Kind<f64> = Kind {
+        stat: description::kind::TIMESTAMP,
         desc: description::holds_none,
         set_desc: never_set,
         remove_desc: never_removed,
@@ -191,6 +198,7 @@ mod kinds {
 
     // D2-07403
     pub const STRING: Kind<Vec<u8>> = Kind {
+        stat: description::kind::STRING,
         desc: description::holds_none,
         set_desc: never_set,
         remove_desc: never_removed,
@@ -205,6 +213,7 @@ mod kinds {
 
     // D2-07404
     pub const DATA_ID: Kind<u32> = Kind {
+        stat: description::kind::DATA_ID,
         desc: description::data_id,
         set_desc: description::set_data_id,
         remove_desc: description::remove_data_id,
@@ -222,6 +231,7 @@ mod kinds {
 
     // D2-07405
     pub const INSTANCE_ID: Kind<u64> = Kind {
+        stat: description::kind::INSTANCE_ID,
         desc: description::instance_id,
         set_desc: description::set_instance_id,
         remove_desc: description::remove_instance_id,
@@ -239,6 +249,7 @@ mod kinds {
 
     // D2-07406
     pub const POSITION: Kind<Placement> = Kind {
+        stat: description::kind::POSITION,
         desc: description::holds_none,
         set_desc: never_set,
         remove_desc: never_removed,
@@ -257,6 +268,7 @@ mod kinds {
 
     // D2-07407
     pub const STRING_INFO: Kind<TextInfo> = Kind {
+        stat: description::kind::STRING_INFO,
         desc: |w, k| description::string_info(w, k).map(text_info),
         set_desc: |w, k, v| description::set_string_info(w, k, string_info_of(&v)),
         remove_desc: |w, k| description::remove_string_info(w, k).map(|s| text_info(&s)),
@@ -285,6 +297,7 @@ mod kinds {
 
     // D2-07408
     pub const PACKAGE_ID: Kind<u32> = Kind {
+        stat: description::kind::PACKAGE_ID,
         desc: description::holds_none,
         set_desc: never_set,
         remove_desc: never_removed,
@@ -321,7 +334,10 @@ pub fn inq<V>(k: &Kind<V>, o: Option<&Object>, record: Option<&Record>, key: u32
 // D2-07409, D2-07412, D2-07415, D2-07416, D2-07419, D2-07420, D2-07421, D2-07422, D2-07423
 // D2-07424, D2-07425, D2-07358
 pub fn set<V: Clone>(k: &Kind<V>, o: &mut Object, key: u32, v: V) -> bool {
-    if key < FIRST_NOT_HELD && (k.set_desc)(&mut o.weenie, key, v.clone()) {
+    if key < FIRST_NOT_HELD
+        && description::holds(k.stat | key)
+        && (k.set_desc)(&mut o.weenie, key, v.clone())
+    {
         return true;
     }
     (k.set_own)(&mut o.qualities, key, v);
@@ -587,6 +603,7 @@ const NATIVES: &[(u32, NativeFn)] = &[
     (0x2C, get_data_id),
     (0x2D, does_data_id_exist),
     (0x2E, set_data_id),
+    (0x54, load_data_id),
     (0x30, remove_data_id),
     (0x31, inq_instance_id),
     (0x33, get_instance_id),
@@ -641,6 +658,62 @@ fn look<V>(c: &mut Call<'_>, k: &Kind<V>, key: u32) -> Result<Option<V>, Stop> {
 pub fn answer<V>(h: &mut ClientHost, k: &Kind<V>, id: u64, key: u32) -> Option<V> {
     let record = h.record(h.base_of(id));
     inq(k, h.model.object(id), record.as_deref(), key)
+}
+
+/// The quality an object's name is held in, and its plural's.
+pub const NAME: u32 = 0x100;
+pub const PLURAL_NAME: u32 = 0x101;
+
+/// A literal string reference.
+fn literal(text: &str) -> TextInfo {
+    TextInfo {
+        has_literal: 1,
+        literal: Some(text.encode_utf16().collect()),
+        ..TextInfo::default()
+    }
+}
+
+/// An object's name as its repository answers it; the literal `I have no name!` when it has
+/// none.
+// D2-00684, D2-00416
+pub fn name(h: &mut ClientHost, id: u64) -> TextInfo {
+    answer(h, &STRING_INFO, id, NAME).unwrap_or_else(|| literal("I have no name!"))
+}
+
+/// An object's plural name as its repository answers it; the literal `I have no plural name!`
+/// when it has none.
+// D2-00685
+pub fn plural_name(h: &mut ClientHost, id: u64) -> TextInfo {
+    answer(h, &STRING_INFO, id, PLURAL_NAME).unwrap_or_else(|| literal("I have no plural name!"))
+}
+
+/// The physics record an object is made with: its data id 1, 0 when it has none.
+// D2-08292
+pub fn phys_obj_id(h: &mut ClientHost, id: u64) -> u32 {
+    answer(h, &DATA_ID, id, 1).unwrap_or(0)
+}
+
+/// Whether an object moves: its mobile flag (yes-or-no 8), yes when it has none.
+// D2-07254
+pub fn is_mobile(h: &mut ClientHost, id: u64) -> bool {
+    answer(h, &BOOL, id, 8).unwrap_or(1) != 0
+}
+
+/// Whether an object is a creature: every bit of 4F (hexadecimal) set in its kind (number 14
+/// hexadecimal, 0 when it has none).
+// D2-08059
+pub fn is_creature(h: &mut ClientHost, id: u64) -> bool {
+    let kind = answer(h, &INT, id, 0x14).unwrap_or(0).cast_unsigned();
+    kind & 0x4F == 0x4F
+}
+
+/// Whether an object is of a kind a detection reports: the report's 64-bit mask against the
+/// object's two detection words (numbers 10 and 11, low word first, 0 when it has none).
+// D2-08076
+pub fn detection_type_match(h: &mut ClientHost, id: u64, mask: u64) -> bool {
+    let low = answer(h, &INT, id, 10).unwrap_or(0).cast_unsigned();
+    let high = answer(h, &INT, id, 11).unwrap_or(0).cast_unsigned();
+    mask & (u64::from(high) << 32 | u64::from(low)) != 0
 }
 
 /// Change the receiver's object: `f` given the object, its result answered; 0 without one.
@@ -902,6 +975,7 @@ fn remove_long_int(c: &mut Call<'_>) -> Result<Status, Stop> {
 /// The 64-bit numbers as the adjusting arithmetic sees them: signed.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 const SIGNED_LONG_INT: Kind<i64> = Kind {
+    stat: description::kind::LONG_INT,
     desc: description::holds_none,
     set_desc: never_set,
     remove_desc: never_removed,
@@ -1130,6 +1204,29 @@ fn does_data_id_exist(c: &mut Call<'_>) -> Result<Status, Stop> {
 // D2-04816, D2-08257
 fn set_data_id(c: &mut Call<'_>) -> Result<Status, Stop> {
     set_word(c, &DATA_ID, same)
+}
+
+/// Set a data id (`fp[-2]` the quality) to the record a file's name (`fp[-3]`) names, typed by
+/// its extension in the client's table of file names; whether it was set in `fp[-4]`. A name the
+/// table does not hold sets nothing and answers 0: on an install of the relaunched game the table
+/// holds none.
+// D2-04803, D2-08304
+fn load_data_id(c: &mut Call<'_>) -> Result<Status, Stop> {
+    // The receiver first, as every quality native: a null one stops the call.
+    receiver_object(c)?;
+    let key = c.arg(0)?;
+    let r = c.arg(1)?;
+    if r == NULL {
+        return Err(Stop::NullReference);
+    }
+    let name = match c.vm.heap.native(r)? {
+        NativeObject::Text(t) => t.clone(),
+        _ => return Err(c.fail("the file's name is not a string")),
+    };
+    let id = auberean_glue::names::id_by_file_name(c, &name);
+    let done = id != 0 && change(c, |o| set(&DATA_ID, o, key, id))?.unwrap_or(false);
+    c.write(-4, u32::from(done), tag::MIXED)?;
+    Ok(Status::Success)
 }
 
 // D2-04805, D2-08268

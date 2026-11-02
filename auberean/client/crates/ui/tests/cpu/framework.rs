@@ -460,3 +460,14 @@ fn kept_places_come_back() {
         "a moved window keeps its place"
     );
 }
+
+/// A new kept place, before any element's place is read into it, is hidden with every corner at
+/// -3: off the screen, whose clip space runs from -1 to 1.
+///
+/// Behaviour: ui.frame.a-new-kept-place-is-hidden-off-the-screen
+#[test]
+fn a_new_kept_place_is_hidden_off_the_screen() {
+    let p = auberean_ui::location::Location::default();
+    assert!(!p.visible);
+    assert_eq!((p.x0, p.y0, p.x1, p.y1), (-3.0, -3.0, -3.0, -3.0));
+}

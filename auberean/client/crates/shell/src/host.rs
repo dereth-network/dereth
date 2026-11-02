@@ -4,6 +4,8 @@
 use core::net::SocketAddr;
 use std::collections::VecDeque;
 
+use auberean_client_sdk::script::local::LocalSystem;
+
 /// What the shell needs from the platform under it.
 pub trait Host {
     /// Seconds since the program started, never going back.
@@ -56,10 +58,34 @@ pub trait Host {
     }
     /// Close the friends service's stream.
     fn friends_close(&mut self) {}
+    /// The sound device, when the host has one: what the game's sound plays through.
+    fn sound_output(&mut self) -> Option<&mut dyn dereth_audio::output::AudioOutput> {
+        None
+    }
     /// The next thing that happened on the friends service's stream.
     fn friends_news(&mut self) -> Option<FriendsNews> {
         None
     }
+    /// The machine's wall clock and the player's files kept with the settings, for the game's
+    /// scripts (a chat log, an options export); none when the host has neither.
+    fn local_system(&self) -> Option<Box<dyn LocalSystem + Send>> {
+        None
+    }
+    /// Where the platform's input method writes, in the window's pixels, while an entry that
+    /// allows it takes the keyboard; none turns it off.
+    fn set_input_method(&mut self, area: Option<InputArea>) {
+        let _ = area;
+    }
+}
+
+/// The part of the window the input method writes over: its top left corner and its size, in
+/// the window's pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputArea {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// What happened on the friends service's stream.
@@ -88,7 +114,56 @@ impl<H: Host> crate::keys::KeyFileStore for HostFiles<'_, H> {
     }
 }
 
-/// A host for tests: a clock set by hand, datagrams kept in queues, settings and files in memory.
+/// A sound device for tests: two channels at 48,000 frames a second, whose blocks a test pulls by
+/// hand.
+#[derive(Clone, Default)]
+pub struct TestSound {
+    #[allow(clippy::type_complexity)] // the stream's own callback, kept to be pulled
+    fill: std::sync::Arc<std::sync::Mutex<Option<Box<dyn FnMut(&mut [f32]) + Send>>>>,
+}
+
+impl std::fmt::Debug for TestSound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestSound").finish_non_exhaustive()
+    }
+}
+
+impl TestSound {
+    /// The device's rate.
+    pub const RATE: u32 = 48_000;
+
+    /// The next `frames` frames the device plays, two channels interleaved (silence before the
+    /// stream starts).
+    #[must_use]
+    pub fn pull(&self, frames: usize) -> Vec<f32> {
+        let mut out = vec![0.0; frames * 2];
+        if let Ok(mut f) = self.fill.lock() {
+            if let Some(fill) = f.as_mut() {
+                fill(&mut out);
+            }
+        }
+        out
+    }
+}
+
+impl dereth_audio::output::AudioOutput for TestSound {
+    fn probe(&mut self) -> Result<(u32, u16), String> {
+        Ok((Self::RATE, 2))
+    }
+
+    fn start(
+        &mut self,
+        fill: Box<dyn FnMut(&mut [f32]) + Send>,
+    ) -> Result<Box<dyn std::any::Any>, String> {
+        if let Ok(mut f) = self.fill.lock() {
+            *f = Some(fill);
+        }
+        Ok(Box::new(()))
+    }
+}
+
+/// A host for tests: a clock set by hand, datagrams kept in queues, settings and files in memory,
+/// and a sound device when given one.
 #[derive(Clone, Debug, Default)]
 pub struct TestHost {
     pub time: f64,
@@ -101,6 +176,10 @@ pub struct TestHost {
     pub settings: Option<String>,
     /// The player's files, by name.
     pub files: std::collections::BTreeMap<String, Vec<u8>>,
+    /// The sound device, when the test gives it one.
+    pub sound: Option<TestSound>,
+    /// Where the input method writes, as last told.
+    pub input_method: Option<InputArea>,
 }
 
 impl Host for TestHost {
@@ -146,5 +225,13 @@ impl Host for TestHost {
     fn save_file(&mut self, name: &str, bytes: &[u8]) -> bool {
         self.files.insert(name.to_owned(), bytes.to_vec());
         true
+    }
+    fn sound_output(&mut self) -> Option<&mut dyn dereth_audio::output::AudioOutput> {
+        self.sound
+            .as_mut()
+            .map(|s| s as &mut dyn dereth_audio::output::AudioOutput)
+    }
+    fn set_input_method(&mut self, area: Option<InputArea>) {
+        self.input_method = area;
     }
 }

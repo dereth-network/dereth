@@ -27,4 +27,6 @@ pub mod queues;
 pub mod session;
 
 pub use dereth_primitives::LocalTime;
+/// The errors a server's connection sections carry.
+pub use dereth_transport::conn::NetErrorCode;
 pub use session::{Event, Incoming, Received, Session, Settings};

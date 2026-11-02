@@ -4,7 +4,7 @@
 //! A row claims what the September 2013 client does with its keys, mouse and camera, or what the
 //! shell does as the seam the game's interface plugs into.
 
-use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -18,6 +18,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-faded-out-is-not-seen",
+        says: "Each body drawn is seen as faded out exactly when its figure's opacity (its fade \
+               slider, held to 0..1) is under 0.0002, as the arrow on the string is when let go of; at \
+               that opacity or more it is seen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-BODIES-FADED"),
+        station: "auberean-scene::corpus::objects::a_body_faded_out_by_its_animation_is_seen_as_faded",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-held-against-a-wall-is-animated-standing",
         says: "A body's figure is animated at how far the body moved over its last physics tick \
                (ten times the move, in the body's frame before it), not at the velocity it asks \
@@ -25,6 +35,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-FEET-WALL"),
         station: "auberean-scene::cpu::feet::a_body_held_against_a_wall_is_animated_standing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-body-turns-its-head-to-what-it-looks-at",
+        says: "A body asked to look at an object turns its head to it, blended in over half a \
+               second and held: its turn the object's angle from straight ahead, its pitch the \
+               weighted rise to three quarters up a body that moves on its own (half way up \
+               anything else) over the level distance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-LOOK"),
+        station: "auberean-scene::cpu::gaze::a_body_looking_at_an_object_turns_its_head_to_it_over_half_a_second_and_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-direction-from-the-server-turns-a-head",
+        says: "The direction the server sends for another body turns its head there over half a \
+               second, once; a body looking at nothing asks nothing else of its look sliders.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-DIR"),
+        station: "auberean-scene::cpu::gaze::a_direction_from_the_server_turns_another_bodys_head_over_half_a_second_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -36,6 +66,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-HELD"),
         station: "auberean-scene::corpus::combat::a_held_object_takes_the_profile_its_qualities_give",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-released-look-blends-back-out",
+        says: "A look released blends back out over half a second from where it held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-RELEASE"),
+        station: "auberean-scene::cpu::gaze::released_the_look_blends_back_out_over_half_a_second",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.bodies.a-step-up-or-down-shows-in-the-figures-vertical-speed",
@@ -60,6 +98,80 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.recorded-heads-turn-to-the-servers-directions",
+        says: "In a recorded 2017 session, every other body near the player has its look sliders at \
+               the direction the server last sent for it two thirds of a second after it came.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-RECORDED-DIR"),
+        station: "auberean-scene::corpus::gaze::other_bodies_heads_turn_to_the_direction_the_server_sends",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.recorded-looks-turn-heads-toward-their-objects",
+        says: "In recorded 2017 sessions, a body the server says looks at an object (the player's \
+               selections echoed, other players' looks) turns its head toward it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-RECORDED-LOOK"),
+        station: "auberean-scene::corpus::gaze::a_body_turns_its_head_toward_what_the_server_says_it_looks_at",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-player-moves-while-its-body-does-falling-too",
+        says: "The player moves while its body does, falling as much as running: dropped from high \
+               up, it moves as it falls straight down with no speed along the ground, and stops \
+               moving once it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-BODIES-MOVING"),
+        station: "auberean-shell::dat::session::the_player_moves_while_its_body_does_falling_too",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-player-stops-looking-at-what-is-long-behind-it",
+        says: "The player stops looking at what it looks at once that has been behind it or more \
+               than 10 m off for more than 2 seconds; another body keeps looking.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-AWAY"),
+        station: "auberean-scene::cpu::gaze::the_player_stops_looking_at_an_object_behind_it_for_more_than_two_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-players-head-follows-the-camera",
+        says: "With nothing to look at, the player's head turns the way the camera looks (in mouse \
+               look, the camera's direction turned into the body's frame), divided by the body's \
+               size, over a tenth of a second (a fifth when far off); the look at camera option \
+               turns it back toward a camera in front, and without the look around option it looks \
+               straight ahead.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-CAMERA"),
+        station: "auberean-scene::cpu::gaze::the_players_head_follows_the_camera_with_its_options",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-players-head-follows-the-camera-from-its-arrival",
+        says: "In a recorded 2017 session, the player's head follows the camera from its \
+               arrival with nothing looked at: tipped down by the camera's tilt over its height \
+               scale and turned straight ahead behind it, level and straight with the option to \
+               look around off; the client holds where it points for the server, and takes the \
+               option to look at the selection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GAZE-PLAYER-FROM-ARRIVAL"),
+        station: "auberean-scene::corpus::gaze::the_players_head_follows_the_camera_from_its_arrival_as_the_options_say",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-scripts-read-each-bodys-physics-object",
+        says: "What the scripts read of a body is what its physics object holds after the frame: \
+               the speed and acceleration scales the server last sent for it (kept while its body \
+               is away and the object stays), its jump scale, its radius and height (its setup's \
+               by its look's height scale and its own), the mode its figure was last asked to go \
+               to (for its mode and the mode it is going to alike; 0 with no figure) and the \
+               motion the server last sent while it follows the server's positions.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PHYSICS-READ"),
+        station: "auberean-scene::corpus::physics_object::the_scripts_read_each_bodys_physics_object",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.the-scripts-scale-hide-and-slide-the-bodies",
         says: "What the objects' scripts set on their bodies reaches them when it changes: the \
                body's own scale (drawn and met at its look's scale times it, its entry in the \
@@ -79,6 +191,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SCALES"),
         station: "auberean-scene::corpus::combat::the_servers_speed_and_acceleration_scales_reach_the_bodies",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.what-the-scripts-ask-of-a-body-is-carried-out",
+        says: "What the scripts ask of a body is carried out the next frame, in order: its speed \
+               and acceleration scales, drawn cloaked (and so not drawn), reporting and ignoring \
+               collisions, a push in the world's frame or its own (in the air at that velocity), \
+               a push away from another object that has a place (none away from itself), a layer \
+               of its animation stopped; a request for an object with no body does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PHYSICS-ASK"),
+        station: "auberean-scene::corpus::physics_object::what_the_scripts_ask_of_a_body_is_carried_out",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -198,11 +322,23 @@ pub static ROWS: &[Behaviour] = &[
         says: "With the camera at the eyes the player's body shows during combat only (the avatar \
                option's default): not at peace, and in a combat mode without its head. While a \
                behavior that moves the first-person camera plays, the camera rides the head bone a \
-               fifth of a meter ahead and up, and goes back to the eyes when it ends; at peace it \
-               stays at the eyes.",
+               fifth of a meter ahead and up (placed on it each time the body ticks), and goes \
+               back to the eyes when it ends; at peace it stays at the eyes.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-AVATAR"),
         station: "auberean-shell::dat::session::the_avatar_shows_in_first_person_during_combat_and_the_camera_rides_its_head",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.camera.the-camera-is-drawn-between-its-places-at-the-last-two-ticks",
+        says: "The camera is placed each time the player's body ticks (ten times a second; each \
+               frame in mouse look, with nothing drawn between) and each frame drawn between its \
+               places at the last two ticks by the share of the tick gone, as the body is: along \
+               the straight line between them, in the cell it stood in before; the shakes under \
+               way move where it stands now, which the frames after draw.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-TICKS"),
+        station: "auberean-shell::dat::session::the_camera_is_drawn_between_its_places_at_the_last_two_ticks",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -351,6 +487,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.command-line.a-line-that-does-not-read-shows-why-and-the-usage",
+        says: "A line that does not read writes why, then every option's usage sorted by long \
+               name, padded to 20 columns and wrapped at 80 indented 22; unknown options, loose \
+               words, missing values and -? fail it, and a line read whole still needs an \
+               account and a host.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-COMMAND-USAGE"),
+        station: "auberean-shell::cpu::command_line::a_line_that_does_not_read_shows_why_and_the_usage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.command-line.the-clients-options-read-as-retail-reads-them",
+        says: "The command line names options by -name, --name, /name or a single letter, keeps \
+               each value by its form (a port in any base, the account in small letters, a \
+               switch's own value), lets a value option take the next word whatever it is, and \
+               sets some preferences for the run; a line splits at spaces outside double quotes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-COMMAND-LINE"),
+        station: "auberean-shell::cpu::command_line::the_clients_options_read_as_retail_reads_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.controls.a-movement-key-begins-its-action-once",
         says: "A movement key pressed begins its action of the key map once: forward, backward, \
                the strafes, the turns (strafes in mouse look, where the left button runs), the \
@@ -398,6 +556,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-boot-at-login-shows-its-line-on-the-disconnected-screen",
+        says: "An account the server ends with a boot as it logs in (before the character list) \
+               goes from connecting to the disconnected screen, which shows the boot's line (the \
+               account is banned) and stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-BOOT-AT-LOGIN"),
+        station: "auberean-interface::dat::screens::a_boot_at_login_shows_its_line_on_the_disconnected_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-boot-ends-the-session-on-the-disconnected-screen-with-its-line",
+        says: "A player in the world whose login the server ends with a boot goes to the \
+               disconnected screen showing the boot's line (the character was booted): the play \
+               screen goes, the character is logged off and the world let go; the screen stays, \
+               and its button leaves the game.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-BOOT-IN-WORLD"),
+        station: "auberean-interface::dat::screens::a_boot_ends_the_session_on_the_disconnected_screen_with_its_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-click-in-the-world-selects-what-lies-under-it",
         says: "A click on a body standing in the world lands on the field over the world, and the \
                body under the pointer, found by the triangles drawn, is selected through the \
@@ -405,6 +584,50 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECTION-WORLD"),
         station: "auberean-interface::dat::screens::a_click_in_the_world_selects_what_lies_under_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-ray-meets-triangles-as-the-clients-trace-finds-them",
+        says: "A ray meets a list of triangles as the client's trace finds it: the nearest triangle \
+               whose plane the ray reaches, as a share of the ray's length, with the triangle's normal; \
+               one-sided only from in front; a triangle whose normal is under 0.0002 long, a ray ending \
+               short of the plane, and a ray within 0.0002 of the plane miss. The picks try each drawn \
+               batch two-sided.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PICK-TRILIST"),
+        station: "auberean-scene::cpu::view::a_ray_meets_triangles_as_the_clients_trace_finds_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.interface.a-record-not-stored-ends-the-session-with-the-clients-line",
+        says: "A record the server sends that the client cannot store stops the client: the \
+               session ends and the disconnected screen shows the client's own line, that it \
+               failed to save data, and stays.",
+        since: THIS_CLIENT,
+        divergence: "CD2-stops-on-the-disconnected-screen",
+        evidence: Evidence::Private("AC2-EVID-STOP-SAVE-FAILED"),
+        station: "auberean-interface::dat::screens::a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_with_its_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-renamed-selection-is-named-anew",
+        says: "When the server renames an object (a visual update of its name quality) the \
+               player's scripts say its radar look changed; the interface asks its name again and \
+               the panels hear that notice a frame later, with the world that has the new name, so \
+               the selection's name over it is the new one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RENAMED-SELECTION"),
+        station: "auberean-interface::dat::screens::a_renamed_selection_is_named_anew",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-server-gone-ends-the-session-on-the-disconnected-screen",
+        says: "A player in the world whose world server goes (its goodbye answered, or 140 \
+               seconds of silence) goes to the disconnected screen saying the connection to the \
+               server was lost: the session is over and the play screen gone; the screen stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-SERVER-GONE-SCREEN"),
+        station: "auberean-interface::dat::screens::a_world_server_gone_ends_the_session_on_the_disconnected_screen",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -417,6 +640,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-IN-FRONT-OF-THE-WORLD"),
         station: "auberean-interface::dat::screens::every_panel_is_drawn_in_front_of_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-input-method-writes-over-the-chat-entry-while-it-takes-the-keys",
+        says: "An editable entry that takes the keyboard turns the platform's input method on over \
+               the part of it that shows, unless it is marked to keep it off; the host is told \
+               where in the window, and told it is off once the entry lets the keyboard go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-IME-HOST"),
+        station: "auberean-interface::dat::screens::the_input_method_writes_over_the_chat_entry_while_it_takes_the_keys",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -450,6 +683,27 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PLAY-FRAMEWORKS"),
         station: "auberean-interface::dat::screens::the_play_screen_runs_on_the_frameworks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-play-screens-kept-places-go-into-a-table-and-come-back",
+        says: "The play screen's kept places go into a table of saved places as the client keeps \
+               them (each panel under its layout and name, its corners and whether it shows) and \
+               come back from one: a panel moved after the table was made is put back where it \
+               keeps it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-KEPT-PLACES-TABLE"),
+        station: "auberean-interface::dat::screens::the_play_screens_kept_places_go_into_a_table_and_come_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-players-scripts-write-its-own-name",
+        says: "The servers name the player in its own description, a written name with its meta \
+               letters after it, as all 433 player creations of the January 2017 sessions did; the \
+               player's scripts write its own name from it, the meta letters left off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLAYER-OWN-NAME"),
+        station: "auberean-interface::dat::screens::the_players_scripts_write_its_own_name",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -626,6 +880,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.others.an-object-hanging-from-another-is-lost-in-no-cell",
+        says: "An object lost in a cell goes out of any cell it was lost in first; one that hangs \
+               from another is then lost in none. A cell loaded gives back the objects lost in it, \
+               in the order they were lost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-LOST-PARENT"),
+        station: "auberean-scene::cpu::others::an_object_hanging_from_another_is_lost_in_no_cell",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.an-object-moves-as-its-qualities-record-says",
+        says: "Whether an object moves is asked of one qualities record, its entity template's \
+               when its description names an entity (none when the id is not an entity's), else \
+               its script package's: it moves when that record does not say otherwise, never when \
+               the data has no such record, and a body that does not move stays where it stands \
+               whatever positions are sent for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MOBILE-RULE"),
+        station: "auberean-scene::cpu::others::an_object_moves_as_its_qualities_record_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.an-object-whose-qualities-record-is-missing-stays-where-it-was-made",
+        says: "An object made of an entity template with no qualities record in the data does \
+               not move: sent a place 2 m on, it stays where it was made, while one whose record \
+               says it moves walks there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MOBILE-MISSING"),
+        station: "auberean-shell::dat::session::an_object_whose_qualities_record_is_missing_stays_where_it_was_made",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.others.another-body-follows-its-reports-at-an-even-pace",
         says: "Another body sent a position every 0.2 to 0.3 s while it runs is steered by its own \
                motion along the path of its positions, a physics tick at a time, toward a tick of \
@@ -670,17 +956,90 @@ pub static ROWS: &[Behaviour] = &[
         id: "desktop.others.objects-in-cells-not-loaded-wait-out-of-the-world",
         says: "Only the land cells of the landblocks the land holds (the player's and the eight \
                beside it) and the interior cells of the player's block and those beside it are \
-               loaded; an object sent into a cell not loaded leaves the world, kept in that cell's \
-               list of lost objects with where it was sent, and enters the world there when the \
-               cell is loaded again.",
+               loaded, and none with no player; an object sent into a cell not loaded leaves the \
+               world, kept in that cell's list of lost objects with where it was sent, and enters \
+               the world there when the cell is loaded again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-LOST"),
         station: "auberean-scene::cpu::others::objects_in_cells_not_loaded_wait_out_of_the_world",
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.others.whether-a-recorded-object-moves-is-its-records-word",
+        says: "Every object the 2017 sessions create names an entity template whose qualities \
+               record the data holds; 342 of those 3,282 records (the corpse's among them) say \
+               what they describe does not move, so 40,595 of the 160,633 creations are still.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MOBILE-RECORDED"),
+        station: "auberean-scene::corpus::mobility::whether_a_recorded_object_moves_is_its_records_word",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.preferences.a-value-set-for-the-run-comes-before-the-files",
+        says: "A preference set for the run (from the command line) is read before the file's; a \
+               number only when the whole value reads as one; an empty value or an unnamed \
+               preference is none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-RUN"),
+        station: "auberean-shell::cpu::preferences::a_value_set_for_the_run_comes_before_the_files",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.preferences.a-value-written-lands-where-the-clients-system-puts-it",
+        says: "A value written replaces the old one in place, or goes after its section's last \
+               key (at the end when the section is last and ends blank), or in a new section at \
+               the end; new lines end in CR LF, and an unended last line is ended first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-WRITE"),
+        station: "auberean-shell::cpu::profile::a_value_written_lands_where_the_clients_system_puts_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.preferences.named-by-the-datas-two-enumerations",
+        says: "The preferences' sections and keys are named by two enumerations in the data (Camera \
+               and CameraDistance, KeyMap and Normal, Net and UserSpecifiedPort, International \
+               and Language), and a preference asked for by number reads the file by those names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-NAMES"),
+        station: "auberean-shell::dat::preferences::named_by_the_datas_two_enumerations",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.preferences.the-file-reads-as-the-clients-system-reads-it",
+        says: "The preferences file reads as the client's system reads it: the first section of a \
+               name, keys and values trimmed, a value quoted at both ends unquoted, comments and \
+               lines with no equals sign no keys, a missing key's default less its trailing \
+               spaces, cut to the buffer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-FILE"),
+        station: "auberean-shell::cpu::profile::the_file_reads_as_the_clients_system_reads_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.preferences.the-language-is-the-lines-else-the-preferences-else-english",
+        says: "The language to run in is the command line's, else the preferences' International \
+               Language (trimmed), by its name in the languages enumeration without letter case; \
+               English when neither names one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-LANGUAGE"),
+        station: "auberean-shell::cpu::preferences::the_language_is_the_lines_else_the_preferences_else_english",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.scene.the-applied-graphics-preferences-reach-the-next-frame",
+        says: "The graphics preferences the player applies reach the world's next frame: its \
+               textures' detail and filtering, and its materials' detail.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PREFERENCES-APPLIED"),
+        station: "auberean-shell::dat::session::the_applied_graphics_preferences_reach_the_next_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.scene.the-bodies-effects-place-lights-among-the-frames",
-        says: "The lights the bodies' own effects place join the frame's lights with those of the                objects placed with the world: a light played on another human stands with it at its                effect's offset for as long as the effect says (as long as the human, or a few                seconds); with light source effects off, no effect places one.",
+        says: "The lights the bodies' own effects place join the frame's lights with those of the \
+               objects placed with the world: a light played on another human stands with it at its \
+               effect's offset for as long as the effect says (as long as the human, or a few \
+               seconds); with light source effects off, no effect places one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCENE-BODY-EFFECT-LIGHTS"),
         station: "auberean-shell::dat::session::the_bodies_effects_place_lights_among_the_frames",
@@ -716,6 +1075,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SETTINGS"),
         station: "auberean-shell::cpu::settings::options_read_by_the_clients_names_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.settings.the-avatars-looks-read-by-the-clients-names",
+        says: "The avatar's three looks (around with the camera, back at a camera in front, at \
+               each new selection) are read from its section by the client's names, each on \
+               unless the file says 0, and written back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-AVATAR-LOOKS"),
+        station: "auberean-shell::cpu::settings::the_avatars_looks_read_by_the_clients_names",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -761,6 +1130,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.figures-animate-a-thirtieth-of-a-second-apart-at-any-frame-rate",
+        says: "The figures animate only on a frame a thirtieth of a second or more after their \
+               last step, by the time since: at 144 frames a second a running player's figure \
+               takes a step every fifth frame, about 29 a second, while its body moves every \
+               tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCENE-ANIM-CLOCK"),
+        station: "auberean-shell::dat::session::figures_animate_a_thirtieth_of_a_second_apart_at_any_frame_rate",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.losing-the-keyboard-ends-held-moves-and-keeps-a-latched-run",
+        says: "The window losing the keyboard lets each action in force go as its key would: a \
+               held strafe ends and the next reports carry no sideways motion, while a run Q \
+               latched goes on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FOCUS-LOSS"),
+        station: "auberean-shell::dat::session::losing_the_keyboard_ends_a_held_strafe_and_keeps_the_latched_run",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.the-body-runs-with-the-default-keys-and-is-reported",
         says: "In the world, W held runs the player's body over the hall's floor at the running \
                speed, and its place is reported to the server by the report rule; closing the window \
@@ -802,6 +1192,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.the-window-title-names-the-account",
+        says: "The window's title is the client's name followed by the account the player logged \
+               in with (`Auberean | kara`), as Dereth's client titles its own; before a login it \
+               is the client's name alone.",
+        since: THIS_CLIENT,
+        divergence: "CD2-window-title-names-the-account",
+        evidence: Evidence::Private("AC2-EVID-WINDOW-TITLE"),
+        station: "auberean-shell::dat::session::the_window_title_names_the_account_the_player_logged_in_with",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.the-world-is-drawn-by-the-kept-preferences-from-the-first-frame",
         says: "The graphics preferences the player kept draw the world from its first frame, as \
                the client reads them when it starts: the world is made with the kept dynamic \
@@ -824,6 +1225,91 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.text.references-the-files-lack-are-asked-for-through-the-clients-cache",
+        says: "Once a client is here the interface writes string references through its data cache \
+               (a reference its files write reads as before and asks for nothing), and a reference \
+               naming a table the files lack starts a string download there, which waits.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-INTERFACE"),
+        station: "auberean-interface::dat::text::references_the_files_lack_are_asked_for_through_the_clients_cache",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.a-landblock-the-server-sends-is-made-into-the-land",
+        says: "A landblock the files lack is asked of the server when the cells' rings reach it; \
+               the one it sends is read by the world as the files' own and made into the land the \
+               player stands on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELLS-SERVED"),
+        station: "auberean-scene::corpus::cells::a_landblock_the_server_sends_is_made_into_the_land_the_player_stands_on",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.a-landblocks-objects-fade-in-over-a-second-as-it-is-taken-up",
+        says: "A landblock's objects fade in over the second after the near window takes it up, made \
+               or found again among the free blocks: each frame lists the blocks taken up less than a \
+               second before (not at the very moment) with the time since as their objects' opacity, \
+               and a body standing on such a block's land is drawn at that opacity; the blocks the \
+               window keeps are not listed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-FADE-IN"),
+        station: "auberean-shell::dat::session::a_landblocks_objects_fade_in_over_a_second_as_it_is_taken_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.an-object-is-told-the-mode-its-body-goes-into",
+        says: "Each body the server asks into a mode, or that a behavior carrying one puts there, \
+               tells its object the mode, as a notice about the object; every mode the server asked \
+               of a body the scene has is told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-MODE-NOTICE"),
+        station: "auberean-scene::corpus::objects::an_object_is_told_each_mode_its_body_goes_into",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.the-cells-asks-are-the-2017-clients",
+        says: "As the player moves, the cells about it are asked of the data cache a ring of \
+               landblocks at a time; the records the files lack are asked of the server as the 2017 \
+               clients asked for them, and as often.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELLS-ASKS"),
+        station: "auberean-scene::corpus::cells::the_cells_asks_for_records_the_files_lack_are_the_2017_clients",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.the-cells-asks-are-told-by-their-own-number",
+        says: "The data cache tells each listener only its own batches: the cells' asks are \
+               told by a number of their own, neither the objects' creations' nor the \
+               interface's string downloads', so the scene hears when the cells about the \
+               player are in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CELLS-LISTENER"),
+        station: "auberean-scene::cpu::cells::the_cells_asks_are_told_by_a_number_of_their_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.world.the-client-knows-where-the-scenes-bodies-stand",
+        says: "Every body the scene draws is made through the client from the physics record its \
+               object's repository names (for many objects their template's); the client is told \
+               the cell each body stands in, and none for one out of the world; the camera's two \
+               stand-ins are among the client's objects from the player's arrival; the region the \
+               player's creation names is taken up; the world's refresh makes the landscape again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SEAM"),
+        station: "auberean-scene::corpus::objects::the_client_knows_where_each_body_stands_and_names_its_physics_record",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.the-clients-objects-wait-with-the-world-for-its-cells",
+        says: "While the cells about the player the server just placed are asked for, the world \
+               stands still and the client's objects wait with it (their upkeep does not run); \
+               once the cells are in, both go on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-OBJECTS-WAIT-FOR-CELLS"),
+        station: "auberean-shell::dat::session::the_clients_objects_wait_with_the_world_for_its_cells",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.the-landscape-preferences-set-the-far-landscape-and-the-frills",
         says: "The landscape's draw distance sets how far the far landscape reaches (none, 2, 4, \
                6 or 8 blocks); the frill distance where frills are drawn (none; the cells next to \
@@ -832,6 +1318,35 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-LANDSCAPE-PREFERENCES"),
         station: "auberean-scene::cpu::landscape::the_landscape_preferences_set_the_far_landscape_and_the_frills",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.world.the-objects-the-client-makes-are-among-its-objects",
+        says: "Every object the client makes itself (an arrow) is among the client's objects while \
+               the scene has it, with its timeout as its lifetime; one the client is asked to \
+               destroy goes a quarter of a second later, from the scene with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-TEMPORARIES"),
+        station: "auberean-scene::corpus::objects::the_objects_the_client_makes_are_among_its_objects_while_they_last",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.the-players-arrival-preloads-its-scripts-singletons",
+        says: "The player's arrival has its scripts preload what they keep about the player: by the \
+               first frame the scene has the player, the master skill list is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-PRELOAD"),
+        station: "auberean-scene::corpus::objects::the_players_arrival_preloads_the_master_skill_list",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.the-shore-effects-preference-sets-what-the-shores-draw",
+        says: "The landscape's shore effects preference says what the shores draw: nothing when \
+               disabled; their strips in the frame's alpha at medium; those and their foam at \
+               high.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SHORE-EFFECTS"),
+        station: "auberean-scene::cpu::landscape::the_shore_effects_preference_sets_what_the_shores_draw",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -851,6 +1366,27 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-RUNNING-TIME"),
         station: "auberean-shell::dat::session::the_worlds_frame_carries_the_clients_running_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.under-water-the-fog-is-the-waters-at-the-cameras-depth",
+        says: "With the camera under its cell's water the fog is the water's at the camera's depth, \
+               the light the same; above it, the day's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-UNDERWATER"),
+        station: "auberean-shell::dat::session::under_water_the_fog_is_the_waters_at_the_cameras_depth",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.what-the-ambient-sound-hears-follows-the-players-cells",
+        says: "What the ambient sound hears about the player follows the cells about it each frame: its \
+               cell and place; whether the cells a placement asks for are waited for; the interior \
+               cells in the visible set (outdoors, those the near window's landblocks see from \
+               outside; inside, its cell and those it sees, with the outside ones when it sees the \
+               outdoors); whether the landscape is heard; and the window's landblocks.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-HEARING"),
+        station: "auberean-shell::dat::session::what_the_ambient_sound_hears_follows_the_players_cells",
         tier: Tier::Dat,
     },
 ];

@@ -22,10 +22,16 @@ pub const LANGUAGE_VALUE: u32 = 0x4000_0001;
 /// How many times a held record that does not read is tried in all.
 const TRIES: usize = 3;
 
+/// A record's bytes by id, as a host reads them.
+pub type Reader = Arc<dyn Fn(u32) -> Option<Vec<u8>> + Send + Sync>;
+
 /// Tables, the language and the enumeration mappings, read from data files in order (the first
 /// file that has a record is the one read).
 pub struct DatSource {
     files: Vec<Arc<DatFile>>,
+    /// Where records are read when not straight from the files (the client's data cache): a
+    /// record absent now may be there later, so absences are not remembered.
+    reader: Option<Reader>,
     tables: HashMap<u32, Option<Arc<Table>>>,
     language: Option<Option<Arc<Language>>>,
     maps: HashMap<u32, Option<Arc<IdMap>>>,
@@ -46,14 +52,34 @@ impl DatSource {
     pub fn new(files: Vec<Arc<DatFile>>) -> Self {
         Self {
             files,
+            reader: None,
             tables: HashMap::new(),
             language: None,
             maps: HashMap::new(),
         }
     }
 
+    /// A source whose records are read through `reader` (the files still name the master id
+    /// map): a record it lacks is looked for again the next time it is asked for, so one that
+    /// arrives later (a record the server sent) is found then.
+    #[must_use]
+    pub fn with_reader(files: Vec<Arc<DatFile>>, reader: Reader) -> Self {
+        Self {
+            reader: Some(reader),
+            ..Self::new(files)
+        }
+    }
+
     fn read(&self, id: u32) -> Option<Vec<u8>> {
-        self.files.iter().find_map(|f| f.read(id).ok())
+        match &self.reader {
+            Some(r) => r(id),
+            None => self.files.iter().find_map(|f| f.read(id).ok()),
+        }
+    }
+
+    /// Whether an absence is kept: only when reading the files themselves, which never change.
+    fn keeps_absences(&self) -> bool {
+        self.reader.is_none()
     }
 
     /// A record decoded as `T`; one a file holds is tried again when it does not read.
@@ -74,7 +100,9 @@ impl DatSource {
             .then(|| self.decoded::<IdMap>(id))
             .flatten()
             .map(Arc::new);
-        self.maps.insert(id, m.clone());
+        if m.is_some() || self.keeps_absences() {
+            self.maps.insert(id, m.clone());
+        }
         m
     }
 
@@ -115,7 +143,9 @@ impl Source for DatSource {
             .then(|| self.decoded::<StringTable>(id))
             .flatten()
             .map(|t| Arc::new(Table::from(&t)));
-        self.tables.insert(id, t.clone());
+        if t.is_some() || self.keeps_absences() {
+            self.tables.insert(id, t.clone());
+        }
         t
     }
 
@@ -129,7 +159,9 @@ impl Source for DatSource {
             .then(|| self.decoded::<StringState>(id))
             .flatten()
             .map(|s| Arc::new(Language::from_state(&s)));
-        self.language = Some(l.clone());
+        if l.is_some() || self.keeps_absences() {
+            self.language = Some(l.clone());
+        }
         l
     }
 }

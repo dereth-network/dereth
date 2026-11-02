@@ -2,9 +2,18 @@
 //! an offset, a point `p` lying `n·p + d` from it); what this world does with one is here.
 
 pub use dereth_primitives::shape::Plane;
-use dereth_primitives::Vec3;
+use dereth_primitives::{Position, Vec3};
 
-use super::{EPS, EPS_SQ};
+use super::{point_to_global_from, rotation_axes, Ray, EPS};
+
+fn w(x: f32) -> f64 {
+    f64::from(x)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn n(x: f64) -> f32 {
+    x as f32
+}
 
 /// Which side of a plane a point is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,29 +45,85 @@ pub trait PlaneOps {
     /// when the line runs within 0.0002 of parallel to the plane, or crosses it only before `a`
     /// or after `b`.
     fn line_crossing(&self, a: Vec3, b: Vec3) -> Option<(Vec3, f64)>;
+
+    /// Sets `v.z` to the height of the plane over `(v.x, v.y)`; false (and `v` unchanged) for a
+    /// plane within 0.0002 of upright.
+    fn set_height(&self, v: &mut Vec3) -> bool;
+
+    /// Moves `v` straight up or down onto the plane, as [`PlaneOps::set_height`] but worked
+    /// through the plane's distance at zero height and the reciprocal of its up part.
+    fn snap_to_plane(&self, v: &mut Vec3);
+
+    /// Whether the plane is one: no part not a number and its normal of unit length within
+    /// 0.0004 (its square length).
+    fn is_valid(&self) -> bool;
+
+    /// The plane, given in `from`'s frame, in the landblock frame of `to`'s cell.
+    fn local_to_global(&self, to: &Position, from: &Position) -> Plane;
+
+    /// How far along `ray` (in its own units of length, wide) its line meets the plane, and
+    /// whether that is ahead of its start (or not a number); none when the ray runs parallel
+    /// within 0.0002 squared.
+    fn time_of_intersection(&self, ray: &Ray) -> Option<(f64, bool)>;
+
+    /// Where `ray`, carried on past its length, meets the plane.
+    fn find_intercept(&self, ray: &Ray) -> Option<Vec3>;
+
+    /// Where the segment from `a` to `b` crosses the plane: none when both ends lie on the same
+    /// side or both within 0.01 of it; an end within 0.01 counts as on it.
+    fn intersect_line_segment(&self, a: Vec3, b: Vec3) -> Option<Vec3>;
+
+    /// Clips the part `start` to `end` (fractions of its length) of `ray` to the plane's positive
+    /// side: false when neither end lies on it; an end on the negative side moves to the crossing.
+    fn clip_ray_to_positive(&self, ray: &Ray, start: &mut f32, end: &mut f32) -> bool;
+
+    /// Cuts `ray` by the plane into its positive and negative parts: whether each side has a
+    /// part, and the parts (a ray wholly on one side is that side's part, its other part left as
+    /// given). None when a crossing is not found.
+    fn cut_ray(&self, ray: &Ray, positive: &mut Ray, negative: &mut Ray) -> Option<(bool, bool)>;
+}
+
+/// The side a distance lies on, more than `eps` off counting as off.
+fn side_by(d: f64, eps: f64) -> Side {
+    if d > eps {
+        Side::Positive
+    } else if d >= -eps {
+        Side::InPlane
+    } else {
+        Side::Negative
+    }
 }
 
 impl PlaneOps for Plane {
     // D2-03797
     fn through(normal: Vec3, point: Vec3) -> Plane {
-        Plane::from_normal_and_point(normal, point)
+        // The offset summed z, then y, then x, wide, rounded as stored.
+        let (nm, p) = (normal, point);
+        Plane::new(
+            normal,
+            n(-((w(nm.z) * w(p.z) + w(p.y) * w(nm.y)) + w(p.x) * w(nm.x))),
+        )
     }
 
     // D2-03798
     fn vertical(a: Vec3, b: Vec3) -> Plane {
-        let dx = a.x - b.x;
-        let dy = a.y - b.y;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len < EPS_SQ {
-            return Plane::new(Vec3::new(0.0, 1.0, 0.0), (a.z + a.x) * 0.0 - a.y);
+        // Worked wide as the client works it: the normal's parts rounded only as stored, the
+        // offset from the unrounded ones.
+        let dx = w(a.x) - w(b.x);
+        let dy = w(a.y) - w(b.y);
+        let len = (dy * dy + dx * dx).sqrt();
+        if len < w(EPS) * w(EPS) {
+            return Plane::new(
+                Vec3::new(0.0, 1.0, 0.0),
+                n((w(a.z) + w(a.x)) * 0.0 - w(a.y)),
+            );
         }
         let k = 1.0 / len;
         let nx = dy * k;
         let ny = -(k * dx);
-        Plane::new(
-            Vec3::new(nx, ny, 0.0),
-            (-(b.x * nx + b.y * ny) + -(a.y * ny + a.x * nx)) * 0.5,
-        )
+        let ta = -(w(a.x) * nx + w(a.y) * ny);
+        let tb = -(w(b.y) * ny + w(b.x) * nx);
+        Plane::new(Vec3::new(n(nx), n(ny), 0.0), n((ta + tb) * 0.5))
     }
 
     // D2-03484
@@ -110,6 +175,178 @@ impl PlaneOps for Plane {
             narrow(w(narrow(w(dz) * t)) + w(a.z)),
         );
         Some((at, 1.0 - t))
+    }
+
+    // D2-03613
+    fn set_height(&self, v: &mut Vec3) -> bool {
+        let m = self.normal;
+        if m.z.abs() > EPS {
+            v.z = n(-(((w(v.y) * w(m.y) + w(v.x) * w(m.x)) + w(self.d)) / w(m.z)));
+            true
+        } else {
+            false
+        }
+    }
+
+    // D2-05772
+    fn snap_to_plane(&self, v: &mut Vec3) {
+        let m = self.normal;
+        if m.z.abs() > EPS {
+            let k = 1.0 / w(m.z);
+            let at_zero = ((w(v.y) * w(m.y) + w(v.x) * w(m.x)) + w(m.z) * 0.0) + w(self.d);
+            v.z = n(-at_zero * k - -w(self.d) * k);
+        }
+    }
+
+    // D2-13220
+    fn is_valid(&self) -> bool {
+        let m = self.normal;
+        if m.x.is_nan() || m.y.is_nan() || m.z.is_nan() {
+            return false;
+        }
+        let n2 = (w(m.x) * w(m.x) + w(m.y) * w(m.y)) + w(m.z) * w(m.z);
+        (n2 - 1.0).abs() <= w(0.0004_f32) && !self.d.is_nan()
+    }
+
+    // D2-13130
+    fn local_to_global(&self, to: &Position, from: &Position) -> Plane {
+        let m = self.normal;
+        let k = -self.d;
+        let p = Vec3::new(k * m.x, k * m.y, k * m.z);
+        let r = rotation_axes(from.frame.rotation);
+        let turn = |a: f32, b: f32, c: f32| n((w(a) * w(m.y) + w(b) * w(m.x)) + w(c) * w(m.z));
+        let g = Vec3::new(
+            turn(r[3], r[0], r[6]),
+            turn(r[4], r[1], r[7]),
+            turn(r[5], r[2], r[8]),
+        );
+        let at = point_to_global_from(to, from, p);
+        Plane::new(
+            g,
+            n(-((w(g.z) * w(at.z) + w(g.y) * w(at.y)) + w(g.x) * w(at.x))),
+        )
+    }
+
+    // D2-13132
+    fn time_of_intersection(&self, ray: &Ray) -> Option<(f64, bool)> {
+        let m = self.normal;
+        let (d, p) = (ray.dir, ray.point);
+        let along = (w(d.y) * w(m.y) + w(d.z) * w(m.z)) + w(d.x) * w(m.x);
+        if w(EPS) * w(EPS) > along.abs() {
+            return None;
+        }
+        let t =
+            (((w(p.y) * w(m.y) + w(p.z) * w(m.z)) + w(m.x) * w(p.x)) + w(self.d)) * (-1.0 / along);
+        Some((t, t >= 0.0 || t.is_nan()))
+    }
+
+    // D2-13133
+    fn find_intercept(&self, ray: &Ray) -> Option<Vec3> {
+        let (t, ahead) = self.time_of_intersection(ray)?;
+        if !ahead || (t < 0.0 && t > w(ray.length)) {
+            return None;
+        }
+        let (d, p) = (ray.dir, ray.point);
+        Some(Vec3::new(
+            n(t * w(d.x) + w(p.x)),
+            n(w(n(t * w(d.y))) + w(p.y)),
+            n(w(n(t * w(d.z))) + w(p.z)),
+        ))
+    }
+
+    // D2-13136
+    fn intersect_line_segment(&self, a: Vec3, b: Vec3) -> Option<Vec3> {
+        let m = self.normal;
+        let dist = |v: Vec3| ((w(v.y) * w(m.y) + w(v.x) * w(m.x)) + w(m.z) * w(v.z)) + w(self.d);
+        let (da, db) = (dist(a), dist(b));
+        let (sa, sb) = (side_by(da, w(0.01_f32)), side_by(db, w(0.01_f32)));
+        if !matches!(
+            (sa, sb),
+            (Side::Positive, Side::Negative) | (Side::Negative, Side::Positive)
+        ) {
+            return None;
+        }
+        let (fa, fb) = (n(da), n(db));
+        let diff = n(w(fa) - w(fb));
+        let t = if diff.abs() > EPS {
+            w(fa) / w(diff)
+        } else {
+            0.0
+        };
+        let px = n((w(b.x) - w(a.x)) * t);
+        let py = n((w(b.y) - w(a.y)) * t);
+        let pz = n(w(n(w(b.z) - w(a.z))) * t);
+        Some(Vec3::new(
+            n(w(px) + w(a.x)),
+            n(w(py) + w(a.y)),
+            n(w(pz) + w(a.z)),
+        ))
+    }
+
+    // D2-13137
+    fn clip_ray_to_positive(&self, ray: &Ray, start: &mut f32, end: &mut f32) -> bool {
+        let m = self.normal;
+        let side_at = |frac: f32| {
+            let l = w(ray.length);
+            let (lx, ly, lz) = (l * w(ray.dir.x), n(l * w(ray.dir.y)), n(l * w(ray.dir.z)));
+            let f = w(frac);
+            let (x, y, z) = (lx * f, n(w(ly) * f), n(w(lz) * f));
+            let (x, y, z) = (
+                x + w(ray.point.x),
+                w(y) + w(ray.point.y),
+                w(z) + w(ray.point.z),
+            );
+            side_by(((z * w(m.z) + y * w(m.y)) + x * w(m.x)) + w(self.d), w(EPS))
+        };
+        let (s0, s1) = (side_at(*start), side_at(*end));
+        if s0 != Side::Positive && s1 != Side::Positive {
+            return false;
+        }
+        if s0 == Side::Negative || s1 == Side::Negative {
+            let Some((t, true)) = self.time_of_intersection(ray) else {
+                return false;
+            };
+            let frac = n(t / w(ray.length));
+            if s0 == Side::Positive {
+                *end = frac;
+            } else {
+                *start = frac;
+            }
+        }
+        true
+    }
+
+    // D2-13140
+    fn cut_ray(&self, ray: &Ray, positive: &mut Ray, negative: &mut Ray) -> Option<(bool, bool)> {
+        let l = w(ray.length);
+        let p = ray.point;
+        let end = Vec3::new(
+            n(l * w(ray.dir.x) + w(p.x)),
+            n(w(n(l * w(ray.dir.y))) + w(p.y)),
+            n(w(n(l * w(ray.dir.z))) + w(p.z)),
+        );
+        let m = self.normal;
+        let dist = |v: Vec3| ((w(v.x) * w(m.x) + w(v.y) * w(m.y)) + w(v.z) * w(m.z)) + w(self.d);
+        let (s0, s1) = (side_by(dist(p), w(EPS)), side_by(dist(end), w(EPS)));
+        let not_neg = |s: Side| s != Side::Negative;
+        let not_pos = |s: Side| s != Side::Positive;
+        if not_neg(s0) && not_neg(s1) {
+            *positive = *ray;
+            return Some((true, false));
+        }
+        if not_pos(s0) && not_pos(s1) {
+            *negative = *ray;
+            return Some((false, true));
+        }
+        let at = self.find_intercept(ray)?;
+        if s0 == Side::Positive {
+            positive.init_line_segment(p, at);
+            negative.init_line_segment(at, end);
+        } else {
+            negative.init_line_segment(p, at);
+            positive.init_line_segment(at, end);
+        }
+        Some((true, true))
     }
 }
 

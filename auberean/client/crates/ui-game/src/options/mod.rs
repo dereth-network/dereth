@@ -14,9 +14,11 @@
 //! applied); the commands' questions go with it. Its close button hides it, its help button opens
 //! the help at its page, its toolbar button shows and hides it.
 //!
-//! The rows of the pages are [`helper`]'s; what each row keeps, [`preference`].
+//! The rows of the pages are [`helper`]'s; what each row keeps, [`preference`]; the client's
+//! preferences behind the client page, [`bank`].
 
 pub mod assistance;
+pub mod bank;
 pub mod character;
 pub mod chat;
 pub mod client;
@@ -69,7 +71,9 @@ pub mod notice {
     /// The shortcut bar resized by hand to its rows.
     pub const SET_SHORTCUT_HEIGHT: u32 = 0x49C;
     /// Leave the world (the play screen ends the session), quit the game.
+    // D2-00311
     pub const LEAVE_WORLD: u32 = 0x444;
+    // D2-00318
     pub const QUIT: u32 = 0x445;
     /// The options window changed the player's options.
     pub const OPTIONS_CHANGED: u32 = 0x46D;
@@ -226,6 +230,7 @@ impl OptionWindow {
             kind: dialog::CONFIRMATION,
             text: crate::flow::message(ui, helper::OPTION_STRINGS, text),
             modal: false,
+            info: None,
         }));
         id
     }
@@ -393,7 +398,22 @@ impl OptionWindow {
     }
 }
 
+impl OptionWindow {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x436, 0x49C, 0x417, 0x48B, 0x468, 0x450];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for OptionWindow {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

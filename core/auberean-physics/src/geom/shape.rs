@@ -190,9 +190,24 @@ pub trait CylinderOps {
 
     /// Where a ray first meets the cylinder, as a fraction of its length.
     fn trace_ray(&self, ray: &Ray) -> Option<f32>;
+
+    /// Scales the cylinder: its low point along each axis, its height by the up factor, its
+    /// radius by the mean of the two across the ground.
+    fn scale(&mut self, s: Vec3);
 }
 
 impl CylinderOps for CylSphere {
+    // D2-13154
+    fn scale(&mut self, s: Vec3) {
+        let w = f64::from;
+        #[allow(clippy::cast_possible_truncation)]
+        let n = |v: f64| v as f32;
+        let p = self.low_pt;
+        self.low_pt = Vec3::new(p.x * s.x, s.y * p.y, s.z * p.z);
+        self.radius = n((w(s.y) + w(s.x)) * w(self.radius) * 0.5);
+        self.height *= s.z;
+    }
+
     // D2-13148
     fn bounding_box(&self, to: &Position, from: &Position) -> BBox {
         let r = self.radius;

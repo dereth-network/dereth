@@ -71,8 +71,59 @@ pub fn take_update(model: &mut Model, m: &ServerMessage) -> bool {
             }
             taken
         }
+        // A rename: the name (and the plural name) is the description's, so the new one takes the
+        // place of the one the object was made with.
+        // D2-08289, D2-07424
+        S::UpdateStringInfo(u) => set(player, u.quality, &|w| {
+            set_string_info(w, u.quality, u.value.clone())
+        }),
+        S::UpdateStringInfoVisual(u) => set(Some(u.object.id), u.quality, &|w| {
+            set_string_info(w, u.quality, u.value.clone())
+        }),
         _ => false,
     }
+}
+
+/// The kinds of quality, as a quality's kind is put in the high word beside its number: a
+/// yes-or-no value, a data id, a float, a whole number, an object, a position, a text, a time, a
+/// string reference, a package and a 64-bit number.
+pub mod kind {
+    pub const BOOL: u32 = 0x1_0000;
+    pub const DATA_ID: u32 = 0x2_0000;
+    pub const FLOAT: u32 = 0x3_0000;
+    pub const INT: u32 = 0x4_0000;
+    pub const INSTANCE_ID: u32 = 0x5_0000;
+    pub const POSITION: u32 = 0x6_0000;
+    pub const STRING: u32 = 0x7_0000;
+    pub const TIMESTAMP: u32 = 0x8_0000;
+    pub const STRING_INFO: u32 = 0xA_0000;
+    pub const PACKAGE_ID: u32 = 0xB_0000;
+    pub const LONG_INT: u32 = 0xC_0000;
+}
+
+/// Whether the description holds a quality named with its kind (the kind in the high word, the
+/// quality's number in the low): the whole numbers, yes-or-no values, floats, data ids, objects and
+/// string references it has a place for; no position, text, time, package or 64-bit number.
+// D2-13863, D2-13862
+#[must_use]
+pub fn holds(stat: u32) -> bool {
+    let q = stat & 0xFFFF;
+    match stat & 0xFFFF_0000 {
+        kind::BOOL => holds_bool(q),
+        kind::DATA_ID => holds_data_id(q),
+        kind::FLOAT => holds_float(q),
+        kind::INT => holds_int(q),
+        kind::INSTANCE_ID => holds_instance_id(q),
+        kind::STRING_INFO => holds_string_info(q),
+        _ => false,
+    }
+}
+
+/// Whether the description holds a string reference quality (the name and the plural name).
+// D2-12020
+#[must_use]
+fn holds_string_info(q: u32) -> bool {
+    q == NAME || q == PLURAL_NAME
 }
 
 /// The numbers: quality, mask bit.
@@ -322,7 +373,7 @@ pub fn set_data_id(w: &mut WeenieDesc, q: u32, v: u32) -> bool {
 }
 
 /// The name or the plural name, when the description has it.
-// D2-12063, D2-12020
+// D2-12063
 #[must_use]
 pub fn string_info(w: &WeenieDesc, q: u32) -> Option<&StringInfo> {
     match q {
@@ -435,6 +486,25 @@ mod tests {
         assert!(set_bool(&mut w, 0x117, 0));
         assert_eq!(bool(&w, 0x117), Some(0));
         assert_eq!(bool(&w, 10), None);
+    }
+
+    #[test]
+    fn the_description_holds_its_qualities_by_kind_and_no_position_text_time_package_or_long() {
+        assert!(holds(kind::INT | 0x106) && holds(kind::BOOL | 0x117));
+        assert!(holds(kind::FLOAT | 0x12A) && holds(kind::DATA_ID | 0x101));
+        assert!(holds(kind::INSTANCE_ID | 0x102));
+        assert!(holds(kind::STRING_INFO | 0x100) && holds(kind::STRING_INFO | 0x101));
+        assert!(!holds(kind::STRING_INFO | 0x102) && !holds(kind::INT | 0x101));
+        for k in [
+            kind::POSITION,
+            kind::STRING,
+            kind::TIMESTAMP,
+            kind::PACKAGE_ID,
+            kind::LONG_INT,
+        ] {
+            assert!(!holds(k | 0x100) && !holds(k | 0x106), "{k:#x}");
+        }
+        assert!(!holds(0x106), "a quality without its kind");
     }
 
     #[test]

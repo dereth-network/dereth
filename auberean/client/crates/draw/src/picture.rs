@@ -16,6 +16,43 @@ pub struct Image {
     pub smaller: Vec<Image>,
 }
 
+impl Image {
+    /// How many levels it has: the largest and the smaller ones.
+    #[must_use]
+    pub fn levels(&self) -> usize {
+        1 + self.smaller.len()
+    }
+
+    /// The picture as a texture takes it at texture detail `detail` (0 lowest to 4 highest): its
+    /// largest levels left out as [`dropped_levels`] says (none at the highest), the next its
+    /// largest.
+    // D2-10018
+    #[must_use]
+    pub fn at_detail(self, detail: u32) -> Self {
+        let n = dropped_levels(detail, true, self.levels());
+        if n == 0 {
+            return self;
+        }
+        let Self {
+            width,
+            height,
+            bgra,
+            smaller,
+        } = self;
+        let mut all = vec![Self {
+            width,
+            height,
+            bgra,
+            smaller: Vec::new(),
+        }];
+        all.extend(smaller);
+        let mut kept = all.split_off(n.min(all.len() - 1));
+        let mut top = kept.remove(0);
+        top.smaller = kept;
+        top
+    }
+}
+
 /// The stored formats a picture can have.
 mod format {
     pub const DXT1: u32 = 0x3154_5844;

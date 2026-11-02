@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::context::Context;
-use crate::graph::field;
+use crate::graph::{field, SavedState};
 use crate::heap::{Heap, Object, Target};
 use crate::interp;
 use crate::library::STATE_BASE;
@@ -36,6 +36,7 @@ pub const NO_PROCESS: usize = usize::MAX;
 
 /// The machine.
 #[derive(Debug)]
+// D2-16478
 pub struct Vm {
     program: Arc<Program>,
     pub heap: Heap,
@@ -60,7 +61,7 @@ pub struct Vm {
 
 impl Vm {
     /// A machine for a linked program.
-    // D2-16489
+    // D2-16489, D2-16426
     #[must_use]
     pub fn new(program: Arc<Program>) -> Self {
         let n = program.library.literals.len();
@@ -136,6 +137,16 @@ impl Vm {
             state,
             what: "not in the data".into(),
         })?;
+        self.instance_from_saved(&s, state, owner)
+    }
+
+    /// [`Vm::instance_from_state`] for a state already read: state `state`, as `s`.
+    pub fn instance_from_saved(
+        &mut self,
+        s: &SavedState,
+        state: u32,
+        owner: u32,
+    ) -> Result<u32, Stop> {
         let id = self.heap.import(&s.graph, None)?;
         if id == NULL {
             return Err(Stop::BadState {
@@ -179,7 +190,7 @@ impl Vm {
 
     /// Fill a singleton from its saved state (or, when the data has none, fresh slots of the
     /// state's package and its initializer), in place, and mark it loaded.
-    // D2-00977
+    // D2-00977, D2-00957
     pub fn fill(&mut self, host: &mut dyn Host, id: u32, prog: &Program) -> Result<(), Stop> {
         let state = self.heap.object(id)?.state;
         let saved = host.saved_state(state);
@@ -366,7 +377,7 @@ impl Vm {
     // -----------------------------------------------------------------------------------------
 
     /// A new process for an instance.
-    // D2-16418
+    // D2-16418, D2-16427
     pub fn create_process(&mut self, instance: u32) -> usize {
         self.processes.push(Some(Process {
             instance,
@@ -376,8 +387,23 @@ impl Vm {
         self.processes.len() - 1
     }
 
+    /// End a process: its suspended contexts go with it; its instance stays until nothing holds
+    /// it.
+    // D2-16456, D2-16412, D2-16409, D2-16424
+    pub fn delete_process(&mut self, p: usize) {
+        if let Some(slot) = self.processes.get_mut(p) {
+            *slot = None;
+        }
+        // Ended processes at the end of the table leave it, so a process made and ended for
+        // one call does not lengthen it.
+        while matches!(self.processes.last(), Some(None)) {
+            self.processes.pop();
+        }
+    }
+
     /// A process by id.
     #[must_use]
+    // D2-16423
     pub fn process(&self, p: usize) -> Option<&Process> {
         self.processes.get(p).and_then(Option::as_ref)
     }
@@ -412,7 +438,7 @@ impl Vm {
     }
 
     /// Take a process's suspended context out by its id (to resume it, or to keep it again).
-    // D2-08030
+    // D2-08030, D2-16413
     pub fn take_suspended(&mut self, p: usize, id: u32) -> Option<Context> {
         let proc = self.processes.get_mut(p).and_then(Option::as_mut)?;
         let at = proc.suspended.iter().position(|cx| cx.id == id)?;

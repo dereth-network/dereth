@@ -355,8 +355,11 @@ pub fn key_values(records: &dyn LookRecords, table: u32, key: u32) -> Vec<f32> {
     walk(records, table, key, 0).unwrap_or_default()
 }
 
-/// Every physique type a race and sex has, in type order.
+/// Every physique type a race and sex has, in type order: each with its label and the values it
+/// may take.
+// D2-11909, D2-11911
 #[must_use]
+// D2-01317, D2-01291
 pub fn choices(records: &dyn LookRecords, race: u32, sex: u32) -> Vec<Choice> {
     let mut out = Vec::new();
     if let Some(&(_, _, bl, bh, hl, hh)) = SIZES.iter().find(|s| s.0 == race && s.1 == sex) {
@@ -405,7 +408,8 @@ pub fn middle(n: usize) -> usize {
 /// else in the program draws from too.
 pub use auberean_primitives::random::Random;
 
-/// One avatar's choices: its race and sex, and a value per physique type.
+/// One avatar's choices: its race and sex, and a value per physique type. Dropped, its values go.
+// D2-11927
 #[derive(Clone, Debug, PartialEq)]
 pub struct Avatar {
     pub race: u32,
@@ -437,7 +441,7 @@ impl Avatar {
 
     /// Pick every type of `mask` at random from its values (a type the avatar does not have is
     /// 0).
-    // D2-11931
+    // D2-11912, D2-01320
     pub fn randomize(&mut self, choices: &[Choice], mask: u32, random: &mut Random) {
         for t in TYPES {
             if mask & t != t {
@@ -455,7 +459,8 @@ impl Avatar {
         }
     }
 
-    /// A type's value.
+    /// A type's value (none for a type the avatar does not have).
+    // D2-11922
     #[must_use]
     pub fn value(&self, physique_type: u32) -> Option<f32> {
         self.values.get(&physique_type).copied()
@@ -482,7 +487,7 @@ impl Avatar {
     /// The look the choices give, over `body` (the race and sex's body description): the scale,
     /// then each of the avatar's types in order as its table's value in the whole avatar's
     /// changes; a garment's type wears the garment first.
-    // D2-11914, D2-13841
+    // D2-11914, D2-13841, D2-01311
     #[must_use]
     pub fn look(&self, choices: &[Choice], body: DataId) -> Desc {
         let b = self.value(BUILD).unwrap_or(1.0);
@@ -514,6 +519,7 @@ impl Avatar {
 }
 
 /// The body entity of a race and sex.
+// D2-11913
 #[must_use]
 pub fn body_entity(race: u32, sex: u32) -> Option<u32> {
     BODIES

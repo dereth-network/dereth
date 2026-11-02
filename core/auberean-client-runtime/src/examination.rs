@@ -27,7 +27,8 @@ pub const PACKAGE: u32 = 0x9A;
 pub const OBJECT: u32 = 0x4000_0002;
 pub const TARGET: u32 = 0x4000_000D;
 
-/// One examination request.
+/// One examination request. A copy is a copy of every field.
+// D2-12228, D2-12230
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
     pub kind: u32,

@@ -295,7 +295,24 @@ impl Backpack {
     }
 }
 
+impl Backpack {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x49D, 0x45A, 0x1_040C, 0x406, 0x1_040B, 0x408, 0x42B, 0x454, 0x1_040E,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Backpack {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

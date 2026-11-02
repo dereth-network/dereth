@@ -10,7 +10,7 @@ use std::sync::Arc;
 use auberean_script::context::Context;
 use auberean_script::native_object::{Field, NativeObject};
 use auberean_script::opcode::op;
-use auberean_script::value::{tag, FunctionId};
+use auberean_script::value::{tag, FunctionId, NULL};
 use auberean_script::{Program, Status, Vm};
 
 use crate::asm::{i, library, small, w, Pkg, TestHost};
@@ -951,4 +951,331 @@ fn a_positions_parts_are_read_and_set_and_its_distances_kept_as_floats() {
     let (vm, r) = ask(&|b| native_call(b, 0, &[], POSITION, 0x27));
     assert_eq!(text(&vm, r), "<error>");
     assert_eq!(word(&|b| native_call(b, 0, &[], POSITION, 0x29)), u32::MAX);
+}
+
+/// A multi-map keeps its entries in key order, each key's in the order they came; `find` is a
+/// key's first entry, `find_last` the place after its last (where it would be when absent), the
+/// bounds are the first not less and the first greater; an iterator stays on its entry while
+/// other entries come and go, steps back from past the last to the last, and two iterators are
+/// equal at the same place of one map; erasing at an iterator, removing a key and clearing take
+/// entries out; a long-keyed map orders its keys as unsigned numbers.
+///
+/// Behaviour: script.glue.multi-map-natives
+#[test]
+fn a_multi_map_keeps_its_entries_in_key_order_and_its_iterators_on_their_entries() {
+    const MAP: u32 = 0x1AC3;
+    const ITER: u32 = 0x1AC4;
+    const LONG_MAP: u32 = 0x1ACC;
+    const LONG_ITER: u32 = 0x1ACD;
+    const MAP_FNS: &[&str] = &[
+        "insert",
+        "clear",
+        "empty",
+        "count",
+        "erase",
+        "remove",
+        "find",
+        "find_last",
+        "get_begin",
+        "get_end",
+        "lower_bound",
+        "upper_bound",
+    ];
+    const ITER_FNS: &[&str] = &["prev", "next", "key", "data", "equals"];
+    let (insert, clear, empty, count, erase, remove, find, find_last, begin, end, lower, upper) =
+        (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+    let (prev, next, key, data, equals) = (1, 2, 3, 4, 5);
+    let mut b = crate::call::Bench::with_packages(&[
+        ("AAMultiMap", MAP, MAP_FNS),
+        ("AAMultiMapIter", ITER, ITER_FNS),
+        ("LLMultiMap", LONG_MAP, MAP_FNS),
+        ("LLMultiMapIter", LONG_ITER, ITER_FNS),
+    ]);
+    let m = b.new_object(MAP);
+    assert_eq!(b.answer(MAP, empty, m, &[]), 1);
+    for (k, v) in [(5, 50), (2, 20), (5, 51), (9, 90), (2, 21), (5, 52)] {
+        assert_eq!(b.call(MAP, insert, m, &[k, v], 0).0, Status::Success);
+    }
+    assert_eq!(b.answer(MAP, empty, m, &[]), 0);
+    assert_eq!(b.answer(MAP, count, m, &[5]), 3);
+    // Walk from the first entry to past the last.
+    let walk = |b: &mut crate::call::Bench, it: u32| -> Vec<u32> {
+        let stop = b.answer(MAP, end, m, &[]);
+        let mut out = Vec::new();
+        while b.answer(ITER, equals, it, &[stop]) == 0 {
+            out.push(b.answer(ITER, key, it, &[]) * 100 + b.answer(ITER, data, it, &[]));
+            b.call(ITER, next, it, &[], 0);
+        }
+        out
+    };
+    let it = b.answer(MAP, begin, m, &[]);
+    assert_eq!(walk(&mut b, it), [220, 221, 550, 551, 552, 990]);
+    let at = |b: &mut crate::call::Bench, f: u32, k: u32| -> Option<u32> {
+        let it = b.answer(MAP, f, m, &[k]);
+        let stop = b.answer(MAP, end, m, &[]);
+        (b.answer(ITER, equals, it, &[stop]) == 0).then(|| b.answer(ITER, data, it, &[]))
+    };
+    assert_eq!(at(&mut b, find, 5), Some(50));
+    assert_eq!(at(&mut b, find, 7), None);
+    assert_eq!(at(&mut b, find_last, 5), Some(90), "after the last 5");
+    assert_eq!(at(&mut b, find_last, 7), Some(90), "where 7 would be");
+    assert_eq!(at(&mut b, find_last, 9), None);
+    assert_eq!(at(&mut b, lower, 3), Some(50));
+    assert_eq!(at(&mut b, upper, 2), Some(50));
+    assert_eq!(at(&mut b, upper, 9), None);
+    // An iterator on 51 stays there while others come and go.
+    let on = b.answer(MAP, find, m, &[5]);
+    b.call(ITER, next, on, &[], 0);
+    assert_eq!(b.answer(ITER, data, on, &[]), 51);
+    b.call(MAP, insert, m, &[5, 53], 0);
+    b.call(MAP, insert, m, &[1, 10], 0);
+    let first = b.answer(MAP, find, m, &[5]);
+    assert_eq!(b.call(MAP, erase, m, &[first], 0).0, Status::Success);
+    assert_eq!(b.answer(ITER, data, on, &[]), 51);
+    b.call(ITER, prev, on, &[], 0);
+    assert_eq!(b.answer(ITER, data, on, &[]), 21);
+    // From past the last, back to the last.
+    let back = b.answer(MAP, end, m, &[]);
+    b.call(ITER, prev, back, &[], 0);
+    assert_eq!(b.answer(ITER, data, back, &[]), 90);
+    // Two iterators past the last of different maps differ.
+    let other = b.new_object(MAP);
+    let (e1, e2) = (b.answer(MAP, end, m, &[]), b.answer(MAP, end, other, &[]));
+    assert_eq!(b.answer(ITER, equals, e1, &[e2]), 0);
+    let it = b.answer(MAP, begin, m, &[]);
+    assert_eq!(walk(&mut b, it), [110, 220, 221, 551, 552, 553, 990]);
+    b.call(MAP, remove, m, &[5], 0);
+    assert_eq!(b.answer(MAP, count, m, &[5]), 0);
+    let it = b.answer(MAP, begin, m, &[]);
+    assert_eq!(walk(&mut b, it), [110, 220, 221, 990]);
+    b.call(MAP, clear, m, &[], 0);
+    assert_eq!(b.answer(MAP, empty, m, &[]), 1);
+    // A 64-bit key: high word nearest, then the low word; keys order as unsigned numbers.
+    let l = b.new_object(LONG_MAP);
+    for (hi, lo, v) in [(1u32, 0u32, 7u32), (0, 0xFFFF_FFFF, 6), (0, 3, 5)] {
+        b.call(LONG_MAP, insert, l, &[hi, lo, 0, v], 0);
+    }
+    let it = b.answer(LONG_MAP, begin, l, &[]);
+    let mut values = Vec::new();
+    for _ in 0..3 {
+        let (_, slots) = b.call(LONG_ITER, data, it, &[], 2);
+        values.push(slots[1].0);
+        b.call(LONG_ITER, next, it, &[], 0);
+    }
+    assert_eq!(values, [5, 6, 7]);
+}
+
+/// Behaviour: script.glue.file-names-and-tracks-by-name
+#[test]
+fn a_file_name_finds_its_id_by_its_extension_and_a_keyframe_takes_its_tracks_by_name() {
+    use auberean_script::native_object::native_type;
+    const FILES: u32 = 0x27;
+    const KEY: u32 = 0x9F;
+    const IMAGE: u32 = 0x4000_003C;
+    const SOUND: u32 = 0x4000_002D;
+    let mut b = crate::call::Bench::new();
+    b.host
+        .names
+        .insert(("Story_Black01.jpg".to_owned(), IMAGE), 0x0600_1234);
+    b.host
+        .names
+        .insert(("  SQ_Intro.mif ".to_owned(), SOUND), 0x0A00_0042);
+    // The type is read from the name trimmed; the table is asked with the name as given.
+    let jpg = b.text("Story_Black01.jpg");
+    assert_eq!(b.answer(FILES, 0x02, NULL, &[jpg]), 0x0600_1234);
+    let mif = b.text("  SQ_Intro.mif ");
+    assert_eq!(b.answer(FILES, 0x02, NULL, &[mif]), 0x0A00_0042);
+    // A name with no known extension answers 0 without asking the table.
+    b.host.names.insert(("Story_Black01".to_owned(), 0), 7);
+    let bare = b.text("Story_Black01");
+    assert_eq!(b.answer(FILES, 0x02, NULL, &[bare]), 0);
+    // By name and an explicit type: the table's answer for that pair.
+    let (_, slots) = b.call(FILES, 0x03, NULL, &[jpg, IMAGE], 1);
+    assert_eq!(slots[0].0, 0x0600_1234);
+    let (_, slots) = b.call(FILES, 0x03, NULL, &[jpg, SOUND], 1);
+    assert_eq!(slots[0].0, 0);
+    // An id by an enumeration value (`fp[-2]`) in a mapping (`fp[-3]`).
+    b.host.enum_ids.insert((5, 0x4000_0004), 0x2300_0005);
+    let (_, slots) = b.call(FILES, 0x01, NULL, &[5, 0x4000_0004], 1);
+    assert_eq!(slots[0].0, 0x2300_0005);
+    // A file's name by its id, as a new string.
+    let (status, slots) = b.call(FILES, 0x04, NULL, &[0x0600_1234], 1);
+    assert_eq!(status, Status::Success);
+    assert_eq!(slots[0].1, tag::REFERENCE);
+    assert_eq!(
+        String::from_utf16(&b.text_of(slots[0].0)).unwrap(),
+        "Story_Black01.jpg"
+    );
+    // A keyframe's tracks by name: the id, and the track marked defined.
+    let key = b.new_object(native_type::KEYFRAME);
+    assert_eq!(b.call(KEY, 0x09, key, &[jpg], 0).0, Status::Success);
+    b.call(KEY, 0x0F, key, &[mif], 0);
+    let unknown = b.text("Story_Missing.jpg");
+    b.call(KEY, 0x0C, key, &[unknown], 0);
+    match b.vm.heap.native(key).unwrap() {
+        NativeObject::Keyframe(k) => {
+            assert_eq!((k.video, k.voice, k.audio), (0x0600_1234, 0x0A00_0042, 0));
+            // A name the table does not hold still defines the track, as empty.
+            assert_eq!(k.tracks, 0x1 | 0x2 | 0x4);
+        }
+        o => panic!("not a keyframe: {o:?}"),
+    }
+    // A null keyframe crashes the call.
+    assert_eq!(b.call(KEY, 0x09, NULL, &[jpg], 0).0, Status::Crash);
+    // A host with no table (an install of the relaunched game) answers 0 and an empty name.
+    let mut empty = crate::call::Bench::new();
+    let jpg = empty.text("Story_Black01.jpg");
+    assert_eq!(empty.answer(FILES, 0x02, NULL, &[jpg]), 0);
+    let (_, slots) = empty.call(FILES, 0x04, NULL, &[0x0600_1234], 1);
+    assert!(empty.text_of(slots[0].0).is_empty());
+}
+
+/// The ids a set of record ids holds, in its order.
+fn record_ids(b: &crate::call::Bench, set: u32) -> Vec<u32> {
+    match b.vm.heap.native(set).expect("an object") {
+        NativeObject::Engine(e) => e
+            .get::<auberean_glue::data_ids::DataIds>()
+            .expect("a set of record ids")
+            .0
+            .iter()
+            .map(|q| q.id)
+            .collect(),
+        o => panic!("{set:#x} is not a set of record ids: {o:?}"),
+    }
+}
+
+/// **The records a saved state needs are gathered into a set of ids**: each id once, in id order,
+/// never id 0, each add answering whether it added; a string reference adds its table and each
+/// nested reference's (a literal and a number add nothing); a scene adds each keyframe's video,
+/// audio and voice records and its subtitle's table, the tracks left out when the type asked
+/// about is the one they are never fetched for; a race and sex's look adds its body, its
+/// appearance table's records, its pile's look and its music. A null receiver crashes each call.
+/// Fixture: each native called as the machine calls one, the set held in a local slot.
+/// Behaviour: script.glue.a-saved-states-records-are-gathered
+#[test]
+fn the_records_a_saved_state_needs_are_gathered_once_each_in_id_order() {
+    use auberean_script::native_object::{TextInfo, Variable, VariableValue};
+    use auberean_script::story::{Keyframe, SceneInfo};
+
+    const SET: u32 = 0x5E;
+    let mut b = crate::call::Bench::new();
+    let set = b.object(SET, NativeObject::Opaque { ty: SET });
+    assert_eq!(b.answer(SET, 1, set, &[0x2500_0010]), 1);
+    assert_eq!(b.answer(SET, 1, set, &[0x0600_0001]), 1);
+    assert_eq!(b.answer(SET, 1, set, &[0x2500_0010]), 0, "held already");
+    assert_eq!(b.answer(SET, 1, set, &[0]), 0, "id 0");
+    assert_eq!(record_ids(&b, set), [0x0600_0001, 0x2500_0010]);
+    assert_eq!(b.call(SET, 1, NULL, &[5], 1).0, Status::Crash);
+
+    // A string reference: its table and its nested references' tables.
+    let table = |t: u32| TextInfo {
+        table: t,
+        ..TextInfo::default()
+    };
+    let literal = TextInfo {
+        has_literal: 1,
+        literal: Some("x".encode_utf16().collect()),
+        ..table(0x2500_0030)
+    };
+    let nested = |id: u32, t: TextInfo| Variable {
+        id,
+        kind: 9,
+        value: VariableValue::Nested(Box::new(t)),
+    };
+    let info = TextInfo {
+        variables: vec![
+            nested(1, table(0x2500_0020)),
+            nested(2, literal),
+            Variable {
+                id: 3,
+                kind: 6,
+                value: VariableValue::Word(0x2500_0040),
+            },
+        ],
+        ..table(0x2500_0011)
+    };
+    let set = b.object(SET, NativeObject::Opaque { ty: SET });
+    let r = b.object(0x6A, NativeObject::TextInfo(info));
+    let (status, _) = b.call_with_local(0x6A, 0x1C, r, set, &[Some(0), None], 0);
+    assert_eq!(status, Status::Success);
+    assert_eq!(record_ids(&b, set), [0x2500_0011, 0x2500_0020]);
+    let (status, _) = b.call_with_local(0x6A, 0x1C, NULL, set, &[Some(0), None], 0);
+    assert_eq!(status, Status::Crash);
+
+    // A scene: each keyframe's tracks and subtitle.
+    let key = |n: u32| Keyframe {
+        video: 0x0A00_0000 + n,
+        audio: 0x0A00_0100 + n,
+        voice: 0,
+        subtitle: table(0x2500_0100 + n),
+        ..Keyframe::default()
+    };
+    let scene = SceneInfo {
+        keyframes: vec![key(1), key(2)],
+        ..SceneInfo::default()
+    };
+    let r = b.object(0xA3, NativeObject::Scene(Box::new(scene)));
+    let set = b.object(SET, NativeObject::Opaque { ty: SET });
+    let (status, _) = b.call_with_local(0xA3, 0x02, r, set, &[Some(0x4000_0009), None], 0);
+    assert_eq!(status, Status::Success);
+    assert_eq!(
+        record_ids(&b, set),
+        [
+            0x0A00_0001,
+            0x0A00_0002,
+            0x0A00_0101,
+            0x0A00_0102,
+            0x2500_0101,
+            0x2500_0102
+        ]
+    );
+    let set = b.object(SET, NativeObject::Opaque { ty: SET });
+    let (status, _) = b.call_with_local(0xA3, 0x02, r, set, &[Some(0x4000_0008), None], 0);
+    assert_eq!(status, Status::Success);
+    assert_eq!(record_ids(&b, set), [0x2500_0101, 0x2500_0102], "no tracks");
+
+    // A race and sex's look: body, pile, music, then a table of two entries.
+    let words: [u32; 8] = [
+        0x0200_0001,
+        0x0200_0002,
+        0x0300_0003,
+        0x0200_0002,
+        7,
+        0x0700_0007,
+        9,
+        0x0700_0009,
+    ];
+    let bytes = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    let r = b.object(0xA2, NativeObject::Packed { ty: 0xA2, bytes });
+    let set = b.object(SET, NativeObject::Opaque { ty: SET });
+    let (status, _) = b.call_with_local(0xA2, 0x08, r, set, &[Some(0), None], 0);
+    assert_eq!(status, Status::Success);
+    assert_eq!(
+        record_ids(&b, set),
+        [
+            0x0200_0001,
+            0x0200_0002,
+            0x0300_0003,
+            0x0700_0007,
+            0x0700_0009
+        ]
+    );
+}
+
+/// Behaviour: script.glue.an-arrays-new-places-hold-nothing
+#[test]
+fn an_array_of_references_made_longer_holds_no_reference_in_its_new_places() {
+    use auberean_script::native_object::Item;
+    let mut b = crate::call::Bench::with_packages(&[("RArray", 0x61, &["set_num_elements"])]);
+    let r = b.new_object(0x61);
+    assert_eq!(b.answer(0x61, 1, r, &[3]), 1);
+    let Ok(NativeObject::Sequence { items, .. }) = b.vm.heap.native(r) else {
+        panic!("an array")
+    };
+    assert_eq!(items, &vec![Item::Ref(NULL); 3]);
+    assert_eq!(b.answer(0x61, 1, r, &[1]), 1);
+    let Ok(NativeObject::Sequence { items, .. }) = b.vm.heap.native(r) else {
+        panic!("an array")
+    };
+    assert_eq!(items.len(), 1, "made shorter");
 }

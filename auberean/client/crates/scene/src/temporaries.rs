@@ -2,8 +2,10 @@
 //!
 //! A temporary object takes the lowest temporary id free and is made from a record (an entity, or
 //! a visual description) as its figure, with a physics body whose collision spheres its setup
-//! gives. It has no game object. It is in the world's table but not in the world until it is
-//! placed, and it plays its look's startup effects from its making. Made with a timeout, it fades
+//! gives. It has no game object, but it is among the client's objects, its timeout its lifetime;
+//! when the client lets it go (asked to destroy it), the scene lets it go too. It is in the world's
+//! table but not in the world until it is placed, and it plays its look's startup effects from its
+//! making. Made with a timeout, it fades
 //! out over half a second when the timeout has passed and goes half a second later; removed at once
 //! when its story ends with it unfired.
 //!
@@ -122,6 +124,13 @@ fn body_of(id: u64, figure: Option<&Figure>, scale: f32, at: Position) -> Body {
 }
 
 impl Temporaries {
+    /// The sounds every body's effects played or stopped since last taken, each with its object.
+    pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
+        for fx in self.made.values_mut().filter_map(|b| b.effects.as_mut()) {
+            out.extend(fx.sounds.drain(..).map(|s| (fx.id, s)));
+        }
+    }
+
     pub(crate) fn has(&self, id: u64) -> bool {
         self.made.contains_key(&id)
     }
@@ -164,6 +173,26 @@ impl Temporaries {
     /// The ids made, and what holds each.
     pub(crate) fn ids(&self) -> Vec<(u64, Option<(u64, u32)>)> {
         self.made.iter().map(|(id, t)| (*id, t.holder)).collect()
+    }
+
+    /// Turn on (`on`) or off the streaks of the objects made that `holder` holds at holding
+    /// location `location` (all it holds for 0); the ids turned, for what they hold in turn.
+    // D2-06197, D2-06198
+    pub(crate) fn turn_streaks(&mut self, holder: u64, location: u32, on: bool) -> Vec<u64> {
+        let mut turned = Vec::new();
+        for (id, t) in &mut self.made {
+            if !t
+                .holder
+                .is_some_and(|(p, at)| p == holder && (location == 0 || at == location))
+            {
+                continue;
+            }
+            if let Some(fx) = t.effects.as_mut() {
+                fx.fx.turn_streaks(on);
+            }
+            turned.push(*id);
+        }
+        turned
     }
 
     /// Object `id` made from record `data_id` standing at `at` (not in the world), its timeout
@@ -352,6 +381,8 @@ impl Scene<'_> {
         if let Some(t) = self.temporaries.get_mut(id) {
             self.table.insert_body(&self.land, id, &mut t.body);
         }
+        // Among the client's objects, with its timeout as its lifetime.
+        client.queue.initialize_temporary_object(id, seconds, now);
         tracing::debug!(
             id = format_args!("{id:#x}"),
             record = format_args!("{data_id:#x}"),
@@ -369,6 +400,7 @@ impl Scene<'_> {
             }
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
+            client.queue.remove_object(id);
         }
     }
 
@@ -483,7 +515,7 @@ impl Scene<'_> {
         &mut self,
         client: &mut Client,
         ticks: u32,
-        dt: f32,
+        anim: Option<f32>,
         heard: &mut Vec<(u64, Vec<Completion>, Vec<u32>)>,
     ) {
         let now = client.local_time();
@@ -493,6 +525,18 @@ impl Scene<'_> {
             }
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
+            client.queue.remove_object(id);
+        }
+        // Those the client let go of (asked to be destroyed, their time come) go with them.
+        let gone: Vec<u64> = self
+            .temporaries
+            .ids()
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| !client.queue.has_object(*id))
+            .collect();
+        for id in gone {
+            self.destroy_temporary(client, id);
         }
         let game_now = client.game_time();
         for (id, holder) in self.temporaries.ids() {
@@ -577,8 +621,8 @@ impl Scene<'_> {
                     self.combat.missiles_travelled += 1;
                 }
             }
-            if let Some(f) = t.figure.as_mut() {
-                f.advance(&self.anims, dt);
+            if let (Some(f), Some(step)) = (t.figure.as_mut(), anim) {
+                f.advance(&self.anims, step);
                 heard.push((id, f.take_completions(), crate::take_triggers(f).0));
             }
         }

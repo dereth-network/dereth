@@ -9,13 +9,14 @@
 //!
 //! The device draws in the order the world is drawn (`auberean_draw::scene::PASSES`): the sky's
 //! objects around the viewer (no depth test), the fog veil over them, then the terrain's bottom
-//! layers, its blended layers and the far landscape, the opaque objects, the water, the objects seen
-//! through (the particle systems last), and the sky's late objects. At the recommended quality the
-//! dynamic objects' volumes of shadow come between the opaque objects that cast none and those that
-//! cast them: counted in the stencil where the sight to the nearest surface passes through them,
-//! that count's places darkened, the stencil cleared behind. The terrain's shaders are the
-//! runtime terrain material's; the objects' are assembled from the vertex program's pieces, chosen
-//! per draw by its layer's switches (`shaders/world.wgsl`).
+//! layers, its blended layers and the far landscape, the objects not seen through, the water, the
+//! frills, the objects seen through, the particle systems, the streaks and the sky's late objects;
+//! each step of objects farthest from the camera first, each object's draws in their order. At the
+//! recommended quality the dynamic objects' volumes of shadow come between the objects that cast
+//! none and those that cast them: counted in the stencil where the sight to the nearest surface
+//! passes through them, that count's places darkened, the stencil cleared behind. The terrain's
+//! shaders are the runtime terrain material's; the objects' are assembled from the vertex
+//! program's pieces, chosen per draw by its layer's switches (`shaders/world.wgsl`).
 //!
 //! Before the frame, when it has them: the sun's shadow map of the near objects (the near terrain
 //! is multiplied by it and by the clouds' shadows after its layers, then fogged), and the water's
@@ -23,6 +24,12 @@
 //! surfaces then show through their ripples.
 //!
 //! Colors are blended as stored, with no gamma conversion, as the retail device does.
+//!
+//! The world's frame is kept as the original's device keeps it: its draws write color alone, and
+//! its alpha starts at 127 of 255 under everything, changed only by the shores' strips, which
+//! write it alone before the water; the draws that blend by the destination's alpha (the water
+//! and its reflection) read it. A scene laid over the interface ([`Renderer::draw_laid_over`])
+//! keeps in its alpha how much of its picture it covers instead.
 //!
 //! **Must never** decide what to draw: a frame arrives from `auberean-draw` whole, and this crate
 //! only draws it.
@@ -35,7 +42,9 @@ use auberean_draw::cull::Sight;
 use auberean_draw::flare::{flare_quads, FlareFade};
 use auberean_draw::material::{d3d, DrawLayer, Stage, UV_IDENTITY};
 use auberean_draw::picture::Image;
-use auberean_draw::scene::{Frame, ObjectBatch, Pass, PointLights, TerrainBatch, PASSES};
+use auberean_draw::scene::{
+    in_order, Frame, ObjectBatch, Pass, PointLights, TerrainBatch, Textures, PASSES,
+};
 use auberean_draw::shadow::{ShadowMap, SHADOW_MAP_SIZE};
 use auberean_world::math::Mat4;
 use bytemuck::{Pod, Zeroable};
@@ -159,7 +168,7 @@ const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// Depth and a stencil, which the volumes of shadow count in.
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 
-/// How an object pass blends, tests depth and culls: the pipeline's key.
+/// How an object pass blends, tests depth and culls, and what it writes: the pipeline's key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct PassKey {
     src: u32,
@@ -167,6 +176,21 @@ struct PassKey {
     depth_test: bool,
     depth_write: bool,
     cull: u32,
+    target: Target,
+}
+
+/// What a draw writes in its picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Target {
+    /// The world's frame as the original's device keeps it: color alone, blended by the stored
+    /// factors (the destination's alpha factors reading the frame's alpha).
+    Frame,
+    /// That frame's alpha alone, blended by the same factors: the shores' strips.
+    FrameAlpha,
+    /// A scene laid over the interface: color, and in the alpha how much of the picture it
+    /// covers; the destination's alpha factors blend by the alpha the world's frame holds where no
+    /// shore lies ([`FRAME_ALPHA`]).
+    Coverage,
 }
 
 /// The device and everything it keeps between frames.
@@ -195,13 +219,17 @@ pub struct Renderer {
     white: Arc<wgpu::TextureView>,
     wrap: wgpu::Sampler,
     clamp: wgpu::Sampler,
+    /// How the textures on the device were taken: their detail, and the samplers' filtering.
+    textures_as: Textures,
+    /// Trilinear filtering as the first frame drawn asked for it, kept for the device's life.
+    trilinear: Option<bool>,
     /// The adapter's name, for the caption.
     pub adapter: String,
     /// Samples per pixel: two, as the client asks for with antialiasing on, or the fewest more the
     /// adapter offers.
     pub samples: u32,
-    /// What a frame's picture starts as: opaque black for the world; clear for a scene laid over
-    /// the interface, which shows where the scene draws nothing.
+    /// The color the world's frame starts as (its alpha is the frame's, whatever this one's); a
+    /// scene laid over the interface starts clear.
     pub backdrop: wgpu::Color,
     meshes: cache::MeshCache,
     /// The sky objects' lens flares by their place in the day's list: each one's fade and
@@ -239,23 +267,57 @@ impl std::fmt::Debug for Renderer {
     }
 }
 
-/// A stored blend factor as the device blends it. The picture has no alpha channel of its own,
-/// so the destination's alpha factors become the source's, as the client turns them on such a
-/// device.
+/// The alpha the frame holds where no shore lies: the device writes only red, green and blue (but
+/// for the shores' alpha), and every clear leaves alpha 127 of 255.
+// D2-09812, D2-09817
+const FRAME_ALPHA: f64 = 127.0 / 255.0;
+
+/// A stored blend factor as the device blends it for `target`. The destination's alpha factors
+/// blend by the frame's alpha, or in a scene laid over the interface by the alpha the frame holds
+/// where no shore lies ([`FRAME_ALPHA`], every pass's blend constant).
 // D2-09861
-fn blend_factor(f: u32) -> wgpu::BlendFactor {
+fn blend_factor(f: u32, target: Target) -> wgpu::BlendFactor {
     use wgpu::BlendFactor as B;
-    match f {
-        1 => B::Zero,
-        3 => B::Src,
-        4 => B::OneMinusSrc,
-        5 | 7 => B::SrcAlpha,
-        6 | 8 => B::OneMinusSrcAlpha,
-        9 => B::Dst,
-        10 => B::OneMinusDst,
-        11 => B::SrcAlphaSaturated,
+    match (f, target) {
+        (1, _) => B::Zero,
+        (3, _) => B::Src,
+        (4, _) => B::OneMinusSrc,
+        (5, _) => B::SrcAlpha,
+        (6, _) => B::OneMinusSrcAlpha,
+        (7, Target::Coverage) => B::Constant,
+        (8, Target::Coverage) => B::OneMinusConstant,
+        (7, _) => B::DstAlpha,
+        (8, _) => B::OneMinusDstAlpha,
+        (9, _) => B::Dst,
+        (10, _) => B::OneMinusDst,
+        (11, _) => B::SrcAlphaSaturated,
         _ => B::One,
     }
+}
+
+/// How `target` blends and which channels it writes, for the stored factors `src` and `dst`:
+/// the world's frame blends its alpha (when it writes it) by the same factors, as the original's
+/// device does; a scene laid over the interface lays each draw's coverage over what it covered.
+// D2-09839
+fn blend_of(src: u32, dst: u32, target: Target) -> (Option<wgpu::BlendState>, wgpu::ColorWrites) {
+    let color = wgpu::BlendComponent {
+        src_factor: blend_factor(src, target),
+        dst_factor: blend_factor(dst, target),
+        operation: wgpu::BlendOperation::Add,
+    };
+    let blend = (src != 2 || dst != 1).then_some(wgpu::BlendState {
+        color,
+        alpha: match target {
+            Target::Coverage => wgpu::BlendComponent::OVER,
+            Target::Frame | Target::FrameAlpha => color,
+        },
+    });
+    let writes = match target {
+        Target::Frame => wgpu::ColorWrites::COLOR,
+        Target::FrameAlpha => wgpu::ColorWrites::ALPHA,
+        Target::Coverage => wgpu::ColorWrites::ALL,
+    };
+    (blend, writes)
 }
 
 /// A texture's levels of detail: the picture and its smaller levels as stored.
@@ -432,21 +494,8 @@ impl Renderer {
             ],
             immediate_size: 0,
         });
-        // Trilinear and anisotropic, as with the shipped graphics options: the client then takes
-        // the device's greatest anisotropy, 16 on current hardware.
-        let sampler = |mode| {
-            device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: mode,
-                address_mode_v: mode,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Linear,
-                anisotropy_clamp: 16,
-                ..Default::default()
-            })
-        };
-        let wrap = sampler(wgpu::AddressMode::Repeat);
-        let clamp = sampler(wgpu::AddressMode::ClampToEdge);
+        let textures_as = Textures::default();
+        let (wrap, clamp) = Self::samplers(&device, textures_as);
         let white = Arc::new(Self::upload(
             &device,
             &queue,
@@ -479,6 +528,8 @@ impl Renderer {
             white,
             wrap,
             clamp,
+            textures_as,
+            trilinear: None,
             adapter: format!("{} ({:?})", info.name, info.backend),
             samples,
             backdrop: wgpu::Color::BLACK,
@@ -544,6 +595,73 @@ impl Renderer {
         texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
+    /// The samplers that wrap and that clamp, filtering as `textures` says: between a texture's
+    /// two nearest levels with trilinear filtering on, else from the nearest alone; along the
+    /// slant as far as the device goes (16, as the client takes the device's greatest) with
+    /// anisotropic filtering on. The device filters along the slant only between levels, so
+    /// anisotropic filtering with trilinear off filters from the nearest level, not along the
+    /// slant.
+    // D2-09793, D2-09862, D2-09861
+    fn samplers(device: &wgpu::Device, textures: Textures) -> (wgpu::Sampler, wgpu::Sampler) {
+        let sampler = |mode| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: mode,
+                address_mode_v: mode,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: if textures.trilinear {
+                    wgpu::MipmapFilterMode::Linear
+                } else {
+                    wgpu::MipmapFilterMode::Nearest
+                },
+                anisotropy_clamp: if textures.anisotropic && textures.trilinear {
+                    16
+                } else {
+                    1
+                },
+                ..Default::default()
+            })
+        };
+        (
+            sampler(wgpu::AddressMode::Repeat),
+            sampler(wgpu::AddressMode::ClampToEdge),
+        )
+    }
+
+    /// Take the textures as `textures` says: at another detail every texture is let go, to be
+    /// loaded again at that detail as the client flushes its graphics resources; with other
+    /// anisotropic filtering the samplers are made again. Trilinear filtering is taken from the
+    /// first frame drawn and kept: the device sets each stage's level filter once, when it is
+    /// made, so a change shows only on the next start.
+    // D2-09722, D2-09706, D2-09671, D2-10018, D2-09862, D2-09861
+    fn take_textures(&mut self, textures: Textures) {
+        let textures = match self.trilinear {
+            Some(t) => Textures {
+                trilinear: t,
+                ..textures
+            },
+            None => {
+                self.trilinear = Some(textures.trilinear);
+                textures
+            }
+        };
+        if textures == self.textures_as {
+            return;
+        }
+        if textures.detail != self.textures_as.detail {
+            self.textures.clear();
+        }
+        if (textures.trilinear, textures.anisotropic)
+            != (self.textures_as.trilinear, self.textures_as.anisotropic)
+        {
+            (self.wrap, self.clamp) = Self::samplers(&self.device, textures);
+        }
+        self.texture_groups.clear();
+        self.textures_as = textures;
+    }
+
+    /// Picture `id` on the device, loaded with `load` the first time it is asked for, without the
+    /// largest levels the texture detail leaves out.
     fn texture(
         &mut self,
         id: u32,
@@ -555,9 +673,16 @@ impl Renderer {
         if let Some(t) = self.textures.get(&id) {
             return t.clone();
         }
+        let detail = self.textures_as.detail;
         let view = load(id).map_or_else(
             || self.white.clone(),
-            |img| Arc::new(Self::upload(&self.device, &self.queue, &img)),
+            |img| {
+                Arc::new(Self::upload(
+                    &self.device,
+                    &self.queue,
+                    &img.at_detail(detail),
+                ))
+            },
         );
         self.textures.insert(id, view.clone());
         view
@@ -570,14 +695,7 @@ impl Renderer {
         layout: wgpu::VertexBufferLayout<'_>,
         key: PassKey,
     ) -> wgpu::RenderPipeline {
-        let blend = (key.src != 2 || key.dst != 1).then(|| wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: blend_factor(key.src),
-                dst_factor: blend_factor(key.dst),
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent::OVER,
-        });
+        let (blend, write_mask) = blend_of(key.src, key.dst, key.target);
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
@@ -595,7 +713,7 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: COLOR_FORMAT,
                         blend,
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask,
                     })],
                 }),
                 primitive: wgpu::PrimitiveState {
@@ -653,6 +771,7 @@ impl Renderer {
             depth_test: true,
             depth_write: true,
             cull: d3d::CULL_NONE,
+            target: Target::Frame,
         };
         let blended = PassKey {
             src: d3d::BLEND_SRC_ALPHA,
@@ -660,6 +779,7 @@ impl Renderer {
             depth_test: true,
             depth_write: false,
             cull: d3d::CULL_NONE,
+            target: Target::Frame,
         };
         let base = self.pipeline(
             "vs_terrain",
@@ -691,6 +811,7 @@ impl Renderer {
                 depth_test: true,
                 depth_write: false,
                 cull: d3d::CULL_NONE,
+                target: Target::Frame,
             },
         );
         let fog = self.pipeline(
@@ -722,7 +843,7 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: COLOR_FORMAT,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: wgpu::ColorWrites::COLOR,
                     })],
                 }),
                 primitive: wgpu::PrimitiveState::default(),
@@ -914,7 +1035,7 @@ impl Renderer {
                         operation: wgpu::BlendOperation::Add,
                     },
                 }),
-                write_mask: wgpu::ColorWrites::ALL,
+                write_mask: wgpu::ColorWrites::COLOR,
             },
             wgpu::CompareFunction::Always,
             wgpu::StencilState {
@@ -1158,27 +1279,29 @@ impl Renderer {
         }
     }
 
-    /// How a draw of `layer` blends, tests depth and culls: as stored, but a sky object's draw
-    /// neither tests nor marks depth.
-    fn object_key(layer: &DrawLayer, sky: bool) -> PassKey {
+    /// How a draw of `layer` blends, tests depth and culls, writing `target`: as stored, but a
+    /// sky object's draw neither tests nor marks depth.
+    fn object_key(layer: &DrawLayer, sky: bool, target: Target) -> PassKey {
         PassKey {
             src: layer.source_blend,
             dst: layer.dest_blend,
             depth_test: !sky && layer.depth_test != d3d::CMP_ALWAYS,
             depth_write: !sky && layer.depth_write,
             cull: layer.cull,
+            target,
         }
     }
 
-    /// How the water's rippled reflection is laid over a surface of `layer`: blended by the alpha
-    /// its material wrote, tested against depth, culled as the surface is.
-    fn water_key(layer: &DrawLayer) -> PassKey {
+    /// How the water's rippled reflection is laid over a surface of `layer`: blended by the
+    /// frame's alpha, tested against depth, culled as the surface is.
+    fn water_key(layer: &DrawLayer, target: Target) -> PassKey {
         PassKey {
-            src: d3d::BLEND_SRC_ALPHA,
-            dst: d3d::BLEND_INV_SRC_ALPHA,
+            src: d3d::BLEND_DEST_ALPHA,
+            dst: d3d::BLEND_INV_DEST_ALPHA,
             depth_test: true,
             depth_write: false,
             cull: layer.cull,
+            target,
         }
     }
 
@@ -1201,6 +1324,7 @@ impl Renderer {
             depth_test,
             depth_write: false,
             cull: d3d::CULL_NONE,
+            target: Target::Frame,
         };
         let flare = self.pipeline(
             "vs_screen",
@@ -1219,8 +1343,10 @@ impl Renderer {
 
     /// Build now every pipeline the device makes: its own (the terrain's, the fog's veil, the
     /// shadow map's, the lens flares') and those the draws of `layers` would make the first time
-    /// each is drawn, as a world object, as a sky object and as a water surface (laid with its
-    /// material, then with the reflection). Returns how many pipelines the device then holds.
+    /// each is drawn, as a world object, as a sky object, as a water surface (laid with its
+    /// material, then with the reflection), as a shore's strip in the frame's alpha and as an
+    /// object of a scene laid over the interface. Returns how many pipelines the device then
+    /// holds.
     pub fn build_pipelines<'l>(
         &mut self,
         layers: impl IntoIterator<Item = &'l DrawLayer>,
@@ -1230,13 +1356,16 @@ impl Renderer {
         self.build_volume_pipelines();
         for layer in layers {
             for sky in [false, true] {
-                self.mesh_pipeline(Self::object_key(layer, sky));
+                self.mesh_pipeline(Self::object_key(layer, sky, Target::Frame));
             }
             let mut opaque = layer.clone();
             opaque.source_blend = d3d::BLEND_ONE;
             opaque.dest_blend = d3d::BLEND_ZERO;
-            self.mesh_pipeline(Self::object_key(&opaque, false));
-            self.water_pipeline(Self::water_key(layer));
+            self.mesh_pipeline(Self::object_key(&opaque, false, Target::Frame));
+            self.water_pipeline(Self::water_key(layer, Target::Frame));
+            for target in [Target::FrameAlpha, Target::Coverage] {
+                self.mesh_pipeline(Self::object_key(layer, false, target));
+            }
         }
         self.pipeline_count()
     }
@@ -1459,7 +1588,7 @@ impl Renderer {
     }
 
     /// Draw `frame` at `width` x `height`, loading pictures with `load` the first time each is used,
-    /// and read the picture back.
+    /// and read the picture back, every texel opaque.
     ///
     /// # Errors
     /// When the picture cannot be read back from the device.
@@ -1471,13 +1600,28 @@ impl Renderer {
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> Result<Picture, GpuError> {
         let color = self.draw(frame, width, height, load);
-        self.read_back(&color, width, height)
+        self.read_back(&color, width, height, true)
     }
 
-    /// Draw `frame` at `width` x `height` into a picture left on the device (red, green, blue,
-    /// alpha; one a shader may sample or a copy may read), loading pictures with `load` the first
-    /// time each is used.
-    #[allow(clippy::too_many_lines)] // one pass, in the world's drawing order
+    /// Draw `frame` as a scene laid over the interface ([`Self::draw_laid_over`]) and read the
+    /// picture back, its alpha how much of each texel the scene covers.
+    ///
+    /// # Errors
+    /// When the picture cannot be read back from the device.
+    pub fn render_laid_over(
+        &mut self,
+        frame: &Frame,
+        width: u32,
+        height: u32,
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) -> Result<Picture, GpuError> {
+        let color = self.draw_laid_over(frame, width, height, load);
+        self.read_back(&color, width, height, false)
+    }
+
+    /// Draw the world's `frame` at `width` x `height` into a picture left on the device (red,
+    /// green, blue, and the frame's alpha; one a shader may sample or a copy may read), loading
+    /// pictures with `load` the first time each is used. It starts as [`Self::backdrop`].
     pub fn draw(
         &mut self,
         frame: &Frame,
@@ -1485,6 +1629,33 @@ impl Renderer {
         height: u32,
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> wgpu::Texture {
+        self.draw_as(frame, width, height, load, Target::Frame)
+    }
+
+    /// Draw `frame` as a scene laid over the interface (a panel's viewport): into a clear picture,
+    /// its alpha how much of each texel the scene covers, its draws that blend by the
+    /// destination's alpha blending by the alpha the world's frame holds where no shore lies.
+    pub fn draw_laid_over(
+        &mut self,
+        frame: &Frame,
+        width: u32,
+        height: u32,
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) -> wgpu::Texture {
+        self.draw_as(frame, width, height, load, Target::Coverage)
+    }
+
+    /// Draw `frame` writing `target` (the world's frame, or a scene laid over the interface).
+    #[allow(clippy::too_many_lines)] // one pass, in the world's drawing order
+    fn draw_as(
+        &mut self,
+        frame: &Frame,
+        width: u32,
+        height: u32,
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+        target: Target,
+    ) -> wgpu::Texture {
+        self.take_textures(frame.textures);
         let cam = &frame.camera;
         let (h, p) = (cam.heading.to_radians(), cam.pitch.to_radians());
         let forward = [
@@ -1571,7 +1742,7 @@ impl Renderer {
 
         // The frame is drawn multisampled and resolved into the picture read back.
         let device = self.device.clone();
-        let target = |label, samples, usage| {
+        let picture = |label, samples, usage| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: wgpu::Extent3d {
@@ -1587,7 +1758,7 @@ impl Renderer {
                 view_formats: &[],
             })
         };
-        let color = target(
+        let color = picture(
             "color",
             1,
             wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -1595,7 +1766,7 @@ impl Renderer {
                 | wgpu::TextureUsages::TEXTURE_BINDING,
         );
         let multi = (self.samples > 1).then(|| {
-            target(
+            picture(
                 "multisampled color",
                 self.samples,
                 wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -1722,7 +1893,8 @@ impl Renderer {
                            under: Env,
                            this: &mut Self,
                            draws: &mut Vec<Draw>,
-                           load: &mut dyn FnMut(u32) -> Option<Image>| {
+                           load: &mut dyn FnMut(u32) -> Option<Image>,
+                           writes: Target| {
             for b in batches {
                 if b.indices.is_empty() {
                     continue;
@@ -1733,7 +1905,7 @@ impl Renderer {
                 };
                 let sky = env == Env::Sky;
                 let sun = if env == Env::Own { sun } else { out_sun };
-                let key = Self::object_key(&b.layer, sky);
+                let key = Self::object_key(&b.layer, sky, writes);
                 this.mesh_pipeline(key);
                 let bound = Self::bound_stages(&b.layer);
                 let textures = bound.map(|s| {
@@ -1745,8 +1917,9 @@ impl Renderer {
                 let mut uniforms =
                     Self::draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 // Only a layer that reads its vertices' color shows it (none of the frills'
-                // materials in the data does).
-                // D2-10925, D2-10970
+                // materials in the data does). The shadow map's texels are read where they lie
+                // on it, a texel off the map read as none.
+                // D2-10925, D2-10970, D2-09968
                 let reads = b.layer.switches & auberean_draw::material::switch::VERTEX_DIFFUSE != 0;
                 let shade = match (b.shade, &shadow_view, bound[2]) {
                     (Some(at), Some(map), None) if reads => Some((at, map)),
@@ -1800,10 +1973,15 @@ impl Renderer {
         } else {
             (none, none)
         };
-        let (terrain, water) = if outdoors {
-            (&frame.terrain[..], &frame.water[..])
+        let (terrain, water, shore, foam) = if outdoors {
+            (
+                &frame.terrain[..],
+                &frame.water[..],
+                &frame.shore[..],
+                &frame.foam[..],
+            )
         } else {
-            (&[][..], none)
+            (&[][..], none, none, none)
         };
         objects(
             opaque_first(sky_before),
@@ -1811,6 +1989,7 @@ impl Renderer {
             self,
             &mut sky_draws,
             load,
+            target,
         );
         let mut world_draws = Vec::new();
         let terrain_draw = |b: &TerrainBatch,
@@ -1886,42 +2065,66 @@ impl Renderer {
             let tg = self.bind_textures(&ground, &self.wrap, &clouds, &self.wrap);
             terrain_draw(b, "far", tg, self, &mut world_draws);
         }
-        // Each step's objects under the frame's own light first, then those standing outdoors.
+        // Each step's objects under the frame's own light first, then those standing outdoors;
+        // the steps of the world's objects farthest first.
+        let mut cell_draws = Vec::new();
+        objects(
+            in_order(
+                in_pass(&frame.objects, Pass::Cells)
+                    .into_iter()
+                    .filter(shown)
+                    .collect(),
+                Pass::Cells,
+                frame.camera.position,
+            ),
+            Env::Own,
+            self,
+            &mut cell_draws,
+            load,
+            target,
+        );
         let mut opaque_draws = Vec::new();
         objects(
-            own_first(
+            in_order(
                 in_pass(&frame.objects, Pass::Opaque)
                     .into_iter()
                     .filter(shown)
                     .collect(),
+                Pass::Opaque,
+                frame.camera.position,
             ),
             Env::Own,
             self,
             &mut opaque_draws,
             load,
+            target,
         );
-        // The decals laid on the ground, after the landscape.
+        // The decals laid on the ground, after the landscape and the cells.
         let mut decal_draws = Vec::new();
         objects(
-            frame.decals.iter().filter(|_| outdoors).collect(),
+            frame.decals.iter().collect(),
             Env::Own,
             self,
             &mut decal_draws,
             load,
+            target,
         );
         // The objects that cast volumes of shadow: their opaque draws after the volumes.
         let mut caster_draws = Vec::new();
         objects(
-            own_first(
+            in_order(
                 in_pass(&frame.objects, Pass::Casters)
                     .into_iter()
                     .filter(shown)
                     .collect(),
+                Pass::Casters,
+                frame.camera.position,
             ),
             Env::Own,
             self,
             &mut caster_draws,
             load,
+            target,
         );
         // The volumes of shadow, each in its draw's frame, and the darkening by their strength.
         let volume_draws: Vec<(wgpu::Buffer, wgpu::Buffer, u32, wgpu::BindGroup)> = frame
@@ -1964,32 +2167,105 @@ impl Renderer {
         );
         let mut translucent_draws = Vec::new();
         objects(
-            own_first(
+            in_order(
                 in_pass(&frame.objects, Pass::Translucent)
                     .into_iter()
                     .filter(shown)
                     .collect(),
+                Pass::Translucent,
+                frame.camera.position,
             ),
             Env::Own,
             self,
             &mut translucent_draws,
             load,
+            target,
         );
-        // The water: laid with its rippled reflection when the frame has one, else its own
-        // material, after the opaque objects and before those seen through.
+        // The frills, after the water and before the objects seen through; the particle systems
+        // after every object.
+        let mut frill_draws = Vec::new();
+        objects(
+            in_order(
+                in_pass(&frame.objects, Pass::Frills)
+                    .into_iter()
+                    .filter(shown)
+                    .collect(),
+                Pass::Frills,
+                frame.camera.position,
+            ),
+            Env::Own,
+            self,
+            &mut frill_draws,
+            load,
+            target,
+        );
+        let mut particle_draws = Vec::new();
+        objects(
+            in_order(
+                in_pass(&frame.objects, Pass::Particles)
+                    .into_iter()
+                    .filter(shown)
+                    .collect(),
+                Pass::Particles,
+                frame.camera.position,
+            ),
+            Env::Own,
+            self,
+            &mut particle_draws,
+            load,
+            target,
+        );
+        // The streaks objects' moving parts leave, after the particle systems.
+        let mut streak_draws = Vec::new();
+        objects(
+            in_pass(&frame.objects, Pass::Streaks),
+            Env::Own,
+            self,
+            &mut streak_draws,
+            load,
+            target,
+        );
+        // The water's step, after the opaque objects and before those seen through: the shores'
+        // strips into the frame's alpha alone (how much of the water shows near the shore), the
+        // water's own material, its rippled reflection over it when the frame has one, and the
+        // foam along the shores.
+        // D2-10975, D2-10902, D2-10951
         let reflection = frame.reflection.filter(|_| !water.is_empty());
         let mut water_draws = Vec::new();
-        if reflection.is_none() {
-            objects(
-                opaque_first(water),
-                Env::Outside,
-                self,
-                &mut water_draws,
-                load,
-            );
-        }
+        objects(
+            shore.iter().collect(),
+            Env::Outside,
+            self,
+            &mut water_draws,
+            load,
+            Target::FrameAlpha,
+        );
+        objects(
+            opaque_first(water),
+            Env::Outside,
+            self,
+            &mut water_draws,
+            load,
+            target,
+        );
+        let mut foam_draws = Vec::new();
+        objects(
+            foam.iter().collect(),
+            Env::Outside,
+            self,
+            &mut foam_draws,
+            load,
+            target,
+        );
         let mut late = Vec::new();
-        objects(opaque_first(sky_after), Env::Sky, self, &mut late, load);
+        objects(
+            opaque_first(sky_after),
+            Env::Sky,
+            self,
+            &mut late,
+            load,
+            target,
+        );
 
         let outdoors = frame.outside.as_ref().unwrap_or(&frame.light);
         let skip_sky = (outdoors.fog_sky - 1.0).abs() < 0.0002;
@@ -2033,6 +2309,7 @@ impl Renderer {
                         &[]
                     }
                     Pass::Terrain => &world_draws,
+                    Pass::Cells => &cell_draws,
                     Pass::Decals => &decal_draws,
                     Pass::Opaque => &opaque_draws,
                     Pass::Volumes => {
@@ -2061,7 +2338,10 @@ impl Renderer {
                     }
                     Pass::Casters => &caster_draws,
                     Pass::Water => water,
+                    Pass::Frills => &frill_draws,
                     Pass::Translucent => &translucent_draws,
+                    Pass::Particles => &particle_draws,
+                    Pass::Streaks => &streak_draws,
                     Pass::LateSky => &late,
                 };
                 for d in draws {
@@ -2072,6 +2352,7 @@ impl Renderer {
         // The reflection: the same scene from the camera mirrored about the water plane (its
         // height mirrored, its pitch turned over), everything below the plane left out, the sky
         // round the mirrored camera.
+        // D2-11030, D2-10552, D2-10553
         if let Some(r) = reflection {
             let h = r.height;
             let m_eye = [eye[0], eye[1], 2.0 * h - eye[2]];
@@ -2110,29 +2391,57 @@ impl Renderer {
                 self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_frame));
             let m_out_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_out));
             let m_sky_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_sky));
-            let refl = target(
+            // The reflection is drawn into a picture of its own, 512 texels square whatever the
+            // screen's size, with a depth of its own the same size, cleared as the frame is; the
+            // camera keeps the screen's shape, so the picture lies over the screen as it stands.
+            let refl_target = |label, samples, format, usage| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: REFLECTION_SIZE,
+                        height: REFLECTION_SIZE,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+            };
+            let refl = refl_target(
                 "reflection",
                 1,
+                COLOR_FORMAT,
                 wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             );
             let refl_view = refl.create_view(&wgpu::TextureViewDescriptor::default());
             let refl_multi = (self.samples > 1).then(|| {
-                target(
+                refl_target(
                     "multisampled reflection",
                     self.samples,
+                    COLOR_FORMAT,
                     wgpu::TextureUsages::RENDER_ATTACHMENT,
                 )
             });
             let refl_multi_view = refl_multi
                 .as_ref()
                 .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+            let refl_depth = refl_target(
+                "reflection depth",
+                self.samples,
+                DEPTH_FORMAT,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+            );
+            let refl_depth_view = refl_depth.create_view(&wgpu::TextureViewDescriptor::default());
             {
                 let mut pass = begin_pass(
                     &mut encoder,
                     "reflection",
                     refl_multi_view.as_ref().unwrap_or(&refl_view),
                     refl_multi_view.as_ref().map(|_| &refl_view),
-                    &depth_view,
+                    &refl_depth_view,
                     wgpu::Color::BLACK,
                     None,
                 );
@@ -2144,28 +2453,12 @@ impl Renderer {
                     false,
                 );
             }
-            // Each water surface: first its own material, opaque, as the water is drawn where the
-            // ground below has written full alpha; then the reflection where it lies on the
-            // screen, its coordinates pushed by the ripples under it, blended by the alpha the
-            // water's material wrote (its layer's alpha).
-            let opaque: Vec<ObjectBatch> = frame
-                .water
-                .iter()
-                .map(|b| {
-                    let mut b = b.clone();
-                    b.layer.source_blend = d3d::BLEND_ONE;
-                    b.layer.dest_blend = d3d::BLEND_ZERO;
-                    b
-                })
-                .collect();
-            objects(
-                opaque_first(&opaque),
-                Env::Outside,
-                self,
-                &mut water_draws,
-                load,
-            );
+            // Over each water surface (its own material already drawn), the reflection where it
+            // lies on the screen, its coordinates pushed by the ripples under it, blended by the
+            // alpha the frame holds: half the reflection, half what is there.
             let bump = self.bump_picture();
+            // the ripples push the reflection only at the reflections' highest setting
+            let push = if r.ripples { RIPPLE_PUSH } else { 0.0 };
             // the ripples slide a hundredth of a repeat a second and are drawn at half size
             let slide = {
                 let s = 0.01 * frame.uptime;
@@ -2173,18 +2466,23 @@ impl Renderer {
                 let f = (s - s.floor()) as f32;
                 f
             };
+            // D2-10598, D2-10587
             for b in water {
                 if b.indices.is_empty() {
                     continue;
                 }
-                let key = Self::water_key(&b.layer);
+                let key = Self::water_key(&b.layer, target);
                 self.water_pipeline(key);
                 // the ripples lie on each polygon's own 0..1 coordinates (the second set)
                 let mut u = Self::draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
                 u.uv_sets = [1, 0, 0, 0];
                 u.uv_rows[0] = [0.5, 0.0, 0.5 * slide, 0.0];
                 u.uv_rows[1] = [0.0, 0.5, 0.5 * slide, 0.0];
+                u.params[2] = push;
                 let draw_group = self.uniform_group(&self.draw_layout, bytemuck::bytes_of(&u));
+                // the reflection and the ripples' picture set on the stages as pictures of their
+                // own, not by name
+                // D2-10090
                 let texture_group = self.bind_three(&[
                     (&refl_view, &self.clamp),
                     (&bump, &self.wrap),
@@ -2203,9 +2501,15 @@ impl Renderer {
                 });
             }
         }
-        // Seen from inside with a cell left out for the interior fog, the background is painted the
-        // fog's color, blended by its alpha over the black the frame starts from, before anything
-        // else is drawn.
+        water_draws.extend(foam_draws);
+        // The world's frame starts as the backdrop with the frame's alpha, a scene laid over the
+        // interface clear. Seen from inside with a cell left out for the interior fog, the
+        // background is painted the fog's color, blended by its alpha over the black the frame
+        // starts from, before anything else is drawn.
+        let (start, alpha) = match target {
+            Target::Coverage => (wgpu::Color::TRANSPARENT, 0.0),
+            _ => (self.backdrop, FRAME_ALPHA),
+        };
         let backdrop = match &sight {
             Some(s) if s.fog => {
                 let [r, g, b, a] = s.fog_color;
@@ -2213,10 +2517,10 @@ impl Renderer {
                     r: f64::from(r * a),
                     g: f64::from(g * a),
                     b: f64::from(b * a),
-                    a: self.backdrop.a,
+                    a: alpha,
                 }
             }
-            _ => self.backdrop,
+            _ => wgpu::Color { a: alpha, ..start },
         };
         {
             // Every frame starts black (or clear): the sky's dome adds itself onto it.
@@ -2295,12 +2599,13 @@ impl Renderer {
         color
     }
 
-    /// Read a picture [`Self::draw`] left on the device back, every texel opaque.
+    /// Read a picture [`Self::draw`] left on the device back, every texel opaque when `opaque`.
     fn read_back(
         &self,
         color: &wgpu::Texture,
         width: u32,
         height: u32,
+        opaque: bool,
     ) -> Result<Picture, GpuError> {
         let mut encoder = self
             .device
@@ -2355,8 +2660,10 @@ impl Renderer {
         }
         drop(data);
         readback.unmap();
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px[3] = 255;
+        if opaque {
+            for px in rgba.as_chunks_mut::<4>().0 {
+                px[3] = 255;
+            }
         }
         Ok(Picture {
             width,
@@ -2365,6 +2672,14 @@ impl Renderer {
         })
     }
 }
+
+/// The side of the square picture the water's reflection is drawn into, in texels.
+// D2-10544, D2-10546
+const REFLECTION_SIZE: u32 = 512;
+
+/// How far the ripples push the reflection's coordinates: the bump stage's matrix, this much times
+/// the identity.
+const RIPPLE_PUSH: f32 = 0.04;
 
 /// How deep the marker looking for a flare's object stands: just short of the farthest, so
 /// anything drawn over the object hides it.
@@ -2429,15 +2744,6 @@ fn in_pass(batches: &[ObjectBatch], pass: Pass) -> Vec<&ObjectBatch> {
     batches.iter().filter(|b| b.pass() == pass).collect()
 }
 
-/// `batches` with those drawn under the frame's own light first, then those standing outdoors,
-/// each in its order.
-fn own_first(batches: Vec<&ObjectBatch>) -> Vec<&ObjectBatch> {
-    let (outside, mut own): (Vec<&ObjectBatch>, Vec<&ObjectBatch>) =
-        batches.into_iter().partition(|b| b.outside);
-    own.extend(outside);
-    own
-}
-
 /// The light a draw is made under: the frame's own, the outdoors' (seen from inside), or the
 /// sky's. The order of the frame's bind groups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2479,15 +2785,21 @@ impl FrameUniforms {
     }
 }
 
-/// Every draw of `batches`, the opaque ones first, each kind in its order.
+/// Every draw of `batches` that are no objects of the world (the sky's, the water's), those that
+/// mark how near they are first, each kind in its order (see [`ObjectBatch::by_layer`]).
 fn opaque_first(batches: &[ObjectBatch]) -> Vec<&ObjectBatch> {
-    let mut out = in_pass(batches, Pass::Opaque);
-    out.extend(in_pass(batches, Pass::Translucent));
+    let mut out: Vec<&ObjectBatch> = batches
+        .iter()
+        .filter(|b| b.by_layer() == Pass::Opaque)
+        .collect();
+    out.extend(batches.iter().filter(|b| b.by_layer() != Pass::Opaque));
     out
 }
 
 /// A pass over the picture `view` (resolved into `resolve` when multisampled) and `depth`, both
-/// cleared: the color to `clear`, the depth to the farthest.
+/// cleared: the color to `clear`, the depth to the farthest; the draws of a scene laid over the
+/// interface that blend by the destination's alpha blend by the alpha the frame holds where no
+/// shore lies.
 fn begin_pass<'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     label: &'static str,
@@ -2497,7 +2809,7 @@ fn begin_pass<'a>(
     clear: wgpu::Color,
     queries: Option<&'a wgpu::QuerySet>,
 ) -> wgpu::RenderPass<'a> {
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some(label),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view,
@@ -2522,7 +2834,14 @@ fn begin_pass<'a>(
         timestamp_writes: None,
         occlusion_query_set: queries,
         multiview_mask: None,
-    })
+    });
+    pass.set_blend_constant(wgpu::Color {
+        r: FRAME_ALPHA,
+        g: FRAME_ALPHA,
+        b: FRAME_ALPHA,
+        a: FRAME_ALPHA,
+    });
+    pass
 }
 
 /// A plain layer for draws that take no material: white, unlit.

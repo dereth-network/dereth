@@ -70,6 +70,11 @@ struct Inner {
     dice: Random,
     /// The light source effects preference is off: the effects place no lights.
     no_lights: bool,
+    /// The streak effects preference is off: the effects make no streaks.
+    no_streaks: bool,
+    /// The volumetric fog effects preference is off: the systems whose particles move by
+    /// repulsors (the ground's mists) neither think nor draw.
+    no_fog: bool,
 }
 
 /// A push (or pull) an object carries on the particles about it: how hard it pushes at its
@@ -308,6 +313,32 @@ impl ParticleSystems {
         !self.lock().no_lights
     }
 
+    /// Whether the effects played from now on make the streaks they name, turn them on, and the
+    /// streaks are drawn: the streak effects preference (on unless set off).
+    pub fn set_streak_effects(&self, on: bool) {
+        self.lock().no_streaks = !on;
+    }
+
+    /// Whether the effects make, turn on and draw streaks.
+    #[must_use]
+    pub fn streak_effects(&self) -> bool {
+        !self.lock().no_streaks
+    }
+
+    /// Whether the systems whose particles move by repulsors (the ground's mists) think and draw:
+    /// the volumetric fog effects preference (on unless set off). Off, they stand still and are
+    /// not drawn until it is on again.
+    // D2-10280, D2-10289
+    pub fn set_volumetric_fog(&self, on: bool) {
+        self.lock().no_fog = !on;
+    }
+
+    /// Whether the systems whose particles move by repulsors think and draw.
+    #[must_use]
+    pub fn volumetric_fog(&self) -> bool {
+        !self.lock().no_fog
+    }
+
     /// A system of record `record` for an owner standing at `place` in block `home`'s frame with
     /// `scale`, made at `now`: when `shareable`, a system of that record already going that may be
     /// shared, else a new one, registered with the next id (the first is 1).
@@ -424,6 +455,7 @@ impl ParticleSystems {
         s.places.push(At { home, place, scale });
         if first {
             let pushes = inner.pushes(home, now);
+            let still = inner.no_fog;
             let Some(s) = inner.find(system.id) else {
                 return;
             };
@@ -431,7 +463,9 @@ impl ParticleSystems {
             s.set.place_emitters(now);
             s.set.set_light(light);
             s.set.set_repulsors(pushes);
-            s.set.think(now);
+            if !(still && s.set.repulsed()) {
+                s.set.think(now);
+            }
         }
     }
 
@@ -542,7 +576,8 @@ impl ParticleSystems {
     /// What every system draws this frame (the client's running time `now`): each one queued at
     /// `now` at every place it was queued, then each left on its own, run to `now` where it was
     /// left (those spent go); placed in block `base`'s frame (blocks `block_length` long) and seen
-    /// from `eye` there with right, forward and up.
+    /// from `eye` there with right, forward and up. With the volumetric fog effects off, the
+    /// systems moved by repulsors are passed over.
     // D2-10307, D2-10289, D2-10303
     #[must_use]
     pub fn batches(
@@ -557,8 +592,9 @@ impl ParticleSystems {
         inner.frames += 1;
         inner.block_length = block_length;
         let mut out = Vec::new();
+        let still = inner.no_fog;
         for s in &inner.systems {
-            if s.queued_at != Some(now) {
+            if s.queued_at != Some(now) || (still && s.set.repulsed()) {
                 continue;
             }
             for at in &s.places {
@@ -567,6 +603,10 @@ impl ParticleSystems {
         }
         let mut k = 0;
         while k < inner.autonomous.len() {
+            if still && inner.autonomous[k].0.repulsed() {
+                k += 1;
+                continue;
+            }
             let pushes = inner.pushes(inner.autonomous[k].1.home, now);
             let (set, at) = &mut inner.autonomous[k];
             set.set_place(at.place, at.scale);

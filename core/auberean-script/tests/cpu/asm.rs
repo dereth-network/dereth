@@ -48,6 +48,11 @@ pub struct Pkg {
 
 /// Build a library from code words and packages.
 pub fn library(code: &[u32], packages: &[Pkg], literals: &[&str]) -> Library {
+    Library::from_sections(sections(code, packages, literals)).expect("a library")
+}
+
+/// The sections of a library over `code` with the given packages and string literals.
+pub fn sections(code: &[u32], packages: &[Pkg], literals: &[&str]) -> ScriptLibrary {
     let max_id = packages.iter().map(|p| p.id).max().unwrap_or(0) as usize;
     let mut function_slots = vec![Vec::new(); max_id + 1];
     let mut package_sizes = vec![(0, 0); max_id + 1];
@@ -119,7 +124,7 @@ pub fn library(code: &[u32], packages: &[Pkg], literals: &[&str]) -> Library {
             })),
         ],
     };
-    Library::from_sections(lib).expect("a library")
+    lib
 }
 
 /// Link a library.

@@ -281,3 +281,126 @@ fn a_refused_entry_is_kept_with_its_reason_and_counted() {
     assert_eq!(m.player, None);
     assert_eq!(m.objects().count(), 0);
 }
+
+/// A boot ends the login as a refusal for the character booted (reason 20), counted with the
+/// others and kept with the server's words; a refusal after it carries none.
+///
+/// Behaviour: model.state.a-boot-is-kept-as-a-refusal-with-its-words
+#[test]
+fn a_boot_is_kept_as_a_refusal_with_its_words() {
+    use auberean_protocol::login::{CharacterRefused, Text};
+    use auberean_protocol::text::StringInfo;
+    let mut m = Model::new();
+    let line = StringInfo {
+        string_id: 0xDA7D_EF7F,
+        table_id: 0x2500_0012,
+        ..StringInfo::default()
+    };
+    assert_eq!(
+        m.apply(&item(
+            3,
+            0,
+            ServerMessage::AccountBooted(Text(line.clone()))
+        )),
+        vec![Effect::Refused(CharacterRefused::BOOTED)]
+    );
+    assert_eq!(m.refused, Some((20, 1)));
+    assert_eq!(m.refused_with, Some(line), "the server's words");
+    m.apply(&item(
+        3,
+        1,
+        ServerMessage::CharacterRefused(CharacterRefused { reason: 11 }),
+    ));
+    assert_eq!(m.refused, Some((11, 2)));
+    assert_eq!(m.refused_with, None, "an entry refused has none");
+}
+
+/// An object is placed where its creation puts it only when that is in a cell: a creation that
+/// says it has a place in no cell leaves it unplaced. It keeps a copy of the creation's weenie
+/// description, which holds its package only when it has one that is not all ones.
+///
+/// Behaviour: model.state.an-object-made-in-no-cell-is-not-placed
+#[test]
+fn an_object_made_in_no_cell_is_not_placed_and_keeps_a_copy_of_its_description() {
+    use auberean_protocol::types::{PhysicsDesc, Placement, WeenieDesc};
+    let mut m = Model::new();
+    let nowhere = 0x2130_0000_0000_0007;
+    let here = 0x2130_0000_0000_0008;
+    let mut c = crate::create(nowhere, 1, 1);
+    c.physics.bits |= PhysicsDesc::POSITION;
+    c.weenie = WeenieDesc {
+        mask: WeenieDesc::PACKAGE,
+        package_id: u32::MAX,
+        ..WeenieDesc::default()
+    };
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    let o = m.object(nowhere).expect("made");
+    assert!(o.place.is_none(), "{:?}", o.place);
+    assert_eq!(
+        o.weenie.mask & WeenieDesc::PACKAGE,
+        0,
+        "all ones is no package"
+    );
+
+    c.id = here;
+    c.physics.position = Placement {
+        cell: 0x7D64_0021,
+        ..Placement::default()
+    };
+    c.physics.stamps = [4, 5, 6, 7];
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c)));
+    let p = m.object(here).and_then(|o| o.place).expect("placed");
+    assert_eq!(
+        (
+            p.cell,
+            p.position_stamp,
+            p.teleport_stamp,
+            p.force_position_stamp
+        ),
+        (0x7D64_0021, 4, 5, 6)
+    );
+}
+
+/// The player's id is none (0) until the player's creation names it, and none again once the
+/// character leaves the world. An object keeps the whole physics description it was made with,
+/// and hangs from another when that description, or the server since, says so.
+///
+/// Behaviour: model.state.the-player-id-and-what-an-object-hangs-from
+#[test]
+fn the_players_id_is_known_from_its_creation_and_an_object_keeps_what_it_hangs_from() {
+    use auberean_protocol::types::{ParentLink, PhysicsDesc, Placement};
+    let mut m = Model::new();
+    assert_eq!(m.player_id(), 0);
+    m.apply(&player_object());
+    assert_eq!(m.player_id(), PLAYER);
+    let held = 0x8130_0000_0000_0020;
+    let mut c = crate::create(held, 1, 1);
+    c.physics = PhysicsDesc {
+        bits: PhysicsDesc::POSITION,
+        instance_stamp: 1,
+        visual_ordering_stamp: 1,
+        position: Placement {
+            cell: 0x7D64_0021,
+            ..Placement::default()
+        },
+        parent: ParentLink {
+            parent: PLAYER,
+            location: 3,
+            stamp: 1,
+        },
+        velocity_scale: 1.5,
+        jump_scale: 0.5,
+        stamps: [1, 2, 3, 4],
+        ..PhysicsDesc::default()
+    };
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    let o = m.object(held).expect("made");
+    assert_eq!(o.physics, c.physics, "the description whole");
+    assert!(o.has_parent());
+    assert_eq!(o.parent, Some((PLAYER, 3)));
+    let loose = 0x8130_0000_0000_0021;
+    m.apply(&create_item(loose, 1, 1));
+    assert!(!m.object(loose).expect("made").has_parent());
+    m.apply(&item(3, 0, ServerMessage::CharExitGame(Empty)));
+    assert_eq!(m.player_id(), 0);
+}

@@ -15,6 +15,6 @@ pub static ROWS: &[Behaviour] = &[behaviour! {
            around a shape carried into another position's frame has the same corners to the bit.",
     since: RETAIL,
     evidence: Evidence::Private("AC2-EVID-SHAPE-ORACLE"),
-    station: "auberean-physics::cpu::detect::every_shape_test_answers_as_the_client_does",
+    station: "auberean-physics::cpu::contact::detect::every_shape_test_answers_as_the_client_does",
     tier: Tier::Cpu,
 }];

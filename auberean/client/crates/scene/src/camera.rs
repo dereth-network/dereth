@@ -35,7 +35,7 @@
 use std::collections::VecDeque;
 
 use dereth_primitives::num::math;
-use dereth_primitives::Vec3;
+use dereth_primitives::{CellId, Position, Quat, Vec3};
 
 /// The camera's actions, by the key map's ids.
 pub mod action {
@@ -228,6 +228,12 @@ pub struct Options {
     pub align_to_slope: bool,
     /// When the player's own body shows with the camera at its eyes.
     pub avatar_in_first_person: AvatarInFirstPerson,
+    /// The player's head follows the camera.
+    pub look_around: bool,
+    /// The player's head turns back toward a camera in front of it.
+    pub look_at_camera: bool,
+    /// The player looks at each new selection.
+    pub look_at_selection: bool,
 }
 
 impl Default for Options {
@@ -247,6 +253,9 @@ impl Default for Options {
             auto_distance: true,
             align_to_slope: true,
             avatar_in_first_person: AvatarInFirstPerson::DuringCombat,
+            look_around: true,
+            look_at_camera: true,
+            look_at_selection: true,
         }
     }
 }
@@ -1468,6 +1477,7 @@ impl CameraControl {
     }
 
     /// Whether the camera is at the eyes.
+    // D2-11866
     #[must_use]
     pub fn first_person(&self) -> bool {
         self.first_person
@@ -1560,15 +1570,18 @@ impl CameraControl {
         }
     }
 
-    /// One frame of `dt` seconds following `subject` alone (see [`CameraControl::update_with`]).
+    /// One update and one frame of `dt` seconds following `subject` alone (see
+    /// [`CameraControl::update_with`] and [`CameraControl::use_time`]).
     pub fn update(&mut self, dt: f32, subject: &Subject) {
         self.update_with(dt, subject, subject);
+        self.use_time(dt);
     }
 
-    /// One frame of `dt` seconds following `subject` (the player) among `objects`: the field of
-    /// view, the zoom, the tilt and the slope, the turn, the shoulder's easing, the distance, the
-    /// glide (and where the objects it hangs from and looks at stand) and the effects.
-    // D2-10700, D2-10673
+    /// One update of `dt` seconds following `subject` (the player) among `objects`, as the client
+    /// updates its camera each time the player's physics ticks (each frame in mouse look): the
+    /// field of view, the zoom, the tilt and the slope, the turn, the shoulder's easing, the
+    /// distance and the glide (and where the objects it hangs from and looks at stand).
+    // D2-10700
     pub fn update_with(&mut self, dt: f32, subject: &Subject, objects: &dyn Objects) {
         self.fov += self.fov_rate;
         self.distance *= math::powf(self.zoom_rate, dt);
@@ -1612,6 +1625,12 @@ impl CameraControl {
         self.targeting
             .calc_camera_distance(wanted, steady, subject, dt);
         self.targeting.update(dt, objects);
+    }
+
+    /// One frame of `dt` seconds of the camera's effects: their time, and the field of view they
+    /// make (65 degrees and their sum). Each frame, after the camera is drawn between its places.
+    // D2-10673
+    pub fn use_time(&mut self, dt: f32) {
         self.effects.use_time(dt);
         self.fov = self.effects.fov + BASE_FOV;
     }
@@ -1824,6 +1843,20 @@ impl CameraControl {
         }
     }
 
+    /// The camera's direction from what it looks at (its viewer offset), in the player's frame
+    /// (the world's in mouse look): in a glide, the glide's share of the way from the one before.
+    // D2-10695, D2-10735
+    #[must_use]
+    pub fn interp_viewer_offset(&self) -> Vec3 {
+        let t = &self.targeting;
+        if !t.is_on {
+            return t.viewer_offset;
+        }
+        let (w, k) = (t.weight, 1.0 - t.weight);
+        let (n, o) = (t.viewer_offset, t.old_viewer_offset);
+        Vec3::new(w * n.x + k * o.x, w * n.y + k * o.y, w * n.z + k * o.z)
+    }
+
     /// Where the camera wants to stand this frame following `subject` alone (see
     /// [`CameraControl::viewer_with`]).
     pub fn viewer(&mut self, subject: &Subject) -> Viewer {
@@ -1872,6 +1905,62 @@ impl CameraControl {
             look: slerp(old.look, new.look, w),
         }
     }
+}
+
+/// Where the camera stands, as the client keeps it between the player's physics ticks: where it
+/// stood when last placed before ([`Stands::previous`]) and where it stands now
+/// ([`Stands::current`]), each a cell and a frame in that cell's landblock that faces the way the
+/// camera looks. A frame draws it between the two ([`Stands::slerp`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stands {
+    pub previous: Position,
+    pub current: Position,
+}
+
+impl Stands {
+    /// Standing at `at`, nothing to draw it between.
+    #[must_use]
+    pub const fn at(at: Position) -> Self {
+        Self {
+            previous: at,
+            current: at,
+        }
+    }
+
+    // D2-10519
+    pub fn set_previous(&mut self, at: Position) {
+        self.previous = at;
+    }
+
+    // D2-10521
+    pub fn set_current(&mut self, at: Position) {
+        self.current = at;
+    }
+
+    /// Where a frame draws the camera, `t` of the way from where it stood before to where it
+    /// stands now: the point along the line, in the cell it stood in before; the way it looks
+    /// turned along the shorter arc.
+    // D2-10516
+    #[must_use]
+    pub fn slerp(&self, t: f32) -> Position {
+        auberean_physics::geom::slerp_position(&self.previous, &self.current, t)
+    }
+}
+
+/// A place of the camera in cell `cell`: `origin` in the cell's landblock's frame, facing along
+/// `look`.
+#[must_use]
+pub fn stand(cell: CellId, origin: Vec3, look: Vec3) -> Position {
+    let mut at = Position::new(cell, dereth_primitives::Frame::new(origin, Quat::IDENTITY));
+    auberean_physics::geom::set_vector_heading(&mut at.frame, look);
+    at
+}
+
+/// The way a camera standing at `at` looks.
+#[must_use]
+pub fn look_of(at: &Position) -> Vec3 {
+    let m = auberean_physics::geom::rotation_axes(at.frame.rotation);
+    Vec3::new(m[3], m[4], m[5])
 }
 
 /// No objects at all.

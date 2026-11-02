@@ -266,4 +266,135 @@ pub static ROWS: &[Behaviour] = &[
         station: "auberean-text::cpu::references::a_reference_is_written_from_its_entry_with_its_variables",
         tier: Tier::Cpu,
     },
+    behaviour! {
+        id: "text.strings.a-narrow-hash-ignoring-case-lowers-in-the-english-code-page",
+        says: "A narrow string's hash ignoring case lowers each byte as the English locale lowers \
+               it (the capitals of the English Windows code page, the multiplication sign kept), \
+               then mixes it in as a signed character; it is never adjusted at all ones.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-HASH-FOLDED"),
+        station: "auberean-primitives::cpu::strings::a_narrow_hash_ignoring_case_lowers_in_the_english_code_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.a-narrow-hash-takes-bytes-as-signed-characters",
+        says: "A narrow string's hash shifts the hash four bits and adds each byte as a signed \
+               character (a byte above 127 counts below zero), folding the top four bits into the \
+               low byte; it ends at the first zero byte, and a key's bucket is its hash modulo the \
+               bucket count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-HASH"),
+        station: "auberean-primitives::cpu::strings::a_narrow_hash_takes_bytes_as_signed_characters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.a-packed-string-is-its-lengths-and-characters-padded-to-four",
+        says: "A packed string takes a 16-bit length, a 32-bit length after it once it holds \
+               65,535 characters or more, its characters (one byte or two each) and padding to a \
+               multiple of four bytes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-PACK-SIZE"),
+        station: "auberean-primitives::cpu::strings::a_packed_string_is_its_lengths_and_characters_padded_to_four",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-and-wide-text-convert-in-the-english-code-page",
+        says: "Narrow text becomes wide in the English Windows code page, a byte a unit; wide text \
+               becomes narrow in it, and when any unit has no byte there, the units below 128 are \
+               kept and every other unit is written as its four lower-case hexadecimal digits in \
+               angle brackets.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-CODE-PAGE"),
+        station: "auberean-text::cpu::wide::narrow_and_wide_text_convert_in_the_english_code_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-comparison-by-bytes-or-lowered-bytes",
+        says: "Comparing narrow strings keeping case answers -1, 0 or 1 by unsigned bytes; \
+               ignoring case it answers the difference of the first two lowered bytes that differ; \
+               both stop at a zero byte, and equality is a comparison of 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-COMPARE"),
+        station: "auberean-primitives::cpu::strings::narrow_comparison_by_bytes_or_lowered_bytes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-lowering-in-the-english-code-page",
+        says: "Lowering narrow text lowers A to Z, the accented capitals but the multiplication \
+               sign, and the code page's four other capitals, up to the first zero byte.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-LOWER"),
+        station: "auberean-primitives::cpu::strings::narrow_lowering_in_the_english_code_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-replace-every-occurrence-from-the-left",
+        says: "Replacing in narrow text replaces each occurrence of the pattern from the left, \
+               searching on after each one replaced, and answers how many; an empty pattern never \
+               ends in the client and is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-REPLACE"),
+        station: "auberean-primitives::cpu::strings::narrow_replace_every_occurrence_from_the_left",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-search-ignoring-case-forward-and-back",
+        says: "Finding a part of narrow text ignoring case looks forward from the position to the \
+               end, or backward from the position less the part's length to the start, each byte \
+               lowered; an empty part is found where the search stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-SEARCH"),
+        station: "auberean-primitives::cpu::strings::narrow_search_ignoring_case_forward_and_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.narrow-trimming-stops-at-a-zero-on-the-left-only",
+        says: "Trimming narrow text drops the bytes of the set (space, line feed, carriage return, \
+               tab and form feed unless the caller names others) from the left up to a zero byte, \
+               and from the right, where a zero byte counts as one of the set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-TRIM"),
+        station: "auberean-primitives::cpu::strings::narrow_trimming_stops_at_a_zero_on_the_left_only",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.wide-equality-ignoring-case-lowers-every-letter",
+        says: "Wide equality keeps case unit for unit, or lowers each unit as the wide C library \
+               does, letters above 255 included; both stop at the first zero unit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-WIDE-EQUAL"),
+        station: "auberean-text::cpu::wide::wide_equality_ignoring_case_lowers_every_letter",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.wide-hexadecimal-and-float-appends",
+        says: "A word is appended as its eight upper-case hexadecimal digits after a zero and an \
+               x, a 64-bit word as sixteen, and a float with six decimals as the C library rounds \
+               it, its infinities and not-a-numbers as that library writes them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-WIDE-APPEND"),
+        station: "auberean-text::cpu::wide::wide_hexadecimal_and_float_appends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.wide-search-ignoring-case-folds-the-low-byte",
+        says: "The wide search ignoring case folds each unit by its low byte alone, lowered in the \
+               English code page, so a letter above 255 matches whatever its low byte lowers to; \
+               it looks forward to the end or backward to the start.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-WIDE-SEARCH"),
+        station: "auberean-text::cpu::wide::wide_search_ignoring_case_folds_the_low_byte",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "text.strings.wide-whole-numbers-read-as-the-c-library-reads-them",
+        says: "A wide whole number is read after white space and a sign, in base 16 after a zero \
+               and an x, base 8 after a leading zero, else base 10, or in the base asked; signed \
+               reads clamp out of range, unsigned ones saturate the magnitude and a minus sign \
+               then counts back from all ones; with no digit nothing is read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STR-WIDE-NUMBERS"),
+        station: "auberean-text::cpu::wide::wide_whole_numbers_read_as_the_c_library_reads_them",
+        tier: Tier::Cpu,
+    },
 ];

@@ -7,8 +7,11 @@
 //! the kind says (multiply, add, the day's, the kind's, the greater, the lesser), and the four are
 //! blended by the viewer's place in the block. A corner's fog distances and sky fog are always its
 //! kind's own (the default kind's are 0 to 10,000 m, no sky fog).
+//!
+//! Under water the fog is the water's: its kind's table of depths, each combined with the light
+//! above as a fog kind is, blended between the two depths about the viewer's ([`water_fog`]).
 
-use auberean_assets::region::{BlockMap, Combine, FogAndLight, FogDesc, FogType};
+use auberean_assets::region::{BlockMap, Combine, FogAndLight, FogDesc, FogType, WaterLight};
 use auberean_primitives::Vec3;
 
 use crate::color::Color;
@@ -149,4 +152,48 @@ pub fn block_light(
         fog_color: mix_color(&|c| c.fog_color, sw.fog_color.a),
         ..*day
     }
+}
+
+/// The light `light` (the day's, with the fog blocks') under water `depth` meters down, by the
+/// water's table of depths (`table`, shallowest first): the fog alone changes, the light stays.
+/// The table's entries about the depth are found as the client finds them: the last entry deeper
+/// than the depth, and the one before it (the first when it is the first); with none deeper, the
+/// last alone. Each is combined with `light` as a fog kind is, and the two are blended by where
+/// the depth lies between theirs (the shallower's share growing as the depth nears its own); the
+/// fog's alpha is the deeper's. An empty table leaves the light as it is.
+// D2-10872
+#[must_use]
+pub fn water_fog(light: &DayLight, table: &[WaterLight], depth: f32) -> DayLight {
+    let Some(last) = table.len().checked_sub(1) else {
+        return *light;
+    };
+    let mut deeper = None;
+    for (i, w) in table.iter().enumerate() {
+        if depth < w.depth {
+            deeper = Some(i);
+        }
+    }
+    let (lo, hi) = deeper.map_or((last, last), |i| (i.saturating_sub(1), i));
+    let a = corner(light, &table[lo].light);
+    let mut out = *light;
+    if lo == hi {
+        out.fog_min = a.fog_min;
+        out.fog_max = a.fog_max;
+        out.fog_sky = a.fog_sky;
+        out.fog_color = a.fog_color;
+        return out;
+    }
+    let b = corner(light, &table[hi].light);
+    let f = (depth - table[hi].depth) / (table[lo].depth - table[hi].depth);
+    let g = 1.0 - f;
+    out.fog_min = a.fog_min * f + b.fog_min * g;
+    out.fog_max = a.fog_max * f + b.fog_max * g;
+    out.fog_sky = a.fog_sky * f + b.fog_sky * g;
+    out.fog_color = Color::new(
+        a.fog_color.r * f + b.fog_color.r * g,
+        a.fog_color.g * f + b.fog_color.g * g,
+        a.fog_color.b * f + b.fog_color.b * g,
+        b.fog_color.a,
+    );
+    out
 }

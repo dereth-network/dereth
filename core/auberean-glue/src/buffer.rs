@@ -49,6 +49,7 @@ fn buffer<'a>(c: &'a mut Call<'_>, r: u32) -> Result<&'a mut Vec<u8>, Stop> {
     }
 }
 
+// D2-16742
 fn append(c: &mut Call<'_>, words: &[u32]) -> Result<Status, Stop> {
     let r = c.receiver()?;
     if r == NULL {

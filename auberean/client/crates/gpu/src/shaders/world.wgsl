@@ -55,7 +55,7 @@ struct DrawUniforms {
     specular: vec4<f32>,
     // the layer's ambient color
     layer_ambient: vec4<f32>,
-    // specular power, alpha reference, unused, unused
+    // specular power, alpha reference, the ripples' push (the water's reflection), unused
     params: vec4<f32>,
     // switches, unused
     stage: vec4<u32>,
@@ -147,6 +147,26 @@ fn tex_light_direction(n: vec3<f32>, tu: vec3<f32>, tv: vec3<f32>) -> vec3<f32> 
         return t / len;
     }
     return vec3<f32>(0.0, 0.0, 1.0);
+}
+
+// Whether every part of `v` is a number: its exponent's bits are not all set (neither infinite
+// nor NaN). Read from the bits, so no compiler's float rules can fold it away.
+fn finite3(v: vec3<f32>) -> bool {
+    let e = bitcast<vec3<u32>>(v) & vec3<u32>(0x7f800000u);
+    return all(e != vec3<u32>(0x7f800000u));
+}
+
+// A direction toward the light in the surface's own frame (unit length), packed into 0..1 as
+// color 0 carries it. Some meshes store a surface frame that is not a number where their
+// pictures' coordinates run flat (the foot of a crystal, for one): the direction made from it is
+// not a number either, and the device's colors read each such part as 1, so the packed direction
+// is white and the normal map there is lit as if it faced the light. Decided here from the stored
+// frame, so every device draws it the same.
+fn packed_light(l: vec3<f32>, v: MeshIn) -> vec3<f32> {
+    if (!(finite3(v.normal) && finite3(v.tangent_u) && finite3(v.tangent_v))) {
+        return vec3<f32>(1.0);
+    }
+    return (l + vec3<f32>(1.0)) * 0.5;
 }
 
 // Point light k's share at `world` on a surface facing `n`: how squarely its light meets the
@@ -545,7 +565,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
                 if (len > 0.0) {
                     t = t / len;
                 }
-                c0 = vec4<f32>((t + vec3<f32>(1.0)) * 0.5, r.z);
+                c0 = vec4<f32>(packed_light(t, v), r.z);
                 o.half_vector = tex_half_vector(world, to, r.z, n, tu, tv);
             } else {
                 other = other + r.x * draw.pt_diffuse[k].rgb;
@@ -587,7 +607,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         let tu = transform_normal(v.tangent_u, draw.model);
         let tv = transform_normal(v.tangent_v, draw.model);
         let l = tex_light_direction(n, tu, tv);
-        c0 = vec4<f32>((l + vec3<f32>(1.0)) * 0.5, 1.0);
+        c0 = vec4<f32>(packed_light(l, v), 1.0);
         o.half_vector = tex_half_vector(world, frame.to_sun.xyz, 1.0, n, tu, tv);
         let f = dir_light_diffuse_specular(n, draw.params.x);
         var other = vec3<f32>(0.0);
@@ -894,13 +914,14 @@ fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
 
 // The reflection (the first picture, the mirrored scene) where this point lies on the screen,
 // turned over top to bottom as the mirrored camera sees it, its coordinates pushed by the ripple
-// picture (the second, at the surface's coordinates) by 0.04 of the picture per unit of offset;
-// as opaque as the water's own layer.
+// picture (the second, at the surface's coordinates) by the draw's push (params.z: 0.04 of the
+// picture per unit of offset, 0 with no ripples); as opaque as the water's own layer. The ripples
+// are laid in a picture that holds no value below zero, so only their offsets above zero push.
 @fragment
 fn fs_water(v: MeshOut) -> @location(0) vec4<f32> {
-    let ripple = textureSample(tex1, samp1, v.uv0).rg;
+    let ripple = max(textureSample(tex1, samp1, v.uv0).rg, vec2<f32>(0.0));
     let screen = v.clip.xy / frame.viewport.xy;
-    let at = vec2<f32>(screen.x, 1.0 - screen.y) + 0.04 * ripple;
+    let at = vec2<f32>(screen.x, 1.0 - screen.y) + draw.params.z * ripple;
     let c = textureSample(tex0, samp0, at).rgb;
     return vec4<f32>(c, clamp(draw.diffuse.a, 0.0, 1.0));
 }

@@ -15,6 +15,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.decal.a-body-inside-lays-its-disc-on-the-floor",
+        says: "Inside, the simple setting's disc is laid on the room's floor under the body and \
+               drawn over it: the cells are drawn whole, every layer of them, before the decals.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DECAL-DUNGEON-DRAWN"),
+        station: "auberean-gpu::gpu::shadows::a_body_inside_lays_its_disc_on_the_floor",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.decal.a-decal-fades-in-and-out-over-its-life",
         says: "A decal lives out its lifespan, fading in over its first tenth (a quarter second at \
                most) and out over its last fifth (a second at most); one drawn once shows whole at \
@@ -22,8 +31,19 @@ pub static ROWS: &[Behaviour] = &[
                much shows.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DECAL-LIFE"),
-        station: "auberean-draw::cpu::decal::a_decal_fades_in_and_out_over_its_life",
+        station: "auberean-draw::cpu::effects::decal::a_decal_fades_in_and_out_over_its_life",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.decal.a-decal-inside-is-laid-on-the-cells-ground-about-it",
+        says: "A decal inside is laid on the cells' ground about it: the triangles of its cell's \
+               mesh (the most detailed level) whose box meets the cube about its point out to the \
+               box's largest side, and once, those of each room through a doorway of its cell whose \
+               shape meets the cube, cut to the decal's box.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DECAL-DUNGEON"),
+        station: "auberean-draw::dat::inside::a_decal_inside_is_laid_on_the_cells_ground_about_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.decal.a-decal-is-the-ground-cut-to-its-box",
@@ -33,7 +53,7 @@ pub static ROWS: &[Behaviour] = &[
                millimeters.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DECAL-CONSTRUCT"),
-        station: "auberean-draw::cpu::decal::a_decal_is_the_ground_cut_to_its_box",
+        station: "auberean-draw::cpu::effects::decal::a_decal_is_the_ground_cut_to_its_box",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -42,7 +62,7 @@ pub static ROWS: &[Behaviour] = &[
                those a square's side away along each axis and diagonal.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DECAL-LANDSCAPE"),
-        station: "auberean-draw::cpu::decal::a_landscape_decal_takes_the_nine_squares_about_it",
+        station: "auberean-draw::cpu::effects::decal::a_landscape_decal_takes_the_nine_squares_about_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -54,7 +74,7 @@ pub static ROWS: &[Behaviour] = &[
                pool material by the time of day.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-LIGHT-POOL"),
-        station: "auberean-draw::cpu::decal::a_point_light_lays_a_pool_of_its_light_below_it",
+        station: "auberean-draw::cpu::effects::decal::a_point_light_lays_a_pool_of_its_light_below_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -64,7 +84,7 @@ pub static ROWS: &[Behaviour] = &[
                with its normal taken along the edge; nothing is left when every point is dropped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DECAL-CLIP"),
-        station: "auberean-draw::cpu::decal::a_polygon_is_cut_to_a_planes_side",
+        station: "auberean-draw::cpu::effects::decal::a_polygon_is_cut_to_a_planes_side",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -95,7 +115,7 @@ pub static ROWS: &[Behaviour] = &[
                a vertex short of 8,192, else none of them, its decals drawn once then staying.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DECAL-GROUPS"),
-        station: "auberean-draw::cpu::decal::decals_are_drawn_by_material_within_a_groups_room",
+        station: "auberean-draw::cpu::effects::decal::decals_are_drawn_by_material_within_a_groups_room",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -116,7 +136,7 @@ pub static ROWS: &[Behaviour] = &[
                last, held to its object's opacity; it is let go of once its lifespan is spent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-EFFECT-LIGHT-FADE"),
-        station: "auberean-draw::cpu::lights::a_placed_light_fades_in_and_out",
+        station: "auberean-draw::cpu::objects::lights::a_placed_light_fades_in_and_out",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -124,7 +144,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A light an effect placed is taken by the frame's lights as a point light in its                object's cell at its place in that cell's own block, its range as it stands and its                intensity and specular color times how much of it shows; how far and how strongly it                may light anything come from its waveforms' bounds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHT-STANDING"),
-        station: "auberean-draw::cpu::lights::a_placed_light_stands_in_its_own_cells_block",
+        station: "auberean-draw::cpu::objects::lights::a_placed_light_stands_in_its_own_cells_block",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -171,6 +191,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.effects.frills-take-the-carried-lights-that-reach-them",
+        says: "Outdoors the frills take the lights objects carry that reach them beside the sun, as \
+               the other draws standing outdoors do; those no carried light reaches keep the sun \
+               alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FRILL-CARRIED-LIGHTS"),
+        station: "auberean-draw::dat::outdoors::frills_take_the_carried_lights_that_reach_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.effects.lit-particles-outdoors-take-the-carried-lights-before-the-sun",
+        says: "Outdoors a lit particle system is lit by the lights objects carry that reach it, \
+               strongest first, and then the sun; with none in reach, by the sun alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-CARRIED-LIGHTS"),
+        station: "auberean-draw::cpu::objects::lights::lit_particles_outdoors_take_the_carried_lights_before_the_sun",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.no-lights-while-the-light-source-effects-preference-is-off",
         says: "With the light source effects preference off the effects place no lights at all, so                the objects made then light nothing and lay no pool; turned on, it gives lights only                to what is made after.",
         since: RETAIL,
@@ -189,10 +228,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.frame.each-step-draws-its-objects-farthest-first",
+        says: "Each step of a frame's objects draws them farthest from the camera first, each \
+               object's draws together in their order, every layer of an object with the object; \
+               the landscape's frills are drawn in a step of their own after the water.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-OBJECT-ORDER"),
+        station: "auberean-draw::dat::volumes::each_step_draws_its_objects_farthest_first_and_the_frills_after_the_water",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.frame.the-water-is-drawn-before-what-is-seen-through",
-        says: "A frame of the world draws its opaque objects, then the water, then the objects seen \
-               through, the particle systems last: a flame over a lake adds itself onto the water \
-               behind it rather than being covered by it.",
+        says: "A frame of the world draws its objects not seen through, then the water, then the \
+               frills, the objects seen through and the particle systems last: a flame over a lake \
+               adds itself onto the water behind it rather than being covered by it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FRAME-ORDER"),
         station: "auberean-draw::dat::effects::the_arcane_fires_flames_are_drawn_after_the_water",
@@ -223,7 +272,7 @@ pub static ROWS: &[Behaviour] = &[
                seen through.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-DOORWAY"),
-        station: "auberean-draw::cpu::cull::a_doorway_narrows_the_view_to_what_shows_through_it",
+        station: "auberean-draw::cpu::objects::cull::a_doorway_narrows_the_view_to_what_shows_through_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -268,7 +317,7 @@ pub static ROWS: &[Behaviour] = &[
                when it last held the camera, so a room the camera never stood in is never left out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-FOG"),
-        station: "auberean-draw::cpu::cull::a_room_past_the_fog_is_left_out_by_its_own_distance",
+        station: "auberean-draw::cpu::objects::cull::a_room_past_the_fog_is_left_out_by_its_own_distance",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -296,8 +345,19 @@ pub static ROWS: &[Behaviour] = &[
                culled rooms beyond are walked on with the view the group was entered by.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-GROUP"),
-        station: "auberean-draw::cpu::cull::never_culled_rooms_are_taken_with_their_group",
+        station: "auberean-draw::cpu::objects::cull::never_culled_rooms_are_taken_with_their_group",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.inside.rooms-seen-from-outside-are-lit-as-rooms",
+        says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit as \
+               rooms and not by the sun: each drawn once, its mesh by the light its vertices carry, \
+               with no light of its own besides; a light carried inside reaches them, one carried \
+               on the land outside does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-ROOMS-SEEN-FROM-OUTSIDE"),
+        station: "auberean-draw::dat::outdoors::rooms_seen_from_outside_are_lit_as_rooms",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.inside.the-cameras-view-is-looser-than-its-picture",
@@ -306,7 +366,7 @@ pub static ROWS: &[Behaviour] = &[
                view, with a near plane; looser than the picture.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-CAMERA"),
-        station: "auberean-draw::cpu::cull::the_cameras_view_is_looser_than_its_picture",
+        station: "auberean-draw::cpu::objects::cull::the_cameras_view_is_looser_than_its_picture",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -319,10 +379,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.the-frame-is-chosen-by-the-cell-the-camera-stands-in",
-        says: "What a frame draws is chosen by the cell the camera stands in, not the player's: a                room, or a room it sees, that holds the camera; past them, the land outside where one                has a doorway out (else the room the camera started from); from the land, a room of                the block with a doorway out that holds the camera, else the land.",
+        says: "What a frame draws is chosen by the cell the camera stands in, not the player's: \
+               the cell the camera's last line of sight ended in, a room beyond a doorway the line \
+               went through, the room it started in when it left that by its open top, or the land \
+               cell under the camera outside.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CAMERA-CELL"),
-        station: "auberean-physics::dat::camera::the_camera_stands_in_the_room_that_holds_it_or_on_the_land",
+        station: "auberean-physics::dat::camera::the_camera_stands_in_the_cell_its_last_line_ended_in",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -342,7 +405,17 @@ pub static ROWS: &[Behaviour] = &[
                sees; a doorway out adds a view onto the land.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-WALK"),
-        station: "auberean-draw::cpu::cull::the_walk_reaches_the_rooms_the_doorways_show",
+        station: "auberean-draw::cpu::objects::cull::the_walk_reaches_the_rooms_the_doorways_show",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.material.a-device-draws-the-layers-of-its-detail-and-fog",
+        says: "A device draws a material's layers made for its material detail and its fog: a \
+               layer whose must-set detail or fog flags it lacks, or whose must-clear ones it has, \
+               is not drawn; one that asks for none is drawn at every detail.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-LAYER-DETAIL"),
+        station: "auberean-draw::cpu::materials::material::a_device_draws_the_layers_of_its_detail_and_fog",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -373,7 +446,28 @@ pub static ROWS: &[Behaviour] = &[
                it (see the next row for a program too long for the device).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LIGHT-VARIANTS"),
-        station: "auberean-draw::cpu::material::a_layers_programs_cover_its_light_counts",
+        station: "auberean-draw::cpu::materials::material::a_layers_programs_cover_its_light_counts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.material.a-material-draws-the-layer-its-detail-asks-for",
+        says: "Most material instances hold one layer for each material detail (low, medium, \
+               high), of which the device draws the one its detail asks for; every instance draws \
+               a layer at every detail.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-MATERIAL-DETAIL"),
+        station: "auberean-draw::dat::materials::a_material_draws_the_layer_its_detail_asks_for",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.material.a-modifier-sets-a-layers-reference-texture-and-switches",
+        says: "A modifier sets a layer's alpha reference (its waveform whole), a stage's texture \
+               by its id and its addressing (zero clamped, else wrapped), and the layer's culling \
+               (zero one-sided, else two-sided), depth test (zero always passing, else less or \
+               equal) and depth writing (on for anything but zero).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-MODIFIER-FIELDS"),
+        station: "auberean-draw::cpu::materials::material::a_modifier_sets_a_layers_reference_texture_and_switches",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -382,7 +476,7 @@ pub static ROWS: &[Behaviour] = &[
                coordinates reach the layer through the material's parameter of the same name.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-MATERIAL-FIELDS"),
-        station: "auberean-draw::cpu::material::a_modifier_sets_power_and_coordinate_scale",
+        station: "auberean-draw::cpu::materials::material::a_modifier_sets_power_and_coordinate_scale",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -400,7 +494,7 @@ pub static ROWS: &[Behaviour] = &[
                an environment map to it, alone or times its alpha.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PIXEL-PROGRAMS"),
-        station: "auberean-draw::cpu::material::a_pixel_program_is_read_from_its_instructions",
+        station: "auberean-draw::cpu::materials::material::a_pixel_program_is_read_from_its_instructions",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -426,11 +520,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.material.a-surface-frame-that-is-not-a-number-is-lit-as-facing-the-light",
+        says: "Where a mesh stores a surface frame that is not a number (203 meshes do, where their \
+               pictures' coordinates run flat, as at the crystals' feet), the direction toward the \
+               light its normal-mapped layer carries is not a number either, and the device reads \
+               each such part as 1: the packed direction is white, and the normal map there is lit \
+               as if it faced the light, so the crystals stay bright down to the ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-UNDEFINED-SURFACE-FRAME"),
+        station: "auberean-gpu::gpu::materials::a_surface_frame_that_is_not_a_number_is_lit_as_facing_the_light",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.material.a-turn-and-a-stored-matrix-move-coordinates-as-the-clients-do",
+        says: "A layer's turn moves a stage's coordinates by its waveform in degrees, \
+               counterclockwise as the coordinates run, after what came before it; a stored \
+               matrix moves them by its first two columns, its fourth row the slide.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-UV-TURN"),
+        station: "auberean-draw::cpu::materials::material::a_turn_and_a_stored_matrix_move_coordinates_as_the_clients_do",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.material.an-animation-field-sets-its-first-or-second-waveform",
         says: "A material parameter's coordinate-animation field sets the animation in that place of the layer's list by its place in the animation: the first waveform (a slide's u, a turn, a stretch's u) or the second (a slide's or a stretch's v).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-MATERIAL-ANIMATION-FIELDS"),
-        station: "auberean-draw::cpu::material::an_animation_field_sets_its_first_or_second_waveform",
+        station: "auberean-draw::cpu::materials::material::an_animation_field_sets_its_first_or_second_waveform",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -460,7 +576,7 @@ pub static ROWS: &[Behaviour] = &[
                coordinates in the order the layer lists them.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-UV-TRANSFORM"),
-        station: "auberean-draw::cpu::material::coordinate_animations_apply_in_order",
+        station: "auberean-draw::cpu::materials::material::coordinate_animations_apply_in_order",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -477,7 +593,17 @@ pub static ROWS: &[Behaviour] = &[
                highlights switched on, unless its pixel program adds specular itself.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-SPECULAR-OFF"),
-        station: "auberean-draw::cpu::material::specular_is_off_at_zero_power",
+        station: "auberean-draw::cpu::materials::material::specular_is_off_at_zero_power",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.a-far-object-draws-its-materials-at-a-lower-detail",
+        says: "A placed object draws its materials a step lower than the material detail asks \
+               past three times its high-detail distance, and at the lowest past three times its \
+               medium-detail one; a lower detail is never raised.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-DEGRADE-MATERIALS"),
+        station: "auberean-draw::cpu::objects::degrade::a_far_object_draws_its_materials_at_a_lower_detail",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -487,7 +613,16 @@ pub static ROWS: &[Behaviour] = &[
                by its format word.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-VERTEX-LAYOUT"),
-        station: "auberean-draw::cpu::layout::a_vertex_format_lays_its_elements_out_in_order",
+        station: "auberean-draw::cpu::objects::layout::a_vertex_format_lays_its_elements_out_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.an-object-fades-out-at-the-edge-of-its-visible-distance",
+        says: "An object fades out over the last 7.5% of its visible distance, and is not drawn \
+               once nothing of it is left.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-DEGRADE-FADE"),
+        station: "auberean-draw::cpu::objects::degrade::an_object_fades_out_at_the_edge_of_its_visible_distance",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -497,8 +632,28 @@ pub static ROWS: &[Behaviour] = &[
                distance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-DETAIL"),
-        station: "auberean-draw::cpu::layout::detail_falls_from_near_to_far",
+        station: "auberean-draw::cpu::objects::layout::detail_falls_from_near_to_far",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.the-scenery-draw-distance-draws-placed-objects-in",
+        says: "At the scenery draw distance's low and medium settings a placed object's distances \
+               are drawn in to 0.4 and 0.7 of themselves (its visible distance never under 20 m); \
+               at high they stand.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-SCENERY-DISTANCE"),
+        station: "auberean-draw::cpu::objects::degrade::the_scenery_draw_distance_draws_placed_objects_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.particles.a-mist-stands-unseen-without-volumetric-fog",
+        says: "With the volumetric fog effects off, a particle system whose particles move by \
+               repulsors (the start hall's ground mist) neither moves on nor draws; turned on \
+               again, it does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-VOLUMETRIC-FOG"),
+        station: "auberean-draw::dat::effects::a_mist_stands_unseen_without_volumetric_fog",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.particles.a-repulsor-moves-at-its-objects-velocity",
@@ -521,7 +676,7 @@ pub static ROWS: &[Behaviour] = &[
                the time held to the step at full precision.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTICLE-REPULSORS"),
-        station: "auberean-draw::cpu::particles::a_repulsor_pushes_the_particles_in_its_range",
+        station: "auberean-draw::cpu::effects::particles::a_repulsor_pushes_the_particles_in_its_range",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -530,7 +685,7 @@ pub static ROWS: &[Behaviour] = &[
                the square's four edges.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-SHAPES"),
-        station: "auberean-draw::cpu::particles::a_square_emitter_without_fill_starts_particles_on_its_edges",
+        station: "auberean-draw::cpu::effects::particles::a_square_emitter_without_fill_starts_particles_on_its_edges",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -539,7 +694,7 @@ pub static ROWS: &[Behaviour] = &[
                is, as wide as its size across the way it runs on the screen.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-STREAKS"),
-        station: "auberean-draw::cpu::particles::a_streak_stretches_from_its_tail_to_its_head",
+        station: "auberean-draw::cpu::effects::particles::a_streak_stretches_from_its_tail_to_its_head",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -547,7 +702,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A particle system goes once none of its emitters has anything more to discharge (or it \n               was stopped) and its last particles have died.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-DEATH"),
-        station: "auberean-draw::cpu::particles::a_system_goes_once_it_is_spent_and_its_particles_are_dead",
+        station: "auberean-draw::cpu::effects::particles::a_system_goes_once_it_is_spent_and_its_particles_are_dead",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -555,7 +710,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A particle system with a physics duration, or with an emitter that has neither an \n               emission limit nor a time limit, runs until it is stopped; any other lasts about its \n               longest emitter's start, lifespan and emitting time less its fast-forward.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-LIFETIME"),
-        station: "auberean-draw::cpu::particles::a_system_without_limits_runs_until_stopped",
+        station: "auberean-draw::cpu::effects::particles::a_system_without_limits_runs_until_stopped",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -565,7 +720,7 @@ pub static ROWS: &[Behaviour] = &[
                behind.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-PHYSICS"),
-        station: "auberean-draw::cpu::particles::a_thrown_particle_falls_with_gravity_times_its_mass",
+        station: "auberean-draw::cpu::effects::particles::a_thrown_particle_falls_with_gravity_times_its_mass",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -574,7 +729,7 @@ pub static ROWS: &[Behaviour] = &[
                discharged its emission limit.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-EMISSION"),
-        station: "auberean-draw::cpu::particles::a_timed_emitter_stops_at_its_emission_limit",
+        station: "auberean-draw::cpu::effects::particles::a_timed_emitter_stops_at_its_emission_limit",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -584,7 +739,7 @@ pub static ROWS: &[Behaviour] = &[
                the system moves from there, not for the way from the world's origin.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-PLACE"),
-        station: "auberean-draw::cpu::particles::a_world_system_reckons_distance_from_where_it_is_first_placed",
+        station: "auberean-draw::cpu::effects::particles::a_world_system_reckons_distance_from_where_it_is_first_placed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -593,7 +748,7 @@ pub static ROWS: &[Behaviour] = &[
                that blends them, by its age between the two.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-KEYFRAMES"),
-        station: "auberean-draw::cpu::particles::color_and_size_blend_toward_the_next_keyframe_that_blends_them",
+        station: "auberean-draw::cpu::effects::particles::color_and_size_blend_toward_the_next_keyframe_that_blends_them",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -610,7 +765,7 @@ pub static ROWS: &[Behaviour] = &[
                color, or to itself when none does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-KEY-LINKS"),
-        station: "auberean-draw::cpu::particles::keyframes_link_to_the_next_that_blends_each_value",
+        station: "auberean-draw::cpu::effects::particles::keyframes_link_to_the_next_that_blends_each_value",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -620,7 +775,16 @@ pub static ROWS: &[Behaviour] = &[
                its amplitude.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-WAVEFORMS"),
-        station: "auberean-draw::cpu::particles::waveforms_take_their_shape_at_a_time",
+        station: "auberean-draw::cpu::effects::particles::waveforms_take_their_shape_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.picture.a-texture-at-a-lower-detail-starts-at-a-smaller-level",
+        says: "A texture at a lower detail starts at a smaller stored level: the levels texture \
+               detail leaves out are its largest, the rest kept as stored.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-TEXTURE-LEVELS-DROPPED"),
+        station: "auberean-draw::cpu::materials::picture::a_texture_at_a_lower_detail_starts_at_a_smaller_level",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -634,21 +798,49 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.picture.anisotropic-filtering-draws-a-slanted-texture-from-larger-levels",
+        says: "With anisotropic filtering a texture seen at a slant is drawn from larger levels \
+               than without it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-ANISOTROPIC"),
+        station: "auberean-gpu::gpu::textures::anisotropic_filtering_draws_a_slanted_texture_from_larger_levels",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.picture.texture-detail-leaves-out-the-largest-levels",
         says: "Texture detail from lowest to highest leaves out the four, three, two or one largest \
                levels of a picture list, none at the highest when its high detail is kept, never \
                every level.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-TEXTURE-DETAIL"),
-        station: "auberean-draw::cpu::picture::texture_detail_leaves_out_the_largest_levels",
+        station: "auberean-draw::cpu::materials::picture::texture_detail_leaves_out_the_largest_levels",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.picture.the-device-draws-a-texture-from-the-level-its-detail-starts-at",
+        says: "The device draws a texture from the level its detail starts at, its textures \
+               loaded again when the detail changes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-TEXTURE-DETAIL-FLUSH"),
+        station: "auberean-gpu::gpu::textures::the_device_draws_a_texture_from_the_level_its_detail_starts_at",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.picture.trilinear-filtering-blends-between-a-textures-levels",
+        says: "With trilinear filtering a texture blends between its two nearest levels; without \
+               it each texel comes from the nearest level alone. The filtering the client starts \
+               with stays until it starts again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-TRILINEAR"),
+        station: "auberean-gpu::gpu::textures::trilinear_filtering_blends_between_a_textures_levels",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.portal.portal-space-comes-in-and-goes-out-a-second-a-phase",
         says: "Portal space comes in over a second (the world's view narrowing to a fifth under a black veil while the tunnel and the nebula fade in), stays in with no world drawn, then goes out over a second (the tunnel's view widening to 2.4 times as white fades in) and comes out over another (the world's view widening back as the white fades out); started at once, it is in at once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PORTAL-PHASES"),
-        station: "auberean-draw::cpu::portal::portal_space_comes_in_and_goes_out_a_second_a_phase",
+        station: "auberean-draw::cpu::effects::portal::portal_space_comes_in_and_goes_out_a_second_a_phase",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -656,7 +848,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "The tunnel is 150 rings 3 m apart along a winding tube, each of radius 10 + 6 sin(0.01 d) at its distance d; the camera rushes along at 120 m/s, the rings it passes made again at the far end; the rings fade from 1.0 nearest to 0.8 at the sixteenth and from there to nothing at the far end.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PORTAL-TUNNEL"),
-        station: "auberean-draw::cpu::portal::the_tunnel_is_rings_three_meters_apart_the_camera_rushes_along",
+        station: "auberean-draw::cpu::effects::portal::the_tunnel_is_rings_three_meters_apart_the_camera_rushes_along",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -666,7 +858,15 @@ pub static ROWS: &[Behaviour] = &[
                five whose every preference but the adaptive degrade's bias they match, else none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RENDER-QUALITY"),
-        station: "auberean-draw::cpu::quality::an_overall_quality_sets_the_graphics_preferences",
+        station: "auberean-draw::cpu::options::quality::an_overall_quality_sets_the_graphics_preferences",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.quality.the-reflection-ripples-only-at-the-highest-water-reflections",
+        says: "The water's reflection ripples only with the water reflections preference at its                highest choice; at the lower one it is laid as it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-RIPPLES-HIGH"),
+        station: "auberean-draw::cpu::options::quality::the_reflection_ripples_only_at_the_highest_water_reflections",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -675,7 +875,7 @@ pub static ROWS: &[Behaviour] = &[
                its speeds times the client's running time.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CLOUD-SHADOWS"),
-        station: "auberean-draw::cpu::shadow::cloud_shadows_slide_with_the_running_time",
+        station: "auberean-draw::cpu::landscape::shadows::cloud_shadows_slide_with_the_running_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -684,7 +884,7 @@ pub static ROWS: &[Behaviour] = &[
                shadow in it takes away 0.95 of the day's shadow color.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-SHADOW-MAP"),
-        station: "auberean-draw::cpu::shadow::the_map_spans_the_near_terrain_from_the_sun",
+        station: "auberean-draw::cpu::landscape::shadows::the_map_spans_the_near_terrain_from_the_sun",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -693,8 +893,136 @@ pub static ROWS: &[Behaviour] = &[
                it can be, or north when the light falls straight down.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-SHADOW-FRAME"),
-        station: "auberean-draw::cpu::shadow::the_sun_looks_along_its_light_with_up_kept_up",
+        station: "auberean-draw::cpu::landscape::shadows::the_sun_looks_along_its_light_with_up_kept_up",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.shore.a-beach-makes-one-open-strip-along-it",
+        says: "Where the ground runs down into the water straight across a block, the shore is \
+               one open strip along it, two vertices a point where the ground's edges cross the \
+               water, which carries foam.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-BEACH"),
+        station: "auberean-draw::cpu::landscape::shores::a_beach_makes_one_open_strip_along_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.shore.a-block-whose-water-stands-lower-than-the-viewers-has-no-shore",
+        says: "A detailed block's water makes a shore only when it stands no more than 0.1 m \
+               below the water of the viewer's own block (when that block has water); a block \
+               whose water stands lower is passed over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-LOWER-WATER"),
+        station: "auberean-draw::cpu::landscape::shores::a_block_whose_water_stands_lower_than_the_viewers_has_no_shore",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.shore.a-closed-shore-under-20-m-carries-no-foam",
+        says: "A closed shore shorter than 20 m carries no foam; its strip is still drawn into \
+               the frame's alpha.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-SHORT-NO-FOAM"),
+        station: "auberean-draw::cpu::landscape::shores::a_closed_shore_under_20_m_carries_no_foam",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.shore.a-ponds-shore-runs-round-it-out-over-the-water",
+        says: "A pond's shore is one closed strip round it: its points where the ground's edges \
+               cross the water, each pulled 5 cm up the bank, its far edge out over the water \
+               twelve times the ground's upward slant there; measured along its length from its \
+               first point, ending with a copy of it, with one random offset across it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-POND"),
+        station: "auberean-draw::cpu::landscape::shores::a_ponds_shore_runs_round_it_out_over_the_water",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.shore.the-camps-pond-has-a-shore-where-its-water-meets-the-ground",
+        says: "The camp's pond has its shore at the water's height, drawn first with the shore's \
+               alpha material, black at half alpha, then, with the shore effects at their \
+               highest, with the foam's, black; found once for the viewer's block and kept while \
+               the viewer stays in it; no foam at the middle setting, no shore with them off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-CAMP"),
+        station: "auberean-draw::dat::landscape::the_camps_pond_has_a_shore_where_its_water_meets_the_ground",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.streak.a-bodys-own-streak-is-drawn-where-it-is",
+        says: "Every object drawn places its own streaks where it is drawn: a body's (the \
+               player's, another's, one the client made), as a held object's where it hangs; \
+               turning a streak on or off reaches the object's own and those of what it holds at \
+               the holding location, the client's objects among them; turned off, the ribbon \
+               fades and goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-OWN"),
+        station: "auberean-shell::dat::session::a_bodys_own_streak_is_drawn_where_it_is",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.streak.a-held-streak-runs-the-blade-at-its-size",
+        says: "A streak's line takes its object's size once: the place it is laid from is the \
+               drawing frame's turn and position alone, and the line is scaled by the largest of \
+               the object's scales (a sword held at twice its size leaves a ribbon twice as wide).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-SCALE"),
+        station: "auberean-shell::dat::session::a_held_streak_runs_the_blade_at_its_size",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.streak.a-moving-line-lays-segments-while-the-streak-is-on",
+        says: "A streak lays segments only while it is on: placed after being turned on, the line \
+               on its object where the object is drawn is the newest segment, a copy laid after \
+               the first; within the least distance of the one before (and, with a least time, \
+               before it has passed) the newest moves with the line, the distance run growing; \
+               past it another is laid; the line scales with its object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-TRAIL"),
+        station: "auberean-draw::cpu::effects::streak::a_moving_line_lays_segments_while_the_streak_is_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.streak.a-ribbon-runs-along-the-trail",
+        says: "A streak's ribbon is two vertices a segment, oldest first, the line's second point \
+               then its first (the picture's v 0 and 1), the picture's u the distance run times \
+               the texture scale, the streak's color with its alpha times the segment's truncated \
+               to bytes; none when its object was not drawn in the frame, with fewer than two \
+               segments, or past the frame's room for streaks; drawn after the particle systems.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-RIBBON"),
+        station: "auberean-draw::cpu::effects::streak::a_ribbon_runs_along_the_trail",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.streak.a-swung-streak-leaves-a-ribbon-of-light",
+        says: "A streak turned on and swung through the air adds its material's picture onto the \
+               frame along the swing, brightening it and darkening nothing; a streak not turned \
+               on draws nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-DRAW"),
+        station: "auberean-gpu::gpu::streaks::a_swung_streak_leaves_a_ribbon_of_light",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.streak.a-trail-fades-and-a-streak-ends-with-its-lifespan",
+        says: "Every segment of a trail fades as the square of one less its age over the trail \
+               time and is gone once its age passes the trail time by a tenth of a second; a \
+               streak that lasts a while is on at once and goes off once its lifespan has passed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-FADE"),
+        station: "auberean-draw::cpu::effects::streak::a_trail_fades_and_a_streak_ends_with_its_lifespan",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.streak.a-weapon-carries-a-streak-a-swing-turns-on",
+        says: "A weapon's look makes its streak as the rest of its startup effects, waiting to be \
+               turned on; a body's swing turns the streaks of what it holds at a holding location \
+               on and off as its effects' entries say; with the streaks preference off no streak \
+               is made or turned on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STREAK-FX"),
+        station: "auberean-draw::dat::effects::a_weapons_streak_waits_for_a_swing_to_turn_it_on",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.systems.a-system-set-going-on-its-own-draws-until-it-is-spent",
@@ -723,7 +1051,7 @@ pub static ROWS: &[Behaviour] = &[
                for each step of its rotation.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-MASK-TURN"),
-        station: "auberean-draw::cpu::layout::a_mask_turns_a_quarter_per_step",
+        station: "auberean-draw::cpu::objects::layout::a_mask_turns_a_quarter_per_step",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -737,6 +1065,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-SCENE-CAMERA"),
         station: "auberean-scene::cpu::view::a_scenes_camera_takes_the_properties_of_its_camera_group",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.viewport.a-viewports-scene-covers-only-where-it-draws",
+        says: "A panel's viewport (the paper doll's) covers the panels behind it only where its \
+               scene draws, wholly under what is opaque and partly under what is seen through; \
+               everywhere else they show through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VIEWPORT-COVERAGE"),
+        station: "auberean-gpu::gpu::shores::a_viewports_scene_covers_only_where_it_draws",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.volume.a-bodys-shadow-darkens-the-ground-and-not-the-body",
@@ -758,8 +1096,42 @@ pub static ROWS: &[Behaviour] = &[
                face the light: a closed mesh casts a closed volume.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-BUILD"),
-        station: "auberean-draw::cpu::volume::a_closed_mesh_casts_a_closed_volume_away_from_the_light",
+        station: "auberean-draw::cpu::objects::volume::a_closed_mesh_casts_a_closed_volume_away_from_the_light",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.volume.a-draws-step-goes-by-its-object",
+        says: "A draw's step goes by its object, never by its layer: an object not seen through is \
+               drawn with the opaque objects, every layer of it (blended by its pictures' alpha or \
+               not, marking how near it is or not), before the volumes darken the frame unless it \
+               casts one; an object its drawing properties make seen through is drawn with those \
+               seen through; an interior cell's mesh is drawn before the decals.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VOLUME-PHASES"),
+        station: "auberean-draw::dat::volumes::a_draws_step_goes_by_its_object",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.volume.a-placed-object-takes-its-drawing-properties-from-its-entities",
+        says: "An object a landblock or a cell places takes its drawing properties as any object \
+               made from an entity does: the entities it is made from first, innermost first, then \
+               the placed entity's own, the last that says deciding each bit of how it is drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VOLUME-PLACED-PROPERTIES"),
+        station: "auberean-physics::cpu::contact::solid::a_placed_object_takes_its_drawing_properties_from_its_entities",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.volume.a-placed-objects-shadow-turns-away-from-a-carried-light",
+        says: "A placed object that casts a volume of shadow throws it the way the lights it keeps \
+               throw it, the lights objects carry that reach it among them: outdoors a torch \
+               beside it turns its shadow from the sun's way to away from the torch, inside a \
+               torch turns it from the way its own lights throw it; once the torch is gone the \
+               shadow falls as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VOLUME-PLACED-CARRIED"),
+        station: "auberean-draw::dat::volumes::a_placed_objects_shadow_turns_away_from_a_carried_light",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.volume.a-player-casts-a-closed-volume-of-shadow",
@@ -777,7 +1149,7 @@ pub static ROWS: &[Behaviour] = &[
                with alpha one, and a mid gray (0.45) inside.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-STRENGTH"),
-        station: "auberean-draw::cpu::volume::a_shadow_takes_away_the_shadow_color_or_gray_inside",
+        station: "auberean-draw::cpu::objects::volume::a_shadow_takes_away_the_shadow_color_or_gray_inside",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -788,7 +1160,7 @@ pub static ROWS: &[Behaviour] = &[
                itself.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-LEVEL"),
-        station: "auberean-draw::cpu::volume::a_volume_is_made_from_a_coarse_level",
+        station: "auberean-draw::cpu::objects::volume::a_volume_is_made_from_a_coarse_level",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -798,7 +1170,7 @@ pub static ROWS: &[Behaviour] = &[
                three triangles or fewer, none whose vertices or indices would pass the room left.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-ROOM"),
-        station: "auberean-draw::cpu::volume::a_volume_is_made_only_whole_and_in_room",
+        station: "auberean-draw::cpu::objects::volume::a_volume_is_made_only_whole_and_in_room",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -809,8 +1181,30 @@ pub static ROWS: &[Behaviour] = &[
                whether it is, and each is kept among its own properties.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RENDER-PROPERTIES"),
-        station: "auberean-physics::cpu::solid::an_objects_drawing_properties_say_how_it_is_drawn",
+        station: "auberean-physics::cpu::contact::solid::an_objects_drawing_properties_say_how_it_is_drawn",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.volume.at-self-shadowing-a-body-shadows-itself",
+        says: "At the self shadowing setting the objects that cast volumes are drawn with every \
+               other opaque object before the darkening and make their volumes as they are drawn, \
+               at any distance, farthest first, from the level drawn with the near cap pushed five \
+               centimeters along the light: a body's own side away from the light is darkened.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VOLUME-SELF-SHADOWING"),
+        station: "auberean-gpu::gpu::shadows::at_self_shadowing_a_body_shadows_itself",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.volume.placed-objects-that-say-so-cast-volumes",
+        says: "The objects the world places cast volumes of shadow when their entities say so (63 \
+               a landblock places, 799 its cells place), as the bodies do: drawn after the volumes, \
+               those within forty meters of the camera cast, nearest first, their shadow falling \
+               the sun's way outdoors and the way their own lights throw it inside.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VOLUME-PLACED"),
+        station: "auberean-draw::dat::volumes::placed_objects_that_say_so_cast_volumes",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.volume.the-lights-an-object-keeps-throw-its-shadow",
@@ -821,7 +1215,7 @@ pub static ROWS: &[Behaviour] = &[
                nothing; with no light, the sun's way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-DIRECTION"),
-        station: "auberean-draw::cpu::volume::the_lights_an_object_keeps_throw_its_shadow",
+        station: "auberean-draw::cpu::objects::volume::the_lights_an_object_keeps_throw_its_shadow",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -831,8 +1225,77 @@ pub static ROWS: &[Behaviour] = &[
                the other way joins the first such edge still unmet.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-CONNECTIVITY"),
-        station: "auberean-draw::cpu::volume::triangles_meet_at_edges_run_the_other_way",
+        station: "auberean-draw::cpu::objects::volume::triangles_meet_at_edges_run_the_other_way",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.water.the-foam-lies-over-the-waters-reflection",
+        says: "The foam along the shores is drawn after the water and its reflection, over \
+               them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-FOAM-OVER-REFLECTION"),
+        station: "auberean-gpu::gpu::shores::the_foam_lies_over_the_waters_reflection",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-frame-keeps-alpha-127-but-where-a-shore-lies",
+        says: "The frame's alpha is 127 of 255 under everything drawn (the device writes color \
+               alone, every clear leaves that alpha); only the shores' strips write it, alone, \
+               before the water: their picture's alpha times half.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-ALPHA"),
+        station: "auberean-gpu::gpu::shores::the_frame_keeps_alpha_127_but_where_a_shore_lies",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-reflection-is-drawn-512-texels-square",
+        says: "The water's reflection is drawn into a picture of its own 512 texels square, with                a depth of its own the same size, whatever the screen's size, and laid over the                screen as it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-REFLECTION-SIZE"),
+        station: "auberean-gpu::gpu::water::the_reflection_is_drawn_512_texels_square",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-reflection-is-laid-over-by-half",
+        says: "The water's reflection is laid over the water by the alpha the frame holds, 127                of 255 (the device writes only color, and every clear leaves that alpha): half                the reflection and half the water as it was drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-REFLECTION-HALF"),
+        station: "auberean-gpu::gpu::water::the_reflection_is_laid_over_by_half",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-ripples-push-the-reflection-one-way",
+        says: "The ripples push the water's reflection one way only, never back: what the                reflection shows is drawn out downward and to the left in spikes, never up or to                the right; without ripples it lies as it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-RIPPLES"),
+        station: "auberean-gpu::gpu::water::the_ripples_push_the_reflection_one_way",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-water-shows-half-the-ground-under-it",
+        says: "The water's own material blends by the destination's alpha, which is 127 of 255                wherever it is drawn (the device writes only color, and every clear leaves that                alpha): the water shows half its own color and half the ground under it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-GROUND-HALF"),
+        station: "auberean-gpu::gpu::water::the_water_shows_half_the_ground_under_it",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-water-shows-less-of-itself-along-the-shore",
+        says: "Across a shore's strip the water shows its own color by the frame's alpha there, \
+               less of it near the waterline, so the ground under it shows through more; off the \
+               strip half and half.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHORE-WATER-SHARE"),
+        station: "auberean-gpu::gpu::shores::the_water_shows_less_of_itself_along_the_shore",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.world.a-blocks-water-lies-in-quarter-block-polygons",
+        says: "A detailed block's water surface is four polygons by four, each a quarter of the                block wide, its picture and its ripples' coordinates both running 0 to 1 across                each polygon, whatever the water's own tile and polygon widths say.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-GRID"),
+        station: "auberean-draw::dat::landscape::a_detailed_blocks_water_lies_in_quarter_block_polygons",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.world.a-frill-takes-its-color-from-the-shadow-about-it",
@@ -844,6 +1307,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FRILL-SHADE"),
         station: "auberean-draw::dat::landscape::every_frill_is_drawn_with_its_spot_for_the_shadow_about_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.a-part-draws-its-own-copy-when-its-look-changes-materials",
+        says: "A part draws through its own frame carried by the object's the mesh its instance                holds: the one every part showing it shares, or, when the part's look changes its                materials, its own copy with them changed, the other parts keeping the mesh's own;                it is culled by its mesh's box carried through its frame.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PART-DRAW"),
+        station: "auberean-draw::dat::parts::a_part_draws_its_own_copy_when_its_look_changes_its_materials",
         tier: Tier::Dat,
     },
     behaviour! {

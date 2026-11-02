@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use auberean_friends::engine::{Engine, Io, Message};
+use auberean_friends_dll::engine::{Engine, Io, Message};
 use stream::{
     Answer, Event, FriendStatus, Hr, Mode, Request, ServerConfig, ServerEvent, ServerOut,
     ServerStream, Ticket,

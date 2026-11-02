@@ -2,11 +2,7 @@
 //! requests carry, the files scripts write, the natives bound over the shared ones, an object's
 //! repository, the friends service's layer.
 
-mod clock;
-mod files;
+mod common;
 mod friends;
-mod natives;
-mod reports;
-mod repository;
-mod requests;
-mod updates;
+mod scripts;
+mod world;

@@ -6,7 +6,8 @@
 //! `auberean-ui`) and the world it shows (`auberean-scene`), the
 //! world's device (`auberean-gpu`) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
-//! (`dereth-primitives`), and the window system (`winit`) and device (`wgpu`). **Used by** nothing:
+//! (`dereth-primitives`), the window system (`winit`), the device (`wgpu`) and the sound device
+//! (`dereth-audio-out`, through the sound engine's output seam in `dereth-audio`). **Used by** nothing:
 //! it is the `auberean` program.
 //!
 //! ```text
@@ -14,7 +15,8 @@
 //!          [--glsticketdirect SECRET]
 //!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
-//!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--verbose]
+//!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--no-sound]
+//!          [--verbose]
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
@@ -27,9 +29,18 @@
 //! (`script.rs`). Screenshots (Ctrl+P, and a script's) go to `--shots`, by default the settings
 //! folder's `screenshots`. `--no-window` runs everything but the window and the device for that
 //! many seconds (the world is still framed, with no picture made), printing the status lines.
+//! The game's sound plays through the default output device; `--no-sound` runs silent.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
 //! does (it stands for the password after `--account`).
+//!
+//! The command line is read as the September 2013 client reads its own, and takes its options too:
+//! `-h`/`--host` and `-p`/`--port` name the server (instead of `--server`), `-a`/`--account` the
+//! account (in small letters), `-z` is `--glsticketdirect`, `--width` and `--height` the window,
+//! `--prefs` the preferences file (in the settings folder unless a path says otherwise). An option
+//! may be written `-name`, `--name` or `/name`. Named with a host or an account, the line also
+//! needs the other, as the client's own does. A line that does not read (`-?` included) lists
+//! every option.
 //!
 //! The friends service (friends, the ignore list, the away state, tells to `Name@World`) is reached
 //! at the login's host and port by default, with a ticket made from the login's account and
@@ -47,6 +58,8 @@
 //! the user's application data (`Auberean`). Tests and trial runs set the variable to a folder of
 //! their own. The key maps' files are saved there too; one not saved there is read from the
 //! install folder, where the September 2013 client keeps its own.
+//! The files the game's scripts write and read (a chat log, an options export) are kept there too,
+//! by bare names only, where the September 2013 client keeps them beside itself.
 //!
 //! **Must never** hold the game: what a frame shows and what the player's input does are the
 //! shell's (`auberean-shell`); this program only brings the platform under it.
@@ -56,6 +69,7 @@
 mod friends;
 mod icon;
 mod keys;
+mod local;
 mod present;
 mod script;
 
@@ -70,8 +84,11 @@ use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::runtime::data::{DataFiles, ENGLISH};
 use auberean_client_sdk::ClientData;
 use auberean_scene::WorldData;
+use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
+use auberean_shell::preferences::{EnumNames, Names, Preferences, LANGUAGES};
+use auberean_shell::profile::Profile;
 use auberean_shell::{Host, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
@@ -97,87 +114,204 @@ struct Options {
     shots: Option<PathBuf>,
     verbose: bool,
     no_window: Option<f64>,
+    no_sound: bool,
     gun_server: Option<String>,
     gun_port: Option<u16>,
     gun_ticket: bool,
     gun_ticket_override: Option<String>,
-    secret: Option<String>,
+    /// The preferences file named (else the settings folder's own).
+    prefs: Option<String>,
+    /// The language named.
+    language: Option<String>,
+}
+
+/// This program's own options, beside the September 2013 client's: each one's form (what it takes
+/// and keeps), long name, help and a switch's value.
+const OWN_OPTIONS: [(u32, &str, &str, i32); 11] = [
+    (
+        0x32,
+        "dats",
+        "<folder>: The September 2013 client's install folder.",
+        0,
+    ),
+    (0x32, "server", "<IP:port>: The server to log in to.", 0),
+    (0x32, "size", "<WxH>: The window's size.", 0),
+    (
+        0x32,
+        "dev-login",
+        "<account:password>: Log in and enter the world by itself.",
+        0,
+    ),
+    (
+        0x32,
+        "dev-character",
+        "<name>: The character the developer's login enters as.",
+        0,
+    ),
+    (
+        0x11,
+        "dev-overlay",
+        "Show the session's state over the world.",
+        1,
+    ),
+    (
+        0x32,
+        "dev-script",
+        "<file>: Play a script of input and screenshots.",
+        0,
+    ),
+    (0x32, "shots", "<folder>: Where screenshots go.", 0),
+    (0x11, "verbose", "Write more to the log.", 1),
+    (0x11, "no-sound", "Play no sound.", 1),
+    (
+        0x32,
+        "no-window",
+        "<seconds>: Run with no window for that long.",
+        0,
+    ),
+];
+
+/// The command line: the September 2013 client's options, read as it reads them, and this
+/// program's own.
+#[derive(Debug, Default)]
+struct Line {
+    client: ClientLine,
+    o: Options,
+    /// The account as given, which may carry the password after a colon.
+    account: Option<String>,
+    /// The options the line named.
+    given: Vec<String>,
+}
+
+impl Line {
+    fn fail(&mut self, text: &str) -> bool {
+        set_error_text(self, text);
+        false
+    }
+}
+
+impl Reader for Line {
+    fn build(&mut self, list: &mut ArgList) {
+        self.client.build(list);
+        for (form, name, help, value) in OWN_OPTIONS {
+            list.add_cmd(form, 0, name, help, value);
+        }
+    }
+
+    fn evaluate(&mut self, arg: &Arg, value: &str) -> bool {
+        self.given.push(arg.name.clone());
+        let pair = |v: &str| {
+            let (a, p) = v.split_once(':').unwrap_or((v, ""));
+            (a.to_owned(), p.to_owned())
+        };
+        match arg.name.as_str() {
+            "dats" => self.o.dats = PathBuf::from(value),
+            "server" => match value.parse() {
+                Ok(a) => self.o.server = Some(a),
+                Err(e) => return self.fail(&format!("--server: {e} (want IP:PORT)")),
+            },
+            "size" => {
+                let size = value
+                    .split_once('x')
+                    .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
+                match size {
+                    Some(s) => self.o.size = Some(s),
+                    None => return self.fail("--size: want WxH"),
+                }
+            }
+            "dev-login" => self.o.login = Some(pair(value)),
+            "dev-character" => self.o.character = Some(value.to_owned()),
+            "dev-overlay" => self.o.overlay = true,
+            "dev-script" => self.o.script = Some(PathBuf::from(value)),
+            "shots" => self.o.shots = Some(PathBuf::from(value)),
+            "verbose" => self.o.verbose = true,
+            "no-sound" => self.o.no_sound = true,
+            "no-window" => match value.parse() {
+                Ok(v) => self.o.no_window = Some(v),
+                Err(e) => return self.fail(&format!("--no-window: {e} (want seconds)")),
+            },
+            _ => {
+                if arg.name == "account" {
+                    self.account = Some(value.to_owned());
+                }
+                return self.client.evaluate(arg, value);
+            }
+        }
+        true
+    }
+
+    /// The install folder is needed. Launched the way the launcher launches the client (a host or
+    /// an account named), the client's own check; else the friends service's ticket still needs
+    /// the service.
+    fn done(&mut self) -> bool {
+        if self.o.dats.as_os_str().is_empty() {
+            return self.fail("--dats <install folder> is needed");
+        }
+        if !self.client.host.is_empty() || !self.client.account.is_empty() {
+            return self.client.done();
+        }
+        if self.client.gun_ticket != 0 && self.client.gun_server.is_none() {
+            return self.fail("--gunticket needs --gunserver");
+        }
+        true
+    }
+
+    fn error_text(&mut self) -> &mut String {
+        self.client.error_text()
+    }
+
+    fn output(&mut self, text: &str) {
+        eprint!("{text}");
+    }
 }
 
 fn options() -> Result<Options, String> {
-    let mut o = Options::default();
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        let mut value = || args.next().ok_or(format!("{a} needs a value"));
-        match a.as_str() {
-            "--dats" => o.dats = PathBuf::from(value()?),
-            "--server" => {
-                o.server = Some(
-                    value()?
-                        .parse()
-                        .map_err(|e| format!("--server: {e} (want IP:PORT)"))?,
-                );
-            }
-            "--size" => {
-                let v = value()?;
-                let (w, h) = v.split_once('x').ok_or("--size: want WxH")?;
-                o.size = Some((
-                    w.parse().map_err(|e| format!("--size: {e}"))?,
-                    h.parse().map_err(|e| format!("--size: {e}"))?,
-                ));
-            }
-            "--dev-login" => {
-                let v = value()?;
-                let (a, p) = v.split_once(':').unwrap_or((v.as_str(), ""));
-                o.login = Some((a.to_owned(), p.to_owned()));
-            }
-            "--account" => {
-                let v = value()?;
-                let (a, p) = v.split_once(':').unwrap_or((v.as_str(), ""));
-                o.account = Some((a.to_owned(), p.to_owned()));
-            }
-            "--dev-character" => o.character = Some(value()?),
-            "--dev-overlay" => o.overlay = true,
-            "--dev-script" => o.script = Some(PathBuf::from(value()?)),
-            "--shots" => o.shots = Some(PathBuf::from(value()?)),
-            "--verbose" => o.verbose = true,
-            "--no-window" => {
-                o.no_window = Some(
-                    value()?
-                        .parse()
-                        .map_err(|e| format!("--no-window: {e} (want seconds)"))?,
-                );
-            }
-            "--glsticketdirect" => o.secret = Some(value()?),
-            "--gunserver" => o.gun_server = Some(value()?),
-            "--gunport" => {
-                o.gun_port = Some(
-                    value()?
-                        .parse()
-                        .map_err(|e| format!("--gunport: {e} (want a port)"))?,
-                );
-            }
-            "--gunticket" => o.gun_ticket = true,
-            "--gunticketoverride" => o.gun_ticket_override = Some(value()?),
-            "--gunclientdll" => {
-                value()?;
-            }
-            "-h" | "--help" => return Err("see the usage at the top of src/main.rs".into()),
-            other => return Err(format!("unknown option {other}")),
-        }
+    let words: Vec<String> = std::env::args().collect();
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let mut line = Line::default();
+    if !parse_args(&mut line, &words, true) {
+        return Err("the command line does not read".into());
     }
-    if o.dats.as_os_str().is_empty() {
-        return Err("--dats <install folder> is needed".into());
+    let c = &line.client;
+    let mut o = line.o;
+    // The account as the client keeps it (in small letters), with this program's password after a
+    // colon, which the ticket given directly stands for.
+    if let Some(raw) = &line.account {
+        let (_, password) = raw.split_once(':').unwrap_or((raw, ""));
+        let name = c
+            .account
+            .split_once(':')
+            .map_or(c.account.as_str(), |(a, _)| a);
+        o.account = Some((name.to_owned(), password.to_owned()));
     }
-    if o.gun_ticket && o.gun_server.is_none() {
-        return Err("--gunticket needs --gunserver".into());
-    }
-    if let Some(secret) = o.secret.take() {
+    if let Some(secret) = c.ticket.clone() {
         let Some((_, password)) = o.account.as_mut() else {
             return Err("--glsticketdirect needs --account".into());
         };
         *password = secret;
     }
+    if !c.host.is_empty() {
+        use std::net::ToSocketAddrs;
+        let port = u16::try_from(c.port).unwrap_or(0);
+        o.server = (c.host.as_str(), port)
+            .to_socket_addrs()
+            .map_err(|e| format!("--host {}: {e}", c.host))?
+            .next();
+    }
+    let named = |n: &str| line.given.iter().any(|g| g == n);
+    if named("width") || named("height") {
+        if let (Ok(w), Ok(h)) = (u32::try_from(c.width), u32::try_from(c.height)) {
+            if w > 0 && h > 0 {
+                o.size = Some((w, h));
+            }
+        }
+    }
+    o.language.clone_from(&c.language);
+    o.gun_server.clone_from(&c.gun_server);
+    o.gun_port = (c.gun_port != 0).then_some(c.gun_port);
+    o.gun_ticket = c.gun_ticket != 0;
+    o.gun_ticket_override.clone_from(&c.gun_ticket_override);
+    o.prefs.clone_from(&c.prefs);
     Ok(o)
 }
 
@@ -212,8 +346,14 @@ fn settings_dir() -> PathBuf {
 }
 
 /// The data files: the world's (portal, cell, high resolution) and the client's (those and the
-/// English strings, in the order the client opens them, with the script library linked).
-fn open(dir: &Path) -> Result<(WorldData, ClientData), String> {
+/// strings of the language to run in, in the order the client opens them, with the script library
+/// linked). The language is the command line's, else the preferences', else English (English too
+/// when the install has no strings for it); its name comes back with the data.
+fn open(
+    dir: &Path,
+    language: Option<&str>,
+    preferences: &str,
+) -> Result<(WorldData, ClientData, String), String> {
     let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
         let (_, p) = found.iter().find(|(n, _)| want(n))?;
@@ -229,24 +369,37 @@ fn open(dir: &Path) -> Result<(WorldData, ClientData), String> {
         ctx,
     );
     let world = WorldData::new(records)?;
+    let languages = EnumNames::read(&world.records, LANGUAGES);
+    let prefs = Preferences::startup(Profile::new(preferences), Names::read(&world.records));
+    let mut id = auberean_shell::preferences::language(language, &prefs, &languages);
+    let mut name = languages.name(id).unwrap_or("English").to_owned();
+    if !found
+        .iter()
+        .any(|(n, _)| *n == DatName::Local(name.clone()))
+    {
+        tracing::warn!(language = %name, "no strings for the language: English");
+        id = ENGLISH;
+        name = "English".to_owned();
+    }
     let portal = Arc::new(open(&|n| *n == DatName::Portal).ok_or("no portal file")?);
     let mut files = vec![Arc::clone(&portal)];
-    files.extend(open(&|n| *n == DatName::Local("English".into())).map(Arc::new));
+    files.extend(open(&|n| *n == DatName::Local(name.clone())).map(Arc::new));
     files.extend(open(&|n| *n == DatName::Cell(1)).map(Arc::new));
     files.extend(open(&|n| *n == DatName::HighRes).map(Arc::new));
     let program = auberean_client_sdk::runtime::link_scripts(&portal)?;
     let data = ClientData {
         files: DataFiles {
             files,
-            language: ENGLISH,
+            language: id,
         },
         scripts: Some((portal, Arc::new(program))),
     };
-    Ok((world, data))
+    Ok((world, data, name))
 }
 
-/// The interface's records: the English strings first, then the portal and high-resolution files.
-fn ui_assets(dir: &Path) -> Result<Arc<auberean_ui::DatAssets>, String> {
+/// The interface's records: the language's strings first, then the portal and high-resolution
+/// files.
+fn ui_assets(dir: &Path, language: &str) -> Result<Arc<auberean_ui::DatAssets>, String> {
     let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
         let (_, p) = found.iter().find(|(n, _)| want(n))?;
@@ -255,7 +408,7 @@ fn ui_assets(dir: &Path) -> Result<Arc<auberean_ui::DatAssets>, String> {
     let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
     let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
     let mut dats = Vec::new();
-    dats.extend(open(&|n| *n == DatName::Local("English".into())));
+    dats.extend(open(&|n| *n == DatName::Local(language.to_owned())));
     dats.push(portal);
     dats.extend(open(&|n| *n == DatName::HighRes));
     Ok(Arc::new(auberean_ui::DatAssets::new(dats, ctx)))
@@ -267,12 +420,16 @@ struct Desktop {
     socket: Option<UdpSocket>,
     window: Option<Arc<Window>>,
     settings: PathBuf,
+    /// The preferences file, in the settings folder unless named elsewhere.
+    settings_file: PathBuf,
     /// The install's folder: the game's own files beside its data files.
     install: PathBuf,
     held: bool,
     seed: u64,
     buf: Vec<u8>,
     friends: friends::FriendsSocket,
+    /// The sound device (none with `--no-sound`).
+    sound: Option<dereth_audio_out::CpalOutput>,
 }
 
 impl Host for Desktop {
@@ -352,13 +509,26 @@ impl Host for Desktop {
         }
     }
 
+    fn set_input_method(&mut self, area: Option<auberean_shell::host::InputArea>) {
+        let Some(w) = &self.window else {
+            return;
+        };
+        w.set_ime_allowed(area.is_some());
+        if let Some(a) = area {
+            w.set_ime_cursor_area(
+                winit::dpi::PhysicalPosition::new(a.x, a.y),
+                winit::dpi::PhysicalSize::new(a.width, a.height),
+            );
+        }
+    }
+
     fn load_settings(&self) -> Option<String> {
-        std::fs::read_to_string(self.settings.join(SETTINGS_FILE)).ok()
+        std::fs::read_to_string(&self.settings_file).ok()
     }
 
     fn save_settings(&mut self, text: &str) {
         let _ = std::fs::create_dir_all(&self.settings);
-        if let Err(e) = std::fs::write(self.settings.join(SETTINGS_FILE), text) {
+        if let Err(e) = std::fs::write(&self.settings_file, text) {
             tracing::warn!("saving the settings: {e}");
         }
     }
@@ -390,6 +560,14 @@ impl Host for Desktop {
         true
     }
 
+    fn local_system(
+        &self,
+    ) -> Option<Box<dyn auberean_client_sdk::script::local::LocalSystem + Send>> {
+        Some(Box::new(local::SettingsFolder {
+            dir: self.settings.clone(),
+        }))
+    }
+
     fn friends_dial(&mut self, host: &str, port: u16) {
         self.friends.dial(host, port);
     }
@@ -400,6 +578,12 @@ impl Host for Desktop {
 
     fn friends_close(&mut self) {
         self.friends.close();
+    }
+
+    fn sound_output(&mut self) -> Option<&mut dyn dereth_audio::output::AudioOutput> {
+        self.sound
+            .as_mut()
+            .map(|s| s as &mut dyn dereth_audio::output::AudioOutput)
     }
 
     fn friends_news(&mut self) -> Option<auberean_shell::FriendsNews> {
@@ -651,6 +835,8 @@ impl ApplicationHandler for App<'_> {
                 };
                 self.send(&Event::Wheel { notches });
             }
+            // What the input method wrote is typed as the keys' own text is.
+            WindowEvent::Ime(winit::event::Ime::Commit(t)) => self.send(&Event::Text(t)),
             WindowEvent::RedrawRequested => self.redraw(el),
             _ => {}
         }
@@ -683,8 +869,10 @@ fn run() -> Result<(), String> {
         })
         .with_writer(std::io::stderr)
         .init();
-    let (world, data) = open(&o.dats)?;
     let settings = settings_dir();
+    let settings_file = settings.join(o.prefs.as_deref().unwrap_or(SETTINGS_FILE));
+    let preferences = std::fs::read_to_string(&settings_file).unwrap_or_default();
+    let (world, data, language) = open(&o.dats, o.language.as_deref(), &preferences)?;
     tracing::info!(settings = %settings.display(), "settings");
     let shots = o
         .shots
@@ -693,7 +881,7 @@ fn run() -> Result<(), String> {
     let server = o
         .server
         .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000));
-    let assets = ui_assets(&o.dats)?;
+    let assets = ui_assets(&o.dats, &language)?;
     let login = o
         .account
         .as_ref()
@@ -718,6 +906,7 @@ fn run() -> Result<(), String> {
         start: Instant::now(),
         socket: None,
         window: None,
+        settings_file,
         settings,
         install: o.dats.clone(),
         held: false,
@@ -728,6 +917,7 @@ fn run() -> Result<(), String> {
         ),
         buf: vec![0; 65536],
         friends: friends::FriendsSocket::default(),
+        sound: (!o.no_sound).then(dereth_audio_out::CpalOutput::default),
     };
     let mut shell = Shell::new(host, &world, data, interface);
     shell.dev_overlay = o.overlay;

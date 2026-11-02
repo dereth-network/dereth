@@ -46,6 +46,7 @@ impl<'a> Reader<'a> {
 
     /// Bytes not read yet.
     #[must_use]
+    // D2-00750
     pub fn remaining(&self) -> usize {
         self.buf.len() - self.pos
     }
@@ -78,6 +79,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    // D2-15619
     pub fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {
         if n > self.remaining() {
             return self.fail(format!("wants {n} bytes, {} left", self.remaining()));
@@ -97,10 +99,12 @@ impl<'a> Reader<'a> {
         Ok(a)
     }
 
+    // D2-03725
     pub fn u8(&mut self) -> Result<u8> {
         Ok(self.bytes(1)?[0])
     }
 
+    // D2-13436
     pub fn u16(&mut self) -> Result<u16> {
         Ok(u16::from_le_bytes(self.array()?))
     }
@@ -109,7 +113,7 @@ impl<'a> Reader<'a> {
         Ok(i16::from_le_bytes(self.array()?))
     }
 
-    // D2-07315
+    // D2-07315, D2-06716, D2-16578, D2-07048, D2-06940
     pub fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.array()?))
     }
@@ -118,6 +122,7 @@ impl<'a> Reader<'a> {
         Ok(i32::from_le_bytes(self.array()?))
     }
 
+    // D2-02932, D2-02933, D2-07321, D2-10116
     pub fn u64(&mut self) -> Result<u64> {
         Ok(u64::from_le_bytes(self.array()?))
     }
@@ -184,6 +189,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A list of 32-bit words with a 32-bit count.
+    // D2-06528, D2-01031
     pub fn u32_list(&mut self) -> Result<Vec<u32>> {
         self.list(4, Self::u32)
     }
@@ -191,6 +197,7 @@ impl<'a> Reader<'a> {
     /// A hash table: a header word whose low 24 bits are the entry count (the top byte sizes the
     /// table's buckets, which a reader does not need), then the entries, each read by `entry`.
     /// Entries come back in stored order.
+    // D2-15027, D2-15450, D2-15031
     pub fn hash_table<T>(
         &mut self,
         min_each: usize,
@@ -235,7 +242,7 @@ impl<'a> Reader<'a> {
     }
 
     /// Skip to the next multiple of four bytes from the start of the record.
-    // D2-03470
+    // D2-03470, D2-07438
     pub fn align(&mut self) -> Result<()> {
         let pad = (4 - self.pos % 4) % 4;
         self.skip(pad)
@@ -252,7 +259,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A narrow string: its length, its scrambled bytes, then alignment to four.
-    // D2-00700
+    // D2-00700, D2-04002, D2-16223
     pub fn narrow_string(&mut self) -> Result<String> {
         let n = self.string_length()?;
         let stored = self.bytes(n)?;
@@ -262,7 +269,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A wide string: its length in UTF-16 units, its scrambled units, then alignment to four.
-    // D2-00380
+    // D2-00380, D2-01472, D2-00702
     pub fn wide_string(&mut self) -> Result<String> {
         let n = self.string_length()?;
         let stored = self.bytes(n.saturating_mul(2))?;
@@ -271,7 +278,7 @@ impl<'a> Reader<'a> {
         Ok(s)
     }
 
-    // D2-06731
+    // D2-06731, D2-04202, D2-03897, D2-06741
     pub fn vec3(&mut self) -> Result<Vec3> {
         Ok(Vec3 {
             x: self.f32()?,
@@ -281,7 +288,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A rotation, scalar first.
-    // D2-13258
+    // D2-13258, D2-13267
     pub fn quat(&mut self) -> Result<Quat> {
         Ok(Quat {
             w: self.f32()?,
@@ -309,6 +316,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A sphere: center, then radius.
+    // D2-04234
     pub fn sphere(&mut self) -> Result<Sphere> {
         Ok(Sphere {
             center: self.vec3()?,

@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use auberean_world::math::over_polygon;
 use auberean_world::records::{RegionSet, WorldRecords};
 use dereth_physics::cell::{Cell, CellArray, CellInfo, HostCell};
 use dereth_physics::geom::{Plane, Polygon, Sphere};
@@ -137,41 +138,32 @@ impl Block {
         }
     }
 
-    /// The ground triangle under a point in the block's frame, with its plane.
+    /// The ground triangle under a point in the block's frame, with its plane: of the triangles
+    /// of the land cell holding the point, its squares taken x-major and each square's two in
+    /// order, the first the point lies over (within the band); none over a hole.
     // D2-03822
     #[must_use]
     pub fn ground_under(&self, local: Vec3) -> Option<(Polygon, Plane)> {
         let side = self.geometry.squares_per_side;
-        #[allow(clippy::cast_precision_loss)]
-        let step = BLOCK_LENGTH / side as f32;
-        if !(0.0..BLOCK_LENGTH).contains(&local.x) || !(0.0..BLOCK_LENGTH).contains(&local.y) {
-            return None;
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (i, j) = (
-            ((local.x / step) as usize).min(side - 1),
-            ((local.y / step) as usize).min(side - 1),
-        );
-        let n = i * side + j;
-        if self.geometry.holes.get(n).copied().unwrap_or(false) {
-            return None;
-        }
-        for t in &self.geometry.triangles[2 * n..2 * n + 2] {
-            let v = t.v.map(|k| self.geometry.vertices[k as usize]);
-            if inside_xy(local, &v) {
-                return Some((Polygon::new(v.to_vec()), t.plane));
+        let per = side / CELLS_PER_SIDE;
+        let (cx, cy) = cell_of(local)?;
+        let p = [local.x, local.y, local.z];
+        for i in cx * per..(cx + 1) * per {
+            for j in cy * per..(cy + 1) * per {
+                let n = i * side + j;
+                if self.geometry.holes.get(n).copied().unwrap_or(false) {
+                    continue;
+                }
+                for t in &self.geometry.triangles[2 * n..2 * n + 2] {
+                    let v = t.v.map(|k| self.geometry.vertices[k as usize]);
+                    if over_polygon(&v.map(|c| [c.x, c.y, c.z]), p, true) {
+                        return Some((Polygon::new(v.to_vec()), t.plane));
+                    }
+                }
             }
         }
         None
     }
-}
-
-/// Whether `p` lies over triangle `v`, seen from above (edges count).
-fn inside_xy(p: Vec3, v: &[Vec3; 3]) -> bool {
-    let side = |a: Vec3, b: Vec3| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-    let (d0, d1, d2) = (side(v[0], v[1]), side(v[1], v[2]), side(v[2], v[0]));
-    let eps = 1e-4;
-    (d0 >= -eps && d1 >= -eps && d2 >= -eps) || (d0 <= eps && d1 <= eps && d2 <= eps)
 }
 
 /// One land cell, answering for its ground and its solids.

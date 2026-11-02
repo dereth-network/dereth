@@ -50,12 +50,16 @@ pub mod kind {
 /// from the scripts' natives.
 pub mod notice {
     /// A question closed: the dialog's number, then 1 for yes or 0 for no.
+    // D2-00307
     pub const CLOSE_CONFIRMATION_DIALOG: u32 = 0x436;
     /// Death's dialog answered: the dialog's number.
+    // D2-00309
     pub const CLOSE_RESURRECT_DIALOG: u32 = 0x44F;
     /// A message read: the dialog's number.
+    // D2-00308
     pub const CLOSE_MESSAGE_DIALOG: u32 = 0x450;
     /// A dialog asked for (0) or gone (1): mouse look waits on every dialog asked for.
+    // D2-00325
     pub const UPDATE_CAN_MOUSE_LOOK: u32 = 0x455;
 }
 
@@ -165,16 +169,27 @@ impl Dialog {
 
     /// The text of one of the window's elements.
     fn text_of(ui: &mut Ui, root: Option<Handle>, element: Token, text: &str) {
+        Self::said_in(ui, root, element, Said::Text(text));
+    }
+
+    /// What a dialog says, in one of the window's elements: written text, or a string reference
+    /// the element writes once the string tables it reads are at hand.
+    fn said_in(ui: &mut Ui, root: Option<Handle>, element: Token, said: Said<'_>) {
         if let Some(t) = root.and_then(|r| ui.child_recursive(r, element)) {
-            ui.set_text(t, text);
+            match said {
+                Said::Text(text) => ui.set_text(t, text),
+                Said::Info(info) => {
+                    ui.set_string_info(t, info);
+                }
+            }
         }
     }
 
     /// A question: its window, its question, yes and no heard.
     // D2-03271
-    fn confirmation(ui: &mut Ui, parent: Option<FrameId>, text: &str, context: u32) -> Self {
+    fn confirmation(ui: &mut Ui, parent: Option<FrameId>, said: Said<'_>, context: u32) -> Self {
         let (frame, root) = Self::frame(ui, parent, name::CONFIRMATION_FIELD);
-        Self::text_of(ui, root, name::QUESTION_TEXT, text);
+        Self::said_in(ui, root, name::QUESTION_TEXT, said);
         Self::listen_to(ui, frame, &[name::YES_BUTTON, name::NO_BUTTON]);
         Self {
             frame,
@@ -186,9 +201,9 @@ impl Dialog {
 
     /// Please wait: its window and its text; nothing heard.
     // D2-03274
-    fn wait(ui: &mut Ui, parent: Option<FrameId>, text: &str, context: u32) -> Self {
+    fn wait(ui: &mut Ui, parent: Option<FrameId>, said: Said<'_>, context: u32) -> Self {
         let (frame, root) = Self::frame(ui, parent, name::WAIT_FIELD);
-        Self::text_of(ui, root, name::TEXT_FIELD, text);
+        Self::said_in(ui, root, name::TEXT_FIELD, said);
         Self {
             frame,
             root,
@@ -199,9 +214,9 @@ impl Dialog {
 
     /// Death's: its window, its text, its one button heard.
     // D2-03278
-    fn resurrect(ui: &mut Ui, parent: Option<FrameId>, text: &str, context: u32) -> Self {
+    fn resurrect(ui: &mut Ui, parent: Option<FrameId>, said: Said<'_>, context: u32) -> Self {
         let (frame, root) = Self::frame(ui, parent, name::RESURRECT_FIELD);
-        Self::text_of(ui, root, name::TEXT_FIELD, text);
+        Self::said_in(ui, root, name::TEXT_FIELD, said);
         Self::listen_to(ui, frame, &[name::RESURRECT_BUTTON]);
         Self {
             frame,
@@ -213,9 +228,9 @@ impl Dialog {
 
     /// A message: its window, its text, its one button heard.
     // D2-03282
-    fn message(ui: &mut Ui, parent: Option<FrameId>, text: &str, context: u32) -> Self {
+    fn message(ui: &mut Ui, parent: Option<FrameId>, said: Said<'_>, context: u32) -> Self {
         let (frame, root) = Self::frame(ui, parent, name::MESSAGE_FIELD);
-        Self::text_of(ui, root, name::TEXT_FIELD, text);
+        Self::said_in(ui, root, name::TEXT_FIELD, said);
         Self::listen_to(ui, frame, &[name::OK_BUTTON]);
         Self {
             frame,
@@ -378,6 +393,8 @@ impl Dialog {
 struct Asked {
     text: String,
     info: StringInfo,
+    /// Its text is the string reference (`info`), for its element to write.
+    reference: bool,
     kind: u32,
     dialog: Option<Dialog>,
     parent: Option<FrameId>,
@@ -401,10 +418,17 @@ impl From<&gameplay::Dialog> for Request {
             context: d.id,
             kind: d.kind,
             text: d.text.clone(),
-            info: None,
+            info: d.info.clone(),
             first: d.modal,
         }
     }
+}
+
+/// What a dialog says: written text, or a string reference.
+#[derive(Clone, Copy)]
+enum Said<'a> {
+    Text(&'a str),
+    Info(&'a StringInfo),
 }
 
 /// The dialogs asked for: the one up, and those waiting in line.
@@ -419,11 +443,16 @@ impl Dialogs {
     // D2-03259
     fn create_dialog_internal(ui: &mut Ui, info: &mut Asked) {
         let (p, c) = (info.parent, info.context);
+        let said = if info.reference {
+            Said::Info(&info.info)
+        } else {
+            Said::Text(&info.text)
+        };
         info.dialog = match info.kind {
-            kind::CONFIRMATION => Some(Dialog::confirmation(ui, p, &info.text, c)),
-            kind::WAIT => Some(Dialog::wait(ui, p, &info.text, c)),
-            kind::RESURRECT => Some(Dialog::resurrect(ui, p, &info.text, c)),
-            kind::MESSAGE => Some(Dialog::message(ui, p, &info.text, c)),
+            kind::CONFIRMATION => Some(Dialog::confirmation(ui, p, said, c)),
+            kind::WAIT => Some(Dialog::wait(ui, p, said, c)),
+            kind::RESURRECT => Some(Dialog::resurrect(ui, p, said, c)),
+            kind::MESSAGE => Some(Dialog::message(ui, p, said, c)),
             kind::TIMED => Some(Dialog::timed(ui, p, &info.info, c)),
             _ => None,
         };
@@ -440,13 +469,13 @@ impl Dialogs {
         r: &Request,
         out: &mut Vec<Notice>,
     ) -> u32 {
-        let text = match &r.info {
-            Some(i) if r.text.is_empty() => ui.assets().write(i).unwrap_or_default(),
-            _ => r.text.clone(),
-        };
+        // A reference with no written text is the text, given to the dialog's element as it is
+        // (a timed question's is the string it counts down in).
+        let reference = r.text.is_empty() && r.info.is_some() && r.kind != kind::TIMED;
         let mut info = Asked {
-            text,
+            text: r.text.clone(),
             info: r.info.clone().unwrap_or_default(),
+            reference,
             kind: r.kind,
             dialog: None,
             parent,

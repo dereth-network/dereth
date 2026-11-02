@@ -415,6 +415,68 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "friends.rooms.a-line-to-a-channel-goes-to-the-chat-service-as-the-recorded-clients-sent-it",
+        says: "A line the player's scripts send to a channel goes to the world's chat service on the \
+               login connection byte for byte as the recorded clients sent theirs: the header, a \
+               mark counted from 1, the room, the text and the speaker's meta letters; each \
+               answer comes back to the line it answers (24 of 24 lines of six January 2017 \
+               runs).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-LINE-SENT"),
+        station: "auberean-client-runtime::corpus::chat::rooms::a_line_to_a_channel_goes_to_the_chat_service_as_the_recorded_clients_sent_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "friends.rooms.a-rooms-line-heard-carries-the-speakers-meta-letters-and-flags",
+        says: "A room's line heard names its speaker with the meta letters the speaker's client \
+               attached, in brackets after the name, and carries that client's chat flags; a note \
+               that does not read leaves the bare name and no flags. Nothing is heard before the \
+               chat service's client started.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-LINE-HEARD"),
+        station: "auberean-client-runtime::cpu::friends::rooms::a_rooms_line_heard_carries_the_speakers_meta_letters_and_flags",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "friends.rooms.a-rooms-line-heard-is-written-with-its-channel-speaker-and-words",
+        says: "Every room's line heard in the world is written by the player's scripts as one line: \
+               the channel's name in brackets, the speaker's name without its meta letters, a \
+               colon and the words (381 of 381 lines of six January 2017 runs).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-LINE-WRITTEN"),
+        station: "auberean-client-runtime::corpus::chat::rooms::a_rooms_line_heard_is_written_with_its_channel_speaker_and_words",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "friends.rooms.an-answer-comes-back-with-its-lines-room-and-text",
+        says: "The chat service's answer to a line comes back to the player's scripts with the \
+               line's room and text and the client's own result for its code; an answer to a mark \
+               nobody waits for is dropped.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-ANSWER"),
+        station: "auberean-client-runtime::cpu::friends::rooms::an_answer_comes_back_with_its_lines_room_and_text",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "friends.rooms.an-empty-line-or-room-0-is-refused-at-once",
+        says: "An empty line, or a line to room 0, is refused at once: nothing goes out and nothing \
+               waits for an answer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-SEND-REFUSED"),
+        station: "auberean-client-runtime::cpu::friends::rooms::an_empty_line_or_room_0_is_refused_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "friends.rooms.the-character-list-starts-the-chat-service-once-and-its-marks-run-on",
+        says: "A character list that names a chat service sends rooms to it and starts its client \
+               once for the program: the marks of the lines run on from 1 across later lists. \
+               Without one nothing starts and a line is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ROOMS-STARTUP"),
+        station: "auberean-client-runtime::cpu::friends::rooms::the_character_list_starts_the_chat_service_once_and_its_marks_run_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "friends.scripts.a-friends-state-and-the-list-reach-the-friends-page",
         says: "A friend's new state and the friends list asked for reach the friends page through \
                the player's own scripts: the friend's state, and the list whole, names of this \

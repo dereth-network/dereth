@@ -595,3 +595,87 @@ fn the_selection_is_listed_with_the_inventory() {
     assert_eq!(t.named, t.selected, "{t:?}");
     assert_eq!(t.listed, t.selected, "{t:?}");
 }
+
+/// Every creation of a newer incarnation of an object the client still has, in 2013 and 2017
+/// (3,756, nearly all after a hand-off to another server, where the older incarnation came over
+/// the connection before), replaces the old one, and the new one is the client's after the next
+/// upkeep. (None of them came while the old one's forgetting waited for the upkeep.)
+///
+/// Behaviour: model.replay.every-newer-incarnation-replaces-the-old-one
+#[test]
+fn every_recorded_newer_incarnation_replaces_the_old_one() {
+    use auberean_client_model::events::{EventQueue, Item};
+    use auberean_client_model::Model;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let (mut replaced, mut made, mut kept) = (0u64, 0u64, 0u64);
+    let mut capture = -1;
+    let (mut queue, mut model) = (EventQueue::new(), Model::new());
+    let mut frame = f64::NEG_INFINITY;
+    // The newer incarnations made since the last upkeep.
+    let mut newer: Vec<(u64, u16)> = Vec::new();
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            (queue, model) = (EventQueue::new(), Model::new());
+            frame = f64::NEG_INFINITY;
+            newer.clear();
+        }
+        if m.time > frame {
+            frame = m.time;
+            queue.use_time(m.time);
+            queue.take_force_creates();
+            for id in queue.take_destroyed() {
+                model.forget(id);
+            }
+            for (id, stamp) in newer.drain(..) {
+                kept += u64::from(model.object(id).is_some_and(|o| o.instance_stamp == stamp));
+            }
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(_)) = ClientMessage::decode(&m.raw) {
+                queue.start_entering();
+            }
+            return;
+        }
+        let Ok(message) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        let before = queue.stats().replaced;
+        queue.receive(
+            m.time,
+            Item {
+                blob_id: m.blob_id,
+                message,
+            },
+        );
+        while let Some(item) = queue.pop() {
+            match &item.message {
+                ServerMessage::CreateObject(c) => {
+                    let old = model.object(c.id).map(|o| o.instance_stamp);
+                    if old.is_some_and(|s| s != c.physics.instance_stamp) {
+                        made += 1;
+                        newer.retain(|(id, _)| *id != c.id);
+                        newer.push((c.id, c.physics.instance_stamp));
+                    }
+                }
+                ServerMessage::ForgetObject(o) => newer.retain(|(id, _)| *id != o.0.id),
+                ServerMessage::CharExitGame(_) => {
+                    queue.leave_world();
+                    newer.clear();
+                }
+                _ => {}
+            }
+            model.apply(&item);
+        }
+        replaced += u64::from(queue.stats().replaced - before);
+    })
+    .expect("the index reads");
+    eprintln!("{replaced} replaced, {made} made over an older incarnation, {kept} kept after the next upkeep");
+    assert_eq!(replaced, made);
+    assert_eq!(replaced, 3_756);
+    assert_eq!(kept, replaced);
+}

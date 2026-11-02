@@ -43,11 +43,11 @@ fn options_read_by_the_clients_names_and_kept() {
     assert!(out.contains("CameraDistance=3.500000"), "{out}");
     assert!(out.contains("[Sound]\nVolume=7"), "{out}");
     assert!(
-        out.contains("[Rendering]\nDisplayResolution=52429400\nFullScreen=0"),
+        out.contains("[Rendering]\r\nDisplayResolution=52429400\r\nFullScreen=0"),
         "{out}"
     );
     assert!(
-        out.contains("[Avatar]\nAvatarVisibleInFirstPerson=DuringCombat"),
+        out.contains("[Avatar]\r\nAvatarVisibleInFirstPerson=DuringCombat"),
         "{out}"
     );
     let again = Settings::read(&out);
@@ -189,10 +189,16 @@ fn the_display_and_values_read_as_the_client_writes_them() {
     let mut w = Settings::default();
     w.full_screen = true;
     w.camera.mouse_sensitivity = 1.25;
+    let mut tie = w.clone();
+    tie.camera.tilt = 0.007_812_5;
+    assert!(
+        tie.write().contains("CameraTilt=0.007813"),
+        "a tie rounds up, as `%f` rounds"
+    );
     let out = w.write();
     assert!(out.contains("MouseLookSensitivity=1.250000"), "{out}");
     assert!(
-        out.contains("DisplayResolution=83887040\nFullScreen=1"),
+        out.contains("DisplayResolution=83887040\r\nFullScreen=1"),
         "{out}"
     );
     let back = Settings::read(&out);
@@ -200,4 +206,28 @@ fn the_display_and_values_read_as_the_client_writes_them() {
         (back.window, back.full_screen, back.camera),
         (w.window, w.full_screen, w.camera)
     );
+}
+
+/// The avatar's three looks are read from its section by the client's names (each on unless the
+/// file says 0) and written back: looking around with the camera, looking back at a camera in
+/// front, and looking at each new selection.
+///
+/// Behaviour: desktop.settings.the-avatars-looks-read-by-the-clients-names
+#[test]
+fn the_avatars_looks_read_by_the_clients_names() {
+    let on = Settings::default().camera;
+    assert!(on.look_around && on.look_at_camera && on.look_at_selection);
+    let s = Settings::read(
+        "[Avatar]\nAvatarLookAround=1\nAvatarLookAtCamera=0\nAvatarLookAtSelection=0\n",
+    );
+    assert!(s.camera.look_around);
+    assert!(!s.camera.look_at_camera && !s.camera.look_at_selection);
+    let mut w = Settings::default();
+    w.camera.look_around = false;
+    let out = w.write();
+    assert!(
+        out.contains("AvatarLookAround=0\r\nAvatarLookAtCamera=1\r\nAvatarLookAtSelection=1"),
+        "{out}"
+    );
+    assert_eq!(Settings::read(&out).camera, w.camera);
 }

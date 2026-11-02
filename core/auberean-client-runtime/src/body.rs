@@ -53,11 +53,21 @@ pub struct BodyState {
 pub type Bodies = HashMap<u64, BodyState>;
 
 /// What a body says of itself when the scripts ask, as a front end last read it: the element it
-/// is in, and the motion it was last asked for (none without a motion interpreter).
+/// is in, and the motion it was last asked for (none without a motion interpreter); its speed,
+/// acceleration and jump scales; its radius and height at its scale; its mode and the mode it is
+/// going to; the motion the server last asked of it, when it did.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BodyReading {
     pub element: u32,
     pub last_motion: [f32; 3],
+    pub velocity_scale: f32,
+    pub acceleration_scale: f32,
+    pub jump_scale: f32,
+    pub radius: f32,
+    pub height: f32,
+    pub mode: u32,
+    pub desired_mode: u32,
+    pub remote_motion: Option<[f32; 3]>,
 }
 
 /// The bodies' readings, by object.
@@ -367,6 +377,25 @@ fn toggle_place_marker_objects(c: &mut Call<'_>) -> Result<Status, Stop> {
     };
     c.write(-2, placing, tag::MIXED)?;
     Ok(Status::Success)
+}
+
+/// An object's description set again (the object sent anew in the incarnation the client has):
+/// with a body, it is not drawn when its no-draw flag (yes-or-no 10) is set, and drawn again when
+/// neither that nor its kept-hidden flag (yes-or-no 117 hexadecimal) is set; either flag missing
+/// reads no.
+// D2-00627
+pub fn described_again(h: &mut ClientHost, object: u64) {
+    if !holds_body(h, object) {
+        return;
+    }
+    let flag = |h: &mut ClientHost, key| {
+        crate::repository::answer(h, &crate::repository::BOOL, object, key).unwrap_or(0) != 0
+    };
+    if flag(h, 10) {
+        h.bodies.entry(object).or_default().no_draw = true;
+    } else if !flag(h, 0x117) {
+        h.bodies.entry(object).or_default().no_draw = false;
+    }
 }
 
 /// Whether object `object` has a body, as a physics object's setter answers: 1, or 0 with none.

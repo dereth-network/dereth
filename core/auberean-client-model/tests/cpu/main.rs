@@ -1,6 +1,7 @@
 //! Tests that need no private data: the event queue's holding and ordering rules, and the model the
 //! messages build.
 
+mod characters;
 mod events;
 mod model;
 

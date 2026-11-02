@@ -971,7 +971,7 @@ impl Pack for Collisions {
     /// The settings, the touched objects and properties, the normal, contact, water and ground and
     /// what was reported of them, the property lists, the terrain types and the pushes; the check
     /// time is not sent.
-    // D2-06744
+    // D2-06744, D2-06789, D2-06790, D2-06791
     fn pack(&self, w: &mut Writer) {
         self.desired_physics.pack(w);
         self.current.pack(w);

@@ -196,7 +196,7 @@ pub fn select_scene(
 /// The avatar hall: every race and sex's avatar with its look, standing in the hall's mode at its
 /// place on the floor (empyreans and drudges only when the account may make them: `may_make`'s
 /// race flags). Returns the scene and which race and sex each figure is.
-// D2-01846
+// D2-01846, D2-11939, D2-11940, D2-11942
 #[must_use]
 pub fn hall_scene(
     records: &WorldRecords,

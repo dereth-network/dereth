@@ -226,3 +226,108 @@ fn the_sun_throws_a_lens_flare() {
     let down = fade.advance(10.15, sun.fade_speed, false);
     assert!(down < up, "fades out unseen");
 }
+
+/// A detailed block's water is laid four polygons by four, each a quarter of the block (40 m)
+/// wide, with the water's picture and the ripples' coordinates both 0..1 across each polygon,
+/// whatever the water's own tile and polygon widths say; the reflection about it ripples only when
+/// the reflections are at their highest.
+///
+/// Behaviour: draw.world.a-blocks-water-lies-in-quarter-block-polygons
+#[test]
+fn a_detailed_blocks_water_lies_in_quarter_block_polygons() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.set_far_radius(0);
+    let mut s = spot();
+    s.position.z = 81.6;
+    let f = b.frame(&s, 60.0);
+    assert!(!f.water.is_empty(), "the camp's pond");
+    let quarter = 160.0 * auberean_draw::scene::NEAR_WATER_SHARE;
+    for w in &f.water {
+        assert_eq!(w.vertices.len(), 25, "five by five corners");
+        assert_eq!(w.indices.len(), 6 * 16, "sixteen polygons");
+        for v in w.vertices.iter() {
+            let [x, y, _] = v.position;
+            let across = [x / quarter, y / quarter];
+            assert_eq!(v.uv[0], across, "the picture once a polygon");
+            assert_eq!(v.uv[1], across, "the ripples once a polygon");
+        }
+    }
+    assert_eq!(f.reflection.map(|r| r.ripples), Some(true));
+    b.water_ripples = false;
+    let low = b.frame(&s, 60.0);
+    assert_eq!(
+        low.reflection.map(|r| r.ripples),
+        Some(false),
+        "low: no ripples"
+    );
+}
+
+/// The camp's pond has its shore: strips where the detailed blocks' water meets the ground, at the
+/// water's height, reaching at most 12 m out from the waterline, drawn first with the shore's
+/// alpha material (black at half alpha, its picture's alpha written alone), then, with the shore
+/// effects at their highest, with the foam's (black, blended by its own alpha). The strips are
+/// found once for the viewer's block (each strip's offset across the foam rolled then) and kept
+/// while the viewer stays in it; with the effects at their middle setting there is no foam, and
+/// with them off no shore.
+///
+/// Behaviour: draw.shore.the-camps-pond-has-a-shore-where-its-water-meets-the-ground
+#[test]
+fn the_camps_pond_has_a_shore_where_its_water_meets_the_ground() {
+    use auberean_draw::material::d3d;
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.water_reflections = false;
+    b.set_far_radius(0);
+    let mut s = spot();
+    s.position.z = 81.6;
+    let f = b.frame(&s, 60.0);
+    let water = f.water.first().expect("the camp's pond").vertices[0].position[2];
+    let (shore, foam) = (
+        f.shore.first().expect("a shore"),
+        f.foam.first().expect("foam"),
+    );
+    assert_eq!((f.shore.len(), f.foam.len()), (1, 1), "one layer each");
+    assert_eq!(
+        (shore.layer.source_blend, shore.layer.dest_blend),
+        (d3d::BLEND_ONE, d3d::BLEND_ZERO)
+    );
+    assert_eq!(
+        (foam.layer.source_blend, foam.layer.dest_blend),
+        (d3d::BLEND_SRC_ALPHA, d3d::BLEND_INV_SRC_ALPHA)
+    );
+    assert_eq!(shore.tint.a, 0.5);
+    assert_eq!(foam.tint.a, 1.0);
+    for t in [shore.tint, foam.tint] {
+        assert_eq!((t.r, t.g, t.b), (0.0, 0.0, 0.0), "black");
+    }
+    assert!(
+        shore.vertices.len() > 20,
+        "{} vertices",
+        shore.vertices.len()
+    );
+    assert!(!shore.indices.is_empty() && foam.indices.len() <= shore.indices.len());
+    for pair in shore.vertices.as_chunks::<2>().0 {
+        let (at, out) = (pair[0].position, pair[1].position);
+        assert!((at[2] - water).abs() < 1e-3 && (out[2] - water).abs() < 1e-3);
+        let reach = dereth_primitives::num::math::hypotf(out[0] - at[0], out[1] - at[1]);
+        assert!(reach <= 12.0 + 1e-3, "{reach}");
+        assert_eq!(pair[1].uv[1][1] - pair[0].uv[1][1], 1.0, "across the strip");
+    }
+    // kept while the viewer stays in the block
+    let again = b.frame(&s, 60.0);
+    assert!(std::sync::Arc::ptr_eq(
+        &again.shore[0].vertices,
+        &shore.vertices
+    ));
+    b.shore_effects = 1;
+    let middle = b.frame(&s, 60.0);
+    assert_eq!((middle.shore.len(), middle.foam.len()), (1, 0), "no foam");
+    b.shore_effects = 0;
+    let off = b.frame(&s, 60.0);
+    assert!(off.shore.is_empty() && off.foam.is_empty(), "no shore");
+}

@@ -2,7 +2,7 @@
 //! the client waits for, one result for each request with the client's own context, the ticket,
 //! and the extra data of a tell.
 
-use auberean_friends::engine::{self, Engine, Io, Message, Reply, FIRST_WAIT};
+use auberean_friends_dll::engine::{self, Engine, Io, Message, Reply, FIRST_WAIT};
 use stream::{Answer, Event, Extra, Hr, Request};
 
 use crate::common::{friends, ignored, secs, ticket, Reach, Rig, WORLD_NAME};

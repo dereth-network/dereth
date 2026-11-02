@@ -135,7 +135,9 @@ impl Blip {
     }
 }
 
-/// A color's texel as the radar's picture holds it: each part times 255, cut to a whole number.
+/// A color's texel as the radar's picture holds it: each part times 255, cut to a whole number,
+/// in the picture's own order (the color's word as it is: the picture's format is the color's).
+// D2-09952
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn texel(c: [f32; 4]) -> [u8; 4] {
     let p = |v: f32| (f64::from(v) * 255.0).clamp(0.0, 255.0) as u8;
@@ -404,7 +406,7 @@ impl Radar {
         let range_sq = range * range;
         let place = map_coordinates(ui, world.cell, world.blocks);
         self.set_place(ui, &place);
-        let (ax, ay) = ui.screen_origin(root).unwrap_or((0, 0));
+        let (ax, ay) = ui.object_origin(root).unwrap_or((0, 0));
         ui.move_to(heading, self.offset.0 + ax, self.offset.1 + ay);
         if self.old_heading.to_bits() != world.heading.to_bits() {
             self.old_heading = world.heading;
@@ -478,15 +480,14 @@ impl Radar {
                         out.push(Request::Select(self.last_under_mouse));
                     }
                 } else if element == name::BASE_FIELD && what == msg::LOCATION_CHANGED {
-                    out.push(Request::SaveLocations);
-                    out.push(Request::KeepOptions);
+                    crate::gameplay::GamePlay::save_locations_changed(out);
                 }
             }
             // The kept places put back: the radar stands where it was kept, its dial with it.
             // D2-02018
             Mail::PlacesPutBack => {
                 if let (Some(root), Some(heading)) = (self.root, self.heading) {
-                    let (ax, ay) = ui.screen_origin(root).unwrap_or((0, 0));
+                    let (ax, ay) = ui.object_origin(root).unwrap_or((0, 0));
                     ui.move_to(heading, self.offset.0 + ax, self.offset.1 + ay);
                 }
             }
@@ -595,7 +596,22 @@ fn draw_blip(fills: &mut Vec<(Rect, [u8; 4])>, info: &Blip, x: i32, y: i32, sele
     }
 }
 
+impl Radar {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x1_040B, 0x443, 0x408, 0x417, 0x46D, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Radar {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

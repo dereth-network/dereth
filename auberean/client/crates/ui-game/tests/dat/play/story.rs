@@ -6,7 +6,7 @@ use auberean_ui::Token;
 use auberean_ui_game::gameplay::{notice, Record, Request};
 use auberean_ui_game::story::{Keyframe, Scene, Scenes, Sound};
 
-use super::stage::{said, World};
+use super::stage::{said, Lacking, World, LACKING};
 
 const PICTURE_1: u32 = 0x0600_1001;
 const PICTURE_2: u32 = 0x0600_1002;
@@ -129,4 +129,37 @@ fn the_storys_scenes_play_over_the_screen() {
     w.play.player_ready_to_enter_world(&mut w.ui, &mut out);
     assert!(w.play.story().is_none(), "the player arrived");
     assert!(out.contains(&Request::PlayScenesDone(Vec::new())));
+}
+
+/// A step's subtitle naming a string table the data lacks is given to the frame's text as a
+/// reference: the text waits until the table has come, then shows the subtitle.
+///
+/// Behaviour: ui.story.a-subtitle-waits-for-its-string-table
+#[test]
+fn a_subtitle_waits_for_its_string_table_then_shows() {
+    let lacking = Lacking::new();
+    let mut w = World::over(lacking.clone());
+    let mut lone = scenes();
+    lone.scenes.truncate(1);
+    lone.scenes[0].keyframes.truncate(1);
+    lone.scenes[0].keyframes[0].subtitle = Some(StringInfo::entry(LACKING, 7));
+    w.tick(&[said(
+        notice::PLAY_SEQUENCE,
+        vec![0],
+        vec![Some(Record::Scenes(lone))],
+    )]);
+    for _ in 0..200 {
+        w.tick(&[]);
+        if w.play
+            .story()
+            .is_some_and(auberean_ui_game::story::Story::playing)
+        {
+            break;
+        }
+    }
+    let field = w.under(w.el("StoryField2"), "TextField");
+    assert_eq!(w.text(field), "", "it waits for the table");
+    lacking.arrive();
+    w.tick(&[]);
+    assert_eq!(w.text(field), "From the server\n");
 }

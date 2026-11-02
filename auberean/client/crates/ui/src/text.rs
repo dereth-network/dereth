@@ -80,7 +80,8 @@ pub const fn justify(avail: i32, line: i32, j: Justify) -> i32 {
 pub const NEW_LINE: u16 = 0x000A;
 
 /// One character of a text: its font (by data id, 0 for none), its color and outline, and its
-/// width and height in that font.
+/// width and height in that font. Dropped, it lets its font go.
+// D2-11700
 #[derive(Clone, Debug)]
 pub struct Glyph {
     pub ch: u16,
@@ -95,13 +96,18 @@ pub struct Glyph {
 
 impl Glyph {
     /// A glyph of `ch` in `font`: a new line one pixel wide, any other character its width in
-    /// the font; every glyph the font's greatest height. Without a font it has no size.
+    /// the font (a question mark's when the font lacks it); every glyph the font's greatest
+    /// height. Without a font it has no size.
     // D2-11699, D2-11698, D2-11704, D2-11701
     #[must_use]
     pub fn new(ch: u16, color: Color, font: Option<(u32, Arc<Font>)>, outline: bool) -> Self {
         let (font_id, face) = font.map_or((0, None), |(id, f)| (id, Some(f)));
         let (width, height) = face.as_ref().map_or((0, 0), |f| {
-            let w = if ch == NEW_LINE { 1 } else { char_width(f, ch) };
+            let w = if ch == NEW_LINE {
+                1
+            } else {
+                i32::try_from(f.char_width(ch)).unwrap_or(0)
+            };
             (w, i32::try_from(f.max_height).unwrap_or(0))
         });
         Self {
@@ -129,12 +135,12 @@ impl Glyph {
     }
 }
 
-/// A character's width in a font (0 when the font lacks it).
-fn char_width(font: &Font, ch: u16) -> i32 {
-    font.glyphs
-        .iter()
-        .find(|g| g.code_point == ch)
-        .map_or(0, |g| i32::try_from(g.width).unwrap_or(0))
+/// Whether a font holds every character of a text up to its end (a new line needs no glyph); a
+/// font without a map of its characters holds every one.
+#[must_use]
+pub fn font_contains(font: &Font, text: &[u16]) -> bool {
+    let end = text.iter().position(|c| *c == 0).unwrap_or(text.len());
+    font.contains_string(&text[..end])
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -208,7 +214,9 @@ pub struct Line {
 }
 
 /// A text's glyphs in order, the lines they last broke into, and how many glyphs it holds at most
-/// (dropping the oldest to make room, when it trims from the top).
+/// (dropping the oldest to make room, when it trims from the top). Dropped with its glyphs and
+/// lines.
+// D2-11733, D2-11731
 #[derive(Clone, Debug)]
 pub struct GlyphRun {
     pub glyphs: Vec<Glyph>,
@@ -577,10 +585,10 @@ pub fn measure(font: &Font, text: &str, wrap: i32, one_line: bool) -> Vec<Line> 
 // Drawing
 // ---------------------------------------------------------------------------------------------
 
-/// Draw one glyph with its top left at `(x, y)`: every column but the last of its cell, each
-/// covered texel blended toward `color` by its coverage (or set outright when `blend` is off or
-/// the coverage is full); a font of one bit a texel sets its texels. Returns how far the next
-/// glyph starts.
+/// Draw one glyph with its top left at `(x, y)` (a character the font lacks drawn as its question
+/// mark): every column but the last of its cell, each covered texel blended toward `color` by its
+/// coverage (or set outright when `blend` is off or the coverage is full); a font of one bit a
+/// texel sets its texels. Returns how far the next glyph starts.
 // D2-09958
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_glyph(
@@ -593,7 +601,7 @@ pub(crate) fn draw_glyph(
     color: Color,
     blend: bool,
 ) -> i32 {
-    let Some(fg) = font.glyphs.iter().find(|g| g.code_point == ch) else {
+    let Some(fg) = font.char_desc(ch) else {
         return 0;
     };
     let width = i32::try_from(fg.width).unwrap_or(0);

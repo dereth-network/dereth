@@ -148,6 +148,15 @@ pub struct ToolbarChild {
     pub field: Token,
     pub string: Token,
     pub keypress: u32,
+    /// Its number among the toolbar's panels, by which it is registered for its notices.
+    pub id: u32,
+}
+
+/// Who hears a notice on the toolbar: the toolbar itself, or a panel of its own by its number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Handler {
+    Own,
+    Panel(u32),
 }
 
 /// The toolbar's panel.
@@ -171,6 +180,13 @@ pub struct Toolbar {
     plugins: bool,
     /// The panels, in the toolbar's list (the last put first).
     children: Vec<ToolbarChild>,
+    /// Who hears which notice: its panels as they were made, then the toolbar.
+    registry: crate::notices::Registry<Handler>,
+}
+
+impl Toolbar {
+    /// The notices the toolbar registers for once its panels are made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x496, 0x46E];
 }
 
 impl Toolbar {
@@ -207,8 +223,11 @@ impl Toolbar {
             help: false,
             plugins: false,
             children: Vec::new(),
+            registry: crate::notices::Registry::new(),
         };
         me.setup_children(ui);
+        me.registry
+            .register_all(&crate::notices::keys(Self::NOTICES), Handler::Own);
         me.manage_children(ui);
         let part = |ui: &Ui, n| root.and_then(|r| ui.child_recursive(r, n));
         me.dismount = part(ui, name::DISMOUNT_BUTTON);
@@ -242,12 +261,13 @@ impl Toolbar {
         let f = self.frame;
         let shortcuts = Shortcuts::new(ui, f, self.root);
         let chat = ChatUi::new(ui, f);
-        let plain = |child: Box<dyn Child>| ToolbarChild {
+        let plain = |child: Box<dyn Child>, id| ToolbarChild {
             child,
             button: None,
             field: Token(0),
             string: Token(0),
             keypress: 0,
+            id,
         };
         // Made in this order.
         let skill = ToolbarChild {
@@ -256,6 +276,7 @@ impl Toolbar {
             field: Token::of(windows::SKILL.field),
             string: Token::of(windows::SKILL.tooltip),
             keypress: windows::SKILL.keypress,
+            id: 2,
         };
         let option = ToolbarChild {
             child: Box::new(crate::options::OptionWindow::new(ui, f)),
@@ -263,6 +284,7 @@ impl Toolbar {
             field: Token::of(windows::OPTION.field),
             string: Token::of(windows::OPTION.tooltip),
             keypress: windows::OPTION.keypress,
+            id: 3,
         };
         let inventory = ToolbarChild {
             child: Box::new(crate::inventory::Inventory::new(ui, f, None)),
@@ -270,6 +292,7 @@ impl Toolbar {
             field: Token::of(windows::INVENTORY.field),
             string: Token::of(windows::INVENTORY.tooltip),
             keypress: windows::INVENTORY.keypress,
+            id: 4,
         };
         let quest = ToolbarChild {
             child: Box::new(QuestWindow::new(ui, f)),
@@ -277,6 +300,7 @@ impl Toolbar {
             field: Token::of(windows::QUEST.field),
             string: Token::of(windows::QUEST.tooltip),
             keypress: windows::QUEST.keypress,
+            id: 5,
         };
         let navigation = ToolbarChild {
             child: Box::new(crate::map::Navigation::new(ui, f)),
@@ -284,6 +308,7 @@ impl Toolbar {
             field: Token::of(windows::NAVIGATION.field),
             string: Token::of(windows::NAVIGATION.tooltip),
             keypress: windows::NAVIGATION.keypress,
+            id: 6,
         };
         let examination = ToolbarChild {
             child: Box::new(Examination::new(ui, f, &mut Vec::new())),
@@ -291,6 +316,7 @@ impl Toolbar {
             field: Token::of(windows::EXAMINATION.field),
             string: Token::of(windows::EXAMINATION.tooltip),
             keypress: windows::EXAMINATION.keypress,
+            id: 7,
         };
         let social = ToolbarChild {
             child: Box::new(crate::social::SocialWindow::new(ui, f)),
@@ -298,21 +324,32 @@ impl Toolbar {
             field: Token::of(windows::SOCIAL.field),
             string: Token::of(windows::SOCIAL.tooltip),
             keypress: windows::SOCIAL.keypress,
+            id: 8,
         };
         // Put in the list in this order, each at its front.
         let put = [
-            plain(Box::new(chat)),
+            plain(Box::new(chat), 1),
             examination,
             inventory,
             navigation,
             option,
             quest,
-            plain(Box::new(shortcuts)),
+            plain(Box::new(shortcuts), 0),
             skill,
             social,
         ];
         for c in put {
             self.children.insert(0, c);
+        }
+        // Each registered for its notices in the order they were made.
+        let mut made: Vec<(u32, Vec<u32>)> = self
+            .children
+            .iter()
+            .map(|c| (c.id, c.child.notices()))
+            .collect();
+        made.sort_by_key(|(id, _)| *id);
+        for (id, notices) in made {
+            self.registry.register_all(&notices, Handler::Panel(id));
         }
         if let Some(l) = ui.frame_listener(f) {
             for c in &self.children {
@@ -475,6 +512,7 @@ impl Child for Toolbar {
             .node(r)
             .and_then(|n| n.int_attr(name::PRECLUDE_HEIGHT))
             .unwrap_or(0);
+        // D2-00321
         out.push(Request::PrecludeFromBottom(if shown { height } else { 0 }));
         if shown {
             let again = self.help_was_open;
@@ -531,14 +569,31 @@ impl Child for Toolbar {
         }
     }
 
+    /// Its panels' notices, then its own, as each registered.
+    fn notices(&self) -> Vec<u32> {
+        let mut made: Vec<&ToolbarChild> = self.children.iter().collect();
+        made.sort_by_key(|c| c.id);
+        crate::notices::union(
+            made.into_iter()
+                .map(|c| c.child.notices())
+                .chain([crate::notices::keys(Self::NOTICES)]),
+        )
+    }
+
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
-        match n.native {
-            notice::UPDATE_MOUNT_STATE => self.update_mount_state(ui, n.word() != 0),
-            notice::SHOW_SALE_REMINDER => self.show_sale_reminder(ui, n.word() != 0, out),
-            _ => {}
-        }
-        for c in &mut self.children {
-            c.child.notice(ui, n, out);
+        for h in self.registry.handlers(n.native).to_vec() {
+            match h {
+                Handler::Own => match n.native {
+                    notice::UPDATE_MOUNT_STATE => self.update_mount_state(ui, n.word() != 0),
+                    notice::SHOW_SALE_REMINDER => self.show_sale_reminder(ui, n.word() != 0, out),
+                    _ => {}
+                },
+                Handler::Panel(id) => {
+                    if let Some(c) = self.children.iter_mut().find(|c| c.id == id) {
+                        c.child.notice(ui, n, out);
+                    }
+                }
+            }
         }
     }
 

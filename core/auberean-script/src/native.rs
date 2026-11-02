@@ -311,6 +311,13 @@ pub trait Host {
         0
     }
 
+    /// The file name of a record by its id, as the table [`Host::data_id_by_name`] reads gives it
+    /// (empty for none).
+    fn file_name_by_id(&mut self, id: u32) -> Vec<u16> {
+        let _ = id;
+        Vec::new()
+    }
+
     /// Where string references find their tables and the language (none: a reference that names
     /// a table writes as one whose table is missing).
     fn text(&mut self) -> Option<&mut dyn auberean_text::Source> {
@@ -326,6 +333,35 @@ pub trait Host {
     /// A script wrote a string reference (as it was before the writing) to this text.
     fn wrote_text(&mut self, info: &crate::native_object::TextInfo, text: &[u16]) {
         let _ = (info, text);
+    }
+
+    /// The local date and time ([`crate::local`]); none when the host has no clock.
+    fn local_time(&self) -> Option<crate::local::LocalTime> {
+        None
+    }
+
+    /// Seconds since 1970; none when the host has no clock.
+    fn real_time(&self) -> Option<i64> {
+        None
+    }
+
+    /// Add bytes to the end of a file in the client's own folder, by a bare name
+    /// ([`crate::local::bare_name`]); whether they were written.
+    fn append_line(&mut self, file: &str, bytes: &[u8]) -> bool {
+        let _ = (file, bytes);
+        false
+    }
+
+    /// Write a file in the client's own folder anew, by a bare name; whether it was written.
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        let _ = (file, bytes);
+        false
+    }
+
+    /// A file's bytes from the client's own folder, by a bare name; none when there is none.
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        let _ = file;
+        None
     }
 
     /// The host itself, for natives that know the concrete host they run under.

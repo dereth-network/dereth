@@ -173,6 +173,15 @@ impl Ui {
         Some((root, r.x0, r.y0))
     }
 
+    /// Where on the screen the top-level element an element is drawn with stands: its left and
+    /// top.
+    // D2-11164, D2-11165
+    #[must_use]
+    pub fn object_origin(&self, h: Handle) -> Option<(i32, i32)> {
+        self.node(h)?;
+        self.screen_origin(self.root_of(h))
+    }
+
     /// An element's left and top on the screen.
     // D2-11160, D2-11161
     #[must_use]

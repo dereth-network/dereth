@@ -286,7 +286,23 @@ impl SocialWindow {
     }
 }
 
+impl SocialWindow {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            friends::FriendsPage::notices_of(),
+            fellowship::FellowshipPage::notices_of(),
+            allegiance::AllegiancePage::notices_of(),
+        ])
+    }
+}
+
 impl Child for SocialWindow {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -343,7 +359,7 @@ impl Child for SocialWindow {
     /// The scripts' notices reach the pages.
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<PlayRequest>) {
         for p in self.pages() {
-            p.notice(ui, n, out);
+            gameplay::hand(p, ui, n, out);
         }
     }
 

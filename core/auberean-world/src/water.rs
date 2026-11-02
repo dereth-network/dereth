@@ -7,7 +7,7 @@
 //! hides it wherever it is higher.
 
 use auberean_assets::common::Color32;
-use auberean_assets::region::{BlockMap, WaterDesc, WaterType};
+use auberean_assets::region::{BlockMap, WaterDesc, WaterLight, WaterType};
 use auberean_primitives::DataId;
 
 use crate::land::LandConstants;
@@ -62,6 +62,17 @@ pub fn water_type(desc: &WaterDesc, kind: u32) -> Option<&WaterType> {
 }
 
 impl WaterSet {
+    /// The fog and light under the water of block `(x, y)`, by depth: its kind's table, empty for a
+    /// kind with no water.
+    // D2-10876
+    #[must_use]
+    pub fn lighting(&self, x: u32, y: u32) -> &[WaterLight] {
+        let kind = u32::from(block_map_value(&self.kinds, x, y));
+        water_type(&self.desc, kind)
+            .filter(|t| t.no_water == 0)
+            .map_or(&[], |t| t.lighting.as_slice())
+    }
+
     /// The water of block `(x, y)`, whose lowest ground is `min_height`, if it has any.
     // D2-03723
     #[must_use]

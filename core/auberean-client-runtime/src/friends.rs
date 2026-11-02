@@ -180,7 +180,9 @@ pub enum Startup {
     Refused(Refusal),
 }
 
-/// A request waiting for its answer: what the client keeps to hand the answer on.
+/// A request waiting for its answer: what the client keeps to hand the answer on, dropped (its
+/// names and text with it) once the answer is handed on.
+// D2-00362, D2-00391, D2-00399, D2-12152
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Waiting {
     FriendAdd(Vec<u16>),
@@ -533,7 +535,8 @@ impl Friends {
     }
 
     /// Send a request with a new mark, keeping what its answer is to be handed on with; refused
-    /// at once while not connected.
+    /// at once while not connected. Whether it went out.
+    // D2-12137
     fn request(&mut self, request: Request, waiting: Waiting) -> bool {
         if !self.connected {
             return false;
@@ -1004,7 +1007,8 @@ impl Client {
         }
     }
 
-    /// One thing the layer heard, handed on: to the player's scripts, to the login, or to the
+    /// One thing the layer heard, handed on: to the player's scripts (through the player's own
+    /// interface, so nothing reaches them while no player stands), to the login, or to the
     /// interface.
     fn hear_friends(&mut self, h: Heard) {
         use function as f;
@@ -1120,8 +1124,8 @@ impl Client {
     }
 
     /// A connect event's meaning: back after a connection stood, the ticket is presented again;
-    /// closed by the service, the interface says so.
-    // D2-00350, D2-01696
+    /// closed by the service, the interface says so; connected, or lost, nothing hears it.
+    // D2-00350, D2-01696, D2-00313, D2-00314, D2-00315
     fn friends_connection(&mut self, s: u32) {
         match s {
             status::RECONNECTED => {
@@ -1162,6 +1166,7 @@ impl Client {
     }
 
     /// The line about the ticket presented again, to the interface.
+    // D2-00312
     fn friends_line(&mut self, ok: bool) {
         self.notices.push(crate::host::PanelNotice {
             native: notice::AUTHENTICATED,
@@ -1210,7 +1215,7 @@ const GM_INTERFACE: u32 = 0xB4;
 const FRIENDS_UTILS: u32 = 0x1AD5;
 
 /// The string a reference at `at` names (empty for the null reference).
-fn string_at(c: &mut Call<'_>, at: i64) -> Result<Vec<u16>, Stop> {
+pub(crate) fn string_at(c: &mut Call<'_>, at: i64) -> Result<Vec<u16>, Stop> {
     let r = c.cx.at(at)?;
     if r == NULL {
         return Ok(Vec::new());
@@ -1242,7 +1247,7 @@ fn ask_layer(
 }
 
 /// The null receiver stops the call as the client's own crash would.
-fn no_receiver(c: &mut Call<'_>) -> Result<bool, Stop> {
+pub(crate) fn no_receiver(c: &mut Call<'_>) -> Result<bool, Stop> {
     Ok(c.receiver()? == NULL)
 }
 
@@ -1354,7 +1359,7 @@ fn call_create(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The player's name as its literal holds it, meta letters kept (empty without a player).
-fn player_name(h: &crate::host::ClientHost) -> Vec<u16> {
+pub(crate) fn player_name(h: &crate::host::ClientHost) -> Vec<u16> {
     h.model
         .player_object()
         .and_then(|o| o.weenie.name.literal.as_ref())

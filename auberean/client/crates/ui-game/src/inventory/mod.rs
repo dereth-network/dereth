@@ -114,15 +114,19 @@ pub mod notice {
     /// Split a stack: the context, the amount offered and the most, the object to watch (high and
     /// low words), the other object (high and low), the item whose name labels it (high and low;
     /// none for coins).
+    // D2-00317
     pub const INIT_STACK: u32 = 0x458;
     /// The split asked for in a context is called off.
+    // D2-00310
     pub const CLOSE_STACK: u32 = 0x459;
     /// The split in a context is done: the amount.
+    // D2-00324
     pub const STACK_DONE: u32 = 0x45A;
     /// The examination panel opens.
     pub const OPEN_EXAMINATION: u32 = 0x45F;
     /// An item from another panel dropped in a slot of the pack: the item (high and low), the
     /// slot, the panel it came from.
+    // D2-00316
     pub const DRAG_FROM: u32 = 0x493;
 }
 
@@ -520,7 +524,24 @@ impl Inventory {
     }
 }
 
+impl Inventory {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            backpack::Backpack::notices_of(),
+            paper_doll::PaperDoll::notices_of(),
+            money_bag::MoneyBag::notices_of(),
+            items_3d::Items3d::notices_of(),
+        ])
+    }
+}
+
 impl Child for Inventory {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -585,7 +606,7 @@ impl Child for Inventory {
 
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<gameplay::Request>) {
         for p in &mut self.parts {
-            p.child().notice(ui, n, out);
+            gameplay::hand(p.child(), ui, n, out);
         }
     }
 

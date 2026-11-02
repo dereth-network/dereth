@@ -2,8 +2,8 @@
 //! the simple dynamic object shadows, or the pool of a carried light on the land.
 //!
 //! A decal is a box standing on the ground at a point: its width along a direction, its depth
-//! across it and its height up. The ground's triangles about the point (the landscape's squares
-//! round it) are clipped to the box, each piece fanned into triangles, lifted fifteen millimeters
+//! across it and its height up. The ground's triangles about the point (outdoors the landscape's
+//! squares round it, inside the cells' triangles near it) are clipped to the box, each piece fanned into triangles, lifted fifteen millimeters
 //! and given picture coordinates across the box. Decals are kept by their material, in groups; each
 //! frame a group's decals are drawn together with its material, their vertices colored by the
 //! decal's color with its fade in its alpha. A decal drawn once is gone after its first draw; any
@@ -195,6 +195,132 @@ pub fn landscape_decal(
             ground.push([c[3], c[4], c[5]]);
         }
     }
+    construct_decal(
+        center,
+        Vec3::new(0.0, 0.0, 1.0),
+        desc.direction,
+        desc.size,
+        &ground,
+    )
+}
+
+/// Whether the box about `points` meets the box from `lo` to `hi` (touching counts).
+fn meets(points: &[Vec3], lo: Vec3, hi: Vec3) -> bool {
+    let Some(first) = points.first() else {
+        return false;
+    };
+    let (mut a, mut b) = (*first, *first);
+    for p in points {
+        a = Vec3::new(a.x.min(p.x), a.y.min(p.y), a.z.min(p.z));
+        b = Vec3::new(b.x.max(p.x), b.y.max(p.y), b.z.max(p.z));
+    }
+    a.x <= hi.x && b.x >= lo.x && a.y <= hi.y && b.y >= lo.y && a.z <= hi.z && b.z >= lo.z
+}
+
+/// The ground about a point inside: the triangles of interior cell `low` of block `block` (its
+/// mesh's most detailed level) whose box meets the cube of half side `reach` about `at` (in the
+/// block's frame), each corner with its normal, in the block's frame; and once, the same of each
+/// interior cell through a doorway of this one whose shape meets the cube.
+// D2-03579
+#[must_use]
+pub fn nearby_geometry(
+    records: &WorldRecords,
+    block: (i32, i32),
+    low: u16,
+    at: Vec3,
+    reach: f32,
+) -> Vec<[Corner; 3]> {
+    let mut out = Vec::new();
+    cell_geometry(records, block, low, at, reach, true, &mut out);
+    out
+}
+
+fn cell_geometry(
+    records: &WorldRecords,
+    block: (i32, i32),
+    low: u16,
+    at: Vec3,
+    reach: f32,
+    through_doorways: bool,
+    out: &mut Vec<[Corner; 3]>,
+) {
+    let Some(cell) = records.cell(block.0, block.1, low) else {
+        return;
+    };
+    let Some(mesh) = records.get::<auberean_assets::mesh::CellMesh>(cell.mesh.0) else {
+        return;
+    };
+    let Some(vertices) = crate::mesh::vertices(&mesh.mesh.vertices) else {
+        return;
+    };
+    let frame = Mat4::from_parts(
+        cell.frame.origin,
+        cell.frame.rotation,
+        Vec3::new(1.0, 1.0, 1.0),
+    );
+    let here = frame.rigid_preimage(at);
+    let lo = Vec3::new(here.x - reach, here.y - reach, here.z - reach);
+    let hi = Vec3::new(here.x + reach, here.y + reach, here.z + reach);
+    let place = |k: u16| {
+        vertices
+            .get(usize::from(k))
+            .map(|v| Vec3::new(v.position[0], v.position[1], v.position[2]))
+    };
+    if let Some(level) = mesh.mesh.levels.first() {
+        for f in &level.fragments {
+            for t in f.indices.as_chunks::<3>().0 {
+                let (Some(a), Some(b), Some(c)) = (
+                    vertices.get(usize::from(t[0])),
+                    vertices.get(usize::from(t[1])),
+                    vertices.get(usize::from(t[2])),
+                ) else {
+                    continue;
+                };
+                let corners = [a, b, c].map(|v| {
+                    (
+                        Vec3::new(v.position[0], v.position[1], v.position[2]),
+                        Vec3::new(v.normal[0], v.normal[1], v.normal[2]),
+                    )
+                });
+                if meets(&corners.map(|c| c.0), lo, hi) {
+                    out.push(corners.map(|(p, n)| (frame.point(p), frame.direction(n))));
+                }
+            }
+        }
+    }
+    if !through_doorways {
+        return;
+    }
+    for p in &cell.portals {
+        if p.other_cell == low || !(0x100..0xFFFF).contains(&p.other_cell) {
+            continue;
+        }
+        let shape: Vec<Vec3> = mesh
+            .portals
+            .get(usize::from(p.portal))
+            .and_then(|d| mesh.mesh.physics_polygons.get(usize::from(d.polygon)))
+            .map(|poly| poly.vertices.iter().filter_map(|&k| place(k)).collect())
+            .unwrap_or_default();
+        if meets(&shape, lo, hi) {
+            cell_geometry(records, block, p.other_cell, at, reach, false, out);
+        }
+    }
+}
+
+/// A decal inside, at `center` in interior cell `low` of block `block`: the cells' ground about
+/// it as far as the box's largest side ([`nearby_geometry`]), cut to the box standing up from
+/// it along its direction.
+// D2-10345
+#[must_use]
+pub fn dungeon_decal(
+    records: &WorldRecords,
+    block: (i32, i32),
+    low: u16,
+    center: Vec3,
+    desc: &DecalDesc,
+) -> Vec<[DecalVertex; 3]> {
+    let reach = desc.size.x.max(desc.size.y).max(desc.size.z);
+    let ground = nearby_geometry(records, block, low, center, reach);
     construct_decal(
         center,
         Vec3::new(0.0, 0.0, 1.0),
@@ -467,7 +593,11 @@ pub fn decal_batches(
                 cull: Cull::Never,
                 mesh: 0,
                 casts_volume: false,
+                caster: None,
+                seen_through: false,
                 kept_by: None,
+                anchor: None,
+                step: None,
             });
         }
     }

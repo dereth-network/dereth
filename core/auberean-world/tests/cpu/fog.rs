@@ -103,3 +103,52 @@ fn a_blocks_corners_blend_their_fog_over_the_days() {
         "the kind's blue in its share"
     );
 }
+
+/// One depth of a water's table: its fog distances and sky fog, every channel the kind's own.
+fn depth(at: f32, min: f32, max: f32, sky: f32, color: u32) -> auberean_assets::region::WaterLight {
+    let mut t = light(0, 1, min, max, sky, &[0, 1, 2, 3, 4, 5, 6]);
+    t.light.fog_color = Color32(color);
+    auberean_assets::region::WaterLight {
+        depth: at,
+        light: t.light,
+    }
+}
+
+/// Under water the fog is the water's, the light the same: with a table of depths 0 and 30, at the
+/// surface the shallower's fog, at 30 m and below the deeper's, and between them the two blended
+/// by the depth (the fog's alpha the deeper's). With three depths, the deeper of the two blended
+/// is the last deeper than the viewer, as the client finds it. An empty table changes nothing.
+///
+/// Behaviour: world.fog.under-water-the-fog-is-the-waters-by-depth
+#[test]
+fn under_water_the_fog_is_the_waters_by_depth() {
+    use auberean_world::fog::water_fog;
+    let day = day();
+    let table = [
+        depth(0.0, 0.0, 40.0, 1.0, 0x8000_00FF),
+        depth(30.0, 0.0, 10.0, 0.5, 0xFF00_0080),
+    ];
+    let at = |d: f32| water_fog(&day, &table, d);
+    let top = at(0.0);
+    assert_eq!((top.fog_min, top.fog_max, top.fog_sky), (0.0, 40.0, 1.0));
+    assert_eq!(
+        (top.direct_brightness, top.ambient_brightness),
+        (day.direct_brightness, day.ambient_brightness),
+        "the light stays"
+    );
+    let mid = at(15.0);
+    assert_eq!((mid.fog_max, mid.fog_sky), (25.0, 0.75));
+    assert!((mid.fog_color.b - (1.0 + 128.0 / 255.0) / 2.0).abs() < 1e-3);
+    assert_eq!(mid.fog_color.a, 1.0, "the deeper's alpha");
+    for d in [30.0, 45.0] {
+        assert_eq!((at(d).fog_max, at(d).fog_sky), (10.0, 0.5), "{d} m");
+    }
+    let three = [
+        table[0].clone(),
+        table[1].clone(),
+        depth(60.0, 0.0, 4.0, 0.0, 0xFF00_0000),
+    ];
+    // 15 m: between the 30 m and 60 m depths, their blend reaching past the 30 m one.
+    assert_eq!(water_fog(&day, &three, 15.0).fog_max, 13.0);
+    assert_eq!(water_fog(&day, &[], 15.0), day);
+}

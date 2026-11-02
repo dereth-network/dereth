@@ -403,3 +403,43 @@ fn an_environment_map_is_looked_up_by_the_eyes_reflection() {
         [(0x2B00_0069, 40), (0x2B00_00E5, 2)]
     );
 }
+
+/// Most of the install's material instances hold one layer for each material detail (low,
+/// medium, high), of which the device draws the one its detail asks for; every instance draws a
+/// layer at every detail.
+///
+/// Behaviour: draw.material.a-material-draws-the-layer-its-detail-asks-for
+#[test]
+fn a_material_draws_the_layer_its_detail_asks_for() {
+    use auberean_draw::material::device_flags;
+    let r = &install().records;
+    let (mut each, mut instances) = (0, 0);
+    let mut undrawn = Vec::new();
+    for id in ids_of(0x31) {
+        let m = instance_material(r, id).unwrap_or_else(|| panic!("{id:08X} is made ready"));
+        instances += 1;
+        let kept = sub_objects(&m, HARDWARE_CLASS);
+        let details: Vec<u32> = kept.layers.iter().map(|l| l.flags_set & 0x7_0000).collect();
+        let drawn = [0, 1, 2].map(|d| draw_layers(&m, device_flags(d)));
+        if drawn.iter().any(Vec::is_empty) {
+            undrawn.push(id);
+        }
+        if details == [0x1_0000, 0x2_0000, 0x4_0000] {
+            each += 1;
+            for (d, layers) in drawn.iter().enumerate() {
+                assert_eq!(layers.len(), 1, "{id:08X} at {d}");
+                assert_eq!(
+                    layers[0],
+                    auberean_draw::material::draw_layer(&kept.layers[d]),
+                    "{id:08X} at {d}"
+                );
+            }
+        }
+    }
+    println!("{each} of {instances} instances hold a layer for each detail");
+    assert!(undrawn.is_empty(), "{undrawn:08X?}");
+    assert!(
+        each > 2_000 && each * 100 / instances > 80,
+        "{each} {instances}"
+    );
+}

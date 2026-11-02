@@ -18,8 +18,9 @@
 use std::any::{Any, TypeId};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use auberean_dat::disk::StoreSet;
 use auberean_dat::qualified::{divine_cell_type, divine_type};
-use auberean_dat::{DatFile, QualifiedIds, RecordType};
+use auberean_dat::{DatFile, QualifiedId, QualifiedIds, RecordType};
 
 use crate::cache::{self, Obj, Shared};
 
@@ -85,7 +86,7 @@ pub fn graphs_type(kind: u32) -> bool {
 
 /// The records a loaded record needs, gathered as its type gathers them (none for a type that
 /// names no other record).
-fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
+pub fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
     if let Some(t) = record.downcast_ref::<StringTable>() {
         t.sub_ids(kind, out);
     } else if let Some(m) = record.downcast_ref::<IdMap>() {
@@ -102,9 +103,27 @@ fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
         a.sub_ids(kind, out);
     } else if let Some(t) = record.downcast_ref::<FxTable>() {
         t.sub_ids(kind, out);
-    } else {
+    } else if let Some(q) = record.downcast_ref::<crate::script::Qualities>() {
+        q.sub_ids(out);
+    } else if !cell_sub_ids(record, out) {
         region_sub_ids(record, out);
     }
+}
+
+/// The records a cell file's record names (a landblock, its info, an interior cell); whether it
+/// was one.
+fn cell_sub_ids(record: &dyn Any, out: &mut QualifiedIds) -> bool {
+    use crate::landblock::{Cell, Landblock, LandblockInfo};
+    if let Some(l) = record.downcast_ref::<Landblock>() {
+        l.sub_ids(out);
+    } else if let Some(i) = record.downcast_ref::<LandblockInfo>() {
+        i.sub_ids(out);
+    } else if let Some(c) = record.downcast_ref::<Cell>() {
+        c.sub_ids(out);
+    } else {
+        return false;
+    }
+    true
 }
 
 /// The records a region record or a scene names.
@@ -148,6 +167,9 @@ fn region_sub_ids(record: &dyn Any, out: &mut QualifiedIds) {
 // D2-12628, D2-12627, D2-12613, D2-12614, D2-12626
 pub struct Database {
     files: Vec<Arc<DatFile>>,
+    /// The files as the data cache stores into them, when it does: records are read through them,
+    /// so a record stored for the session is read as the files' own are.
+    stores: Option<Arc<StoreSet>>,
     master_map: u32,
     ctx: Context,
     caches: Shared,
@@ -173,9 +195,22 @@ impl Database {
     // D2-12599, D2-12639, D2-12616
     #[must_use]
     pub fn new(files: Vec<Arc<DatFile>>) -> Self {
+        Self::make(files, None)
+    }
+
+    /// A database over these files as the data cache stores into them: every record is read
+    /// from the file its type belongs to, as stored (a record stored there for the session is
+    /// read as the file's own are); a record no store holds is looked for in `files`, in order.
+    #[must_use]
+    pub fn over_stores(files: Vec<Arc<DatFile>>, stores: Arc<StoreSet>) -> Self {
+        Self::make(files, Some(stores))
+    }
+
+    fn make(files: Vec<Arc<DatFile>>, stores: Option<Arc<StoreSet>>) -> Self {
         let master_map = files.first().map_or(0, |f| f.header().master_map_id);
         let mut db = Self {
             files,
+            stores,
             master_map,
             ctx: Context::empty(),
             caches: Arc::new(Mutex::new(cache::Caches::default())),
@@ -344,7 +379,7 @@ impl Database {
     /// Put a record just loaded into the data graph, when one is installed and its type goes
     /// there: a node for it and an edge to each record it needs.
     // D2-12610, D2-12686, D2-12703
-    fn add_to_data_graph(&self, id: u32, kind: u32, record: &dyn Any) {
+    pub(crate) fn add_to_data_graph(&self, id: u32, kind: u32, record: &dyn Any) {
         if id == 0 || !graphs_type(kind) {
             return;
         }
@@ -383,10 +418,26 @@ impl Database {
         self.master_map
     }
 
-    /// A record's bytes, from the first file that holds it.
+    /// A record's bytes: from the file its type belongs to as stored, when the database is over
+    /// the cache's stores and that file holds it; else from the first file that holds it.
     #[must_use]
     pub fn read(&self, id: u32) -> Option<Vec<u8>> {
+        if let Some(s) = &self.stores {
+            let q = QualifiedId {
+                id,
+                kind: Self::kind_of(id),
+            };
+            if let Some(b) = s.load_data(q) {
+                return Some(b);
+            }
+        }
         self.files.iter().find_map(|f| f.read(id).ok())
+    }
+
+    /// The stores records are read through, when the database is over them.
+    #[must_use]
+    pub fn stores(&self) -> Option<&Arc<StoreSet>> {
+        self.stores.as_ref()
     }
 
     /// A record decoded as `T`: from memory when it is loaded (taken off its free list if
@@ -407,14 +458,24 @@ impl Database {
         if id == 0 {
             return None;
         }
+        // A record got here is kept with its named records counted as loaded: a request for it
+        // later asks for none of them.
+        let key = (id, TypeId::of::<T>());
         if let Some(o) = cache::in_memory::<T>(&self.caches, kind, id) {
+            cache::set_subs_loaded(&self.caches, kind, key);
             return Some(o);
         }
         cache::get_free_obj(&self.caches, kind);
         let v = Arc::new(self.load::<T>(id)?);
         let o = cache::insert(&self.caches, kind, id, Arc::clone(&v));
+        cache::set_subs_loaded(&self.caches, kind, key);
         self.add_to_data_graph(id, kind, &*v);
         Some(o)
+    }
+
+    /// The caches, for the requests made through them.
+    pub(crate) fn caches(&self) -> &Shared {
+        &self.caches
     }
 
     fn load<T: Decode>(&self, id: u32) -> Option<T> {

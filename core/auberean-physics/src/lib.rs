@@ -10,8 +10,10 @@
 //! The swept-sphere transition is the shared engine's (`dereth-physics`): this world sets its rules
 //! ([`rules`]) and hands it this world's cells ([`land`]), each 20 m land cell answering for its
 //! ground and the solid objects placed in it, and its interior cells ([`interior`]), each with its
-//! walls and floors, its inside test and its doorways. On top of that this crate moves a body the way the
-//! client does: the motion interpreter turns movement input into velocities ([`motion`]), the
+//! walls and floors, its inside test and its doorways. Another object's spheres and upright
+//! cylinders are met by this world's own tests ([`obstacle`]), its trees by the shared ones. On top
+//! of that this crate moves a body the way the client does: the motion interpreter turns movement
+//! input into velocities ([`motion`]), the
 //! physics step applies them with gravity and friction through the transition ([`body`]), and the
 //! chase camera follows, kept off walls ([`camera`]).
 //!
@@ -30,6 +32,7 @@ pub mod mesh;
 pub mod missile;
 pub mod motion;
 pub mod object;
+pub mod obstacle;
 pub mod pack;
 pub mod parts;
 pub mod path;

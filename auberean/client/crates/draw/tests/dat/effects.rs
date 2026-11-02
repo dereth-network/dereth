@@ -81,9 +81,10 @@ fn the_arcane_fire_burns_its_appearances_blue_flames() {
 }
 
 /// The camp's Arcane Fire burns over the lake: its blue flames are drawn after the water. A frame
-/// draws its opaque objects, then the water, then what is seen through, the particle systems
-/// last. Every quad of the fire's five systems adds itself onto what lies behind without marking
-/// how near it is, so water drawn after them would cover each flame with the lake behind it.
+/// draws its objects not seen through, then the water, then the frills, what is seen through and
+/// the particle systems, last of all. Every quad of the fire's five systems adds itself onto what
+/// lies behind without marking how near it is, so water drawn after them would cover each flame
+/// with the lake behind it.
 ///
 /// Behaviour: draw.frame.the-water-is-drawn-before-what-is-seen-through
 #[test]
@@ -95,8 +96,10 @@ fn the_arcane_fires_flames_are_drawn_after_the_water() {
         "the opaque objects first"
     );
     assert!(
-        step(Pass::Water) < step(Pass::Translucent),
-        "the water before what is seen through"
+        step(Pass::Water) < step(Pass::Frills)
+            && step(Pass::Frills) < step(Pass::Translucent)
+            && step(Pass::Translucent) < step(Pass::Particles),
+        "the water, then the frills, what is seen through and the particles"
     );
     let r = &install().records;
     let look = Look::of_record(r, DataId(0x1F00_01D3)).expect("the arcane fire's look");
@@ -122,8 +125,70 @@ fn the_arcane_fires_flames_are_drawn_after_the_water() {
     assert!(quads > 50, "the fire burns: {quads} quads");
     for b in &batches {
         assert!(!b.layer.depth_write, "a flame marks no nearness");
-        assert_eq!(b.pass(), Pass::Translucent, "a flame is seen through");
+        assert_eq!(b.pass(), Pass::Particles, "a flame is a particle's");
     }
+}
+
+/// A weapon's look makes its streak as it is made (the rest of its startup effects: the line along
+/// its blade, white, trailing a fifth of a second), waiting to be turned on; a human's swings turn
+/// the streaks of what it holds at a holding location on and off, as the common effect table's
+/// entries say (`0x810002AE` on at location 1, `0x810002AF` off there). With the streaks preference
+/// off no streak is made and none turned on; turning them off is still asked.
+///
+/// Behaviour: draw.streak.a-weapon-carries-a-streak-a-swing-turns-on
+#[test]
+fn a_weapons_streak_waits_for_a_swing_to_turn_it_on() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let weapon = Look::of_record(r, DataId(0x1F00_0056)).expect("a weapon's look");
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&weapon).expect("its effects");
+    fx.start(&systems, r, (0, 0), &Mat4::IDENTITY, unit, 0.0);
+    assert_eq!(fx.streaks().len(), 1, "its streak");
+    assert!(!fx.streaks()[0].active(), "waiting to be turned on");
+    assert_eq!(fx.streaks()[0].material(), 0x3100_0200);
+    fx.turn_streaks(true);
+    assert!(fx.streaks()[0].active());
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 1.0,
+    };
+    let mut swinger = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = swinger.do_fx(
+        &systems,
+        r,
+        0x8100_02AE,
+        1.0,
+        &spot,
+        FxWho::default(),
+        &NoRig,
+    );
+    assert!(took);
+    let (took, _) = swinger.do_fx(
+        &systems,
+        r,
+        0x8100_02AF,
+        1.0,
+        &spot,
+        FxWho::default(),
+        &NoRig,
+    );
+    assert!(took);
+    assert_eq!(swinger.take_streak_asks(), [(true, 1), (false, 1)]);
+    // the preference off
+    let off = ParticleSystems::default();
+    off.set_streak_effects(false);
+    let mut fx = ObjectEffects::of_look(&weapon).expect("its effects");
+    fx.start(&off, r, (0, 0), &Mat4::IDENTITY, unit, 0.0);
+    assert!(fx.streaks().is_empty(), "no streak made");
+    let mut swinger = ObjectEffects::of_look(&human).expect("its effects");
+    let _ = swinger.do_fx(&off, r, 0x8100_02AE, 1.0, &spot, FxWho::default(), &NoRig);
+    let _ = swinger.do_fx(&off, r, 0x8100_02AF, 1.0, &spot, FxWho::default(), &NoRig);
+    assert_eq!(swinger.take_streak_asks(), [(false, 1)]);
 }
 
 /// The start hall's quick exit (look `0x1F00031E`) plays three startup effects from its look:
@@ -858,4 +923,54 @@ fn no_lights_while_the_light_source_effects_preference_is_off() {
         again.lights(spot.block, 160.0, 3.0).len() >= 5,
         "made after"
     );
+}
+
+/// With the volumetric fog effects off, the start hall's ground mist (system `0x3900018D`, moved
+/// by repulsors) neither moves on nor draws. Turned on again, it moves on and draws.
+///
+/// Behaviour: draw.particles.a-mist-stands-unseen-without-volumetric-fog
+#[test]
+fn a_mist_stands_unseen_without_volumetric_fog() {
+    let r = &install().records;
+    let home = (2, 0x98);
+    let at = Mat4::translation(Vec3::new(60.0, 240.0, -44.6));
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let systems = ParticleSystems::default();
+    let mist = systems
+        .create(r, 0x3900_018D, false, home, at, unit, 0.0)
+        .expect("the mist");
+    let frame = |now: f64| {
+        systems.queue(&mist, home, at, unit, Color::WHITE, now);
+        systems
+            .batches(
+                home,
+                160.0,
+                now,
+                Vec3::new(60.0, 230.0, -43.0),
+                (
+                    Vec3::new(1.0, 0.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            )
+            .len()
+    };
+    let mut now = 0.0;
+    let mut step = |n: u32| {
+        let mut drawn = 0;
+        for _ in 0..n {
+            now += 1.0 / 30.0;
+            drawn = frame(now);
+        }
+        drawn
+    };
+    assert!(systems.volumetric_fog(), "on unless set off");
+    assert!(step(150) > 0, "the mist draws");
+    let alive = systems.alive(&mist);
+    assert!(alive > 0);
+    systems.set_volumetric_fog(false);
+    assert_eq!(step(150), 0, "not drawn");
+    assert_eq!(systems.alive(&mist), alive, "not moved on");
+    systems.set_volumetric_fog(true);
+    assert!(step(90) > 0, "drawn again");
 }

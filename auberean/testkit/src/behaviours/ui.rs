@@ -118,6 +118,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.a-line-waits-in-the-log-for-its-string-tables",
+        says: "A chat line that came as a string reference whose table the data lacks waits in the \
+               log until the table has come, then shows as written from it; the lines after it \
+               wait behind it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-CHAT"),
+        station: "auberean-ui-game::dat::play::chat::a_line_waits_in_the_log_for_its_string_tables_and_the_lines_after_it_wait_behind_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.each-window-shows-the-kinds-its-filter-holds-in-their-colors",
         says: "The chat panel makes four windows, the first shown and the others hidden; once the chat options are read the first entry holds the prompt and a devoted window's entry its channel's name; each window shows the kinds of text its filter holds, each line whole in its kind's color; an error line also stands in the line of messages at the screen's top for the six seconds its row says.",
         since: RETAIL,
@@ -176,6 +186,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.craft.recipe-and-ingredient-names-wait-for-their-string-tables",
+        says: "The ingredient panel gives its texts (the recipe's name, its cost and charges, its \
+               ingredients' names, the craft button's label and tip) to their text elements as \
+               string references: one whose string tables the data lacks shows once they have \
+               come. The recipe's name is then colored, written again from its element's text, \
+               so a name still waiting stays empty.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-INGREDIENTS"),
+        station: "auberean-ui-game::dat::play::ingredients::recipe_and_ingredient_names_wait_for_their_string_tables",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.craft.the-crafting-page-goes-from-craft-skills-to-categories-to-recipes",
         says: "The crafting tab shows the craft skills, each its name (disabled while its use \
                earns less than the usual experience) and rating (buffed when its level stands \
@@ -201,6 +223,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-INGREDIENTS"),
         station: "auberean-ui-game::dat::play::ingredients::the_ingredient_panel_takes_items_and_makes_the_recipe",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-spinner-writes-a-changed-value-unsigned",
+        says: "The ingredient panel's spinner shows its value signed when the panel opens and \
+               unsigned once changed (a negative value written as its 32-bit word, of which the \
+               field shows three characters), written only when the field reads otherwise (both \
+               read as unsigned words); a typed value is read as the C library reads a number in \
+               base 0, a leading 0 octal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SPINNER-TEXT"),
+        station: "auberean-ui-game::dat::play::ingredients::the_spinner_writes_a_changed_value_unsigned",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -251,6 +285,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.datapatch.a-failed-connection-says-its-errors-own-line",
+        says: "A login refused, or a login server letting its connection go, with an error leads \
+               from connecting to the disconnected screen with that error's own line (the server \
+               full); an address the client cannot understand names the host; an error with no \
+               line of its own leaves the screen as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-CONNECT-FAILED"),
+        station: "auberean-ui-game::dat::screens::pregame::a_failed_connection_says_its_errors_own_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.datapatch.connecting-says-how-it-goes-and-the-list-leads-on",
         says: "The connecting screen connects when it comes up and says so at its foot, writes \
                the connection's progress there, leads to the disconnected screen with the reason \
@@ -260,6 +305,27 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DATAPATCH"),
         station: "auberean-ui-game::dat::screens::pregame::connecting_says_how_it_goes_and_the_list_leads_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.a-message-the-scripts-ask-for-first-goes-up-at-once",
+        says: "The scripts' message says whether it goes up at once: one that does goes up in \
+               place of the dialog up, which waits at the head of the line and comes back when it \
+               closes; one that does not waits its turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DIALOG-MESSAGE-FIRST"),
+        station: "auberean-ui-game::dat::play::dialogs::a_message_the_scripts_ask_for_first_goes_up_at_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.a-message-waits-for-its-string-table",
+        says: "A dialog asked for with a string reference (the scripts' message) gives it to its \
+               text element as one: while the string tables it reads are on their way the dialog \
+               is up with no text, which shows once they have come (the client's error message \
+               for a table refused).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-DIALOGS"),
+        station: "auberean-ui-game::dat::play::dialogs::a_message_waits_for_its_string_table",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -326,6 +392,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.draw.a-fill-reaching-off-its-element-paints-the-edge-it-passes",
+        says: "A rectangle painted over an element (the radar's blips) is a window onto the                element's own picture pressed onto it: its left and top edges held at 0 or more,                its right and bottom at the picture's at most and at its first column and row at                least, a window with no width or height kept one texel inside its far edge; so                one reaching past an edge paints along that edge and none lands outside.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-FILL-WINDOW"),
+        station: "auberean-ui::cpu::compositor::a_fill_reaching_off_its_element_paints_the_edge_it_passes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.draw.a-picture-of-its-own-laid-over-the-scene-matches-drawing-over-it",
         says: "The interface drawn into a transparent picture of its own and laid over the scene by that picture's alpha matches the interface drawn straight over the scene.",
         since: TOOLING,
@@ -340,6 +414,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DRAW-TILE"),
         station: "auberean-ui::cpu::compositor::a_small_picture_repeats_unless_sized_to_its_element",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.draw.a-top-level-element-without-a-surface-shows-nothing",
+        says: "A top-level element marked no_surface_object is drawn into no picture of its own: \
+               neither its picture nor its children's reach the screen, and the pointer still finds \
+               it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DRAW-NO-SURFACE"),
+        station: "auberean-ui::cpu::compositor::a_top_level_element_without_a_surface_shows_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -422,6 +506,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.an-elements-object-stands-where-its-top-level-element-stands",
+        says: "The object an element is drawn with stands where its top-level element stands on the \
+               screen: a child deep in a window answers the window's left and top, as the radar \
+               places its dial by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OBJECT-ORIGIN"),
+        station: "auberean-ui::cpu::elements::an_elements_object_stands_where_its_top_level_element_stands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.element.edges-follow-the-screen-as-it-grows",
         says: "On a screen larger than its layout's, each edge keeps its distance from the side it \
                follows, or centers the element.",
@@ -450,6 +544,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.matching-attributes-goes-on-into-the-children-and-their-text",
+        says: "Matching one element's attributes onto another (as a dragged copy is given the \
+               original's) goes on into the children: each child gives the other's first child made \
+               from the same description every attribute it lacks, a child the other lacks ending \
+               it there, and a text element gives the other its text when theirs differ.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MATCH-ATTRIBUTES"),
+        station: "auberean-ui::cpu::elements::matching_attributes_goes_on_into_the_children_and_their_text",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.element.one-name-holds-a-value-of-each-type",
         says: "An element keeps its attributes in a table per type, so one name may hold a \
                value of each type; within one change of state the first value given for a name \
@@ -467,6 +572,27 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-ATTRIBUTES"),
         station: "auberean-ui::cpu::elements::the_first_value_given_wins",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.examination.a-countdown-shows-the-time-left-the-clock-keeps-current",
+        says: "A countdown line of an examination profile shows the time left until its end (a game \
+               time) in the string table's words, with the journal's least months, days and minutes \
+               (1, 1 and 60), and the clock keeps them current; the next profile takes it away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-EXAMINATION-COUNTDOWN"),
+        station: "auberean-ui-game::dat::play::examination::a_countdown_shows_the_time_left_the_clock_keeps_current",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.examination.a-line-waiting-on-its-string-table-empties-the-window-when-it-comes",
+        says: "A profile's line given as a string reference whose string tables the data lacks is \
+               laid out empty, taking the rest of its row (on a new line when the row holds more \
+               than its indent); when they come, or are refused, the window empties to its \
+               waiting row until the next profile.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-EXAMINATION"),
+        station: "auberean-ui-game::dat::play::examination::a_line_waiting_on_its_string_table_empties_the_window_when_it_comes",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.examination.an-effect-line-lays-out-the-effects-own-lines",
@@ -517,13 +643,22 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.flow.the-game-flow-starts-on-the-intro-and-follows-the-servers-reasons",
         says: "The game's flow starts on the opening screen with the data's default cursor; a reason \
                the server gives for refusing or ending a character leads to the character list or the \
-               disconnected screen with the reason's message, or the server's own words; a lost \
-               connection asks for the disconnected screen unless it is up or asked for; the \
-               screenshot key, let go, takes a screenshot.",
+               disconnected screen with the reason's message, or the server's own words when they \
+               are valid (a boot's line); a lost connection asks for the disconnected screen \
+               unless it is up or asked for; the screenshot key, let go, takes a screenshot.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-GAME-FLOW"),
         station: "auberean-ui-game::dat::play::standing::the_game_flow_starts_on_the_intro_and_follows_the_servers_reasons",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.frame.a-new-kept-place-is-hidden-off-the-screen",
+        says: "A new kept place, before an element's place is read into it, is hidden with every \
+               corner at -3, off the screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME3-KEPT-PLACE"),
+        station: "auberean-ui::cpu::framework::a_new_kept_place_is_hidden_off_the_screen",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.frame.a-panel-shows-only-while-its-parents-do",
@@ -572,6 +707,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-GAMEPLAY-KEYS"),
         station: "auberean-ui-game::dat::play::standing::the_panels_keys_show_and_hide_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.gameplay.the-panels-places-are-kept-and-put-back",
+        says: "A panel's place changed, the play screen asks once for the panels' places to be \
+               kept with the player's options and sent to the server (not the game options); the \
+               options coming again ask for the panels to be put back from them, and the display \
+               set up again asks for them as the player's interface keeps them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-KEEP-PLACES"),
+        station: "auberean-ui-game::dat::play::radar::the_panels_places_are_kept_when_moved_and_put_back_when_the_options_come",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -705,6 +851,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.the-stack-amount-is-written-signed",
+        says: "The stack splitter's entry holds the amount offered written as a signed number \
+               (`%d`), so an amount from 2^31 up shows negative.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-STACK-AMOUNT-TEXT"),
+        station: "auberean-ui-game::dat::play::inventory::the_stack_amount_is_written_signed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.the-world-pulled-on-drags-the-selection-not-a-pack-item",
         says: "A press on the world held and moved drags the selection's icon (the object selected \
                in the world, wherever it lies), not an item of the pack the pointer then passes \
@@ -727,6 +882,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-KEYBOARD"),
         station: "auberean-ui-game::dat::screens::pregame::the_key_map_shows_each_actions_keys_and_rebinds_them",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.layout.a-layout-is-read-again-once-its-last-element-goes",
+        says: "A layout is let go once the last element made from it goes: loading it again reads \
+               its record anew, and elements made after a changed record follow the new one; while \
+               an element of it stands it is not read again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LAYOUT-RELEASE"),
+        station: "auberean-ui::cpu::elements::a_layout_is_read_again_once_its_last_element_goes",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.layout.a-screen-finds-its-layout-by-number",
@@ -779,6 +944,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LIST-ARROWS"),
         station: "auberean-ui::cpu::lists::arrow_buttons_scroll_a_row_and_ghost_at_the_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.list.selecting-by-drag-stays-on-the-row-pressed",
+        says: "A list that selects by dragging, pressed on a row, selects it and listens for its \
+               top-level element's own pointer moves, which the manager never sends: moving onto \
+               another row with the button held leaves the pressed row selected, and the release \
+               undoes the listening.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LIST-DRAG-SELECT"),
+        station: "auberean-ui::cpu::lists::selecting_by_drag_stays_on_the_row_pressed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -932,6 +1108,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.a-renamed-object-is-named-anew-once-its-string-table-comes",
+        says: "An object's name, as its scripts give it, goes to the name over its head and to \
+               the selection's name as a string reference; when the scripts say its radar look \
+               changed (as they do when the server renames it) both are made again from the new \
+               name, which shows once the string tables it reads have come.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-NAMES"),
+        station: "auberean-ui-game::dat::play::names::a_renamed_object_is_named_anew_once_its_string_table_comes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.a-selection-faded-out-of-sight-is-not-marked",
+        says: "A selection its animation has faded out of sight is neither marked nor named: its \
+               marks and name hide until it can be seen again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-FADED"),
+        station: "auberean-ui-game::dat::play::names::a_selection_faded_out_of_sight_is_not_marked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.an-arrow-points-to-a-selection-off-the-screen",
         says: "When no corner of the selection's box is on the screen, the corner marks hide and an arrow on the screen's edge points the way to it (behind the camera: at the foot, pointing down); a selection beyond the greatest selection distance (400 meters) is no longer selected.",
         since: RETAIL,
@@ -974,6 +1170,66 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.notices.handlers-hear-in-the-order-they-registered",
+        says: "A notice is handed to its handlers in the order they registered; a handler \
+               registered again for the same notice stays where it was; one unregistered from a \
+               notice no longer hears it, and one that goes hears nothing more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-NOTICE-REGISTRY"),
+        station: "auberean-ui-game::cpu::notices::handlers_hear_a_notice_in_the_order_they_registered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.notices.registrations-name-the-scripts-notices-by-their-natives",
+        says: "A panel's registrations, written by the notices' own numbers, name a notice the \
+               player's scripts send by the native that sends it and the client's own by its \
+               number; the examination window's opening by both.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-NOTICE-NAMES"),
+        station: "auberean-ui-game::cpu::notices::registrations_name_the_scripts_notices_by_their_natives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.notices.the-play-screens-notices-reach-their-handlers-in-the-order-they-registered",
+        says: "The play screen's panels register for their notices as the play screen makes them, \
+               in that order, and the play screen registers for some of its own as it is made and \
+               the rest once its panels are made, after them: a notice reaches those who registered \
+               for it, in that order, and no other.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-NOTICE-ORDER"),
+        station: "auberean-ui-game::dat::play::standing::the_play_screens_notices_reach_their_handlers_in_the_order_they_registered",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.a-blessed-preference-is-read-from-the-file-once-and-written-back",
+        says: "A preference blessed is copied into the bank and read from the file by its names \
+               (its default when absent) as applied, and the owner holds the bank's value; \
+               blessed again it takes the new values without the file, its handler and monitor \
+               told; every preference is written back by its names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-BANK"),
+        station: "auberean-ui-game::cpu::preferences::a_blessed_preference_is_read_from_the_file_once_and_written_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.options.a-number-preference-is-written-as-percent-f",
+        says: "A number preference is written as the C library writes `%f`: its first seventeen \
+               significant digits, zeros after them, and six places, a tie rounding up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREF-FLOAT-TEXT"),
+        station: "auberean-ui-game::cpu::preferences::a_number_preference_is_written_as_percent_f",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.options.a-preference-compares-and-copies-by-kind",
+        says: "Two preferences compare by their names, kind and same-kind values; a preference \
+               copies only another of its kind, and a copy's applied value is a new one's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-COMPARE"),
+        station: "auberean-ui-game::cpu::preferences::a_preference_compares_and_copies_by_kind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.options.apply-asks-first-then-sets-every-chat-option-and-the-filters-last",
         says: "The chat page's Apply asks first, then sets every chat option section by section (the \n \
                devoted channels, each kind's font size, color and popup flag), then each window's \n \
@@ -983,6 +1239,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-APPLY"),
         station: "auberean-ui-game::dat::play::chat::apply_asks_first_then_sets_every_chat_option_and_the_filters_last",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.each-preference-reads-and-writes-its-value-as-the-file-keeps-it",
+        says: "Each preference kind reads and writes its value as the preferences file keeps it: a \
+               yes-or-no as 1 or 0, a number only when the whole text is one (six places \
+               written), a choice by number or by its name in its enumeration, a text as it is; a \
+               new number is a half over 0 to 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-KINDS"),
+        station: "auberean-ui-game::cpu::preferences::each_preference_reads_and_writes_its_value_as_the_file_keeps_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.options.hidden-with-changes-the-window-asks-to-apply-them",
@@ -1011,6 +1278,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.the-bank-tells-the-page-and-the-handlers-what-they-hold",
+        says: "A section's monitor is listed its preferences on attaching and when one comes or \
+               goes; applying hands each handler its changed preferences, applied; submitting \
+               hands them unapplied; recalling puts back the section and hands each its own; \
+               synchronizing applies without telling anyone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-BANK-TELLS"),
+        station: "auberean-ui-game::cpu::preferences::the_bank_tells_the_page_and_the_handlers_what_they_hold",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.options.the-bars-rows-set-by-hand-are-kept-at-once",
         says: "The shortcut bar resized by hand tells the options window its rows: they are set and the options sent at once, no other panel told, and the character page shows them applied.",
         since: RETAIL,
@@ -1037,6 +1315,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-PAGE"),
         station: "auberean-ui-game::dat::play::chat::the_chat_page_lists_each_kind_with_a_new_players_options_as_defaults",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-client-page-lists-the-cameras-preferences-and-keeps-them",
+        says: "The client page lists the camera's eight camera preferences, three mouse and three \
+               avatar ones, read from the file by the data's names; a camera preference applied \
+               reaches the camera, and keeping writes every preference by its names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-CAMERA"),
+        station: "auberean-interface::dat::preferences::the_client_page_lists_the_cameras_preferences_and_keeps_them",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1097,6 +1385,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-MOUSE-INVISIBLE"),
         station: "auberean-ui::cpu::pointer::mouse_invisible_elements_let_the_pointer_through",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.quests.a-quests-time-left-is-written-in-words-the-clock-keeps-current",
+        says: "A quest's time left is written in the string table's words for how much is left: \
+               above a month, months and days; above a day, days and hours; above sixty minutes, \
+               hours and minutes; else minutes and seconds. The clock keeps the words current, \
+               each looked at again when its smallest unit runs out, until the time is out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUEST-TIME"),
+        station: "auberean-ui-game::dat::play::examination::a_quests_time_left_is_written_in_words_the_clock_keeps_current",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.quests.the-journal-keeps-quests-under-way-and-finished",
@@ -1185,6 +1484,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.selection.attacking-with-auto-target-selects-the-nearest-foe-first",
+        says: "The war button, with the player targeting automatically, selects the nearest foe \
+               before it asks the player's scripts to attack; without, it only asks to attack.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CGAME4-AUTO-TARGET"),
+        station: "auberean-ui-game::dat::play::selection::attacking_with_auto_target_selects_the_nearest_foe_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.selection.the-selection-keys-pick-by-kind-and-distance",
         says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; what a body holds is never found, having no place of its own; the player's own key selects it and then the last selection; the last attacker's key selects the last to attack the player; Escape selects nothing.",
         since: RETAIL,
@@ -1214,8 +1522,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.shop.a-shop-shows-its-sales-and-buys-them",
         says: "A shop the scripts show lists a row per sale with what is left (no end, sold out, \
                restricted); a sale pressed is selected; purchase buys one when only one may be \
-               bought, asks how many when more may, and tells the player when none may; the \
-               purchase question is answered; close leaves the shop.",
+               bought, asks how many when more may, and tells the player when none may (a message \
+               that goes up at once); the purchase question is answered; close leaves the shop.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SHOP"),
         station: "auberean-ui-game::dat::play::shop::a_shop_shows_its_sales_and_buys_them",
@@ -1427,6 +1735,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.story.a-subtitle-waits-for-its-string-table",
+        says: "A story step's valid subtitle is given to its frame's text as a string reference: \
+               when the data lacks the table its entry's text is in, the text waits until the \
+               table has come, then shows the subtitle.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-STORY"),
+        station: "auberean-ui-game::dat::play::story::a_subtitle_waits_for_its_string_table_then_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.story.the-storys-scenes-play-over-the-screen",
         says: "The scripts' scenes put the story over the screen; once its background has faded \
                in the world hides and the playable scenes' steps play, each picture in the frame \
@@ -1438,6 +1756,48 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-STORY"),
         station: "auberean-ui-game::dat::play::story::the_storys_scenes_play_over_the_screen",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.text.a-character-the-font-lacks-switches-to-a-fallback-font",
+        says: "A string with a character the text element's font lacks switches the element to the \
+               first of the two fallback fonts the font mapping names (the Unicode font, then the \
+               second) that holds every character of it; when neither does, or the element has no \
+               font, the font stays. Each string starts from the element's own font, and measuring \
+               one switches the font as adding it does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-FALLBACK-FONT"),
+        station: "auberean-ui::cpu::text::a_character_the_font_lacks_switches_to_a_fallback_font",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.a-reference-waits-for-its-string-tables",
+        says: "A string reference given to a text element whose string tables the data lacks is \
+               added at the element's tick once they have come, and the element says its download \
+               is done; what is added after it waits behind it, in order; a reference whose \
+               tables are at hand is added at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-ELEMENT"),
+        station: "auberean-ui::cpu::text::a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.an-entry-taking-the-keyboard-turns-the-input-method-on",
+        says: "An editable text element that takes the keyboard turns the host's input method on \
+               over the part of the element that shows, in the element's font and color; giving the \
+               keyboard up turns it off, and an element marked no_IME never turns it on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-IME"),
+        station: "auberean-ui::cpu::text::an_entry_taking_the_keyboard_turns_the_input_method_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.dropped-references-let-their-downloads-go",
+        says: "A text element's waiting strings are dropped when its text is replaced and when it \
+               goes, each letting go of the string download it waits on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-ELEMENT-DROPPED"),
+        station: "auberean-ui::cpu::text::a_text_element_lets_go_of_its_downloads_when_its_text_is_replaced_or_it_goes",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.text.strings-take-the-elements-numbered-font-colors",
@@ -1509,6 +1869,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-TOOLBAR-WINGS"),
         station: "auberean-ui-game::dat::play::standing::the_wings_follow_the_mount_and_the_sales",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.tooltip.a-tip-given-as-a-reference-waits-for-its-string-tables",
+        says: "An element's own tip given as a string reference goes to the tooltip's text \
+               element as one: while the string tables it reads are on their way the tooltip is \
+               up with no text, which shows once they have come.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-TOOLTIP"),
+        station: "auberean-ui::cpu::text::a_tip_given_as_a_reference_waits_for_its_string_tables",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.tooltip.a-tooltip-shows-once-the-pointer-rests-and-goes-when-it-leaves",

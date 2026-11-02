@@ -1,6 +1,7 @@
 //! The names' panel on the retail play layout: the selection's name, meters and corner marks,
 //! the arrow to a selection off the screen, the names over heads.
 
+use auberean_text::StringInfo;
 use auberean_ui::types::button_id;
 use auberean_ui::{Token, Ui};
 use auberean_ui_game::gameplay::{GamePlay, Notice, Request, View};
@@ -78,6 +79,34 @@ fn world(things: Vec<Thing>) -> World {
         }),
         ..World::default()
     }
+}
+
+/// A selection its animation has faded out of sight is neither marked nor named: its marks and
+/// name hide until it can be seen again.
+///
+/// Behaviour: ui.names.a-selection-faded-out-of-sight-is-not-marked
+#[test]
+fn a_selection_faded_out_of_sight_is_not_marked() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut faded = body_at(7, 0.0, 10.0, [1.0, 0.5, 0.0, 1.0]);
+    faded.faded = true;
+    let mut w = world(vec![faded]);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let shown = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        (
+            ui.shown(n.reticle[0].expect("a mark")),
+            ui.shown(n.selection_name.expect("the name")),
+        )
+    };
+    assert_eq!(shown(&ui, &p), (false, false), "faded");
+    w.things[1].faded = false;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), (true, true), "seen again");
 }
 
 fn names_of(p: &GamePlay) -> &Names {
@@ -282,6 +311,64 @@ fn names_over_heads_stand_clear_of_each_other() {
     ui.key(action::SHOW_NAMES, false);
     assert!(out.contains(&Request::ShowNames(false)));
     assert!(names_of(&p).names().is_empty());
+}
+
+/// A name the scripts give as a string reference is given to the name over the object's head and
+/// to the selection's name as one: when the scripts say the object's look changed (it was
+/// renamed), both are made again from its new name, which shows once the string table it reads
+/// has come.
+///
+/// Behaviour: ui.names.a-renamed-object-is-named-anew-once-its-string-table-comes
+#[test]
+fn a_renamed_object_is_named_anew_once_its_string_table_comes() {
+    use super::stage::{Lacking, LACKING};
+    let assets = Lacking::new();
+    let mut ui = Ui::new(assets.clone(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut thing = body_at(7, 0.0, 10.0, [1.0; 4]);
+    thing.name_info = Some(StringInfo::literal("Corpse"));
+    let mut w = world(vec![thing]);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let texts = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        let over: Vec<String> = n
+            .names()
+            .iter()
+            .filter(|x| x.object == 7)
+            .map(|x| ui.text(x.element).unwrap_or_default())
+            .collect();
+        let selected = ui
+            .text(n.selection_name.expect("the name"))
+            .unwrap_or_default();
+        (over, selected)
+    };
+    assert_eq!(
+        texts(&ui, &p),
+        (vec!["Corpse".to_owned()], "Corpse".to_owned())
+    );
+    w.things[1].name_info = Some(StringInfo::entry(LACKING, 5));
+    let renamed = Notice {
+        native: names::notice::CHANGE_RADAR_LOOK,
+        about: Some(7),
+        ..Notice::default()
+    };
+    tick(&mut ui, &mut p, &mut t, &w, &[renamed]);
+    assert_eq!(
+        texts(&ui, &p),
+        (vec![String::new()], String::new()),
+        "waiting on the table"
+    );
+    assets.arrive();
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let (over, selected) = texts(&ui, &p);
+    assert!(over[0].starts_with("From the server"), "{over:?}");
+    assert!(selected.starts_with("From the server"), "{selected:?}");
 }
 
 /// Boxes overlap when they share a texel; a box moved off another goes the shortest way it may

@@ -28,6 +28,8 @@ auberean-ui-game.workspace = true
 auberean-client-sdk.workspace = true
 # Float-to-integer conversion, the same on every host.
 dereth-primitives.workspace = true
+# The requests the screens' and panels' sounds become.
+auberean-audio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

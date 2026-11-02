@@ -55,7 +55,8 @@ impl Ui {
 
     /// Show the tooltip of the element the pointer rests on: when tooltips are on and the left
     /// button is not held, the element's `tooltip_ID` template from its layout is made, the text
-    /// (the element's own tip, else its `tooltip_entry` string) put in the template's
+    /// (the element's own tip, a string reference given to the text element as one, else its
+    /// `tooltip_entry` string) put in the template's
     /// `tooltip_text_ID` element, the template sized so that element holds the text (as tall as
     /// the text runs), and put in front of everything at the pointer past the cursor, kept on the
     /// screen.
@@ -75,9 +76,12 @@ impl Ui {
         let Some(template) = n.id_attr(attr::TOOLTIP_ID) else {
             return;
         };
-        let words = match &n.tooltip_text {
-            Some(t) => Some(t.clone()),
-            None => match n.attr(attr::TOOLTIP_ENTRY) {
+        let info = n.tooltip_info.clone();
+        let words = match (&info, &n.tooltip_text) {
+            // Measured as it writes now (the client's error message while a table is missing).
+            (Some(i), _) => Some(String::from_utf16_lossy(&self.assets().element_text(i))),
+            (None, Some(t)) => Some(t.clone()),
+            (None, None) => match n.attr(attr::TOOLTIP_ENTRY) {
                 Some(crate::Value::StringToken(tok)) => {
                     let table = self.string_table(owner);
                     self.assets().string(table, *tok)
@@ -111,7 +115,12 @@ impl Ui {
         };
         let (pad_w, pad_h) = (tr.width() - fr.width(), tr.height() - fr.height());
         self.resize_to(tip, w + pad_w, h + pad_h);
-        self.set_text(field, &words);
+        match info {
+            Some(i) => {
+                self.set_string_info(field, &i);
+            }
+            None => self.set_text(field, &words),
+        }
         self.recalculate_glyph_list(field);
         let paper = self.text_state(field).map_or(0, |t| t.paper_h);
         let tall = if h < paper { paper } else { h };
@@ -182,6 +191,21 @@ impl Ui {
     pub fn set_tooltip(&mut self, h: Handle, words: &str) {
         if let Some(n) = self.node_mut(h) {
             n.tooltip_text = Some(words.to_owned());
+            n.tooltip_info = None;
+        }
+        if self.mgr.tooltip_owner == Some(h) && self.tooltip().is_some() {
+            self.reset_tooltip();
+        }
+    }
+
+    /// An element's own tip as a string reference, in place of its `tooltip_entry`: the
+    /// tooltip's text element is given it, and writes it once the string tables it reads are at
+    /// hand. Shown again when its tooltip is up.
+    // D2-11312
+    pub fn set_tooltip_info(&mut self, h: Handle, info: &auberean_text::StringInfo) {
+        if let Some(n) = self.node_mut(h) {
+            n.tooltip_info = Some(Box::new(info.clone()));
+            n.tooltip_text = None;
         }
         if self.mgr.tooltip_owner == Some(h) && self.tooltip().is_some() {
             self.reset_tooltip();
@@ -199,6 +223,7 @@ impl Ui {
     pub fn clear_element_tooltip(&mut self, h: Handle) {
         if let Some(n) = self.node_mut(h) {
             n.tooltip_text = None;
+            n.tooltip_info = None;
         }
         if self.mgr.tooltip_owner == Some(h) && self.tooltip().is_some() {
             self.reset_tooltip();

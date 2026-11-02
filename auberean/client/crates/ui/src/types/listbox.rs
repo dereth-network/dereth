@@ -1262,7 +1262,7 @@ impl Ui {
     }
 
     /// A press that selects: the row under the pointer, when the list selects by clicks; a list
-    /// that selects by dragging keeps selecting while the button is held.
+    /// that selects by dragging starts doing so.
     // D2-11560
     fn listbox_handle_selection(&mut self, h: Handle) {
         if !self.lb_test(h, bits::CLICK_SELECT) {
@@ -1276,14 +1276,17 @@ impl Ui {
         }
     }
 
-    /// Keep selecting the row under the pointer while the left button is held.
+    /// Selecting by drag starts: the list listens for its top-level element's pointer moves
+    /// (which the manager never sends, so the row pressed stays the one selected) and for the
+    /// release.
     // D2-11526
     fn listbox_start_drag_select(&mut self, h: Handle) {
         if self.lb_test(h, bits::DRAG_SELECTING) {
             return;
         }
         self.lb_set_bit(h, bits::DRAG_SELECTING, true);
-        self.register_for_global_message(h, global::MOUSE_MOVE);
+        let root = self.root_of(h);
+        self.register_for_object_message(h, root, global::MOUSE_MOVE);
         self.register_for_global_message(h, global::MOUSE_UP);
     }
 
@@ -1293,7 +1296,8 @@ impl Ui {
             return;
         }
         self.lb_set_bit(h, bits::DRAG_SELECTING, false);
-        self.unregister_for_global_message(h, global::MOUSE_MOVE);
+        let root = self.root_of(h);
+        self.unregister_for_object_message(h, root, global::MOUSE_MOVE);
         self.unregister_for_global_message(h, global::MOUSE_UP);
     }
 

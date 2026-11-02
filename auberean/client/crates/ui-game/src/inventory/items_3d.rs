@@ -130,6 +130,7 @@ impl Items3d {
         if sel == super::NO_OBJECT {
             return;
         }
+        // D2-01973
         let Some(it) = self.facts.item(sel) else {
             return;
         };
@@ -274,7 +275,22 @@ impl Items3d {
     }
 }
 
+impl Items3d {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x45A];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Items3d {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

@@ -9,6 +9,16 @@
 //! computation on single floats is carried out on doubles and rounded to a single float once,
 //! when the result is stored.
 //!
+//! **The transcendental functions** are the floating-point unit's own (sine, cosine, tangent, arc
+//! tangent, logarithms, the power of two behind the exponential) or the C library's (arc sine and
+//! arc cosine), worked at extended precision and rounded to a double once. Here they are the
+//! workspace's own functions, which give the same bits on every machine and the nearest double
+//! almost always: the client's last bit can differ from them now and then. What the unit does
+//! that a library function does not is kept: a sine, cosine or tangent of a number too large for
+//! the unit (from 2 to the 63rd) is the number itself; an operation that is invalid answers the
+//! unit's own not-a-number (all ones in the exponent, the sign and the top fraction bit set); a
+//! not-a-number given is answered quieted.
+//!
 //! **Comparisons as the engine makes them**: the larger of two values is the first when it is
 //! greater than the second, else the second; the smaller is the first when it is less, else the
 //! second. So when either is not a number, both give the second.
@@ -27,6 +37,18 @@ const RANDOM: u32 = 0x5F;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (MATH, 0x01, sin),
+    (MATH, 0x02, cos),
+    (MATH, 0x03, tan),
+    (MATH, 0x04, acos),
+    (MATH, 0x05, asin),
+    (MATH, 0x06, atan),
+    (MATH, 0x0B, log),
+    (MATH, 0x0C, log10),
+    (MATH, 0x0D, exp),
+    (MATH, 0x0F, sqrt),
+    (MATH, 0x10, map_to_unit_interval),
+    (MATH, 0x11, fmod),
     (MATH, 0x07, ceil),
     (MATH, 0x08, floor),
     (MATH, 0x09, abs),
@@ -147,6 +169,165 @@ fn c_pow(x: f64, y: f64) -> f64 {
         return auberean_text::crt::power(x as u32, dereth_primitives::num::to_i32_f64(y));
     }
     dereth_primitives::num::math::pow(x, y)
+}
+
+/// The floating-point unit's answer to an invalid operation, stored as a double.
+const INDEFINITE: u64 = 0xFFF8_0000_0000_0000;
+
+/// A result as the unit stores it: a not-a-number given comes back quieted; a not-a-number the
+/// operation made is the unit's own.
+fn unit_result(x: f64, r: f64) -> f64 {
+    if x.is_nan() {
+        f64::from_bits(x.to_bits() | 0x0008_0000_0000_0000)
+    } else if r.is_nan() {
+        f64::from_bits(INDEFINITE)
+    } else {
+        r
+    }
+}
+
+/// A function of one double (`fp[-3..-2]`, no receiver read), answered at `fp[-5..-4]`.
+fn one(c: &mut Call<'_>, f: fn(f64) -> f64) -> Result<Status, Stop> {
+    let x = double_at(c, -3)?;
+    long_result(c, -5, unit_result(x, f(x)).to_bits())
+}
+
+/// The largest magnitude the unit's sine, cosine and tangent take: from 2 to the 63rd, the number
+/// is left as it was.
+const UNIT_TRIG_LIMIT: f64 = 9_223_372_036_854_775_808.0;
+
+/// A sine, cosine or tangent as the unit takes it.
+fn unit_trig(x: f64, f: fn(f64) -> f64) -> f64 {
+    if x.is_finite() && x.abs() >= UNIT_TRIG_LIMIT {
+        x
+    } else {
+        f(x)
+    }
+}
+
+/// The sine of a double, in radians.
+// D2-09469
+fn sin(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, |x| unit_trig(x, dereth_primitives::num::math::sin))
+}
+
+/// The cosine of a double.
+// D2-09454
+fn cos(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, |x| unit_trig(x, dereth_primitives::num::math::cos))
+}
+
+/// The tangent of a double.
+// D2-09471
+fn tan(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, |x| unit_trig(x, dereth_primitives::num::math::tan))
+}
+
+/// The arc cosine of a double (outside -1 to 1: not a number).
+// D2-09450
+fn acos(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, dereth_primitives::num::math::acos)
+}
+
+/// The arc sine of a double (outside -1 to 1: not a number).
+// D2-09451
+fn asin(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, dereth_primitives::num::math::asin)
+}
+
+/// The arc tangent of a double.
+// D2-09452
+fn atan(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, dereth_primitives::num::math::atan)
+}
+
+/// The natural logarithm of a double (of a negative: not a number; of 0: minus infinity).
+// D2-09466
+fn log(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, dereth_primitives::num::math::log)
+}
+
+/// The base 10 logarithm of a double.
+// D2-09467
+fn log10(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, dereth_primitives::num::math::log10)
+}
+
+/// The low part of the unit's base 2 logarithm of e, past a double's precision.
+const LOG2_E_LOW: f64 = 2.038_300_084_272_748_3e-17;
+
+/// e to a double's power as the unit works it out: the power times the base 2 logarithm of e,
+/// rounded to a double; split into its nearest integer (ties to even) and the rest; two to the
+/// rest, rounded to a double; scaled by two to the integer. An infinite power has no rest, so it
+/// answers not a number.
+fn unit_exp(x: f64) -> f64 {
+    let t = x.mul_add(core::f64::consts::LOG2_E, x * LOG2_E_LOW);
+    let n = t.round_ties_even();
+    let m = dereth_primitives::num::math::pow(2.0, t - n);
+    if !n.is_finite() {
+        return m * n;
+    }
+    // A scale past the exponent's range runs to zero or infinity on the way.
+    #[allow(clippy::cast_possible_truncation)]
+    let mut k = dereth_primitives::num::to_i32_f64(n.clamp(-2200.0, 2200.0));
+    let mut v = m;
+    while k > 0 {
+        let s = k.min(1000);
+        v *= f64::from_bits(((1023 + s) as u64) << 52);
+        k -= s;
+    }
+    while k < 0 {
+        let s = (-k).min(1000);
+        v *= f64::from_bits(((1023 - s) as u64) << 52);
+        k += s;
+    }
+    v
+}
+
+/// e to a double's power.
+// D2-09455
+fn exp(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, unit_exp)
+}
+
+/// The square root of a double (of a negative: not a number).
+// D2-09470
+fn sqrt(c: &mut Call<'_>) -> Result<Status, Stop> {
+    one(c, f64::sqrt)
+}
+
+/// A double (`fp[-3..-2]`) over another (`fp[-5..-4]`) mapped into -1 to 1: the arc tangent of the
+/// first times the reciprocal of the second, times two over pi; 0 when the second is 0. Answered at
+/// `fp[-7..-6]`.
+// D2-09446
+fn map_to_unit_interval(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let x = double_at(c, -3)?;
+    let y = double_at(c, -5)?;
+    let r = if y == 0.0 {
+        0.0
+    } else {
+        let r = dereth_primitives::num::math::atan(x * (1.0 / y)) * 0.636_619_772_367_584;
+        match (x.is_nan(), y.is_nan()) {
+            (true, _) => unit_result(x, r),
+            (false, true) => unit_result(y, r),
+            _ => unit_result(0.0, r),
+        }
+    };
+    long_result(c, -7, r.to_bits())
+}
+
+/// The remainder of a double (`fp[-3..-2]`) divided by another (`fp[-5..-4]`), with the sign of the
+/// first; by 0, not a number. Answered at `fp[-7..-6]`.
+// D2-09461
+fn fmod(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let x = double_at(c, -3)?;
+    let y = double_at(c, -5)?;
+    let r = if y.is_nan() {
+        unit_result(y, x % y)
+    } else {
+        unit_result(x, x % y)
+    };
+    long_result(c, -7, r.to_bits())
 }
 
 /// An integer's absolute value (the most negative integer is its own).

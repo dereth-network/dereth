@@ -141,8 +141,14 @@ pub struct Thing {
     pub groove: i8,
     /// Its name as written over its head and in its tooltip (with its quantity).
     pub name: String,
+    /// Its name as its scripts give it, as a string reference: the names over heads and the
+    /// selection's give it to their text elements, which write it once the string tables it reads
+    /// are at hand. `None` when the scripts gave none (`name` stands alone).
+    pub name_info: Option<auberean_text::StringInfo>,
     /// It is drawn: its body.
     pub body: Option<Body>,
+    /// Its animation has faded it out of sight: no marks are put on it.
+    pub faded: bool,
     /// It hangs from another body (a wielded weapon): it is seen and picked where that body holds
     /// it, and has no place of its own in the world.
     pub held: bool,
@@ -185,7 +191,7 @@ pub struct World {
     /// The answer to the last pick in the world asked: the object under the pointer, or none;
     /// `None` when none was asked.
     pub picked: Option<Option<u64>>,
-    /// The player moves.
+    /// The player moves: its body's velocity, up and down too, is more than about 0.014 m/s.
     pub moving: bool,
     /// Each fellow's share of the experience, as the player's scripts last answered.
     pub fellow_xp: Vec<(u64, f32)>,

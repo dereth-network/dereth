@@ -11,7 +11,7 @@ use core::ffi::c_void;
 use core::ptr::{null, null_mut};
 use std::path::PathBuf;
 
-use auberean_friends::ids::{self, Face, Guid};
+use auberean_friends_dll::ids::{self, Face, Guid};
 
 use crate::common::{friends, ticket, until, LoopbackWorld, WORLD_NAME};
 
@@ -63,8 +63,8 @@ fn load() -> *mut c_void {
             let exe = std::env::current_exe().ok()?;
             let deps = exe.parent()?;
             [
-                deps.join("auberean_friends.dll"),
-                deps.parent()?.join("auberean_friends.dll"),
+                deps.join("auberean_friends_dll.dll"),
+                deps.parent()?.join("auberean_friends_dll.dll"),
             ]
             .into_iter()
             .find(|p| p.is_file())

@@ -19,6 +19,8 @@ pub mod d3d {
     pub const BLEND_ONE: u32 = 2;
     pub const BLEND_SRC_ALPHA: u32 = 5;
     pub const BLEND_INV_SRC_ALPHA: u32 = 6;
+    pub const BLEND_DEST_ALPHA: u32 = 7;
+    pub const BLEND_INV_DEST_ALPHA: u32 = 8;
     pub const BLEND_DEST_COLOR: u32 = 9;
     pub const CMP_LESS_EQUAL: u32 = 4;
     pub const CMP_ALWAYS: u32 = 8;
@@ -42,7 +44,17 @@ pub mod d3d {
 
 /// The device flags a layer is kept for: the shader-capable hardware class, the high material
 /// detail, and linear fog on.
-pub const DEVICE_FLAGS: u32 = 0x0020_0000 | 0x0004_0000 | 0x0008_0000;
+pub const DEVICE_FLAGS: u32 = device_flags(2);
+
+/// The device flags a layer is kept for at material detail `detail` (0 low, 1 medium, 2 high; any
+/// higher is high): the shader-capable hardware class, that detail's flag (`0x10000`, `0x20000`,
+/// `0x40000`), and linear fog on. Most materials hold one layer for each detail.
+// D2-09885
+#[must_use]
+pub const fn device_flags(detail: u32) -> u32 {
+    let detail = if detail > 2 { 2 } else { detail };
+    0x0020_0000 | (0x0001_0000 << detail) | 0x0008_0000
+}
 
 /// The compiler switches of a layer, as the vertex program is built from them.
 pub mod switch {
@@ -283,7 +295,7 @@ fn waveform(data: &[u8]) -> Option<Waveform> {
 
 /// The coordinate transform of `stage`: each of the layer's animations on that stage applied in
 /// list order, each at its start (translate, turn by degrees, scale; a full matrix as stored).
-// D2-10056, D2-10064
+// D2-10056, D2-10061, D2-10064, D2-10068
 #[must_use]
 pub fn stage_uv_transform(l: &MaterialLayer, stage: u32) -> [f32; 6] {
     uv_transform(l, stage, waveform_value)
@@ -790,7 +802,7 @@ fn float(data: &[u8], k: usize) -> Option<f32> {
 }
 
 /// Write a parameter's `data` through `fields` into the layers.
-// D2-10160, D2-10155, D2-10156
+// D2-10160, D2-10155, D2-10156, D2-10157, D2-10159, D2-10089
 fn apply(layers: &mut [MaterialLayer], fields: &MaterialParameter, data: &[u8]) {
     for f in &fields.fields {
         let [field, _data_type, layer, stage] = f.words;
@@ -1028,7 +1040,10 @@ pub fn vertex_inputs(l: &MaterialLayer) -> ([u32; 4], u32) {
 }
 
 /// The layers the device draws for flags `device`: of the layers its hardware class keeps, those
-/// whose must-set flags it has and whose must-clear flags it lacks, each one pass.
+/// whose must-set flags it has and whose must-clear flags it lacks (the material detail's
+/// `0x10000`, `0x20000`, `0x40000` for low, medium and high, and `0x80000` for fog on), each one
+/// pass.
+// D2-09885
 #[must_use]
 pub fn draw_layers(m: &Material, device: u32) -> Vec<DrawLayer> {
     let m = &sub_objects(m, HARDWARE_CLASS);

@@ -16,7 +16,7 @@ use auberean_world::math::Mat4;
 use auberean_world::records::WorldRecords;
 
 use crate::material::{
-    draw_layers, instance_material_with, material_kind, DrawLayer, DEVICE_FLAGS,
+    device_flags, draw_layers, instance_material_with, material_kind, DrawLayer,
 };
 use crate::mesh::{level_at, vertices, MeshVertex};
 use crate::scene::ObjectBatch;
@@ -28,16 +28,34 @@ struct Loaded {
 }
 
 /// A material as an appearance leaves it: the mesh's material, the template that replaces its
-/// own, the modifiers added after its own.
-type MaterialKey = (u32, Option<u32>, Vec<u32>);
+/// own, the modifiers added after its own; and the material detail it is drawn at.
+type MaterialKey = (u32, Option<u32>, Vec<u32>, u32);
 
 /// Turns posed bodies into batches, keeping what it decoded.
-#[derive(Default)]
 pub struct BodyDrawer {
     meshes: HashMap<u32, Option<Arc<Loaded>>>,
     materials: HashMap<MaterialKey, Vec<DrawLayer>>,
     kinds: HashMap<u32, u32>,
     present: HashMap<u32, bool>,
+    /// The model detail preference, 0 (low) to 2 (high): which of each mesh's levels are drawn.
+    pub model_detail: u32,
+    /// The material detail preference, 0 (low) to 2 (high): which of each material's layers are
+    /// drawn.
+    pub material_detail: u32,
+}
+
+impl Default for BodyDrawer {
+    /// Nothing decoded yet; the highest model and material detail.
+    fn default() -> Self {
+        Self {
+            meshes: HashMap::new(),
+            materials: HashMap::new(),
+            kinds: HashMap::new(),
+            present: HashMap::new(),
+            model_detail: 2,
+            material_detail: 2,
+        }
+    }
 }
 
 impl std::fmt::Debug for BodyDrawer {
@@ -72,9 +90,9 @@ impl BodyDrawer {
     fn material(&mut self, records: &WorldRecords, key: MaterialKey) -> Vec<DrawLayer> {
         self.materials
             .entry(key)
-            .or_insert_with_key(|(id, template, extra)| {
+            .or_insert_with_key(|(id, template, extra, detail)| {
                 instance_material_with(records, *id, *template, extra)
-                    .map(|m| draw_layers(&m, DEVICE_FLAGS))
+                    .map(|m| draw_layers(&m, device_flags(*detail)))
                     .unwrap_or_default()
             })
             .clone()
@@ -103,8 +121,9 @@ impl BodyDrawer {
         mesh_kind: u32,
         id: u32,
     ) -> Vec<DrawLayer> {
+        let detail = self.material_detail;
         if look.materials.is_empty() {
-            return self.material(records, (id, None, Vec::new()));
+            return self.material(records, (id, None, Vec::new(), detail));
         }
         let kind = self.material_kind(records, id);
         let (template, extra) = look.material(mesh_kind, kind, &mut |a| {
@@ -112,7 +131,7 @@ impl BodyDrawer {
                 && (a.template.is_none() || self.present(records, a.template.0))
         });
         let extra = extra.into_iter().map(|d| d.0).collect();
-        self.material(records, (id, template.map(|t| t.0), extra))
+        self.material(records, (id, template.map(|t| t.0), extra, detail))
     }
 
     /// The batches of `body` in `poses`, placed by `place` (the body's frame in the drawn frame).
@@ -127,8 +146,9 @@ impl BodyDrawer {
     }
 
     /// The batches of `body` in `poses`, placed by `place`, leaving out every mesh whose kind is
-    /// in `hidden` (as the player's own head is left out with the camera at its eyes).
-    // D2-09879, D2-06604, D2-06577, D2-06589
+    /// in `hidden` (as the player's own head is left out with the camera at its eyes); each mesh
+    /// at its nearest level for the model detail set, each material at the material detail set.
+    // D2-09879, D2-06604, D2-06577, D2-06589, D2-06658
     pub fn batches_without(
         &mut self,
         records: &WorldRecords,
@@ -156,7 +176,7 @@ impl BodyDrawer {
                 if hidden.contains(&m.mesh.kind) {
                     continue;
                 }
-                let Some(level) = level_at(&m.mesh, 1.0, 2) else {
+                let Some(level) = level_at(&m.mesh, 1.0, self.model_detail) else {
                     continue;
                 };
                 let verts: Vec<MeshVertex> = match &m.influences {
@@ -222,7 +242,11 @@ impl BodyDrawer {
                             cull: crate::scene::Cull::Never,
                             mesh: mesh_id.0,
                             casts_volume: false,
+                            caster: None,
+                            seen_through: false,
                             kept_by: None,
+                            anchor: None,
+                            step: None,
                         });
                     }
                 }

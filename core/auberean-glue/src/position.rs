@@ -87,6 +87,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (VECTOR, 0x02, dot),
     (VECTOR, 0x03, magnitude),
     (VECTOR, 0x04, does_nothing),
+    (VECTOR, 0x05, normalize),
     (VECTOR, 0x06, set_vector),
     (VECTOR, 0x07, add),
     (VECTOR, 0x08, subtract),
@@ -104,7 +105,7 @@ pub fn bind(t: &mut NativeTable) {
 
 /// The offset from one landblock to another's.
 // D2-01968
-fn block_offset(from: u32, to: u32) -> [f32; 2] {
+pub(crate) fn block_offset(from: u32, to: u32) -> [f32; 2] {
     if (from == 0 && to == 0) || (from != 0 && to != 0 && from >> 16 == to >> 16) {
         return [0.0, 0.0];
     }
@@ -862,6 +863,40 @@ fn magnitude(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// A vector made one long, as the client's math library does it on a processor with SSE2: the
+/// squared length summed in single precision (`x² + y²`, then `+ z²`); below 2^-46 the vector
+/// becomes zero; otherwise each part is multiplied by one Newton step from an estimate `e` of the
+/// reciprocal square root, `0.5 e (3 - s e e)`, every step rounded to single precision. The
+/// processor's own estimate differs between processors; here it is the reciprocal square root
+/// itself, rounded.
+#[must_use]
+pub fn normalized(v: [f32; 3]) -> [f32; 3] {
+    /// The squared length below which the vector becomes zero: 2^-46.
+    const TINY: f32 = f32::from_bits(0x2880_0000);
+    let s = (v[0] * v[0] + v[1] * v[1]) + v[2] * v[2];
+    if s < TINY {
+        return [0.0; 3];
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let e = (1.0 / f64::from(s).sqrt()) as f32;
+    let k = (0.5 * e) * (3.0 - (s * e) * e);
+    [k * v[0], k * v[1], k * v[2]]
+}
+
+/// Make the receiver one long, in place ([`normalized`]).
+// D2-09013
+fn normalize(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    match c.vm.heap.native_mut(r)? {
+        NativeObject::Vector(p) => *p = normalized(p.map(f32::from_bits)).map(f32::to_bits),
+        _ => return Err(c.fail("the receiver is not a vector")),
+    }
+    Ok(Status::Success)
+}
+
 /// Nothing, answering nothing.
 // D2-08799
 fn does_nothing(c: &mut Call<'_>) -> Result<Status, Stop> {
@@ -967,7 +1002,7 @@ fn set_vector(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// One part of the receiver's vector (0 x, 1 y, 2 z), below the receiver.
-// D2-01489, D2-18959, D2-08505
+// D2-01489, D2-01490, D2-18959, D2-08505
 fn vector_part<const K: usize>(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.receiver()?;
     if r == NULL {

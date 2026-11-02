@@ -213,7 +213,7 @@ pub(crate) fn set(c: &mut Call<'_>, value: Field) -> Result<Status, Stop> {
 // D2-00793, D2-00795, D2-00797, D2-00802, D2-00807, D2-00942, D2-00943, D2-00944, D2-00946
 // D2-00947, D2-00948, D2-01363, D2-01364, D2-01502, D2-01504, D2-01505, D2-01513, D2-01539
 // D2-01540, D2-01556, D2-01557, D2-01571, D2-01584, D2-01637, D2-01638, D2-08561, D2-08563
-// D2-08565
+// D2-08565, D2-01499, D2-01500, D2-01507
 pub(crate) fn set_word(c: &mut Call<'_>) -> Result<Status, Stop> {
     let v = c.arg(0)?;
     set(c, Field::Word(v))
@@ -303,7 +303,7 @@ fn list<'a>(c: &'a mut Call<'_>, name: &str) -> Result<Option<&'a mut Vec<Field>
 
 /// Add a vassal to an allegiance: a copy of its adaptor (`fp[-2]`) and a yes-or-no (`fp[-3]`,
 /// its low byte), at the end of the list. Answers 1.
-// D2-00810, D2-00808, D2-00809
+// D2-00810, D2-00808, D2-00809, D2-12377
 fn add_vassal(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.arg(0)?;
     let flag = c.arg(1)? & 0xFF;
@@ -334,7 +334,7 @@ fn add_officer(c: &mut Call<'_>) -> Result<Status, Stop> {
 
 /// Add a fellow to a fellowship: its id (`fp[-3..-2]`) and a copy of its adaptor (`fp[-4]`),
 /// unless a fellow with that id is there. Answers whether it was added.
-// D2-00951, D2-12346
+// D2-00951, D2-12346, D2-12351
 fn add_fellow(c: &mut Call<'_>) -> Result<Status, Stop> {
     let id = join(c.cx.at(-3)?, c.cx.at(-2)?);
     let r = c.cx.at(-4)?;
@@ -417,8 +417,9 @@ fn set_text(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// What a word field of a new adaptor holds: a recipe's charges -1, a craft skill's usage
-/// experience factor 1.0, anything else 0.
-// D2-12362, D2-12352, D2-12366
+/// experience factor 1.0, anything else 0 (an allegiance member's, a fellow's, a fellowship's, a
+/// shop's and a sale's ids, numbers and flags all start at 0, their lists empty).
+// D2-12362, D2-12352, D2-12366, D2-12375, D2-12373, D2-12350, D2-12348, D2-12386, D2-12383
 #[must_use]
 pub fn new_word(ty: u32, field: &str) -> u32 {
     match (ty, field) {
@@ -434,7 +435,7 @@ fn receiver_type(c: &Call<'_>) -> u32 {
 }
 
 /// Read a word field into the result slot (a new adaptor's when never set).
-// D2-01489, D2-01422, D2-01326, D2-01325, D2-01327, D2-18959, D2-08788, D2-01510, D2-08713
+// D2-01489, D2-01490, D2-01422, D2-01326, D2-01325, D2-01327, D2-18959, D2-08788, D2-01510, D2-08713
 // D2-08621, D2-01509, D2-08512
 fn get_word(c: &mut Call<'_>) -> Result<Status, Stop> {
     let name = field_name(c);

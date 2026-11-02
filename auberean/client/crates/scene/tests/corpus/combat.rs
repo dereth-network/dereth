@@ -2,6 +2,7 @@
 //! and the scene, a frame every thirtieth of a second: the stories told on the bodies play there.
 //! Fixture: the end-of-retail install and the capture index.
 
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use auberean_client_sdk::dat::locate::{install_dats, DatName};
@@ -20,13 +21,70 @@ use auberean_testkit::captures;
 const PLAY_CHARACTER: u32 = 0x1002B;
 /// The client's reports of where the player stands.
 const CLIENT_POSITION: u32 = 0x1008E;
+/// A record the server sends, and its refusal to send one.
+const DATA_RECORD: u32 = 0x10035;
+const DATA_REFUSED: u32 = 0x10036;
+/// The blob ids the replay's own answers to the client's data requests go in: the login
+/// connection's, taken as they come.
+const ANSWERS: u64 = 0x2300_0000_F000_0000;
+
+/// The records the servers sent in the capture of session `session_key`, by type and id.
+pub(crate) fn records_sent(session_key: &str) -> HashMap<(u32, u32), ServerMessage> {
+    let index = auberean_testkit::data::require_capture_index();
+    let mut sent = HashMap::new();
+    captures::capture_messages_in_time_order(&index, &[DATA_RECORD], session_key, |m| {
+        if let Ok(ServerMessage::DataRecord(r)) = ServerMessage::decode(&m.raw) {
+            sent.insert((r.kind, r.id), ServerMessage::DataRecord(r));
+        }
+    })
+    .expect("the index reads");
+    sent
+}
+
+/// The records the client asked the server for since `seen` (of its sent messages), answered at
+/// once as the servers did: a record they sent in the capture is sent, any other refused.
+pub(crate) fn answer_data_requests(
+    c: &mut Client,
+    seen: &mut usize,
+    sent: &HashMap<(u32, u32), ServerMessage>,
+    answers: &mut u64,
+) {
+    let asked: Vec<(u32, u32)> = c.sent()[*seen..]
+        .iter()
+        .filter_map(|s| match &s.message {
+            ClientMessage::DataRequest(r) => Some((r.kind, r.id)),
+            _ => None,
+        })
+        .collect();
+    *seen = c.sent().len();
+    for (kind, id) in asked {
+        let m = sent
+            .get(&(kind, id))
+            .cloned()
+            .unwrap_or(ServerMessage::DataRefused(
+                auberean_client_sdk::protocol::login::DataRefused { kind, id, error: 1 },
+            ));
+        *answers += 1;
+        c.take_message(ANSWERS | *answers, m);
+    }
+}
 /// A frame's length, seconds.
-const FRAME: f64 = 1.0 / 30.0;
+pub(crate) const FRAME: f64 = 1.0 / 30.0;
 
 /// The world and the client's data with its scripts, opened once.
-fn data() -> &'static (WorldData, ClientData) {
+pub(crate) fn data() -> &'static (WorldData, ClientData) {
     static DATA: OnceLock<(WorldData, ClientData)> = OnceLock::new();
-    DATA.get_or_init(|| {
+    DATA.get_or_init(open_data)
+}
+
+/// A world of its own, for a test whose client's data cache the world reads through alone.
+pub(crate) fn own_world() -> &'static WorldData {
+    Box::leak(Box::new(open_data().0))
+}
+
+/// The world and the client's data with its scripts.
+fn open_data() -> (WorldData, ClientData) {
+    {
         let dir = auberean_dat::testing::require_target_install();
         let found = install_dats(&dir).expect("list the install");
         let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
@@ -47,15 +105,16 @@ fn data() -> &'static (WorldData, ClientData) {
         let english =
             Arc::new(open(&|n| *n == DatName::Local("English".into())).expect("the English file"));
         let program = link_scripts(&portal).expect("the library links");
+        let cell = Arc::new(open(&|n| *n == DatName::Cell(1)).expect("a cell file"));
         let data = ClientData {
             files: DataFiles {
-                files: vec![Arc::clone(&portal), english],
+                files: vec![Arc::clone(&portal), english, cell],
                 language: ENGLISH,
             },
             scripts: Some((portal, Arc::new(program))),
         };
         (world, data)
-    })
+    }
 }
 
 fn client(data: &ClientData) -> Client {
@@ -72,9 +131,11 @@ fn client(data: &ClientData) -> Client {
 
 /// What a replay saw: the scene's tally, the floating texts the scripts sent the panels, and the
 /// most objects the client had made at once.
-struct Replay {
+pub(crate) struct Replay {
     tally: StoryTally,
     floating: u64,
+    /// The modes the objects were told their bodies went into, in order.
+    pub(crate) modes: Vec<(u64, u32)>,
 }
 
 /// The capture of session `session_key` played from its start until `seconds` after the player
@@ -84,38 +145,80 @@ fn replay(session_key: &str, seconds: f64) -> Replay {
 }
 
 /// [`replay`], with the client and the scene as the replay left them.
-fn played(session_key: &str, seconds: f64) -> (Client, Scene<'static>, Replay) {
+pub(crate) fn played(session_key: &str, seconds: f64) -> (Client, Scene<'static>, Replay) {
     played_in_frames(session_key, seconds, FRAME, &[], &mut |_, _| {})
 }
 
 /// [`played`] with frames `step` seconds long, the messages of types `left_out` left out (the
 /// recorded client's own reports of where the player stood among them: the player then moves only
 /// as the server moves it), and `observe` handed the client and the scene after each frame.
-fn played_in_frames(
+pub(crate) fn played_in_frames(
     session_key: &str,
     seconds: f64,
     step: f64,
     left_out: &[u32],
-    observe: &mut dyn FnMut(&Client, &mut Scene<'_>),
+    observe: &mut dyn FnMut(&mut Client, &mut Scene<'_>),
 ) -> (Client, Scene<'static>, Replay) {
-    let (world, data) = data();
+    let graphics = auberean_draw::quality::Graphics::first_run();
+    played_with(
+        &data().0,
+        session_key,
+        seconds,
+        step,
+        left_out,
+        &graphics,
+        &mut |_| {},
+        observe,
+    )
+}
+
+/// [`played_in_frames`] in `world`, drawn by the preferences `graphics`, with the client handed
+/// to `prepare` before the replay starts.
+#[allow(clippy::too_many_arguments)] // the replay's settings, each its own
+pub(crate) fn played_with(
+    world: &'static WorldData,
+    session_key: &str,
+    seconds: f64,
+    step: f64,
+    left_out: &[u32],
+    graphics: &auberean_draw::quality::Graphics,
+    prepare: &mut dyn FnMut(&mut Client),
+    observe: &mut dyn FnMut(&mut Client, &mut Scene<'_>),
+) -> (Client, Scene<'static>, Replay) {
+    let data = &data().1;
     let index = auberean_testkit::data::require_capture_index();
+    // The client's data requests are answered as they are made; the recorded answers to the
+    // recorded client's are left out.
     let mut types: Vec<u32> = (0x1_0000..0x1_0100)
-        .filter(|t| ServerMessage::is_known_type(*t) && !left_out.contains(t))
+        .filter(|t| {
+            ServerMessage::is_known_type(*t)
+                && !left_out.contains(t)
+                && *t != DATA_RECORD
+                && *t != DATA_REFUSED
+        })
         .collect();
+    let sent = records_sent(session_key);
+    let (mut seen, mut answers) = (0usize, 0u64);
     types.push(PLAY_CHARACTER);
     if !left_out.contains(&CLIENT_POSITION) {
         types.push(CLIENT_POSITION);
     }
     let mut c = client(data);
-    let mut scene = Scene::new(world, &auberean_draw::quality::Graphics::first_run());
+    prepare(&mut c);
+    let mut scene = Scene::new(world, graphics);
     let intent = Intent::default();
     let mut next = f64::NEG_INFINITY;
     let mut entered: Option<f64> = None;
     let mut floating = 0u64;
-    let frame = |c: &mut Client, scene: &mut Scene<'_>, t: f64, floating: &mut u64| {
+    let mut modes: Vec<(u64, u32)> = Vec::new();
+    let mut frame = |c: &mut Client,
+                     scene: &mut Scene<'_>,
+                     t: f64,
+                     floating: &mut u64,
+                     modes: &mut Vec<(u64, u32)>| {
         c.set_time(LocalTime(t));
         c.upkeep();
+        answer_data_requests(c, &mut seen, &sent, &mut answers);
         #[allow(clippy::cast_possible_truncation)]
         scene.update(c, &intent, t, step as f32);
         *floating += c
@@ -123,6 +226,12 @@ fn played_in_frames(
             .iter()
             .filter(|n| n.native == DO_3D_DAMAGE)
             .count() as u64;
+        modes.extend(
+            c.notices
+                .iter()
+                .filter(|n| n.native == auberean_scene::objects::MODE_NOTICE)
+                .map(|n| (n.about.unwrap_or(0), n.words.first().copied().unwrap_or(0))),
+        );
         c.notices.clear();
         c.shown.clear();
     };
@@ -134,8 +243,8 @@ fn played_in_frames(
             next = m.time;
         }
         while next <= m.time {
-            frame(&mut c, &mut scene, next, &mut floating);
-            observe(&c, &mut scene);
+            frame(&mut c, &mut scene, next, &mut floating, &mut modes);
+            observe(&mut c, &mut scene);
             next += step;
         }
         if !m.to_client {
@@ -164,13 +273,14 @@ fn played_in_frames(
     .expect("the index reads");
     // The last stories play out.
     for _ in 0..90 {
-        frame(&mut c, &mut scene, next, &mut floating);
-        observe(&c, &mut scene);
+        frame(&mut c, &mut scene, next, &mut floating, &mut modes);
+        observe(&mut c, &mut scene);
         next += step;
     }
     let r = Replay {
         tally: scene.combat.clone(),
         floating,
+        modes,
     };
     (c, scene, r)
 }

@@ -394,8 +394,8 @@ pub fn split_pages(given: &str) -> (Vec<String>, Vec<String>) {
 
 /// A heading cut to a width: when it and a space are wider than `width` (and the width is
 /// some), letters come off its end until what is left and a space fit, and it ends with a space.
-fn truncate_text(ui: &Ui, heading: &str, element: Handle, width: i32) -> String {
-    let wide = |s: &str| {
+fn truncate_text(ui: &mut Ui, heading: &str, element: Handle, width: i32) -> String {
+    let mut wide = |s: &str| {
         ui.inq_size_with_margins(element, &format!("{s} "))
             .map_or(0, |(w, _)| w)
     };
@@ -413,7 +413,22 @@ fn truncate_text(ui: &Ui, heading: &str, element: Handle, width: i32) -> String 
     out
 }
 
+impl Book {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x479];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Book {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

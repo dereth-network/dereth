@@ -27,6 +27,11 @@ pub const EVENT_HANDLER: u32 = 0x20;
 /// The code offset that stands for "no code".
 pub const NO_CODE: u32 = 0xFFFF_FFFF;
 
+/// The versions entry that names the script machine's version, and the one version the client's
+/// machine takes.
+pub const MACHINE: &str = "$wcc";
+pub const MACHINE_VERSION: &str = "13";
+
 /// Why a library could not be taken in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadError(pub String);
@@ -197,6 +202,7 @@ pub struct Library {
 
 impl Library {
     /// Read a library record (`.wlib`) and take it in.
+    // D2-07999, D2-16798, D2-16799, D2-16567, D2-16605
     pub fn from_record(bytes: &[u8]) -> Result<Self, LoadError> {
         let lib: ScriptLibrary =
             auberean_assets::decode(RECORD, bytes, &auberean_assets::Context::empty())
@@ -271,10 +277,19 @@ impl Library {
                 }
                 Section::FunctionNames(v) => out.function_names = v,
                 Section::Frames(v) => out.frames = v,
-                Section::Versions(_)
-                | Section::Imports(_)
-                | Section::SourceFiles(_)
-                | Section::Lines(_) => {}
+                // The client's stream takes a library only from the machine version it runs.
+                // D2-16686, D2-16530, D2-16521
+                Section::Versions(v) => {
+                    for (name, version) in &v {
+                        if name == MACHINE && version != MACHINE_VERSION {
+                            return Err(LoadError(format!(
+                                "\"{name}\" : WCC virtual-machine version incompatible. File's \
+                                 version is {version}, but my version is {MACHINE_VERSION}."
+                            )));
+                        }
+                    }
+                }
+                Section::Imports(_) | Section::SourceFiles(_) | Section::Lines(_) => {}
             }
         }
         if !have_code || !have_dispatch {
@@ -313,6 +328,7 @@ impl Library {
 
     /// A package's name, or its id in hexadecimal when it has none.
     #[must_use]
+    // D2-08020
     pub fn package_name(&self, package: u32) -> String {
         self.package(package)
             .map_or_else(|| format!("{package:#x}"), |p| p.name.clone())
@@ -381,7 +397,7 @@ impl Library {
     }
 
     /// Whether package `package` is `base` or derives from it.
-    // D2-16528, D2-16534
+    // D2-16528, D2-16534, D2-16443, D2-16539, D2-16532
     #[must_use]
     pub fn derives_from(&self, package: u32, base: u32) -> bool {
         let mut at = self.export_of(package);

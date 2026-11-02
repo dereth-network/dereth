@@ -17,6 +17,7 @@
 //!   its appearance does to each part group.
 //! - [`place`]: a placed object resolved to meshes and transforms, as its look leaves them.
 //! - [`scenery`]: the objects the landscape scatters over itself.
+//! - [`sound`]: the places of a landblock that name a kind of ambient sound.
 //! - [`water`]: which landblocks hold water, at what height and of what kind.
 //! - [`records`]: the records, read from the data files the host opened and kept once decoded.
 //! - [`wave`]: a waveform's value at a moment (particles, materials' moving pictures, lights'
@@ -44,6 +45,7 @@ pub mod random;
 pub mod records;
 pub mod scenery;
 pub mod sky;
+pub mod sound;
 pub mod terrain;
 pub mod water;
 pub mod wave;

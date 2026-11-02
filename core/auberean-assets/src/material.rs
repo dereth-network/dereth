@@ -150,7 +150,7 @@ pub struct StageAnimation {
 
 impl StageAnimation {
     /// The kind word, the stage index, then the kind's values.
-    // D2-10071, D2-10073, D2-10076
+    // D2-10071, D2-10073, D2-10076, D2-10069
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let kind = r.u32()?;
         let stage = r.u32()?;

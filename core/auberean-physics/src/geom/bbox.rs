@@ -50,6 +50,28 @@ pub trait BoxOps {
 
     /// Whether two boxes overlap on every axis by more than `margin`.
     fn does_overlap(&self, other: &BBox, margin: f32) -> bool;
+
+    /// The box with these two corners, as given.
+    fn from_corners(min: Vec3, max: Vec3) -> BBox;
+
+    /// Puts each axis's two values in order, least first.
+    fn make_valid(&mut self);
+
+    /// Scales the box about its center, each axis by its own factor.
+    fn scale_centered(&mut self, s: Vec3);
+
+    /// The greatest distance along any one axis from the center to a face: the box's radius as
+    /// the client takes it (no box at all answers -1).
+    fn radius(&self) -> f32;
+}
+
+fn w(x: f32) -> f64 {
+    f64::from(x)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn n(x: f64) -> f32 {
+    x as f32
 }
 
 fn clamp(c: f32, lo: f32, hi: f32) -> f32 {
@@ -223,5 +245,50 @@ impl BoxOps for BBox {
         axis(self.min.x, self.max.x, other.min.x, other.max.x)
             && axis(self.min.y, self.max.y, other.min.y, other.max.y)
             && axis(self.min.z, self.max.z, other.min.z, other.max.z)
+    }
+
+    // D2-06113
+    fn from_corners(min: Vec3, max: Vec3) -> BBox {
+        BBox::new(min, max)
+    }
+
+    // D2-10570
+    fn make_valid(&mut self) {
+        let (lo, hi) = (self.min, self.max);
+        *self = BBox::for_adjustment();
+        self.adjust_bbox(lo);
+        self.adjust_bbox(hi);
+    }
+
+    // D2-13228
+    fn scale_centered(&mut self, s: Vec3) {
+        let cx = w(n((w(self.max.x) + w(self.min.x)) * 0.5));
+        let cy = w(n((w(self.max.y) + w(self.min.y)) * 0.5));
+        let cz = w(n(w(self.max.z) + w(self.min.z))) * 0.5;
+        let flat = |v: f32, c: f64, k: f32| n(w(n((w(v) - c) * w(k))) + c);
+        // The client keeps the least height's scaled offset wide and rounds the greatest's.
+        let low = n(w(n(w(self.min.z) - cz)) * w(s.z) + cz);
+        let high = n(w(n(w(n(w(self.max.z) - cz)) * w(s.z))) + cz);
+        self.min = Vec3::new(flat(self.min.x, cx, s.x), flat(self.min.y, cy, s.y), low);
+        self.max = Vec3::new(flat(self.max.x, cx, s.x), flat(self.max.y, cy, s.y), high);
+    }
+
+    // D2-13237
+    fn radius(&self) -> f32 {
+        let c = [
+            n((w(self.min.x) + w(self.max.x)) * 0.5),
+            n((w(self.max.y) + w(self.min.y)) * 0.5),
+            n((w(self.max.z) + w(self.min.z)) * 0.5),
+        ];
+        let mut r = -1.0_f32;
+        for v in [self.min, self.max] {
+            for (p, q) in [v.x, v.y, v.z].into_iter().zip(c) {
+                let d = (w(p) - w(q)).abs();
+                if d > w(r) {
+                    r = n(d);
+                }
+            }
+        }
+        r
     }
 }

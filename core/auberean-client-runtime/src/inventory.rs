@@ -283,7 +283,7 @@ impl Scripts {
 
     /// What a container holds in a segment: its items, the segment's first slot and how many
     /// slots it has.
-    // D2-00473, D2-01115
+    // D2-00473, D2-01115, D2-01017
     pub fn contents(&mut self, container: u64, segment: u32) -> Contents {
         let outs = [Out::Word(0), Out::Word(0), Out::New(ID_LIST)];
         let args = [Arg::Out(0), Arg::Out(1), Arg::Out(2), Arg::Word(segment)];
@@ -312,7 +312,7 @@ impl Scripts {
     }
 
     /// The items the player wears, by place.
-    // D2-00476, D2-01179
+    // D2-00476, D2-01179, D2-01018
     pub fn worn(&mut self, player: u64) -> Vec<(u32, u64)> {
         let outs = [Out::New(ID_TABLE)];
         let Some(a) = self.call_on(player, function::WORN_BY_LOCATION, &outs, &[Arg::Out(0)])

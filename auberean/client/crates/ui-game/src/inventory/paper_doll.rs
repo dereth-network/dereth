@@ -460,7 +460,22 @@ fn update_durability_meter(ui: &mut Ui, field: Handle, level: u32, max: u32) {
     }
 }
 
+impl PaperDoll {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x1_040B, 0x1_040C, 0x405, 0x1_040E, 0x448, 0x46E, 0x454];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for PaperDoll {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

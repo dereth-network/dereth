@@ -553,10 +553,7 @@ impl Names {
         };
         ui.set_attr(e, name::OBJECT_ID, Value::InstanceId(t.id));
         set_color(ui, e, color);
-        if let Some((w, h)) = ui.inq_size_with_margins(e, &t.name) {
-            ui.resize_to(e, w, h);
-        }
-        ui.set_text(e, &t.name);
+        set_name(ui, e, t);
         ui.set_visible(e, false);
         self.names.push(NameText::new(e, t.id));
     }
@@ -597,10 +594,7 @@ impl Names {
         let Some(e) = self.selection_name else { return };
         let color = t.radar.map_or([1.0; 4], |(c, _)| c);
         set_color(ui, e, color);
-        if let Some((w, h)) = ui.inq_size_with_margins(e, &t.name) {
-            ui.resize_to(e, w, h);
-        }
-        ui.set_text(e, &t.name);
+        set_name(ui, e, t);
         self.has_name = true;
     }
 
@@ -687,7 +681,7 @@ impl Names {
     /// The box an object fills on the screen (clip square: x and y from -1 to 1), its recent
     /// boxes averaged; and whether any corner of it is on the screen. `None` when it is not
     /// drawn or the world has no camera yet.
-    // D2-02108, D2-13233, D2-13225
+    // D2-02108, D2-13233, D2-13225, D2-08173, D2-08174, D2-08175
     fn object_to_window(
         world: &World,
         t: &Thing,
@@ -824,7 +818,8 @@ impl Names {
         let Some(t) = world.thing(self.selection) else {
             return;
         };
-        if t.body.is_none() {
+        // D2-08176
+        if t.faded || t.body.is_none() {
             return;
         }
         let [x, y, _] = t.from_player;
@@ -1120,6 +1115,27 @@ impl Names {
     }
 }
 
+/// An object's name in a text element, the element sized to it: its string reference when the
+/// scripts gave one (written once the string tables it reads are at hand; sized as it writes now,
+/// the client's error message while a table is missing), else its written name.
+fn set_name(ui: &mut Ui, e: Handle, t: &Thing) {
+    match &t.name_info {
+        Some(info) => {
+            let text = String::from_utf16_lossy(&ui.assets().element_text(info));
+            if let Some((w, h)) = ui.inq_size_with_margins(e, &text) {
+                ui.resize_to(e, w, h);
+            }
+            ui.set_string_info(e, info);
+        }
+        None => {
+            if let Some((w, h)) = ui.inq_size_with_margins(e, &t.name) {
+                ui.resize_to(e, w, h);
+            }
+            ui.set_text(e, &t.name);
+        }
+    }
+}
+
 /// A text element's color: its font's red, green and blue.
 fn set_color(ui: &mut Ui, e: Handle, c: [f32; 4]) {
     ui.set_attr(e, attr::FONT_COLOR_RED, Value::Float(c[0]));
@@ -1127,7 +1143,24 @@ fn set_color(ui: &mut Ui, e: Handle, c: [f32; 4]) {
     ui.set_attr(e, attr::FONT_COLOR_BLUE, Value::Float(c[2]));
 }
 
+impl Names {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x1_040B, 0x462, 0x463, 0x44D, 0x443, 0x408, 0x1_040C, 0x417, 0x46D, 0x446, 0x454,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Names {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

@@ -153,17 +153,81 @@ pub fn vertices(v: &VertexArray) -> Option<Vec<MeshVertex>> {
 // D2-06658
 #[must_use]
 pub fn detail_at(d: &DetailDistances, distance: f32) -> Option<f32> {
-    let visible = d.visible.max(20.0);
+    degrade(d, distance, 1.0, 2).map(|g| g.detail)
+}
+
+/// How an object is drawn at a distance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Degrade {
+    /// How much detail, 1 (full) to 0 (least): the level of its mesh drawn.
+    pub detail: f32,
+    /// The material detail its materials are drawn at (0 low, 1 medium, 2 high).
+    pub material_detail: u32,
+    /// How opaque it is: it fades out over the last 7.5% of its visible distance.
+    pub opacity: f32,
+}
+
+/// How an object at `distance` is drawn, from its setup's distances each scaled by `scale` (a
+/// placed object's by the scenery draw distance, [`scenery_scale`]), with `material_detail` the
+/// graphics preference's: its visible distance never under 20 m, past which it is not drawn; its
+/// detail falling from full at its near distance, through half at its ideal one, to none at its
+/// far one; its materials a step lower past three times its high-detail distance and at the
+/// lowest past three times its medium-detail one (never raised); its opacity falling from 1 to 0
+/// over the last 7.5% of its visible distance, where it is not drawn once it reaches 0.
+// D2-06658
+#[must_use]
+pub fn degrade(
+    d: &DetailDistances,
+    distance: f32,
+    scale: f32,
+    material_detail: u32,
+) -> Option<Degrade> {
+    let visible = (scale * d.visible).max(20.0);
     if distance > visible {
         return None;
     }
     let safe = |x: f32| if x == 0.0 { 0.0002 } else { x };
-    let t = if distance >= d.ideal_degrade {
-        0.5 * (1.0 - (distance - d.ideal_degrade) / safe(d.far_degrade - d.ideal_degrade))
+    let (near, ideal, far) = (
+        scale * d.near_degrade,
+        scale * d.ideal_degrade,
+        scale * d.far_degrade,
+    );
+    let t = if distance >= ideal {
+        0.5 * (1.0 - (distance - ideal) / safe(far - ideal))
     } else {
-        0.5 + 0.5 * (1.0 - (distance - d.near_degrade) / safe(d.ideal_degrade - d.near_degrade))
+        0.5 + 0.5 * (1.0 - (distance - near) / safe(ideal - near))
     };
-    Some(t.clamp(0.0, 1.0))
+    let mut materials = material_detail;
+    if materials != 0 {
+        if distance > scale * d.medium_detail * 3.0 {
+            materials = 0;
+        } else if distance > scale * d.high_detail * 3.0 {
+            materials = 1;
+        }
+    }
+    let edge = visible - visible * 0.075;
+    let opacity = if distance >= edge {
+        1.0 - (distance - edge) / (visible * 0.075)
+    } else {
+        1.0
+    };
+    (opacity > 0.0).then_some(Degrade {
+        detail: t.clamp(0.0, 1.0),
+        material_detail: materials,
+        opacity,
+    })
+}
+
+/// How far a placed object's distances reach at the scenery draw distance preference (low,
+/// medium, high): 0.4, 0.7 or all of them (all of them for a value out of its range).
+// D2-06658
+#[must_use]
+pub fn scenery_scale(scenery_draw_distance: u32) -> f32 {
+    match scenery_draw_distance {
+        0 => 0.4,
+        1 => 0.7,
+        _ => 1.0,
+    }
 }
 
 /// The detail level drawn at detail `t` with model detail `model_detail` (0 to 2): of the levels

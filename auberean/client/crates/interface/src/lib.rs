@@ -6,8 +6,8 @@
 //! (`auberean-ui`), the game's panels (`auberean-ui-game`), the client (`auberean-client-sdk`), the
 //! screens' scenes and their figures (`auberean-scene`), the world's records, looks and character
 //! generation's choices (`auberean-world`, `auberean-assets`, `auberean-primitives`), the graphics
-//! preferences and their quality presets (`auberean-draw`) and the shared float-to-integer
-//! conversion (`dereth-primitives`).
+//! preferences and their quality presets (`auberean-draw`), the requests its sounds become
+//! (`auberean-audio`) and the shared float-to-integer conversion (`dereth-primitives`).
 //! **Used by** the desktop client, which hands a [`Retail`] to the shell.
 //!
 //! A [`Retail`] holds one element tree ([`Ui`]) and the game's flow between its screens
@@ -48,9 +48,12 @@ pub mod doll;
 pub mod hall;
 mod map;
 mod options;
-mod preferences;
+pub mod places;
+pub mod preferences;
 mod pregame;
 mod records;
+mod sounds;
+pub mod strings;
 mod world;
 
 use std::any::Any;
@@ -61,6 +64,7 @@ use auberean_client_sdk::contract::ToolbarShortcut;
 use auberean_client_sdk::model::Object;
 use auberean_client_sdk::Action;
 use auberean_shell::dev::DevLogin;
+use auberean_shell::host::InputArea;
 use auberean_shell::input::{Button, Event, Key};
 use auberean_shell::interface::{
     CameraRequest, Canvas, CursorImage, Game, Interface, Overlay, Phase, Request,
@@ -130,6 +134,8 @@ struct Shared {
     vitals: Option<[u32; 4]>,
     place: Option<String>,
     lines: Vec<(u32, String)>,
+    /// For each of `lines`, the string reference it was written from, when it came as one.
+    line_infos: Vec<Option<auberean_client_sdk::text::StringInfo>>,
     /// The chat's part of the player's options, as last read, and a new player's.
     chat: Option<ChatSettings>,
     chat_defaults: Option<ChatSettings>,
@@ -210,6 +216,7 @@ impl FlowScreen<Shared> for PlayScreen {
             vitals: data.vitals,
             place: data.place.as_deref(),
             lines: &data.lines,
+            line_infos: &data.line_infos,
             chat: data.chat.as_ref(),
             chat_defaults: data.chat_defaults.as_ref(),
             shortcuts: data.shortcuts.as_ref(),
@@ -505,6 +512,8 @@ fn factory(m: Token) -> Option<Factory<Shared>> {
 /// The retail interface.
 pub struct Retail {
     ui: Ui,
+    /// The records the elements draw from, with the client's string downloads once it is here.
+    text: Arc<strings::TextAssets>,
     flow: GameFlow<Shared>,
     /// The window's own size.
     window: (u32, u32),
@@ -517,6 +526,10 @@ pub struct Retail {
     /// connecting screen was last told.
     answers: u32,
     net: pregame::Net,
+    /// The connecting screen was told the session's connection failure.
+    failure_told: bool,
+    /// How many of the session's data download events the connecting screen was told.
+    ddd_told: usize,
     pointer: (i32, i32),
     behind: Option<Arc<Canvas>>,
     middle: Option<Arc<Canvas>>,
@@ -557,10 +570,14 @@ pub struct Retail {
     /// look waiting on them), handed on at the next frame.
     dialogs: Dialogs,
     said: Vec<gameplay::Notice>,
+    /// The play screen's kept places, to keep or put back at the next frame.
+    places: places::Places,
     /// The world gathered for the panels, and the notices of the last frame (for the next
     /// frame's questions of the scripts).
     gather: world::Gather,
     last_notices: Vec<gameplay::Notice>,
+    /// The scripts' notices of changed radar looks, heard by the panels at the next frame.
+    held_looks: Vec<gameplay::Notice>,
     /// The player's options read for the options window.
     options: options::Reader,
     /// The client's own preferences, for the options window's client page.
@@ -582,6 +599,8 @@ pub struct Retail {
     /// drawn with it; then that scene's place among the frame's scenes, until it is answered.
     doll_pick: Option<(f32, f32)>,
     doll_scene: Option<usize>,
+    /// Where the host's input method was last told to write.
+    input_method: Option<InputArea>,
 }
 
 impl std::fmt::Debug for Retail {
@@ -612,10 +631,12 @@ impl Retail {
         size: (u32, u32),
         login: Option<Login>,
     ) -> Self {
-        let mut ui = Ui::new(assets, signed(PREGAME.0), signed(PREGAME.1));
+        let text = Arc::new(strings::TextAssets::new(assets));
+        let mut ui = Ui::new(text.clone(), signed(PREGAME.0), signed(PREGAME.1));
         let flow = GameFlow::new(&mut ui, Shared::default(), factory);
         Self {
             ui,
+            text,
             flow,
             window: size,
             login,
@@ -623,6 +644,8 @@ impl Retail {
             auto: None,
             answers: 0,
             net: pregame::Net::Idle,
+            failure_told: false,
+            ddd_told: 0,
             pointer: (0, 0),
             behind: None,
             middle: None,
@@ -644,10 +667,13 @@ impl Retail {
             was_in_world: false,
             was_connected: false,
             refused: false,
+            input_method: None,
             dialogs: Dialogs::default(),
             said: Vec::new(),
+            places: places::Places::default(),
             gather: world::Gather::default(),
             last_notices: Vec::new(),
+            held_looks: Vec::new(),
             options: options::Reader::default(),
             preferences: preferences::Preferences::default(),
             left_to_world: false,
@@ -804,6 +830,7 @@ impl Retail {
         d.in_world = game.phase == Phase::World;
         d.window = game.size;
         d.lines.clear();
+        d.line_infos.clear();
         d.notices.clear();
         let player = game.client.and_then(|c| c.model.player_object());
         d.vitals = player.and_then(vitals);
@@ -823,9 +850,12 @@ impl Retail {
         }
         for e in self.errors.drain(..) {
             d.lines.push((chat_panel::text_type::ERROR, e));
+            d.line_infos.push(None);
         }
-        d.lines
-            .extend(game.shown.iter().map(|s| (s.kind, s.text.clone())));
+        for s in game.shown {
+            d.lines.push((s.kind, s.text.clone()));
+            d.line_infos.push(s.info.clone());
+        }
         d.chat = self.chat.settings().cloned();
         if d.chat_defaults.is_none() {
             d.chat_defaults = Some(chat::defaults());
@@ -861,33 +891,53 @@ impl Retail {
                 since_heard: h.since_heard,
             });
         let player_id = game.client.and_then(|c| c.model.player);
-        d.notices.extend(
-            game.notices
-                .iter()
-                .filter(|n| n.about.is_none() || n.about == player_id)
-                .map(|n| gameplay::Notice {
-                    native: n.native,
-                    about: n.about,
-                    words: n.words.clone(),
-                    records: records::of_notice(n),
-                }),
-        );
-        d.everyone = game
+        // An object's radar look (and with it its name) changed: the gathered world reads them
+        // again before the next frame, so the panels hear it then, with the world that has them.
+        let held = std::mem::take(&mut self.held_looks);
+        let (looks, now): (Vec<_>, Vec<_>) = game
             .notices
             .iter()
+            .partition(|n| n.native == world::notice::CHANGE_RADAR_LOOK);
+        let heard: Vec<gameplay::Notice> = held
+            .into_iter()
+            .chain(now.into_iter().map(|n| gameplay::Notice {
+                native: n.native,
+                about: n.about,
+                words: n.words.clone(),
+                records: records::of_notice(n),
+            }))
+            .collect();
+        d.notices.extend(
+            heard
+                .iter()
+                .filter(|n| n.about.is_none() || n.about == player_id)
+                .cloned(),
+        );
+        self.held_looks = looks
+            .into_iter()
             .map(|n| gameplay::Notice {
                 native: n.native,
                 about: n.about,
-                words: match n.native {
-                    names::notice::UPDATE_SELECTION_INFO => {
-                        world::selection_info(game.client, n.words.first().copied())
-                    }
-                    _ => n.words.clone(),
-                },
+                words: n.words.clone(),
                 records: records::of_notice(n),
             })
             .collect();
-        self.last_notices.clone_from(&d.everyone);
+        d.everyone = heard
+            .into_iter()
+            .map(|mut n| {
+                if n.native == names::notice::UPDATE_SELECTION_INFO {
+                    n.words = world::selection_info(game.client, n.words.first().copied());
+                }
+                n
+            })
+            .collect();
+        self.last_notices = d
+            .everyone
+            .iter()
+            .filter(|n| n.native != world::notice::CHANGE_RADAR_LOOK)
+            .chain(&self.held_looks)
+            .cloned()
+            .collect();
         self.chat.heard(&d.notices);
         d.shift = self.mods.0;
         if let Some(c) = game.client {
@@ -985,7 +1035,7 @@ impl Retail {
         d.clock = game
             .client
             .and_then(|c| map::clock(game.world, c.game_time()));
-        match self.gather.world(game, &write) {
+        match self.gather.world(game, &write, &**ui.assets()) {
             Some((w, gone)) => {
                 d.world = Some(w);
                 d.gone = gone;
@@ -1068,6 +1118,12 @@ impl Retail {
                             if let Some(g) = self.preferences.take_applied() {
                                 requests.push(Request::Graphics(g));
                             }
+                            if let Some(o) = self.preferences.take_camera() {
+                                requests.push(Request::Camera(CameraRequest::Options(o)));
+                            }
+                            if let Some(kept) = self.preferences.take_kept() {
+                                requests.push(Request::KeepPreferences(kept));
+                            }
                         }
                         _ => tracing::debug!(?r, "not carried out yet"),
                     },
@@ -1078,6 +1134,12 @@ impl Retail {
                 R::ErrorLine(text) => self.errors.push(text),
                 R::Chat(a) => self.chat.ask(a),
                 R::KnowCommands => self.chat.know_commands(),
+                R::SaveLocations => {
+                    if let Some(f) = self.play().map(GamePlay::frame) {
+                        self.places.save(&self.ui, f);
+                    }
+                }
+                R::PutBackLocations { reloaded } => self.places.put_back(reloaded),
                 R::Dialog(d) => {
                     let parent = self.play().map(GamePlay::frame);
                     self.dialogs
@@ -1228,6 +1290,9 @@ impl Retail {
                     requests.push(Request::Act(Action::PlayScenesDone { scenes }));
                 }
                 R::ShowSales => requests.push(Request::Act(Action::SaleReminders)),
+                R::StopScreenSound => requests.push(sounds::screens_silence()),
+                R::Sound(id) => requests.push(sounds::once(id)),
+                R::StorySound(s) => requests.extend(sounds::story(s)),
                 R::PlayScene { act, scene } => self.flow.flow.data.play_scene = Some((act, scene)),
                 R::Examine(e) => {
                     requests.push(Request::Act(Action::Examine {
@@ -1308,6 +1373,32 @@ impl Retail {
         let size = self.size();
         let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
         (self.window.0 as f32 / w, self.window.1 as f32 / h)
+    }
+
+    /// The host's input method follows the entry that has it on: the part of the entry that
+    /// shows, in the window's pixels, told to the host when it changes (none once it is off).
+    fn follow_input_method(&mut self, requests: &mut Vec<Request>) {
+        let (sx, sy) = self.scale();
+        let area = self.ui.ime().map(|ime| {
+            let r = ime.area;
+            #[allow(clippy::cast_precision_loss)]
+            let (x0, y0, x1, y1) = (
+                to_i32((r.x0 as f32 * sx).floor()),
+                to_i32((r.y0 as f32 * sy).floor()),
+                to_i32((r.x1 as f32 * sx).ceil()),
+                to_i32((r.y1 as f32 * sy).ceil()),
+            );
+            InputArea {
+                x: x0,
+                y: y0,
+                width: u32::try_from(x1 - x0).unwrap_or(0),
+                height: u32::try_from(y1 - y0).unwrap_or(0),
+            }
+        });
+        if area != self.input_method {
+            self.input_method = area;
+            requests.push(Request::InputMethod(area));
+        }
     }
 
     /// A point of the window in the screen's pixels.
@@ -1900,6 +1991,21 @@ impl Interface for Retail {
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);
         self.carry_out_pregame(requests);
+        // The sound preferences changed or applied (and, first, their values as read).
+        for (key, value, applied) in self.preferences.take_sound() {
+            requests.push(Request::Sound(
+                auberean_shell::interface::SoundOrder::Preference {
+                    key,
+                    value,
+                    applied,
+                },
+            ));
+        }
+        // The sounds the elements' media asked for.
+        // D2-11145
+        for s in self.ui.take_sounds() {
+            requests.push(sounds::once(s.sound));
+        }
         requests.append(&mut self.pending);
         if let Some(auto) = &mut self.auto {
             auto.update(game, requests);
@@ -1908,11 +2014,27 @@ impl Interface for Retail {
         match game.phase {
             Phase::Disconnected => {
                 if self.was_connected {
-                    // The session ended under the player: the connection lost (the connecting
-                    // screen says why itself).
                     self.was_connected = false;
-                    if self.flow.flow.mode() != mode::DATA_PATCH {
-                        self.flow.server_died(&self.ui);
+                    match game
+                        .stopped
+                        .and_then(auberean_client_sdk::runtime::download::notice_line)
+                    {
+                        // The client stopped (a record it was sent could not be stored): the
+                        // disconnected screen says why, whatever screen was up.
+                        Some(line) => self.flow.stopped(line),
+                        // The server is gone: the game's flow hears it (unless the connecting
+                        // screen already asked for the disconnected screen with why).
+                        None if game.ended.is_some_and(|e| e.server_died) => {
+                            self.flow.server_died(&self.ui);
+                        }
+                        // The session ended under the player otherwise: the connection lost
+                        // (the connecting screen says why itself).
+                        None if game.ended.is_none()
+                            && self.flow.flow.mode() != mode::DATA_PATCH =>
+                        {
+                            self.flow.server_died(&self.ui);
+                        }
+                        None => {}
                     }
                 }
             }
@@ -1930,6 +2052,7 @@ impl Interface for Retail {
             }
         }
         self.was_in_world = game.phase == Phase::World;
+        self.follow_input_method(requests);
         // The screens hear their elements through their listeners: what the elements said is
         // not kept besides.
         self.ui.take_messages();
@@ -1989,9 +2112,13 @@ impl Interface for Retail {
     }
 
     fn prepare(&mut self, client: &mut auberean_client_sdk::Client) {
+        // The text elements' string downloads go through this client's data cache.
+        self.text.connect(client.data_download().strings());
         let notices = std::mem::take(&mut self.last_notices);
         self.gather.prepare(client, &notices);
         self.chat.prepare(client);
+        let play = self.play().map(GamePlay::frame);
+        self.places.prepare(client, &mut self.ui, play);
         // A line naming no command: the client's error line that says so.
         for _ in 0..self.chat.take_unknown() {
             let line = self
@@ -2021,6 +2148,14 @@ impl Interface for Retail {
 
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
         game.phase != Phase::World || self.typing()
+    }
+
+    fn set_preferences(
+        &mut self,
+        settings: &auberean_shell::Settings,
+        records: &auberean_world::records::WorldRecords,
+    ) {
+        self.preferences.start(settings, records);
     }
 
     fn set_graphics(&mut self, graphics: &auberean_draw::quality::Graphics) {

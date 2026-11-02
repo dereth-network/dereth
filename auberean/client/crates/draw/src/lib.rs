@@ -18,6 +18,8 @@
 //! - [`picture`]: a picture list's levels, expanded to texels.
 //! - [`portal`]: portal space, the tunnel drawn while the world is out of sight.
 //! - [`shadow`]: the sun's shadow map of the near objects and the clouds' shadows.
+//! - [`shore`]: the strips along the shores of the detailed blocks' water.
+//! - [`streak`]: the trails a moving object's part leaves while they are on.
 //! - [`volume`]: the dynamic objects' volumes of shadow.
 //! - [`particles`], [`effects`], [`systems`]: particle systems run as the client runs them, the
 //!   effects that set them going, and the systems kept together, shared and drawn once a frame.
@@ -37,5 +39,7 @@ pub mod portal;
 pub mod quality;
 pub mod scene;
 pub mod shadow;
+pub mod shore;
+pub mod streak;
 pub mod systems;
 pub mod volume;

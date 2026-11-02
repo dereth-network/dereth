@@ -60,6 +60,31 @@ pub trait Assets {
     fn write(&self, _info: &auberean_text::StringInfo) -> Option<String> {
         None
     }
+    /// A string reference's text only when it is valid (it, and every reference nested in it,
+    /// names an entry its table holds, or is a literal): written as the client writes it, or its
+    /// error message should the writing fail even so; by default none.
+    fn write_valid(&self, _info: &auberean_text::StringInfo) -> Option<String> {
+        None
+    }
+    /// A string reference as a text element shows it: written, or the client's error message
+    /// when it cannot be; by default as [`Assets::write`] writes it, else nothing.
+    fn element_text(&self, info: &auberean_text::StringInfo) -> Vec<u16> {
+        self.write(info)
+            .map(|s| s.encode_utf16().collect())
+            .unwrap_or_default()
+    }
+    /// Ask for the string tables a reference given to a text element needs that the data lacks:
+    /// the download's number while it waits, or `None` when the text can be written at once (by
+    /// default, always).
+    fn start_string_download(&self, _info: &auberean_text::StringInfo) -> Option<u32> {
+        None
+    }
+    /// Whether a string download still waits for its tables.
+    fn string_download_waiting(&self, _download: u32) -> bool {
+        false
+    }
+    /// A string download dropped by its element before it was written.
+    fn release_string_download(&self, _download: u32) {}
 }
 
 /// Expand one picture's texels, for the formats the interface's pictures are stored in.
@@ -241,7 +266,11 @@ impl Assets for DatAssets {
         })
     }
 
+    /// A font by its id, kept once read: only an id of a font's kind (the shared files' or the
+    /// language file's) is read as one.
+    // D2-10053, D2-10050
     fn font(&self, id: u32) -> Option<Arc<Font>> {
+        auberean_assets::ui::font_kind(id)?;
         Self::cached(&self.fonts, id, || self.decoded(id))
     }
 
@@ -261,6 +290,23 @@ impl Assets for DatAssets {
         let mut w = self.writer.lock().ok()?;
         let (ok, units) = info.clone().inq(&mut *w, false);
         ok.then(|| String::from_utf16_lossy(&units))
+    }
+
+    fn write_valid(&self, info: &auberean_text::StringInfo) -> Option<String> {
+        let mut w = self.writer.lock().ok()?;
+        if !info.is_valid(&mut *w, true) {
+            return None;
+        }
+        Some(String::from_utf16_lossy(
+            &info.clone().get_string(&mut *w, false),
+        ))
+    }
+
+    fn element_text(&self, info: &auberean_text::StringInfo) -> Vec<u16> {
+        self.writer
+            .lock()
+            .map(|mut w| info.clone().get_string(&mut *w, false))
+            .unwrap_or_default()
     }
 
     /// Each file's own id map names the mapping's map (its game half first, then its tools'

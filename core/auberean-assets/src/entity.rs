@@ -39,6 +39,7 @@ pub struct StoredFrame {
 }
 
 impl StoredFrame {
+    // D2-13005
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         let frame = r.frame()?;
         let mut matrix = [0f32; 9];
@@ -110,11 +111,65 @@ impl Entity {
         })
     }
 
-    /// Write the entity as [`Entity::read`] reads it: the flags, then each field the flags name.
+    /// The flags an entity is written with, from what it holds: its id, kind and object when not
+    /// 0, its instance when it has one, its offset when it is not the identity and its scale when
+    /// it is not 1 (either by 0.0002 or more in any part), its properties when it has a group, its
+    /// version when not 0, and its name when not empty.
+    // D2-13004
+    #[must_use]
+    pub fn pack_flags(&self) -> u32 {
+        const NEAR: f32 = 0.0002;
+        let set = |v: Option<u32>| v.is_some_and(|v| v != 0);
+        let mut f = 0;
+        if set(self.id) {
+            f |= 0x1;
+        }
+        if set(self.kind) {
+            f |= 0x2;
+        }
+        if self.instance.is_some_and(|i| i != 0) {
+            f |= 0x4;
+        }
+        if set(self.object) {
+            f |= 0x8;
+        }
+        if let Some(o) = &self.offset {
+            let (p, q) = (o.frame.origin, o.frame.rotation);
+            let identity = [p.x, p.y, p.z, q.w - 1.0, q.x, q.y, q.z]
+                .iter()
+                .all(|d| d.abs() < NEAR);
+            if !identity {
+                f |= 0x10;
+            }
+        }
+        if let Some(s) = self.scale {
+            if [s.x, s.y, s.z].iter().any(|c| (c - 1.0).abs() >= NEAR) {
+                f |= 0x20;
+            }
+        }
+        if self
+            .properties
+            .as_ref()
+            .is_some_and(|p| !p.groups.is_empty())
+        {
+            f |= 0x80;
+        }
+        if set(self.version) {
+            f |= 0x40;
+        }
+        if self.name.as_ref().is_some_and(|n| !n.is_empty()) {
+            f |= 0x100;
+        }
+        f
+    }
+
+    /// Write the entity as [`Entity::read`] reads it: the flags it is written with
+    /// ([`Entity::pack_flags`]), then each field they name.
     // D2-13026
     pub fn write(&self, w: &mut Writer) {
-        w.u32(self.flags);
-        let has = |bit: u32| self.flags & bit != 0;
+        let flags = self.pack_flags();
+        w.u32(flags);
+        let has = |bit: u32| flags & bit != 0;
         if has(0x1) {
             w.u32(self.id.unwrap_or(0));
         }
@@ -358,7 +413,7 @@ impl LinkEnd {
 }
 
 /// A named link between two entities of a group, with properties.
-// D2-13031
+// D2-13031, D2-03562, D2-03741
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Link {
     pub name: String,

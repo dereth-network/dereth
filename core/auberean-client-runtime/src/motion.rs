@@ -56,6 +56,7 @@ pub struct Body {
     pub instance_stamp: u16,
     pub teleport_stamp: u16,
     pub force_position_stamp: u16,
+    /// The stamp of the last move the server ordered the body to make.
     pub move_to_stamp: u16,
     /// Movement frozen by the server's scripts.
     pub frozen: bool,
@@ -184,7 +185,7 @@ impl Body {
     }
 
     /// The report, as sent now; the body remembers it.
-    // D2-15433
+    // D2-15433, D2-09636
     pub fn report(&mut self, now: f64, game_time: f64) -> ClientPosition {
         let m = self.motion();
         let mut flags = 0;

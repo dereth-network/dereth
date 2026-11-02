@@ -35,7 +35,7 @@ mod quality {
 
 /// The player's scripts' notices the gathering hears: an object's radar look changed (about
 /// the object; about the player, every object's); the player's options came back.
-mod notice {
+pub(crate) mod notice {
     pub const CHANGE_RADAR_LOOK: u32 = 0x0085 << 16 | 0x000A;
     pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
     /// The options window changed the player's options.
@@ -53,8 +53,10 @@ pub enum Ask {
 /// What the scripts said of one object.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Facts {
-    /// Its name as its scripts write it (asked once).
+    /// Its name as its scripts write it, and the string reference they gave (asked once, and
+    /// again when they say its radar look changed: a new name).
     name: Option<String>,
+    name_info: Option<auberean_client_sdk::text::StringInfo>,
     kind: u32,
     groove: i8,
     owner: Option<u64>,
@@ -84,8 +86,16 @@ pub struct Gather {
     pub want_targets: bool,
     /// The objects the last frame knew, to tell which went.
     known: BTreeSet<u64>,
-    /// Objects' names as written, kept by object.
-    names: BTreeMap<u64, (auberean_client_sdk::protocol::text::StringInfo, String)>,
+    /// Objects' names as written, kept by object; and the string download a name waits on, while
+    /// the string tables it reads are asked for (it shows no text until then).
+    names: BTreeMap<
+        u64,
+        (
+            auberean_client_sdk::protocol::text::StringInfo,
+            String,
+            Option<u32>,
+        ),
+    >,
     /// The fellows' shares of the experience, as the scripts last answered.
     fellow_xp: Vec<(u64, f32)>,
     /// The block the last world's places were in.
@@ -149,13 +159,20 @@ impl Gather {
         }
         for n in notices {
             match n.native {
+                // The scripts say so when an object's name quality changes too: its name is
+                // asked for again with its look.
+                // D2-02135
                 notice::CHANGE_RADAR_LOOK => match n.about {
                     Some(id) if id != player => {
                         if let Some(f) = self.facts.get_mut(&id) {
                             f.radar = None;
+                            f.name = None;
                         }
                     }
-                    _ => self.facts.values_mut().for_each(|f| f.radar = None),
+                    _ => self.facts.values_mut().for_each(|f| {
+                        f.radar = None;
+                        f.name = None;
+                    }),
                 },
                 notice::RELOAD_OPTIONS | notice::OPTIONS_CHANGED => self.options = None,
                 _ => {}
@@ -218,7 +235,8 @@ impl Gather {
                         1
                     }
                 });
-                f.name = client.object_name(id, quantity);
+                f.name_info = client.object_name_info(id, quantity);
+                f.name = f.name_info.as_ref().and_then(|i| client.write_info(i));
             }
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             {
@@ -263,11 +281,14 @@ impl Gather {
         self.want_targets = false;
     }
 
-    /// The panels' world this frame, and the objects that went since the last.
+    /// The panels' world this frame, and the objects that went since the last. Names are written
+    /// by `write`; one whose string tables the data lacks waits on a string download of
+    /// `strings` until it is done.
     pub fn world(
         &mut self,
         game: &Game<'_>,
         write: &dyn Fn(&auberean_client_sdk::protocol::text::StringInfo) -> String,
+        strings: &dyn auberean_ui::Assets,
     ) -> Option<(World, Vec<u64>)> {
         let client = game.client?;
         let player = client.model.player_object()?;
@@ -295,13 +316,32 @@ impl Gather {
             // D2-01972
             let from_player = [d[0] * cos - d[1] * sin, d[0] * sin + d[1] * cos, d[2]];
             let f = self.facts.get(&o.id).cloned().unwrap_or_default();
-            let name = match (&f.name, self.names.get(&o.id)) {
+            let name = match (&f.name, self.names.get_mut(&o.id)) {
                 (Some(n), _) => n.clone(),
-                (None, Some((info, text))) if *info == o.weenie.name => text.clone(),
+                (None, Some((info, text, download))) if *info == o.weenie.name => {
+                    if let Some(d) = *download {
+                        if !strings.string_download_waiting(d) {
+                            // Written as a text element writes it: a refused table shows the
+                            // client's error message.
+                            *download = None;
+                            *text = String::from_utf16_lossy(&strings.element_text(
+                                &auberean_client_sdk::runtime::text::from_wire(info),
+                            ));
+                        }
+                    }
+                    text.clone()
+                }
                 (None, _) => {
-                    let text = write(&o.weenie.name);
+                    let download = strings.start_string_download(
+                        &auberean_client_sdk::runtime::text::from_wire(&o.weenie.name),
+                    );
+                    let text = if download.is_some() {
+                        String::new()
+                    } else {
+                        write(&o.weenie.name)
+                    };
                     self.names
-                        .insert(o.id, (o.weenie.name.clone(), text.clone()));
+                        .insert(o.id, (o.weenie.name.clone(), text.clone(), download));
                     text
                 }
             };
@@ -317,6 +357,8 @@ impl Gather {
                 radar: f.radar.flatten(),
                 groove: f.groove,
                 name,
+                name_info: f.name_info.clone(),
+                faded: drawn.is_some_and(|b| b.faded),
                 body: drawn.map(|b| Body {
                     origin: [b.origin.x, b.origin.y, b.origin.z],
                     heading: b.heading,
@@ -330,7 +372,15 @@ impl Gather {
                 held: o.parent.is_some(),
             });
         }
-        self.names.retain(|id, _| now.contains(id));
+        self.names.retain(|id, (_, _, download)| {
+            let keep = now.contains(id);
+            if let (false, Some(d)) = (keep, *download) {
+                strings.release_string_download(d);
+            }
+            keep
+        });
+        // The objects that went: the panels listening on each hear that it is being deleted.
+        // D2-04049, D2-08102
         let gone: Vec<u64> = self.known.difference(&now).copied().collect();
         self.known = now;
         let (coords, names) = self.options.unwrap_or((true, false));
@@ -350,7 +400,7 @@ impl Gather {
             show_coordinates: coords,
             show_names: names,
             portal_space: client.in_portal_space(),
-            moving: s.speed > 0.0,
+            moving: s.moving,
             fellow_xp: self.fellow_xp.clone(),
             last_attacker: client.last_attacker,
             camera: seen.camera.map(|c| Camera {

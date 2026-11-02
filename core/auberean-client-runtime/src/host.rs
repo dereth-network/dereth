@@ -32,6 +32,7 @@ use auberean_dat::DatFile;
 use auberean_script::bridge::{object_process, receive, Outcome};
 use auberean_script::graph::SavedState;
 use auberean_script::library::Library;
+use auberean_script::local::{bare_name, LocalSystem, LocalTime};
 use auberean_script::native::{Binding, Call, NativeFn, NativeTable, Status, Stop};
 use auberean_script::native_object::{native_type, Item, NativeObject, QuestInfo, TextInfo};
 use auberean_script::opcode;
@@ -132,6 +133,10 @@ pub struct ClientHost {
     pub bodies: crate::body::Bodies,
     /// What the bodies say of themselves when the scripts ask, as a front end last read them.
     pub readings: crate::body::Readings,
+    /// What the scripts asked of the objects' bodies, in order, for a front end to carry out.
+    pub body_requests: Vec<crate::physics_object::BodyRequest>,
+    /// The kinds of log line the client keeps.
+    pub logs: crate::log_system::LogMasks,
     /// The objects' own descriptions the scripts changed and their bodies have not taken yet.
     pub looks: crate::looks::Looks,
     /// Effects scripts played on objects, in order, for a front end to show and clear.
@@ -170,16 +175,54 @@ pub struct ClientHost {
     pub sleeps: Vec<(crate::latent::Waiting, f64)>,
     /// The friends service's layer, while a call runs (the runtime lends it).
     pub friends: Option<crate::friends::Friends>,
+    /// Rooms, while a call runs (the runtime lends them).
+    pub rooms: Option<crate::rooms::RoomChat>,
     /// Where the player is (its cell, its origin in the cell's landblock and its rotation, scalar
     /// first), as the runtime last lent it: none before the player has a place.
     pub my_position: Option<(u32, [f32; 3], [f32; 4])>,
     /// The client's random numbers, shared with everything else in the client that draws
     /// ([`crate::Client::set_random`]).
     pub dice: auberean_glue::numbers::Random,
+    /// The machine's wall clock and the files in the client's own folder, when the front end
+    /// gives them (none: the natives that need them answer as the client does when they fail).
+    pub local: Option<Box<dyn LocalSystem + Send>>,
     records: HashMap<u32, Option<Arc<Record>>>,
-    /// The data files' records, decoded once and kept (made the first time one is asked for).
-    pub(crate) database: Option<auberean_assets::Database>,
-    data_files: Vec<Arc<DatFile>>,
+    /// The client's one data cache: the data files' records, decoded once and kept (opened the
+    /// first time one is asked for), shared with the data cache's requests.
+    pub(crate) cache: Option<crate::cache::DataCache>,
+}
+
+/// The host's files, by bare names only: any other name is refused, as is every file when the
+/// front end gave no local system.
+pub(crate) struct Checked<'a>(pub(crate) &'a mut Option<Box<dyn LocalSystem + Send>>);
+
+impl LocalSystem for Checked<'_> {
+    fn folder(&self) -> Option<String> {
+        self.0.as_ref()?.folder()
+    }
+
+    fn local_time(&self) -> Option<LocalTime> {
+        self.0.as_ref()?.local_time()
+    }
+
+    fn real_time(&self) -> Option<i64> {
+        self.0.as_ref()?.real_time()
+    }
+
+    fn append_line(&mut self, file: &str, bytes: &[u8]) -> bool {
+        bare_name(file) && self.0.as_mut().is_some_and(|l| l.append_line(file, bytes))
+    }
+
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        bare_name(file) && self.0.as_mut().is_some_and(|l| l.write_file(file, bytes))
+    }
+
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        if !bare_name(file) {
+            return None;
+        }
+        self.0.as_mut()?.read_file(file)
+    }
 }
 
 impl core::fmt::Debug for ClientHost {
@@ -226,14 +269,7 @@ impl Host for ClientHost {
     }
 
     fn database(&mut self) -> Option<&auberean_assets::Database> {
-        if self.data_files.is_empty() {
-            return None;
-        }
-        let files = &self.data_files;
-        Some(
-            self.database
-                .get_or_insert_with(|| auberean_assets::Database::new(files.clone())),
-        )
+        self.data_cache().map(crate::cache::DataCache::database)
     }
 
     fn wrote_text(&mut self, info: &TextInfo, text: &[u16]) {
@@ -242,22 +278,67 @@ impl Host for ClientHost {
         }
     }
 
+    fn local_time(&self) -> Option<LocalTime> {
+        self.local.as_ref()?.local_time()
+    }
+
+    fn real_time(&self) -> Option<i64> {
+        self.local.as_ref()?.real_time()
+    }
+
+    fn append_line(&mut self, file: &str, bytes: &[u8]) -> bool {
+        Checked(&mut self.local).append_line(file, bytes)
+    }
+
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        Checked(&mut self.local).write_file(file, bytes)
+    }
+
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        Checked(&mut self.local).read_file(file)
+    }
+
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }
 }
 
 impl ClientHost {
-    /// Look text up in these data files (the portal file first).
-    pub fn set_data_files(&mut self, files: &[Arc<DatFile>]) {
-        self.text = auberean_text::DatSource::new(files.to_vec());
-        self.data_files = files.to_vec();
-        self.database = None;
+    /// Keep the front end's clock and files (none: the natives that need them fail as the
+    /// client's do). The folder the files are kept in becomes the path scripts build file names on
+    /// and show a player, as the client shows its own folder.
+    pub fn set_local(&mut self, local: Option<Box<dyn LocalSystem + Send>>) {
+        self.output_path = local
+            .as_ref()
+            .and_then(|l| l.folder())
+            .map(|f| f.encode_utf16().collect())
+            .unwrap_or_default();
+        self.local = local;
     }
 
-    /// The qualities record with this id, read once. A record the portal file holds that does
+    /// Look text and records up in these data files (the portal file first), through a data
+    /// cache of the host's own.
+    pub fn set_data_files(&mut self, files: &[Arc<DatFile>]) {
+        let clock = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        self.set_data_cache(crate::cache::DataCache::new(files.to_vec(), clock));
+    }
+
+    /// Look text and records up through the client's data cache (shared with its requests).
+    pub fn set_data_cache(&mut self, cache: crate::cache::DataCache) {
+        self.text = cache.text_source();
+        self.cache = Some(cache);
+    }
+
+    /// The data cache, when the host has data files.
+    pub(crate) fn data_cache(&self) -> Option<&crate::cache::DataCache> {
+        self.cache.as_ref().filter(|c| !c.is_empty())
+    }
+
+    /// The qualities record with this id, read once: an object's defaults, the record its own
+    /// qualities derive from. A record the portal file holds that does
     /// not read is read again first: only a failure that repeats is remembered (a read the
     /// machine got wrong once would otherwise hide the record for the rest of the run).
+    // D2-07253
     pub(crate) fn record(&mut self, id: u32) -> Option<Arc<Record>> {
         if id == 0 {
             return None;
@@ -319,14 +400,20 @@ impl ClientHost {
 }
 
 /// The qualities record object `o`'s own qualities derive from: the one its qualities name, else
-/// the one its entity template's number names (0: none).
+/// the one its entity template's number names; with no template, its package's (the low half of
+/// the package's number; an object with no package names `0x8000_FFFF`); a description naming
+/// something other than a template names none (0).
+// D2-08216, D2-07250
 #[must_use]
 pub fn qualities_record(o: &auberean_client_model::Object) -> u32 {
     if o.qualities.base != 0 {
         return o.qualities.base;
     }
-    let entity = o.weenie.entity_did;
-    if entity & 0xFF00_0000 == 0x4700_0000 {
+    let w = &o.weenie;
+    let entity = w.entity_did;
+    if entity == 0 {
+        0x8000_0000 | (w.package_id & 0xFFFF)
+    } else if entity & 0xFF00_0000 == 0x4700_0000 {
         0x8100_0000 | (entity & 0x00FF_FFFF)
     } else {
         0
@@ -446,6 +533,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (INTERFACE, 0x0B, weenie_object),
     (INTERFACE, 0x40, is_the_player),
     (INTERFACE, 0x42, my_position),
+    (DISTRIBUTOR, 0x02, my_package),
     (DISTRIBUTOR, 0x03, my_entity),
     (OBJECT_MAINTENANCE, 0x01, player_id),
     (OBJECT_MAINTENANCE, 0x02, player_reference),
@@ -494,6 +582,7 @@ pub fn model_natives(lib: &Library) -> NativeTable {
     for (id, f) in crate::examination::natives()
         .chain(crate::files::natives())
         .chain(crate::friends::natives())
+        .chain(crate::rooms::natives())
     {
         t.bind(id, Binding::Ported(f));
     }
@@ -503,6 +592,8 @@ pub fn model_natives(lib: &Library) -> NativeTable {
         .chain(crate::latent::natives())
         .chain(crate::combat::natives())
         .chain(crate::body::natives())
+        .chain(crate::physics_object::natives())
+        .chain(crate::log_system::natives())
         .chain(crate::looks::natives())
     {
         t.bind(id, Binding::Ported(f));
@@ -535,6 +626,8 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         frozen: HashMap::new(),
         bodies: HashMap::new(),
         readings: HashMap::new(),
+        body_requests: Vec::new(),
+        logs: crate::log_system::LogMasks::default(),
         looks: HashMap::new(),
         effects: Vec::new(),
         behaviors: Vec::new(),
@@ -553,10 +646,11 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         history: crate::shell::History::default(),
         sleeps: Vec::new(),
         friends: None,
+        rooms: None,
         my_position: None,
         records: HashMap::new(),
-        database: None,
-        data_files: Vec::new(),
+        local: None,
+        cache: None,
     }
 }
 
@@ -700,7 +794,8 @@ const REF_LIST: u32 = 0x65;
 /// The native type of an array of references.
 const SHORTCUT_ARRAY: u32 = 0x61;
 
-/// The scripts: the machine and the host.
+/// The scripts: the machine and the host. Dropped, the machine goes with them.
+// D2-07979, D2-07985
 pub struct Scripts {
     pub vm: Vm,
     pub host: ClientHost,
@@ -725,7 +820,9 @@ impl Scripts {
         }
     }
 
-    /// The character left the world: every instance goes.
+    /// The character left the world: every instance goes, and the player's command line is made
+    /// anew, knowing no command.
+    // D2-07983, D2-07984
     pub fn reset(&mut self) {
         let stops = std::mem::take(&mut self.vm.stops);
         self.vm = Vm::new(Arc::clone(&self.host.program));
@@ -735,10 +832,18 @@ impl Scripts {
         self.host.instances.clear();
         self.host.frozen.clear();
         self.host.bodies.clear();
+        self.host.body_requests.clear();
         self.host.requests.clear();
         self.host.selections.clear();
         self.host.effects.clear();
         self.host.looks.clear();
+        self.host.commands = crate::shell::Commands::default();
+    }
+
+    /// The process of an engine object's instance, when one was made.
+    #[must_use]
+    pub fn process(&self, id: u64) -> Option<usize> {
+        self.processes.get(&id).copied()
     }
 
     /// The process of an engine object's instance, made the first time.
@@ -772,7 +877,7 @@ impl Scripts {
 
     /// Run a call from the server on an object's instance (the player's when `object` is none or
     /// not here).
-    // D2-08038, D2-03978, D2-03979
+    // D2-08038, D2-03978, D2-03979, D2-08039, D2-08031
     pub fn run(&mut self, object: Option<u64>, function: u32, args: &[u8]) -> CallResult {
         let target = object
             .filter(|o| self.host.model.object(*o).is_some())
@@ -879,7 +984,9 @@ impl Scripts {
 
     /// Call one of the interface's functions on the player's instance, as the client's interface
     /// does when a panel asks the player's scripts for something (see [`call_on_process`]).
-    /// Returns how it went and the result slot.
+    /// Returns how it went and the result slot. Without a player object standing there is no
+    /// instance to call.
+    // D2-00347
     pub fn call_interface(&mut self, function: u32, args: &[InterfaceArg]) -> (CallResult, u32) {
         let Some(player) = self
             .host
@@ -1035,8 +1142,19 @@ impl Scripts {
     /// on the object's own instance, the result slot, the number, then the receiver; the result
     /// is a string reference, written in the client's language. `None` when the object is not
     /// here or the call gave no string reference.
-    // D2-00417, D2-01130
     pub fn object_name(&mut self, object: u64, quantity: u32) -> Option<String> {
+        let mut info = self.object_name_info(object, quantity)?;
+        Some(info.text(&mut self.host.text))
+    }
+
+    /// An object's name as its scripts give it for a number of it, as a string reference (see
+    /// [`Self::object_name`]).
+    // D2-00417, D2-01130
+    pub fn object_name_info(
+        &mut self,
+        object: u64,
+        quantity: u32,
+    ) -> Option<auberean_text::StringInfo> {
         self.host.model.object(object)?;
         self.vm.budget = BUDGET;
         let mut held = NULL;
@@ -1065,8 +1183,7 @@ impl Scripts {
         };
         self.vm.heap.abandon_builds();
         self.vm.stopped_at = None;
-        let info = info?;
-        Some(crate::text::from_script(&info).text(&mut self.host.text))
+        Some(crate::text::from_script(&info?))
     }
 
     /// A name from one of the player's lists the chat window steps through (the tells sent, the
@@ -1121,18 +1238,23 @@ impl Scripts {
     }
 
     /// The radar's ranges, indoors and outdoors, meters, as the radar's control script gives
-    /// them: its singleton asked with the two values' slots by reference.
-    // D2-01494
+    /// them: its singleton asked, in a process of its own made for the call and ended after it,
+    /// with the two values' slots by reference.
+    // D2-01494, D2-16490
     pub fn radar_ranges(&mut self) -> Option<(f32, f32)> {
-        let player = self
-            .host
+        self.host
             .model
             .player
             .filter(|p| self.host.model.object(*p).is_some())?;
         let control = self.host.program.library.package_id("RadarControl")?;
         self.vm.budget = BUDGET;
         let mut out = None;
-        let outcome = self.process_of(player).and_then(|p| {
+        let singleton = self
+            .vm
+            .heap
+            .singleton(auberean_script::library::STATE_BASE | (control & 0xFFFF));
+        let p = self.vm.create_process(singleton);
+        let outcome = (|| -> Result<Status, Stop> {
             let mut cx = self.vm.new_context(p);
             let outdoor = cx.sp;
             cx.push(0, tag::MIXED)?;
@@ -1146,10 +1268,7 @@ impl Scripts {
             );
             cx.push(to_outdoor, tag::REFERENCE)?;
             cx.push(to_indoor, tag::REFERENCE)?;
-            let receiver = self
-                .vm
-                .heap
-                .singleton(auberean_script::library::STATE_BASE | (control & 0xFFFF));
+            let receiver = singleton;
             cx.push(receiver, tag::REFERENCE)?;
             let prog = Arc::clone(&self.host.program);
             let package = self.vm.package_of(&mut self.host, receiver, &prog)?;
@@ -1162,7 +1281,8 @@ impl Scripts {
             let read = |k: usize| cx.slot(k).map_or(0.0, |(v, _)| f32::from_bits(v));
             out = Some((read(indoor), read(outdoor)));
             Ok(status)
-        });
+        })();
+        self.vm.delete_process(p);
         self.vm.heap.abandon_builds();
         self.vm.stopped_at = None;
         match outcome {
@@ -1229,6 +1349,16 @@ impl Scripts {
         function: u32,
         ty: u32,
     ) -> Option<(CallResult, NativeObject)> {
+        self.call_out_answered(function, ty)
+            .map(|(r, _, held)| (r, held))
+    }
+
+    /// As [`Scripts::call_out`], with the word the function answered.
+    pub(crate) fn call_out_answered(
+        &mut self,
+        function: u32,
+        ty: u32,
+    ) -> Option<(CallResult, u32, NativeObject)> {
         let player = self
             .host
             .model
@@ -1236,6 +1366,7 @@ impl Scripts {
             .filter(|p| self.host.model.object(*p).is_some())?;
         self.vm.budget = BUDGET;
         let mut held_now = NativeObject::new(&self.host.program.library, ty);
+        let mut answered = 0;
         let outcome = self.process_of(player).and_then(|p| {
             let mut cx = self.vm.new_context(p);
             let lib = &self.host.program.library;
@@ -1257,6 +1388,7 @@ impl Scripts {
                 package,
                 auberean_script::value::FunctionId(function),
             )?;
+            answered = cx.slot(slot + 1)?.0;
             let (r, _) = cx.slot(slot)?;
             if let Ok(o) = self.vm.heap.native(r) {
                 held_now = o.clone();
@@ -1272,7 +1404,7 @@ impl Scripts {
         };
         self.vm.heap.abandon_builds();
         self.vm.stopped_at = None;
-        Some((r, held_now))
+        Some((r, answered, held_now))
     }
 
     /// The player's quests, as the journal asks for them: the interface's quest-list function
@@ -1299,6 +1431,24 @@ impl Scripts {
         match o {
             NativeObject::Options(p) => Some(*p),
             _ => None,
+        }
+    }
+
+    /// The windows' saved places the player's scripts keep, as the play screen asks for them:
+    /// the interface's function fills a new table in the slot and answers 1 when it did. The
+    /// table's packed form; `None` when there is no player here or the function answered 0.
+    // D2-00564, D2-01182
+    pub fn ui_save_locations(&mut self) -> Option<Vec<u8>> {
+        let (_, answered, held) = self.call_out_answered(
+            crate::interface::function::INQ_UI_SAVE_LOCATIONS,
+            native_type::UI_SAVE_LOCATIONS,
+        )?;
+        if answered == 0 {
+            return None;
+        }
+        match held {
+            NativeObject::Packed { bytes, .. } => Some(bytes),
+            _ => Some(auberean_script::options::NO_UI_LOCATIONS.to_vec()),
         }
     }
 
@@ -1419,6 +1569,25 @@ fn my_position(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// The package of the receiver's object's scripts (below the receiver); every bit set when its
+/// scripts have not been made.
+// D2-04655, D2-08032, D2-16406
+fn my_package(c: &mut Call<'_>) -> Result<Status, Stop> {
+    if c.receiver()? == NULL {
+        return Ok(Status::Crash);
+    }
+    let id = receiver_object(c)?;
+    let package = match host(c)?.instances.get(&id).copied() {
+        Some(i) => {
+            let prog = Arc::clone(c.vm.program());
+            c.vm.package_of(c.host, i, &prog)?
+        }
+        None => u32::MAX,
+    };
+    c.write(-2, package, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 /// The entity data id of the receiver's object (below the receiver).
 // D2-09203
 fn my_entity(c: &mut Call<'_>) -> Result<Status, Stop> {
@@ -1428,17 +1597,18 @@ fn my_entity(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// The player's id, 64 bits.
+/// The player's id, 64 bits (0 before the player is created).
 // D2-00961
 fn player_id(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let p = host(c)?.model.player.unwrap_or(0);
+    let p = host(c)?.model.player_id();
     write_long(c, -3, p)
 }
 
-/// The player's instance.
-// D2-00962
+/// The player's instance: none until the player's object is here.
+// D2-00962, D2-05647
 fn player_reference(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let r = match host(c)?.model.player {
+    let p = host(c)?.model.player_object().map(|o| o.id);
+    let r = match p {
         Some(p) => instance(c, p)?,
         None => NULL,
     };
@@ -1653,6 +1823,9 @@ fn panel_notice(c: &mut Call<'_>) -> Result<Status, Stop> {
         let (v, t) = c.cx.slot(c.cx.frame_index(-2 - k)?)?;
         args.push(v);
         if k > 0 || everyone {
+            // A copy of the object as it is now (a shop's whole value, as the store's notices
+            // copy one for the panels).
+            // D2-12385, D2-12384
             let object = (tag::is_reference(t) && v != NULL)
                 .then(|| c.vm.heap.native(v).ok().cloned())
                 .flatten();

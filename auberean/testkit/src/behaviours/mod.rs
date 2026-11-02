@@ -133,12 +133,14 @@ pub struct Subject {
 }
 
 pub mod animation;
+pub mod audio;
 pub mod collision;
 pub mod data;
 pub mod desktop;
 pub mod detection;
 pub mod draw;
 pub mod friends;
+pub mod geometry;
 pub mod missile;
 pub mod model;
 pub mod motion;
@@ -159,6 +161,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "animation",
         rows: animation::ROWS,
+    },
+    Subject {
+        name: "audio",
+        rows: audio::ROWS,
     },
     Subject {
         name: "collision",
@@ -183,6 +189,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "friends",
         rows: friends::ROWS,
+    },
+    Subject {
+        name: "geometry",
+        rows: geometry::ROWS,
     },
     Subject {
         name: "missile",

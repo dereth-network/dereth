@@ -8,7 +8,7 @@ use auberean_client_sdk::protocol::quality::PrivateQuality;
 use auberean_client_sdk::protocol::text::{NarrowString, WideString};
 use auberean_client_sdk::protocol::types::{CharacterIdentity, PhysicsDesc, Placement};
 use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
-use auberean_client_sdk::{Action, Client, ClientData, ClientSettings, Motion};
+use auberean_client_sdk::{runtime, Action, Client, ClientData, ClientSettings, Motion};
 use auberean_testkit::double::script::{ConnSpec, Event, Msg, Script};
 use auberean_testkit::double::ServerDouble;
 
@@ -266,14 +266,8 @@ fn a_server_double_takes_the_client_through_login_character_list_and_world_entry
     assert_eq!(client.session.connections().count(), 1);
 }
 
-/// A selection turns the player to look at what it selected, and the client tells the server so
-/// each time; with the option to look at the selection off, it tells the server once that the
-/// player looks at nothing, and then nothing more. (No scripts run here: the selection itself is the
-/// player's scripts' to send.)
-///
-/// Behaviour: session.interface.looking-at-the-selection
-#[test]
-fn a_selection_is_looked_at_and_with_the_option_off_nothing_is_once() {
+/// A client the double took into the world, 12 seconds in, and the time it stands at.
+fn in_the_world() -> (ServerDouble, Client, f64) {
     let mut double = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
     let settings = ClientSettings {
         login_server: double.login_addr(),
@@ -284,19 +278,11 @@ fn a_selection_is_looked_at_and_with_the_option_off_nothing_is_once() {
         script_sends: false,
     };
     let mut client = Client::new(settings, ClientData::default());
-    let me = crate::replay::client_addr();
     let mut now = 0.0;
     let mut entered = false;
     while now < 12.0 {
         now += 1.0 / 60.0;
-        let t = LocalTime(1.0 + now);
-        client.frame(t);
-        while let Some((to, bytes)) = client.poll_transmit() {
-            double.datagram(to, me, &bytes, t);
-        }
-        for d in double.tick(t) {
-            client.handle_datagram(d.from, &d.bytes, t);
-        }
+        frame(&mut client, &mut double, now);
         if !entered {
             if let Some(c) = client
                 .model
@@ -310,15 +296,43 @@ fn a_selection_is_looked_at_and_with_the_option_off_nothing_is_once() {
         }
     }
     assert!(client.model.player_object().is_some(), "in the world");
-    let looks = |c: &Client| -> Vec<u64> {
-        c.sent()
-            .iter()
-            .filter_map(|s| match &s.message {
-                ClientMessage::LookAt(t) => Some(t.0),
-                _ => None,
-            })
-            .collect()
-    };
+    (double, client, now)
+}
+
+/// One frame of `client` against `double` at `now` seconds in.
+fn frame(client: &mut Client, double: &mut ServerDouble, now: f64) {
+    let me = crate::replay::client_addr();
+    let t = LocalTime(1.0 + now);
+    client.frame(t);
+    while let Some((to, bytes)) = client.poll_transmit() {
+        double.datagram(to, me, &bytes, t);
+    }
+    for d in double.tick(t) {
+        client.handle_datagram(d.from, &d.bytes, t);
+    }
+}
+
+/// What the client told the server the player looks at, in order.
+fn looks(c: &Client) -> Vec<u64> {
+    c.sent()
+        .iter()
+        .filter_map(|s| match &s.message {
+            ClientMessage::LookAt(t) => Some(t.0),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A selection turns the player to look at what it selected, and the client tells the server so
+/// each time; with the option to look at the selection off, it tells the server once that the
+/// player looks at nothing, and then nothing more. The world is told each look, to turn the
+/// player's head; while no world takes them, the newest of them are kept. (No scripts run here:
+/// the selection itself is the player's scripts' to send.)
+///
+/// Behaviour: session.interface.looking-at-the-selection
+#[test]
+fn a_selection_is_looked_at_and_with_the_option_off_nothing_is_once() {
+    let (_double, mut client, _) = in_the_world();
     client.act(Action::Select { target: 0x40 });
     client.act(Action::Select { target: 0x41 });
     assert_eq!(looks(&client), [0x40, 0x41]);
@@ -327,6 +341,122 @@ fn a_selection_is_looked_at_and_with_the_option_off_nothing_is_once() {
     client.act(Action::Select { target: 0x43 });
     assert_eq!(looks(&client), [0x40, 0x41, 0]);
     assert_eq!(client.looking_at, 0);
+    assert_eq!(
+        client.selection_looks,
+        [0x40, 0x41, 0],
+        "what the player's head is turned to, for the world"
+    );
+    client.look_at_selection = true;
+    let many: Vec<u64> = (0x100..0x100 + 2 * runtime::LOOKS_KEPT as u64).collect();
+    for &target in &many {
+        client.act(Action::Select { target });
+    }
+    assert_eq!(
+        client.selection_looks,
+        many[many.len() - runtime::LOOKS_KEPT..],
+        "the newest looks kept for a world that has not taken them"
+    );
+}
+
+/// The player never looks at itself or at what it holds: selecting either tells the server the
+/// player looks at nothing, and the server's saying it looks at one leaves it looking at nothing;
+/// with the option to look at the selection off, a player the server set looking at something is
+/// told to look at nothing at the next selection.
+///
+/// Behaviour: session.interface.the-player-never-looks-at-itself-or-what-it-holds
+#[test]
+fn selecting_itself_or_what_it_holds_looks_at_nothing() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, Target};
+    use auberean_client_sdk::protocol::types::{ObjectStamp, ParentLink};
+    const SWORD: u64 = 0x2130_0000_0000_0042;
+    let (_double, mut client, _) = in_the_world();
+    let mut sword = CreateObject {
+        id: SWORD,
+        ..CreateObject::default()
+    };
+    sword.physics = PhysicsDesc {
+        bits: PhysicsDesc::PARENT,
+        instance_stamp: 1,
+        parent: ParentLink {
+            parent: PLAYER,
+            location: 1,
+            stamp: 1,
+        },
+        ..PhysicsDesc::default()
+    };
+    client.take_message(WORLD | 100, ServerMessage::CreateObject(sword));
+    assert_eq!(client.model.children(PLAYER), [SWORD], "held");
+    client.act(Action::Select { target: 0x40 });
+    client.act(Action::Select { target: PLAYER });
+    client.act(Action::Select { target: SWORD });
+    client.act(Action::Select { target: 0x41 });
+    assert_eq!(looks(&client), [0x40, 0, 0, 0x41]);
+    assert_eq!(client.selection_looks, [0x40, 0, 0, 0x41]);
+    let look = |target: u64| {
+        ServerMessage::LookAt(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Target(target),
+        })
+    };
+    client.take_message(WORLD | 101, look(SWORD));
+    assert_eq!(client.looking_at, 0, "what it holds is nothing to look at");
+    client.take_message(WORLD | 102, look(0x44));
+    assert_eq!(client.looking_at, 0x44);
+    client.look_at_selection = false;
+    client.act(Action::Select { target: 0x45 });
+    client.act(Action::Select { target: 0x46 });
+    assert_eq!(looks(&client), [0x40, 0, 0, 0x41, 0]);
+}
+
+/// Where the player's head points, once a world turns it, is sent to the server while the player
+/// looks at nothing: at once, then only when it moved more than 0.0002 either way and more than
+/// half a second after the last time; nothing while the player looks at an object.
+///
+/// Behaviour: session.interface.the-players-head-sent-at-most-every-half-second
+#[test]
+fn where_the_players_head_points_is_sent_at_most_every_half_second() {
+    let (mut double, mut client, mut now) = in_the_world();
+    let heads = |c: &Client| -> Vec<(f64, f32, f32)> {
+        c.sent()
+            .iter()
+            .filter_map(|s| match &s.message {
+                ClientMessage::TurnHead(h) => Some((s.at, h.x, h.y)),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(heads(&client).is_empty(), "no world has turned the head");
+    let mut run = |client: &mut Client, seconds: f64, head: (f32, f32)| {
+        client.head = Some(head);
+        let end = now + seconds;
+        while now < end {
+            now += 1.0 / 60.0;
+            frame(client, &mut double, now);
+        }
+    };
+    run(&mut client, 0.1, (-0.25, 0.0));
+    run(&mut client, 0.2, (-0.25, 0.0001));
+    run(&mut client, 0.2, (-0.25, 0.3));
+    run(&mut client, 0.5, (-0.25, 0.3));
+    let sent = heads(&client);
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert_eq!((sent[0].1, sent[0].2), (-0.25, 0.0));
+    assert_eq!((sent[1].1, sent[1].2), (-0.25, 0.3));
+    assert!(sent[1].0 - sent[0].0 > 0.5, "{sent:?}");
+    assert!(
+        sent[1].0 - sent[0].0 < 0.55,
+        "the first frame after: {sent:?}"
+    );
+    client.act(Action::Select { target: 0x40 });
+    run(&mut client, 1.0, (0.1, 0.1));
+    assert_eq!(heads(&client).len(), 2, "looking at an object");
+    client.looking_at = 0;
+    run(&mut client, 0.1, (0.1, 0.1));
+    assert_eq!(heads(&client).len(), 3, "looking at nothing again");
 }
 
 /// The login of [`script`] with its first entry refused (the character still in the world) and

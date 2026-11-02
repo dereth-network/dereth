@@ -86,7 +86,7 @@ impl ScriptTrack {
 }
 
 /// The effect scripts an object plays on their own, in the order asked.
-// D2-15142
+// D2-15142, D2-15143
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScriptTracker {
     pub tracks: Vec<ScriptTrack>,

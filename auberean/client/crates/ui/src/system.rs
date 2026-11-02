@@ -190,8 +190,10 @@ pub struct Node {
     // The text element's.
     /// A text element's glyphs, caret, selection, view and font.
     pub text_state: Option<Box<crate::types::text::TextState>>,
-    /// The element's own tooltip text, in place of its `tooltip_entry`.
+    /// The element's own tooltip text, in place of its `tooltip_entry`; or its own tip as a
+    /// string reference, which the tooltip's text element writes.
     pub(crate) tooltip_text: Option<String>,
+    pub(crate) tooltip_info: Option<Box<auberean_text::StringInfo>>,
     /// A top-level element's drawn object turned in the screen's plane about its middle, whole
     /// degrees counterclockwise.
     pub rotation: i32,
@@ -450,7 +452,7 @@ impl Ui {
     }
 
     /// Note a change that is drawn: the screen is drawn again.
-    // D2-11166, D2-11167, D2-11232, D2-11231
+    // D2-11166, D2-11167, D2-11232, D2-11231, D2-11745
     pub(crate) fn touch(&mut self) {
         self.revision += 1;
     }
@@ -555,6 +557,9 @@ impl Ui {
         }
         self.roots.retain(|r| *r != h);
         self.deleting_element(h);
+        if let Some(l) = self.node(h).map(|n| self.lib.get(n.desc).layout) {
+            self.lib.drop_ref(l);
+        }
         self.revision += 1;
         let i = h.index as usize;
         self.nodes[i] = None;
@@ -596,6 +601,8 @@ impl Ui {
             }
         }
         self.mgr.delete_queue.retain(|x| *x != h);
+        self.mgr.object_listeners.retain(|(r, _), _| *r != h);
+        self.mgr.object_clean.retain(|(_, r, _)| *r != h);
         if self.mgr.drag == Some(h) {
             self.mgr.drag = None;
         }
@@ -649,6 +656,7 @@ impl Ui {
     fn create_element_with(&mut self, refdesc: DescIx, owns_object: bool) -> Option<Handle> {
         let desc = self.lib.dereference(refdesc)?;
         let (id, kind) = (self.lib.get(refdesc).id, self.lib.get(desc).kind);
+        self.lib.add_ref(self.lib.get(desc).layout);
         let h = self.alloc(Node {
             desc,
             refdesc,
@@ -705,6 +713,7 @@ impl Ui {
             text_state: (kind == crate::token::kind::TEXT)
                 .then(|| Box::new(crate::types::text::TextState::default())),
             tooltip_text: None,
+            tooltip_info: None,
             rotation: 0,
             fills: Vec::new(),
             overlay: None,
@@ -721,8 +730,9 @@ impl Ui {
         }
         self.set_visible(h, true);
         self.flush_pending();
-        // What each kind does when it is made.
-        // D2-11271, D2-11263
+        // What each kind does when it is made (a field is made as any element is, remembering no
+        // state of its own).
+        // D2-11271, D2-11263, D2-11493, D2-11497
         if kind == crate::token::kind::BUTTON {
             self.button_created(h);
         } else if kind == crate::token::kind::DRAGBAR {
@@ -1031,11 +1041,7 @@ impl Ui {
                 self.bool_changed(h, t, *b);
             }
             (t, Value::Bool(b)) if t == attr::HIDE => self.set_visible(h, !*b),
-            (t, Value::Bool(b)) if t == attr::MOUSE_INVISIBLE => {
-                if let Some(n) = self.node_mut(h) {
-                    n.mouse_visible = !*b;
-                }
-            }
+            (t, Value::Bool(b)) if t == attr::MOUSE_INVISIBLE => self.set_mouse_visible(h, !*b),
             (t, Value::Int(_))
                 if t == attr::ACTIVATE_ORDER && self.node(h).is_some_and(|n| n.ready) =>
             {
@@ -1223,9 +1229,23 @@ impl Ui {
 
     /// Give another element every attribute this one has and it lacks, table by table (text
     /// tokens, ids, objects, whole numbers, fractions, yes-or-no values, data ids, text); within
-    /// a table by name.
-    // D2-11350
+    /// a table by name. Then each child does the same for the other's first child made from the
+    /// same description (a child the other lacks ends it there); a text element then gives the
+    /// other its text, when theirs differ.
     pub fn match_attributes(&mut self, h: Handle, other: Handle) -> bool {
+        let matched = self.element_match_attributes(h, other);
+        if matched
+            && self
+                .node(h)
+                .is_some_and(|n| n.kind == crate::token::kind::TEXT)
+        {
+            self.text_match_attributes(h, other);
+        }
+        matched
+    }
+
+    // D2-11350
+    fn element_match_attributes(&mut self, h: Handle, other: Handle) -> bool {
         let Some(n) = self.node(h) else { return false };
         if self.node(other).is_none() {
             return false;
@@ -1254,6 +1274,22 @@ impl Ui {
             if lacks {
                 self.set_attr(other, name, v);
             }
+        }
+        let kids = self.node(h).map(|n| n.children.clone()).unwrap_or_default();
+        for c in kids {
+            let Some(id) = self.node(c).map(|n| n.id) else {
+                continue;
+            };
+            let twin = self.node(other).and_then(|o| {
+                o.children
+                    .iter()
+                    .copied()
+                    .find(|k| self.node(*k).is_some_and(|kn| kn.id == id))
+            });
+            let Some(twin) = twin else {
+                return true;
+            };
+            self.match_attributes(c, twin);
         }
         true
     }

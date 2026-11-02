@@ -16,11 +16,16 @@
 //! An object whose look plays startup effects begins them the first time it is drawn after it is
 //! put together, and they move with it.
 //!
+//! Each body is made through the client, which names the physics record it is made from
+//! ([`Others::make_physics_obj`]).
+//!
 //! Only the cells of the landblocks around the player's (the one it stands in and the eight
-//! beside it) are loaded. An object whose position lies in a cell not loaded leaves the world: it
-//! is kept, with that position, in the list of the objects lost in that cell, and neither moves
-//! nor is drawn; when the cell is loaded again, every object lost in it enters the world where it
-//! was last put.
+//! beside it) are loaded; with no player, none is. An object whose position (or creation) lies in
+//! a cell not loaded leaves the world: it is kept, with that position, in the list of the objects
+//! lost in that cell, and neither moves nor is drawn; when the cell is loaded again, every object
+//! lost in it enters the world where it was last put. A body in the world leaves it where it
+//! stands when the cell it stands in is let go of, unless it never moves
+//! ([`Others::leave_visibility`], asked through the client).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -31,6 +36,7 @@ use auberean_animation::CachedRecords;
 use auberean_client_sdk::model::model::Place;
 use auberean_client_sdk::model::{Model, Object};
 use auberean_client_sdk::protocol::types::{VisualDesc as WireVisual, WeenieDesc};
+use auberean_client_sdk::runtime::world::PhysicsObjOrder;
 use auberean_draw::body::BodyDrawer;
 use auberean_draw::scene::ObjectBatch;
 use auberean_draw::systems::ParticleSystems;
@@ -88,14 +94,14 @@ pub fn position_of(place: &Place) -> Position {
 /// How many landblocks around the player's each way have their cells loaded.
 pub const NEAR_RADIUS: u32 = 1;
 
-/// Whether a cell is loaded while the player stands in cell `around` (everything is, with no
-/// player): a land cell when `land` holds its landblock (the near window's), an interior cell when
-/// its landblock is the player's or one beside it.
+/// Whether a cell is loaded while the player stands in cell `around` (none is, with no player:
+/// the client holds no cells then): a land cell when `land` holds its landblock (the near
+/// window's), an interior cell when its landblock is the player's or one beside it.
 // D2-10776
 #[must_use]
 pub fn is_loaded(cell: u32, around: Option<u32>, land: &Land) -> bool {
     let Some(at) = around else {
-        return true;
+        return false;
     };
     let (x, y) = ((cell >> 24) & 0xFF, (cell >> 16) & 0xFF);
     if cell & 0xFFFF < 0x100 {
@@ -154,6 +160,94 @@ impl LostCell {
             }
             None => false,
         }
+    }
+}
+
+/// The lost cells: the objects lost in each cell not loaded, and the cell each object is lost in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LostCells {
+    cells: BTreeMap<u32, LostCell>,
+    of: BTreeMap<u64, u32>,
+}
+
+impl LostCells {
+    /// The objects lost in cell `cell`, made when first asked for.
+    // D2-05694
+    fn lost_cell(&mut self, cell: u32) -> &mut LostCell {
+        self.cells
+            .entry(cell)
+            .or_insert_with(|| LostCell::new(cell))
+    }
+
+    /// Takes object `id` out of the cell it is lost in. Whether it was lost in one.
+    // D2-05695, D2-05621
+    pub fn remove(&mut self, id: u64) -> bool {
+        let Some(cell) = self.of.remove(&id) else {
+            return false;
+        };
+        if let Some(l) = self.cells.get_mut(&cell) {
+            l.remove(id);
+        }
+        true
+    }
+
+    /// Object `id` is lost in cell `cell`: out of any cell it was lost in first, then into
+    /// `cell`'s list, unless it hangs from another (`has_parent`), which is lost in none. Whether
+    /// it went into the list.
+    // D2-05708, D2-05620
+    pub fn goto(&mut self, id: u64, cell: u32, has_parent: bool) -> bool {
+        if cell == 0 {
+            return false;
+        }
+        self.remove(id);
+        if has_parent {
+            return false;
+        }
+        self.of.insert(id, cell);
+        self.lost_cell(cell).add(id);
+        true
+    }
+
+    /// Cell `cell` is loaded: its list goes, and the objects that were lost in it are given back,
+    /// in the list's order.
+    // D2-05681, D2-05624
+    pub fn take(&mut self, cell: u32) -> Vec<u64> {
+        let Some(l) = self.cells.remove(&cell) else {
+            return Vec::new();
+        };
+        for id in &l.objects {
+            self.of.remove(id);
+        }
+        l.objects
+    }
+
+    /// Forgets every lost cell.
+    // D2-05674, D2-16422
+    pub fn flush(&mut self) {
+        self.cells.clear();
+        self.of.clear();
+    }
+
+    /// The cell object `id` is lost in (0 for none).
+    #[must_use]
+    pub fn cell_of(&self, id: u64) -> u32 {
+        self.of.get(&id).copied().unwrap_or(0)
+    }
+
+    /// The cells objects are lost in.
+    pub fn cells(&self) -> impl Iterator<Item = u32> + '_ {
+        self.cells.keys().copied()
+    }
+
+    /// How many objects are lost.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.of.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.of.is_empty()
     }
 }
 
@@ -349,8 +443,11 @@ struct Other {
     body: Option<OtherBody>,
     scale: Vec3,
     seen: bool,
-    /// The cell it is lost in (0 for none).
-    lost_cell: u32,
+    /// The physics record its physics object was made from, as the client named it (0 for
+    /// none): its entry in the world's table takes that record's properties.
+    record: u32,
+    /// Just made: its creation's place, mode and sliders are still to be taken.
+    fresh: bool,
     /// The behaviors its figure was last told the body shows.
     shown: BTreeSet<u32>,
     /// Its handle in the world's table while it is in the world.
@@ -372,11 +469,14 @@ struct Other {
 #[derive(Default)]
 pub struct Others {
     bodies: BTreeMap<u64, Other>,
-    lost: BTreeMap<u32, LostCell>,
+    lost: LostCells,
     /// The bodies that left the world (`false`) or entered it again (`true`) since last taken.
     world_changes: Vec<(u64, bool)>,
     /// What each figure finished and the hooks it fired since last taken, by body.
     heard: Vec<(u64, Vec<Completion>, Vec<u32>)>,
+    /// The speed, acceleration and jump scales of the bodies that went while their objects stayed,
+    /// with the incarnation they were for: the client's physics object outlives its body here.
+    kept: BTreeMap<u64, (u16, [f32; 3])>,
 }
 
 impl std::fmt::Debug for Others {
@@ -387,7 +487,9 @@ impl std::fmt::Debug for Others {
     }
 }
 
-fn drawn(o: &Object) -> bool {
+/// Whether the scene draws object `o` as a body of its own: in the world with a place, hanging from
+/// nothing and in no container.
+pub(crate) fn drawn(o: &Object) -> bool {
     o.in_world && o.place.is_some() && o.parent.is_none() && o.container.is_none()
 }
 
@@ -398,6 +500,13 @@ fn heading_of(q: Quat) -> f32 {
 }
 
 impl Others {
+    /// The sounds every body's effects played or stopped since last taken, each with its object.
+    pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
+        for fx in self.bodies.values_mut().filter_map(|b| b.effects.as_mut()) {
+            out.extend(fx.sounds.drain(..).map(|s| (fx.id, s)));
+        }
+    }
+
     /// How many bodies are drawn.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
@@ -511,78 +620,104 @@ impl Others {
 
     /// Object `id`'s body goes: out of the cell it is lost in and out of the world's table.
     // D2-05725, D2-05638
-    fn destroy_object(&mut self, id: u64, world: &mut World) {
-        self.remove_from_lost_cell(id);
+    pub(crate) fn destroy_object(&mut self, id: u64, world: &mut World) {
+        self.lost.remove(id);
         if let Some(k) = self.bodies.get(&id).and_then(|b| b.key) {
             world.remove(k);
         }
-        self.bodies.remove(&id);
-    }
-
-    /// The objects lost in cell `cell`, made when first asked for.
-    // D2-05694
-    fn lost_cell(&mut self, cell: u32) -> &mut LostCell {
-        self.lost.entry(cell).or_insert_with(|| LostCell::new(cell))
-    }
-
-    /// Takes an object out of the cell it is lost in. Whether it could.
-    // D2-05695, D2-05621
-    fn remove_from_lost_cell(&mut self, id: u64) -> bool {
-        let Some(b) = self.bodies.get_mut(&id) else {
-            return false;
-        };
-        let cell = std::mem::take(&mut b.lost_cell);
-        if cell != 0 {
-            if let Some(l) = self.lost.get_mut(&cell) {
-                l.remove(id);
+        if let Some(b) = self.bodies.remove(&id) {
+            if let Some(ob) = b.body {
+                let s = &ob.body;
+                self.kept.insert(
+                    id,
+                    (
+                        b.instance,
+                        [s.velocity_scale(), s.acceleration_scale(), s.jump_scale()],
+                    ),
+                );
             }
         }
-        true
     }
 
-    /// Puts an object in the list of those lost in `cell`, out of any other. Whether it went.
-    // D2-05708, D2-05620
-    fn goto_lost_cell(&mut self, id: u64, cell: u32) -> bool {
-        if cell == 0 || !self.bodies.contains_key(&id) {
-            return false;
-        }
-        self.remove_from_lost_cell(id);
-        if let Some(b) = self.bodies.get_mut(&id) {
-            b.lost_cell = cell;
-        }
-        self.lost_cell(cell).add(id);
-        true
+    /// Puts an object the scene has in the list of those lost in `cell`, out of any other; one
+    /// that hangs from another (`has_parent`) is lost in none. Whether it went.
+    fn goto_lost_cell(&mut self, id: u64, cell: u32, has_parent: bool) -> bool {
+        self.bodies.contains_key(&id) && self.lost.goto(id, cell, has_parent)
     }
 
     /// Cell `cell` is loaded: every object lost in it enters the world.
-    // D2-05681, D2-05624
     fn init_obj_cell(&mut self, cell: u32) {
-        let Some(l) = self.lost.remove(&cell) else {
-            return;
-        };
-        for id in l.objects {
-            if let Some(b) = self.bodies.get_mut(&id) {
-                b.lost_cell = 0;
-                if let Some(ob) = b.body.as_mut() {
-                    ob.re_enter_visibility();
-                }
+        for id in self.lost.take(cell) {
+            if let Some(ob) = self.bodies.get_mut(&id).and_then(|b| b.body.as_mut()) {
+                ob.re_enter_visibility();
             }
         }
     }
 
     /// Forgets every lost cell.
-    // D2-05674, D2-16422
     pub fn flush_lost_cells(&mut self) {
-        self.lost.clear();
-        for b in self.bodies.values_mut() {
-            b.lost_cell = 0;
+        self.lost.flush();
+    }
+
+    /// Object `id`'s body leaves the world where it stands, as its cell is let go of: it is lost in
+    /// that cell (unless it hangs from another, `has_parent`) and out of the world's table until the
+    /// cell is loaded again. Whether it was in the world.
+    pub(crate) fn leave_visibility(
+        &mut self,
+        id: u64,
+        has_parent: bool,
+        world: &mut World,
+    ) -> bool {
+        let Some(b) = self.bodies.get_mut(&id) else {
+            return false;
+        };
+        let Some(ob) = b.body.as_mut().filter(|ob| ob.in_world()) else {
+            return false;
+        };
+        let at = ob.body.position;
+        ob.leave_visibility(at);
+        if let Some(k) = b.key.take() {
+            world.remove(k);
         }
+        self.goto_lost_cell(id, at.cell.0, has_parent);
+        self.world_changes.push((id, false));
+        true
+    }
+
+    /// Whether object `id`'s body never moves (static).
+    #[must_use]
+    pub fn is_static(&self, id: u64) -> bool {
+        self.bodies
+            .get(&id)
+            .and_then(|b| b.body.as_ref())
+            .is_some_and(|ob| ob.body.is_static())
+    }
+
+    /// The cell each body stands in (`None` for one out of the world), by object.
+    pub(crate) fn cells(&self) -> impl Iterator<Item = (u64, Option<u32>)> + '_ {
+        self.bodies.iter().filter_map(|(id, b)| {
+            let ob = b.body.as_ref()?;
+            Some((*id, ob.in_world().then_some(ob.body.position.cell.0)))
+        })
+    }
+
+    /// The cell object `id` is lost in (0 for none).
+    #[must_use]
+    pub fn lost_cell_of(&self, id: u64) -> u32 {
+        self.lost.cell_of(id)
+    }
+
+    /// The physics record object `id`'s physics object was made from (0 for none); `None` when
+    /// the scene has none for it.
+    #[must_use]
+    pub fn physics_record(&self, id: u64) -> Option<u32> {
+        self.bodies.get(&id).map(|b| b.record)
     }
 
     /// How many objects are lost in cells not loaded.
     #[must_use]
     pub fn lost(&self) -> usize {
-        self.lost.values().map(|l| l.objects.len()).sum()
+        self.lost.len()
     }
 
     /// The drawn bodies nearest `at` (on the one grid across every block), each where it is drawn
@@ -609,8 +744,9 @@ impl Others {
 
     /// Follow the model at time `now` (the game clock at `game_now`): new objects put together,
     /// gone ones dropped, the positions heard since the last frame taken, every body in range run
-    /// through the frame's physics ticks against `land` and animated by how it moved, over `dt`
-    /// seconds; `player` is the player's id and where its body is.
+    /// through the frame's physics ticks against `land` and, when the frame has an animation step
+    /// (`anim`, in seconds), animated by how it moved; `player` is the player's id and where its
+    /// body is.
     #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
@@ -624,7 +760,8 @@ impl Others {
         objects: &mut dyn Objects,
         ticks: u32,
         game_now: f64,
-        dt: f32,
+        anim: Option<f32>,
+        look: &mut dyn FnMut(u64, &Body, &mut Figure, f32),
     ) {
         for b in self.bodies.values_mut() {
             b.seen = false;
@@ -640,8 +777,7 @@ impl Others {
         // The cells loaded again take back the objects lost in them.
         let found: Vec<u32> = self
             .lost
-            .keys()
-            .copied()
+            .cells()
             .filter(|c| is_loaded(*c, around, land))
             .collect();
         for c in found {
@@ -661,36 +797,18 @@ impl Others {
             }
             let Some(place) = o.place else { continue };
             let o = &*o;
-            // A newer incarnation of an object the client has: the one it had goes, and the new
-            // one is made where it was created.
-            // D2-05731, D2-05737
-            if self
-                .bodies
-                .get(&id)
-                .is_some_and(|b| b.instance != o.instance_stamp)
-            {
-                self.destroy_object(id, world);
-            }
             let solid = ethereality(&o.weenie);
-            let o_desc = physics_description(o);
-            let new = !self.bodies.contains_key(&id);
-            let b = self.bodies.entry(id).or_insert_with(|| Other {
-                visual: None,
-                dress: None,
-                figure: None,
-                body: None,
-                scale: Vec3::new(1.0, 1.0, 1.0),
-                seen: true,
-                lost_cell: 0,
-                shown: BTreeSet::new(),
-                key: None,
-                shape: None,
-                effects: None,
-                instance: o.instance_stamp,
-                creations: o.creations,
-                standing: false,
-            });
+            // Its physics object was made through the client ([`Self::make_physics_obj`]).
+            let Some(b) = self
+                .bodies
+                .get_mut(&id)
+                .filter(|b| b.instance == o.instance_stamp)
+            else {
+                continue;
+            };
+            let o_desc = b.record;
             b.seen = true;
+            let new = std::mem::take(&mut b.fresh);
             // A creation of the incarnation it has: put where the creation says it stands, its
             // stamps the creation's (an object hanging from another is not drawn here).
             // D2-05660
@@ -709,47 +827,13 @@ impl Others {
                 }
             }
             if b.visual.as_ref() != Some(&o.visual) {
-                b.visual = Some(o.visual.clone());
-                let look = look_after(records, anims, &o.visual, &mut b.dress);
-                b.scale = look.as_ref().map_or(Vec3::new(1.0, 1.0, 1.0), |l| l.scale);
-                // Its figure brought up to date (made when it has none), its effects made again
-                // (its look's startup effects begun when it is next drawn).
-                crate::takes_look(anims, &mut b.figure, &mut b.effects, look.as_ref(), id);
-                let config = look
-                    .as_ref()
-                    .zip(b.figure.as_ref())
-                    .and_then(|(l, f)| crate::body_config(records, l, f, &o.physics));
-                // The body stands where the object was last placed, or where it was created.
-                let (at, heading) = match &b.body {
-                    Some(old) => (old.body.position, old.body.heading),
-                    None => creation_place(o, &place),
+                let looks = Looks {
+                    records,
+                    anims,
+                    world: &mut *world,
+                    trees: &mut *trees,
                 };
-                let stamps = b
-                    .body
-                    .as_ref()
-                    .map_or((place.position_stamp, place.teleport_stamp), |old| {
-                        old.stamps
-                    });
-                if let Some(k) = b.key.take() {
-                    world.remove(k);
-                }
-                b.shape = config
-                    .as_ref()
-                    .filter(|(c, _)| c.spheres.is_empty())
-                    .and(look.as_ref())
-                    .and_then(|l| Shape::of_look(records, l, trees))
-                    .map(Arc::new);
-                b.body = config.map(|(c, _)| {
-                    let mut ob = OtherBody::new(id, c, at, heading, stamps);
-                    if let Some(k) = crate::velocity_scale(&o.physics) {
-                        ob.body.minterp.velocity_scale = k;
-                    }
-                    if let Some(l) = look.as_ref() {
-                        crate::give_parts(&mut ob.body, records, trees, l);
-                    }
-                    crate::profile::init_physics(records, o, &mut ob.body);
-                    ob
-                });
+                take_look(b, &o.visual, o, &place, &mut self.kept, looks);
             }
             // A creation's mode and sliders, once its figure is made: the figure stands in that
             // mode at once (a corpse lying dead) and its sliders go to their values.
@@ -777,14 +861,15 @@ impl Others {
                     Received::Ignored => {}
                 }
             }
-            // A body in the world whose cell is no longer loaded leaves it where it is.
-            if ob.in_world() && !is_loaded(ob.body.position.cell.0, around, land) {
+            // A body its creation puts in a cell not loaded leaves the world where it is. (One
+            // already in the world leaves it when its cell is let go of: [`Self::leave_visibility`].)
+            if created && ob.in_world() && !is_loaded(ob.body.position.cell.0, around, land) {
                 let at = ob.body.position;
                 ob.leave_visibility(at);
                 lost_in = Some(at.cell.0);
             }
             let in_world = ob.in_world();
-            let was_lost = b.lost_cell;
+            let was_lost = self.lost.cell_of(id);
             if !in_world {
                 if let Some(k) = b.key.take() {
                     world.remove(k);
@@ -792,12 +877,12 @@ impl Others {
             }
             if let Some(cell) = lost_in {
                 if was_lost != cell {
-                    self.goto_lost_cell(id, cell);
+                    self.goto_lost_cell(id, cell, o.has_parent());
                 }
                 continue;
             }
             if was_lost != 0 && in_world {
-                self.remove_from_lost_cell(id);
+                self.lost.remove(id);
             }
             let Some(b) = self.bodies.get_mut(&id) else {
                 continue;
@@ -845,13 +930,14 @@ impl Others {
                         }
                     }
                 }
-                if let Some(f) = &mut b.figure {
+                if let (Some(f), Some(step)) = (&mut b.figure, anim) {
                     // Feet that match how the body moved over its last tick.
-                    let (moved, turn, size) = crate::figure_motion(&mut ob.body, dt);
+                    let (moved, turn, size) = crate::figure_motion(&mut ob.body, step);
                     f.set_motion(moved, turn, size);
                     crate::forward_behaviors(&ob.body, &mut b.shown, f, anims);
                     f.ground = crate::ground_of(&ob.body);
-                    f.advance(anims, dt);
+                    look(id, &ob.body, f, step);
+                    f.advance(anims, step);
                     self.heard
                         .push((id, f.take_completions(), crate::take_triggers(f).0));
                 }
@@ -873,9 +959,57 @@ impl Others {
         for id in gone {
             self.destroy_object(id, world);
         }
-        if player.is_none() {
-            self.flush_lost_cells();
+        // An object the client forgot takes its physics object with it.
+        self.kept.retain(|id, _| model.object(*id).is_some());
+    }
+
+    /// Whether object `o` (one the scene draws) wants its physics object made: the scene has none
+    /// for it, or one for an older incarnation.
+    pub(crate) fn wants_physics_obj(&self, o: &Object) -> bool {
+        self.bodies
+            .get(&o.id)
+            .is_none_or(|b| b.instance != o.instance_stamp)
+    }
+
+    /// The physics object `order` describes, for the client's object `o` (which the scene draws):
+    /// its figure and body from the order's visual description, standing where `o` was created
+    /// (or last placed), its entry in the world's table to take the properties of the order's
+    /// physics record. A newer incarnation of an object the scene has takes the place of the one
+    /// it had. Whether it has a body: an object whose look makes none is kept, drawn by nothing.
+    // D2-05731, D2-05737
+    pub(crate) fn make_physics_obj(
+        &mut self,
+        order: &PhysicsObjOrder,
+        o: &Object,
+        looks: Looks<'_, '_>,
+    ) -> bool {
+        let Some(place) = o.place.filter(|_| order.id == o.id) else {
+            return false;
+        };
+        if self.bodies.contains_key(&o.id) {
+            self.destroy_object(o.id, looks.world);
         }
+        let mut b = Other {
+            visual: None,
+            dress: None,
+            figure: None,
+            body: None,
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            seen: true,
+            record: order.physics_record,
+            fresh: true,
+            shown: BTreeSet::new(),
+            key: None,
+            shape: None,
+            effects: None,
+            instance: o.instance_stamp,
+            creations: o.creations,
+            standing: false,
+        };
+        take_look(&mut b, &order.visual, o, &place, &mut self.kept, looks);
+        let made = b.body.is_some();
+        self.bodies.insert(o.id, b);
+        made
     }
 
     /// The bodies as batches, placed in block `block`'s frame.
@@ -996,6 +1130,45 @@ impl Others {
         }
     }
 
+    /// What the bodies' effects asked of streaks since last taken: each body's own are turned on or
+    /// off at once; each ask comes back with its body (for what it holds) and the holding location
+    /// it means.
+    // D2-06197, D2-06198
+    pub(crate) fn take_streak_asks(&mut self) -> Vec<(u64, bool, u32)> {
+        let mut out = Vec::new();
+        for (id, b) in &mut self.bodies {
+            if let Some(fx) = b.effects.as_mut() {
+                for (on, location) in fx.fx.take_streak_asks() {
+                    fx.fx.turn_streaks(on);
+                    out.push((*id, on, location));
+                }
+            }
+        }
+        out
+    }
+
+    /// The effects body `id` plays, when it has any.
+    pub(crate) fn effects_mut(&mut self, id: u64) -> Option<&mut crate::fx::BodyFx> {
+        self.bodies.get_mut(&id)?.effects.as_mut()
+    }
+
+    /// The streaks the bodies' own effects made, for frame `frame`: each placed where its body is
+    /// drawn this frame (`alpha` of the way between its last two ticks), when it is drawn (in the
+    /// world within the detailed blocks around the viewer, and not told not to be), run, and drawn.
+    pub(crate) fn streaks(&mut self, frame: &mut crate::held::StreakFrame<'_>, alpha: f32) {
+        for b in self.bodies.values_mut() {
+            let (Some(fx), Some(ob)) = (b.effects.as_mut(), b.body.as_ref()) else {
+                continue;
+            };
+            let drawn = b.figure.is_some()
+                && ob.in_world()
+                && in_detail(ob.body.position.cell.0, frame.block)
+                && !ob.body.is_no_draw();
+            let at = drawn.then(|| (ob.body.drawn(alpha).0, ob.body.total_scale(None)));
+            crate::held::object_streaks(&mut fx.fx, at.as_ref().map(|(p, s)| (p, *s)), frame);
+        }
+    }
+
     /// The lights the effects of the bodies in the world within the detailed blocks around the
     /// viewer (block `block`) placed on them, as they stand `now` with each body where it is
     /// drawn (`alpha` of the way between its last two ticks): each with the block its place is in.
@@ -1074,6 +1247,95 @@ pub(crate) fn place_in(at: Vec3, heading: f32, home: (i32, i32)) -> Mat4 {
     )
 }
 
+/// What making a body's look needs of the world.
+pub(crate) struct Looks<'a, 'w> {
+    pub records: &'a WorldRecords,
+    pub anims: &'a CachedRecords<'w>,
+    pub world: &'a mut World,
+    pub trees: &'a mut Trees,
+}
+
+/// Object `o`'s entry takes the look of `visual`: its figure brought up to date (made when it has
+/// none), its effects made again (its look's startup effects begun when it is next drawn), and its
+/// body made anew for the look, standing where the object was last placed or else where it was
+/// created (`place`), its scales those its old body had, or those `kept` for this incarnation.
+fn take_look(
+    b: &mut Other,
+    visual: &WireVisual,
+    o: &Object,
+    place: &Place,
+    kept: &mut BTreeMap<u64, (u16, [f32; 3])>,
+    looks: Looks<'_, '_>,
+) {
+    let Looks {
+        records,
+        anims,
+        world,
+        trees,
+    } = looks;
+    let id = o.id;
+    b.visual = Some(visual.clone());
+    let look = look_after(records, anims, visual, &mut b.dress);
+    b.scale = look.as_ref().map_or(Vec3::new(1.0, 1.0, 1.0), |l| l.scale);
+    crate::takes_look(anims, &mut b.figure, &mut b.effects, look.as_ref(), id);
+    let config = look
+        .as_ref()
+        .zip(b.figure.as_ref())
+        .and_then(|(l, f)| crate::body_config(records, l, f, &o.physics));
+    let (at, heading) = match &b.body {
+        Some(old) => (old.body.position, old.body.heading),
+        None => creation_place(o, place),
+    };
+    let stamps = b
+        .body
+        .as_ref()
+        .map_or((place.position_stamp, place.teleport_stamp), |old| {
+            old.stamps
+        });
+    // The scales the server gave its physics object, which outlives a change of look and its body
+    // going while the object stays.
+    let scales = b
+        .body
+        .as_ref()
+        .map(|old| {
+            [
+                old.body.velocity_scale(),
+                old.body.acceleration_scale(),
+                old.body.jump_scale(),
+            ]
+        })
+        .or_else(|| {
+            kept.remove(&id)
+                .filter(|(instance, _)| *instance == o.instance_stamp)
+                .map(|(_, s)| s)
+        });
+    if let Some(k) = b.key.take() {
+        world.remove(k);
+    }
+    b.shape = config
+        .as_ref()
+        .filter(|(c, _)| c.spheres.is_empty())
+        .and(look.as_ref())
+        .and_then(|l| Shape::of_look(records, l, trees))
+        .map(Arc::new);
+    b.body = config.map(|(c, _)| {
+        let mut ob = OtherBody::new(id, c, at, heading, stamps);
+        if let Some(k) = crate::velocity_scale(&o.physics) {
+            ob.body.minterp.velocity_scale = k;
+        }
+        if let Some(l) = look.as_ref() {
+            crate::give_parts(&mut ob.body, records, trees, l);
+        }
+        crate::profile::init_physics(records, o, &mut ob.body);
+        if let Some([v, a, j]) = scales {
+            ob.body.set_velocity_scale(v);
+            ob.body.set_acceleration_scale(a);
+            ob.body.set_jump_scale(j);
+        }
+        ob
+    });
+}
+
 /// Where an object first stands: its last position when it has had one, else where it was
 /// created, facing the creation's rotation.
 fn creation_place(o: &Object, place: &Place) -> (Position, f32) {
@@ -1106,18 +1368,6 @@ pub(crate) fn ethereality(w: &WeenieDesc) -> auberean_physics::solid::Etherealit
         movement: mask(0x2_0000, 0x4_0000),
         placement: mask(0x8_0000, 0x10_0000),
     }
-}
-
-/// The quality naming the record an object's physics object is made from.
-const PHYSICS_DESCRIPTION: u32 = 1;
-
-/// The record object `o`'s physics object is made from, as its qualities name it (0: none).
-pub(crate) fn physics_description(o: &Object) -> u32 {
-    o.qualities
-        .data_ids
-        .get(&PHYSICS_DESCRIPTION)
-        .copied()
-        .unwrap_or(0)
 }
 
 /// Entry `key` takes the properties of the entity record `desc` its object is made from (an

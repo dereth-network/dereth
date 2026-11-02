@@ -28,6 +28,8 @@ pub const LIBRARY_VERSION: u32 = 15;
 
 /// The compiled script library: a magic word, a version, and typed sections.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16785, D2-05074, D2-16790, D2-16786, D2-16791, D2-16792, D2-16794, D2-16606, D2-16576, D2-16524
+// D2-16537, D2-16556, D2-16602, D2-16604, D2-16544
 pub struct ScriptLibrary {
     pub version: u32,
     pub sections: Vec<Section>,
@@ -36,8 +38,10 @@ pub struct ScriptLibrary {
 /// One section of the script library, read by its type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Section {
-    /// Type 5: a list of version words.
-    Versions(Vec<u32>),
+    /// Type 5: the version entries, each a pair of narrow strings the loader checks in turn
+    /// (none in the retail library).
+    // D2-16543
+    Versions(Vec<(String, String)>),
     /// Type 1: the bytecode every code offset points into.
     Code(Vec<u8>),
     /// Type 2: the string literals, and for each the code offsets that use it.
@@ -51,8 +55,10 @@ pub enum Section {
     /// Type 7: the functions a server may call, by function id.
     ServerCallable(Vec<(u32, u32)>),
     /// Type 256: function names and their code offsets.
+    // D2-16678, D2-16680, D2-04291
     FunctionNames(Vec<(String, u32)>),
     /// Type 257: source files with their text (empty in the retail library).
+    // D2-16560, D2-00657, D2-00679
     SourceFiles(Vec<(String, String)>),
     /// Type 258: per source file, code offsets and the line each starts.
     Lines(Vec<SourceLines>),
@@ -90,6 +96,7 @@ pub struct Literal {
 /// One package the code refers to: its name, the symbols of it the code uses and where, and where
 /// the package's own id appears.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16582, D2-00660, D2-00680
 pub struct Import {
     pub package: String,
     pub symbols: Vec<ImportSymbol>,
@@ -99,6 +106,7 @@ pub struct Import {
 /// One symbol of an imported package: its name, the code offsets that use it, and a word that is
 /// 0 in every retail entry.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16585, D2-00678
 pub struct ImportSymbol {
     pub name: String,
     pub uses: Vec<u32>,
@@ -107,6 +115,7 @@ pub struct ImportSymbol {
 
 /// One package the library defines.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16609, D2-00732, D2-00736, D2-16615, D2-00731, D2-16621
 pub struct Export {
     pub name: String,
     pub base_name: String,
@@ -119,12 +128,13 @@ pub struct Export {
     /// The export index of the base package, -1 for none.
     pub parent: i32,
     /// Fields named for saving: name, slot and tag.
-    pub checkpoints: Vec<(String, u32, u32)>,
+    pub checkpoints: Vec<(String, u32, u8)>,
     pub functions: Vec<ExportFunction>,
 }
 
 /// One function of a package.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16612, D2-16613, D2-00673
 pub struct ExportFunction {
     pub name: String,
     pub id: u32,
@@ -153,6 +163,7 @@ pub struct DispatchTables {
 
 /// One source file's line table.
 #[derive(Clone, Debug, PartialEq, Default)]
+// D2-16595, D2-00656, D2-00681
 pub struct SourceLines {
     pub path: String,
     /// `(code offset, line)` pairs.
@@ -184,20 +195,17 @@ pub struct FrameMember {
     pub type_name: String,
 }
 
-/// A hash table as the script library stores it: a 16-bit count and a 16-bit bucket count, then
-/// the entries.
-fn library_hash<T>(
-    r: &mut Reader<'_>,
-    min_each: usize,
-    mut entry: impl FnMut(&mut Reader<'_>) -> Result<T>,
-) -> Result<Vec<T>> {
-    let n = r.count16(min_each)?;
-    let _buckets = r.u16()?;
-    let mut v = Vec::with_capacity(n);
-    for _ in 0..n {
-        v.push(entry(r)?);
-    }
-    Ok(v)
+/// A package's fields named for saving: a 32-bit count, then each name, its slot, and its tag in
+/// one byte brought to a multiple of four.
+// D2-00714, D2-00716
+fn checkpoints(r: &mut Reader<'_>) -> Result<Vec<(String, u32, u8)>> {
+    r.list(12, |r| {
+        let name = r.narrow_string()?;
+        let slot = r.u32()?;
+        let tag = r.u8()?;
+        r.align()?;
+        Ok((name, slot, tag))
+    })
 }
 
 /// A function name of the debugging table: plain bytes up to a zero byte.
@@ -213,8 +221,9 @@ fn zero_terminated(r: &mut Reader<'_>) -> Result<String> {
 
 impl Section {
     /// Read one section's contents, all of `bytes`, by its type number.
-    // D2-16533, D2-16546, D2-16564, D2-16688, D2-00699, D2-00733, D2-16515, D2-16516, D2-16517
+    // D2-16533, D2-16546, D2-16564, D2-16688, D2-00699, D2-00733, D2-16515, D2-16516, D2-16517, D2-16607, D2-16610, D2-16580, D2-16583, D2-16535, D2-16597, D2-16590, D2-16558, D2-16548, D2-16550, D2-16557
     // D2-16518, D2-16519, D2-16520, D2-16526
+    // D2-16568, D2-16614, D2-16617, D2-16589, D2-16596, D2-16684, D2-16685, D2-16538, D2-16603, D2-16522
     pub fn read(kind: u32, bytes: &[u8]) -> Result<Self> {
         let mut reader = Reader::new(bytes);
         let r = &mut reader;
@@ -261,9 +270,7 @@ impl Section {
                     checksum: r.u32()?,
                     package_id: r.u32()?,
                     parent: r.i32()?,
-                    checkpoints: library_hash(r, 12, |r| {
-                        Ok((r.narrow_string()?, r.u32()?, r.u32()?))
-                    })?,
+                    checkpoints: checkpoints(r)?,
                     functions: r.list(24, |r| {
                         Ok(ExportFunction {
                             name: r.narrow_string()?,
@@ -276,15 +283,18 @@ impl Section {
                     })?,
                 })
             })?),
-            5 => Self::Versions(r.u32_list()?),
+            // D2-16541, D2-16531, D2-16575
+            5 => Self::Versions(r.list(8, |r| Ok((r.narrow_string()?, r.narrow_string()?)))?),
             6 => Self::Dispatch(Box::new(DispatchTables {
                 function_slots: r.list(4, Reader::u32_list)?,
                 slot_tables: r.list(4, Reader::u32_list)?,
                 package_sizes: r.list(8, |r| Ok((r.u32()?, r.u32()?)))?,
                 export_index: r.u32_list()?,
-                names: library_hash(r, 8, |r| Ok((r.narrow_string()?, r.u32()?)))?,
+                // D2-16599
+                names: r.hash_table(8, |r| Ok((r.narrow_string()?, r.u32()?)))?,
             })),
-            7 => Self::ServerCallable(library_hash(r, 8, |r| Ok((r.u32()?, r.u32()?)))?),
+            // D2-16577
+            7 => Self::ServerCallable(r.hash_table(8, |r| Ok((r.u32()?, r.u32()?)))?),
             256 => {
                 let mut v = Vec::new();
                 while !r.at_end() {
@@ -355,7 +365,9 @@ impl Decode for ScriptLibrary {
 // Saved script states
 // ---------------------------------------------------------------------------------------------
 
-/// A package's saved state: its packed object graph, and the package it belongs to.
+/// A package's saved state: its packed object graph, and the package it belongs to. The record
+/// is made, emptied and let go of with the value.
+// D2-16772, D2-05080, D2-16779, D2-16773, D2-16767, D2-16780, D2-16396, D2-16398, D2-16399
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ScriptState {
     /// The packed object graph, unpacked by the script machine when an object of the package is
@@ -364,9 +376,20 @@ pub struct ScriptState {
     pub package: u32,
 }
 
+impl crate::Encode for ScriptState {
+    /// As [`ScriptState`] decodes: the id, the graph's byte count and bytes, the package id.
+    // D2-16770, D2-16776, D2-16769, D2-16775, D2-16397, D2-16736
+    fn encode(&self, id: u32, w: &mut auberean_dat::Writer) {
+        w.u32(id);
+        w.count(self.graph.len());
+        w.bytes(&self.graph);
+        w.u32(self.package);
+    }
+}
+
 impl Decode for ScriptState {
     /// The id, a byte count, the graph's bytes, the package id.
-    // D2-16771, D2-16400
+    // D2-16771, D2-16400, D2-16777
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let n = r.count(1)?;
@@ -416,6 +439,16 @@ pub struct ObjectDescription {
 }
 
 impl ObjectDescription {
+    /// The records the description names: its icon, then its name's and plural name's tables
+    /// (and the tables of the references inside them).
+    // D2-12067
+    pub fn sub_ids(&self, out: &mut auberean_dat::QualifiedIds) {
+        out.add(self.icon.map_or(0, |i| i.0));
+        for s in [&self.name, &self.plural_name].into_iter().flatten() {
+            s.sub_ids(out);
+        }
+    }
+
     /// The mask word, then each masked field in this order (mask bit in parentheses): package
     /// (`0x1`), entity (`0x2000000`), flags (`0x2`), name (`0x4`), plural name (`0x8`), icon
     /// (`0x10`), container (`0x20`), wielder (`0x40`), monarch (`0x100`), originator (`0x200`),
@@ -508,6 +541,23 @@ pub struct Qualities {
     pub long_ints: Vec<(u32, i64)>,
 }
 
+impl Qualities {
+    /// The records a qualities record names: each data id it holds (not 0), the tables of its
+    /// string references (and of the references inside them), then what its description names.
+    // D2-07289
+    pub fn sub_ids(&self, out: &mut auberean_dat::QualifiedIds) {
+        for (_, id) in &self.data_ids {
+            out.add(id.0);
+        }
+        for (_, s) in &self.string_infos {
+            s.sub_ids(out);
+        }
+        if let Some(d) = &self.description {
+            d.sub_ids(out);
+        }
+    }
+}
+
 /// The flags a qualities record may carry: one per table.
 const QUALITY_FLAGS: u32 = 0xFFF;
 
@@ -517,6 +567,7 @@ impl Decode for Qualities {
     /// floats), strings (`0x80`), data ids (`0x20`), instance ids (`0x40`), positions (`0x100`),
     /// text references (`0x200`), packages (`0x400`) and 64-bit integers (`0x800`).
     // D2-07350, D2-07314, D2-01473, D2-07329, D2-07333, D2-00124, D2-02931, D2-07342, D2-07347, D2-07320
+    // D2-05081, D2-07255, D2-07251
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         let flags = r.u32()?;
         r.ensure(flags & !QUALITY_FLAGS == 0, || {
@@ -569,6 +620,7 @@ impl Decode for Qualities {
 }
 
 /// Which qualities a view of an object passes on: a table of quality ids to a mode word.
+// D2-13118, D2-13115
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct QualityFilter {
     pub qualities: Vec<(u32, i32)>,
@@ -576,7 +628,7 @@ pub struct QualityFilter {
 
 impl Decode for QualityFilter {
     /// The id, then a hash table of quality id to a 32-bit value.
-    // D2-13114
+    // D2-13114, D2-05069, D2-13119, D2-13116
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         Ok(Self {
@@ -612,7 +664,7 @@ impl WordFilter {
 // D2-05027, D2-14295, D2-14297
 impl Decode for WordFilter {
     /// The id, then a hash table of audience to a counted list of wide-string patterns.
-    // D2-14282, D2-00379
+    // D2-14282, D2-00379, D2-14292
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let (buckets, audiences) =
@@ -622,7 +674,7 @@ impl Decode for WordFilter {
 }
 
 impl crate::Encode for WordFilter {
-    // D2-14281
+    // D2-14281, D2-00372
     fn encode(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.hash_table(self.buckets, &self.audiences, |w, (a, p)| {
@@ -633,13 +685,15 @@ impl crate::Encode for WordFilter {
 }
 
 /// A conversation tree (`.conversation`, `0x60000000`+): named nodes, each with the actions it
-/// takes and the decisions that lead on. No install holds one.
+/// takes and the decisions that lead on. No install holds one. Copied whole into another.
+// D2-16841, D2-16843, D2-16840, D2-16854
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Conversation {
     pub nodes: Vec<(String, DialogueNode)>,
 }
 
-/// One node of a conversation.
+/// One node of a conversation: its actions are made, copied and dropped with it.
+// D2-16838, D2-16855, D2-16856, D2-16858, D2-16859, D2-16860, D2-16677
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DialogueNode {
     pub name: String,
@@ -649,6 +703,7 @@ pub struct DialogueNode {
 }
 
 /// A way on from a node: a test and its comparison, the test's arguments and the node it leads to.
+// D2-16863, D2-16864, D2-16865, D2-16866, D2-16867
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DialogueChoice {
     pub test: u32,
@@ -661,7 +716,8 @@ impl Decode for Conversation {
     /// No id: a counted list of nodes, each a wide-string key, then the node: its name (a wide
     /// string), a counted list of actions (a word and a wide string) and a counted list of
     /// decisions (two words and two wide strings).
-    // D2-16853, D2-16852, D2-16857, D2-16862, D2-16869
+    // D2-16853, D2-16852, D2-16857, D2-16862, D2-16869, D2-16823, D2-16828
+    // D2-05078, D2-16845, D2-16842
     fn decode(r: &mut Reader<'_>, _id: u32, _ctx: &Context) -> Result<Self> {
         let nodes = r.list(16, |r| {
             let key = r.wide_string()?;

@@ -218,6 +218,7 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
                 &mut room,
                 &mut frame.volumes.volumes,
             );
+            crate::placed_volumes(&mut frame, records, builder.model_detail, &mut volumes);
         }
         if a.disc {
             // The simple setting: a dark disc laid on the land under the body, drawn once.

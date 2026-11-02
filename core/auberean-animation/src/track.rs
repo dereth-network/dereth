@@ -16,6 +16,7 @@ use crate::triggers::Gathered;
 /// alone keep the client's defaults: full speed, one hold cycle, events sent, no target.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Params {
+    // D2-04530, D2-05685, D2-00251, D2-00252
     pub behavior: u32,
     pub time_scale: f32,
     pub mode: u32,
@@ -235,6 +236,7 @@ impl Params {
 /// A behavior being played.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
+    // D2-14956, D2-14959, D2-14949, D2-14947
     /// Where it is, in cycles of its animation.
     pub time: f32,
     pub weight: f32,

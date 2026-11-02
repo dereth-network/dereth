@@ -25,6 +25,9 @@ dereth-primitives.workspace = true
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["test-support", "fs"] }
 auberean-testkit.workspace = true
+# The character generator's scripts, run to hold the native creation to their answers.
+auberean-script.workspace = true
+auberean-glue.workspace = true
 
 [lints]
 workspace = true

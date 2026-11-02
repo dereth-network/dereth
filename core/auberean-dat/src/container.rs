@@ -16,12 +16,15 @@
 //! entry.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use dereth_dat::{
     BtEntry, ContainerEra, ContainerLayout, DatError, DatStorage, DiskFileInfo, EntryLayout,
     HeaderLayout, StructureReport, TransactionSlot,
 };
 use dereth_primitives::DataId;
+
+use crate::checked::Watch;
 
 /// This game's container layout.
 ///
@@ -119,9 +122,10 @@ pub fn guid_string(g: &[u8; 16]) -> String {
     )
 }
 
-/// One data file, read-only, its whole directory in memory.
+/// One data file, read-only, its whole directory in memory, and what tells whether the file under
+/// it changed ([`DatFile::watched`]).
 #[derive(Debug, Clone)]
-pub struct DatFile(dereth_dat::DatFile);
+pub struct DatFile(dereth_dat::DatFile, Option<Arc<dyn Watch>>);
 
 impl DatFile {
     /// Read a container's header and directory from storage the host provides. `name` names it in
@@ -131,7 +135,20 @@ impl DatFile {
     /// The shared container's header and directory errors, and the storage's read errors.
     // D2-17720, D2-17675
     pub fn from_storage(name: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
-        dereth_dat::DatFile::from_storage_as(name, storage, &LAYOUT).map(Self)
+        dereth_dat::DatFile::from_storage_as(name, storage, &LAYOUT).map(|f| Self(f, None))
+    }
+
+    /// The container with `watch` telling whether the file under it changed since it was opened,
+    /// which [`DatFile::read_checked`] asks when a record fails.
+    #[must_use]
+    pub fn watched(self, watch: Arc<dyn Watch>) -> Self {
+        Self(self.0, Some(watch))
+    }
+
+    /// What tells whether the file under the container changed, when it has one.
+    #[must_use]
+    pub fn watch(&self) -> Option<&dyn Watch> {
+        self.1.as_deref()
     }
 
     /// A container over bytes already in memory.

@@ -27,7 +27,8 @@ const STALL_LIMIT: f32 = 2.0;
 /// The squared distance from the path's end beyond which the body has fallen too far behind.
 const BEHIND_LIMIT_SQ: f32 = 225.0;
 
-/// One position the server sent, as a keyframe.
+/// One position the server sent, as a keyframe (copied whole, as the client copies it).
+// D2-07071
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyframe {
     pub pos: Position,

@@ -507,7 +507,7 @@ impl Craft {
 
     /// The selected craft skill's categories again: each category of its recipes the scripts
     /// name, once, in order of their numbers.
-    // D2-02648, D2-12360, D2-12388
+    // D2-02648, D2-12360, D2-12388, D2-12357, D2-12361, D2-12356, D2-12358, D2-12359
     fn update_categories(&mut self) {
         self.categories.clear();
         for r in &self.recipes {
@@ -727,7 +727,22 @@ fn row_press(param: u32) -> bool {
     )
 }
 
+impl Craft {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x45D, 0x447, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Craft {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

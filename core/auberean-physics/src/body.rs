@@ -141,11 +141,13 @@ impl Ticker {
 
 /// The animation's step: a thirtieth of a second.
 pub const ANIM_QUANTUM: f32 = 0.033_333_335;
-/// The most animation one frame catches up.
+/// The longest time since the last step that one step takes whole.
 pub const ANIM_CATCH_UP: f32 = 0.2;
+/// The step taken after a longer gap.
+pub const ANIM_AFTER_GAP: f32 = 0.05;
 
 /// When animation steps: once a frame at least a thirtieth of a second after the last, by all the
-/// time since (at most a fifth of a second).
+/// time since; after a gap of more than a fifth of a second, by a twentieth of a second only.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimationClock {
     pub last: f64,
@@ -158,7 +160,7 @@ impl AnimationClock {
     }
 
     /// The animation step the frame at `now` runs, if any.
-    // D2-13685
+    // D2-13685, D2-05764
     pub fn step(&mut self, now: f64) -> Option<f32> {
         #[allow(clippy::cast_possible_truncation)]
         let e = (now - self.last) as f32;
@@ -170,7 +172,7 @@ impl AnimationClock {
             return None;
         }
         self.last = now;
-        Some(if e > ANIM_CATCH_UP { ANIM_CATCH_UP } else { e })
+        Some(if e > ANIM_CATCH_UP { ANIM_AFTER_GAP } else { e })
     }
 }
 

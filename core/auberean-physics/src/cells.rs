@@ -18,9 +18,9 @@ use crate::geom::{self, BBox, BoxOps, Plane, EPS};
 use crate::interior::is_interior;
 use crate::land::{land_cell_id, Land, CELLS_PER_SIDE, CELL_LENGTH};
 
-/// Land cells across the map on each axis, at most: the region sizes the map, and no cell id
-/// names a block past the 256th.
-const LAND_SIDE: i64 = 256 * 8;
+/// Land cells across the map on each axis: the region sizes the map at 255 landblocks a side,
+/// the most the client takes.
+const LAND_SIDE: i64 = 255 * 8;
 /// The last land cell number of a block, and the first and last interior cell numbers.
 const LAST_LAND_CELL: u32 = 64;
 const FIRST_INTERIOR_CELL: u32 = 0x100;
@@ -41,13 +41,52 @@ pub enum Sidedness {
     Crossing,
 }
 
-/// A polygon being clipped: its corners in order.
+/// A polygon being clipped: its corners in order. A new one has none.
+// D2-04182
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorkPolygon {
     pub corners: Vec<Vec3>,
 }
 
 impl WorkPolygon {
+    /// The corners of a polygon `points` carried through the matrix `m` (row vectors, the
+    /// fourth column the divisor), each divided through.
+    // D2-04190
+    #[must_use]
+    pub fn projected(points: &[Vec3], m: &geom::Matrix4) -> Self {
+        let m = |i: usize| wide(m.0[i]);
+        let corners = points
+            .iter()
+            .map(|p| {
+                let (x, y, z) = (wide(p.x), wide(p.y), wide(p.z));
+                let k = 1.0 / (((z * m(11) + x * m(3)) + y * m(7)) + m(15));
+                Vec3::new(
+                    narrow((((z * m(8) + y * m(4)) + x * m(0)) + m(12)) * k),
+                    narrow((((z * m(9) + x * m(1)) + y * m(5)) + m(13)) * k),
+                    narrow((((z * m(10) + y * m(6)) + x * m(2)) + m(14)) * k),
+                )
+            })
+            .collect();
+        Self { corners }
+    }
+
+    /// The polygon's area: half the length of the sum of its edges' cross products.
+    // D2-04184
+    #[must_use]
+    pub fn area(&self) -> f32 {
+        let v = &self.corners;
+        let k = v.len();
+        let (mut xy, mut yz, mut zx) = (0.0_f64, 0.0_f64, 0.0_f64);
+        for i in 0..k {
+            let (a, b) = (v[i], v[(i + 1) % k]);
+            let sx = wide(narrow(wide(b.x) + wide(a.x)));
+            xy += (wide(a.y) - wide(b.y)) * sx * 0.5;
+            yz += (wide(b.y) + wide(a.y)) * (wide(a.z) - wide(b.z)) * 0.5;
+            zx += (wide(b.z) - wide(a.z)) * sx * 0.5;
+        }
+        narrow((zx * zx + yz * yz + xy * xy).sqrt())
+    }
+
     /// Clips to the positive side of `plane`: corners more than `eps` off it are on one side, the
     /// rest in it. With corners on both sides the polygon keeps those in the plane and on the
     /// positive side, with the crossing of each edge that leaves one side for the other between
@@ -605,4 +644,112 @@ pub fn block_list(cell: CellId, area: &BBox) -> Vec<u32> {
         }
     }
     out
+}
+
+/// Whether land coordinates `(x, y)` lie on the map.
+// D2-01965
+#[must_use]
+pub fn in_bounds(x: i32, y: i32) -> bool {
+    (0..LAND_SIDE).contains(&i64::from(x)) && (0..LAND_SIDE).contains(&i64::from(y))
+}
+
+/// Whether two cells are in the same landblock: two cells 0 are; a cell 0 and another are not.
+// D2-01967
+#[must_use]
+pub fn in_same_block(a: CellId, b: CellId) -> bool {
+    match (a.0, b.0) {
+        (0, 0) => true,
+        (0, _) | (_, 0) => false,
+        (a, b) => a >> 16 == b >> 16,
+    }
+}
+
+/// Whether a point in a landblock's frame lies over it: from 0 (included) to 160 m (excluded)
+/// east and north.
+// D2-03611
+#[must_use]
+pub fn within_block(v: Vec3) -> bool {
+    0.0 <= v.x && 0.0 <= v.y && v.x < crate::rules::BLOCK_LENGTH && v.y < crate::rules::BLOCK_LENGTH
+}
+
+/// The whole-block cell of the landblock at block coordinates `(x, y)`; 0 off the map.
+// D2-10949
+#[must_use]
+pub fn block_id_at(x: i32, y: i32) -> u32 {
+    let (lx, ly) = (x.wrapping_shl(BLOCK_SHIFT), y.wrapping_shl(BLOCK_SHIFT));
+    if !in_bounds(lx, ly) {
+        return 0;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let (bx, by) = ((lx >> BLOCK_SHIFT) as u32, (ly >> BLOCK_SHIFT) as u32);
+    (bx << 8 | by) << 16 | BLOCK_CELL
+}
+
+/// The land cell at map coordinates (east, north, each -100 to 100 across the map's width or
+/// length): the land cell whose coordinates are the nearest whole numbers to the point's; none
+/// off the map.
+// D2-13192
+#[must_use]
+pub fn map_coords_to_cell(east: f32, north: f32) -> Option<CellId> {
+    #[allow(clippy::cast_precision_loss)]
+    let side = LAND_SIDE as f64;
+    // Across is worked from the half width kept as a float, up from the half length kept wide.
+    let half_x = wide(narrow(side * 0.5));
+    let half_y = side * 0.5;
+    let at = |v: f32, half: f64| (wide(v) * wide(0.01_f32) * half + half + 0.5).floor();
+    #[allow(clippy::cast_possible_truncation)]
+    let (x, y) = (at(east, half_x) as i64, at(north, half_y) as i64);
+    lcoord_to_cell(x, y).filter(|c| c.0 != 0)
+}
+
+/// The squared distance between two land cells' corners, in meters; when either is not a land
+/// cell on the map, the length of the map in meters.
+// D2-13193
+#[must_use]
+pub fn cell_distance_squared(a: CellId, b: CellId) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let far = (LAND_SIDE as f32) * CELL_LENGTH;
+    let (Some((ax, ay)), Some((bx, by))) = (land_lcoord(a), land_lcoord(b)) else {
+        return far;
+    };
+    let (dx, dy) = (ax - bx, ay - by);
+    // The client sums the squares as a 32-bit whole number; on the map they stay well within it.
+    let d = f64::from(i32::try_from(dx * dx + dy * dy).unwrap_or(i32::MAX));
+    narrow(d * wide(CELL_LENGTH) * wide(CELL_LENGTH))
+}
+
+/// A land cell's world land coordinates; none for a cell that is not a land cell on the map.
+fn land_lcoord(cell: CellId) -> Option<(i64, i64)> {
+    let low = cell.0 & 0xFFFF;
+    if !(1..=LAST_LAND_CELL).contains(&low) {
+        return None;
+    }
+    let (bx, by) = block_lcoord(cell.0 | BLOCK_CELL)?;
+    let c = i64::from(low - 1);
+    Some((bx + (c >> 3), by + (c & 7)))
+}
+
+/// The value at a point of a landblock from the four at its corners (south-west, south-east,
+/// north-west, north-east), blended across the block (the point held to it).
+// D2-13210
+#[must_use]
+pub fn interpolate(v: Vec3, sw: f32, se: f32, nw: f32, ne: f32) -> f32 {
+    let k = 1.0 / wide(crate::rules::BLOCK_LENGTH);
+    let clamp = |t: f32| {
+        if 0.0 <= t {
+            if 1.0 < t {
+                1.0
+            } else {
+                t
+            }
+        } else {
+            0.0
+        }
+    };
+    let (u, t) = (clamp(narrow(k * wide(v.x))), clamp(narrow(k * wide(v.y))));
+    let (u, t) = (wide(u), wide(t));
+    narrow(
+        (t * wide(ne) + (1.0 - t) * wide(se)) * u
+            + (1.0 - u) * (t * wide(nw) + wide(sw) * (1.0 - t)),
+    )
 }

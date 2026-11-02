@@ -9,4 +9,5 @@ mod entities;
 mod inside;
 mod looks;
 mod named;
+mod sound;
 mod terrain;

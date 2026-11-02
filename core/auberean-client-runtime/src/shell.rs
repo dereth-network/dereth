@@ -30,6 +30,14 @@
 //! **A line typed inside a call.** A script may hand its object's command line a line (a toolbar
 //! slot holding a line of text does): the line is taken exactly as a typed one, its command's
 //! function called on that object within the call.
+//!
+//! **The help.** The scripts make each command's help known as they make the command known: names
+//! and the script function that answers with its text. Asked for a command's help (`/help <name>`,
+//! the name in lower case), its help function is called on the interface asking, and its answer
+//! shown as help text; a name the help does not know shows the unrecognized-command line, naming
+//! it; a function that answers no text shows nothing. Asked with no name, every help function is
+//! asked for its line, and each answer `  name -- text` is put after the help list's label, in the
+//! names' order.
 
 use std::collections::BTreeMap;
 
@@ -150,7 +158,9 @@ impl History {
 }
 
 /// The commands the player's scripts made known: each name to the function that carries it out
-/// and whether a line naming it is expanded; the names the help knows.
+/// and whether a line naming it is expanded; the names the help knows. The player's own table,
+/// made empty with the player's shell and dropped with it.
+// D2-07679, D2-07678
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Commands {
     pub names: BTreeMap<String, u32>,
@@ -161,7 +171,8 @@ pub struct Commands {
 /// What separates a command's names.
 const SEPARATORS: &[char] = &[';', ':', ','];
 
-/// The mark that starts a command.
+/// The mark that starts a command: the player's shell is made with it.
+// D2-07672, D2-07671
 pub const PREFIX: &str = "/";
 
 impl Commands {
@@ -475,12 +486,126 @@ impl Typing<'_> {
         Ok(ShellStatus::Success)
     }
 
+    /// The help for command `name`, or for every command when `name` is empty, shown: the help's
+    /// text as help text (kind 8) when it has any; for a name the help does not know, the
+    /// unrecognized-command line naming it (kind 1).
+    // D2-08083
+    pub fn display_help_text(&mut self, name: &str) -> Result<(), Stop> {
+        let (status, text) = self.help_text(name)?;
+        let shown = match status {
+            ShellStatus::UnknownCommand => {
+                let h = &mut *self.host;
+                let table = h.text.data_id_by_enum(HELP_TABLE, TABLE_MAPPING);
+                let mut info = auberean_text::StringInfo::entry(table, token(UNRECOGNIZED));
+                let name: Vec<u16> = name.encode_utf16().collect();
+                info.add_variable_string(token(COMMAND_VARIABLE), &name);
+                Some((
+                    UNRECOGNIZED_KIND,
+                    info.text(&mut h.text).encode_utf16().collect(),
+                ))
+            }
+            ShellStatus::Success if !text.is_empty() => Some((HELP_KIND, text)),
+            _ => None,
+        };
+        if let Some((kind, text)) = shown {
+            let args = [InterfaceArg::Text(text), InterfaceArg::Word(kind)];
+            self.call(crate::latent::function::DISPLAY_TEXT, &args)?;
+        }
+        Ok(())
+    }
+
+    /// The help for command `name`: every command's when `name` is empty, after the help list's
+    /// label.
+    // D2-07673, D2-12936
+    fn help_text(&mut self, name: &str) -> Result<(ShellStatus, Vec<u16>), Stop> {
+        if !name.is_empty() {
+            return self.command_help_text(name);
+        }
+        let list = self.all_help_text()?;
+        let h = &mut *self.host;
+        let table = h.text.data_id_by_enum(HELP_TABLE, TABLE_MAPPING);
+        let label =
+            auberean_text::StringInfo::entry(table, token(HELP_LIST_LABEL)).text(&mut h.text);
+        let mut text: Vec<u16> = label.encode_utf16().collect();
+        text.extend(list);
+        Ok((ShellStatus::Success, text))
+    }
+
+    /// Every command's help line, `  name -- text`, in the names' order: each help function asked
+    /// for its line, those that answer none left out.
+    // D2-12922
+    fn all_help_text(&mut self) -> Result<Vec<u16>, Stop> {
+        let mut out = Vec::new();
+        for (name, function) in self.host.commands.help.clone() {
+            if let (ShellStatus::Success, text) = self.do_help(function, 1)? {
+                out.extend(format!("  {name} -- ").encode_utf16());
+                out.extend(text);
+            }
+        }
+        Ok(out)
+    }
+
+    /// One command's help, its name in lower case: a name the help does not know is an unknown
+    /// command.
+    // D2-12925
+    fn command_help_text(&mut self, name: &str) -> Result<(ShellStatus, Vec<u16>), Stop> {
+        match self.host.commands.help.get(&name.to_lowercase()).copied() {
+            Some(function) => self.do_help(function, 0),
+            None => Ok((ShellStatus::UnknownCommand, Vec::new())),
+        }
+    }
+
+    /// A help function asked for its text (`all`: 1 for the list's line, 0 for the command's own
+    /// help) on the interface: the text it answers, or a failure when it answers no string or
+    /// there is no interface to ask.
+    // D2-08096
+    fn do_help(&mut self, function: u32, all: u32) -> Result<(ShellStatus, Vec<u16>), Stop> {
+        let Some(p) = self.process else {
+            self.asked.push((function, CallResult::NoReceiver));
+            return Ok((ShellStatus::Failure, Vec::new()));
+        };
+        if !self.nested {
+            self.vm.budget = BUDGET;
+        }
+        let outcome = help_call(self.vm, self.host, p, function, all);
+        Ok(match self.record(function, outcome)?.flatten() {
+            Some(text) => (ShellStatus::Success, text),
+            None => (ShellStatus::Failure, Vec::new()),
+        })
+    }
+
     /// The interface told the line is done: the tells' histories start again from their newest.
     // D2-00639, D2-01229, D2-01228
     fn done(&mut self) -> Result<(), Stop> {
         self.call(function::RESET_RETELL_HISTORY_INDEX, &[])?;
         self.call(function::RESET_REPLY_HISTORY_INDEX, &[])
     }
+}
+
+/// A help function called on a process's instance (see [`Typing::do_help`]): the result slot, the
+/// kind of help asked, the instance; the answer is the string the result slot names after the
+/// call, if it names one.
+fn help_call(
+    vm: &mut Vm,
+    host: &mut ClientHost,
+    p: usize,
+    function: u32,
+    all: u32,
+) -> Result<(Status, Option<Vec<u16>>), Stop> {
+    let mut cx = vm.new_context(p);
+    cx.push(0, tag::INT)?;
+    cx.push(all, tag::INT)?;
+    let receiver = vm.instance_of(p);
+    cx.push(receiver, tag::REFERENCE)?;
+    let prog = std::sync::Arc::clone(&host.program);
+    let package = vm.package_of(host, receiver, &prog)?;
+    let status = vm.call(host, &mut cx, package, FunctionId(function))?;
+    let (answer, _) = cx.slot(0)?;
+    let text = match vm.heap.native(answer) {
+        Ok(NativeObject::Text(t)) if answer != NULL => Some(t.clone()),
+        _ => None,
+    };
+    Ok((status, text))
 }
 
 /// The interface's alias question put to a process's instance (see [`Typing::inq_alias`]):
@@ -526,6 +651,7 @@ pub fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
         (0x3F, add_shell_help),
         (0x3E, add_shell_help_by_string_id),
         (0x52, process_text),
+        (0x53, display_help_text),
     ]
     .into_iter()
     .map(|(n, f)| (NativeId::new(INTERFACE, n), f))
@@ -535,6 +661,21 @@ const INTERFACE: u32 = 0x7F;
 
 /// The string table mapping's number.
 const TABLE_MAPPING: u32 = 0x4000_0004;
+
+/// The table the help's own lines are in (by its enumeration value), their names, and the
+/// unrecognized-command line's variable naming the command.
+const HELP_TABLE: u32 = 0x4000_0009;
+const HELP_LIST_LABEL: &str = "ID_HelpListLabel";
+const UNRECOGNIZED: &str = "ID_UnrecognizedCommand";
+const COMMAND_VARIABLE: &str = "CMD";
+/// The kinds of text the help shows: its text, and the unrecognized-command line.
+const HELP_KIND: u32 = 8;
+const UNRECOGNIZED_KIND: u32 = 1;
+
+/// A string's token.
+fn token(name: &str) -> u32 {
+    auberean_assets::strings::token(name)
+}
 
 fn host<'a>(c: &'a mut Call<'_>) -> Result<&'a mut crate::host::ClientHost, Stop> {
     c.host
@@ -643,6 +784,32 @@ fn process_text(c: &mut Call<'_>) -> Result<Status, Stop> {
     };
     let status = t.process_text(&text)?;
     c.write(-3, status.code(), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The help for a command shown on the receiving interface (`fp[-2]` the command's name; an empty
+/// name: every command's), within the call. A null receiver crashes the call.
+// D2-04659
+fn display_help_text(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let name = text_at(c, -2)?;
+    let process = c.vm.process_with_instance(r);
+    let h = c
+        .host
+        .as_any()
+        .downcast_mut::<ClientHost>()
+        .ok_or_else(|| Stop::Host("not the client's host".into()))?;
+    let mut t = Typing {
+        vm: &mut *c.vm,
+        host: h,
+        process,
+        nested: true,
+        asked: Vec::new(),
+    };
+    t.display_help_text(&name)?;
     Ok(Status::Success)
 }
 

@@ -2,9 +2,12 @@
 //! margins and drawn from a view that scrolls; and, for an editable one, a caret that blinks,
 //! typed characters and editing keys, a selection, cutting, copying and pasting.
 //!
-//! Text reaches an element as written strings, each in one of the element's numbered fonts and
-//! colors (`font<n>`, `font_color<n>_red` ...), added at the caret. A string is queued until the
-//! text it names is at hand (here at once: every string table is in the install) and then added.
+//! Text reaches an element as written strings or as string references, each in one of the
+//! element's numbered fonts and colors (`font<n>`, `font_color<n>_red` ...), added at the caret.
+//! Each is queued, in order, until the text it names is at hand: a written string at once, a
+//! reference once the string tables it reads that the data lacked have come (or been refused:
+//! it then shows the client's error message), when it is written and added. A string waits for
+//! those queued before it.
 
 use std::sync::Arc;
 
@@ -25,6 +28,12 @@ pub mod bits {
     pub const CENTER_VERTICALLY: u32 = 0x8;
     pub const NO_IME: u32 = 0x10;
 }
+
+/// The fonts a text element falls back to for characters its own font lacks, in order: their
+/// values in the mapping of fonts (the whole of Unicode first).
+const FALLBACK_FONTS: [u32; 2] = [0x4000_0004, 0x4000_0005];
+/// The enumeration mapping that names the fallback fonts.
+const FONT_MAPPING: u32 = 0x4000_000B;
 
 mod name {
     use crate::Token;
@@ -102,20 +111,72 @@ pub enum Move {
 /// A string waiting to be added, with the numbers of the font and the color to add it in.
 #[derive(Clone, Debug)]
 pub(crate) struct Download {
-    text: Vec<u16>,
+    text: Queued,
     font: u32,
     color: u32,
+    /// The string tables it asked for, while they have not come (the download's number).
+    asked: Option<u32>,
+}
+
+/// What a download adds: a written string, or a reference written when it is added.
+#[derive(Clone, Debug)]
+enum Queued {
+    Written(Vec<u16>),
+    Reference(Box<auberean_text::StringInfo>),
 }
 
 impl Download {
-    /// A string to add; its tables are in the install, so it never waits.
-    // D2-11742, D2-11740, D2-11738
+    /// A string to add; written already, it never waits.
     const fn new(text: Vec<u16>, font: u32, color: u32) -> Self {
-        Self { text, font, color }
+        Self {
+            text: Queued::Written(text),
+            font,
+            color,
+            asked: None,
+        }
     }
 
-    const fn ready(&self) -> bool {
+    /// A reference to add: the string tables it reads that the data lacks are asked for.
+    // D2-11742, D2-11740
+    fn of_reference(
+        assets: &dyn crate::source::Assets,
+        info: &auberean_text::StringInfo,
+        font: u32,
+        color: u32,
+    ) -> Self {
+        Self {
+            asked: assets.start_string_download(info),
+            text: Queued::Reference(Box::new(info.clone())),
+            font,
+            color,
+        }
+    }
+
+    /// Whether what it asked for has all come (or it asked for nothing).
+    // D2-11738
+    fn ready(&mut self, assets: &dyn crate::source::Assets) -> bool {
+        if let Some(n) = self.asked {
+            if assets.string_download_waiting(n) {
+                return false;
+            }
+            self.asked = None;
+        }
         true
+    }
+
+    /// Its text, written now.
+    fn text(&self, assets: &dyn crate::source::Assets) -> Vec<u16> {
+        match &self.text {
+            Queued::Written(t) => t.clone(),
+            Queued::Reference(info) => assets.element_text(info),
+        }
+    }
+
+    /// Dropped: what it still waits for is let go.
+    fn release(&self, assets: &dyn crate::source::Assets) {
+        if let Some(n) = self.asked {
+            assets.release_string_download(n);
+        }
     }
 }
 
@@ -205,6 +266,18 @@ pub struct Keyboard {
     /// host last read from it, for pasting.
     pub copied: Option<String>,
     pub clipboard: Option<String>,
+    /// Where the host's input method writes, while an editable text element that allows it has
+    /// the keyboard.
+    pub ime: Option<Ime>,
+}
+
+/// The input method turned on for an editable text element: where on the screen it shows (the
+/// part of the element that shows), and the font and color the element writes in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ime {
+    pub area: Rect,
+    pub font: u32,
+    pub color: Color,
 }
 
 /// Only digits: the filter of an entry that takes numbers.
@@ -577,6 +650,31 @@ impl Ui {
         }
     }
 
+    /// Before a string is added or measured: when the element's font lacks one of its characters,
+    /// the first of the fallback fonts that holds every one of them becomes the element's font
+    /// (an element without a font keeps none).
+    // D2-11776, D2-10050
+    fn determine_font(&mut self, h: Handle, units: &[u16]) {
+        let Some((_, font)) = self.current_font(h) else {
+            return;
+        };
+        if text::font_contains(&font, units) {
+            return;
+        }
+        for value in FALLBACK_FONTS {
+            let id = self.assets().data_id_by_enum(value, FONT_MAPPING);
+            let Some(fallback) = (id != 0).then(|| self.assets().font(id)).flatten() else {
+                continue;
+            };
+            if text::font_contains(&fallback, units) {
+                if let Some(t) = self.ts_mut(h) {
+                    t.font = id;
+                }
+                return;
+            }
+        }
+    }
+
     fn current_font(&self, h: Handle) -> Option<(u32, Arc<auberean_assets::ui::Font>)> {
         let id = self.text_state(h)?.font;
         if id == 0 {
@@ -593,14 +691,65 @@ impl Ui {
     /// colors) at the caret; returns whether it was added at once.
     // D2-11823, D2-11824
     pub fn add_string_with_font(&mut self, h: Handle, s: &str, font: u32, color: u32) -> bool {
+        let d = Download::new(utf16(s), font, color);
+        self.add_download(h, d)
+    }
+
+    /// Queue a download and add what is ready; whether it was ready at once.
+    fn add_download(&mut self, h: Handle, mut d: Download) -> bool {
+        let assets = self.assets().clone();
+        let ready = d.ready(&*assets);
         let Some(t) = self.ts_mut(h) else {
+            d.release(&*assets);
             return false;
         };
-        let d = Download::new(utf16(s), font, color);
-        let ready = d.ready();
         t.downloads.push(d);
         self.check_string_downloads(h);
         ready
+    }
+
+    /// Add a string reference in font `font` and color `color` at the caret, once the string
+    /// tables it reads that the data lacks have come; returns whether it was added at once.
+    // D2-11823, D2-11824
+    pub fn add_string_info_with_font(
+        &mut self,
+        h: Handle,
+        info: &auberean_text::StringInfo,
+        font: u32,
+        color: u32,
+    ) -> bool {
+        if self.text_state(h).is_none() {
+            return false;
+        }
+        let assets = self.assets().clone();
+        let d = Download::of_reference(&*assets, info, font, color);
+        self.add_download(h, d)
+    }
+
+    /// Add a string reference in the element's own font and color.
+    // D2-11826
+    pub fn add_string_info(&mut self, h: Handle, info: &auberean_text::StringInfo) -> bool {
+        self.add_string_info_with_font(h, info, 0, 0)
+    }
+
+    /// Replace the text with a string reference in font `font` and color `color`.
+    // D2-11828
+    pub fn set_string_info_with_font(
+        &mut self,
+        h: Handle,
+        info: &auberean_text::StringInfo,
+        font: u32,
+        color: u32,
+    ) -> bool {
+        self.clear_all_text(h);
+        self.add_string_info_with_font(h, info, font, color)
+    }
+
+    /// Replace the text with a string reference in the element's own font and color.
+    // D2-11827
+    pub fn set_string_info(&mut self, h: Handle, info: &auberean_text::StringInfo) -> bool {
+        self.clear_all_text(h);
+        self.add_string_info(h, info)
     }
 
     /// Add a written string in the element's own font and color.
@@ -635,15 +784,17 @@ impl Ui {
     /// was.
     // D2-11819
     fn check_string_downloads(&mut self, h: Handle) {
+        let assets = self.assets().clone();
         let mut done = false;
         loop {
             let Some(t) = self.ts_mut(h) else { return };
-            if t.downloads.first().is_none_or(|d| !d.ready()) {
+            if t.downloads.first_mut().is_none_or(|d| !d.ready(&*assets)) {
                 break;
             }
             let d = t.downloads.remove(0);
             self.set_font_num_and_color(h, d.font, d.color);
-            self.add_text_internal(h, &d.text);
+            let text = d.text(&*assets);
+            self.add_text_internal(h, &text);
             done = true;
         }
         if done {
@@ -651,11 +802,14 @@ impl Ui {
         }
     }
 
-    /// Drop the strings waiting.
-    // D2-11752
-    fn cleanup_string_downloads(&mut self, h: Handle) {
+    /// Drop the strings waiting (and, as the element goes, what they still wait for).
+    // D2-11752, D2-11767
+    pub(crate) fn cleanup_string_downloads(&mut self, h: Handle) {
+        let assets = self.assets().clone();
         if let Some(t) = self.ts_mut(h) {
-            t.downloads.clear();
+            for d in t.downloads.drain(..) {
+                d.release(&*assets);
+            }
         }
     }
 
@@ -674,6 +828,7 @@ impl Ui {
         } else {
             self.set_selecting(h, false);
         }
+        self.determine_font(h, units);
         let font = self.current_font(h);
         let Some(t) = self.ts_mut(h) else { return };
         let moved = t
@@ -766,11 +921,12 @@ impl Ui {
     /// no wider than the element's greatest width (else the screen's).
     // D2-11782
     #[must_use]
-    pub fn inq_size_with_margins(&self, h: Handle, s: &str) -> Option<(i32, i32)> {
+    pub fn inq_size_with_margins(&mut self, h: Handle, s: &str) -> Option<(i32, i32)> {
         let units = utf16(s);
         if units.is_empty() {
             return Some((0, 0));
         }
+        self.determine_font(h, &units);
         let t = self.text_state(h)?;
         let font = self.current_font(h)?;
         let mut temp = GlyphRun::default();
@@ -1460,11 +1616,45 @@ impl Ui {
         let ok = self.element_activate(h);
         let editable = self.text_state(h).is_some_and(|t| t.has(bits::EDITABLE));
         if ok && !was && editable {
+            self.ime_turn_on(h);
             self.broadcast(h, text_msg::ACTIVATED, 0);
             self.touch();
             return true;
         }
         false
+    }
+
+    /// Turn the host's input method on for the element, over the part of it that shows, in its
+    /// font and color; an element marked `no_IME` does not. Whether it was turned on.
+    // D2-11749
+    fn ime_turn_on(&mut self, h: Handle) -> bool {
+        let Some(t) = self.text_state(h) else {
+            return false;
+        };
+        if t.has(bits::NO_IME) {
+            return false;
+        }
+        let (font, color) = (t.font, t.font_color);
+        let Some(area) = self.screen_clip_rect(h) else {
+            return false;
+        };
+        self.keyboard.ime = Some(Ime { area, font, color });
+        true
+    }
+
+    /// A text element matched to another: the other takes its text when theirs differ.
+    // D2-11834
+    pub(crate) fn text_match_attributes(&mut self, h: Handle, other: Handle) {
+        let mine = self.text(h).unwrap_or_default();
+        if self.text(other).unwrap_or_default() != mine {
+            self.set_text(other, &mine);
+        }
+    }
+
+    /// Where the host's input method writes, while it is on.
+    #[must_use]
+    pub const fn ime(&self) -> Option<&Ime> {
+        self.keyboard.ime.as_ref()
     }
 
     // D2-11751
@@ -1473,6 +1663,7 @@ impl Ui {
         let ok = self.element_deactivate(h);
         let editable = self.text_state(h).is_some_and(|t| t.has(bits::EDITABLE));
         if ok && was && editable {
+            self.keyboard.ime = None;
             self.broadcast(h, text_msg::DEACTIVATED, 0);
             self.touch();
             return true;

@@ -24,6 +24,8 @@ auberean-text.workspace = true
 auberean-world.workspace = true
 # The transcendental functions, the same bits on every host.
 dereth-primitives.workspace = true
+# The chat service's packets: its room lines, answers and requests.
+dereth-protocol.workspace = true
 
 [features]
 # Tier switch: selects the `corpus` test binary, which runs every recorded server-to-client
@@ -32,7 +34,7 @@ retail-corpus = ["auberean-testkit/captures"]
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["test-support", "fs"] }
-auberean-testkit.workspace = true
+auberean-testkit = { workspace = true, features = ["double"] }
 
 [lints]
 workspace = true

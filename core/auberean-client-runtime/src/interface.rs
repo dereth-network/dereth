@@ -42,6 +42,8 @@ pub mod function {
     pub const UPLOAD_UI_SETTINGS: u32 = 0x00B4_011D;
     /// Keep the windows' saved places (a table of them).
     pub const SET_UI_SAVE_LOCATIONS: u32 = 0x00B4_007B;
+    /// The windows' saved places, into the table a reference names: 1, or 0 with no options.
+    pub const INQ_UI_SAVE_LOCATIONS: u32 = 0x00B4_007C;
     /// Keep a window's opacity (the opacity, then the window).
     pub const SET_WINDOW_OPACITY: u32 = 0x00B4_0118;
     /// Set the radar's mask, others' damage range (a float's bits), the toolbar's height.
@@ -186,6 +188,7 @@ pub const fn option_functions(option: PlayerOption) -> Option<(u32, u32)> {
         O::FellowsOnMap => (0x00B4_010B, 0x00B4_010C),
         // D2-00560, D2-01143, D2-00559, D2-01264
         O::PetPanel => (0x00B4_010D, 0x00B4_010E),
+        // D2-00562, D2-01191, D2-00561, D2-01251
         O::ClassicExamination => (0x00B4_010F, 0x00B4_0110),
         // D2-00566, D2-01144, D2-00565, D2-01265
         O::RadarCoordinates => (0x00B4_007E, 0x00B4_007D),

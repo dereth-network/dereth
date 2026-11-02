@@ -464,6 +464,18 @@ impl ParticleSet {
         &self.desc
     }
 
+    /// Whether any of its emitters' particles move by repulsors: such a system neither thinks nor
+    /// draws while the volumetric fog effects preference is off.
+    // D2-10236
+    #[must_use]
+    pub fn repulsed(&self) -> bool {
+        self.desc.emitters.iter().any(|e| {
+            e.keyframes
+                .iter()
+                .any(|k| k.particle_kind == motion::REPULSE)
+        })
+    }
+
     /// Whether its material was found.
     #[must_use]
     pub fn has_material(&self) -> bool {
@@ -1711,7 +1723,11 @@ impl ParticleSet {
                     cull: crate::scene::Cull::Never,
                     mesh: 0,
                     casts_volume: false,
+                    caster: None,
+                    seen_through: false,
                     kept_by: None,
+                    anchor: None,
+                    step: Some(crate::scene::Pass::Particles),
                 });
             }
         };

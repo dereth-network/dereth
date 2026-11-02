@@ -7,7 +7,7 @@
 //! here, in this world's own operand order.
 //!
 //! The shapes everything else tests with are here too: rays ([`ray`]), planes ([`plane`]) and
-//! boxes ([`bbox`]).
+//! boxes ([`bbox`]); and the 4 x 4 matrix transforms are built with ([`matrix`]).
 
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
@@ -16,11 +16,22 @@ use crate::rules::BLOCK_LENGTH;
 
 pub mod bbox;
 pub mod cover;
+pub mod frame;
+pub mod matrix;
 pub mod plane;
+pub mod polygon;
+pub mod position;
 pub mod ray;
 pub mod shape;
+pub mod sphere;
+pub mod tree;
 
 pub use bbox::{BBox, BoxOps};
+pub use frame::{
+    frame_facing, frame_matrix, frame_pitch, frame_slerp, orient_frame, quat_transform,
+    rotation_axis, set_pitch,
+};
+pub use matrix::Matrix4;
 pub use plane::{polygon_trace_ray, side_of, Plane, PlaneOps, Polygon, Side};
 pub use ray::Ray;
 pub use shape::{Cone, CylSphere, CylinderOps, PlaneCone, Sphere, SphereOps};
@@ -52,7 +63,8 @@ fn wrap(degrees: f64) -> f32 {
     }
 }
 
-/// A heading: degrees clockwise from north.
+/// A heading: degrees clockwise from north. A copy is the same heading.
+// D2-13349, D2-13350
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Heading(f32);
 
@@ -124,6 +136,29 @@ impl Heading {
     #[must_use]
     pub fn radians(self) -> f32 {
         self.0 * RADIANS_PER_DEGREE
+    }
+
+    /// The heading's radians from -pi to pi: past half a turn it counts back from a whole one.
+    // D2-13347
+    #[must_use]
+    pub fn radians_centered(self) -> f32 {
+        let r = f64::from(RADIANS_PER_DEGREE) * f64::from(self.0);
+        let r = if r > core::f64::consts::PI {
+            r - f64::from(core::f32::consts::TAU)
+        } else {
+            r
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            r as f32
+        }
+    }
+
+    /// This heading turned on by `other`, `[0, 360)`.
+    // D2-13351
+    #[must_use]
+    pub fn plus(self, other: Self) -> Self {
+        Self(wrap(f64::from(self.0) + f64::from(other.0)))
     }
 
     /// How far this heading is turned from `other`, `[0, 360)`.
@@ -296,88 +331,107 @@ pub fn rotation_axes(q: Quat) -> [f32; 9] {
     ]
 }
 
-/// The rotation whose matrix has these columns.
-// D2-13257, D2-13160
+/// The rotation whose matrix has these columns, worked in double precision as the client's
+/// floating-point unit works it (each part rounded once, as it is stored); the sum of the last
+/// two diagonal terms, kept as a float, serves the branches where the trace is negative.
+// D2-13257, D2-13160, D2-13252
 #[must_use]
 pub fn rotation_from_axes(m: &[f32; 9]) -> Quat {
-    let t = m[8] + m[4];
-    let tr = t + m[0];
+    let w = f64::from;
+    #[allow(clippy::cast_possible_truncation)]
+    let n = |v: f64| v as f32;
+    let t = w(m[8]) + w(m[4]);
+    let tr = t + w(m[0]);
     if tr >= 0.0 {
         let s = (tr + 1.0).sqrt();
         let f = 0.5 / s;
         return Quat::new(
-            s * 0.5,
-            (m[5] - m[7]) * f,
-            (m[6] - m[2]) * f,
-            (m[1] - m[3]) * f,
+            n(0.5 * s),
+            n((w(m[5]) - w(m[7])) * f),
+            n((w(m[6]) - w(m[2])) * f),
+            n((w(m[1]) - w(m[3])) * f),
         );
     }
+    let t = w(n(t));
     let big = if m[4] <= m[0] { m[0] } else { m[4] };
     let big = if big < m[8] { m[8] } else { big };
     if big == m[0] {
-        let s = ((m[0] - t) + 1.0).sqrt();
+        let s = ((w(m[0]) - t) + 1.0).sqrt();
         let f = 0.5 / s;
         Quat::new(
-            (m[5] - m[7]) * f,
-            s * 0.5,
-            (m[1] + m[3]) * f,
-            (m[2] + m[6]) * f,
+            n((w(m[5]) - w(m[7])) * f),
+            n(0.5 * s),
+            n((w(m[1]) + w(m[3])) * f),
+            n((w(m[2]) + w(m[6])) * f),
         )
     } else if big == m[4] {
-        let s = ((m[4] - (m[0] + m[8])) + 1.0).sqrt();
+        let s = ((w(m[4]) - (w(m[0]) + w(m[8]))) + 1.0).sqrt();
         let f = 0.5 / s;
         Quat::new(
-            (m[6] - m[2]) * f,
-            (m[1] + m[3]) * f,
-            s * 0.5,
-            (m[5] + m[7]) * f,
+            n((w(m[6]) - w(m[2])) * f),
+            n((w(m[1]) + w(m[3])) * f),
+            n(0.5 * s),
+            n((w(m[5]) + w(m[7])) * f),
         )
     } else {
-        let s = ((m[8] - (m[0] + m[4])) + 1.0).sqrt();
+        let s = ((w(m[8]) - (w(m[0]) + w(m[4]))) + 1.0).sqrt();
         let f = 0.5 / s;
         Quat::new(
-            (m[1] - m[3]) * f,
-            (m[2] + m[6]) * f,
-            (m[5] + m[7]) * f,
-            s * 0.5,
+            n((w(m[1]) - w(m[3])) * f),
+            n((w(m[2]) + w(m[6])) * f),
+            n((w(m[5]) + w(m[7])) * f),
+            n(0.5 * s),
         )
     }
 }
 
+/// The sum of three products, worked in double precision and rounded once, as the client's
+/// floating-point unit sums a row of a matrix times a vector.
+fn dot3(a: f32, x: f32, b: f32, y: f32, c: f32, z: f32) -> f64 {
+    let w = f64::from;
+    (w(a) * w(x) + w(b) * w(y)) + w(c) * w(z)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn narrow(v: f64) -> f32 {
+    v as f32
+}
+
 /// A local vector turned into the landblock's frame.
-// D2-04111
+// D2-04111, D2-03471
 #[must_use]
 pub fn local_to_global(frame: &Frame, v: Vec3) -> Vec3 {
     let m = rotation_axes(frame.rotation);
     Vec3::new(
-        m[6] * v.z + m[0] * v.x + m[3] * v.y,
-        m[7] * v.z + m[1] * v.x + m[4] * v.y,
-        m[8] * v.z + m[2] * v.x + m[5] * v.y,
+        narrow(dot3(m[6], v.z, m[0], v.x, m[3], v.y)),
+        narrow(dot3(m[7], v.z, m[1], v.x, m[4], v.y)),
+        narrow(dot3(m[8], v.z, m[2], v.x, m[5], v.y)),
     )
 }
 
 /// A vector in the landblock's frame turned into the frame's own.
-// D2-05809
+// D2-05809, D2-01969
 #[must_use]
 pub fn global_to_local(frame: &Frame, v: Vec3) -> Vec3 {
     let m = rotation_axes(frame.rotation);
     Vec3::new(
-        m[2] * v.z + m[0] * v.x + m[1] * v.y,
-        m[5] * v.z + m[3] * v.x + m[4] * v.y,
-        m[8] * v.z + m[6] * v.x + m[7] * v.y,
+        narrow(dot3(m[2], v.z, m[0], v.x, m[1], v.y)),
+        narrow(dot3(m[5], v.z, m[3], v.x, m[4], v.y)),
+        narrow(dot3(m[8], v.z, m[6], v.x, m[7], v.y)),
     )
 }
 
 /// A point in a frame turned into the landblock's frame: turned, then moved by the frame's origin.
-// D2-03795
+// D2-03795, D2-01970
 #[must_use]
 pub fn point_to_global(frame: &Frame, v: Vec3) -> Vec3 {
     let m = rotation_axes(frame.rotation);
     let o = frame.origin;
+    let w = f64::from;
     Vec3::new(
-        m[6] * v.z + m[0] * v.x + m[3] * v.y + o.x,
-        m[7] * v.z + m[1] * v.x + m[4] * v.y + o.y,
-        m[8] * v.z + m[2] * v.x + m[5] * v.y + o.z,
+        narrow(dot3(m[6], v.z, m[0], v.x, m[3], v.y) + w(o.x)),
+        narrow(dot3(m[7], v.z, m[1], v.x, m[4], v.y) + w(o.y)),
+        narrow(dot3(m[8], v.z, m[2], v.x, m[5], v.y) + w(o.z)),
     )
 }
 
@@ -404,8 +458,8 @@ pub fn point_to_global_from(to: &Position, from: &Position, v: Vec3) -> Vec3 {
     Vec3::new(g.x + b.x, g.y + b.y, g.z + b.z)
 }
 
-/// A point in the landblock's frame turned into a frame's own: moved by the frame's origin, then
-/// turned back.
+/// A point in the landblock's frame turned into a frame's own: moved by the frame's origin (each
+/// difference kept as a float), then turned back.
 // D2-01971
 #[must_use]
 pub fn point_to_local(frame: &Frame, v: Vec3) -> Vec3 {
@@ -413,9 +467,9 @@ pub fn point_to_local(frame: &Frame, v: Vec3) -> Vec3 {
     let o = frame.origin;
     let (dx, dy, dz) = (v.x - o.x, v.y - o.y, v.z - o.z);
     Vec3::new(
-        dy * m[1] + dz * m[2] + dx * m[0],
-        dy * m[4] + dz * m[5] + dx * m[3],
-        dy * m[7] + dz * m[8] + dx * m[6],
+        narrow(dot3(dx, m[0], dz, m[2], dy, m[1])),
+        narrow(dot3(dx, m[3], dz, m[5], dy, m[4])),
+        narrow(dot3(dx, m[6], dz, m[8], dy, m[7])),
     )
 }
 
@@ -470,47 +524,59 @@ pub fn frame_heading(frame: &Frame) -> Heading {
 }
 
 /// Turns a frame to face along a direction, keeping it upright as far as the direction allows;
-/// a direction of no length leaves it unturned.
+/// a direction of no length leaves it unturned. Worked as the client's floating-point unit works
+/// it: the facing and the up axis's parts rounded where the client stores them, the up axis's
+/// first two parts kept wide for the right axis's cross product.
 // D2-13172
 pub fn set_vector_heading(frame: &mut Frame, v: Vec3) {
-    if v.z * v.z + v.y * v.y + v.x * v.x < EPS_SQ {
+    let w = f64::from;
+    let eps = w(EPS);
+    let len2 = (w(v.x) * w(v.x) + w(v.y) * w(v.y)) + w(v.z) * w(v.z);
+    if len2 < eps * eps {
         set_rotate(frame, Quat::IDENTITY);
         return;
     }
-    let len = (v.y * v.y + v.x * v.x + v.z * v.z).sqrt();
-    if len < EPS {
+    let len = ((w(v.z) * w(v.z) + w(v.x) * w(v.x)) + w(v.y) * w(v.y)).sqrt();
+    if len < eps {
         set_rotate(frame, Quat::IDENTITY);
         return;
     }
-    let inv = 1.0 / len;
-    let (fx, fy, fz) = (inv * v.x, v.y * inv, v.z * inv);
+    let k = 1.0 / len;
+    let (fx, fy, fz) = (narrow(k * w(v.x)), narrow(w(v.y) * k), narrow(w(v.z) * k));
     // Up, made square to the facing.
-    let d = fy * 0.0 + fx * 0.0 + fz;
-    let (mut ux, mut uy, mut uz) = (-(fx * d), -(fy * d), 1.0 - fz * d);
-    let mut n = (ux * ux + uy * uy + uz * uz).sqrt();
-    if n < EPS {
+    let d = (w(fy) * 0.0 + w(fx) * 0.0) + w(fz);
+    let ux = narrow(-(w(fx) * d));
+    let uy = -narrow(w(fy) * d);
+    let uz_wide = 1.0 - w(narrow(w(fz) * d));
+    let uz = narrow(uz_wide);
+    let l = narrow(((uz_wide * w(uz)) + w(uy) * w(uy) + w(ux) * w(ux)).sqrt());
+    let (upx, upy, upz) = if l >= EPS {
+        let k = 1.0 / w(l);
+        let kf = w(narrow(k));
+        (w(ux) * k, w(uy) * kf, narrow(w(uz) * kf))
+    } else {
         // Facing straight up or down: the up axis is taken from north instead.
-        let d = fz * 0.0 + fx * 0.0 + fy;
-        ux = -(fx * d);
-        uy = 1.0 - fy * d;
-        uz = -(fz * d);
-        n = (ux * ux + uy * uy + uz * uz).sqrt();
-        if n < EPS {
+        let d = (w(fx) * 0.0 + w(fz) * 0.0) + w(fy);
+        let ux = -(w(fx) * d);
+        let uy = narrow(1.0 - w(narrow(w(fy) * d)));
+        let uz = -narrow(w(fz) * d);
+        let l = ((w(uz) * w(uz) + w(uy) * w(uy)) + ux * ux).sqrt();
+        if l < eps {
             return;
         }
-    }
-    let k = 1.0 / n;
-    let (ux, uy, uz) = (ux * k, uy * k, uz * k);
+        let kf = w(narrow(1.0 / l));
+        (ux * kf, w(uy) * kf, narrow(w(uz) * kf))
+    };
     let m = [
-        uz * fy - uy * fz,
-        fz * ux - uz * fx,
-        uy * fx - ux * fy,
+        narrow(w(upz) * w(fy) - upy * w(fz)),
+        narrow(w(fz) * upx - w(upz) * w(fx)),
+        narrow(upy * w(fx) - upx * w(fy)),
         fx,
         fy,
         fz,
-        ux,
-        uy,
-        uz,
+        narrow(upx),
+        narrow(upy),
+        upz,
     ];
     frame.rotation = rotation_from_axes(&m);
 }
@@ -560,6 +626,27 @@ pub fn slerp_rotation(frame: &mut Frame, a: &Frame, b: &Frame, t: f32) {
             wa * p.z + wb * q.z,
         ),
     );
+}
+
+/// A direction of length at most one as three bytes, its parts held to -1 to 1 (a part that is not
+/// a number counting as -1) and each mapped to 0 to 255: east in the high byte, up in the low.
+// D2-13126
+#[must_use]
+pub fn unit_vector_to_u24(v: Vec3) -> u32 {
+    let byte = |c: f32| {
+        let c = if c <= -1.0 || c.is_nan() {
+            -1.0
+        } else if c >= 1.0 {
+            1.0
+        } else {
+            c
+        };
+        // Cut toward zero; the low byte kept.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let b = ((f64::from(c) + 1.0) * 127.5) as i64 as u32 & 0xFF;
+        b
+    };
+    byte(v.x) << 16 | byte(v.y) << 8 | byte(v.z)
 }
 
 /// Whether a cell id names a cell inside the map: a land cell, an interior cell or a whole block

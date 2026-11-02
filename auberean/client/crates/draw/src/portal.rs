@@ -515,9 +515,18 @@ impl Passage {
                     cull: crate::scene::Cull::Never,
                     mesh: 0,
                     casts_volume: false,
+                    caster: None,
+                    seen_through: false,
                     kept_by: None,
+                    anchor: None,
+                    step: None,
                 });
             }
+        }
+        // Portal space is no world of objects: each draw goes by its layer, in its order.
+        for b in &mut frame.objects {
+            let step = b.by_layer();
+            b.step.get_or_insert(step);
         }
         Some(frame)
     }

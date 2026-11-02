@@ -435,6 +435,26 @@ pub enum Ask {
     ReloadChatSettings,
 }
 
+/// A line for the chat windows: its kind, its text as written, and the string reference it was
+/// written from when it came as one (the log adds the reference, written once its tables are at
+/// hand).
+#[derive(Clone, Debug)]
+struct Line {
+    kind: u32,
+    text: String,
+    info: Option<auberean_text::StringInfo>,
+}
+
+impl Line {
+    const fn written(kind: u32, text: String) -> Self {
+        Self {
+            kind,
+            text,
+            info: None,
+        }
+    }
+}
+
 /// The string table an enumeration value names.
 fn table(ui: &Ui, table_enum: u32) -> u32 {
     ui.assets()
@@ -488,7 +508,7 @@ pub struct ChatPane {
     deactivate_pending: bool,
     /// The kinds of text it shows; the lines that came, waiting for the next tick.
     filter: u32,
-    pending: Vec<(u32, String)>,
+    pending: Vec<Line>,
     /// Its depth while its entry has the keyboard.
     zlevel_front: i32,
     /// The channel it is devoted to.
@@ -716,9 +736,9 @@ impl ChatPane {
 
     /// A line for the chat windows: kept for the next tick when its kind is one it shows.
     // D2-03095
-    fn display_string_info(&mut self, kind: u32, text: &str) {
-        if kind & self.filter != 0 {
-            self.pending.push((kind, text.to_owned()));
+    fn display_string_info(&mut self, line: &Line) {
+        if line.kind & self.filter != 0 {
+            self.pending.push(line.clone());
         }
     }
 
@@ -787,12 +807,15 @@ impl ChatPane {
         }
         ui.move_cursor_to_end(log);
         let mut popup = false;
-        for (kind, text) in std::mem::take(&mut self.pending) {
-            let info = self.message_info(kind).unwrap_or_default();
+        for line in std::mem::take(&mut self.pending) {
+            let info = self.message_info(line.kind).unwrap_or_default();
             if !popup {
                 popup = info.popup;
             }
-            ui.add_string_with_font(log, &text, info.size, info.color);
+            match &line.info {
+                Some(r) => ui.add_string_info_with_font(log, r, info.size, info.color),
+                None => ui.add_string_with_font(log, &line.text, info.size, info.color),
+            };
         }
         ui.recalculate_glyph_list(log);
         if let Some(b) = self.button {
@@ -1023,7 +1046,7 @@ impl ChatPane {
             && old | text_type::CHAT_ENTRY != text_type::CHAT_ENTRY
         {
             let usage = write(ui, &entry(ui, STRINGS, string::USAGE_MESSAGE));
-            self.pending.push((text_type::STANDARD, usage));
+            self.pending.push(Line::written(text_type::STANDARD, usage));
             self.filter |= text_type::STANDARD;
             self.all_text_to_log(ui);
             self.filter = text_type::CHAT_ENTRY;
@@ -1070,7 +1093,7 @@ pub struct ChatUi {
     reload_options: Option<u64>,
     /// The lines that came after the scripts said the options changed, before the windows read
     /// them again: each window takes them by what it shows once it has.
-    held: Vec<(u32, String)>,
+    held: Vec<Line>,
 }
 
 impl ChatUi {
@@ -1546,7 +1569,22 @@ impl ChatUi {
     }
 }
 
+impl ChatUi {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x1_040B, 0x419, 0x42A, 0x1_040C, 0x468, 0x417];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for ChatUi {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1617,15 +1655,19 @@ impl Child for ChatUi {
     /// the options as the scripts left them: a line that comes while the options wait to be read
     /// again is held until they have been, and each window then takes it by what it shows.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
-        for (kind, text) in view.lines {
+        for (i, (kind, text)) in view.lines.iter().enumerate() {
             self.display_string_info(*kind, text);
-            self.held.push((*kind, text.clone()));
+            self.held.push(Line {
+                kind: *kind,
+                text: text.clone(),
+                info: view.line_infos.get(i).cloned().flatten(),
+            });
         }
         self.reload(ui, view);
         if self.reload_chat.is_none() && self.reload_options.is_none() {
-            for (kind, text) in std::mem::take(&mut self.held) {
+            for line in std::mem::take(&mut self.held) {
                 for w in &mut self.windows {
-                    w.display_string_info(kind, &text);
+                    w.display_string_info(&line);
                 }
             }
         }

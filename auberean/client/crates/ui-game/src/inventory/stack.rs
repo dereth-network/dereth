@@ -186,11 +186,12 @@ impl StackSplitter {
         self.show(ui, true, out);
     }
 
-    /// The entry holds `amount`.
+    /// The entry holds `amount`, written as `%d` writes it: signed, so from 2^31 up it shows
+    /// negative.
     // D2-02250
     pub fn set_amount(&self, ui: &mut Ui, amount: u32) {
         if let Some(e) = self.entry {
-            ui.set_text(e, &amount.to_string());
+            ui.set_text(e, &amount.cast_signed().to_string());
         }
     }
 
@@ -252,7 +253,22 @@ fn parse_whole(s: &str) -> Option<u32> {
     Some(if neg { v.wrapping_neg() } else { v })
 }
 
+impl StackSplitter {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x458, 0x459];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for StackSplitter {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

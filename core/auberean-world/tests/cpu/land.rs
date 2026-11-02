@@ -1,7 +1,9 @@
-//! The landscape constants.
+//! The landscape constants, and whether a point or a circle lies over a triangle of ground, as the
+//! land's ground and slope checks ask it.
 
 use auberean_assets::region::{Landscape, VertexFields};
 use auberean_world::land::LandConstants;
+use auberean_world::math::{circle_over_polygon, over_polygon};
 
 fn landscape() -> Landscape {
     Landscape {
@@ -62,4 +64,41 @@ fn a_landscape_record_out_of_range_is_refused() {
     let mut l = landscape();
     l.vertex_fields.replace = 5;
     assert!(LandConstants::from_record(&l).is_err());
+}
+
+/// A point over a polygon may lie outside an edge by a band of 0.0002, in the edge's own units
+/// (its length times the distance): over a triangle whose edge along the x axis is 2 m long, a
+/// point 0.00009 m south of it is over the triangle and one 0.00011 m south is not; seen from the
+/// other side, the same point is over only the clockwise triangle.
+///
+/// Behaviour: world.land.a-point-within-the-band-of-an-edge-is-over-the-polygon
+#[test]
+fn a_point_within_the_band_of_an_edge_is_over_the_polygon() {
+    let tri = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]];
+    assert!(over_polygon(&tri, [0.5, 0.5, 0.0], true));
+    assert!(over_polygon(&tri, [0.5, -0.000_09, 0.0], true));
+    assert!(!over_polygon(&tri, [0.5, -0.000_11, 0.0], true));
+    assert!(!over_polygon(&tri, [0.5, 0.5, 0.0], false));
+    let turned = [tri[0], tri[2], tri[1]];
+    assert!(over_polygon(&turned, [0.5, 0.5, 0.0], false));
+}
+
+/// The slope check's circle reaches a polygon by its edges' values, which grow with an edge's
+/// length: a circle of 2 m about a point 1 m outside a triangle's 10 m edge, beside it, does not
+/// reach the triangle (the edge's value there is 10), one about a point 0.1 m outside does (the
+/// value is 1, and the point is beside the edge); a vertex within the radius reaches it from
+/// anywhere, a point past both ends of an edge needs the next edge or a vertex, and a polygon
+/// standing on its edge (no height to its normal) is never reached.
+///
+/// Behaviour: world.land.a-circle-reaches-a-polygon-by-its-edges-values
+#[test]
+fn a_circle_reaches_a_polygon_by_its_edges_values() {
+    let tri = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]];
+    let reaches = |x: f32, y: f32, r: f32| circle_over_polygon(&tri, 1.0, [x, y, 0.0], true, r);
+    assert!(!reaches(5.0, -1.0, 2.0), "10 m along the edge stops it");
+    assert!(reaches(5.0, -0.1, 2.0));
+    assert!(reaches(11.0, -1.0, 2.0), "the corner is within 2 m");
+    assert!(!reaches(13.0, -1.0, 2.0));
+    assert!(reaches(3.0, 3.0, 0.5), "over the triangle");
+    assert!(!circle_over_polygon(&tri, 0.0, [3.0, 3.0, 0.0], true, 0.5));
 }

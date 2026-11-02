@@ -23,6 +23,7 @@ use crate::value::{tag, NULL};
 
 /// An object in the table.
 #[derive(Clone, Debug, PartialEq)]
+// D2-00880
 pub struct Object {
     /// The package, [`NULL`] for none.
     pub package: u32,
@@ -172,6 +173,7 @@ impl core::fmt::Display for HeapError {
 
 /// The reference table.
 #[derive(Clone, Debug, Default)]
+// D2-16488, D2-16474, D2-16463, D2-16434, D2-16435
 pub struct Heap {
     entries: Vec<Entry>,
     /// Where the search for a free id starts.
@@ -294,7 +296,7 @@ impl Heap {
     }
 
     /// Add an entry and return its id.
-    // D2-00899, D2-16437
+    // D2-00899, D2-16437, D2-00883, D2-00891
     pub fn add(&mut self, f: u32, target: Target) -> u32 {
         let mut i = self.next;
         while i < self.entries.len() && !matches!(self.entries[i].target, Target::Free) {
@@ -447,7 +449,7 @@ impl Heap {
         }
         self.end_build();
         let mut remap = |r: u32| map.get(&r).copied().unwrap_or(r);
-        for id in fresh {
+        for &id in &fresh {
             match &mut self.entries[id as usize].target {
                 Target::Relative(t) if *t != NULL => *t = remap(*t),
                 Target::Object(o) => {
@@ -464,6 +466,29 @@ impl Heap {
                 _ => {}
             }
         }
+        // An iterator read with its container walks to its place again once both are in.
+        // D2-04395, D2-04399, D2-04401, D2-04402, D2-04405, D2-04407, D2-04410, D2-04413, D2-04475
+        // D2-04478
+        for id in fresh {
+            let Ok(NativeObject::Iterator {
+                container,
+                position,
+            }) = self.native(id)
+            else {
+                continue;
+            };
+            let (container, offset) = (*container, *position);
+            if container == NULL {
+                continue;
+            }
+            let Ok(c) = self.native(container) else {
+                continue;
+            };
+            let place = c.iterator_place(offset);
+            if let Ok(NativeObject::Iterator { position, .. }) = self.native_mut(id) {
+                *position = place;
+            }
+        }
         let root = g.ids.first().ok_or(HeapError::BadReference(NULL))?;
         Ok(map.get(root).copied().unwrap_or(NULL))
     }
@@ -473,6 +498,7 @@ impl Heap {
     /// owned by a process unless it is the graph's root. A root owned by a process is packed with
     /// the root bit set, as every saved state's root is.
     // D2-16417, D2-16411, D2-16408, D2-16407, D2-16404, D2-16492, D2-16494
+    // D2-16402, D2-16491, D2-16493, D2-16264, D2-16430
     pub fn export(&self, root: u32) -> Result<Graph, HeapError> {
         let mut ids = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -516,7 +542,20 @@ impl Heap {
                 Target::Object(_) if f & field::PROCESS != 0 && f & field::ROOT == 0 => {
                     Body::Elsewhere
                 }
-                Target::Object(o) => Body::Object(o.to_packed()),
+                Target::Object(o) => {
+                    let mut p = o.to_packed();
+                    // An iterator packs how many steps from its container's first entry it is.
+                    if let Some(NativeObject::Iterator {
+                        container,
+                        position,
+                    }) = &mut p.native
+                    {
+                        if let Ok(c) = self.native(*container) {
+                            *position = c.iterator_offset(*position);
+                        }
+                    }
+                    Body::Object(p)
+                }
                 Target::Relative(t) => Body::Relative(*t),
                 Target::Free => return Err(HeapError::BadReference(*id)),
             };
@@ -526,7 +565,7 @@ impl Heap {
     }
 
     /// Mark from `roots` and free every entry not reached. Returns how many were freed.
-    // D2-00897, D2-00881, D2-00885, D2-00895, D2-00886, D2-00893, D2-00884
+    // D2-00897, D2-00881, D2-00885, D2-00895, D2-00886, D2-00893, D2-00884, D2-00877, D2-16263
     pub fn collect(&mut self, roots: impl IntoIterator<Item = u32>) -> usize {
         let mut marked = vec![false; self.entries.len()];
         let mut work: Vec<u32> = roots.into_iter().collect();

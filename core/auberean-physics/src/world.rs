@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use auberean_assets::property::{PhysicsMaterial, PropertyGroup, PropertyList};
 use dereth_physics::arena::{Arena, PhysHandle};
 use dereth_physics::source::SetupPart;
-use dereth_physics::transition::collide::{object_geometry_scaled, ObjGeometry, ObjectCollisions};
+use dereth_physics::transition::collide::{ObjGeometry, ObjectCollisions};
 use dereth_physics::transition::TreeScale;
 use dereth_physics::transition::{Transition, TransitionCtx, TransitionState};
 use dereth_physics::{CellRuntime, LandSource, PhysicsObj, SetupGeometry, V3};
@@ -43,8 +43,9 @@ mod detection;
 mod props;
 
 pub use detect::GameObjects;
+pub(crate) use detection::PHYSICS_SHAPES;
 pub use detection::{split_ray, Detection, NoGameObjects};
-pub use props::{graphics, render};
+pub use props::{entity_graphics_state, graphics, render};
 
 /// The physics type the client gives the entities placed outside.
 pub const STATIC_ETHEREAL: u32 = 0x4000_0038;
@@ -1113,7 +1114,7 @@ impl ObjectCollisions for View<'_> {
             }
             t.sphere_path.obstruction_ethereal = inter;
             let frames = o.part_frames.clone();
-            object_geometry_scaled(
+            crate::obstacle::object_geometry(
                 ctx,
                 t,
                 o.state,
@@ -1121,6 +1122,7 @@ impl ObjectCollisions for View<'_> {
                 o.scale,
                 TreeScale::axes(e.tree_scale),
                 &o.position,
+                e.tree_scale,
                 creature,
             )
         };

@@ -1,6 +1,6 @@
 //! The identifiers the client asks for, as text.
 
-use auberean_friends::ids::{self, Face};
+use auberean_friends_dll::ids::{self, Face};
 
 /// Behaviour: friends.library.identifiers
 #[test]

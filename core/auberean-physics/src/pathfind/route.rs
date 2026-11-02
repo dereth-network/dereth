@@ -10,8 +10,8 @@ use super::node::Spot;
 use crate::geom;
 use crate::geom::Ray;
 
-/// A way found.
-// D2-04484
+/// A way found (copied whole, as the client copies it).
+// D2-04484, D2-04532, D2-13534
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path {
     pub start: Position,

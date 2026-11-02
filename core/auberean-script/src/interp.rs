@@ -28,6 +28,7 @@ pub(crate) struct Exec<'a> {
 type Handler = fn(u32, &mut Exec<'_>) -> Result<Status, Stop>;
 
 /// The table, by low byte.
+// D2-16374
 static HANDLERS: [Handler; 256] = build();
 
 const fn build() -> [Handler; 256] {

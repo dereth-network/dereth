@@ -1,51 +1,471 @@
-//! The client's own preferences for the options window's client page.
+//! The client's own preferences for the options window's client page, kept in the bank
+//! (`auberean_ui_game::options::bank`).
 //!
-//! The graphics section's preferences are listed when the page asks for them, tried as the player
-//! sets them, taken as applied when the page applies them and put back when it recalls them; after
-//! each apply the overall graphics quality they match is worked out again. The client draws at the
-//! highest quality, so its preferences start there (the original starts from its own defaults
-//! unless the configuration program saved a quality) unless the settings say otherwise, and the
-//! world is drawn by them once applied. The other sections (rendering, camera, avatars, input,
-//! effects, sound, other) list nothing yet.
+//! At startup the client's parts put their preferences in, each read from the preferences file:
+//! the graphics (the world's drawing, which handles them), the camera's, the mouse's and the
+//! avatar's (the camera, which handles them), the key maps' files. The graphics start as the
+//! settings computed them. The page attaches its sections and is listed each one's preferences
+//! (and again when they are recalled); what the player sets is written through to the bank's and
+//! told to its handler; applying a section hands each handler its changed preferences, which the
+//! world takes (the graphics) or the camera does (the camera's options); after each graphics apply
+//! the overall graphics quality they match is worked out again. The sound manager's preferences
+//! (the sound section: four volume sliders, the sound features, the number of sounds, sound off
+//! and music off) are told to the sound as they change and as they are applied, and their values
+//! as read handed to it at startup. Keeping writes every preference to the file. The rendering,
+//! effects and other sections list nothing yet.
 
+use auberean_audio::options as sound;
 use auberean_draw::quality::{Graphics, Kind, GRAPHICS, PREFERENCES};
+use auberean_scene::camera::Options;
+use auberean_shell::preferences::EnumNames;
+use auberean_shell::profile::Profile;
+use auberean_shell::Settings;
 use auberean_ui::Token;
+use auberean_ui_game::options::bank::{
+    Bank, Notice, Party, PreferenceFile, KEY_NAMES, SECTION_NAMES,
+};
 use auberean_ui_game::options::client::{Listing, Request, PREFERENCE_STRINGS};
 use auberean_ui_game::options::helper::Change;
-use auberean_ui_game::options::preference::{Choice, Description, Flag, Number};
+use auberean_ui_game::options::preference::{
+    Choice, Description, Enumerations, Flag, Number, Pref, Text,
+};
+use auberean_world::records::WorldRecords;
+
+/// The enumeration the graphics choices are named in.
+const GRAPHICS_VALUES: u32 = 0x4000_004A;
+/// The label prefix of a graphics choice's name.
+const LEVEL: &str = "ID_Graphics_Value_";
+
+/// Who handles a preference: the world's drawing, the camera, the sound.
+const DRAWING: u32 = 1;
+const CAMERA_HANDLER: u32 = 2;
+const SOUND_HANDLER: u32 = 3;
+/// The page, the monitor of its sections.
+const PAGE: u32 = 1;
+
+/// The sections and keys of the camera's preferences.
+mod section {
+    pub const KEY_MAP: u32 = 0x4000_0006;
+    pub const CAMERA: u32 = 0x4000_0008;
+    pub const AVATAR: u32 = 0x4000_000D;
+    pub const INPUT: u32 = 0x4000_000E;
+}
+mod key {
+    pub const MOUSE_LOOK_SENSITIVITY: u32 = 0x4000_0025;
+    pub const MOUSE_INVERT_Y: u32 = 0x4000_0026;
+    pub const CAMERA_HEIGHT: u32 = 0x4000_0027;
+    pub const CAMERA_DISTANCE: u32 = 0x4000_002A;
+    pub const CAMERA_ZOOM: u32 = 0x4000_002C;
+    pub const CAMERA_ROTATE: u32 = 0x4000_002D;
+    pub const CAMERA_TRANSITION: u32 = 0x4000_002F;
+    pub const NORMAL: u32 = 0x4000_0030;
+    pub const SHIFT: u32 = 0x4000_0031;
+    pub const CONTROL: u32 = 0x4000_0032;
+    pub const CAMERA_AUTO_DISTANCE: u32 = 0x4000_0051;
+    pub const CAMERA_TILT: u32 = 0x4000_0054;
+    pub const CAMERA_ALIGN_TO_SLOPE: u32 = 0x4000_005A;
+    pub const AVATAR_LOOK_AROUND: u32 = 0x4000_0068;
+    pub const AVATAR_LOOK_AT_CAMERA: u32 = 0x4000_0069;
+    pub const AVATAR_LOOK_AT_SELECTION: u32 = 0x4000_006A;
+    pub const MOUSE_LOOK_STEERS: u32 = 0x4000_006B;
+}
+
+/// A camera preference's kind: a number's range and default, or a yes-or-no's default.
+enum CameraKind {
+    Number(f32, f32, f32),
+    Flag(bool),
+}
+
+/// The camera's preferences, in the order the camera puts them in: each one's section and key,
+/// label and help, and kind.
+// D2-10689
+const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 14] = [
+    (
+        section::CAMERA,
+        key::CAMERA_HEIGHT,
+        "ID_Camera_Height",
+        "ID_Camera_Height_Help",
+        CameraKind::Number(-1.0, 1.0, 0.0),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_DISTANCE,
+        "ID_Camera_Distance",
+        "ID_Camera_Distance_Help",
+        CameraKind::Number(-0.2, 10.0, 4.5),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_TILT,
+        "ID_Camera_Tilt",
+        "ID_Camera_Tilt_Help",
+        CameraKind::Number(-0.25, 1.0, 0.25),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_TRANSITION,
+        "ID_Camera_Transition_Time",
+        "ID_Camera_Transition_Help",
+        CameraKind::Number(0.1, 2.0, 1.0),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_ROTATE,
+        "ID_Camera_Rotate_Speed",
+        "ID_Camera_Rotate_Help",
+        CameraKind::Number(0.1, 5.0, 1.0),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_ZOOM,
+        "ID_Camera_Zoom_Speed",
+        "ID_Camera_Zoom_Help",
+        CameraKind::Number(0.1, 5.0, 1.0),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_AUTO_DISTANCE,
+        "ID_Camera_Auto_Distance",
+        "ID_Camera_Auto_Distance_Help",
+        CameraKind::Flag(true),
+    ),
+    (
+        section::CAMERA,
+        key::CAMERA_ALIGN_TO_SLOPE,
+        "ID_Camera_Align_To_Slope",
+        "ID_Camera_Align_To_Slope_Help",
+        CameraKind::Flag(true),
+    ),
+    (
+        section::INPUT,
+        key::MOUSE_LOOK_SENSITIVITY,
+        "ID_Input_Mouse_Look_Sensitivity",
+        "ID_Input_Mouse_Look_Sensitivity_Help",
+        CameraKind::Number(0.5, 2.0, 1.0),
+    ),
+    (
+        section::INPUT,
+        key::MOUSE_INVERT_Y,
+        "ID_Input_Invert_Y",
+        "ID_Input_Invert_Y_Help",
+        CameraKind::Flag(false),
+    ),
+    (
+        section::INPUT,
+        key::MOUSE_LOOK_STEERS,
+        "ID_Input_Steer_Player",
+        "ID_Input_Steer_Player_Help",
+        CameraKind::Flag(true),
+    ),
+    (
+        section::AVATAR,
+        key::AVATAR_LOOK_AROUND,
+        "ID_Avatar_Look_Around",
+        "ID_Avatar_Look_Around_Help",
+        CameraKind::Flag(true),
+    ),
+    (
+        section::AVATAR,
+        key::AVATAR_LOOK_AT_CAMERA,
+        "ID_Avatar_Looks_At_Camera",
+        "ID_Avatar_Looks_At_Camera_Help",
+        CameraKind::Flag(true),
+    ),
+    (
+        section::AVATAR,
+        key::AVATAR_LOOK_AT_SELECTION,
+        "ID_Avatar_Look_At_Selection",
+        "ID_Avatar_Look_At_Selection_Help",
+        CameraKind::Flag(true),
+    ),
+];
+
+/// The key maps' files, as the client puts them in: each key and its default file.
+const KEY_MAP_FILES: [(u32, &str); 3] = [
+    (key::NORMAL, "Main.keymap"),
+    (key::SHIFT, "Shift.keymap"),
+    (key::CONTROL, "Control.keymap"),
+];
+
+/// The names the data gives the preferences' sections and keys and the graphics choices.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Names(Vec<(u32, EnumNames)>);
+
+impl Names {
+    fn read(records: &WorldRecords) -> Self {
+        Self(
+            [SECTION_NAMES, KEY_NAMES, GRAPHICS_VALUES]
+                .into_iter()
+                .map(|e| (e, EnumNames::read(records, e)))
+                .collect(),
+        )
+    }
+
+    fn of(&self, e: u32) -> Option<&EnumNames> {
+        self.0.iter().find(|(x, _)| *x == e).map(|(_, n)| n)
+    }
+}
+
+impl Enumerations for Names {
+    fn value_of(&self, enumeration: u32, name: &str) -> Option<u32> {
+        self.of(enumeration)?.value(name)
+    }
+    fn name_of(&self, enumeration: u32, value: u32) -> Option<String> {
+        self.of(enumeration)?.name(value).map(str::to_owned)
+    }
+}
+
+/// The preferences file as the bank reads it at startup.
+struct File<'a>(&'a Profile);
+
+impl PreferenceFile for File<'_> {
+    fn read(&self, section: &str, key: &str, default: &str, size: usize) -> String {
+        self.0.read(section, key, default, size)
+    }
+    fn write(&mut self, _section: &str, _key: &str, _value: &str) {}
+}
+
+/// What the bank keeps, gathered to be written by the shell.
+#[derive(Default)]
+struct Writes(Vec<(String, String, String)>);
+
+impl PreferenceFile for Writes {
+    fn read(&self, _section: &str, _key: &str, default: &str, _size: usize) -> String {
+        default.to_owned()
+    }
+    fn write(&mut self, section: &str, key: &str, value: &str) {
+        self.0
+            .push((section.to_owned(), key.to_owned(), value.to_owned()));
+    }
+}
 
 /// The client's preferences as the client page sees them.
 #[derive(Debug)]
 pub struct Preferences {
-    /// The graphics preferences as tried, and as last applied.
-    now: Graphics,
-    applied: Graphics,
-    /// The page asks for the graphics section.
-    shown: bool,
+    bank: Bank,
+    names: Names,
+    /// The page's sections, in the order it attached them.
+    shown: Vec<u32>,
     listing: Option<Listing>,
     serial: u32,
     /// The overall graphics quality the applied preferences match (0: the player's own).
     pub quality: u32,
-    /// Applied since the world last took them.
-    fresh: bool,
+    /// The camera's options as last applied.
+    camera: Options,
+    /// Applied since the world or the camera last took them.
+    fresh_graphics: bool,
+    fresh_camera: bool,
+    /// What the page asked to keep in the file, not yet handed on.
+    keep: Option<Vec<(String, String, String)>>,
+    /// The sound preferences told to the sound, not yet handed on: each key, value, and whether
+    /// applied (else changed).
+    sound: Vec<(u32, f32, bool)>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        let g = Graphics::first_run();
-        Self {
-            now: g.clone(),
-            quality: g.overall(),
-            applied: g,
-            shown: false,
+        let mut me = Self {
+            bank: Bank::new(),
+            names: Names::default(),
+            shown: Vec::new(),
             listing: None,
             serial: 0,
-            fresh: false,
+            quality: 0,
+            camera: Options::default(),
+            fresh_graphics: false,
+            fresh_camera: false,
+            keep: None,
+            sound: Vec::new(),
+        };
+        me.put_in(&Profile::default());
+        me.set(&Graphics::first_run());
+        me
+    }
+}
+
+/// A graphics preference as the bank keeps it: its label and help, its choices (each named in the
+/// graphics choices' enumeration) or range, its default.
+fn graphics_preference(p: &auberean_draw::quality::Preference, names: &Names) -> Pref {
+    let mut d = Description::default();
+    d.describe(
+        PREFERENCE_STRINGS,
+        Token::of(p.label).raw(),
+        Token::of(p.help).raw(),
+    );
+    match p.kind {
+        Kind::Choice { choices, default } => {
+            let mut c = Choice::new();
+            c.map(GRAPHICS_VALUES);
+            for (v, label) in choices {
+                let words = (PREFERENCE_STRINGS, Token::of(label).raw());
+                match names.value_of(GRAPHICS_VALUES, label.trim_start_matches(LEVEL)) {
+                    Some(named) => c.assign_named_choice(*v, words, named),
+                    None => c.assign_choice(*v, words),
+                };
+            }
+            c.set_default(default);
+            c.description = d;
+            Pref::Choice(c)
+        }
+        Kind::Flag { default } => {
+            let mut f = Flag::new();
+            f.set_default(default);
+            f.description = d;
+            Pref::Flag(f)
+        }
+        Kind::Number {
+            least,
+            greatest,
+            default,
+        } => {
+            let mut n = Number::new();
+            n.set_range(least, greatest);
+            n.set_default(default);
+            n.description = d;
+            Pref::Number(n)
         }
     }
 }
 
+/// A camera preference as the bank keeps it.
+fn camera_preference(label: &str, help: &str, kind: &CameraKind) -> Pref {
+    let mut d = Description::default();
+    d.describe(
+        PREFERENCE_STRINGS,
+        Token::of(label).raw(),
+        Token::of(help).raw(),
+    );
+    match kind {
+        CameraKind::Number(least, greatest, default) => {
+            let mut n = Number::new();
+            n.set_range(*least, *greatest);
+            n.set_default(*default);
+            n.description = d;
+            Pref::Number(n)
+        }
+        CameraKind::Flag(default) => {
+            let mut f = Flag::new();
+            f.set_default(*default);
+            f.description = d;
+            Pref::Flag(f)
+        }
+    }
+}
+
+/// A sound preference as the bank keeps it: its label and help, its range, the features or yes
+/// or no, and its default.
+fn sound_preference(p: &sound::SoundPreference) -> Pref {
+    let mut d = Description::default();
+    d.describe(
+        PREFERENCE_STRINGS,
+        Token::of(p.label).raw(),
+        Token::of(p.help).raw(),
+    );
+    match p.kind {
+        sound::Kind::Number {
+            least,
+            greatest,
+            default,
+        } => {
+            let mut n = Number::new();
+            n.set_range(least, greatest);
+            n.set_default(default);
+            n.description = d;
+            Pref::Number(n)
+        }
+        sound::Kind::Features { default } => {
+            let mut c = Choice::new();
+            c.map(sound::FEATURE_NAMES);
+            for (v, label, named) in sound::FEATURES {
+                c.assign_named_choice(v, (PREFERENCE_STRINGS, Token::of(label).raw()), named);
+            }
+            c.set_default(default);
+            c.description = d;
+            Pref::Choice(c)
+        }
+        sound::Kind::Flag { default } => {
+            let mut f = Flag::new();
+            f.set_default(default);
+            f.description = d;
+            Pref::Flag(f)
+        }
+    }
+}
+
+/// A preference's value as a number (a choice's number, 1 or 0 for yes or no).
+#[allow(clippy::cast_precision_loss)] // a few levels
+fn number_of(p: &Pref) -> f32 {
+    match p {
+        Pref::Flag(f) => f32::from(u8::from(f.get())),
+        Pref::Number(n) => n.get(),
+        Pref::Choice(c) => c.get() as f32,
+        Pref::Text(_) => 0.0,
+    }
+}
+
 impl Preferences {
+    /// Every part's preferences put in, read from the file the settings were read from, with the
+    /// world's names for them; the camera's options as the settings hold them.
+    pub fn start(&mut self, settings: &Settings, records: &WorldRecords) {
+        self.names = Names::read(records);
+        self.bank = Bank::new();
+        self.camera = settings.camera;
+        self.put_in(settings.profile());
+        self.start_sound();
+    }
+
+    /// The sound takes the sound preferences' values as read, as it starts.
+    // D2-07680
+    fn start_sound(&mut self) {
+        self.sound = sound::AT_START
+            .iter()
+            .filter_map(|&(k, applied)| Some((k, number_of(self.bank.find(k)?), applied)))
+            .collect();
+    }
+
+    fn put_in(&mut self, profile: &Profile) {
+        let file = File(profile);
+        let mut out = Vec::new();
+        for p in &PREFERENCES {
+            let mut pref = graphics_preference(p, &self.names);
+            self.bank
+                .bless(&mut pref, GRAPHICS, p.key, &file, &self.names, &mut out);
+            self.bank.link(p.key, DRAWING);
+        }
+        for (s, k, label, help, kind) in &CAMERA_PREFERENCES {
+            let mut pref = camera_preference(label, help, kind);
+            self.bank
+                .bless(&mut pref, *s, *k, &file, &self.names, &mut out);
+            self.bank.link(*k, CAMERA_HANDLER);
+        }
+        // D2-07685
+        for p in &sound::PREFERENCES {
+            let mut pref = sound_preference(p);
+            self.bank.bless(
+                &mut pref,
+                sound::SECTION,
+                p.key,
+                &file,
+                &self.names,
+                &mut out,
+            );
+            self.bank.link(p.key, SOUND_HANDLER);
+        }
+        // D2-01694
+        for (k, default) in KEY_MAP_FILES {
+            let mut t = Text::new();
+            t.set_default(default);
+            self.bank.bless(
+                &mut Pref::Text(t),
+                section::KEY_MAP,
+                k,
+                &file,
+                &self.names,
+                &mut out,
+            );
+        }
+    }
+
     /// The preferences as last listed for the page.
     #[must_use]
     pub fn listing(&self) -> Option<&Listing> {
@@ -54,132 +474,200 @@ impl Preferences {
 
     /// The graphics preferences the client starts with, as applied.
     pub fn set(&mut self, graphics: &Graphics) {
-        self.now = graphics.clone();
-        self.applied = graphics.clone();
-        self.quality = self.applied.overall();
+        let mut out = Vec::new();
+        let level = dereth_primitives::num::to_i32;
+        for p in &PREFERENCES {
+            let (Some(v), Some(d)) = (graphics.get(p.key), graphics.default_of(p.key)) else {
+                continue;
+            };
+            let Some(mut pref) = self.bank.find(p.key).cloned() else {
+                continue;
+            };
+            match &mut pref {
+                Pref::Choice(c) => {
+                    c.set_default(level(d));
+                    c.set_value(level(v));
+                }
+                Pref::Flag(f) => {
+                    f.set_default(d != 0.0);
+                    f.set_value(v != 0.0);
+                }
+                Pref::Number(n) => {
+                    n.set_default(d);
+                    n.set_value(v);
+                }
+                Pref::Text(_) => {}
+            }
+            self.bank
+                .set(&pref, &File(&Profile::default()), &self.names, &mut out);
+        }
+        self.bank.synchronize(GRAPHICS);
+        self.quality = graphics.overall();
         self.relist();
+    }
+
+    /// The graphics preferences as the bank holds them now.
+    fn graphics(&self) -> Graphics {
+        let mut g = Graphics::default();
+        for p in self.bank.list(GRAPHICS) {
+            g.set(p.description().key, number_of(&p));
+        }
+        g
+    }
+
+    /// The camera's options as the bank holds them now (whether the avatar shows in first person
+    /// is not among them).
+    fn camera_options(&self) -> Options {
+        let mut o = self.camera;
+        let n = |k: u32| self.bank.find(k).map(number_of);
+        let on = |k: u32| self.bank.find(k).map(|p| number_of(p) != 0.0);
+        o.height = n(key::CAMERA_HEIGHT).unwrap_or(o.height);
+        o.distance = n(key::CAMERA_DISTANCE).unwrap_or(o.distance);
+        o.tilt = n(key::CAMERA_TILT).unwrap_or(o.tilt);
+        o.transition_time = n(key::CAMERA_TRANSITION).unwrap_or(o.transition_time);
+        o.rotate_speed = n(key::CAMERA_ROTATE).unwrap_or(o.rotate_speed);
+        o.zoom_speed = n(key::CAMERA_ZOOM).unwrap_or(o.zoom_speed);
+        o.auto_distance = on(key::CAMERA_AUTO_DISTANCE).unwrap_or(o.auto_distance);
+        o.align_to_slope = on(key::CAMERA_ALIGN_TO_SLOPE).unwrap_or(o.align_to_slope);
+        o.mouse_sensitivity = n(key::MOUSE_LOOK_SENSITIVITY).unwrap_or(o.mouse_sensitivity);
+        o.invert_y = on(key::MOUSE_INVERT_Y).unwrap_or(o.invert_y);
+        o.mouse_look_steers = on(key::MOUSE_LOOK_STEERS).unwrap_or(o.mouse_look_steers);
+        o.look_around = on(key::AVATAR_LOOK_AROUND).unwrap_or(o.look_around);
+        o.look_at_camera = on(key::AVATAR_LOOK_AT_CAMERA).unwrap_or(o.look_at_camera);
+        o.look_at_selection = on(key::AVATAR_LOOK_AT_SELECTION).unwrap_or(o.look_at_selection);
+        o
     }
 
     /// The graphics preferences applied since the world last took them.
     pub fn take_applied(&mut self) -> Option<Graphics> {
-        std::mem::take(&mut self.fresh).then(|| self.applied.clone())
+        std::mem::take(&mut self.fresh_graphics).then(|| self.graphics())
+    }
+
+    /// The camera's options applied since the camera last took them.
+    pub fn take_camera(&mut self) -> Option<Options> {
+        std::mem::take(&mut self.fresh_camera).then_some(self.camera)
+    }
+
+    /// The sound preferences told to the sound since it last took them: each key, value, and
+    /// whether applied (else changed).
+    pub fn take_sound(&mut self) -> Vec<(u32, f32, bool)> {
+        std::mem::take(&mut self.sound)
+    }
+
+    /// The preferences to keep in the file, when the page asked to keep them.
+    pub fn take_kept(&mut self) -> Option<Vec<(String, String, String)>> {
+        self.keep.take()
+    }
+
+    /// What the bank told, carried out.
+    fn told(&mut self, out: Vec<Notice>) {
+        for n in out {
+            if let Notice::Change {
+                party: Party::Handler(SOUND_HANDLER),
+                pref,
+            } = &n
+            {
+                self.sound
+                    .push((pref.description().key, number_of(pref), false));
+                continue;
+            }
+            if let Notice::Handle { handler, prefs } = n {
+                match handler {
+                    SOUND_HANDLER => self.sound.extend(
+                        prefs
+                            .iter()
+                            .map(|p| (p.description().key, number_of(p), true)),
+                    ),
+                    DRAWING => {
+                        self.quality = self.graphics().overall();
+                        self.fresh_graphics = true;
+                        tracing::debug!(quality = self.quality, "graphics preferences applied");
+                    }
+                    CAMERA_HANDLER => {
+                        self.camera = self.camera_options();
+                        self.fresh_camera = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     /// One of the page's requests carried out.
     // D2-09722
     pub fn handle(&mut self, r: &Request) {
+        let mut out = Vec::new();
         match r {
-            Request::Attach(sections) if sections.contains(&GRAPHICS) => {
-                self.shown = true;
+            Request::Attach(sections) => {
+                for s in sections {
+                    if self.bank.attach(*s, PAGE, &mut out) && !self.shown.contains(s) {
+                        self.shown.push(*s);
+                    }
+                }
                 self.relist();
             }
-            Request::Detach(sections) if sections.contains(&GRAPHICS) => {
-                self.shown = false;
-                self.listing = None;
-            }
-            Request::Change(c) => {
-                if let Some((key, v)) = value_of(c) {
-                    self.now.set(key, v);
+            Request::Detach(sections) => {
+                for s in sections {
+                    self.bank.detach(*s);
+                }
+                self.shown.retain(|s| !sections.contains(s));
+                if self.shown.is_empty() {
+                    self.listing = None;
                 }
             }
-            Request::Apply(GRAPHICS) | Request::Synchronize(GRAPHICS) => {
-                self.applied = self.now.clone();
-                self.quality = self.applied.overall();
-                self.fresh = true;
-                tracing::debug!(quality = self.quality, "graphics preferences applied");
+            Request::Change(c) => {
+                let pref = match c {
+                    Change::Flag(f) => Pref::Flag(*f),
+                    Change::Number(n) => Pref::Number(*n),
+                    Change::Choice(ch) => Pref::Choice(ch.clone()),
+                };
+                self.bank.take_value(&pref);
+                self.bank.change(&pref, &mut out);
             }
-            Request::Recall(GRAPHICS) => {
-                self.now = self.applied.clone();
+            Request::Submit(s) => self.bank.submit(*s, &mut out),
+            Request::Apply(s) => self.bank.apply(*s, &mut out),
+            Request::Synchronize(s) => self.bank.synchronize(*s),
+            Request::Recall(s) => {
+                self.bank.recall(*s, &mut out);
                 self.relist();
             }
-            _ => {}
+            Request::Save => {
+                let mut w = Writes::default();
+                self.bank.save(&mut w, &self.names);
+                self.keep = Some(w.0);
+            }
         }
+        self.told(out);
     }
 
-    /// The graphics section listed again for the page.
+    /// The page's sections listed again, each with its preferences as the page takes them.
     fn relist(&mut self) {
-        if !self.shown {
+        if self.shown.is_empty() {
             return;
         }
         self.serial += 1;
-        let prefs = PREFERENCES
+        let sections = self
+            .shown
             .iter()
-            .map(|p| listed(p.key, p, &self.now, &self.applied))
+            .map(|s| {
+                let prefs = self
+                    .bank
+                    .list(*s)
+                    .into_iter()
+                    .filter_map(|p| match p {
+                        Pref::Flag(f) => Some(Change::Flag(f)),
+                        Pref::Number(n) => Some(Change::Number(n)),
+                        Pref::Choice(c) => Some(Change::Choice(c)),
+                        Pref::Text(_) => None,
+                    })
+                    .collect();
+                (*s, prefs)
+            })
             .collect();
         self.listing = Some(Listing {
             serial: self.serial,
-            sections: vec![(GRAPHICS, prefs)],
+            sections,
         });
-    }
-}
-
-/// A graphics preference's key and value from a change the page made to it.
-fn value_of(c: &Change) -> Option<(u32, f32)> {
-    let (description, v) = match c {
-        Change::Flag(f) => (f.description, f32::from(u8::from(f.get()))),
-        Change::Number(n) => (n.description, n.get()),
-        #[allow(clippy::cast_precision_loss)] // a few levels
-        Change::Choice(ch) => (ch.description, ch.get() as f32),
-    };
-    let (section, key) = description.identify();
-    (section == GRAPHICS).then_some((key, v))
-}
-
-/// A graphics preference as the page takes it: its label and help, its choices or range, its
-/// default, the value last applied and the value now.
-fn listed(
-    key: u32,
-    p: &auberean_draw::quality::Preference,
-    now: &Graphics,
-    applied: &Graphics,
-) -> Change {
-    let description = Description {
-        section: GRAPHICS,
-        key,
-        table: PREFERENCE_STRINGS,
-        label: Token::of(p.label).raw(),
-        help: Token::of(p.help).raw(),
-    };
-    let (n, a, d) = (
-        now.get(key).unwrap_or(0.0),
-        applied.get(key).unwrap_or(0.0),
-        now.default_of(key).unwrap_or(0.0),
-    );
-    let level = dereth_primitives::num::to_i32;
-    match p.kind {
-        Kind::Choice { choices, .. } => {
-            let mut c = Choice::new();
-            for (v, name) in choices {
-                c.assign_choice(*v, (PREFERENCE_STRINGS, Token::of(name).raw()));
-            }
-            c.set_default(level(d));
-            c.set_value(level(a));
-            c.apply();
-            c.set_value(level(n));
-            c.description = description;
-            Change::Choice(c)
-        }
-        Kind::Flag { .. } => {
-            let mut f = Flag::new();
-            f.set_default(d != 0.0);
-            f.set_value(a != 0.0);
-            f.apply();
-            f.set_value(n != 0.0);
-            f.description = description;
-            Change::Flag(f)
-        }
-        Kind::Number {
-            least, greatest, ..
-        } => {
-            let mut x = Number::new();
-            x.set_range(least, greatest);
-            x.set_default(d);
-            x.set_value(a);
-            x.apply();
-            x.set_value(n);
-            x.description = description;
-            Change::Number(x)
-        }
     }
 }
 
@@ -187,12 +675,12 @@ fn listed(
 mod tests {
     //! Behaviour: none (how the client's own preferences reach the options window's client page)
     use super::*;
-    use auberean_draw::quality::{key, FIRST_RUN};
+    use auberean_draw::quality::{key as gkey, FIRST_RUN};
 
     fn choice(l: &Listing, k: u32) -> Choice {
-        l.sections[0]
-            .1
+        l.sections
             .iter()
+            .flat_map(|(_, p)| p.iter())
             .find_map(|c| match c {
                 Change::Choice(c) if c.description.key == k => Some(c.clone()),
                 _ => None,
@@ -207,9 +695,9 @@ mod tests {
         assert!(p.listing().is_none(), "nothing listed until asked");
         p.handle(&Request::Attach(vec![0x4000_000B, GRAPHICS]));
         let l = p.listing().expect("listed").clone();
-        assert_eq!(l.sections.len(), 1);
-        assert_eq!(l.sections[0].1.len(), PREFERENCES.len());
-        let texture = choice(&l, key::TEXTURE_DETAIL);
+        assert_eq!(l.sections.len(), 2);
+        assert_eq!(l.sections[1].1.len(), PREFERENCES.len());
+        let texture = choice(&l, gkey::TEXTURE_DETAIL);
         assert_eq!(texture.get(), 3);
         assert_eq!(texture.list_choices().len(), 5);
         assert_eq!(texture.description.table, PREFERENCE_STRINGS);
@@ -220,7 +708,10 @@ mod tests {
         assert_eq!(p.quality, FIRST_RUN, "tried, not applied");
         p.handle(&Request::Apply(GRAPHICS));
         assert_eq!(p.quality, 0);
-        assert_eq!(p.applied.get(key::TEXTURE_DETAIL), Some(2.0));
+        assert_eq!(
+            p.take_applied().and_then(|g| g.get(gkey::TEXTURE_DETAIL)),
+            Some(2.0)
+        );
         // Tried back to high and recalled: the applied value listed again.
         let mut back = texture;
         back.set_value(3);
@@ -228,8 +719,90 @@ mod tests {
         p.handle(&Request::Recall(GRAPHICS));
         let again = p.listing().expect("listed").clone();
         assert!(again.serial > l.serial);
-        assert_eq!(choice(&again, key::TEXTURE_DETAIL).get(), 2);
-        p.handle(&Request::Detach(vec![GRAPHICS]));
+        assert_eq!(choice(&again, gkey::TEXTURE_DETAIL).get(), 2);
+        p.handle(&Request::Detach(vec![0x4000_000B, GRAPHICS]));
         assert!(p.listing().is_none());
+    }
+
+    #[test]
+    fn the_avatars_looks_applied_reach_the_camera() {
+        let mut p = Preferences::default();
+        p.handle(&Request::Attach(vec![section::AVATAR]));
+        let l = p.listing().expect("listed").clone();
+        let mut f = l
+            .sections
+            .iter()
+            .flat_map(|(_, p)| p.iter())
+            .find_map(|c| match c {
+                Change::Flag(f) if f.description.key == key::AVATAR_LOOK_AT_SELECTION => Some(*f),
+                _ => None,
+            })
+            .expect("listed");
+        assert!(f.get(), "on by default");
+        f.set_value(false);
+        p.handle(&Request::Change(Change::Flag(f)));
+        p.handle(&Request::Apply(section::AVATAR));
+        let o = p.take_camera().expect("applied");
+        assert!(!o.look_at_selection && o.look_around && o.look_at_camera);
+    }
+
+    #[test]
+    fn the_sound_section_lists_and_its_changes_reach_the_sound() {
+        let mut p = Preferences::default();
+        p.handle(&Request::Attach(vec![sound::SECTION]));
+        let l = p.listing().expect("listed").clone();
+        let listed: Vec<u32> = l.sections[0]
+            .1
+            .iter()
+            .map(|c| match c {
+                Change::Flag(f) => f.description.key,
+                Change::Number(n) => n.description.key,
+                Change::Choice(c) => c.description.key,
+            })
+            .collect();
+        let keys: Vec<u32> = sound::PREFERENCES.iter().map(|q| q.key).collect();
+        assert_eq!(listed, keys, "the manager's eight, in its order");
+        let mut music = l.sections[0]
+            .1
+            .iter()
+            .find_map(|c| match c {
+                Change::Number(n) if n.description.key == sound::key::MUSIC_VOLUME => Some(*n),
+                _ => None,
+            })
+            .expect("listed");
+        assert_eq!(music.get(), 1.0, "full by default");
+        // A slider moved reaches the sound at once.
+        music.set_value(0.5);
+        p.handle(&Request::Change(Change::Number(music)));
+        assert_eq!(p.take_sound(), vec![(sound::key::MUSIC_VOLUME, 0.5, false)]);
+        // Music off ticked, then applied: changed, then applied.
+        let mut off = l.sections[0]
+            .1
+            .iter()
+            .find_map(|c| match c {
+                Change::Flag(f) if f.description.key == sound::key::MUSIC_OFF => Some(*f),
+                _ => None,
+            })
+            .expect("listed");
+        off.set_value(true);
+        p.handle(&Request::Change(Change::Flag(off)));
+        p.handle(&Request::Apply(sound::SECTION));
+        let told = p.take_sound();
+        assert_eq!(told[0], (sound::key::MUSIC_OFF, 1.0, false));
+        assert!(told.contains(&(sound::key::MUSIC_OFF, 1.0, true)));
+    }
+
+    #[test]
+    fn the_sound_takes_the_values_read_as_it_starts() {
+        let mut p = Preferences::default();
+        p.start_sound();
+        let told = p.take_sound();
+        assert_eq!(told.len(), sound::AT_START.len());
+        assert!(told.contains(&(sound::key::PLAYING_SOUNDS, 32.0, false)));
+        // The features as applied (their value read through the data's names, none here).
+        assert!(told
+            .iter()
+            .any(|&(k, _, applied)| k == sound::key::FEATURES && applied));
+        assert!(told.contains(&(sound::key::SOUND_OFF, 0.0, true)));
     }
 }

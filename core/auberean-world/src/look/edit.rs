@@ -201,6 +201,7 @@ impl Look {
             return false;
         }
         let mut values = Keyed::default();
+        // D2-13922
         values.set(value.key, value.scalar);
         self.add_appearance(records, group, apr, &values)
     }

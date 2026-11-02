@@ -1,6 +1,6 @@
 [package]
 name = "auberean-primitives"
-description = "Asheron's Call 2 plain data: the ids that name things, where a cell lies on the land, the vectors, rotations and frames that place them, the scramble every stored and sent string goes through, and the client's random numbers."
+description = "Asheron's Call 2 plain data: the ids that name things, where a cell lies on the land, the vectors, rotations and frames that place them, the scramble every stored and sent string goes through, the string library's own rules for narrow text (hashes, case, trimming, packed size), the client's clock over the host's elapsed time, the client's random numbers, and the whole numbers of any size its key exchange works in."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,10 @@ publish.workspace = true
 autotests = false
 
 [dependencies]
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
 
 [lints]
 workspace = true

@@ -103,7 +103,8 @@ impl Dialect for Ac2 {
     const BUILD_COMMAND: &'static str = "yalain world compile";
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
-         step <quest> <key>, talk <key>, weapon <name>, route <key>, or landblock <XXYY>";
+         step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
+         or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -158,6 +159,8 @@ pub enum Item {
     Weapon { name: String },
     /// A route creatures walk at rest, by its key.
     Route { key: String },
+    /// The kind of player conflict a landblock allows, by the landblock.
+    Area { landblock: u16 },
 }
 
 impl Item {
@@ -203,6 +206,9 @@ impl Item {
                 name: identifier(name)?,
             },
             ["route", key] => Self::Route { key: symbol(key)? },
+            ["area", lb] => Self::Area {
+                landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
+            },
             _ => return None,
         })
     }
@@ -236,6 +242,7 @@ impl fmt::Display for Item {
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
             Self::Route { key } => write!(f, "route {key}"),
+            Self::Area { landblock } => write!(f, "area {landblock:04X}"),
         }
     }
 }

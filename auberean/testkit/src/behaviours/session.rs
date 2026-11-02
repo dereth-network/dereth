@@ -9,6 +9,36 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "session.connection.a-net-error-ends-the-login-or-logs-off",
+        says: "A net error while the login is still going ends the login with that error, and no \
+               login goes out again; a connection coming up after a failed login does not make it \
+               connected. Once the login is over, a net error logs the client off, its goodbye \
+               sent, nothing more after it, and the server is dead.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-NET-ERROR"),
+        station: "auberean-client-net::cpu::server_lost::a_net_error_ends_a_login_still_going_and_once_logged_in_logs_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.connection.a-servers-goodbye-with-an-error-is-told",
+        says: "The login server or the current world server letting its connection go with an error \
+               is told, with the error; letting it go with no error is not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-ERROR-GOODBYE"),
+        station: "auberean-client-net::cpu::server_lost::the_login_servers_goodbye_with_an_error_is_told_and_one_without_is_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.connection.a-silent-server-is-dead-after-140-seconds",
+        says: "A login server that falls silent is given 140 seconds from when it was last heard; \
+               then its connection is let go, the client logs off, nothing more is sent (not even a \
+               goodbye to the dead server) and the server is dead, once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-SERVER-DIED"),
+        station: "auberean-client-net::cpu::server_lost::a_silent_login_server_is_dead_after_140_seconds_and_the_client_logs_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.connection.the-login-connection-is-held-and-every-referral-followed",
         says: "The login connection stays up from the login to the end of the session. A referral \
                to a world server the client has no connection to is followed with a world login, \
@@ -64,7 +94,48 @@ pub static ROWS: &[Behaviour] = &[
                and the rest of the line after the command word.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-SAY"),
-        station: "auberean-client-runtime::cpu::requests::a_typed_line_splits_into_words_with_quoted_runs_kept_whole",
+        station: "auberean-client-runtime::cpu::world::requests::a_typed_line_splits_into_words_with_quoted_runs_kept_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.the-player-never-looks-at-itself-or-what-it-holds",
+        says: "Selecting the player itself or something it holds tells the server the player \
+               looks at nothing, and the server's saying it looks at one leaves it looking at \
+               nothing; with the option to look at the selection off, a player the server set \
+               looking at something is told to look at nothing at the next selection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOOK-NOT-SELF"),
+        station: "auberean-headless::cpu::world_entry::selecting_itself_or_what_it_holds_looks_at_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.the-players-head-sent-at-most-every-half-second",
+        says: "Where the player's head points, once a world turns it, is sent to the server \
+               while the player looks at nothing: at once, then only when it moved more than \
+               0.0002 either way and more than half a second after the last time; nothing while \
+               the player looks at an object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-HEAD-DIR"),
+        station: "auberean-headless::cpu::world_entry::where_the_players_head_points_is_sent_at_most_every_half_second",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.link.the-rate-received-is-the-last-two-measures",
+        says: "The rate the connection receives at is the bytes its last two measures counted over \
+               the time they spanned, and 0 before any time has passed; the first measure's time \
+               counts as one second.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-RECEIVE-RATE"),
+        station: "auberean-client-net::cpu::server_lost::the_rate_received_is_the_last_two_measures_bytes_over_their_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.a-login-server-address-moves-where-the-login-goes",
+        says: "An address for the login server from a server moves the login: the next login, two \
+               seconds after the last, goes to that address.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGON-ADDR"),
+        station: "auberean-client-net::cpu::server_lost::a_login_server_address_moves_where_the_next_login_goes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -75,6 +146,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-REFUSED-ENTRY"),
         station: "auberean-headless::cpu::world_entry::a_refused_entry_logs_off_no_character_and_a_second_entry_goes_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.an-unanswered-login-fails-once",
+        says: "A login no server answers is sent twenty times, two seconds apart, and then fails \
+               once, the server timed out; it is never told connected.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-TIMEOUT"),
+        station: "auberean-client-net::cpu::server_lost::an_unanswered_login_is_sent_twenty_times_and_fails_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -98,6 +178,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.position.a-report-carries-the-stamp-of-the-last-move-ordered",
+        says: "A move the server orders the player's body, walking it up to what it uses, keeps \
+               its stamp, and every position report after it carries that stamp, so a report that \
+               the player moved by hand tells the server which walk it interrupts.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-MOVE-TO-STAMP"),
+        station: "auberean-client-runtime::cpu::world::reports::a_report_carries_the_stamp_of_the_last_move_ordered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.position.a-report-packs-heading-motion-flags-and-stamps",
         says: "A position report carries the heading in its top byte (256 steps to a full turn), the \
                asked motion as one byte each for sideways, forward and up (127 for none), the jump \
@@ -105,8 +195,17 @@ pub static ROWS: &[Behaviour] = &[
                the body's instance and teleport stamps.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-POSITION-PACK"),
-        station: "auberean-client-runtime::cpu::reports::a_report_packs_heading_motion_flags_and_stamps",
+        station: "auberean-client-runtime::cpu::world::reports::a_report_packs_heading_motion_flags_and_stamps",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.position.recorded-reports-carry-the-stamp-of-the-last-move-ordered",
+        says: "The recorded 2017 players' position reports carry the stamp of the last move the \
+               server ordered their bodies to make, as this client's do when fed the same messages.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-MOVE-TO-STAMP-CORPUS"),
+        station: "auberean-client-runtime::corpus::interface::recorded_reports_carry_the_stamp_of_the_last_move_ordered",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "session.position.reports-on-change-jump-and-every-fifth-of-a-second",
@@ -115,7 +214,7 @@ pub static ROWS: &[Behaviour] = &[
                more than a fifth of a second after the last report; standing still it sends nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-POSITION"),
-        station: "auberean-client-runtime::cpu::reports::reports_go_on_a_change_a_jump_and_every_fifth_of_a_second_while_moving",
+        station: "auberean-client-runtime::cpu::world::reports::reports_go_on_a_change_a_jump_and_every_fifth_of_a_second_while_moving",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -200,13 +299,63 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "session.server.our-clients-kept-window-places-come-back-on-the-next-entry",
+        says: "Our client keeps a panel's place through the player's interface into its options \
+               and sends it to our server to keep; logged off and entered again, its scripts \
+               answer the place it kept. A new character keeps none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-KEEP-PLACES"),
+        station: "yalain-testkit::dat::session::our_clients_kept_window_places_come_back_on_the_next_entry",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.time.a-players-position-leaves-the-game-clock-alone",
+        says: "A position the server gives for the player places its body and leaves the game \
+               clock alone, whether its time is ahead of the clock or behind it: only the \
+               server's time-sync sets the clock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-CLOCK"),
+        station: "auberean-client-runtime::cpu::world::clock::a_players_position_leaves_the_game_clock_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.a-thread-is-never-answered-an-earlier-elapsed-time",
+        says: "The elapsed time a thread is answered never goes back: a reading earlier than the \
+               last answer answers the last again, unless the last was not above zero.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-ELAPSED"),
+        station: "auberean-primitives::cpu::clock::a_thread_is_never_answered_an_earlier_elapsed_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.the-clock-follows-the-hosts-elapsed-time-and-never-runs-back",
+        says: "The client's clock is the elapsed time plus the server's offset and never runs back \
+               (an earlier reading moves it on by a millionth of a millionth of a second); the \
+               server's time moves the offset only when more than a billionth of a second ahead, \
+               and the local time follows at the next update.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-CLOCK"),
+        station: "auberean-primitives::cpu::clock::the_clock_follows_the_hosts_elapsed_time_and_never_runs_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.the-game-clock-is-the-elapsed-time-until-the-server-moves-it",
+        says: "The game clock is the client's timer, brought up to the elapsed time at the start \
+               of each frame: before the server's first time it is the elapsed time, and it never \
+               runs back, though the host's clock may.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-GAME-CLOCK"),
+        station: "auberean-client-runtime::cpu::world::clock::the_game_clock_is_the_elapsed_time_until_the_server_moves_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.time.the-game-clock-moves-forward-to-the-servers-time-sync",
         says: "The server's clock in a packet's time-sync header sets the game clock when it is \
                ahead of it; the game clock then runs on with the client's own, and is never set \
                back.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-TIME-SYNC"),
-        station: "auberean-client-runtime::cpu::clock::the_game_clock_moves_forward_to_the_servers_time_sync",
+        station: "auberean-client-runtime::cpu::world::clock::the_game_clock_moves_forward_to_the_servers_time_sync",
         tier: Tier::Cpu,
     },
 ];

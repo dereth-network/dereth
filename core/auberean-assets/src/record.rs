@@ -1,5 +1,8 @@
 //! Any one record, by its type: [`Record::decode`] picks the decoder from the record's type.
 
+use std::any::{Any, TypeId};
+use std::sync::Arc;
+
 use auberean_dat::reader::Result;
 use auberean_dat::RecordType;
 
@@ -35,6 +38,23 @@ macro_rules! records {
             #[must_use]
             pub fn has_decoder(ty: RecordType) -> bool {
                 $($(ty == RecordType::$ty)||+ ||)* false
+            }
+
+            /// The Rust type a record type decodes as (the caches hold a record by it).
+            pub(crate) fn rust_type(ty: RecordType) -> Option<TypeId> {
+                $(
+                    if $(ty == RecordType::$ty)||+ {
+                        return Some(TypeId::of::<$path>());
+                    }
+                )*
+                None
+            }
+
+            /// The record as the caches hold it: its own type, shared.
+            pub(crate) fn into_held(self) -> Arc<dyn Any + Send + Sync> {
+                match self {
+                    $(Self::$variant(v) => Arc::new(v),)*
+                }
             }
         }
     };

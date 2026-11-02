@@ -31,6 +31,9 @@ auberean-dat = { workspace = true, features = ["fs"] }
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 # The transcendental functions, the same bits on every host.
 dereth-primitives.workspace = true
+# The sound device, and the output seam the game's sound plays through.
+dereth-audio.workspace = true
+dereth-audio-out.workspace = true
 # The window and its events, and the device it presents on.
 winit = { workspace = true, features = ["rwh_06"] }
 wgpu = "30"
@@ -39,6 +42,8 @@ bytemuck = { version = "1", features = ["derive"] }
 png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# The local time for the scripts' chat log.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }

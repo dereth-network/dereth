@@ -374,7 +374,7 @@ struct Counts {
     written: usize,
     wrong: usize,
     missing: usize,
-    /// Lines of any kind showing a name's mark.
+    /// Lines of the spoken or tell kind showing a name's mark.
     marked: usize,
 }
 
@@ -451,9 +451,11 @@ fn replay(index: &std::path::Path, capture: i64, types: &[u32], n: &mut Counts) 
         }
     })
     .expect("the capture reads");
+    // The spoken and tell kinds' lines (a room's line, of its channel's kind, holds the
+    // channel's name in brackets and whatever its speaker typed).
     n.marked += lines
         .iter()
-        .filter(|(_, t)| t.contains("[F") || t.contains("[M"))
+        .filter(|(k, t)| (*k == 16 || *k == 32) && (t.contains("[F") || t.contains("[M")))
         .count();
     let mut used = vec![false; lines.len()];
     for (at, kind, words, who) in expected {
@@ -476,8 +478,8 @@ fn replay(index: &std::path::Path, capture: i64, types: &[u32], n: &mut Counts) 
 /// Every saying and tell the 2005, 2013 and 2017 captures recorded, run through the player's
 /// scripts as the client takes the recorded messages, reaches the chat windows as a line of the
 /// spoken kind (a saying) or the tell kind holding the words as written and the speaker's name
-/// without its gender and vowel marks (the player's own as "You"): no line shows a mark, at most
-/// one in a hundred misses the name, and at least nine in ten of the sayings and tells by a
+/// without its gender and vowel marks (the player's own as "You"): no such line shows a mark, at
+/// most one in a hundred misses the name, and at least nine in ten of the sayings and tells by a
 /// speaker the client knew are written (the 2026-10-28 count: 2,716 of 2,976, 1 without the
 /// name). (Names and words are never printed: only the counts.)
 ///
@@ -705,7 +707,8 @@ fn the_loc_alias_says_the_players_map_coordinates_as_the_recorded_clients_wrote_
                 return;
             };
             at += 1;
-            if !commands_known {
+            // Made known with each session's play screen.
+            if !commands_known || c.with_host(|h| h.commands.names.is_empty()).unwrap_or(true) {
                 c.know_commands();
                 commands_known = true;
             }
@@ -1364,4 +1367,351 @@ mod friends {
             [("Cara".to_owned(), 1), ("Bob@coldeve".to_owned(), 0)]
         );
     }
+}
+
+/// The player's folder for one test: files by name behind a lock the test keeps a handle to, and a
+/// clock stopped at one time.
+#[derive(Clone, Default)]
+struct Folder(Arc<std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>>);
+
+impl auberean_script::local::LocalSystem for Folder {
+    fn folder(&self) -> Option<String> {
+        Some(r"C:\Users\Player\Dereth".to_owned())
+    }
+
+    fn local_time(&self) -> Option<auberean_script::local::LocalTime> {
+        Some(auberean_script::local::LocalTime {
+            year: 2017,
+            month: 1,
+            day: 9,
+            hour: 20,
+            minute: 5,
+            second: 3,
+            ..Default::default()
+        })
+    }
+
+    fn append_line(&mut self, file: &str, bytes: &[u8]) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .entry(file.to_owned())
+            .or_default()
+            .extend_from_slice(bytes);
+        true
+    }
+
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(file.to_owned(), bytes.to_vec());
+        true
+    }
+
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        self.0.lock().unwrap().get(file).cloned()
+    }
+}
+
+/// `/logfile open` with no folder to write in shows the player's scripts' line that the file
+/// could not be opened; with one, it opens the player's log there (the player's name and `.log`,
+/// shown after the folder's full path, as the client shows its own folder),
+/// marked as text in 16-bit units, and every line the chat window is given is written to it after
+/// the local time.
+///
+/// Behaviour: script.chat.the-chat-log-is-written-with-the-local-time
+#[test]
+fn the_chat_log_says_when_it_cannot_open_and_writes_each_line_after_the_local_time() {
+    let (mut c, _) = in_the_world();
+    let shown = |c: &mut Client| -> Vec<String> {
+        std::mem::take(&mut c.shown)
+            .iter()
+            .filter_map(|s| c.write_text(&s.text))
+            .collect()
+    };
+    shown(&mut c);
+    c.process_text("/logfile open");
+    assert_eq!(
+        shown(&mut c),
+        ["Failed to open file \\Vacuos.log for writing.\n"]
+    );
+    let folder = Folder::default();
+    let local = folder.clone();
+    c.with_host(|h| h.set_local(Some(Box::new(local))));
+    c.process_text("/logfile open");
+    assert_eq!(
+        shown(&mut c),
+        ["Any text displayed in chatboxes after this will write to: C:\\Users\\Player\\Dereth\\Vacuos.log\n"]
+    );
+    c.process_text("/alias ;wm Well met");
+    let lines = shown(&mut c);
+    assert!(!lines.is_empty());
+    let files = folder.0.lock().unwrap().clone();
+    assert_eq!(files.keys().collect::<Vec<_>>(), ["Vacuos.log"]);
+    let bytes = &files["Vacuos.log"];
+    assert_eq!(&bytes[..2], &[0xFF, 0xFE], "marked");
+    let units: Vec<u16> = bytes[2..]
+        .chunks(2)
+        .map(|p| u16::from_le_bytes([p[0], p[1]]))
+        .collect();
+    let text = String::from_utf16(&units).unwrap();
+    let want: String = lines
+        .iter()
+        .map(|l| format!("<Jan 09 2017, 20:05:03>  {}", l.replace('\n', "\r\n")))
+        .collect();
+    assert!(text.ends_with(&want), "{text:?} ends with {want:?}");
+}
+
+mod rooms {
+    //! Rooms through the chat service, on 2017 runs whose player wrote to the general channel:
+    //! the player's lines typed again to the general channel's command go to the service as the
+    //! recorded client sent them, and every room's line heard is written by the player's scripts.
+
+    use auberean_client_contract::Action;
+    use auberean_client_net::LocalTime;
+    use auberean_protocol::{ClientMessage, ServerMessage};
+    use auberean_testkit::captures;
+    use dereth_protocol::turbine::{decode_incoming, IncomingPayload, SendToRoomById};
+
+    use super::{client_and_program, PLAY_CHARACTER};
+
+    /// The general channel's command, as the player's scripts made it known.
+    const GENERAL_CHANNEL_CHAT: u32 = 0x1AA4_0194;
+
+    /// January 2017 runs in which the player wrote only to the general channel, every line
+    /// answered before the recording ended.
+    const RUNS: [&str; 6] = [
+        "11ed67e39fbb902e:0",
+        "3db070dfe56fc773:0",
+        "19fa8fae5416db4c:0",
+        "35db83e294f9e06c:0",
+        "9f07c7a72ce28326:0",
+        "36243488d1703ade:0",
+    ];
+
+    /// The chat service's packet with its count before it, as the service's codec reads one.
+    fn framed(packet: &[u8]) -> Vec<u8> {
+        let mut f = u32::try_from(packet.len())
+            .expect("a packet")
+            .to_le_bytes()
+            .to_vec();
+        f.extend_from_slice(packet);
+        f
+    }
+
+    /// What a replay found: each recorded line's packet beside the client's own for it; each
+    /// room's line heard (speaker, words, room) with the lines the scripts wrote for it; the
+    /// lines still waiting for an answer at the end.
+    struct Replay {
+        requests: Vec<(Vec<u8>, Vec<u8>)>,
+        heard: Vec<(String, String, u32, Vec<String>)>,
+        waiting: Vec<u32>,
+    }
+
+    /// One run brought through: each line the player wrote typed again to the general
+    /// channel's command at the moment it was recorded.
+    fn replay(run: &str) -> Replay {
+        let index = auberean_testkit::data::require_capture_index();
+        let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+            .filter(|t| ServerMessage::is_known_type(*t))
+            .collect();
+        types.push(PLAY_CHARACTER);
+        let (mut c, _) = client_and_program(true);
+        let mut frame = f64::NEG_INFINITY;
+        let mut out = Replay {
+            requests: Vec::new(),
+            heard: Vec::new(),
+            waiting: Vec::new(),
+        };
+        let mut known = false;
+        captures::capture_messages_in_time_order(&index, &types, run, |m| {
+            if m.time > frame {
+                frame = m.time;
+                c.set_time(LocalTime(m.time));
+                c.upkeep();
+            }
+            if !m.to_client {
+                match ClientMessage::decode(&m.raw) {
+                    Ok(ClientMessage::PlayCharacter(p)) => c.act(Action::PlayCharacter {
+                        character: p.character,
+                    }),
+                    Ok(ClientMessage::Chat(p)) => {
+                        // Made known with each session's play screen.
+                        if !known || c.with_host(|h| h.commands.names.is_empty()).unwrap_or(true) {
+                            known = true;
+                            c.know_commands();
+                        }
+                        let command = c
+                            .with_host(|h| {
+                                h.commands
+                                    .names
+                                    .iter()
+                                    .find(|(_, f)| **f == GENERAL_CHANNEL_CHAT)
+                                    .map(|(n, _)| n.clone())
+                            })
+                            .flatten()
+                            .expect("the general channel's command");
+                        let bytes = framed(&p.0);
+                        let mut r = dereth_protocol::Reader::new(&bytes);
+                        let recorded = <SendToRoomById as dereth_protocol::Message>::read(&mut r)
+                            .expect("a room line");
+                        let before = c.sent().len();
+                        c.process_text(&format!("/{command} {}", recorded.text));
+                        let mine = c.sent()[before..]
+                            .iter()
+                            .find_map(|s| match &s.message {
+                                ClientMessage::Chat(q) => Some(q.0.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_default();
+                        out.requests.push((mine, p.0));
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            let Ok(msg) = ServerMessage::decode(&m.raw) else {
+                return;
+            };
+            let event = match &msg {
+                ServerMessage::Chat(p) => match decode_incoming(&framed(&p.0)).map(|i| i.payload) {
+                    Ok(IncomingPayload::RoomEvent(e)) => Some((e.name, e.text, e.room)),
+                    _ => None,
+                },
+                _ => None,
+            };
+            c.shown.clear();
+            c.take_message(m.blob_id, msg);
+            let shown: Vec<String> = std::mem::take(&mut c.shown)
+                .iter()
+                .filter_map(|s| c.write_text(&s.text))
+                .collect();
+            if let Some((name, text, room)) = event {
+                out.heard.push((name, text, room, shown));
+            }
+        })
+        .expect("the index reads");
+        out.waiting = c.rooms().map(|r| r.waiting()).unwrap_or_default();
+        out
+    }
+
+    /// Every line the recorded players wrote to the general channel, typed again to its
+    /// command, goes to the chat service byte for byte as the recorded client sent it: the
+    /// header, the mark counted from 1 across the run, the general room (1), the text, and what
+    /// the player's own name says about it (its meta letters). Each line's answer comes back to
+    /// the line it answers: none is left waiting.
+    ///
+    /// Behaviour: friends.rooms.a-line-to-a-channel-goes-to-the-chat-service-as-the-recorded-clients-sent-it
+    #[test]
+    fn a_line_to_a_channel_goes_to_the_chat_service_as_the_recorded_clients_sent_it() {
+        let mut lines = 0;
+        for run in RUNS {
+            let r = replay(run);
+            assert!(!r.requests.is_empty(), "{run}: the player wrote");
+            for (mine, theirs) in &r.requests {
+                assert_eq!(
+                    mine, theirs,
+                    "{run}: the line as the recorded client sent it"
+                );
+            }
+            assert_eq!(r.waiting, Vec::<u32>::new(), "{run}: every line answered");
+            lines += r.requests.len();
+        }
+        assert_eq!(lines, 24, "every recorded line of the six runs");
+    }
+
+    /// Every room's line the six runs heard (the general room's, and one of the player's
+    /// allegiance's) is written by the player's scripts as one line: the channel's name in
+    /// brackets, the speaker's name (its meta letters, which the service's note
+    /// carries, left off), a colon and the words, a run of spaces in them written as one.
+    ///
+    /// Behaviour: friends.rooms.a-rooms-line-heard-is-written-with-its-channel-speaker-and-words
+    #[test]
+    fn a_rooms_line_heard_is_written_with_its_channel_speaker_and_words() {
+        let mut heard = 0;
+        for run in RUNS {
+            for (name, text, room, shown) in replay(run).heard {
+                // The general room, and in one run the player's allegiance's (its room is the one
+                // the allegiance's profile names).
+                let channel = match room {
+                    1 => "General",
+                    44 => "Allegiance",
+                    _ => panic!("{run}: room {room}"),
+                };
+                let words = text
+                    .split(' ')
+                    .filter(|w| !w.is_empty())
+                    .collect::<Vec<_>>();
+                let trailing = if text.ends_with(' ') { " " } else { "" };
+                let leading = if text.starts_with(' ') { " " } else { "" };
+                let want = format!(
+                    "[{channel}] {name}: {leading}{}{trailing}\n",
+                    words.join(" ")
+                );
+                assert_eq!(shown, [want], "{run}: {name}: {text:?}");
+                heard += 1;
+            }
+        }
+        assert_eq!(heard, 381, "every room's line of the six runs");
+    }
+}
+
+/// `/help` with a command's name shows that command's help, the name taken in any case; with a
+/// name no command's help has, the unrecognized-command line naming it; with no name, the help
+/// list's label and then every command's line, `  name -- text`, in the names' order (the 137
+/// names the player's scripts give help for).
+/// Fixture: a recorded session played to its end, in the world.
+///
+/// Behaviour: script.chat.help-shows-a-commands-help
+#[test]
+fn help_shows_a_commands_help_every_commands_line_or_that_it_knows_no_such_command() {
+    let (mut c, _program) = in_the_world();
+    let names: Vec<String> = c
+        .with_host(|h| h.commands.help.keys().cloned().collect())
+        .expect("the scripts");
+    let mut help = |typed: &str| {
+        c.shown.clear();
+        let status = c.process_text(typed);
+        assert_eq!(status, ShellStatus::Success, "{typed}");
+        let shown: Vec<(u32, String)> = std::mem::take(&mut c.shown)
+            .iter()
+            .filter_map(|s| Some((s.kind, c.write_text(&s.text)?)))
+            .collect();
+        shown
+    };
+    // Help text is shown as kind 8, the unrecognized-command line as kind 1.
+    let tell = help("/help tell");
+    assert_eq!(
+        tell,
+        [(
+            8,
+            "usage: /tell <target name>, message\nsends text of message to named target player\n"
+                .to_owned()
+        )]
+    );
+    assert_eq!(help("/help TELL"), tell);
+    assert_eq!(
+        help("/help nosuch"),
+        [(1, "Unrecognized Command \"nosuch\".\n".to_owned())]
+    );
+    let all = help("/help");
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0].0, 8);
+    let list = &all[0].1;
+    let label = "Player Commands:\n To use these commands, prefix the commands names with /\n";
+    assert!(list.starts_with(label), "{list}");
+    assert!(
+        list[label.len()..]
+            .starts_with("  ? -- usage: /help <cmd_name>\n  a -- usage: /a <message> \n"),
+        "{list}"
+    );
+    let mut at = 0;
+    for name in &names {
+        let line = format!("  {name} -- ");
+        let found = list[at..].find(&line).map(|i| i + at);
+        assert!(found.is_some(), "{name} after {at}: {list}");
+        at = found.unwrap_or(at) + line.len();
+    }
+    assert!(names.len() >= 130, "{}", names.len());
 }

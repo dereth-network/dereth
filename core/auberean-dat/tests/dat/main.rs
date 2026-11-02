@@ -2,4 +2,5 @@
 //! the variable to set, when a set it reads is not found.
 
 mod container;
+mod disk;
 mod types;

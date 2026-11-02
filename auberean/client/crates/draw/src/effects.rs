@@ -3,8 +3,8 @@
 //!
 //! An effect table lists, for each effect id, any number of effects, each with variants by the
 //! ground's terrain kind; a table may extend others, whose effects for the same id play too. An
-//! effect can name sounds, particle systems, a camera effect, a light and more; only its particle
-//! systems are drawn here.
+//! effect can name sounds, particle systems, a camera effect, a light and more; its particle
+//! systems are drawn here, and its sounds handed on to be played ([`FxSound`]).
 //!
 //! An object whose look carries effects (an effect table, or effect lists of its own) has an
 //! [`ObjectEffects`]: its own table (its look's lists first, then the stored table the look names)
@@ -275,6 +275,29 @@ pub struct ObjectEffects {
     used: Option<f64>,
     /// The lights its effects placed on it.
     lights: Vec<CarriedLight>,
+    /// The streaks its effects made on it.
+    streaks: Vec<crate::streak::Trail>,
+    /// The streaks its effects asked turned on (true) or off since last taken, each with the
+    /// holding location whose objects' streaks it means (0: every object it holds).
+    streak_asks: Vec<(bool, u32)>,
+    /// The sounds its effects played or stopped, in order, not yet taken.
+    sounds: Vec<FxSound>,
+}
+
+/// A sound an object's effect played, or the sounds kept with an effect stopped. The object
+/// makes the sound: it is heard from where the object is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FxSound {
+    /// Sound or music setting `sound` played at `volume` (the effect's strength as it starts),
+    /// `kept` with effect `effect` to stop when the effect stops.
+    Play {
+        effect: u32,
+        sound: u32,
+        volume: f32,
+        kept: bool,
+    },
+    /// The sounds kept with effect `effect` stop.
+    Stop { effect: u32 },
 }
 
 /// A light an effect placed on an object: the light its entity describes, its range's and
@@ -398,7 +421,15 @@ impl ObjectEffects {
             appearance: Vec::new(),
             used: None,
             lights: Vec::new(),
+            streaks: Vec::new(),
+            streak_asks: Vec::new(),
+            sounds: Vec::new(),
         })
+    }
+
+    /// The sounds its effects played or stopped since last taken, in order.
+    pub fn take_sounds(&mut self) -> Vec<FxSound> {
+        std::mem::take(&mut self.sounds)
     }
 
     /// The appearances its effects laid over the object or took off it since last taken, in
@@ -482,8 +513,9 @@ impl ObjectEffects {
     }
 
     /// The rest of every startup effect, played as the object's making ends, and again each time
-    /// its look is brought up to date: its repulsors (another each time). (Their sounds, streaks,
-    /// decals, lights and objects made are not played here.)
+    /// its look is brought up to date: its streaks, its sounds (each entry's, kept to stop with the
+    /// effect; taken with [`ObjectEffects::take_sounds`]), its lights and its repulsors (another each
+    /// time). (Their decals and objects made are not played here.)
     // D2-06529
     pub fn object_end(
         &mut self,
@@ -529,6 +561,17 @@ impl ObjectEffects {
         for data in &list {
             let node = node_for(data, self.terrain).clone();
             if rest {
+                if let Some((true, s)) = &node.streak {
+                    self.streak_fx(systems, s, at.now);
+                }
+                if let Some(sound) = sound_id(&node, &systems.dice()) {
+                    self.sounds.push(FxSound::Play {
+                        effect,
+                        sound,
+                        volume: strength,
+                        kept: true,
+                    });
+                }
                 if let Some((true, r)) = node.repulsor {
                     self.repulse_fx(systems, &r, at);
                 }
@@ -568,6 +611,48 @@ impl ObjectEffects {
             r.attracts,
             at.now,
         )));
+    }
+
+    /// Make the streak an effect names on the object, made at `now`; none while the streaks
+    /// preference is off.
+    // D2-06883, D2-06481, D2-06664
+    fn streak_fx(&mut self, systems: &ParticleSystems, s: &auberean_assets::fx::Streak, now: f64) {
+        if !systems.streak_effects() {
+            return;
+        }
+        self.streaks.push(crate::streak::Trail::new(
+            crate::streak::StreakDesc::of(s),
+            now,
+        ));
+    }
+
+    /// The streaks its effects made on it.
+    #[must_use]
+    pub fn streaks(&self) -> &[crate::streak::Trail] {
+        &self.streaks
+    }
+
+    /// The streaks its effects made on it, to place and run.
+    pub fn streaks_mut(&mut self) -> &mut [crate::streak::Trail] {
+        &mut self.streaks
+    }
+
+    /// Turn every streak on it on (`on`) or off.
+    // D2-06475, D2-06476, D2-06644, D2-06645
+    pub fn turn_streaks(&mut self, on: bool) {
+        for s in &mut self.streaks {
+            if on {
+                s.activate();
+            } else {
+                s.deactivate();
+            }
+        }
+    }
+
+    /// The streaks its effects asked turned on or off since last taken, in order, each with the
+    /// holding location it means.
+    pub fn take_streak_asks(&mut self) -> Vec<(bool, u32)> {
+        std::mem::take(&mut self.streak_asks)
     }
 
     /// Place the light an effect names on the object at the effect's offset (none: its origin),
@@ -702,14 +787,17 @@ impl ObjectEffects {
     /// standing at `at`: for one not playing, every entry the object's table lists for it (in its
     /// variant for the terrain the object stands on) that is for this object (the player's own
     /// only, by day or by night) is applied: its strength (none while it ramps in), its appearance
-    /// at that strength, its effect script (handed back for the figure), its particles (one fired
+    /// at that strength, its sound (one of its list, at that strength, kept to stop with the effect
+    /// when it loops and the entry is not fired and forgotten; taken with
+    /// [`ObjectEffects::take_sounds`]), its effect script (handed back for the figure), its
+    /// particles (one fired
     /// and forgotten set going on its own where `rig` puts it, else one carried, kept with the
     /// effect when it runs until stopped); and when it ends, by the last entry applied. With none
     /// applied it does not play. One playing already takes the new strength (its entries for this
     /// object that do not ramp at once) and lays its appearances over the object again at the
     /// strength it then has; nothing restarts; a startup effect is left alone. Whether it played,
-    /// and the effect scripts to play. (Its sounds, colors, sliders, objects made, targets,
-    /// streaks, decals, repulsors and lights are not played here.)
+    /// and the effect scripts to play. Its streaks are made, and the streaks it turns on or off asked
+    /// for. (Its colors, sliders, objects made, targets, decals and repulsors are not played here.)
     // D2-06934, D2-06932
     #[allow(clippy::too_many_arguments)]
     pub fn do_fx(
@@ -782,6 +870,14 @@ impl ObjectEffects {
             } else {
                 intensity
             };
+            if let Some(sound) = sound_id(&node, &systems.dice()) {
+                self.sounds.push(FxSound::Play {
+                    effect,
+                    sound,
+                    volume: state.current,
+                    kept: sound_is_looping(records, sound) && node.fire_and_forget != Some(true),
+                });
+            }
             if let Some(apr) = node.appearance.filter(|a| !a.is_none()) {
                 let key = node.appearance_key.unwrap_or_default();
                 self.do_appearance_fx(apr.0, key, state.current);
@@ -797,8 +893,21 @@ impl ObjectEffects {
                     looping = true;
                 }
             }
+            if let Some((true, s)) = &node.streak {
+                self.streak_fx(systems, s, at.now);
+            }
             if let Some((true, l)) = &node.light {
                 self.light_fx(systems, l, node.bone_offset, at.now);
+            }
+            // An entry turns the streaks of what the object holds at its holding location on
+            // (while the streaks preference is on) or off.
+            // D2-06477, D2-06478
+            let location = node.holding_location.unwrap_or(0);
+            if node.start_streak == Some(true) && systems.streak_effects() {
+                self.streak_asks.push((true, location));
+            }
+            if node.stop_streak == Some(true) {
+                self.streak_asks.push((false, location));
             }
             state.end = calc_duration(records, &node, looping, script).map(|d| at.now + d);
         }
@@ -872,6 +981,7 @@ impl ObjectEffects {
             }
         }
         self.states.remove(&effect);
+        self.sounds.push(FxSound::Stop { effect });
         true
     }
 
@@ -1017,6 +1127,39 @@ fn calc_duration(
         }
     }
     d
+}
+
+/// The sound an effect plays: its only one, else one of its list at random.
+// D2-15719
+fn sound_id(node: &FxNode, rng: &Random) -> Option<u32> {
+    let list = node.sounds.as_deref().unwrap_or(&[]);
+    match list.len() {
+        0 => None,
+        1 => Some(list[0].0).filter(|&s| s != 0),
+        n => {
+            let k = rng.roll_int(0, i32::try_from(n - 1).unwrap_or(0));
+            usize::try_from(k)
+                .ok()
+                .and_then(|k| list.get(k))
+                .map(|d| d.0)
+                .filter(|&s| s != 0)
+        }
+    }
+}
+
+/// Whether a sound or music setting loops (its loop bit), so that an effect keeps it to stop
+/// with the effect.
+// D2-06896
+fn sound_is_looping(records: &WorldRecords, sound: u32) -> bool {
+    match sound >> 24 {
+        0x2A => records
+            .get::<auberean_assets::sound::SoundInfo>(sound)
+            .is_some_and(|s| s.flags & 1 != 0),
+        0x2C => records
+            .get::<auberean_assets::sound::MusicInfo>(sound)
+            .is_some_and(|m| m.flags & 1 != 0),
+        _ => false,
+    }
 }
 
 /// The system an effect sets going: its only one, else one of its list at random.

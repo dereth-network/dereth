@@ -349,3 +349,177 @@ fn a_top_level_element_is_kept_on_the_screen() {
     let h = u.create_root(l, Token::of("Bar")).unwrap();
     assert_eq!(u.node(h).unwrap().rect, Rect::new(113, 722, 910, 767));
 }
+
+/// Matching one element's attributes onto another goes on into the children: each child gives
+/// the other's child made from the same description what it lacks, and a text child its text.
+///
+/// Behaviour: ui.element.matching-attributes-goes-on-into-the-children-and-their-text
+#[test]
+fn matching_attributes_goes_on_into_the_children_and_their_text() {
+    let label = element(
+        "Label",
+        "text",
+        [0, 0, 49, 9],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mark = element(
+        "Mark",
+        "field",
+        [0, 10, 9, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let item = element(
+        "Item",
+        "field",
+        [0, 0, 49, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![label, mark])],
+    );
+    let mut u = ui(vec![item], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let a = u.create_root(l, Token::of("Item")).unwrap();
+    let b = u.create_root(l, Token::of("Item")).unwrap();
+    let child = |u: &auberean_ui::Ui, root, name: &str| {
+        u.node(root)
+            .unwrap()
+            .children
+            .iter()
+            .copied()
+            .find(|c| u.node(*c).unwrap().id == Token::of(name))
+            .unwrap()
+    };
+    let (a_label, a_mark) = (child(&u, a, "Label"), child(&u, a, "Mark"));
+    let (b_label, b_mark) = (child(&u, b, "Label"), child(&u, b, "Mark"));
+    u.set_attr(a, Token::of("item_id"), auberean_ui::Value::Int(7));
+    u.set_attr(a_mark, Token::of("count"), auberean_ui::Value::Int(3));
+    u.set_attr(b_mark, Token::of("count"), auberean_ui::Value::Int(9));
+    u.set_attr(a_mark, Token::of("kind"), auberean_ui::Value::Int(2));
+    u.set_text(a_label, "Sword");
+    assert!(u.match_attributes(a, b));
+    let int = |u: &auberean_ui::Ui, h, n: &str| u.node(h).unwrap().int_attr(Token::of(n));
+    assert_eq!(int(&u, b, "item_id"), Some(7), "the element's own");
+    assert_eq!(int(&u, b_mark, "kind"), Some(2), "a child's, lacking");
+    assert_eq!(int(&u, b_mark, "count"), Some(9), "a child's, kept");
+    assert_eq!(
+        u.text(b_label).as_deref(),
+        Some("Sword"),
+        "a text child's text"
+    );
+}
+
+/// Records whose layout can be replaced, counting how often a layout is read.
+struct Changing {
+    inner: crate::fixture::Records,
+    reads: std::sync::atomic::AtomicU32,
+    replaced: std::sync::Mutex<Option<std::sync::Arc<auberean_assets::ui::UiLayout>>>,
+}
+
+impl auberean_ui::Assets for Changing {
+    fn layout(&self, id: u32) -> Option<std::sync::Arc<auberean_assets::ui::UiLayout>> {
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(l) = self.replaced.lock().unwrap().clone() {
+            return Some(l);
+        }
+        self.inner.layout(id)
+    }
+    fn image(&self, id: u32) -> Option<std::sync::Arc<auberean_ui::Image>> {
+        self.inner.image(id)
+    }
+    fn font(&self, id: u32) -> Option<std::sync::Arc<auberean_assets::ui::Font>> {
+        self.inner.font(id)
+    }
+    fn string(&self, table: u32, token: u32) -> Option<String> {
+        self.inner.string(table, token)
+    }
+}
+
+/// A layout is let go once the last element made from it goes: loading it again reads its
+/// record anew, and elements made after a changed record follow the new one. While an element of
+/// it stands, it is not read again.
+///
+/// Behaviour: ui.layout.a-layout-is-read-again-once-its-last-element-goes
+#[test]
+fn a_layout_is_read_again_once_its_last_element_goes() {
+    use auberean_ui::Assets;
+    use std::sync::atomic::Ordering;
+    let panel = |w: i16| {
+        element(
+            "Panel",
+            "field",
+            [0, 0, w, 9],
+            0,
+            vec![state("stateless", 0, vec![], vec![], vec![])],
+        )
+    };
+    let records = std::sync::Arc::new(Changing {
+        inner: crate::fixture::records(vec![panel(49)], vec![]),
+        reads: std::sync::atomic::AtomicU32::new(0),
+        replaced: std::sync::Mutex::new(None),
+    });
+    let mut u = auberean_ui::Ui::new(records.clone(), 1024, 768);
+    let make = |u: &mut auberean_ui::Ui| {
+        let l = u.load_layout(LAYOUT).unwrap();
+        u.create_root(l, Token::of("Panel")).unwrap()
+    };
+    let a = make(&mut u);
+    let b = make(&mut u);
+    assert_eq!(records.reads.load(Ordering::Relaxed), 1);
+    u.remove(a);
+    let c = make(&mut u);
+    assert_eq!(
+        records.reads.load(Ordering::Relaxed),
+        1,
+        "an element of it still stands"
+    );
+    u.remove(b);
+    u.remove(c);
+    let d = make(&mut u);
+    assert_eq!(records.reads.load(Ordering::Relaxed), 2, "read anew");
+    assert_eq!(u.node(d).unwrap().rect.width(), 50);
+    u.remove(d);
+    let mut wider = (*records.inner.layout(LAYOUT).unwrap()).clone();
+    wider.elements = vec![panel(99)];
+    *records.replaced.lock().unwrap() = Some(std::sync::Arc::new(wider));
+    let e = make(&mut u);
+    assert_eq!(records.reads.load(Ordering::Relaxed), 3);
+    assert_eq!(u.node(e).unwrap().rect.width(), 100, "the changed record");
+}
+
+/// An element's object stands where its top-level element stands on the screen: a child deep in
+/// a window answers the window's left and top, not its own.
+///
+/// Behaviour: ui.element.an-elements-object-stands-where-its-top-level-element-stands
+#[test]
+fn an_elements_object_stands_where_its_top_level_element_stands() {
+    let inner = element(
+        "Inner",
+        "field",
+        [5, 6, 14, 15],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let middle = element(
+        "Middle",
+        "field",
+        [20, 30, 79, 89],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![inner])],
+    );
+    let window = element(
+        "Window",
+        "field",
+        [100, 200, 299, 399],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![middle])],
+    );
+    let mut u = ui(vec![window], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let inner = u.child_recursive(w, Token::of("Inner")).unwrap();
+    assert_eq!(u.screen_origin(inner), Some((125, 236)));
+    assert_eq!(u.object_origin(inner), Some((100, 200)));
+    assert_eq!(u.object_origin(w), Some((100, 200)));
+}

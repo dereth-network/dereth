@@ -94,7 +94,7 @@ pub const ENTITY_TYPE_BASE: u32 = 0x4700_0000;
 /// object: its instance is a copy of the entity's saved state when the object has an entity id
 /// (`0x47xxxxxx`) and the state exists, else of its package's default state, else a fresh instance
 /// of its package (its initializer run).
-// D2-08028
+// D2-08028, D2-16440, D2-16441, D2-16421
 pub fn object_process(
     vm: &mut Vm,
     host: &mut dyn Host,

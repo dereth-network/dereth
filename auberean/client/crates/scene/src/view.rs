@@ -326,6 +326,9 @@ pub fn default_light() -> DayLight {
 }
 
 impl Views {
+    /// What viewport `i` draws: its scene `scene`, made afresh (its placed objects and lights)
+    /// when the viewport is given another scene.
+    // D2-11696
     fn keep(&mut self, records: &WorldRecords, i: usize, scene: u32) -> &mut KeptScene {
         let fresh = self.kept.get(&i).is_none_or(|k| k.scene != scene);
         if fresh {
@@ -359,6 +362,12 @@ impl Views {
         self.kept.get_mut(&i).expect("kept above")
     }
 
+    /// The scenes of the viewports no longer shown (all but the first `shown`) let go of.
+    // D2-11691
+    fn release_gone(&mut self, shown: usize) {
+        self.kept.retain(|i, _| *i < shown);
+    }
+
     /// Each scene's frame, its figures put together (again when their look or place changed) and
     /// animated over `dt` seconds; each asked pick is answered in [`Views::picked`].
     // D2-10447, D2-10472, D2-10455, D2-10612
@@ -372,7 +381,7 @@ impl Views {
         scenes: &[ViewScene],
         dt: f32,
     ) -> Vec<ViewFrame> {
-        self.kept.retain(|i, _| *i < scenes.len());
+        self.release_gone(scenes.len());
         let mut picked = Vec::new();
         let mut out = Vec::new();
         for (i, v) in scenes.iter().enumerate() {
@@ -535,22 +544,15 @@ pub fn pick(
     let mut best: Option<(f32, ViewHit)> = None;
     for (k, batches) in bodies {
         for b in batches {
-            let at = |i: u16| {
-                let v = b.vertices.get(usize::from(i))?.position;
-                Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
-            };
-            for tri in b.indices.as_chunks::<3>().0 {
-                let (Some(a), Some(bb), Some(c)) = (at(tri[0]), at(tri[1]), at(tri[2])) else {
-                    continue;
-                };
-                if let Some(d) = ray_triangle(from, dir, a, bb, c) {
-                    if best.is_none_or(|(bd, _)| d < bd) {
-                        let hit = ViewHit {
-                            figure: *k,
-                            mesh_type: b.mesh_type,
-                        };
-                        best = Some((d, hit));
-                    }
+            // Each batch (a part's material) tried as the client tries a part's triangle lists:
+            // from either side, the nearest of all kept.
+            if let Some(hit) = ray_intersects_tri_list(from, dir, RAY_LENGTH, triangles(b), true) {
+                if best.is_none_or(|(bd, _)| hit.fraction < bd) {
+                    let hit_of = ViewHit {
+                        figure: *k,
+                        mesh_type: b.mesh_type,
+                    };
+                    best = Some((hit.fraction, hit_of));
                 }
             }
         }
@@ -558,26 +560,118 @@ pub fn pick(
     best.map(|(_, hit)| hit)
 }
 
-/// How far along a ray it meets a triangle (either side), if it does.
-pub(crate) fn ray_triangle(from: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
-    let e1 = math::sub(b, a);
-    let e2 = math::sub(c, a);
-    let p = math::cross(dir, e2);
-    let det = math::dot(e1, p);
-    if det.abs() < 1e-9 {
-        return None;
+/// A batch's triangles, each corner where the batch places it.
+pub(crate) fn triangles(b: &ObjectBatch) -> impl Iterator<Item = [Vec3; 3]> + '_ {
+    let at = |i: u16| {
+        let v = b.vertices.get(usize::from(i))?.position;
+        Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
+    };
+    b.indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter_map(move |t| Some([at(t[0])?, at(t[1])?, at(t[2])?]))
+}
+
+/// How long the rays the picks cast are, meters: the client's own rays' length.
+pub const RAY_LENGTH: f32 = 100_000.0;
+
+/// What a ray meets first on a list of triangles.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TriHit {
+    /// How far along the ray, as a share of its length.
+    pub fraction: f32,
+    /// The point met, its corners weighted as the client weights them (the first by the second
+    /// edge's share, the second by the third edge's, the third by the rest).
+    pub point: Vec3,
+    /// The triangle's normal (its first edge across its second, made a unit).
+    pub normal: Vec3,
+}
+
+/// Where a point lies from a plane, within 0.0002: in front, behind, or in it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Front,
+    Behind,
+    In,
+}
+
+fn side(d: f32) -> Side {
+    if d > 0.0002 {
+        Side::Front
+    } else if d < -0.0002 {
+        Side::Behind
+    } else {
+        Side::In
     }
-    let inv = 1.0 / det;
-    let s = math::sub(from, a);
-    let u = math::dot(s, p) * inv;
-    if !(0.0..=1.0).contains(&u) {
-        return None;
+}
+
+/// The triangle of `tris` a ray from `from` along the unit `dir`, `length` long, meets nearest, as
+/// the client finds it: a triangle whose normal is shorter than 0.0002 is skipped; the ray's two
+/// ends are placed against the triangle's plane within 0.0002, and the triangle is tried only when
+/// the ray reaches its plane (`two_sided`: from either side; else only from in front, or from in
+/// the plane); a ray running within 0.0002 of the triangle's plane misses it; then the ray meets the
+/// triangle where its edges' shares are 0 to 1 and sum to 1 or less.
+// D2-09887
+pub fn ray_intersects_tri_list(
+    from: Vec3,
+    dir: Vec3,
+    length: f32,
+    tris: impl IntoIterator<Item = [Vec3; 3]>,
+    two_sided: bool,
+) -> Option<TriHit> {
+    let to = math::add(from, math::scale(dir, length));
+    let mut best: Option<(f32, Vec3, Vec3)> = None;
+    for [a, b, c] in tris {
+        let e1 = math::sub(b, a);
+        let e2 = math::sub(c, a);
+        let n = math::cross(e1, e2);
+        let len = math::dot(n, n).sqrt();
+        if len < 0.0002 {
+            continue;
+        }
+        let n = math::scale(n, 1.0 / len);
+        let d = -math::dot(n, a);
+        let (s0, s1) = (side(math::dot(n, from) + d), side(math::dot(n, to) + d));
+        let tried = match (s0, s1) {
+            (Side::Behind, _) if !two_sided => false,
+            (Side::Behind, s) => s != Side::Behind,
+            (Side::Front, Side::Front) => false,
+            (Side::In, Side::Front) => true,
+            (_, _) => true,
+        };
+        if !tried {
+            continue;
+        }
+        let p = math::cross(dir, e2);
+        let det = math::dot(p, e1);
+        if det > -0.0002 && det < 0.0002 {
+            continue;
+        }
+        let inv = 1.0 / det;
+        let s = math::sub(from, a);
+        let u = math::dot(s, p) * inv;
+        if !(0.0..=1.0).contains(&u) {
+            continue;
+        }
+        let q = math::cross(s, e1);
+        let v = math::dot(q, dir) * inv;
+        if v < 0.0 || u + v > 1.0 {
+            continue;
+        }
+        let t = math::dot(q, e2) * inv;
+        if best.is_none_or(|(bt, _, _)| t < bt) {
+            let w = 1.0 - u - v;
+            let point = math::add(
+                math::add(math::scale(a, u), math::scale(b, v)),
+                math::scale(c, w),
+            );
+            best = Some((t, point, n));
+        }
     }
-    let q = math::cross(s, e1);
-    let v = math::dot(dir, q) * inv;
-    if v < 0.0 || u + v > 1.0 {
-        return None;
-    }
-    let d = math::dot(e2, q) * inv;
-    (d > 0.0).then_some(d)
+    best.map(|(t, point, normal)| TriHit {
+        fraction: t / length,
+        point,
+        normal,
+    })
 }

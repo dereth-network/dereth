@@ -125,7 +125,11 @@ struct World {
 
 impl World {
     fn new() -> Self {
-        let mut ui = Ui::new(records(), 1024, 768);
+        Self::over(records())
+    }
+
+    fn over(assets: std::sync::Arc<dyn auberean_ui::Assets + Send + Sync>) -> Self {
+        let mut ui = Ui::new(assets, 1024, 768);
         let mut out = Vec::new();
         let mut play = GamePlay::new(&mut ui, &mut out);
         play.login_finished(&mut ui, &mut out);
@@ -344,4 +348,79 @@ fn the_ingredient_panel_takes_items_and_makes_the_recipe() {
         recipe: 0,
         spinner: 0
     }));
+}
+
+/// A recipe's name and its ingredients' names are given to their text elements as string
+/// references: one whose string table the data lacks shows once the table has come. The recipe's
+/// name is then colored by how hard it is, written again from its element's text: one still
+/// waiting stays empty, as in the client.
+///
+/// Behaviour: ui.craft.recipe-and-ingredient-names-wait-for-their-string-tables
+#[test]
+fn recipe_and_ingredient_names_wait_for_their_string_tables() {
+    use super::stage::{Lacking, LACKING};
+    let assets = Lacking::new();
+    let mut w = World::over(assets.clone());
+    let mut r = recipe_at(1);
+    r.name = StringInfo::entry(LACKING, 1);
+    r.ingredients[0].description = StringInfo::entry(LACKING, 2);
+    w.craft.opened = Some(r);
+    w.tick(&[]);
+    w.tick(&[said(notice::OPEN_INGREDIENT_PANEL, vec![RECIPE])]);
+    assert_eq!(w.ui.text(w.el("RecipeLabel")).as_deref(), Some(""));
+    let names: Vec<String> = w.slots().iter().map(|r| w.label_of(*r)).collect();
+    assert_eq!(names, ["", "Ore"], "waiting on the table");
+    assets.arrive();
+    w.tick(&[]);
+    assert_eq!(
+        w.ui.text(w.el("RecipeLabel")).as_deref(),
+        Some(""),
+        "the name's color written over it while it waited"
+    );
+    let names: Vec<String> = w.slots().iter().map(|r| w.label_of(*r)).collect();
+    assert!(names[0].starts_with("From the server"), "{names:?}");
+}
+
+/// The spinner's value as the client writes it: signed when the panel opens, unsigned once
+/// changed (a negative value written as its 32-bit word, of which the field shows the first three
+/// characters), and written only when the field reads otherwise, both read as unsigned words; a
+/// typed value is read as the C library reads a number in base 0 (a leading 0 octal) and kept as
+/// typed when it is the value taken.
+///
+/// Behaviour: ui.craft.the-spinner-writes-a-changed-value-unsigned
+#[test]
+fn the_spinner_writes_a_changed_value_unsigned() {
+    let mut w = World::new();
+    let mut r = recipe_at(1);
+    r.min_spinner = -3;
+    r.max_spinner = 20;
+    r.last_spinner = -1;
+    w.craft.opened = Some(r);
+    w.tick(&[]);
+    w.tick(&[said(notice::OPEN_INGREDIENT_PANEL, vec![RECIPE])]);
+    let value = w.el("SpinnerValueField");
+    let shown = |w: &World| w.ui.text(value).unwrap_or_default();
+    assert_eq!(shown(&w), "-1", "opened: signed");
+    // -2 written as 4294967294, of which the field holds three characters.
+    w.click(w.el("SpinnerDownButton"));
+    assert_eq!(shown(&w), "429", "changed: unsigned");
+    w.click(w.el("SpinnerUpButton"));
+    assert_eq!(shown(&w), "429", "-1 as 4294967295");
+    w.click(w.el("SpinnerUpButton"));
+    assert_eq!(shown(&w), "0");
+    w.ui.set_text(value, "");
+    w.click(value);
+    w.ui.type_text("010");
+    w.tick(&[]);
+    w.craft.now += 3.0;
+    let mut out = w.tick(&[]);
+    out.extend(w.tick(&[]));
+    assert!(
+        adds(&out).contains(&IngredientRequest::Inquire {
+            recipe: RECIPE,
+            spinner: 8
+        }),
+        "{out:?}"
+    );
+    assert_eq!(shown(&w), "010", "the value read is the value taken");
 }

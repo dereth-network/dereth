@@ -12,6 +12,14 @@
 //! the object the out argument holds). A property of another type answers 0 and leaves the out
 //! argument as it was, as does a property that is not there; one of the type answers 1
 //! ([`answer`]).
+//!
+//! An entity's record is found by its name, and its name by its record, in the client's table of
+//! file names ([`crate::names`]): the name narrowed, as an entity record's file. On an install of
+//! the relaunched game the table is empty: every name answers 0 and every record the empty name.
+//!
+//! A link's requirements are five words, all zero when new: whether the link is an input, its
+//! type, how many links, whether it is required, how many are required. Each is set and read as
+//! a word.
 
 use std::sync::Arc;
 
@@ -22,6 +30,9 @@ use auberean_script::native_object::{NativeObject, TextInfo, Variable, VariableV
 use auberean_script::value::{tag, NULL};
 
 const ENTITY_DESC: u32 = 0x22;
+const LINK_REQUIREMENTS: u32 = 0x38;
+/// The entity records' type, for names.
+const ENTITY_RECORD: u32 = 0x4000_0049;
 
 /// What one question asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +80,18 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (ENTITY_DESC, 0x18, inq::<5>),
     (ENTITY_DESC, 0x19, inq::<6>),
     (ENTITY_DESC, 0x1C, inq::<7>),
+    (ENTITY_DESC, 0x0E, name_of_record),
+    (ENTITY_DESC, 0x0F, record_of_name),
+    (LINK_REQUIREMENTS, 0x01, link_word::<0>),
+    (LINK_REQUIREMENTS, 0x03, link_word::<1>),
+    (LINK_REQUIREMENTS, 0x04, link_word::<2>),
+    (LINK_REQUIREMENTS, 0x05, link_word::<3>),
+    (LINK_REQUIREMENTS, 0x06, link_word::<4>),
+    (LINK_REQUIREMENTS, 0x07, set_link_word::<0>),
+    (LINK_REQUIREMENTS, 0x09, set_link_word::<1>),
+    (LINK_REQUIREMENTS, 0x0A, set_link_word::<2>),
+    (LINK_REQUIREMENTS, 0x0B, set_link_word::<3>),
+    (LINK_REQUIREMENTS, 0x0C, set_link_word::<4>),
 ];
 
 /// Bind this module's natives.
@@ -265,5 +288,66 @@ fn inq<const K: usize>(c: &mut Call<'_>) -> Result<Status, Stop> {
         }
     };
     c.write(-4, u32::from(answered), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The record of the entity named by the string at `fp[-2]`, into `fp[-3]`: the table's id for the
+/// name as an entity record's file.
+// D2-08508, D2-13027
+fn record_of_name(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.cx.at(-2)?;
+    if r == NULL {
+        return Err(c.fail("an entity's name is the null reference"));
+    }
+    let name = crate::names::narrowed(&crate::machine::text_of(c, r)?);
+    let id = c.host.data_id_by_name(&name, ENTITY_RECORD);
+    c.write(-3, id, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The name of the entity of the record at `fp[-2]`, as a new string at `fp[-3]`.
+// D2-08517, D2-13025
+fn name_of_record(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.cx.at(-2)?;
+    let name = c.host.file_name_by_id(id);
+    let s = crate::machine::new_text(c, name);
+    c.write(-3, s, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// The five words of the link's requirements the receiver is; a null receiver is none.
+fn link_words<'a>(c: &'a mut Call<'_>) -> Result<Option<&'a mut Vec<u8>>, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(None);
+    }
+    let wrong = c.fail("the receiver is not a link's requirements");
+    match c.vm.heap.native_mut(r)? {
+        NativeObject::Packed { ty, bytes } if *ty == LINK_REQUIREMENTS && bytes.len() == 20 => {
+            Ok(Some(bytes))
+        }
+        _ => Err(wrong),
+    }
+}
+
+/// Word `K` of a link's requirements, into `fp[-2]`; a null receiver crashes the call.
+// D2-18959, D2-08505, D2-08629, D2-08536, D2-09203
+fn link_word<const K: usize>(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some(b) = link_words(c)? else {
+        return Ok(Status::Crash);
+    };
+    let v = u32::from_le_bytes([b[4 * K], b[4 * K + 1], b[4 * K + 2], b[4 * K + 3]]);
+    c.write(-2, v, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Word `K` of a link's requirements set to `fp[-2]`; a null receiver crashes the call.
+// D2-01370, D2-01365, D2-01366, D2-01363, D2-01513
+fn set_link_word<const K: usize>(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let v = c.cx.at(-2)?;
+    let Some(b) = link_words(c)? else {
+        return Ok(Status::Crash);
+    };
+    b[4 * K..4 * K + 4].copy_from_slice(&v.to_le_bytes());
     Ok(Status::Success)
 }

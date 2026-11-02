@@ -219,6 +219,47 @@ fn the_nearest_top_level_element_is_drawn_last() {
     assert_eq!(screen_over(&u, [0, 0, 0, 255]).get(5, 5), [0, 0, 255, 255]);
 }
 
+/// A rectangle painted over an element (the radar's blips) is a window onto the element's own
+/// picture, pressed onto it: one reaching past an edge paints the texels along that edge, one
+/// inside paints itself, and nothing lands outside the element.
+///
+/// Behaviour: ui.draw.a-fill-reaching-off-its-element-paints-the-edge-it-passes
+#[test]
+fn a_fill_reaching_off_its_element_paints_the_edge_it_passes() {
+    let field = element(
+        "Field",
+        "field",
+        [100, 100, 109, 109],
+        0,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let mut u = ui(vec![field], vec![(1, solid(10, 10, [0, 0, 0, 255]))]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Field")).unwrap();
+    let green = [0, 255, 0, 255];
+    u.set_fills(
+        h,
+        vec![
+            (auberean_ui::Rect::new(-3, 4, -3, 4), green),
+            (auberean_ui::Rect::new(12, 2, 14, 2), green),
+            (auberean_ui::Rect::new(5, 13, 5, 13), green),
+            (auberean_ui::Rect::new(5, 5, 5, 5), green),
+        ],
+    );
+    let s = screen_over(&u, [0, 0, 0, 255]);
+    assert_eq!(
+        s.get(100, 104),
+        green,
+        "left of the element: its first column"
+    );
+    assert_eq!(s.get(109, 102), green, "right of it: its last column");
+    assert_eq!(s.get(105, 109), green, "below it: its last row");
+    assert_eq!(s.get(105, 105), green, "inside: where it is");
+    for (x, y) in [(97, 104), (112, 102), (105, 113), (101, 104), (108, 102)] {
+        assert_eq!(s.get(x, y), [0, 0, 0, 255], "nothing at ({x}, {y})");
+    }
+}
+
 /// The interface drawn into a picture of its own that starts transparent, then laid over a scene
 /// by that picture's alpha, comes out as the interface drawn straight over the scene: layers that
 /// cover each other partly, at partial alpha, included (to one step of rounding).
@@ -301,4 +342,56 @@ fn the_revision_moves_only_with_a_change() {
     assert_eq!(u.revision(), r0, "looking changes nothing");
     u.set_visible(h, false);
     assert!(u.revision() > r0, "hiding is a change");
+}
+
+/// A top-level element marked `no_surface_object` is drawn into no picture of its own: its own
+/// picture and its children's never reach the screen, though the pointer still finds it.
+///
+/// Behaviour: ui.draw.a-top-level-element-without-a-surface-shows-nothing
+#[test]
+fn a_top_level_element_without_a_surface_shows_nothing() {
+    let child = element(
+        "Child",
+        "field",
+        [0, 0, 9, 9],
+        0,
+        vec![state("stateless", 0, vec![], vec![image(7, 0)], vec![])],
+    );
+    let root = |name: &str, x: i16, bare: bool| {
+        let attributes = if bare {
+            vec![("no_surface_object", V::Bool(true))]
+        } else {
+            vec![]
+        };
+        element(
+            name,
+            "field",
+            [x, 0, x + 19, 19],
+            0,
+            vec![state(
+                "stateless",
+                0,
+                attributes,
+                vec![image(7, 0)],
+                vec![child.clone()],
+            )],
+        )
+    };
+    let white = solid(4, 4, [255, 255, 255, 255]);
+    let mut u = ui(
+        vec![root("Shown", 0, false), root("Bare", 100, true)],
+        vec![(7, white)],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    u.create_root(l, Token::of("Shown")).unwrap();
+    let bare = u.create_root(l, Token::of("Bare")).unwrap();
+    let s = screen_over(&u, [0, 0, 0, 255]);
+    assert_eq!(
+        s.get(15, 15),
+        [255, 255, 255, 255],
+        "an ordinary one is drawn"
+    );
+    assert_eq!(s.get(115, 15), [0, 0, 0, 255], "the bare one's picture");
+    assert_eq!(s.get(102, 2), [0, 0, 0, 255], "the bare one's child");
+    assert_eq!(u.hit(115, 15), Some(bare), "the pointer still finds it");
 }

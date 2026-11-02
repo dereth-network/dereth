@@ -223,3 +223,57 @@ fn the_groove_level_adds_up_what_is_in_range() {
     assert!(out.contains(&Request::GrooveLevel(5)), "{out:?}");
     assert_eq!(radar_of(&p).groove_level(), 5);
 }
+
+/// The radar's field moved, the play screen asks once for the panels' places to be kept with the
+/// player's options and sent to the server; the options coming again ask for the panels to be put
+/// back from them, and the display set up again asks for them to be put back as the player's
+/// interface keeps them.
+///
+/// Behaviour: ui.gameplay.the-panels-places-are-kept-and-put-back
+#[test]
+fn the_panels_places_are_kept_when_moved_and_put_back_when_the_options_come() {
+    use auberean_ui_game::gameplay::{notice, Notice};
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(0.0, false, Vec::new());
+    tick(&mut ui, &mut p, &mut t, &w);
+    let root = radar_of(&p).root.expect("the radar");
+    let base = ui
+        .child_recursive(root, Token::of("BaseField"))
+        .expect("the radar's field");
+    // The radar's field says its place changed, as a drag of the radar makes it say.
+    ui.broadcast(base, Token::of("location_changed"), 0);
+    let out = tick(&mut ui, &mut p, &mut t, &w);
+    let saves = out.iter().filter(|r| **r == Request::SaveLocations).count();
+    assert_eq!(saves, 1, "kept once: {out:?}");
+    assert!(
+        !out.contains(&Request::KeepOptions),
+        "the game options are not sent: {out:?}"
+    );
+
+    t += 0.05;
+    ui.use_time(t);
+    let reload = Notice {
+        native: notice::RELOAD_OPTIONS,
+        ..Notice::default()
+    };
+    let view = View {
+        world: Some(&w),
+        ..View::default()
+    };
+    let mut out = Vec::new();
+    p.tick(&mut ui, &view, &[reload], &mut out);
+    assert!(
+        out.contains(&Request::PutBackLocations { reloaded: true }),
+        "{out:?}"
+    );
+    assert!(!out.contains(&Request::SaveLocations), "{out:?}");
+
+    ui.refresh(1280, 960);
+    let out = tick(&mut ui, &mut p, &mut t, &w);
+    assert!(
+        out.contains(&Request::PutBackLocations { reloaded: false }),
+        "{out:?}"
+    );
+}

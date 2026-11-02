@@ -81,6 +81,7 @@ pub fn hook(kind: u32, number: u32, data: u32, time: f32) -> GameHook {
 /// An impulse trigger as a playing behavior holds it: the stored trigger and whether it fired.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImpulseTrigger {
+    // D2-05153
     pub impulse: Impulse,
     pub triggered: bool,
 }
@@ -152,7 +153,7 @@ impl Gathered {
 }
 
 /// The effects, hooks and impulses a body's animations set off this frame.
-// D2-06349
+// D2-06349, D2-06351
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameTriggers {
     /// Effects starting this frame.

@@ -49,6 +49,8 @@ impl<T> Scan<T> {
 /// `0x` and hexadecimal digits, a leading `0` and octal digits, or decimal digits. `bits` is the
 /// width (32 or 64); `unsigned` the `strtoul` rules (a minus sign counts back from 2^bits, only
 /// the magnitude can overflow). With no digit the scan stops where it began and the value is 0.
+/// The 64-bit scan is the client's own (base 0 is the only base its callers pass).
+// D2-14309
 fn scan_integer(s: &[u8], bits: u32, unsigned: bool) -> Scan<u64> {
     let s = cstr(s);
     let at = |i: usize| s.get(i).copied().unwrap_or(0);
@@ -125,7 +127,8 @@ fn scan_integer(s: &[u8], bits: u32, unsigned: bool) -> Scan<u64> {
     }
 }
 
-/// `strtoul(s, &end, 0)`.
+/// `strtoul(s, &end, 0)`; its value is a string's leading unsigned number.
+// D2-00038
 #[must_use]
 pub fn strtoul(s: &[u8]) -> Scan<u32> {
     let r = scan_integer(s, 32, true);
@@ -148,12 +151,14 @@ pub fn strtol(s: &[u8]) -> Scan<i32> {
 }
 
 /// `_strtoui64(s, &end, 0)`.
+// D2-14311
 #[must_use]
 pub fn strtoui64(s: &[u8]) -> Scan<u64> {
     scan_integer(s, 64, true)
 }
 
 /// `_strtoi64(s, &end, 0)`.
+// D2-14310
 #[must_use]
 pub fn strtoi64(s: &[u8]) -> Scan<i64> {
     let r = scan_integer(s, 64, false);

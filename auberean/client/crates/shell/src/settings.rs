@@ -1,11 +1,13 @@
 //! The player's settings, kept as text the host stores (a `Preferences.ini` in the settings folder
-//! on the desktop): sections of `name=value` lines, named as the September 2013 client names its
-//! camera, mouse and graphics options. Unknown lines are kept as they were; a value that does not
-//! read, or is out of its option's range, leaves the default.
+//! on the desktop): sections of `name=value` lines ([`crate::profile`]), named as the September 2013
+//! client names its camera, mouse and graphics options. Unknown lines are kept as they were; a value
+//! that does not read, or is out of its option's range, leaves the default.
 
 use auberean_dat::tree::number;
 use auberean_draw::quality::{Graphics, Kind, HIGHEST, OVERALL_NAME, PREFERENCES};
 use auberean_scene::camera::{AvatarInFirstPerson, Options};
+
+use crate::profile::Profile;
 
 /// The settings the shell uses.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,8 +21,8 @@ pub struct Settings {
     pub full_screen: bool,
     /// The files the key maps are kept in.
     pub key_files: crate::keys::KeyFiles,
-    /// Every line read, for writing back what this program does not use.
-    lines: Vec<String>,
+    /// The text read, for writing back what this program does not use.
+    profile: Profile,
 }
 
 impl Default for Settings {
@@ -31,7 +33,7 @@ impl Default for Settings {
             window: (1280, 960),
             full_screen: false,
             key_files: crate::keys::KeyFiles::default(),
-            lines: Vec::new(),
+            profile: Profile::default(),
         }
     }
 }
@@ -49,6 +51,9 @@ const SENSITIVITY: (&str, &str, f32, f32) = ("Input", "MouseLookSensitivity", 0.
 const INVERT_Y: (&str, &str) = ("Input", "MouseInvertY");
 const STEERS: (&str, &str) = ("Input", "MouseLookSteersPlayer");
 const AVATAR: (&str, &str) = ("Avatar", "AvatarVisibleInFirstPerson");
+const LOOK_AROUND: (&str, &str) = ("Avatar", "AvatarLookAround");
+const LOOK_AT_CAMERA: (&str, &str) = ("Avatar", "AvatarLookAtCamera");
+const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");
@@ -92,24 +97,12 @@ fn number_value(v: &str) -> Option<f32> {
     number::is_double(v.as_bytes()).then(|| number::strtod(v.as_bytes()).value as f32)
 }
 
-/// A number as the file is given it: six places after the point.
+/// A number as the file is given it: six places after the point, as `%f` writes it.
 // D2-15965
 fn number_text(v: f32) -> String {
-    format!("{v:.6}")
-}
-
-fn sections(text: &str) -> Vec<(String, String, String)> {
-    let mut out = Vec::new();
-    let mut section = String::new();
-    for line in text.lines() {
-        let t = line.trim();
-        if let Some(s) = t.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-            s.trim().clone_into(&mut section);
-        } else if let Some((k, v)) = t.split_once('=') {
-            out.push((section.clone(), k.trim().to_owned(), v.trim().to_owned()));
-        }
-    }
-    out
+    let mut text = Vec::new();
+    auberean_client_sdk::text::wide::append_float(&mut text, v);
+    String::from_utf16_lossy(&text)
 }
 
 impl Settings {
@@ -124,16 +117,11 @@ impl Settings {
     #[must_use]
     pub fn read(text: &str) -> Self {
         let mut s = Self {
-            lines: text.lines().map(str::to_owned).collect(),
+            profile: Profile::new(text),
             ..Self::default()
         };
-        let values = sections(text);
-        let get = |sec: &str, name: &str| {
-            values
-                .iter()
-                .find(|(a, b, _)| a.eq_ignore_ascii_case(sec) && b.eq_ignore_ascii_case(name))
-                .map(|(_, _, v)| v.as_str())
-        };
+        let profile = s.profile.clone();
+        let get = |sec: &str, name: &str| profile.value(sec, name);
         let ranged = |o: (&str, &str, f32, f32), default: f32| {
             get(o.0, o.1)
                 .and_then(number_value)
@@ -154,6 +142,9 @@ impl Settings {
         c.mouse_sensitivity = ranged(SENSITIVITY, c.mouse_sensitivity);
         c.invert_y = flag(INVERT_Y, c.invert_y);
         c.mouse_look_steers = flag(STEERS, c.mouse_look_steers);
+        c.look_around = flag(LOOK_AROUND, c.look_around);
+        c.look_at_camera = flag(LOOK_AT_CAMERA, c.look_at_camera);
+        c.look_at_selection = flag(LOOK_AT_SELECTION, c.look_at_selection);
         // A choice by its name, or by its number.
         let avatar = get(AVATAR.0, AVATAR.1).and_then(|v| {
             [
@@ -233,8 +224,20 @@ impl Settings {
         s
     }
 
-    /// The settings as text: the lines read, with this program's options set to their values and
-    /// any missing added to their sections.
+    /// The preferences file as read (and kept since).
+    #[must_use]
+    pub const fn profile(&self) -> &Profile {
+        &self.profile
+    }
+
+    /// Keep a value in the preferences file (as the client writes one), whether or not this
+    /// program uses it.
+    pub fn keep(&mut self, section: &str, key: &str, value: &str) {
+        self.profile.write(section, key, Some(value));
+    }
+
+    /// The settings as text: the text read, with this program's options set to their values in
+    /// place and any missing added to their sections, as the client writes each.
     #[must_use]
     pub fn write(&self) -> String {
         let c = &self.camera;
@@ -256,6 +259,13 @@ impl Settings {
                 AVATAR.0,
                 AVATAR.1,
                 c.avatar_in_first_person.name().to_owned(),
+            ),
+            (LOOK_AROUND.0, LOOK_AROUND.1, b(c.look_around)),
+            (LOOK_AT_CAMERA.0, LOOK_AT_CAMERA.1, b(c.look_at_camera)),
+            (
+                LOOK_AT_SELECTION.0,
+                LOOK_AT_SELECTION.1,
+                b(c.look_at_selection),
             ),
             (
                 DISPLAY_RESOLUTION.0,
@@ -288,47 +298,10 @@ impl Settings {
                 ours.push((GRAPHICS, p.label.trim_start_matches(LABEL), text));
             }
         }
-        let mut lines = self.lines.clone();
+        let mut profile = self.profile.clone();
         for (sec, name, value) in ours {
-            let mut section = String::new();
-            let mut done = false;
-            let mut end_of_section = None;
-            for (i, line) in lines.iter_mut().enumerate() {
-                let t = line.trim().to_owned();
-                if let Some(s) = t.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-                    s.trim().clone_into(&mut section);
-                    continue;
-                }
-                if section.eq_ignore_ascii_case(sec) {
-                    end_of_section = Some(i + 1);
-                    if let Some((k, _)) = t.split_once('=') {
-                        if k.trim().eq_ignore_ascii_case(name) {
-                            *line = format!("{name}={value}");
-                            done = true;
-                        }
-                    }
-                }
-            }
-            if done {
-                continue;
-            }
-            let header = lines.iter().position(|l| {
-                l.trim()
-                    .strip_prefix('[')
-                    .and_then(|s| s.strip_suffix(']'))
-                    .is_some_and(|s| s.trim().eq_ignore_ascii_case(sec))
-            });
-            match (header, end_of_section) {
-                (Some(_), Some(at)) => lines.insert(at, format!("{name}={value}")),
-                (Some(h), None) => lines.insert(h + 1, format!("{name}={value}")),
-                (None, _) => {
-                    lines.push(format!("[{sec}]"));
-                    lines.push(format!("{name}={value}"));
-                }
-            }
+            profile.write(sec, name, Some(&value));
         }
-        let mut out = lines.join("\n");
-        out.push('\n');
-        out
+        profile.text().to_owned()
     }
 }

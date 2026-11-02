@@ -28,7 +28,8 @@ pub mod track {
     pub const SUBTITLE: u32 = 0x10;
 }
 
-/// One step of a scene.
+/// One step of a scene. Dropping one lets go of its texts.
+// D2-12339
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Keyframe {
     pub scene: u32,
@@ -111,7 +112,8 @@ impl Keyframe {
     }
 }
 
-/// A scene of an act.
+/// A scene of an act. A copy holds a copy of each of its steps, in order.
+// D2-12306, D2-12299, D2-12303
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SceneInfo {
     pub id: u32,
@@ -191,7 +193,8 @@ impl SceneInfo {
     }
 }
 
-/// An act of the story.
+/// An act of the story. A copy holds a copy of each of its scenes, in order.
+// D2-12319, D2-12311, D2-12314
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ActInfo {
     pub id: u32,
@@ -316,6 +319,7 @@ pub fn read_acts(r: &mut In<'_>) -> Result<Vec<ActInfo>> {
 }
 
 /// A list of acts' packed form.
+// D2-15139
 pub fn write_acts(w: &mut Out, acts: &[ActInfo]) {
     write_count(w, acts.len());
     acts.iter().for_each(|a| a.write(w));

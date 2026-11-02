@@ -1,6 +1,7 @@
 //! The play screen on the retail layouts: its frame, its panels, the toolbar and its windows, the
 //! camera, the game's flow.
 
+use auberean_text::StringInfo;
 use auberean_ui::framework::flow::{Factory, Screen};
 use auberean_ui::types::{button_id, key_id};
 use auberean_ui::{Token, Ui};
@@ -511,7 +512,10 @@ fn named(_ui: &mut Ui, _d: &mut Vec<Token>) -> Option<Box<dyn Screen<Vec<Token>>
 /// The game starts on the opening screen with the default cursor; a character the server refuses
 /// for being in the world already goes back to the character list with the reason's message; one
 /// logged off goes to the disconnected screen with the server's own words; a lost connection
-/// changes nothing while that screen is up; the screenshot key, let go, asks for a screenshot.
+/// changes nothing while that screen is up; a boot's words go there too, in place of the booted
+/// message, when they are valid (a literal, or an entry its table holds: the line saying the
+/// account is banned), and the booted message when they are not; the screenshot key, let go, asks
+/// for a screenshot.
 ///
 /// Behaviour: ui.flow.the-game-flow-starts-on-the-intro-and-follows-the-servers-reasons
 #[test]
@@ -537,7 +541,7 @@ fn the_game_flow_starts_on_the_intro_and_follows_the_servers_reasons() {
     );
     assert!(!said.is_empty());
     assert_eq!(f.flow.data, vec![Token::of(&said)], "the reason's message");
-    f.character_error(&ui, 4, Some("Gone."));
+    f.character_error(&ui, 4, Some(&StringInfo::literal("Gone.")));
     tick(&mut ui, &mut f);
     assert_eq!(f.flow.mode(), mode::DISCONNECTED);
     assert_eq!(
@@ -551,8 +555,133 @@ fn the_game_flow_starts_on_the_intro_and_follows_the_servers_reasons() {
         Token(0),
         "not while the disconnected screen is up"
     );
+    // A boot: its line from the game's strings, else the booted message.
+    let banned = ui
+        .assets()
+        .text(0x2500_0012, 0x974F_243D)
+        .expect("the banned line");
+    assert_eq!(banned, "Your account is currently banned.");
+    f.character_error(&ui, 20, Some(&StringInfo::entry(0x2500_0012, 0x974F_243D)));
+    tick(&mut ui, &mut f);
+    assert_eq!(f.flow.mode(), mode::DISCONNECTED);
+    assert_eq!(
+        f.flow.data.last(),
+        Some(&Token::of(&banned)),
+        "the boot's line"
+    );
+    let booted = flow::message(&ui, flow::MESSAGES, "ID_CHAR_ERROR_CHARACTER_IS_BOOTED");
+    assert!(!booted.is_empty());
+    f.character_error(&ui, 20, Some(&StringInfo::entry(0x2500_0012, 0x1234_5678)));
+    tick(&mut ui, &mut f);
+    assert_eq!(
+        f.flow.data.last(),
+        Some(&Token::of(&booted)),
+        "an entry the table lacks: the booted message"
+    );
     ui.key(flow::SCREENSHOT_KEY, true);
     assert!(tick(&mut ui, &mut f).is_empty());
     ui.key(flow::SCREENSHOT_KEY, false);
     assert_eq!(tick(&mut ui, &mut f), vec![Event::Screenshot]);
+}
+
+/// What kind of panel a handler of the play screen is, by name.
+fn handler_name(p: &GamePlay, h: gameplay::Handler) -> &'static str {
+    use auberean_ui_game::{ingredients, inventory, names, pet, radar, shop, social, trade};
+    let gameplay::Handler::Panel(id) = h else {
+        return "play screen";
+    };
+    let Some(c) = p.panel(id) else {
+        return "gone";
+    };
+    let a = c.as_any();
+    if a.is::<names::Names>() {
+        "names"
+    } else if a.is::<radar::Radar>() {
+        "radar"
+    } else if a.is::<inventory::stack::StackSplitter>() {
+        "stack"
+    } else if a.is::<auberean_ui_game::selection::Selection>() {
+        "selection"
+    } else if a.is::<StatusBar>() {
+        "status bar"
+    } else if a.is::<Toolbar>() {
+        "toolbar"
+    } else if a.is::<social::mini::MiniFellowship>() {
+        "fellowship"
+    } else if a.is::<trade::Trade>() {
+        "trade"
+    } else if a.is::<inventory::external::ExternalContainer>() {
+        "container"
+    } else if a.is::<shop::Shop>() {
+        "shop"
+    } else if a.is::<shop::consignment::Consignments>() {
+        "consignments"
+    } else if a.is::<shop::new_sale::NewSale>() {
+        "new sale"
+    } else if a.is::<pet::Pets>() {
+        "pets"
+    } else if a.is::<ingredients::Ingredients>() {
+        "ingredients"
+    } else {
+        "another"
+    }
+}
+
+/// The play screen's panels register for their notices as the play screen makes them, in that
+/// order, and the play screen registers for some of its own as it is made and for the rest once
+/// its panels are made, after them: a notice reaches those who registered for it, in that order,
+/// and no other.
+///
+/// Behaviour: ui.notices.the-play-screens-notices-reach-their-handlers-in-the-order-they-registered
+#[test]
+fn the_play_screens_notices_reach_their_handlers_in_the_order_they_registered() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let (p, _) = play(&mut ui);
+    let heard = |native: u32| -> Vec<&'static str> {
+        p.handlers(native)
+            .iter()
+            .map(|h| handler_name(&p, *h))
+            .collect()
+    };
+    assert_eq!(
+        heard(notice::RELOAD_OPTIONS),
+        ["names", "radar", "status bar", "toolbar", "play screen"],
+        "the play screen after its panels"
+    );
+    assert_eq!(
+        heard(auberean_ui_game::dialog::notice::CLOSE_CONFIRMATION_DIALOG),
+        [
+            "toolbar",
+            "trade",
+            "shop",
+            "consignments",
+            "new sale",
+            "ingredients",
+            "play screen"
+        ]
+    );
+    assert_eq!(
+        heard(auberean_ui_game::inventory::notice::SELECTION_CHANGED),
+        [
+            "names",
+            "radar",
+            "toolbar",
+            "fellowship",
+            "trade",
+            "container",
+            "shop",
+            "consignments",
+            "pets"
+        ]
+    );
+    assert_eq!(
+        heard(auberean_ui_game::story::notice::FINISH_PLAY_SEQUENCE),
+        ["play screen"],
+        "registered as it was made"
+    );
+    assert_eq!(heard(notice::PLAY_SEQUENCE), ["play screen"]);
+    assert_eq!(
+        heard(auberean_ui_game::inventory::notice::INIT_STACK),
+        ["stack"]
+    );
 }

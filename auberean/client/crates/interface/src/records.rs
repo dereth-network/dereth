@@ -25,6 +25,7 @@ pub fn of_notice(n: &auberean_shell::interface::Notice) -> Vec<Option<Record>> {
                 return Some(Record::Request(request(&r)));
             }
             let listed = n.listed.get(i).map_or(&[][..], Vec::as_slice);
+            // D2-00898
             // The friends list: every entry a friend's state (an empty list too, for its notice).
             let friends: Vec<_> = listed.iter().flatten().filter_map(friend).collect();
             if friends.len() == listed.len()
@@ -33,6 +34,7 @@ pub fn of_notice(n: &auberean_shell::interface::Notice) -> Vec<Option<Record>> {
                 return Some(Record::Friends(friends));
             }
             if !listed.is_empty() {
+                // D2-00925
                 let shops: Vec<_> = listed.iter().flatten().filter_map(store).collect();
                 if !shops.is_empty() {
                     return Some(Record::Stores(shops));

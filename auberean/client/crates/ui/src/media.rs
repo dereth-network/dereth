@@ -529,11 +529,12 @@ impl Ui {
     /// what is beneath, 3 copies it faded by the element's transparency). The element's
     /// transparency is taken from its `alpha_value` the first time it shows a picture (0 when it
     /// has none).
-    // D2-11348
+    // D2-11348, D2-11172
     pub fn set_image(&mut self, h: Handle, picture: u32, mode: u32) {
         let Some(n) = self.node(h) else { return };
         let alpha = n.float_attr(attr::ALPHA_VALUE).unwrap_or(0.0);
         let Some(n) = self.node_mut(h) else { return };
+        // D2-11929
         n.blends = mode == 1 || mode == 2;
         if n.alpha == -1.0 && alpha != n.alpha {
             n.alpha = alpha;
@@ -549,8 +550,8 @@ impl Ui {
         }
     }
 
-    /// Use a picture as the element's transparency.
-    // D2-11300
+    /// Use a picture as the element's transparency (in place of any it had).
+    // D2-11300, D2-11153, D2-11154
     pub fn set_alpha_image(&mut self, h: Handle, picture: u32) {
         if let Some(n) = self.node_mut(h) {
             n.alpha_picture = Some(picture);
@@ -708,6 +709,7 @@ impl Ui {
                 start_alpha, flags, ..
             } => {
                 if flags & 1 == 0 {
+                    // D2-10416
                     n.object_alpha
                 } else {
                     *start_alpha

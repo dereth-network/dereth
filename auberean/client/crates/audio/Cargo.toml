@@ -1,0 +1,43 @@
+[package]
+name = "auberean-audio"
+description = "The game's sound: the sound manager every sound passes through, the rules of sound and music settings, and the volume and positional laws, over the shared mixer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# Tier switch: `retail-dats` selects the `dat` test binary (every sound and music setting of the
+# end-of-retail set through the sound manager).
+retail-dats = []
+
+[dependencies]
+# The shared mixer and the wave and MP3 decoders.
+dereth-audio.workspace = true
+# Float-to-integer conversion and the transcendental functions, the same on every host.
+dereth-primitives.workspace = true
+# The sound and music settings, waves and encoded tracks the manager plays, and the region's
+# ambient sound table.
+auberean-assets.workspace = true
+# The client's random numbers, which the ambient sounds draw from.
+auberean-primitives.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+# The world's records and the landscape's ambient points, for the ambient sound over the data.
+auberean-world.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

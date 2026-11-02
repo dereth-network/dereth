@@ -16,6 +16,7 @@ use auberean_ui_game::options::helper::{Control, Row};
 use auberean_ui_game::options::{notice, OptionWindow};
 use auberean_ui_game::toolbar::Toolbar;
 
+use super::stage::{Lacking, LACKING};
 use crate::common::records;
 
 /// The play screen made and the player in the world.
@@ -109,6 +110,26 @@ impl Frame {
         };
         p.tick(ui, &view, notices, &mut out);
         out
+    }
+
+    /// One frame with lines that came as string references (`None` for a written line).
+    fn tick_infos(
+        &mut self,
+        ui: &mut Ui,
+        p: &mut GamePlay,
+        lines: &[(u32, String)],
+        infos: &[Option<StringInfo>],
+    ) {
+        self.t += 0.05;
+        ui.use_time(self.t);
+        let mut out = Vec::new();
+        let view = View {
+            lines,
+            line_infos: infos,
+            chat: Some(&self.settings),
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut out);
     }
 
     /// The scripts said the chat options changed, and the client read them.
@@ -372,6 +393,31 @@ fn the_lines_written_with_the_options_show_by_those_options() {
         "",
         "the second window shows the general channel alone"
     );
+}
+
+/// A line that came as a string reference whose table the data lacks waits in the log until the
+/// table has come, then shows as written from it; the lines after it wait behind it.
+///
+/// Behaviour: ui.chat.a-line-waits-in-the-log-for-its-string-tables
+#[test]
+fn a_line_waits_in_the_log_for_its_string_tables_and_the_lines_after_it_wait_behind_it() {
+    let lacking = Lacking::new();
+    let mut ui = Ui::new(lacking.clone(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.tick(&mut ui, &mut p, &[], &[reload_notice()]);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    let lines = [
+        (t::SAY, "<string table error>\n".to_owned()),
+        (t::SAY, "After it.\n".to_owned()),
+    ];
+    let infos = [Some(StringInfo::entry(LACKING, 7)), None];
+    f.tick_infos(&mut ui, &mut p, &lines, &infos);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert_eq!(text(&ui, log(&p, 0)), "", "both wait for the table");
+    lacking.arrive();
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert_eq!(text(&ui, log(&p, 0)), "From the server\nAfter it.\n");
 }
 
 /// Enter starts typing in the first window (its prompt goes); the keys typed go into the entry;

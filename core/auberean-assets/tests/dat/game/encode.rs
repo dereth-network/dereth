@@ -4,6 +4,7 @@
 use auberean_assets::entity::Entity;
 use auberean_assets::landblock::{Cell, LandblockInfo, LightInfo};
 use auberean_assets::property::{PhysicsMaterial, PropertyList};
+use auberean_assets::script::ScriptState;
 use auberean_assets::strings::{EnumMap, StringState, StringTable};
 use auberean_assets::tables::{FileIdTable, IdMap};
 use auberean_assets::verify::type_in;
@@ -58,10 +59,12 @@ fn every_record_with_a_writer_writes_back_to_its_own_bytes() {
         round_trip::<LightInfo>(RecordType::LIGHT_INFO),
         round_trip::<Cell>(RecordType::CELL),
         round_trip::<FileIdTable>(RecordType::FILE_ID_TABLE),
+        round_trip::<ScriptState>(RecordType::SCRIPT_STATE),
     ];
-    // Entities, string tables and cells number in the thousands at the end of retail.
+    // Entities, string tables, cells and saved script states number in the thousands at the end
+    // of retail.
     assert!(
-        counts[2] > 10_000 && counts[5] > 10_000 && counts[9] > 10_000,
+        counts[2] > 10_000 && counts[5] > 10_000 && counts[9] > 10_000 && counts[11] > 10_000,
         "{counts:?}"
     );
 }

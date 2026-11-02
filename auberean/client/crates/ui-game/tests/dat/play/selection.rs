@@ -336,3 +336,47 @@ fn the_targeting_notice_shows_the_usage_cursor() {
     tick(&mut ui, &mut p, &mut t, &w, &[notice(0)]);
     assert_eq!(ui.cursor(), Some(default), "put back");
 }
+
+/// The war button, with the player targeting automatically, selects the nearest foe before it asks
+/// the player's scripts to attack (they attack what is selected); without, it only asks to attack.
+///
+/// Behaviour: ui.selection.attacking-with-auto-target-selects-the-nearest-foe-first
+#[test]
+fn attacking_with_auto_target_selects_the_nearest_foe_first() {
+    let mut foe = thing(10, kind::CREATURE, 0.0, 3.0);
+    foe.attackable = true;
+    let other = thing(11, kind::CREATURE, 0.0, 2.0);
+    for auto_target in [true, false] {
+        let mut ui = Ui::new(records(), 1024, 768);
+        let mut p = play(&mut ui);
+        let mut t = 0.0;
+        let w = World {
+            auto_target,
+            ..world(vec![foe.clone(), other.clone()])
+        };
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+        let button = ui
+            .element(Token::of("StartAttackButton"))
+            .expect("the war button");
+        let r = ui.screen_rect(button).expect("placed");
+        ui.pointer_move((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+        let mut out = tick(&mut ui, &mut p, &mut t, &w, &[]);
+        for down in [true, false] {
+            ui.pointer_button(button_id::LEFT, down);
+            out.extend(tick(&mut ui, &mut p, &mut t, &w, &[]));
+        }
+        let asked: Vec<&Request> = out
+            .iter()
+            .filter(|r| matches!(r, Request::Select(_) | Request::Attack { .. }))
+            .collect();
+        if auto_target {
+            assert_eq!(
+                asked,
+                vec![&Request::Select(10), &Request::Attack { start: true }],
+                "the foe, then the attack"
+            );
+        } else {
+            assert_eq!(asked, vec![&Request::Attack { start: true }]);
+        }
+    }
+}

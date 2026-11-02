@@ -1,6 +1,7 @@
-//! A body's size and the places on it: its radius and height (its setup's, scaled by its height
-//! scale), its collision spheres, its distance to another object's cylinder, and a place on it
-//! raised part of its height and offset in its own frame, kept from going through walls.
+//! A body's size and the places on it: its radius and height (its setup's, scaled by its look's
+//! height scale and its own), its collision spheres, its distance to another object's cylinder,
+//! and a place on it raised part of its height and offset in its own frame, kept from going
+//! through walls.
 
 use dereth_primitives::shape::Sphere;
 use dereth_primitives::{CellId, Position, Vec3};
@@ -106,18 +107,28 @@ pub fn offset_position(
 }
 
 impl Body {
-    /// Its setup's radius, scaled by its height scale.
+    /// Its setup's radius (its part group's, or the one it was given without one), scaled by its
+    /// look's height scale and its own.
     // D2-05868
     #[must_use]
     pub fn radius(&self) -> f32 {
-        self.setup_radius * self.config.scale
+        let r = self
+            .parts
+            .as_deref()
+            .map_or(self.setup_radius, |g| g.array.radius());
+        r * self.look_scale.z * self.object_scale.z
     }
 
-    /// Its setup's height, scaled by its height scale.
+    /// Its setup's height (its part group's, or the one it was given without one), scaled by its
+    /// look's height scale and its own.
     // D2-05869
     #[must_use]
     pub fn height(&self) -> f32 {
-        self.setup_height * self.config.scale
+        let h = self
+            .parts
+            .as_deref()
+            .map_or(self.setup_height, |g| g.array.height());
+        h * self.look_scale.z * self.object_scale.z
     }
 
     /// How many collision spheres it has.

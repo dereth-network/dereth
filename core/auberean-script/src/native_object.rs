@@ -52,6 +52,7 @@ pub mod native_type {
     pub const ACT_INFO: u32 = 156;
     pub const ACT_INFO_LIST: u32 = 157;
     pub const KEYFRAME: u32 = 159;
+    pub const LINK_REQUIREMENTS: u32 = 56;
     pub const EXAMINATION_REQUEST: u32 = 154;
     pub const GAMEPLAY_OPTIONS_PROFILE: u32 = 155;
     pub const QUEST_INFO: u32 = 160;
@@ -130,6 +131,7 @@ pub fn format_of(lib: &Library, ty: u32) -> Format {
         | ACT_INFO
         | ACT_INFO_LIST
         | KEYFRAME
+        | LINK_REQUIREMENTS
         | SELECTION_INFO
         | SHORTCUT_INFO
         | SKILL_UI_NODE => Format::Record(ty),
@@ -152,6 +154,9 @@ pub enum Item {
 }
 
 impl Item {
+    /// One element as packed. A hashed reference packs its id, its filed hash and whether that
+    /// hash is to be used.
+    // D2-01378
     fn read(r: &mut In<'_>, kind: Elem) -> Result<Self> {
         Ok(match kind {
             Elem::Word => Self::Word(r.u32()?),
@@ -200,9 +205,18 @@ impl Item {
         }
     }
 
+    /// The reference rewritten as a graph is read into the table. A hashed reference (a key)
+    /// is from then on hashed through what it names rather than by its filed hash.
+    // D2-04573
     pub(crate) fn remap(&mut self, f: &mut dyn FnMut(u32) -> u32) {
         match self {
-            Self::Ref(id) | Self::HashedRef { id, .. } if *id != NULL => *id = f(*id),
+            Self::Ref(id) if *id != NULL => *id = f(*id),
+            Self::HashedRef { id, use_hash, .. } => {
+                if *id != NULL {
+                    *id = f(*id);
+                }
+                *use_hash = 0;
+            }
             _ => {}
         }
     }
@@ -442,7 +456,9 @@ impl TextInfo {
 /// A quest as the client keeps it for the journal: what the server sends of it, and one value the
 /// client keeps that the server never sends (whether the quest may be taken no more times).
 ///
-/// Times are game times in seconds, kept as the bits of the 64-bit floats they are.
+/// Times are game times in seconds, kept as the bits of the 64-bit floats they are. A copy is a
+/// copy of every field; dropping one lets go of its texts.
+// D2-12254, D2-12257, D2-12242, D2-12252
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestInfo {
     pub id: u32,
@@ -667,7 +683,9 @@ impl QuestInfo {
 /// lasts and when it was cast (64-bit floats' bits; -1 for none).
 ///
 /// A new one is all zero and empty, with both times -1. Its packed form is the number, the bits,
-/// the name, the description, the icon, the duration and the cast time.
+/// the name, the description, the icon, the duration and the cast time. A copy is a copy of every
+/// field.
+// D2-12173, D2-12172
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EffectNode {
     pub eid: u32,
@@ -1110,6 +1128,9 @@ impl Eq for Engine {}
 
 /// A native object's value.
 #[derive(Clone, Debug, PartialEq, Eq)]
+// D2-00040, D2-01040, D2-01041, D2-01042, D2-01289, D2-04437, D2-04459, D2-04460, D2-04495, D2-01037
+// D2-04544, D2-04545, D2-04546, D2-04547, D2-04596, D2-04605, D2-04606, D2-00785, D2-00786, D2-00789
+// D2-04629, D2-00791, D2-16448, D2-09049, D2-09050
 pub enum NativeObject {
     Hash(Hash),
     /// A multi-hash as the engine holds it.
@@ -1121,12 +1142,8 @@ pub enum NativeObject {
         value: Elem,
         entries: Vec<(Item, Item)>,
     },
-    /// A multi-map: entries in stored order.
-    MultiMap {
-        key: Elem,
-        value: Elem,
-        entries: Vec<(Item, Item)>,
-    },
+    /// A multi-map as the engine holds it: entries in key order.
+    MultiMap(crate::multi_map::MultiMap),
     HashSet(HashSet),
     /// A list or an array.
     Sequence {
@@ -1149,10 +1166,12 @@ pub enum NativeObject {
         frame: [u32; 7],
     },
     /// Packed values (tag and value pairs).
+    // D2-16734
     Buffer(Vec<u8>),
     /// A quest record.
     Quest(Box<QuestInfo>),
-    /// A list of quest records, in list order.
+    /// A list of quest records, in list order: a copy holds a copy of each, in order.
+    // D2-12280, D2-12277, D2-12276, D2-12279, D2-12275
     QuestList(Vec<QuestInfo>),
     /// How a behavior is to be played, as the engine holds it (a packed graph keeps its bytes:
     /// [`NativeObject::Packed`]).
@@ -1213,30 +1232,35 @@ pub enum Field {
 }
 
 impl NativeObject {
-    /// A new, empty native object of a type, as the native factory makes one.
+    /// A new, empty native object of a type, as the native factory makes one: the game's types
+    /// and the engine's alike.
+    // D2-00784, D2-04649
     #[must_use]
     pub fn new(lib: &Library, ty: u32) -> Self {
         match format_of(lib, ty) {
             // The factory's hashes and sets ask for 32 buckets, which the bucket list makes 47.
             // D2-04534, D2-04539
             Format::Container(c) => match c.container {
+                // D2-01061, D2-01065, D2-04592, D2-01300, D2-04561, D2-04569, D2-04576
                 Container::Hash(key, value) => Self::Hash(Hash {
                     key,
                     value,
                     size_index: NEW_TABLE_SIZE,
                     buckets: empty_buckets(NEW_TABLE_SIZE),
                 }),
+                // A new multi-hash asks for 100 buckets ([`MultiHash::new`]).
+                // D2-04645, D2-04646, D2-04647, D2-04643, D2-04644
                 Container::MultiHash(key, value) => Self::MultiHash(MultiHash::new(key, value)),
-                Container::MultiMap(key, value) => Self::MultiMap {
-                    key,
-                    value,
-                    entries: Vec::new(),
-                },
+                Container::MultiMap(key, value) => {
+                    Self::MultiMap(crate::multi_map::MultiMap::new(key, value))
+                }
+                // D2-04588
                 Container::HashSet(item) => Self::HashSet(HashSet {
                     item,
                     size_index: NEW_TABLE_SIZE,
                     buckets: empty_buckets(NEW_TABLE_SIZE),
                 }),
+                // D2-01047, D2-01043, D2-01293
                 Container::List(item) | Container::Array(item) => Self::Sequence {
                     item,
                     items: Vec::new(),
@@ -1276,6 +1300,13 @@ impl NativeObject {
             Format::Record(native_type::DAMAGE_TEXT_BLOB) => Self::DamageText(Box::default()),
             // D2-12338
             Format::Record(native_type::KEYFRAME) => Self::Keyframe(Box::default()),
+            // A link's requirements: whether it is an input, its type, how many links, whether
+            // required, how many are required; all zero.
+            // D2-13049
+            Format::Record(native_type::LINK_REQUIREMENTS) => Self::Packed {
+                ty,
+                bytes: vec![0; 20],
+            },
             // D2-12298
             Format::Record(native_type::SCENE_INFO) => Self::Scene(Box::default()),
             // D2-00271
@@ -1284,6 +1315,8 @@ impl NativeObject {
             Format::Record(native_type::ACT_INFO) => Self::Act(Box::default()),
             // D2-00773
             Format::Record(native_type::ACT_INFO_LIST) => Self::Acts(Vec::new()),
+            // D2-04285, D2-04286, D2-04287, D2-04288, D2-04289, D2-04325, D2-04326, D2-04327, D2-04328, D2-04329
+            // D2-04330, D2-04331, D2-04332
             Format::Record(_) | Format::None => {
                 if lib.container(ty).is_some_and(|c| c.iterator) {
                     Self::Iterator {
@@ -1297,9 +1330,19 @@ impl NativeObject {
         }
     }
 
-    /// Read one native object of type `ty` in its packed form.
-    // D2-16451
+    /// Read one native object of type `ty` in its packed form. An iterator packs its container
+    /// and how many steps from the container's first entry it stands (see
+    /// [`NativeObject::iterator_offset`]); it stands there again once its container is read into
+    /// the table ([`NativeObject::iterator_place`]).
+    // D2-16451, D2-04650, D2-00787
+    // D2-04248, D2-04249, D2-04250, D2-04394, D2-04396, D2-04404, D2-04415
     pub fn read(r: &mut In<'_>, lib: &Library, ty: u32) -> Result<Self> {
+        if lib.container(ty).is_some_and(|c| c.iterator) {
+            return Ok(Self::Iterator {
+                container: r.u32()?,
+                position: r.u32()?,
+            });
+        }
         Ok(match format_of(lib, ty) {
             Format::Container(c) => read_container(r, c.container)?,
             Format::Text => Self::Text(r.wide()?),
@@ -1340,7 +1383,8 @@ impl NativeObject {
     }
 
     /// Write this native object's packed form.
-    // D2-16450
+    // D2-16450, D2-01027, D2-01873
+    // D2-04486, D2-00757, D2-04276, D2-00756, D2-16449, D2-01063, D2-01067, D2-04590, D2-04594, D2-04371
     pub fn write(&self, w: &mut Out) -> core::result::Result<(), String> {
         match self {
             Self::Hash(h) => {
@@ -1351,9 +1395,8 @@ impl NativeObject {
                 }
             }
             Self::MultiHash(t) => write_multi(w, &t.packed())?,
-            Self::PackedMultiHash { entries, .. } | Self::MultiMap { entries, .. } => {
-                write_multi(w, entries)?;
-            }
+            Self::MultiMap(t) => write_multi(w, &t.packed())?,
+            Self::PackedMultiHash { entries, .. } => write_multi(w, entries)?,
             Self::HashSet(s) => {
                 let n: usize = s.buckets.iter().map(Vec::len).sum();
                 w.u32(table_header(n, s.size_index)?);
@@ -1399,7 +1442,15 @@ impl NativeObject {
                 }
             }
             Self::Packed { bytes, .. } => w.bytes(bytes),
-            Self::Iterator { .. } => return Err("an iterator has no packed form".into()),
+            // A packed iterator's place is a count of steps (the table writes it so).
+            // D2-04364, D2-04365, D2-04398, D2-04406, D2-04474, D2-04477
+            Self::Iterator {
+                container,
+                position,
+            } => {
+                w.u32(*container);
+                w.u32(*position);
+            }
             Self::Opaque { ty } | Self::Adaptor { ty, .. } => {
                 return Err(format!("native type {ty:#x} has no packed form"))
             }
@@ -1413,7 +1464,8 @@ impl NativeObject {
 
     /// The references this object holds, in the order the collector and the packer visit them:
     /// a table's keys first, then its values, each in packing order.
-    // D2-16446
+    // D2-16446, D2-04379, D2-00754
+    // D2-01045, D2-04372, D2-01302, D2-01303, D2-04563, D2-04564, D2-04571, D2-04579, D2-04578, D2-04580, D2-04360, D2-04361, D2-04362, D2-04363
     #[must_use]
     pub fn references(&self) -> Vec<u32> {
         let mut v = Vec::new();
@@ -1423,7 +1475,8 @@ impl NativeObject {
                 v.extend(h.entries().filter_map(|(_, x)| x.reference()));
             }
             Self::MultiHash(t) => v = t.references(),
-            Self::PackedMultiHash { entries, .. } | Self::MultiMap { entries, .. } => {
+            Self::MultiMap(t) => v = t.references(),
+            Self::PackedMultiHash { entries, .. } => {
                 v.extend(entries.iter().filter_map(|(k, _)| k.reference()));
                 v.extend(entries.iter().filter_map(|(_, x)| x.reference()));
             }
@@ -1436,7 +1489,8 @@ impl NativeObject {
     }
 
     /// Replace every reference this object holds, as a graph is read into the table.
-    // D2-16447
+    // D2-16447, D2-04485, D2-00755
+    // D2-01046, D2-04422, D2-01304, D2-01305, D2-04565, D2-04566, D2-04572, D2-04581, D2-04582
     pub fn remap(&mut self, f: &mut dyn FnMut(u32) -> u32) {
         match self {
             Self::Hash(h) => {
@@ -1446,7 +1500,8 @@ impl NativeObject {
                 }
             }
             Self::MultiHash(t) => t.remap(f),
-            Self::PackedMultiHash { entries, .. } | Self::MultiMap { entries, .. } => {
+            Self::MultiMap(t) => t.remap(f),
+            Self::PackedMultiHash { entries, .. } => {
                 for (k, x) in entries {
                     k.remap(f);
                     x.remap(f);
@@ -1456,6 +1511,49 @@ impl NativeObject {
             Self::Sequence { items, .. } => items.iter_mut().for_each(|i| i.remap(f)),
             Self::Iterator { container, .. } if *container != NULL => *container = f(*container),
             _ => {}
+        }
+    }
+
+    /// A copy as the native factory makes one. A hash table or set gets as many buckets as the
+    /// original and is filled by walking the original bucket by bucket, each chain from its head,
+    /// adding every entry at the head of its chain: each chain of the copy is the original's
+    /// reversed. A multi-hash is copied chain for chain in order, a multi-map entry for entry; a list, an array and an iterator
+    /// (its container and its place in it) are copied as they are, as is every other value (the
+    /// engine's values each copy every part).
+    // D2-04648, D2-00790, D2-16442, D2-12349, D2-12345, D2-12374, D2-12372, D2-11943
+    #[must_use]
+    pub fn copied(&self) -> Self {
+        match self {
+            // D2-04597, D2-04598, D2-04600, D2-04560, D2-04568, D2-04575, D2-04584, D2-04537
+            Self::Hash(h) => Self::Hash(Hash {
+                key: h.key,
+                value: h.value,
+                size_index: h.size_index,
+                buckets: h
+                    .buckets
+                    .iter()
+                    .map(|c| c.iter().rev().cloned().collect())
+                    .collect(),
+            }),
+            // D2-04527, D2-04599
+            Self::HashSet(s) => Self::HashSet(HashSet {
+                item: s.item,
+                size_index: s.size_index,
+                buckets: s
+                    .buckets
+                    .iter()
+                    .map(|c| c.iter().rev().cloned().collect())
+                    .collect(),
+            }),
+            // The multi-hashes and multi-maps, the list and the array, the iterators, and the rest:
+            // D2-04630, D2-04632, D2-04635, D2-04636, D2-04638, D2-04602, D2-04603, D2-04604
+            // D2-04531, D2-04458, D2-04526, D2-01295, D2-04382, D2-04421, D2-16743, D2-16735
+            // D2-04262, D2-04263, D2-04264, D2-04265, D2-04266, D2-04267, D2-04273, D2-04308
+            // D2-04309, D2-04310, D2-04311, D2-04312, D2-04313, D2-04314, D2-04315, D2-04316
+            // D2-04317
+            // A link's requirements: its five words.
+            // D2-13047
+            _ => self.clone(),
         }
     }
 }
@@ -1469,6 +1567,74 @@ fn write_multi(w: &mut Out, entries: &[(Item, Item)]) -> core::result::Result<()
         v.write(w);
     }
     Ok(())
+}
+
+/// Where an iterator stands when it is past its container's last entry.
+pub const ITERATOR_END: u32 = u32::MAX;
+
+impl NativeObject {
+    /// How many steps from this container's first entry an iterator at `position` stands, as a
+    /// packed iterator keeps it: its entry's place in walking order (a multi-hash's or
+    /// multi-map's iterator names its entry), the entry count when it is past the last (or
+    /// stands on an entry no longer there). `position` itself when this is not a container.
+    // D2-04370, D2-04418, D2-04397
+    #[must_use]
+    pub fn iterator_offset(&self, position: u32) -> u32 {
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        match self {
+            Self::Hash(_) | Self::HashSet(_) | Self::Sequence { .. } => {
+                let n = count(self.entry_count());
+                if position == ITERATOR_END || position > n {
+                    n
+                } else {
+                    position
+                }
+            }
+            Self::MultiHash(t) => count(
+                t.entries()
+                    .position(|e| e.id == position)
+                    .unwrap_or(t.len()),
+            ),
+            Self::MultiMap(t) => count(
+                t.entries()
+                    .iter()
+                    .position(|e| e.id == position)
+                    .unwrap_or(t.len()),
+            ),
+            _ => position,
+        }
+    }
+
+    /// Where an iterator read from a packed graph stands in this container once both are in the
+    /// table: `offset` steps from the first entry, past the last when there are not that many.
+    // D2-04297, D2-04298, D2-04349, D2-04368, D2-04369, D2-04403, D2-04411, D2-04414, D2-04419
+    // D2-04454
+    #[must_use]
+    pub fn iterator_place(&self, offset: u32) -> u32 {
+        let at = offset as usize;
+        match self {
+            Self::Hash(_) | Self::HashSet(_) | Self::Sequence { .. } => {
+                if at < self.entry_count() {
+                    offset
+                } else {
+                    ITERATOR_END
+                }
+            }
+            Self::MultiHash(t) => t.entries().nth(at).map_or(ITERATOR_END, |e| e.id),
+            Self::MultiMap(t) => t.entries().get(at).map_or(ITERATOR_END, |e| e.id),
+            _ => offset,
+        }
+    }
+
+    /// The entry count of a hash table, a set, a list or an array.
+    fn entry_count(&self) -> usize {
+        match self {
+            Self::Hash(h) => h.len(),
+            Self::HashSet(s) => s.buckets.iter().map(Vec::len).sum(),
+            Self::Sequence { items, .. } => items.len(),
+            _ => 0,
+        }
+    }
 }
 
 impl NativeObject {
@@ -1602,6 +1768,8 @@ impl NativeObject {
     }
 }
 
+// D2-00256, D2-01029, D2-01057, D2-01058, D2-03062, D2-04359, D2-04493, D2-04494, D2-04496, D2-04498, D2-04504
+// D2-01049, D2-04497
 fn read_container(r: &mut In<'_>, c: Container) -> Result<NativeObject> {
     let width = |e: Elem| match e {
         Elem::Word | Elem::Ref => 4,
@@ -1639,11 +1807,7 @@ fn read_container(r: &mut In<'_>, c: Container) -> Result<NativeObject> {
                     entries,
                 }
             } else {
-                NativeObject::MultiMap {
-                    key,
-                    value,
-                    entries,
-                }
+                NativeObject::MultiMap(crate::multi_map::MultiMap::unpacked(key, value, &entries))
             }
         }
         Container::HashSet(item) => {
@@ -2000,6 +2164,7 @@ pub fn step_over(r: &mut In<'_>, ty: u32) -> Result<()> {
         KEYFRAME => keyframe(r),
         ACT_INFO => crate::story::ActInfo::read(r).map(|_| ()),
         ACT_INFO_LIST => crate::story::read_acts(r).map(|_| ()),
+        // D2-11935
         RACE_SEX_INFO => {
             words(r, 3)?;
             let n = short_table(r, 2)?;
@@ -2010,6 +2175,8 @@ pub fn step_over(r: &mut In<'_>, ty: u32) -> Result<()> {
         DAMAGE_TEXT_BLOB => DamageText::read(r).map(|_| ()),
         SHORTCUT_INFO => shortcut(r),
         EXAMINATION_REQUEST => examination_request(r),
+        // D2-13091
+        LINK_REQUIREMENTS => words(r, 5),
         EXAMINATION_PROFILE => {
             examination_request(r)?;
             let n = counted(r, 2)?;

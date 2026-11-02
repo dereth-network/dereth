@@ -38,7 +38,9 @@ auberean --dats <install folder> --server 127.0.0.1:9000 --account <name>:<passw
 
 `--server` is the world's login address and port. The client keeps its settings in the folder
 `AUBEREAN_SETTINGS_DIR` names, else in your application data's `Auberean`, and its screenshots
-(Ctrl+P) there in `screenshots`. `auberean --version` says which build it is.
+(Ctrl+P) there in `screenshots`. `auberean --version` says which build it is. The original client's
+own options work too (`-h` and `-p` for the server, `-a` for the account, `-z` for the ticket,
+`--prefs` for the preferences file); `auberean -?` lists them all.
 
 | Folder | Package | What it is |
 |---|---|---|

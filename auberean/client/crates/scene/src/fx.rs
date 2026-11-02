@@ -5,7 +5,7 @@
 
 use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
-use auberean_draw::effects::{AppearanceFx, FxSpot, FxWho, ObjectEffects, Rig};
+use auberean_draw::effects::{AppearanceFx, FxSound, FxSpot, FxWho, ObjectEffects, Rig};
 use auberean_draw::systems::ParticleSystems;
 use auberean_primitives::Vec3;
 use auberean_world::look::{Look, ObjectLook};
@@ -44,6 +44,10 @@ pub(crate) struct BodyFx {
     /// The block whose frame its systems stand in, once it has stood somewhere.
     pub home: Option<(i32, i32)>,
     pub asked: Vec<(u32, Option<f32>)>,
+    /// The object it is the body of.
+    pub id: u64,
+    /// The sounds its effects played or stopped, not yet taken.
+    pub sounds: Vec<FxSound>,
 }
 
 impl BodyFx {
@@ -54,12 +58,14 @@ impl BodyFx {
             fx,
             home: None,
             asked: Vec::new(),
+            id: 0,
+            sounds: Vec::new(),
         })
     }
 
     /// The effects of object `id`'s body of look `look`.
-    pub(crate) fn of(look: &Look, _id: u64) -> Option<Self> {
-        Self::of_look(look)
+    pub(crate) fn of(look: &Look, id: u64) -> Option<Self> {
+        Self::of_look(look).map(|f| Self { id, ..f })
     }
 
     /// The body stands at `at` (on the one grid) facing `heading` with `scale` at the client's time
@@ -130,6 +136,7 @@ impl BodyFx {
         self.fx.let_go_of_spent_lights(now);
         self.fx.think(systems, home, &place, scale, light, now);
         let asked = self.fx.take_appearance();
+        self.sounds.extend(self.fx.take_sounds());
         let (total, changes) = lay_appearance(anims, dress?, &asked)?;
         tracing::debug!(?asked, changes, "the effects changed a body's look");
         if let Some(f) = figure {
@@ -139,6 +146,7 @@ impl BodyFx {
             self.fx
                 .object_end(systems, records, home, &place, scale, now);
         }
+        self.sounds.extend(self.fx.take_sounds());
         Some(total)
     }
 

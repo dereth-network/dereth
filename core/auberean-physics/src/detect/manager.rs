@@ -838,7 +838,7 @@ impl Detections {
 impl Pack for Detections {
     /// The spheres by context, the time of the last check, and the detections made at once by
     /// context.
-    // D2-06798
+    // D2-06798, D2-06849, D2-06850
     fn pack(&self, w: &mut Writer) {
         write_table_header(w, self.detectors.len());
         for (k, d) in &self.detectors {

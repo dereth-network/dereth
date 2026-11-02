@@ -145,7 +145,7 @@ impl BehaviorParams {
 }
 
 impl Field for BehaviorParams {
-    // D2-14911
+    // D2-14911, D2-04073
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let bits = r.u32()?;
         let mut p = Self {
@@ -275,7 +275,7 @@ impl MovementParams {
 }
 
 impl Field for MovementParams {
-    // D2-15513
+    // D2-15513, D2-04065
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let flags = r.u32()?;
         let (mut dv, mut fd, mut dd, mut maxs, mut mins) = (0.0, 0.0, 0.0, 0.0, 0.0);
@@ -322,6 +322,7 @@ impl Field for MovementParams {
         })
     }
 
+    // D2-04063
     fn write(&self, w: &mut Writer) {
         let flags = self.flags;
         w.u32(flags);
@@ -429,7 +430,7 @@ impl PhysicsStory {
 }
 
 impl Field for PhysicsStory {
-    // D2-15880
+    // D2-15880, D2-15876
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let bits = r.u32()?;
         let mut s = Self {
@@ -613,7 +614,7 @@ impl VisualDesc {
 }
 
 impl Field for VisualDesc {
-    // D2-13814
+    // D2-13814, D2-04041
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let bits = r.u32()?;
         let mut d = Self {
@@ -747,13 +748,21 @@ impl Field for SliderSetting {
 
 /// How an object is placed and moving when it is created: its stamps, mode, behaviors,
 /// position or parent, velocities, what it looks at, effects.
-#[derive(Clone, Debug, Default, PartialEq)]
+///
+/// A field the bits leave out keeps the value a new description has: every scale (speed, jump and
+/// the two head factors) 1, everything else 0 or empty. Its readers take each field as it stands,
+/// whatever the bits say.
+// D2-13877, D2-13878
+#[derive(Clone, Debug, PartialEq)]
 pub struct PhysicsDesc {
     pub bits: u32,
     pub instance_stamp: u16,
     pub visual_ordering_stamp: u16,
+    // D2-13868
     pub mode: u32,
+    // D2-13869
     pub behaviors: Vec<BehaviorParams>,
+    // D2-13870
     pub sliders: Vec<SliderSetting>,
     pub anim_frame: u32,
     pub position: Placement,
@@ -771,12 +780,80 @@ pub struct PhysicsDesc {
     pub target: u64,
     pub target_position: Placement,
     pub target_offset: Vec3,
+    // D2-13871
     pub fx: Vec<RunningFx>,
     /// Four more stamps, sent last.
     pub stamps: [u16; 4],
 }
 
+impl Default for PhysicsDesc {
+    // D2-13881
+    fn default() -> Self {
+        Self {
+            bits: 0,
+            instance_stamp: 0,
+            visual_ordering_stamp: 0,
+            mode: 0,
+            behaviors: Vec::new(),
+            sliders: Vec::new(),
+            anim_frame: 0,
+            position: Placement::default(),
+            parent: ParentLink::default(),
+            orientation_id: 0,
+            velocity: Vec3::ZERO,
+            external_acceleration: Vec3::ZERO,
+            velocity_scale: 1.0,
+            jump_scale: 1.0,
+            acceleration: Vec3::ZERO,
+            omega: Vec3::ZERO,
+            look_at: 0,
+            head_x: 1.0,
+            head_z: 1.0,
+            target: 0,
+            target_position: Placement::default(),
+            target_offset: Vec3::ZERO,
+            fx: Vec::new(),
+            stamps: [0; 4],
+        }
+    }
+}
+
 impl PhysicsDesc {
+    /// One of the four stamps sent last (position, teleport, forced position, and the fourth),
+    /// by its number.
+    // D2-13864
+    #[must_use]
+    pub fn stamp(&self, which: usize) -> u16 {
+        self.stamps[which]
+    }
+
+    /// Where the object is: its cell and frame (cell 0, nowhere, when the description has none).
+    // D2-05659
+    #[must_use]
+    pub fn position(&self) -> Placement {
+        self.position
+    }
+
+    /// The object it hangs from (0 for none).
+    // D2-13865
+    #[must_use]
+    pub fn parent_id(&self) -> u64 {
+        self.parent.parent
+    }
+
+    /// The instance stamp of the object it hangs from.
+    // D2-13866
+    #[must_use]
+    pub fn parent_instance_stamp(&self) -> u16 {
+        self.parent.stamp
+    }
+
+    /// Which of its parent's locations it hangs from.
+    // D2-13867
+    #[must_use]
+    pub fn location_id(&self) -> u32 {
+        self.parent.location
+    }
     pub const BEHAVIORS: u32 = 0x1;
     pub const SLIDERS: u32 = 0x2;
     pub const VELOCITY: u32 = 0x4;
@@ -803,7 +880,7 @@ impl PhysicsDesc {
 const MAX_SLIDERS: usize = 256;
 
 impl Field for PhysicsDesc {
-    // D2-13879
+    // D2-13879, D2-06348, D2-13875, D2-13876
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let bits = r.u32()?;
         let mut d = Self {
@@ -965,7 +1042,11 @@ impl Field for PhysicsDesc {
 }
 
 /// What an object is to the game: its package and entity, name, icon, owners and numbers.
-#[derive(Clone, Debug, Default, PartialEq)]
+///
+/// A new description holds nothing (its mask is 0); its quantity is 1, its package all ones (none)
+/// and every other field 0 or empty, which a field the mask leaves out keeps.
+// D2-12013
+#[derive(Clone, Debug, PartialEq)]
 pub struct WeenieDesc {
     pub mask: u32,
     pub package_id: u32,
@@ -984,7 +1065,86 @@ pub struct WeenieDesc {
     pub numbers: [i32; 13],
 }
 
+impl Default for WeenieDesc {
+    // D2-12014, D2-12068, D2-00743, D2-07981
+    fn default() -> Self {
+        let mut numbers = [0; 13];
+        numbers[0] = 1;
+        Self {
+            mask: 0,
+            package_id: u32::MAX,
+            entity_did: 0,
+            bitfield: 0,
+            name: StringInfo::default(),
+            plural_name: StringInfo::default(),
+            icon: 0,
+            objects: [0; 7],
+            scale: 0.0,
+            numbers,
+        }
+    }
+}
+
 impl WeenieDesc {
+    /// Set the package: held when it is one (not all ones), else marked not held.
+    // D2-12022
+    pub fn set_package_id(&mut self, package: u32) {
+        self.package_id = package;
+        if package == u32::MAX {
+            self.mask &= !Self::PACKAGE;
+        } else {
+            self.mask |= Self::PACKAGE;
+        }
+    }
+
+    /// Set the entity: held when it is one (not 0), else marked not held.
+    // D2-12024
+    pub fn set_entity_did(&mut self, entity: u32) {
+        self.entity_did = entity;
+        if entity == 0 {
+            self.mask &= !Self::ENTITY;
+        } else {
+            self.mask |= Self::ENTITY;
+        }
+    }
+
+    /// Take every field of `other`: its mask, then its package and entity as `other` answers
+    /// them (all ones and 0 when it does not hold them), so each is held only when it is one; its
+    /// flag word, marked held when any of its four low flags is on; and the rest as they stand.
+    // D2-12070, D2-12074
+    pub fn assign(&mut self, other: &Self) {
+        self.mask = other.mask;
+        self.set_entity_did(if other.mask & Self::ENTITY != 0 {
+            other.entity_did
+        } else {
+            0
+        });
+        self.set_package_id(if other.mask & Self::PACKAGE != 0 {
+            other.package_id
+        } else {
+            u32::MAX
+        });
+        self.bitfield = other.bitfield;
+        if other.bitfield & 0xF != 0 {
+            self.mask |= Self::BITFIELD;
+        }
+        self.name = other.name.clone();
+        self.plural_name = other.plural_name.clone();
+        self.icon = other.icon;
+        self.objects = other.objects;
+        self.scale = other.scale;
+        self.numbers = other.numbers;
+    }
+
+    /// A new description that has taken every field of this one ([`WeenieDesc::assign`]).
+    // D2-12073, D2-12072, D2-00744, D2-07982
+    #[must_use]
+    pub fn copy(&self) -> Self {
+        let mut d = Self::default();
+        d.assign(self);
+        d
+    }
+
     pub const PACKAGE: u32 = 0x1;
     pub const BITFIELD: u32 = 0x2;
     pub const NAME: u32 = 0x4;
@@ -1098,7 +1258,8 @@ impl Field for WeenieDesc {
 }
 
 /// An object's qualities: its description and its tables of numbers, flags, times, texts, ids,
-/// positions and packages, each present when its bit of the header is set.
+/// positions and packages, each present when its bit of the header is set. A new one is empty.
+// D2-07252
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Qualities {
     pub header: u32,
@@ -1169,7 +1330,7 @@ impl Qualities {
 }
 
 impl Field for Qualities {
-    // D2-07350
+    // D2-07350, D2-07353
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let header = r.u32()?;
         if header & !0xFFF != 0 {
@@ -1267,7 +1428,9 @@ impl Field for Qualities {
 }
 
 /// A character as the character list shows it: its id, name, how long it stays greyed out after
-/// a deletion, and how it looks.
+/// a deletion, and how it looks. A new one names no character (the invalid id, 0); a copy is a copy
+/// of every part.
+// D2-13093, D2-13094, D2-00079
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CharacterIdentity {
     pub id: u64,

@@ -527,7 +527,7 @@ fn change_set_atoms(
 
 /// A material modifier applied to the parts of a mesh kind, to the materials of a material kind,
 /// with the material it replaces the template with (none keeps it).
-// D2-14000
+// D2-14000, D2-03203
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct MaterialAtom {
     pub priority: f32,
@@ -550,7 +550,7 @@ impl MaterialAtom {
 }
 
 /// A mesh swapped in for the parts of a mesh kind.
-// D2-14007
+// D2-14007, D2-03205
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct MeshAtom {
     pub priority: f32,
@@ -568,7 +568,7 @@ impl MeshAtom {
 }
 
 /// An opacity for the parts.
-// D2-14004
+// D2-14004, D2-03204
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct OpacityAtom {
     pub priority: f32,
@@ -586,7 +586,7 @@ impl OpacityAtom {
 }
 
 /// A part group swapped in for the group of its key.
-// D2-14011
+// D2-14011, D2-03206
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct GroupAtom {
     pub priority: f32,
@@ -604,7 +604,7 @@ impl GroupAtom {
 }
 
 /// Effects an appearance lists: the effect ids it lists them for, and the effects.
-// D2-14027, D2-13970
+// D2-14027, D2-13970, D2-13988
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FxAtom {
     pub ids: Vec<u32>,
@@ -1276,6 +1276,7 @@ impl Look {
                 Some(g) => {
                     g.anim_map = a.group.anim_map;
                     g.setup = a.group.setup;
+                    // D2-14030
                     g.startup_fx = a.group.startup_fx.copied();
                     g.fx_overrides = a.group.fx_overrides.clone();
                     for (apr, keys) in &a.group.appearance.entries {

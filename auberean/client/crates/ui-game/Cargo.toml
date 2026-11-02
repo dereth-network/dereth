@@ -21,6 +21,8 @@ auberean-primitives.workspace = true
 auberean-text.workspace = true
 # The original's float-to-integer conversion.
 dereth-primitives.workspace = true
+# How the C library reads a number (a preference's text form).
+auberean-dat.workspace = true
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["fs", "test-support"] }

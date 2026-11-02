@@ -94,6 +94,93 @@ fn a_bodys_shadow_darkens_the_ground_and_not_the_body() {
     assert_eq!(on_body, 0, "the body is drawn after its shadow");
 }
 
+/// At the self shadowing setting a body is drawn before the darkening and makes its volumes as it
+/// is drawn: the human male standing by the crystals in the morning, drawn with its volumes and
+/// without, is darker on the ground and on its own side away from the sun, deeply, and brighter
+/// nowhere.
+///
+/// Behaviour: draw.volume.at-self-shadowing-a-body-shadows-itself
+#[test]
+fn at_self_shadowing_a_body_shadows_itself() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let at = Vec3::new(127.0, 148.0, 79.5);
+    let spot = Spot {
+        block: (0xCB, 0x94),
+        position: Vec3::new(at.x + 1.0, at.y - 3.5, at.z + 2.5),
+        heading: -10.0,
+        pitch: -30.0,
+        time_of_day: 0.4,
+        day: None,
+    };
+    let mut bare = builder.frame(&spot, 60.0);
+    // the camera on the body's shadowed side, looking back at it against the light
+    let l = bare.light.light_direction;
+    let flat = (l.x * l.x + l.y * l.y).sqrt();
+    let (dx, dy) = (l.x / flat, l.y / flat);
+    bare.camera.position = Vec3::new(at.x + 3.0 * dx, at.y + 3.0 * dy, at.z + 1.5);
+    bare.camera.heading = dereth_primitives::num::math::atan2f(-dx, -dy).to_degrees();
+    bare.camera.pitch = -15.0;
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, DataId(0x1F00_0023)).expect("the human male");
+    let poses = figure.pose(&recs);
+    let place = Mat4::from_parts(at, Quat::IDENTITY, Vec3::new(1.0, 1.0, 1.0));
+    // drawn with the other opaque objects, before the darkening
+    let batches = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let mut plain = bare.clone();
+    plain.objects.extend(batches.iter().cloned());
+    let mut shadowed = plain.clone();
+    shadowed.volumes.strength = Volumes::strength_of(shadowed.light.shadow_color, false);
+    let mut room = VolumeRoom::FRAME;
+    VolumeMaker::default().cast_as_drawn(
+        r,
+        &batches,
+        shadowed.light.light_direction,
+        1.0,
+        2,
+        &mut room,
+        &mut shadowed.volumes.volumes,
+    );
+    assert!(
+        !shadowed.volumes.volumes.is_empty(),
+        "the body casts volumes"
+    );
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let [without_body, without, with] = checked(&mut device, |d| {
+        [&bare, &plain, &shadowed].map(|f| d.render(f, 480, 360, &mut load).expect("read back"))
+    });
+    let sum = |p: &[u8]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    let (mut darker, mut brighter, mut on_body) = (0, 0, 0);
+    for ((a, b), c) in with
+        .rgba
+        .chunks(4)
+        .zip(without.rgba.chunks(4))
+        .zip(without_body.rgba.chunks(4))
+    {
+        let (a, b, c) = (sum(a), sum(b), sum(c));
+        let body = b.abs_diff(c) > 6;
+        if b > a + 6 {
+            darker += 1;
+            if body && a * 10 < b * 7 {
+                on_body += 1;
+            }
+        }
+        if a > b + 6 {
+            brighter += 1;
+        }
+    }
+    let n = shadowed.volumes.volumes.len();
+    println!("{n} volumes; {darker} pixels darker ({on_body} on the body), {brighter} brighter");
+    assert!(darker > 200, "{darker} pixels darker");
+    assert!(
+        on_body > 100,
+        "{on_body} pixels of the body in its own shadow"
+    );
+    assert_eq!(brighter, 0);
+}
+
 /// At the simple setting a body lays a dark disc on the land under it: the human male standing by
 /// the crystals in the morning, drawn with the disc and without it, is darker in a few hundred
 /// places with it and brighter in none.
@@ -138,6 +225,73 @@ fn a_simple_shadow_is_a_dark_disc_under_the_body() {
     assert!(!triangles.is_empty(), "laid on the land");
     let mut decals = DecalManager::default();
     assert!(decals.create(0xCB94_0038, &desc, 0.0, triangles, true));
+    let mut with = plain.clone();
+    with.decals = decal_batches(r, &mut decals, &mut std::collections::HashMap::new());
+    assert!(!with.decals.is_empty(), "drawn with its material");
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let [without, with] = checked(&mut device, |d| {
+        [&plain, &with].map(|f| d.render(f, 480, 360, &mut load).expect("read back"))
+    });
+    let sum = |p: &[u8]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    let (mut darker, mut brighter) = (0, 0);
+    for (a, b) in with.rgba.chunks(4).zip(without.rgba.chunks(4)) {
+        let (a, b) = (sum(a), sum(b));
+        if b > a + 6 {
+            darker += 1;
+        }
+        if a > b + 6 {
+            brighter += 1;
+        }
+    }
+    println!("{darker} pixels darker, {brighter} brighter");
+    assert!(darker > 200, "{darker} pixels darker");
+    assert_eq!(brighter, 0);
+}
+
+/// Inside, the simple setting's disc is laid on the room's floor under the body and drawn over
+/// it: the human male standing in the start hall, drawn with its disc and without, is darker in a
+/// few hundred places with it and brighter in none.
+///
+/// Behaviour: draw.decal.a-body-inside-lays-its-disc-on-the-floor
+#[test]
+fn a_body_inside_lays_its_disc_on_the_floor() {
+    use auberean_draw::decal::{decal_batches, disc, disc_material, dungeon_decal, DecalManager};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let at = Vec3::new(101.385, 247.278, -44.215);
+    let spot = Spot {
+        block: (0x02, 0x98),
+        position: Vec3::new(at.x + 0.5, at.y - 3.0, at.z + 2.5),
+        heading: -10.0,
+        pitch: -30.0,
+        time_of_day: 0.5,
+        day: None,
+    };
+    let (mut plain, _) = builder.inside_frame(&spot, 60.0, (0x02, 0x98), 0x0120);
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, DataId(0x1F00_0023)).expect("the human male");
+    let poses = figure.pose(&recs);
+    let place = Mat4::from_parts(at, Quat::IDENTITY, Vec3::new(1.0, 1.0, 1.0));
+    plain
+        .objects
+        .extend(BodyDrawer::default().batches(r, &figure, &poses, &place));
+    let b = figure.parts[0].setup.physics_bounds;
+    let strength = Volumes::strength_of(plain.light.shadow_color, true);
+    let desc = disc(
+        disc_material(r),
+        Vec3::new(b.min.x, b.min.y, b.min.z),
+        Vec3::new(b.max.x, b.max.y, b.max.z),
+        Vec3::new(1.0, 1.0, 1.0),
+        0.0,
+        strength,
+    )
+    .expect("a disc");
+    let triangles = dungeon_decal(r, (0x02, 0x98), 0x0120, at, &desc);
+    assert!(!triangles.is_empty(), "laid on the floor");
+    let mut decals = DecalManager::default();
+    assert!(decals.create(0x0298_0120, &desc, 0.0, triangles, true));
     let mut with = plain.clone();
     with.decals = decal_batches(r, &mut decals, &mut std::collections::HashMap::new());
     assert!(!with.decals.is_empty(), "drawn with its material");

@@ -1,8 +1,10 @@
 //! Putting a frame in the window: the world drawn by the world's device into a picture; the
 //! interface's picture behind it, the world, the interface's elements deeper than its viewports,
-//! the scenes of its viewports (each drawn into a clear picture of its viewport's size and laid
-//! over what is behind by its alpha), the interface's picture in front and the overlay's
-//! rectangles composed into the window's picture, which is copied to the window. The composed picture can be saved (a screenshot of exactly the window's
+//! the scenes of its viewports (each drawn into a clear picture of its viewport's size, its alpha
+//! how much of it the scene covers, and laid over what is behind by that alpha), the interface's
+//! picture in front and the overlay's rectangles composed into the window's picture, which is
+//! copied to the window. The world's and portal space's pictures are laid as they stand, their
+//! alpha the frame's own. The composed picture can be saved (a screenshot of exactly the window's
 //! drawing).
 
 use std::collections::HashMap;
@@ -66,6 +68,12 @@ fn vs_quad(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>, @location(2)
 fn fs_quad(i: VOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, i.uv) * i.color;
 }
+
+@fragment
+fn fs_laid(i: VOut) -> @location(0) vec4<f32> {
+    let c = textureSample(tex, samp, i.uv);
+    return vec4(c.rgb * i.color.rgb, i.color.a);
+}
 ";
 
 #[repr(C)]
@@ -87,6 +95,8 @@ pub struct Presenter {
     to_window: wgpu::RenderPipeline,
     world: wgpu::RenderPipeline,
     quads: wgpu::RenderPipeline,
+    /// A picture of the world's laid over by its rectangle's alpha alone (portal space).
+    laid: wgpu::RenderPipeline,
     /// The interface's own pictures laid over what is beneath by their alpha.
     canvas: wgpu::RenderPipeline,
     /// Texel for texel: the interface's pictures are the window's size.
@@ -260,6 +270,13 @@ impl Presenter {
             "fs_quad",
             COMPOSED,
             Some(wgpu::BlendState::ALPHA_BLENDING),
+            &[Some(quad_layout.clone())],
+        );
+        let laid = pipeline(
+            "vs_quad",
+            "fs_laid",
+            COMPOSED,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
             &[Some(quad_layout)],
         );
         let canvas = pipeline(
@@ -286,6 +303,7 @@ impl Presenter {
             to_window,
             world,
             quads,
+            laid,
             canvas,
             nearest,
             canvases: [None, None, None],
@@ -461,7 +479,6 @@ impl Presenter {
             (w as f32 / sw.max(1) as f32, h as f32 / sh.max(1) as f32)
         });
         // Each viewport's scene into a clear picture of the viewport's size.
-        self.renderer.backdrop = wgpu::Color::TRANSPARENT;
         let view_pictures: Vec<([f32; 4], wgpu::TextureView)> = views
             .iter()
             .filter_map(|v| {
@@ -474,7 +491,7 @@ impl Presenter {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let (vw, vh) = ((r - l).round() as u32, (b - t).round() as u32);
                 (vw > 0 && vh > 0).then(|| {
-                    let tex = self.renderer.draw(&v.frame, vw, vh, load);
+                    let tex = self.renderer.draw_laid_over(&v.frame, vw, vh, load);
                     (
                         [l, t, r, b],
                         tex.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -482,7 +499,6 @@ impl Presenter {
                 })
             })
             .collect();
-        self.renderer.backdrop = wgpu::Color::BLACK;
         let world_view = world.map(|f| {
             self.renderer
                 .draw(f, w, h, load)
@@ -661,12 +677,13 @@ impl Presenter {
                 pass.draw(0..3, 0..1);
             }
             if let Some(b) = &buffer {
-                pass.set_pipeline(&self.quads);
                 pass.set_vertex_buffer(0, b.slice(..));
                 if let Some(g) = &portal_group {
+                    pass.set_pipeline(&self.laid);
                     pass.set_bind_group(0, g, &[]);
                     pass.draw(portal_start..portal_start + 6, 0..1);
                 }
+                pass.set_pipeline(&self.quads);
                 if veil.is_some() {
                     pass.set_bind_group(0, &white_group, &[]);
                     pass.draw(veil_start..veil_start + 6, 0..1);

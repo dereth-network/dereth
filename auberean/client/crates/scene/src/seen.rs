@@ -71,6 +71,8 @@ pub struct SeenBody {
     /// The box its drawn shape fills, in its own frame turned with its heading: least and most
     /// corners. `None` when nothing of it was drawn.
     pub bounds: Option<(Vec3, Vec3)>,
+    /// Its animation has faded it out (its opacity under 0.0002): it is not to be seen.
+    pub faded: bool,
 }
 
 impl SeenBody {
@@ -122,6 +124,30 @@ pub struct Seen {
     /// The block the frame's places are in.
     pub block: (i32, i32),
     pub bodies: Vec<SeenBody>,
+    /// What the ambient sound hears about the player (`None` without a player in the world).
+    pub hearing: Option<SeenHearing>,
+}
+
+/// Where the player is heard from, as the cells about it stand after this frame's update.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SeenHearing {
+    /// The player's cell id (`0xXXYYnnnn`) and place, in the coordinates of the player's
+    /// landblock (the block the world's frame is drawn in).
+    pub cell: u32,
+    pub place: Vec3,
+    /// The cells about the player are being waited for (a placement blocking): the ambient
+    /// update skips this frame.
+    pub blocking: bool,
+    /// The interior cells in the visible set, each cell's origin (its record's position), in the
+    /// player's landblock's coordinates: outdoors, those the near window's landblocks see from
+    /// outside; inside, the player's cell and those it sees, and when it sees the outdoors those
+    /// the window's landblocks see from outside too. Only cells the land holds.
+    pub cells: Vec<Vec3>,
+    /// The landscape's points are heard: outdoors, or the player's interior cell is not in the
+    /// visible set or sees the outdoors.
+    pub outside: bool,
+    /// The near window's landblocks (x, y), those the window holds now (none while shut in).
+    pub blocks: Vec<(u8, u8)>,
 }
 
 impl Seen {
@@ -183,18 +209,11 @@ pub fn pick(
             continue;
         };
         for b in own {
-            let at = |i: u16| {
-                let v = b.vertices.get(usize::from(i))?.position;
-                Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
-            };
-            for tri in b.indices.as_chunks::<3>().0 {
-                let (Some(a), Some(bb), Some(c)) = (at(tri[0]), at(tri[1]), at(tri[2])) else {
-                    continue;
-                };
-                if let Some(d) = crate::view::ray_triangle(from, dir, a, bb, c) {
-                    if best.is_none_or(|(bd, _)| d < bd) {
-                        best = Some((d, *id));
-                    }
+            let tris = crate::view::triangles(b);
+            let length = crate::view::RAY_LENGTH;
+            if let Some(hit) = crate::view::ray_intersects_tri_list(from, dir, length, tris, true) {
+                if best.is_none_or(|(bd, _)| hit.fraction < bd) {
+                    best = Some((hit.fraction, *id));
                 }
             }
         }

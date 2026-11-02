@@ -124,6 +124,7 @@ impl EngineValue for PhysicsValue {
         }
     }
 
+    // D2-04268, D2-04269, D2-04423
     fn clone_value(&self) -> Box<dyn EngineValue> {
         Box::new(self.clone())
     }
@@ -373,22 +374,22 @@ fn objects(v: &mut PhysicsValue) -> Option<&mut ObjectEthereality> {
 }
 
 /// Argument `n` as a float through the floating-point unit.
-fn float(c: &Call<'_>, n: i64) -> Result<f32, Stop> {
+pub(crate) fn float(c: &Call<'_>, n: i64) -> Result<f32, Stop> {
     Ok(f32::from_bits(through_fpu(c.arg(n)?)))
 }
 
 /// Argument `n` as a yes-or-no: any word but 0.
-fn yes(c: &Call<'_>, n: i64) -> Result<bool, Stop> {
+pub(crate) fn yes(c: &Call<'_>, n: i64) -> Result<bool, Stop> {
     Ok(c.arg(n)? != 0)
 }
 
 /// A 64-bit object id whose low word is at `fp[-3]`.
-fn object_id(c: &Call<'_>) -> Result<u64, Stop> {
+pub(crate) fn object_id(c: &Call<'_>) -> Result<u64, Stop> {
     c.long_at(-3)
 }
 
 /// The three floats of the vector an argument names, copied as they are.
-fn vector(c: &Call<'_>, n: i64) -> Result<Vec3, Stop> {
+pub(crate) fn vector(c: &Call<'_>, n: i64) -> Result<Vec3, Stop> {
     let r = c.arg(n)?;
     if r == NULL {
         return Err(Stop::NullReference);
@@ -404,7 +405,7 @@ fn vector(c: &Call<'_>, n: i64) -> Result<Vec3, Stop> {
 }
 
 /// The place an argument names: its cell, origin and rotation, copied as they are.
-fn position(c: &Call<'_>, n: i64) -> Result<Position, Stop> {
+pub(crate) fn position(c: &Call<'_>, n: i64) -> Result<Position, Stop> {
     let r = c.arg(n)?;
     if r == NULL {
         return Err(Stop::NullReference);

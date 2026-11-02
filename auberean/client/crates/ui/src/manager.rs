@@ -42,7 +42,8 @@ pub struct Cursor {
     pub hot_y: i32,
 }
 
-/// The manager's state.
+/// The manager's state, dropped with the interface.
+// D2-11280
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Manager {
     /// Where the pointer is.
@@ -89,6 +90,10 @@ pub(crate) struct Manager {
     /// Registrations to undo at the next delivery: element messages and global messages.
     pub element_clean: VecDeque<(Listener, Token, Token)>,
     pub global_clean: VecDeque<(Listener, u32)>,
+    /// Listeners for a top-level element's own messages, by the element and message, and the
+    /// undoings waiting. Nothing is ever delivered to them.
+    pub object_listeners: HashMap<(Handle, u32), Vec<Listener>>,
+    pub object_clean: VecDeque<(Listener, Handle, u32)>,
     /// Elements by name, oldest first.
     pub by_name: HashMap<Token, Vec<Handle>>,
     /// Elements hidden and waiting to be removed at the next tick.
@@ -214,6 +219,75 @@ impl Ui {
         }
     }
 
+    /// Have a listener hear one of a top-level element's own messages (`what`, as the manager
+    /// numbers its global ones), once however often it asks; asking while an undoing of the same
+    /// waits cancels the undoing. Only a top-level element on the screen keeps listeners. The
+    /// manager never sends a top-level element's messages: the listener hears nothing by it.
+    // D2-11252
+    pub fn register_for_object_message(&mut self, l: impl Into<Listener>, root: Handle, what: u32) {
+        let who = l.into();
+        if !self.roots().contains(&root) {
+            return;
+        }
+        let list = self.mgr.object_listeners.entry((root, what)).or_default();
+        if list.contains(&who) {
+            if let Some(i) = self
+                .mgr
+                .object_clean
+                .iter()
+                .position(|x| *x == (who, root, what))
+            {
+                self.mgr.object_clean.remove(i);
+            }
+            return;
+        }
+        list.push(who);
+    }
+
+    /// Stop a listener hearing a top-level element's message, at the next delivery.
+    // D2-11253
+    pub fn unregister_for_object_message(
+        &mut self,
+        l: impl Into<Listener>,
+        root: Handle,
+        what: u32,
+    ) {
+        let who = l.into();
+        if self.mgr.object_listeners.contains_key(&(root, what)) {
+            self.mgr.object_clean.push_back((who, root, what));
+        }
+    }
+
+    /// Whether a listener is registered for a top-level element's message.
+    #[must_use]
+    pub fn is_registered_for_object_message(
+        &self,
+        l: impl Into<Listener>,
+        root: Handle,
+        what: u32,
+    ) -> bool {
+        let who = l.into();
+        self.mgr
+            .object_listeners
+            .get(&(root, what))
+            .is_some_and(|list| list.contains(&who))
+    }
+
+    /// Undo the registrations for top-level elements' messages waiting.
+    fn clean_object_list(&mut self) {
+        while let Some((who, root, what)) = self.mgr.object_clean.pop_front() {
+            let Some(list) = self.mgr.object_listeners.get_mut(&(root, what)) else {
+                continue;
+            };
+            if let Some(i) = list.iter().position(|x| *x == who) {
+                list.swap_remove(i);
+                if list.is_empty() {
+                    self.mgr.object_listeners.remove(&(root, what));
+                }
+            }
+        }
+    }
+
     /// Undo the global registrations waiting: a listener registered more than once loses one
     /// count; otherwise it leaves the list (the last listener takes its place).
     // D2-11259
@@ -260,6 +334,7 @@ impl Ui {
     // D2-11256
     pub(crate) fn clean_queues(&mut self) {
         self.clean_global_list();
+        self.clean_object_list();
         self.clean_element_list();
     }
 
@@ -269,6 +344,10 @@ impl Ui {
     pub(crate) fn delete_listener_from_queues(&mut self, who: Listener) {
         self.mgr.global_clean.retain(|(w, _)| *w != who);
         self.mgr.element_clean.retain(|(w, _, _)| *w != who);
+        self.mgr.object_clean.retain(|(w, _, _)| *w != who);
+        for l in self.mgr.object_listeners.values_mut() {
+            l.retain(|x| *x != who);
+        }
         for l in self.mgr.globals.values_mut() {
             l.retain(|x| *x != who);
         }
@@ -600,6 +679,7 @@ impl Ui {
     }
 
     /// The element with the keyboard.
+    // D2-11275
     #[must_use]
     pub fn active(&self) -> Option<Handle> {
         self.mgr.active.filter(|h| self.node(*h).is_some())
@@ -607,6 +687,7 @@ impl Ui {
 
     /// The top-level element of the element that last took the keyboard, while it has it (none
     /// once any element gives the keyboard up).
+    // D2-11276
     #[must_use]
     pub fn active_root(&self) -> Option<Handle> {
         self.mgr.active_root.filter(|h| self.node(*h).is_some())

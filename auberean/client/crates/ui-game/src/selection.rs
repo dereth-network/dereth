@@ -87,6 +87,8 @@ pub mod notice {
     pub const UPDATE_SELECTABILITY: u32 = 0x0085 << 16 | 0x0004;
     /// An item waits for its target (1), or no longer (0): the usage cursor.
     pub const SET_TARGETING_POINTER: u32 = 0x0092 << 16 | 0x0001;
+    /// The client's own: select as a selection key would (the word: the key).
+    pub const SELECT: u32 = 0x464;
 }
 
 /// How far an object stands for the selection keys: along the ground, and a fifth more for each
@@ -444,7 +446,22 @@ impl Selection {
     }
 }
 
+impl Selection {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x453, 0x1_040C, 0x1_0412, 0x42B, 0x1_040B, 0x464];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Selection {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -475,6 +492,15 @@ impl Child for Selection {
     fn listen(&mut self, _ui: &mut Ui, mail: &Mail, _out: &mut Vec<Request>) {
         // Heard before the frame's view: acted on with it.
         self.mail.push(*mail);
+    }
+
+    /// Asked to select as a selection key would: it selects at once.
+    fn notice_seen(&mut self, ui: &mut Ui, view: &View<'_>, n: &Notice, out: &mut Vec<Request>) {
+        if n.native == notice::SELECT {
+            if let Some(world) = view.world {
+                self.select(ui, world, n.word(), out);
+            }
+        }
     }
 
     // D2-01982

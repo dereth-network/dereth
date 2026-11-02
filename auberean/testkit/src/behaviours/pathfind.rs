@@ -15,7 +15,7 @@ pub static ROWS: &[Behaviour] = &[
                end is kept.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-PORTAL"),
-        station: "auberean-physics::cpu::pathfind::a_wide_body_keeps_to_the_wide_part_of_a_doorway",
+        station: "auberean-physics::cpu::paths::pathfind::a_wide_body_keeps_to_the_wide_part_of_a_doorway",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -25,7 +25,16 @@ pub static ROWS: &[Behaviour] = &[
                and every node read is passable whatever its record says.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-RECORD"),
-        station: "auberean-physics::cpu::pathfind::a_path_map_keeps_places_to_a_tenth_and_every_node_passable",
+        station: "auberean-physics::cpu::paths::pathfind::a_path_map_keeps_places_to_a_tenth_and_every_node_passable",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "pathfind.record.an-obstacle-keeps-each-box-as-its-two-corners",
+        says: "An obstacle description keeps each box of its footprint, and the box of what lies \
+               beneath it, as its two corners, six floats with nothing before them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PATHFIND-OBSTACLE-BOX"),
+        station: "auberean-physics::cpu::paths::pathfind::an_obstacle_keeps_each_box_as_its_two_corners",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -44,7 +53,7 @@ pub static ROWS: &[Behaviour] = &[
                the way it was reached.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-ROUTE"),
-        station: "auberean-physics::cpu::pathfind::a_way_walks_through_each_doorway_facing_the_next",
+        station: "auberean-physics::cpu::paths::pathfind::a_way_walks_through_each_doorway_facing_the_next",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -53,7 +62,7 @@ pub static ROWS: &[Behaviour] = &[
                without an answer.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-LIMIT"),
-        station: "auberean-physics::cpu::pathfind::a_search_ends_after_the_nodes_it_allows",
+        station: "auberean-physics::cpu::paths::pathfind::a_search_ends_after_the_nodes_it_allows",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -62,7 +71,7 @@ pub static ROWS: &[Behaviour] = &[
                allowed in, it pays double for each step into water.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-WATER"),
-        station: "auberean-physics::cpu::pathfind::a_search_keeps_a_dry_body_out_of_water",
+        station: "auberean-physics::cpu::paths::pathfind::a_search_keeps_a_dry_body_out_of_water",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -71,7 +80,7 @@ pub static ROWS: &[Behaviour] = &[
                distance, searching A* with the straight-line distance to the end as estimate.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PATHFIND-SEARCH"),
-        station: "auberean-physics::cpu::pathfind::a_search_takes_the_least_distance_way",
+        station: "auberean-physics::cpu::paths::pathfind::a_search_takes_the_least_distance_way",
         tier: Tier::Cpu,
     },
 ];

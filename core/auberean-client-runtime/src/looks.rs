@@ -447,8 +447,7 @@ impl Records<'_> {
 
 /// The data files' records, made ready.
 fn database(h: &mut ClientHost) -> Option<&Database> {
-    auberean_script::Host::database(h)?;
-    h.database.as_ref()
+    h.data_cache().map(crate::cache::DataCache::database)
 }
 
 /// The description an object's body took last: the one the server sent it (a stored description

@@ -169,18 +169,22 @@ impl PhysicsPart {
 
     /// Grows `out` to take in the box around its mesh's vertices: as they are (`transformed`
     /// false), or carried through the part's transform, the box over the eight carried corners,
-    /// for a mesh that has triangles to draw.
-    // D2-06680
+    /// for a mesh that has triangles to draw. The box around the mesh's vertices is the one its
+    /// record keeps.
+    // D2-06680, D2-05535
     pub fn grow_render_box(&self, out: &mut BBox, transformed: bool) {
         self.build_box(out, transformed, |m| m.bounds);
     }
 
     /// As [`PhysicsPart::grow_render_box`], with the box the vertices were read with.
-    // D2-06681
+    // D2-06681, D2-05536
     pub fn grow_default_render_box(&self, out: &mut BBox, transformed: bool) {
         self.build_box(out, transformed, |m| m.default_bounds);
     }
 
+    /// The box `of` gives for the part's mesh (the one its look left it, shared by every part
+    /// showing it), as it is or carried through the part's transform.
+    // D2-05595
     fn build_box(&self, out: &mut BBox, transformed: bool, of: impl Fn(&PartMesh) -> BBox) {
         let Some(mesh) = &self.mesh else {
             return;

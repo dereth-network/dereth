@@ -48,6 +48,7 @@ mod name {
 /// The panels' own notices about the story.
 pub mod notice {
     /// The scenes are done: the scenes played (the record).
+    // D2-00326
     pub const FINISH_PLAY_SEQUENCE: u32 = 0x442;
 }
 
@@ -121,7 +122,7 @@ impl Story {
     /// a space, the frames in their first state) and the steps of the playable scenes in their
     /// order; the background's fade and Escape heard; mouse look kept off. The steps' records are
     /// the install's own, so they are at hand at once.
-    // D2-02014, D2-02009, D2-02012
+    // D2-02014, D2-02009, D2-02012, D2-12285, D2-12286
     pub fn new(
         ui: &mut Ui,
         parent: FrameId,
@@ -273,13 +274,15 @@ impl Story {
         if let Some(s) = &k.subtitle {
             self.last_subtitle = Some(s.clone());
         }
-        // A subtitle that does not resolve leaves the text as it was.
-        if let Some(t) = self
+        // A subtitle that is not valid (its table, or its entry, missing) leaves the text as it
+        // was; a valid one is given to the text element, which waits for the private table its
+        // entry names when the data lacks it.
+        if let Some(s) = self
             .last_subtitle
-            .as_ref()
-            .and_then(|s| ui.assets().write(s))
+            .clone()
+            .filter(|s| ui.assets().write_valid(s).is_some())
         {
-            ui.set_text(text, &t);
+            ui.set_string_info(text, &s);
         }
         let lasts = k.duration.unwrap_or(STEP);
         if changed {

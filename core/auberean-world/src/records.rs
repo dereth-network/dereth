@@ -1,10 +1,14 @@
 //! The world's records, read on demand from the data files the host opened, decoded once and kept.
 //!
 //! The host hands over the containers ([`auberean_dat::DatFile`], which read through the host's own
-//! source); this module only decides which file holds an id and decodes it.
+//! source); this module only decides which file holds an id and decodes it. A client hands over
+//! its data cache's reading too ([`WorldRecords::read_cells_through`]): the cell file's records
+//! (landblocks, their infos, their light, the interior cells) are then read through it, so a
+//! record the server sent and the cache stored is read as the file's own, and one neither holds
+//! is missing until it comes.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use auberean_assets::entity::Entity;
 use auberean_assets::landblock::{Cell, Landblock, LandblockInfo, LightInfo};
@@ -16,7 +20,7 @@ use auberean_assets::tables::IdMap;
 use auberean_assets::visual::Scene;
 use auberean_assets::visual::{Appearance, VisualDesc};
 use auberean_assets::{decode, Context, Decode};
-use auberean_dat::DatFile;
+use auberean_dat::{DatFile, RecordType};
 use auberean_primitives::DataId;
 
 use crate::land::{LandConstants, LandError};
@@ -28,6 +32,10 @@ use crate::water::WaterSet;
 
 /// The region record every world starts from.
 pub const REGION_ID: u32 = 0x0F00_0000;
+
+/// How a client reads the cell file's records: a record's bytes by its id and its type, through
+/// its data cache.
+pub type CellReader = Arc<dyn Fn(u32, u32) -> Option<Vec<u8>> + Send + Sync>;
 
 /// A world's data files and its decoded records.
 pub struct WorldRecords {
@@ -42,6 +50,8 @@ pub struct WorldRecords {
     appearances: Mutex<HashMap<u32, Option<Arc<Appearance>>>>,
     /// Whether each mesh asked about is weighted to bones.
     weighted: Mutex<HashMap<u32, bool>>,
+    /// The client's reading of the cell file's records, when it gave one.
+    cells: RwLock<Option<CellReader>>,
 }
 
 impl std::fmt::Debug for WorldRecords {
@@ -105,6 +115,28 @@ impl WorldRecords {
             scenes: Mutex::default(),
             appearances: Mutex::default(),
             weighted: Mutex::default(),
+            cells: RwLock::new(None),
+        }
+    }
+
+    /// Read the cell file's records through `reader` from now on (`None`: from the file).
+    pub fn read_cells_through(&self, reader: Option<CellReader>) {
+        match self.cells.write() {
+            Ok(mut r) => *r = reader,
+            Err(e) => *e.into_inner() = reader,
+        }
+    }
+
+    /// The bytes of cell-file record `id` of type `kind`: through the client's reader when it gave
+    /// one, else from the file.
+    fn cell_bytes(&self, id: u32, kind: RecordType) -> Option<Vec<u8>> {
+        let reader = match self.cells.read() {
+            Ok(r) => r.clone(),
+            Err(e) => e.into_inner().clone(),
+        };
+        match reader {
+            Some(r) => r(id, kind.0),
+            None => self.cell.read(id).ok(),
         }
     }
 
@@ -202,28 +234,29 @@ impl WorldRecords {
     #[must_use]
     pub fn landblock(&self, x: i32, y: i32) -> Option<Landblock> {
         let id = block_id(x, y)? | 0xFFFF;
-        decode::<Landblock>(id, &self.cell.read(id).ok()?, &self.ctx).ok()
+        decode::<Landblock>(id, &self.cell_bytes(id, RecordType::LANDBLOCK)?, &self.ctx).ok()
     }
 
     /// The landblock info (placed objects) of block `(x, y)`, if it has one.
     #[must_use]
     pub fn landblock_info(&self, x: i32, y: i32) -> Option<LandblockInfo> {
         let id = block_id(x, y)? | 0xFFFE;
-        decode::<LandblockInfo>(id, &self.cell.read(id).ok()?, &self.ctx).ok()
+        let bytes = self.cell_bytes(id, RecordType::LANDBLOCK_INFO)?;
+        decode::<LandblockInfo>(id, &bytes, &self.ctx).ok()
     }
 
     /// The light record of block `(x, y)`, if it has one.
     #[must_use]
     pub fn light_info(&self, x: i32, y: i32) -> Option<LightInfo> {
         let id = block_id(x, y)? | 0xFFFC;
-        decode::<LightInfo>(id, &self.cell.read(id).ok()?, &self.ctx).ok()
+        decode::<LightInfo>(id, &self.cell_bytes(id, RecordType::LIGHT_INFO)?, &self.ctx).ok()
     }
 
     /// Interior cell `low` (`0x0100` and up) of block `(x, y)`.
     #[must_use]
     pub fn cell(&self, x: i32, y: i32, low: u16) -> Option<Cell> {
         let id = block_id(x, y)? | u32::from(low);
-        decode::<Cell>(id, &self.cell.read(id).ok()?, &self.ctx).ok()
+        decode::<Cell>(id, &self.cell_bytes(id, RecordType::CELL)?, &self.ctx).ok()
     }
 
     /// A sky day.

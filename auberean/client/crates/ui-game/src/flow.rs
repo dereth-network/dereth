@@ -158,17 +158,22 @@ impl<P> GameFlow<P> {
     }
 
     /// The server refused a character or ended its session for `reason`: the screen the reason
-    /// leads to, asked for with the server's own words when it gave some, else the reason's
-    /// message. A reason the game does not know changes nothing.
+    /// leads to, asked for with the server's own words when it gave some that are valid (a boot
+    /// gives its line), else the reason's message. A reason the game does not know changes
+    /// nothing.
     // D2-01708, D2-01711
-    pub fn character_error(&mut self, ui: &Ui, reason: u32, given: Option<&str>) {
+    pub fn character_error(
+        &mut self,
+        ui: &Ui,
+        reason: u32,
+        given: Option<&auberean_text::StringInfo>,
+    ) {
         let Some((mode, name)) = character_error(reason) else {
             return;
         };
-        let text = match given {
-            Some(t) if !t.is_empty() => t.to_owned(),
-            _ => message(ui, MESSAGES, name),
-        };
+        let text = given
+            .and_then(|g| ui.assets().write_valid(g))
+            .unwrap_or_else(|| message(ui, MESSAGES, name));
         self.flow.queue_mode(mode, &text);
     }
 
@@ -182,6 +187,13 @@ impl<P> GameFlow<P> {
         }
         let text = message(ui, MESSAGES, "ID_NetErr_ConnectionLost");
         self.flow.queue_mode(d, &text);
+    }
+
+    /// The client stopped, saying `line` (the line it shows when it cannot go on): the
+    /// disconnected screen, saying it, whatever screen was up.
+    // D2-09653
+    pub fn stopped(&mut self, line: &str) {
+        self.flow.queue_mode(mode::DISCONNECTED, line);
     }
 
     /// The chat service's connection was lost: the screen up is told why (it was never up while

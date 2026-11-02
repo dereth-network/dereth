@@ -15,7 +15,7 @@ pub static ROWS: &[Behaviour] = &[
                is off the landscape and on no terrain.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CONTACT-INFO"),
-        station: "auberean-physics::cpu::solid::a_body_on_the_ground_is_on_the_landscape",
+        station: "auberean-physics::cpu::contact::solid::a_body_on_the_ground_is_on_the_landscape",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -25,7 +25,7 @@ pub static ROWS: &[Behaviour] = &[
                changed; a value of another kind is ignored.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PROPERTY"),
-        station: "auberean-physics::cpu::collision::a_held_property_is_unchanged_or_changed",
+        station: "auberean-physics::cpu::contact::collision::a_held_property_is_unchanged_or_changed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -36,7 +36,7 @@ pub static ROWS: &[Behaviour] = &[
                report.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-NORMAL"),
-        station: "auberean-physics::cpu::collision::a_hit_reports_its_normal_and_impact_speed",
+        station: "auberean-physics::cpu::contact::collision::a_hit_reports_its_normal_and_impact_speed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -46,7 +46,7 @@ pub static ROWS: &[Behaviour] = &[
                object is told the body no longer touches it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-CONTACT"),
-        station: "auberean-physics::cpu::collision::a_touch_ends_a_second_after_it_was_last_renewed",
+        station: "auberean-physics::cpu::contact::collision::a_touch_ends_a_second_after_it_was_last_renewed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -57,7 +57,7 @@ pub static ROWS: &[Behaviour] = &[
                stopped or stuck for two steps or more loses all of it too.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-REBOUND"),
-        station: "auberean-physics::cpu::solid::an_inelastic_body_stops_dead_where_another_rebounds",
+        station: "auberean-physics::cpu::contact::solid::an_inelastic_body_stops_dead_where_another_rebounds",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -81,7 +81,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A body's detections pack their spheres by context, the time of the last check and \n               the detections made at once by context.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-MANAGER-PACK"),
-        station: "auberean-physics::cpu::detections::a_bodys_detections_survive_packing",
+        station: "auberean-physics::cpu::contact::detections::a_bodys_detections_survive_packing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -92,7 +92,7 @@ pub static ROWS: &[Behaviour] = &[
                ends one when asked.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DETECT-SPHERES"),
-        station: "auberean-physics::cpu::detections::a_bodys_sphere_reaches_its_own_radius_further",
+        station: "auberean-physics::cpu::contact::detections::a_bodys_sphere_reaches_its_own_radius_further",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -100,7 +100,16 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection cone reaches a sphere inside its angle and radius, or one at about its \n               radius whose own size reaches over its edge there; not one off its angle wholly \n               inside its radius, however wide; a direction is brought to unit length only when \n               longer than one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CONE"),
-        station: "auberean-physics::cpu::detect::a_cone_reaches_what_lies_inside_its_angle",
+        station: "auberean-physics::cpu::contact::detect::a_cone_reaches_what_lies_inside_its_angle",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.detect.a-cylinder-volume-streams-its-radius-before-its-height",
+        says: "A detection volume that is an upright cylinder is streamed as its base, then its \
+               radius, then its height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-VOLUME-CYLINDER"),
+        station: "auberean-physics::cpu::contact::detect::a_cylinder_volume_streams_its_radius_before_its_height",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -108,7 +117,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection made at once stands on the body (its base then kept as a place) or at \n               its target as far as a line of sight gets; a line that hits something blocks it \n               unless it is made where the line stops, and a missing or too distant target leaves \n               it not placed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-ORIGIN"),
-        station: "auberean-physics::cpu::detections::a_detection_made_at_once_finds_its_origin",
+        station: "auberean-physics::cpu::contact::detections::a_detection_made_at_once_finds_its_origin",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -119,7 +128,7 @@ pub static ROWS: &[Behaviour] = &[
                distance from the detection's origin; an object already noted is left as it was.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DETECT-TARGETS"),
-        station: "auberean-physics::cpu::solid::a_detection_notes_an_object_it_is_after_once",
+        station: "auberean-physics::cpu::contact::solid::a_detection_notes_an_object_it_is_after_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -127,7 +136,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "When a detection's line of sight finds an object hidden (blocked coverage at least 0.9998) the object's sighting is dropped; otherwise the sighting keeps the greatest coverage found; objects without a sighting are pruned from the landblock's rays.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SIGHT"),
-        station: "auberean-physics::cpu::detect::a_hidden_object_loses_its_sighting",
+        station: "auberean-physics::cpu::contact::detect::a_hidden_object_loses_its_sighting",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -138,7 +147,16 @@ pub static ROWS: &[Behaviour] = &[
                place is where it stops, said to be clear only when nothing stopped it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OFFSET-POSITION"),
-        station: "auberean-physics::cpu::detections::a_place_on_a_body_is_raised_or_traced_through_walls",
+        station: "auberean-physics::cpu::contact::detections::a_place_on_a_body_is_raised_or_traced_through_walls",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.detect.a-point-volume-cannot-be-streamed",
+        says: "A detection volume that is a point has no binary form: packing one writes its \
+               place and kind only, and reading one fails after them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-VOLUME-POINT"),
+        station: "auberean-physics::cpu::contact::detect::a_point_volume_cannot_be_streamed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -146,7 +164,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Copying a detection volume that is a point gives the zero point and fails; other volumes copy whole.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-VOLUME-COPY"),
-        station: "auberean-physics::cpu::detect::a_point_volume_copies_as_the_zero_point",
+        station: "auberean-physics::cpu::contact::detect::a_point_volume_copies_as_the_zero_point",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -154,7 +172,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection shell cut to headings and elevations reaches a sphere in its cut between \n               its radii, or one the ray along the nearest heading and height the cut allows \n               meets; a heading range whose least bound is the greater wraps through north.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SHELL"),
-        station: "auberean-physics::cpu::detect::a_shell_reaches_what_lies_in_its_cut",
+        station: "auberean-physics::cpu::contact::detect::a_shell_reaches_what_lies_in_its_cut",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -162,7 +180,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection sphere around an object notices it entering once nearer than the two \n               radii together (exactly that far is outside) and leaving once not, or once gone from \n               the world; each change is reported once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SPHERE"),
-        station: "auberean-physics::cpu::detections::a_sphere_notices_its_object_enter_and_leave",
+        station: "auberean-physics::cpu::contact::detections::a_sphere_notices_its_object_enter_and_leave",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -170,7 +188,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection volume tests a sphere, a cylinder or a box placed elsewhere after carrying \n               it into its own frame, a sphere scaled first only when its scale is even; its box is \n               the box around its shape where it stands; a point or a ray reaches nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-WITHIN"),
-        station: "auberean-physics::cpu::detect::a_volume_takes_in_shapes_from_elsewhere",
+        station: "auberean-physics::cpu::contact::detect::a_volume_takes_in_shapes_from_elsewhere",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -178,7 +196,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "An attack-cone detection puts its radii in order (each at least 0), brings each heading into 0 to 360 degrees, and puts its elevations in order, each held to -90 to 90 degrees; the heights of its cut are the sines of the elevations taken as radians.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-ATTACK-CONE"),
-        station: "auberean-physics::cpu::detect::an_attack_cone_orders_and_clamps_its_bounds",
+        station: "auberean-physics::cpu::contact::detect::an_attack_cone_orders_and_clamps_its_bounds",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -189,7 +207,7 @@ pub static ROWS: &[Behaviour] = &[
                not list it as solid, or lists it as passed through.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-DETECTED"),
-        station: "auberean-physics::cpu::solid::an_object_answers_for_its_parts_and_its_type",
+        station: "auberean-physics::cpu::contact::solid::an_object_answers_for_its_parts_and_its_type",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -197,7 +215,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection cylinder reaches its height above its center and the given depth below it; a detection box spans the two corners it is given, in either order.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-VOLUME"),
-        station: "auberean-physics::cpu::detect::cylinders_and_boxes_span_what_they_are_given",
+        station: "auberean-physics::cpu::contact::detect::cylinders_and_boxes_span_what_they_are_given",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -205,7 +223,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A detection's settings with any shape of volume, a detection sphere, a sighting and an instant detection with its landblocks and rays keep every field sent through their binary form; the line-of-sight resolution, an instant detection's sightings and its line of sight are not sent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-PACK"),
-        station: "auberean-physics::cpu::detect::detection_state_survives_packing",
+        station: "auberean-physics::cpu::contact::detect::detection_state_survives_packing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -213,7 +231,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "An upright cylinder reaches a sphere within their two radii of the nearest point of \n               its axis, and another cylinder whose height overlaps within their radii across the \n               ground; a ray meets a sphere or a cylinder at the fraction of its length where it \n               first touches, at once from inside, never heading away.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SHAPES"),
-        station: "auberean-physics::cpu::detect::spheres_and_cylinders_meet_and_stop_rays",
+        station: "auberean-physics::cpu::contact::detect::spheres_and_cylinders_meet_and_stop_rays",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -221,7 +239,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A body's detection spheres are checked a second after the last check or when forced; \n               a sphere marked for destruction stops counting at once and goes at the next check.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CHECK"),
-        station: "auberean-physics::cpu::detections::spheres_are_checked_each_second_and_destroyed_at_a_check",
+        station: "auberean-physics::cpu::contact::detections::spheres_are_checked_each_second_and_destroyed_at_a_check",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -229,7 +247,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "The global detection takes the cells' changes: an object entering becomes known, a \n               leaving cancelled by an entry before it is reported leaves it as it was, an entry \n               undone before it is reported is forgotten, and each report forgets those that left.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-GLOBAL"),
-        station: "auberean-physics::cpu::detections::the_global_detection_takes_the_cells_changes",
+        station: "auberean-physics::cpu::contact::detections::the_global_detection_takes_the_cells_changes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -237,7 +255,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "The global detection watches the cells within its radius of the body, works them out \n               again once the body has moved 5 m (a cell still reached stays watched once), and \n               stops every watch when destroyed; a body keeps one global detection.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CELLS"),
-        station: "auberean-physics::cpu::detections::the_global_detection_watches_the_cells_around_the_body",
+        station: "auberean-physics::cpu::contact::detections::the_global_detection_watches_the_cells_around_the_body",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -248,7 +266,7 @@ pub static ROWS: &[Behaviour] = &[
                on bits 0 to 31.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-ETHEREAL-MASK"),
-        station: "auberean-physics::cpu::collision::a_mask_takes_one_new_type_at_a_time",
+        station: "auberean-physics::cpu::contact::collision::a_mask_takes_one_new_type_at_a_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -258,7 +276,7 @@ pub static ROWS: &[Behaviour] = &[
                only one of the start and final cells set it fails.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-SIGHT-LINE"),
-        station: "auberean-physics::cpu::collision::a_sight_line_ends_where_its_ray_stopped",
+        station: "auberean-physics::cpu::contact::collision::a_sight_line_ends_where_its_ray_stopped",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -267,7 +285,7 @@ pub static ROWS: &[Behaviour] = &[
                blocking it either way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-SIGHT-WATER"),
-        station: "auberean-physics::cpu::collision::water_always_blocks_a_sight_line",
+        station: "auberean-physics::cpu::contact::collision::water_always_blocks_a_sight_line",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -286,7 +304,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A body running at an object put in the world stops against it, its sphere outside the \n               object's cylinder; once the object is taken out of the world a body making the \n               same run goes on past where it stood.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-STOPS"),
-        station: "auberean-physics::cpu::objects::a_body_stops_at_an_object_put_in_the_world",
+        station: "auberean-physics::cpu::contact::objects::a_body_stops_at_an_object_put_in_the_world",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -302,7 +320,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A polygon clipped to a plane's positive side keeps its corners on that side and in \n               the plane and gains the crossing of each edge that leaves one side for the other; \n               one wholly behind is negative, one lying in the plane is in it only when corners \n               in the plane are kept.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CLIP"),
-        station: "auberean-physics::cpu::objects::a_polygon_clips_to_a_plane",
+        station: "auberean-physics::cpu::contact::objects::a_polygon_clips_to_a_plane",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -310,7 +328,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "An object outside stands in the collision list of every land cell the box around \n               its shape reaches, across a landblock's edge too; inside, of its own cell and of \n               each cell through a doorway whose polygon the box reaches.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-FIND-CELLS"),
-        station: "auberean-physics::cpu::objects::an_object_outside_stands_in_every_land_cell_under_it",
+        station: "auberean-physics::cpu::contact::objects::an_object_outside_stands_in_every_land_cell_under_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -329,7 +347,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Bodies, the objects put in the world and the world's scenery share one object table \n               and one collision list per cell: a passable object stops nothing, a solid body \n               stops another, and each body's entry moves with it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-TABLE"),
-        station: "auberean-physics::cpu::objects::bodies_in_one_world_meet_each_other",
+        station: "auberean-physics::cpu::contact::objects::bodies_in_one_world_meet_each_other",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -337,7 +355,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A box carried into a turned frame is the box over its eight corners there; a box \n               grows to take in a point; a sphere or an upright cylinder reaches a box when the \n               box's nearest point is within its radius (for a cylinder, with their heights \n               overlapping).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-BBOX"),
-        station: "auberean-physics::cpu::objects::boxes_turn_grow_and_meet_spheres_and_cylinders",
+        station: "auberean-physics::cpu::contact::objects::boxes_turn_grow_and_meet_spheres_and_cylinders",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -371,7 +389,7 @@ pub static ROWS: &[Behaviour] = &[
                a push's local flag and the check time are not sent.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PACK"),
-        station: "auberean-physics::cpu::collision::collision_state_survives_packing",
+        station: "auberean-physics::cpu::contact::collision::collision_state_survives_packing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -381,7 +399,7 @@ pub static ROWS: &[Behaviour] = &[
                it again, and an object whose only push is a water velocity gives none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PUSH"),
-        station: "auberean-physics::cpu::collision::pushes_sum_and_walking_on_air_doubles",
+        station: "auberean-physics::cpu::contact::collision::pushes_sum_and_walking_on_air_doubles",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -389,7 +407,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A body's move hands each object it hit to the body's collisions and, when the object moves and keeps collisions, the body to the object's: both keep the touch, and the body reports it beginning.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-HANDLE-COLLISIONS"),
-        station: "auberean-physics::cpu::solid::a_body_and_what_it_runs_into_both_keep_the_touch",
+        station: "auberean-physics::cpu::contact::solid::a_body_and_what_it_runs_into_both_keep_the_touch",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -399,7 +417,7 @@ pub static ROWS: &[Behaviour] = &[
                not what its last move let it through), each marked set.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-COLLISION-STATE"),
-        station: "auberean-physics::cpu::solid::a_bodys_collision_state_is_its_type_and_what_it_passes_through",
+        station: "auberean-physics::cpu::contact::solid::a_bodys_collision_state_is_its_type_and_what_it_passes_through",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -407,7 +425,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Objects take the physics type and the movement mask their descriptions give; a player passes through another player (whose type carries a bit of the player's mask) and stops against a creature (whose type carries none).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SOLID-MASKS"),
-        station: "auberean-physics::cpu::solid::a_creature_blocks_a_player_and_another_player_does_not",
+        station: "auberean-physics::cpu::contact::solid::a_creature_blocks_a_player_and_another_player_does_not",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -415,7 +433,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "An object made from an entity record takes that entity's properties as a whole description; an entity made from another entity is that one first, then takes its own, so the outer entity's own properties stand (an outer entity with none leaves none) while the ethereal bits the inner one set stay set. A record that is not an entity applies nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ENTITY-PROPERTIES"),
-        station: "auberean-physics::cpu::solid::an_object_made_from_an_entity_takes_its_properties",
+        station: "auberean-physics::cpu::contact::solid::an_object_made_from_an_entity_takes_its_properties",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -428,7 +446,7 @@ pub static ROWS: &[Behaviour] = &[
                the object had.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-PROPERTIES"),
-        station: "auberean-physics::cpu::solid::an_objects_description_sets_what_touching_it_reports",
+        station: "auberean-physics::cpu::contact::solid::an_objects_description_sets_what_touching_it_reports",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -436,7 +454,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Two objects pass through each other only when one is not solid to the other's collision settings; bodies whose descriptions name no physics type and no mask stop each other.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SOLID-RULE"),
-        station: "auberean-physics::cpu::solid::bodies_with_no_masks_are_solid_to_each_other",
+        station: "auberean-physics::cpu::contact::solid::bodies_with_no_masks_are_solid_to_each_other",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -446,7 +464,7 @@ pub static ROWS: &[Behaviour] = &[
                that does not pass through creatures, is a touch both keep as passed through.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-INTERPERMEABLE-BOTH"),
-        station: "auberean-physics::cpu::solid::both_sides_of_a_touch_agree_it_is_passed_through",
+        station: "auberean-physics::cpu::contact::solid::both_sides_of_a_touch_agree_it_is_passed_through",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -454,7 +472,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Entities placed outside are of the outdoor scenery's physics type, which a player's mask lacks: they stop a player, and a mover whose mask has that type passes; an item, of a type in every player's mask, does not stop a player.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATIC-ETHEREAL"),
-        station: "auberean-physics::cpu::solid::outdoor_scenery_blocks_a_player_and_an_item_does_not",
+        station: "auberean-physics::cpu::contact::solid::outdoor_scenery_blocks_a_player_and_an_item_does_not",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -465,7 +483,7 @@ pub static ROWS: &[Behaviour] = &[
                is never among what a body touches, and the body keeps its properties instead.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATIC-PROPERTIES"),
-        station: "auberean-physics::cpu::solid::scenery_takes_its_entitys_properties",
+        station: "auberean-physics::cpu::contact::solid::scenery_takes_its_entitys_properties",
         tier: Tier::Cpu,
     },
 ];

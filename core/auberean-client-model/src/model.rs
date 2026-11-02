@@ -13,7 +13,9 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use auberean_protocol::login::{CharacterCreated, CharacterList};
+use auberean_protocol::login::{
+    CharacterCreated, CharacterList, CharacterRefused, DataRecord, DataRefused, DownloadBegins,
+};
 use auberean_protocol::physics::{CreateObject, ObjectPosition};
 use auberean_protocol::script::ScriptArgs;
 use auberean_protocol::table::Table;
@@ -211,13 +213,18 @@ pub struct Object {
 }
 
 impl Object {
+    /// The engine object a creation makes: its descriptions taken, its own qualities empty (the
+    /// record they derive from is named by its descriptions), nothing listening to it yet.
+    // D2-07980, D2-00742, D2-00410, D2-08040, D2-08290, D2-08120, D2-08023, D2-08034, D2-08103
     fn from_create(c: &CreateObject) -> Self {
         let mut o = Self {
             id: c.id,
             instance_stamp: c.physics.instance_stamp,
             visual: c.visual.clone(),
+            // The creation's physics description, copied whole.
+            // D2-05721
             physics: c.physics.clone(),
-            weenie: c.weenie.clone(),
+            weenie: c.weenie.copy(),
             place: None,
             parent: None,
             parent_placement: 0,
@@ -234,24 +241,30 @@ impl Object {
     }
 
     /// The descriptions taken: its place and stamps (as the physics object takes its update
-    /// times from the description), what it hangs from, what holds it.
+    /// times from the description), what it hangs from, what holds it. An object that hangs from
+    /// nothing is placed where its description puts it, when that is in a cell (a description
+    /// without a place puts it in none, and it stays where it was); one that hangs from another is
+    /// in no place of its own.
     fn take_descriptions(&mut self) {
         let p = &self.physics;
-        if p.bits & PhysicsDesc::POSITION != 0 {
-            self.place = Some(Place {
-                cell: p.position.cell,
-                origin: p.position.frame.origin,
-                heading_motion: 0,
-                position_stamp: p.stamps[0],
-                teleport_stamp: p.stamps[1],
-                force_position_stamp: p.stamps[2],
-                time: 0.0,
-                flags: 0,
-                velocity: auberean_primitives::Vec3::ZERO,
-            });
-        }
-        if p.bits & PhysicsDesc::PARENT != 0 && p.parent.parent != 0 {
-            self.parent = Some((p.parent.parent, p.parent.location));
+        let parent = p.parent_id();
+        if parent == 0 {
+            let at = p.position();
+            if at.cell != 0 {
+                self.place = Some(Place {
+                    cell: at.cell,
+                    origin: at.frame.origin,
+                    heading_motion: 0,
+                    position_stamp: p.stamp(0),
+                    teleport_stamp: p.stamp(1),
+                    force_position_stamp: p.stamp(2),
+                    time: 0.0,
+                    flags: 0,
+                    velocity: auberean_primitives::Vec3::ZERO,
+                });
+            }
+        } else {
+            self.parent = Some((parent, p.location_id()));
             self.place = None;
         }
         self.take_holders();
@@ -276,6 +289,13 @@ impl Object {
         }
         self.weenie = w;
         self.take_holders();
+    }
+
+    /// Whether the object hangs from another.
+    // D2-05625
+    #[must_use]
+    pub fn has_parent(&self) -> bool {
+        self.parent.is_some()
     }
 
     /// What holds the object and what wields it, as its description says: held, it is out of
@@ -306,6 +326,16 @@ pub enum Effect {
     },
     /// The server asked which data the client has.
     DataQuery,
+    /// A data download begins.
+    DownloadBegins(DownloadBegins),
+    /// A data record came.
+    DataRecord(DataRecord),
+    /// The server could not send a data record.
+    DataRefused(DataRefused),
+    /// The client waits in line for its download (the value: its place).
+    DownloadWaiting(u32),
+    /// The server ended the data download.
+    DownloadEnds,
     /// The character list arrived (or changed).
     Characters,
     /// The player's creation: the client is in the world.
@@ -318,6 +348,8 @@ pub enum Effect {
     LeftWorld,
     /// The server refused the character's entry (or ended the login) for a reason.
     Refused(u32),
+    /// A character of the account was deleted (the list it is gone from comes after).
+    CharacterDeleted(u64),
 }
 
 /// Counts for logs and tests.
@@ -343,9 +375,11 @@ pub struct Model {
     /// The server's last answer to making a character: its response (1 made, 3 name in use, 4
     /// name refused, 8 no free slot), the character, and how many answers came so far.
     pub creation: Option<(u32, u64, u32)>,
-    /// The server's last refusal of an entry (or of the login): its reason (11 the character is
-    /// still in the world), and how many refusals came so far.
+    /// The server's last refusal of an entry (or end of the login): its reason (11 the character
+    /// is still in the world, 20 booted), and how many refusals came so far.
     pub refused: Option<(u32, u32)>,
+    /// The server's own words with that refusal: a boot's; none for an entry refused.
+    pub refused_with: Option<StringInfo>,
     objects: HashMap<u64, Object>,
     /// The temporary ids the client has given out and not taken back.
     temporary_ids: BTreeSet<u64>,
@@ -363,6 +397,14 @@ impl Model {
     fn answer_creation(&mut self, c: &CharacterCreated) {
         let n = self.creation.map_or(0, |(_, _, n)| n) + 1;
         self.creation = Some((c.response, c.identity.id, n));
+    }
+
+    /// The player's id, once its creation has taken effect; 0 (no id) before, and after the
+    /// character left the world.
+    // D2-05642
+    #[must_use]
+    pub fn player_id(&self) -> u64 {
+        self.player.unwrap_or(0)
     }
 
     /// An object, by id.
@@ -464,7 +506,10 @@ impl Model {
         self.temporary_ids.remove(&id);
     }
 
-    /// The server had the client forget an object, and its time came.
+    /// The server had the client forget an object, and its time came: its engine object goes,
+    /// with its qualities.
+    // D2-08109, D2-08107, D2-08035, D2-08029, D2-08027, D2-08121, D2-08291, D2-08217, D2-08075
+    // D2-08041, D2-07268, D2-07262, D2-07256
     pub fn forget(&mut self, id: u64) {
         if self.objects.remove(&id).is_some() {
             self.stats.forgotten += 1;
@@ -483,22 +528,24 @@ impl Model {
         table.insert(key, value.clone());
     }
 
-    /// A message takes effect. What the runtime does because of it comes back in order.
+    /// A message takes effect, by its type. What the runtime does because of it comes back in
+    /// order; a type the model does not keep changes nothing.
+    // D2-03937, D2-00148
     pub fn apply(&mut self, item: &Item) -> Vec<Effect> {
         use ServerMessage as S;
         let mut fx = Vec::new();
         match &item.message {
             // The world's name, kept for the panels.
-            // D2-03961
+            // D2-03961, D2-03996
             S::WorldName(t) => self.world_name = Some(t.0.clone()),
-            // The account's characters, kept for the character list.
-            // D2-03953
+            // The account's characters, kept for the character list, which is told.
+            // D2-03953, D2-03993
             S::CharacterList(l) => {
                 self.characters = Some(l.clone());
                 fx.push(Effect::Characters);
             }
             // A character made: it joins the end of the list, unless the list has it already.
-            // D2-01899, D2-13110
+            // D2-01899, D2-13110, D2-03990
             S::CharacterCreated(c) if c.response == CharacterCreated::OK => {
                 self.answer_creation(c);
                 if let Some(list) = self.characters.as_mut() {
@@ -508,24 +555,44 @@ impl Model {
                 }
                 fx.push(Effect::Characters);
             }
+            // D2-03990
             S::CharacterCreated(c) => {
                 self.answer_creation(c);
                 fx.push(Effect::Characters);
             }
+            // A character deleted: told on, and the list is left as it is (the server sends the
+            // account's list again after it).
+            // D2-03954, D2-03991
+            S::CharacterDeleted(d) => fx.push(Effect::CharacterDeleted(d.character)),
             S::DataQuery(_) => fx.push(Effect::DataQuery),
+            S::DownloadBegins(b) => fx.push(Effect::DownloadBegins(b.clone())),
+            S::DataRecord(r) => fx.push(Effect::DataRecord(r.clone())),
+            S::DataRefused(r) => fx.push(Effect::DataRefused(*r)),
+            S::DataPatchTimePending(v) => fx.push(Effect::DownloadWaiting(v.0)),
+            S::DownloadEnds(_) => fx.push(Effect::DownloadEnds),
             // An entry refused: kept for the screens, which show why.
             // D2-03984, D2-03955, D2-03992
             S::CharacterRefused(r) => {
                 let n = self.refused.map_or(0, |(_, n)| n) + 1;
                 self.refused = Some((r.reason, n));
+                self.refused_with = None;
                 fx.push(Effect::Refused(r.reason));
             }
-            // D2-03952
+            // The login ended by a boot: kept as a refusal for the character booted, with the
+            // server's words, for the screens to show.
+            // D2-03974, D2-03951, D2-03992
+            S::AccountBooted(t) => {
+                let n = self.refused.map_or(0, |(_, n)| n) + 1;
+                self.refused = Some((CharacterRefused::BOOTED, n));
+                self.refused_with = Some(t.0.clone());
+                fx.push(Effect::Refused(CharacterRefused::BOOTED));
+            }
+            // D2-03952, D2-03989
             S::CharExitGame(_) => {
                 self.leave_world();
                 fx.push(Effect::LeftWorld);
             }
-            // D2-05643
+            // D2-05643, D2-04058, D2-04059
             S::PlayerObject(p) => {
                 self.player = Some(p.id);
                 fx.push(Effect::PlayerCreated(p.id));
@@ -550,7 +617,7 @@ impl Model {
                     Some(o) if o.instance_stamp == c.physics.instance_stamp => {
                         o.visual = c.visual.clone();
                         o.physics = c.physics.clone();
-                        o.weenie = c.weenie.clone();
+                        o.weenie.assign(&c.weenie);
                         o.take_descriptions();
                         o.creations += 1;
                         self.stats.updated += 1;
@@ -570,6 +637,7 @@ impl Model {
                     }
                 }
                 if player {
+                    // D2-04051
                     fx.push(Effect::PlayerObject);
                 }
             }

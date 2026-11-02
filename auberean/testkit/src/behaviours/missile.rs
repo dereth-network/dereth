@@ -16,7 +16,7 @@ pub static ROWS: &[Behaviour] = &[
                with nothing struck.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-DETONATE"),
-        station: "auberean-physics::cpu::missile::a_collision_sets_a_missile_off_on_what_it_strikes",
+        station: "auberean-physics::cpu::paths::missile::a_collision_sets_a_missile_off_on_what_it_strikes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -27,7 +27,7 @@ pub static ROWS: &[Behaviour] = &[
                reported hit and fades out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-PROXIMITY"),
-        station: "auberean-physics::cpu::solid::a_missile_goes_off_within_its_reach_of_its_target",
+        station: "auberean-physics::cpu::contact::solid::a_missile_goes_off_within_its_reach_of_its_target",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -37,7 +37,7 @@ pub static ROWS: &[Behaviour] = &[
                struck that is not itself a missile, and stays put on anything else.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-COLLISION"),
-        station: "auberean-physics::cpu::missile::a_missile_that_goes_off_fades_out_unless_it_sticks",
+        station: "auberean-physics::cpu::paths::missile::a_missile_that_goes_off_fades_out_unless_it_sticks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -47,7 +47,7 @@ pub static ROWS: &[Behaviour] = &[
                longest in five steps, narrowed to a thousandth of a second.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-LOB"),
-        station: "auberean-physics::cpu::missile::a_lobbed_missile_comes_down_on_its_target",
+        station: "auberean-physics::cpu::paths::missile::a_lobbed_missile_comes_down_on_its_target",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -58,7 +58,7 @@ pub static ROWS: &[Behaviour] = &[
                once; a missile not flying does not move.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-PHYSICS"),
-        station: "auberean-physics::cpu::missile::a_missile_moves_under_gravity_drag_and_wind_and_expires_once",
+        station: "auberean-physics::cpu::paths::missile::a_missile_moves_under_gravity_drag_and_wind_and_expires_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -68,7 +68,7 @@ pub static ROWS: &[Behaviour] = &[
                climbing by the height it is above it; over the target it flies east.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-MAINT-DIST"),
-        station: "auberean-physics::cpu::missile::a_missile_keeping_its_distance_circles_and_closes_the_gap",
+        station: "auberean-physics::cpu::paths::missile::a_missile_keeping_its_distance_circles_and_closes_the_gap",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -77,7 +77,7 @@ pub static ROWS: &[Behaviour] = &[
                when they meet, the sooner of the two meeting times.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-LEAD"),
-        station: "auberean-physics::cpu::missile::a_missile_leads_a_moving_target",
+        station: "auberean-physics::cpu::paths::missile::a_missile_leads_a_moving_target",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -85,7 +85,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A homing missile flies straight at a still target at its top speed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-COLLIDE"),
-        station: "auberean-physics::cpu::missile::a_missile_meets_a_still_target_head_on",
+        station: "auberean-physics::cpu::paths::missile::a_missile_meets_a_still_target_head_on",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -95,7 +95,7 @@ pub static ROWS: &[Behaviour] = &[
                the chase course is worked out and dropped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-NO-INTERCEPT"),
-        station: "auberean-physics::cpu::missile::a_missile_that_cannot_catch_its_target_keeps_the_velocity_it_wanted",
+        station: "auberean-physics::cpu::paths::missile::a_missile_that_cannot_catch_its_target_keeps_the_velocity_it_wanted",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -106,7 +106,7 @@ pub static ROWS: &[Behaviour] = &[
                back into the world's frame.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-ACCEL"),
-        station: "auberean-physics::cpu::missile::a_missile_turns_and_brakes_within_its_own_limits",
+        station: "auberean-physics::cpu::paths::missile::a_missile_turns_and_brakes_within_its_own_limits",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -115,7 +115,7 @@ pub static ROWS: &[Behaviour] = &[
                of fuel it keeps the acceleration it had, and is reported out of fuel once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-FUEL"),
-        station: "auberean-physics::cpu::missile::fuel_burns_with_acceleration_and_an_empty_missile_coasts",
+        station: "auberean-physics::cpu::paths::missile::fuel_burns_with_acceleration_and_an_empty_missile_coasts",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -125,7 +125,7 @@ pub static ROWS: &[Behaviour] = &[
                climbs at least to its height over it, or holds that height.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-SPEED-HEIGHT"),
-        station: "auberean-physics::cpu::missile::speed_and_height_rules_shape_every_wanted_velocity",
+        station: "auberean-physics::cpu::paths::missile::speed_and_height_rules_shape_every_wanted_velocity",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -134,7 +134,7 @@ pub static ROWS: &[Behaviour] = &[
                place it is given, so a new missile so aimed has no target.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-PLACE-TARGET"),
-        station: "auberean-physics::cpu::missile::a_missile_aimed_at_a_place_keeps_the_place_it_already_had",
+        station: "auberean-physics::cpu::paths::missile::a_missile_aimed_at_a_place_keeps_the_place_it_already_had",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -143,7 +143,7 @@ pub static ROWS: &[Behaviour] = &[
                and level whatever it found.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-INQUIRE"),
-        station: "auberean-physics::cpu::missile::a_missile_asked_its_direction_answers_north_and_level",
+        station: "auberean-physics::cpu::paths::missile::a_missile_asked_its_direction_answers_north_and_level",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -152,7 +152,7 @@ pub static ROWS: &[Behaviour] = &[
                been heard of, or at a target past its range.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-RANGE"),
-        station: "auberean-physics::cpu::missile::a_missile_is_not_launched_past_its_range_or_at_an_unheard_target",
+        station: "auberean-physics::cpu::paths::missile::a_missile_is_not_launched_past_its_range_or_at_an_unheard_target",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -162,7 +162,7 @@ pub static ROWS: &[Behaviour] = &[
                flight effect on, and steers toward its target every reaction interval.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-UPDATE"),
-        station: "auberean-physics::cpu::missile::a_missile_is_placed_then_launched_once_its_target_is_known",
+        station: "auberean-physics::cpu::paths::missile::a_missile_is_placed_then_launched_once_its_target_is_known",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -172,7 +172,7 @@ pub static ROWS: &[Behaviour] = &[
                within 45 degrees of where it faces.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-LAUNCH"),
-        station: "auberean-physics::cpu::missile::a_missile_launches_straight_ahead_or_toward_a_target_within_45_degrees",
+        station: "auberean-physics::cpu::paths::missile::a_missile_launches_straight_ahead_or_toward_a_target_within_45_degrees",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -182,7 +182,7 @@ pub static ROWS: &[Behaviour] = &[
                the ground and keeping a distance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MISSILE-PARAMS"),
-        station: "auberean-physics::cpu::missile::conserving_fuel_and_the_surroundings_top_speeds_share_a_bit",
+        station: "auberean-physics::cpu::paths::missile::conserving_fuel_and_the_surroundings_top_speeds_share_a_bit",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -193,7 +193,7 @@ pub static ROWS: &[Behaviour] = &[
                harms.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STORY-HIT"),
-        station: "auberean-physics::cpu::missile::a_hit_shows_its_effects_and_damage",
+        station: "auberean-physics::cpu::paths::missile::a_hit_shows_its_effects_and_damage",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -203,7 +203,7 @@ pub static ROWS: &[Behaviour] = &[
                each with its kind and the fields that are set.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STORY-PACK"),
-        station: "auberean-physics::cpu::missile::a_story_packs_as_the_protocol_reads_it",
+        station: "auberean-physics::cpu::paths::missile::a_story_packs_as_the_protocol_reads_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -214,7 +214,7 @@ pub static ROWS: &[Behaviour] = &[
                the one playing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STORY-FINISH"),
-        station: "auberean-physics::cpu::missile::an_ended_behavior_runs_the_remaining_hooks_and_a_failed_one_drops_them",
+        station: "auberean-physics::cpu::paths::missile::an_ended_behavior_runs_the_remaining_hooks_and_a_failed_one_drops_them",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -225,7 +225,7 @@ pub static ROWS: &[Behaviour] = &[
                and as added among equals.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STORY-HOOKS"),
-        station: "auberean-physics::cpu::missile::hooks_run_in_step_with_the_attack_animation",
+        station: "auberean-physics::cpu::paths::missile::hooks_run_in_step_with_the_attack_animation",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -236,7 +236,7 @@ pub static ROWS: &[Behaviour] = &[
                unfired missiles and fades the weapon back in over half a second.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STORY-MISSILES"),
-        station: "auberean-physics::cpu::missile::missiles_are_made_in_hand_fired_in_order_and_the_unfired_removed",
+        station: "auberean-physics::cpu::paths::missile::missiles_are_made_in_hand_fired_in_order_and_the_unfired_removed",
         tier: Tier::Cpu,
     },
 ];

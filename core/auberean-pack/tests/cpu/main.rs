@@ -42,6 +42,7 @@ fn every_item_form_reads_and_is_written_one_way() {
         ("step 0x40000088 s1", "step 0x40000088 s1"),
         ("talk t-335b-1cf7eb76", "talk t-335b-1cf7eb76"),
         ("route patrol-1", "route patrol-1"),
+        ("area 41aa", "area 41AA"),
     ] {
         let words: Vec<&str> = text.split_whitespace().collect();
         let item = Item::parse(&words).unwrap_or_else(|| panic!("{text}"));
@@ -66,6 +67,7 @@ fn every_item_form_reads_and_is_written_one_way() {
         "sale 0x6F0016F6",
         "talk",
         "route Guards",
+        "area 41A",
         "weenie 1234",
     ] {
         let e = Scope::parse::<Ac2>(bad).unwrap_err();

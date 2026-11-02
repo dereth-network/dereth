@@ -36,6 +36,9 @@ struct Slot {
     holders: u32,
     freed_at: f64,
     allowed_in_free_list: bool,
+    /// Whether the records it names have been loaded with it (a record got and kept waiting says
+    /// so; one loaded by a request does not, so the next request for it asks for them again).
+    subs_loaded: bool,
 }
 
 /// One record type's cache.
@@ -82,6 +85,7 @@ impl ObjectCache {
                 holders: 1,
                 freed_at: 0.0,
                 allowed_in_free_list: true,
+                subs_loaded: false,
             },
         );
         true
@@ -533,4 +537,129 @@ pub(crate) fn counts(shared: &Shared, kind: u32) -> (usize, usize) {
 // D2-12623, D2-12660, D2-12662, D2-12650, D2-12625, D2-12615
 pub(crate) fn destroy_all(shared: &Shared) {
     lock(shared).by_type.clear();
+}
+
+// ---------------------------------------------------------------- records of any type
+
+/// A record held from a database whose type is known only at run time (a request for a record
+/// by its type number): as [`Obj`], while it lives the record stays loaded. [`AnyObj::downcast`]
+/// turns it into the typed handle, keeping its hold.
+pub struct AnyObj {
+    held: Option<(Held, u32, Key, Weak<Mutex<Caches>>)>,
+}
+
+impl AnyObj {
+    fn new(value: Held, kind: u32, key: Key, caches: &Shared) -> Self {
+        Self {
+            held: Some((value, kind, key, Arc::downgrade(caches))),
+        }
+    }
+
+    /// The record's id.
+    #[must_use]
+    pub fn id(&self) -> u32 {
+        self.held.as_ref().map_or(0, |h| h.2 .0)
+    }
+
+    /// The record's type number.
+    #[must_use]
+    pub fn kind(&self) -> u32 {
+        self.held.as_ref().map_or(0, |h| h.1)
+    }
+
+    /// The record itself.
+    #[must_use]
+    pub fn value(&self) -> Option<&(dyn Any + Send + Sync)> {
+        self.held.as_ref().map(|h| &*h.0)
+    }
+
+    /// The typed handle, when the record is a `T` (the hold goes with it); else the handle back.
+    ///
+    /// # Errors
+    /// The handle itself when the record is not a `T`.
+    pub fn downcast<T: Send + Sync + 'static>(mut self) -> Result<Obj<T>, Self> {
+        match self.held.take() {
+            Some((value, kind, key, caches)) => match value.clone().downcast::<T>() {
+                Ok(v) => Ok(Obj {
+                    value: v,
+                    kind,
+                    key,
+                    caches,
+                }),
+                Err(_) => {
+                    self.held = Some((value, kind, key, caches));
+                    Err(self)
+                }
+            },
+            None => Err(self),
+        }
+    }
+}
+
+impl Clone for AnyObj {
+    fn clone(&self) -> Self {
+        if let Some((_, kind, key, caches)) = &self.held {
+            if let Some(c) = caches.upgrade() {
+                lock(&c).cache(*kind).add_holder(*key);
+            }
+        }
+        Self {
+            held: self.held.clone(),
+        }
+    }
+}
+
+impl Drop for AnyObj {
+    fn drop(&mut self) {
+        if let Some((_, kind, key, caches)) = self.held.take() {
+            if let Some(c) = caches.upgrade() {
+                let mut g = lock(&c);
+                let now = g.now;
+                if let Some(oc) = g.cache_if_made(kind) {
+                    oc.release(key, now);
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Debug for AnyObj {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AnyObj")
+            .field("kind", &format_args!("{:08X}", self.kind()))
+            .field("id", &format_args!("{:08X}", self.id()))
+            .finish()
+    }
+}
+
+/// A loaded record of any type, given one more holder (taken off the free list).
+pub(crate) fn in_memory_any(shared: &Shared, kind: u32, key: Key) -> Option<AnyObj> {
+    let held = lock(shared).cache_if_made(kind)?.get_if_in_memory(key)?;
+    Some(AnyObj::new(held, kind, key, shared))
+}
+
+/// Add a record of any type with one holder; none (nothing changed) when its key is loaded.
+pub(crate) fn add_any(shared: &Shared, kind: u32, key: Key, value: Held) -> Option<AnyObj> {
+    lock(shared)
+        .cache(kind)
+        .add(key, value.clone())
+        .then(|| AnyObj::new(value, kind, key, shared))
+}
+
+/// Whether a loaded record's named records were loaded with it.
+pub(crate) fn subs_loaded(shared: &Shared, kind: u32, key: Key) -> bool {
+    lock(shared)
+        .cache_if_made(kind)
+        .and_then(|c| c.objects.get(&key))
+        .is_some_and(|s| s.subs_loaded)
+}
+
+/// Say that a loaded record's named records were loaded with it.
+pub(crate) fn set_subs_loaded(shared: &Shared, kind: u32, key: Key) {
+    if let Some(s) = lock(shared)
+        .cache_if_made(kind)
+        .and_then(|c| c.objects.get_mut(&key))
+    {
+        s.subs_loaded = true;
+    }
 }

@@ -10,17 +10,14 @@ autotests = false
 autoexamples = false
 
 [lib]
-# `auberean_friends.dll`, built for i686-pc-windows-msvc (the retail client is 32-bit) with the C
-# runtime linked in; and the library its tests drive on any host.
-name = "auberean_friends"
+# Built for i686-pc-windows-msvc (the retail client is 32-bit) with the C runtime linked in, as
+# `auberean_friends_dll.dll`, which `cargo xtask package friends-dll` names `auberean_friends.dll`;
+# and the library its tests drive on any host.
+name = "auberean_friends_dll"
 crate-type = ["cdylib", "rlib"]
-# Its name is the friends stream's library's too, and two libraries of one name cannot both be
-# documented in one run: the workspace's documentation is the stream's.
-doc = false
 
 [dependencies]
-# The friends stream: its client session, elements and codes. Named `stream` here, since this
-# library's own name is the stream crate's.
+# The friends stream: its client session, elements and codes, named `stream` here.
 stream = { package = "auberean-friends", path = "../../core/auberean-friends" }
 tracing.workspace = true
 # The log file the launcher names: the library is the outermost Rust in the retail client's process.

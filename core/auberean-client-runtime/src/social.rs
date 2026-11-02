@@ -125,7 +125,7 @@ impl Scripts {
     /// instance ids to the shares' bits; the client copies it into a table of its own (as many
     /// buckets, each entry put at its chain's head), which walks each bucket's chain the other
     /// way round. `None` when the call fails or fills none.
-    // D2-00605, D2-01119
+    // D2-00605, D2-01119, D2-01038, D2-01013
     pub fn fellow_xp(&mut self) -> Option<Vec<(u64, f32)>> {
         let (r, held) = self.call_out(function::GET_FELLOW_XP_HASH, LONG_WORD_HASH)?;
         if !matches!(r, CallResult::Completed) {

@@ -61,6 +61,7 @@ pub struct BoundNative {
 
 /// The library, linked.
 #[derive(Debug)]
+// D2-07994, D2-07995, D2-07996, D2-16796, D2-16797, D2-16795
 pub struct Program {
     pub library: Library,
     /// The code with native calls and direct calls rewritten.
@@ -73,7 +74,7 @@ pub struct Program {
 
 impl Program {
     /// Link a library against a native table.
-    // D2-08019
+    // D2-08019, D2-00792, D2-04651
     pub fn link(library: Library, table: NativeTable) -> Result<Self, LinkError> {
         let mut code = library.code.clone();
         let mut natives: Vec<BoundNative> = Vec::new();

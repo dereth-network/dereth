@@ -1,8 +1,8 @@
 //! Each result and event as the client reads it: the bytes of a block placed at an address, read at
 //! the client's offsets, with every pointer followed inside the block.
 
-use auberean_friends::engine::{Message, Reply};
-use auberean_friends::layout::{self, Block};
+use auberean_friends_dll::engine::{Message, Reply};
+use auberean_friends_dll::layout::{self, Block};
 use stream::{Answer, Event, Extra, FriendStatus, Hr, Kind, Mode};
 
 use crate::common::friends;

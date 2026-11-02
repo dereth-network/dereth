@@ -26,6 +26,7 @@ use crate::examination::{window_to_front, BRING_TO_FRONT, WINDOW_FIELDS};
 use crate::flow;
 use crate::gameplay::{self, dialog, notice, Child, Dialog, Notice, Record, Request};
 use crate::shortcuts::TOOLBAR_LAYOUT_ENUM;
+use crate::time_display::TimeLeft;
 
 /// A quest's status.
 pub mod status {
@@ -96,6 +97,7 @@ pub struct Quest {
 impl Quest {
     /// The open quest's text: under way, its description, its journal entry and its challenge
     /// (any level, or the level); finished, how it ended.
+    // D2-12248
     #[must_use]
     pub fn extra_text(&self, table: u32) -> Option<StringInfo> {
         let text = |n: &str| StringInfo::entry(table, Token::of(n).raw());
@@ -129,14 +131,15 @@ impl Quest {
     }
 }
 
-/// A quest in the journal with its rows: its own, its open text, its cancel button; whether it
-/// changed since last seen, whether it is open.
-#[derive(Clone, Debug, Default)]
+/// A quest in the journal with its rows: its own, its open text, its cancel button; the time
+/// left shown in its row; whether it changed since last seen, whether it is open.
+#[derive(Debug, Default)]
 struct Descriptor {
     quest: Quest,
     element: Option<Handle>,
     extra: Option<Handle>,
     cancel: Option<Handle>,
+    time: Option<TimeLeft>,
     updated: bool,
     expanded: bool,
 }
@@ -230,10 +233,13 @@ impl Journal {
             .data_id_by_enum(flow::MESSAGES, flow::TABLE_MAPPING)
     }
 
-    /// A quest's time: that it may be taken no more, the time left, or none.
+    /// A quest's time: that it may be taken no more; the time left, kept current by the clock (in
+    /// months and days above a month, days and hours above a day, hours and minutes above an
+    /// hour, else minutes and seconds); or none.
     // D2-02703
-    fn quest_time(ui: &mut Ui, q: &Quest, time: Option<Handle>) {
+    fn quest_time(ui: &mut Ui, d: &mut Descriptor, time: Option<Handle>) {
         let Some(t) = time else { return };
+        let q = &d.quest;
         let table = Self::table(ui);
         let text = if q.maxed_out {
             ui.assets().write(&StringInfo::entry(
@@ -241,8 +247,13 @@ impl Journal {
                 Token::of("ID_Quest_QuestMaxed").raw(),
             ))
         } else if q.seconds_remaining > 0 {
-            let s = q.seconds_remaining;
-            Some(format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60))
+            let end = f64::from(q.seconds_remaining) + ui.now();
+            let mut shown = TimeLeft::new(ui);
+            shown.init(ui, Some(t), end, 1, 1, 60);
+            if let Some(old) = d.time.replace(shown) {
+                old.close(ui);
+            }
+            return;
         } else {
             ui.assets().write(&StringInfo::entry(
                 table,
@@ -263,7 +274,7 @@ impl Journal {
         ui.set_attr(e, name::ID, auberean_ui::Value::Id(d.quest.id));
         ui.list_multi_insert(list, e, index);
         let time = ui.child_recursive(e, name::QUEST_TIME);
-        Self::quest_time(ui, &d.quest, time);
+        Self::quest_time(ui, d, time);
         if d.expanded {
             ui.set_state(e, name::HIGHLIGHT);
             Self::add_open_rows(ui, d, list, index + 1, index + 2);
@@ -290,8 +301,7 @@ impl Journal {
                 }
             }
             if let Some(x) = d.extra {
-                let text = ui.assets().write(&info).unwrap_or_default();
-                ui.set_text(x, &text);
+                ui.set_string_info(x, &info);
             }
         }
         if d.cancel.is_none()
@@ -318,8 +328,7 @@ impl Journal {
                 }
                 ui.set_state(n, name::CHANGED);
             }
-            let text = ui.assets().write(&d.quest.name).unwrap_or_default();
-            ui.set_text(n, &text);
+            ui.set_string_info(n, &d.quest.name);
         }
     }
 
@@ -351,10 +360,13 @@ impl Journal {
         }
     }
 
-    /// A quest's rows taken out of its list and gone.
+    /// A quest's rows taken out of its list and gone, and its time left with them.
     // D2-02702
     fn remove_element(ui: &mut Ui, d: &mut Descriptor, list: Handle) {
         let Some(e) = d.element.take() else { return };
+        if let Some(t) = d.time.take() {
+            t.close(ui);
+        }
         for r in [Some(e), d.extra.take(), d.cancel.take()]
             .into_iter()
             .flatten()
@@ -515,6 +527,7 @@ impl Journal {
             kind: dialog::CONFIRMATION,
             text,
             modal: false,
+            info: None,
         }));
     }
 
@@ -532,7 +545,22 @@ impl Journal {
     }
 }
 
+impl Journal {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x436, 0x418, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Journal {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -590,6 +618,15 @@ impl Child for Journal {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// The clock: each quest's time left written again when it is time to look.
+    fn update(&mut self, ui: &mut Ui, _view: &gameplay::View<'_>, _out: &mut Vec<Request>) {
+        for d in self.underway.iter_mut().chain(self.finished.iter_mut()) {
+            if let Some(t) = &mut d.time {
+                t.tick(ui);
+            }
         }
     }
 
@@ -667,7 +704,22 @@ impl QuestWindow {
     }
 }
 
+impl QuestWindow {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            Journal::notices_of(),
+            crate::story_quests::StoryQuests::notices_of(),
+        ])
+    }
+}
+
 impl Child for QuestWindow {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -734,7 +786,7 @@ impl Child for QuestWindow {
     /// closed may give a quest up.
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         if let Some(s) = &mut self.story {
-            s.notice(ui, n, out);
+            gameplay::hand(s, ui, n, out);
         }
         if let Some((id, yes)) = crate::dialog::confirmation_closed(n) {
             if let Some(j) = &mut self.journal {

@@ -131,6 +131,11 @@ fn a_shop_shows_its_sales_and_buys_them() {
     let out = w.click(purchase);
     assert!(shops(&out).is_empty());
     assert!(dialog(&out).is_some(), "the player told: {out:?}");
+    assert!(
+        out.iter()
+            .any(|r| matches!(r, Request::Dialog(d) if d.modal)),
+        "at once, in place of any dialog up: {out:?}"
+    );
 
     // The scripts' question, answered yes.
     let product = Some(Record::Text(StringInfo::literal("Axe")));

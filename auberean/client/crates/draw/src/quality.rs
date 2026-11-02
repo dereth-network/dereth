@@ -388,6 +388,55 @@ impl Graphics {
         place(key).map(|k| self.values[k])
     }
 
+    /// Whether the water's reflection ripples: only with the water reflections at their highest
+    /// choice (High); at Low the reflection is laid as it stands.
+    #[must_use]
+    pub fn water_ripples(&self) -> bool {
+        self.get(key::WATER_REFLECTIONS).is_some_and(|v| v >= 2.0)
+    }
+
+    /// A choice's number, `otherwise` when the preference is not one of the graphics'.
+    fn level(&self, key: u32, otherwise: u32) -> u32 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few levels
+        self.get(key).map_or(otherwise, |v| v.max(0.0) as u32)
+    }
+
+    /// Whether a yes-or-no preference is on.
+    fn on(&self, key: u32) -> bool {
+        self.get(key).is_some_and(|v| v != 0.0)
+    }
+
+    /// The material detail: 0 (low), 1 (medium) or 2 (high), which of each material's layers are
+    /// drawn.
+    #[must_use]
+    pub fn material_detail(&self) -> u32 {
+        self.level(key::MATERIAL_DETAIL, 2).min(2)
+    }
+
+    /// The scenery draw distance: 0 (low), 1 (medium) or 2 (high), how far placed objects reach
+    /// (`crate::mesh::scenery_scale`).
+    #[must_use]
+    pub fn scenery_draw_distance(&self) -> u32 {
+        self.level(key::SCENERY_DRAW_DISTANCE, 2).min(2)
+    }
+
+    /// How textures are taken: the texture detail and the trilinear and anisotropic filtering.
+    #[must_use]
+    pub fn textures(&self) -> crate::scene::Textures {
+        crate::scene::Textures {
+            detail: self.level(key::TEXTURE_DETAIL, 4).min(4),
+            trilinear: self.on(key::TRILINEAR_FILTERING),
+            anisotropic: self.on(key::ANISOTROPIC_FILTERING),
+        }
+    }
+
+    /// Whether the particle systems moved by repulsors (the ground's mists) think and draw: the
+    /// volumetric fog effects.
+    #[must_use]
+    pub fn volumetric_fog(&self) -> bool {
+        self.on(key::VOLUMETRIC_FOG_EFFECTS)
+    }
+
     /// A preference's default.
     #[must_use]
     pub fn default_of(&self, key: u32) -> Option<f32> {

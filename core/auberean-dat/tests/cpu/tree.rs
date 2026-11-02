@@ -328,6 +328,10 @@ fn a_name_reads_and_writes_as_a_number_in_the_c_librarys_forms() {
     assert!(number::strtol(b"2147483648").out_of_range);
     assert_eq!(number::strtol(b"-2147483648").value, i32::MIN);
     assert_eq!(number::strtoi64(b"-9223372036854775808").value, i64::MIN);
+    assert_eq!(number::strtoi64(b"99999999999999999999").value, i64::MAX);
+    assert_eq!(number::strtoui64(b"-1").value, u64::MAX);
+    let wrapped = number::strtoui64(b"-99999999999999999999");
+    assert_eq!((wrapped.value, wrapped.out_of_range), (1, true));
     assert!(number::is_double(b"1d2"), "an exponent may be written d");
     assert!(!number::is_double(b"1e"));
     assert_eq!(number::strtod(b"1e").end, 1);

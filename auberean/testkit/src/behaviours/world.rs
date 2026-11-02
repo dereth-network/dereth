@@ -67,6 +67,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.chargen.the-native-creation-answers-as-the-scripts-do",
+        says: "The character generator's scripts, run on the September 2013 library and saved \
+               states, and the client's own creation give the same answers over the whole data: \
+               the ten races and sexes, their bodies, the valid values of every race, sex and \
+               physique type (none for a type it lacks), each type's label, the starting area of \
+               every race and class, and the player's avatar entity.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-SCRIPTS"),
+        station: "auberean-world::dat::chargen::the_native_creation_answers_as_the_character_generators_scripts_do",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.color.a-packed-color-is-alpha-red-green-blue",
         says: "A packed color word is read as alpha in its top byte, then red, green and blue, each byte \
                over 255.",
@@ -101,6 +113,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-FOG-BLOCKS"),
         station: "auberean-world::cpu::fog::a_blocks_corners_blend_their_fog_over_the_days",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.fog.under-water-the-fog-is-the-waters-by-depth",
+        says: "Under water the fog is the water's, the light the same: the water's table of depths, \
+               each combined with the light above as a fog kind is, blended between the last depth \
+               deeper than the viewer and the one before it (past the deepest, the deepest alone).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-WATER-FOG"),
+        station: "auberean-world::cpu::fog::under_water_the_fog_is_the_waters_by_depth",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -186,12 +208,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.land.a-circle-reaches-a-polygon-by-its-edges-values",
+        says: "The land's slope check takes a circle to reach a triangle of ground by the \
+               triangle's edge values, which grow with an edge's length: a circle about a point a \
+               meter outside a long edge does not reach it though its radius is longer, one about \
+               a point a hand's width outside does, and a corner within the radius always does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-CIRCLE"),
+        station: "auberean-world::cpu::land::a_circle_reaches_a_polygon_by_its_edges_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.land.a-landscape-record-out-of-range-is-refused",
         says: "Landscape constants whose cells are not a power of two from 2 to 16 a block side, or whose \
                vertex fields need more than 32 bits, are refused.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-LAND-RANGE"),
         station: "auberean-world::cpu::land::a_landscape_record_out_of_range_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.land.a-point-within-the-band-of-an-edge-is-over-the-polygon",
+        says: "A point counts as over a triangle of ground when it lies inside every edge or no \
+               more than a hair outside one, the hair measured in the edge's own length.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-OVER"),
+        station: "auberean-world::cpu::land::a_point_within_the_band_of_an_edge_is_over_the_polygon",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -530,6 +572,30 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-SKY-DAY"),
         station: "auberean-world::cpu::clock::the_sky_picks_its_day_by_a_hash_of_the_date",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.sound.a-blocks-points-fall-short-of-its-far-edges",
+        says: "A landblock's ambient sound points are its vertices that name a kind, in the                vertices' order, a seventeenth of the block's side apart (the side over the                vertices along it, not the squares), so the last row and column stand short of the                block's far edges, each at its vertex's height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-POINTS"),
+        station: "auberean-world::cpu::scenery::a_blocks_points_stand_a_seventeenth_of_its_side_apart_at_their_heights",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.sound.a-vertex-names-its-scenery-kinds-sound",
+        says: "A landscape vertex names the ambient sound kind of the scenery kind its terrain kind                gives for its scene field (or the terrain's default scenery; an unlisted terrain kind                takes the default terrain); none for scenery kind 0, a scenery kind not described,                or a sound word of 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-KINDS"),
+        station: "auberean-world::cpu::scenery::a_vertex_names_the_sound_of_its_scenery_kind_and_nothing_past_a_gap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.sound.every-points-kind-is-described",
+        says: "Every vertex of every landblock of the end-of-retail world names an ambient kind                (twelve kinds in all), and the region's ambient sound table describes each.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-CENSUS"),
+        station: "auberean-world::dat::sound::every_landblocks_points_name_kinds_the_regions_ambient_table_describes",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.terrain.a-road-is-a-masked-layer-over-the-ground",

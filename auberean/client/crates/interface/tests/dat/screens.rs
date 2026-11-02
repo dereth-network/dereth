@@ -20,18 +20,20 @@ use auberean_client_sdk::protocol::login::{
 };
 use auberean_client_sdk::protocol::physics::CreateObject;
 use auberean_client_sdk::protocol::table::{Table, SMALL};
+use auberean_client_sdk::protocol::text::StringInfo;
 use auberean_client_sdk::protocol::text::{NarrowString, WideString};
 use auberean_client_sdk::protocol::types::{
     CharacterIdentity, ParentLink, PhysicsDesc, Placement, Qualities, VisualDesc, WeenieDesc,
 };
 use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
 use auberean_client_sdk::runtime::data::{DataFiles, ENGLISH};
-use auberean_client_sdk::runtime::description::{set_bool, set_instance_id};
+use auberean_client_sdk::runtime::description::{set_bool, set_instance_id, set_string_info};
 use auberean_client_sdk::Action;
 use auberean_client_sdk::ClientData;
 use auberean_interface::{Login, Retail};
 use auberean_primitives::{Frame, Quat, Vec3};
 use auberean_scene::WorldData;
+use auberean_shell::host::InputArea;
 use auberean_shell::input::{Button, Event, Key};
 use auberean_shell::interface::{Game, Interface, Overlay, Phase, Request};
 use auberean_shell::{Host, Shell};
@@ -48,11 +50,13 @@ const HALL_AT: Vec3 = Vec3 {
 };
 const HUMAN_MALE: u32 = 0x1F00_0023;
 const NAME: &str = "Rowan";
+/// The name quality.
+const NAME_QUALITY: u32 = 0x100;
 
 type Data = (WorldData, ClientData, Arc<DatAssets>);
 
 /// The world, the client's data and the interface's records, opened once.
-fn data() -> &'static Data {
+pub(crate) fn data() -> &'static Data {
     static DATA: OnceLock<Data> = OnceLock::new();
     DATA.get_or_init(|| {
         let dir = auberean_dat::testing::require_target_install();
@@ -73,9 +77,10 @@ fn data() -> &'static Data {
         );
         let world = WorldData::new(records).expect("the region");
         let portal = Arc::new(open(&|n| *n == DatName::Portal).expect("a portal file"));
+        let cell = Arc::new(open(&|n| *n == DatName::Cell(1)).expect("a cell file"));
         let data = ClientData {
             files: DataFiles {
-                files: vec![portal],
+                files: vec![portal, cell],
                 language: ENGLISH,
             },
             scripts: None,
@@ -133,6 +138,27 @@ fn c2s(t: f64, conn: usize, queue: u16, mtype: u32) -> Step {
 const LOGIN: u64 = 0x2300_0000_0000_0000;
 const WORLD: u64 = 0x0300_0000_0000_0000;
 
+/// What the servers say of a player's object, as the 2017 servers sent it: its script package and
+/// entity template (whose qualities record says it moves), and its physics type (the low and high
+/// words), one the camera's lines of sight pass through.
+fn player_weenie() -> WeenieDesc {
+    let mut w = WeenieDesc {
+        mask: WeenieDesc::PACKAGE | WeenieDesc::ENTITY,
+        package_id: 0x37F,
+        entity_did: 0x4700_0530,
+        ..WeenieDesc::default()
+    };
+    for (bit, word) in [(0x8000, 0x0480_0020), (0x1_0000, 0)] {
+        let i = WeenieDesc::NUMBER_BITS
+            .iter()
+            .position(|b| *b == bit)
+            .expect("a physics type word");
+        w.mask |= bit;
+        w.numbers[i] = word;
+    }
+    w
+}
+
 /// An account with no character; the character made when asked; the world entry into the hall.
 fn script() -> Script {
     script_with(Vec::new())
@@ -160,8 +186,17 @@ fn script_with(extra: Vec<Step>) -> Script {
         },
         result: 0,
     };
+    // The 2017 servers name the player in its own description: a written name, its meta
+    // letters after it.
+    let mut weenie = player_weenie();
+    set_string_info(
+        &mut weenie,
+        NAME_QUALITY,
+        StringInfo::literal(&format!("{NAME} [M]")),
+    );
     let player = CreateObject {
         id: PLAYER,
+        weenie,
         visual: VisualDesc {
             bits: VisualDesc::DID,
             did: HUMAN_MALE,
@@ -185,7 +220,6 @@ fn script_with(extra: Vec<Step>) -> Script {
             },
             ..PhysicsDesc::default()
         },
-        ..CreateObject::default()
     };
     let events = vec![
         s2c(
@@ -256,6 +290,8 @@ struct DoubleHost {
     time: f64,
     double: ServerDouble,
     inbox: VecDeque<(SocketAddr, Vec<u8>)>,
+    /// Where the input method writes, as the shell last told.
+    input_method: Option<InputArea>,
 }
 
 fn me() -> SocketAddr {
@@ -288,6 +324,9 @@ impl Host for DoubleHost {
         None
     }
     fn save_settings(&mut self, _text: &str) {}
+    fn set_input_method(&mut self, area: Option<InputArea>) {
+        self.input_method = area;
+    }
 }
 
 /// The interface, shared with the test so it can look at the screens while the shell drives it.
@@ -393,7 +432,31 @@ fn into_the_world() -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
 
 /// [`into_the_world`] on a script of the test's own.
 fn into_the_world_with(script: Script) -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
-    let (world, client_data, assets) = data();
+    let (_, client_data, _) = data();
+    into_the_world_running(script, client_data)
+}
+
+/// The client's data with the install's scripts linked: the objects' scripts run.
+fn data_with_scripts() -> &'static ClientData {
+    static SCRIPTED: OnceLock<ClientData> = OnceLock::new();
+    SCRIPTED.get_or_init(|| {
+        let (_, plain, _) = data();
+        let portal = Arc::clone(&plain.files.files[0]);
+        let program =
+            auberean_client_sdk::runtime::link_scripts(&portal).expect("the library links");
+        ClientData {
+            files: plain.files.clone(),
+            scripts: Some((portal, Arc::new(program))),
+        }
+    })
+}
+
+/// [`into_the_world_with`], the client running on `client_data`.
+fn into_the_world_running(
+    script: Script,
+    client_data: &'static ClientData,
+) -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
+    let (world, _, assets) = data();
     let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
     let server = double.login_addr();
     let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
@@ -410,6 +473,7 @@ fn into_the_world_with(script: Script) -> (Shell<'static, DoubleHost>, Rc<RefCel
         time: 0.0,
         double,
         inbox: VecDeque::new(),
+        input_method: None,
     };
     let mut s = Shell::new(
         host,
@@ -638,6 +702,253 @@ fn the_play_screen_follows_the_player_and_takes_war_and_chat() {
     );
 }
 
+/// A player in the world whose login the server ends with a boot (its line, from the game's
+/// strings, that the character was booted) is taken to the disconnected screen showing that line:
+/// the play screen goes, the character is logged off and the world let go; the screen stays, and
+/// its button leaves the game.
+///
+/// Behaviour: desktop.interface.a-boot-ends-the-session-on-the-disconnected-screen-with-its-line
+#[test]
+fn a_boot_ends_the_session_on_the_disconnected_screen_with_its_line() {
+    use auberean_client_sdk::protocol::login::Text;
+    use auberean_client_sdk::protocol::text::StringInfo;
+    let boot = ServerMessage::AccountBooted(Text(StringInfo {
+        string_id: 0xDA7D_EF7F,
+        table_id: 0x2500_0012,
+        ..StringInfo::default()
+    }));
+    let (mut s, retail) = into_the_world_with(script_with(vec![s2c(10.0, 0, 1, LOGIN | 9, &boot)]));
+    let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
+    assert_eq!(screen(&retail), "play");
+    assert!(
+        until(&mut s, 6.0, |_| screen(&retail) == "disconnected"),
+        "the disconnected screen: {}",
+        screen(&retail)
+    );
+    assert_eq!(
+        text_of(&retail, "ErrorText").as_deref(),
+        Some("Your character has been booted from the world."),
+        "the boot's line"
+    );
+    assert!(retail.borrow().play().is_none(), "the play screen gone");
+    let logged_off = s
+        .host
+        .double
+        .report()
+        .received
+        .iter()
+        .flatten()
+        .any(|m| m.raw.get(..4) == Some(&0x0001_0027_u32.to_le_bytes()[..]));
+    assert!(logged_off, "the character logged off");
+    assert_ne!(s.phase(), Phase::World, "out of the world");
+    for _ in 0..180 {
+        step(&mut s);
+    }
+    assert_eq!(screen(&retail), "disconnected", "it stays");
+    assert_eq!(
+        text_of(&retail, "ErrorText").as_deref(),
+        Some("Your character has been booted from the world.")
+    );
+    let quit = middle(&retail, "QuitButton");
+    click(&mut s, quit);
+    step(&mut s);
+    assert!(
+        ASKED.with(|a| a.borrow().contains(&Request::Quit)),
+        "its button leaves the game"
+    );
+}
+
+/// A player in the world whose world server goes (here it ends the connection, and the client
+/// answers its goodbye) is taken to the disconnected screen saying the connection was lost: the
+/// session is over, the play screen gone; the screen stays.
+///
+/// Behaviour: desktop.interface.a-server-gone-ends-the-session-on-the-disconnected-screen
+#[test]
+fn a_world_server_gone_ends_the_session_on_the_disconnected_screen() {
+    let (mut s, retail) = into_the_world_with(script_with(vec![Step::End {
+        t: 10.0,
+        conn: 1,
+        c2s: false,
+    }]));
+    let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
+    assert_eq!(screen(&retail), "play");
+    assert!(
+        until(&mut s, 6.0, |_| screen(&retail) == "disconnected"),
+        "the disconnected screen: {}",
+        screen(&retail)
+    );
+    assert!(s.client.is_none(), "the session ended");
+    assert!(retail.borrow().play().is_none(), "the play screen gone");
+    for _ in 0..60 {
+        step(&mut s);
+    }
+    assert_eq!(screen(&retail), "disconnected", "it stays");
+    assert_eq!(
+        text_of(&retail, "ErrorText").as_deref(),
+        Some("The connection to the server has been lost!"),
+        "its line"
+    );
+}
+
+/// An account the server refuses with a boot as it logs in (its line that the account is banned,
+/// before the character list) is taken from connecting to the disconnected screen showing that
+/// line.
+///
+/// Behaviour: desktop.interface.a-boot-at-login-shows-its-line-on-the-disconnected-screen
+#[test]
+fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
+    use auberean_client_sdk::protocol::login::Text;
+    use auberean_client_sdk::protocol::text::StringInfo;
+    let boot = ServerMessage::AccountBooted(Text(StringInfo {
+        string_id: 0x974F_243D,
+        table_id: 0x2500_0012,
+        ..StringInfo::default()
+    }));
+    let script = Script {
+        meta: Vec::new(),
+        conns: vec![conn(0, true, 9000, 0.0)],
+        events: vec![
+            s2c(
+                0.20,
+                0,
+                5,
+                LOGIN,
+                &ServerMessage::DataQuery(DataQuery {
+                    region: 1,
+                    name_language: 1,
+                    languages: vec![1],
+                }),
+            ),
+            c2s(0.25, 0, 5, 0x10038),
+            s2c(0.30, 0, 5, LOGIN | 1, &ServerMessage::DownloadEnds(Empty)),
+            s2c(0.31, 0, 1, LOGIN | 2, &boot),
+        ],
+    };
+    script.check().expect("a well-formed script");
+    let (world, client_data, assets) = data();
+    let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let server = double.login_addr();
+    let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
+    let retail = Rc::new(RefCell::new(Retail::new(
+        records,
+        (1024, 768),
+        Some(Login {
+            server,
+            account: "tester".into(),
+            password: "t".into(),
+        }),
+    )));
+    let host = DoubleHost {
+        time: 0.0,
+        double,
+        inbox: VecDeque::new(),
+        input_method: None,
+    };
+    let mut s = Shell::new(
+        host,
+        world,
+        client_data.clone(),
+        Box::new(Shared(Rc::clone(&retail))),
+    );
+    s.size = (1024, 768);
+    past_the_intro(&mut s, &retail);
+    let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
+    assert!(
+        until(&mut s, 5.0, |_| screen(&retail) == "disconnected"),
+        "the disconnected screen: {}",
+        screen(&retail)
+    );
+    for _ in 0..60 {
+        step(&mut s);
+    }
+    assert_eq!(screen(&retail), "disconnected", "it stays");
+    assert_eq!(
+        text_of(&retail, "ErrorText").as_deref(),
+        Some("Your account is currently banned."),
+        "the boot's line"
+    );
+}
+
+/// A record the server sends that the client cannot store (here a string table, with no local
+/// file to keep it in) stops the client: the session ends there and the disconnected screen
+/// says, in the client's own words, that it failed to save data; the screen stays.
+///
+/// Behaviour: desktop.interface.a-record-not-stored-ends-the-session-with-the-clients-line
+#[test]
+fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_with_its_line() {
+    use auberean_client_sdk::protocol::login::DataRecord;
+    let unstored = ServerMessage::DataRecord(DataRecord {
+        dat_file: 0,
+        kind: 0x4000_0026,
+        id: 0x2500_0001,
+        size: 0,
+        bytes: vec![1, 0, 0x25, 0, 0, 0, 0, 0],
+    });
+    let script = Script {
+        meta: Vec::new(),
+        conns: vec![conn(0, true, 9000, 0.0)],
+        events: vec![
+            s2c(
+                0.20,
+                0,
+                5,
+                LOGIN,
+                &ServerMessage::DataQuery(DataQuery {
+                    region: 1,
+                    name_language: 1,
+                    languages: vec![1],
+                }),
+            ),
+            c2s(0.25, 0, 5, 0x10038),
+            s2c(0.30, 0, 5, LOGIN | 1, &unstored),
+        ],
+    };
+    script.check().expect("a well-formed script");
+    let (world, client_data, assets) = data();
+    let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let server = double.login_addr();
+    let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
+    let retail = Rc::new(RefCell::new(Retail::new(
+        records,
+        (1024, 768),
+        Some(Login {
+            server,
+            account: "tester".into(),
+            password: "t".into(),
+        }),
+    )));
+    let host = DoubleHost {
+        time: 0.0,
+        double,
+        inbox: VecDeque::new(),
+        input_method: None,
+    };
+    let mut s = Shell::new(
+        host,
+        world,
+        client_data.clone(),
+        Box::new(Shared(Rc::clone(&retail))),
+    );
+    s.size = (1024, 768);
+    past_the_intro(&mut s, &retail);
+    let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
+    assert!(
+        until(&mut s, 5.0, |_| screen(&retail) == "disconnected"),
+        "the disconnected screen: {}",
+        screen(&retail)
+    );
+    assert!(s.client.is_none(), "the session ended");
+    for _ in 0..60 {
+        step(&mut s);
+    }
+    assert_eq!(screen(&retail), "disconnected", "it stays");
+    assert_eq!(
+        text_of(&retail, "ErrorText").as_deref(),
+        Some("Failed to save data. Are you out of disk space, or are your data files read-only?"),
+        "the client's line"
+    );
+}
+
 /// In a window larger than 1024 by 768 the screens before the world are still laid out on a 1024
 /// by 768 screen, whose picture fills the window: a click lands on the button drawn under it. The
 /// pointer shows the data's default cursor. Credits opens the credits, which an interface key
@@ -664,6 +975,7 @@ fn the_screens_before_the_world_fill_the_window_at_1024_by_768() {
         time: 0.0,
         double,
         inbox: VecDeque::new(),
+        input_method: None,
     };
     let mut s = Shell::new(
         host,
@@ -942,6 +1254,53 @@ fn asked() -> Vec<Request> {
     ASKED.with(|a| a.borrow().clone())
 }
 
+/// The screens before the world ask for their music, each stopping the one before over two
+/// seconds and keeping its own across the screens; the play screen stops it as it is made.
+///
+/// Behaviour: audio.screens.the-screens-play-their-music-and-the-world-stops-it
+#[test]
+fn the_screens_ask_for_their_music_and_the_play_screen_stops_it() {
+    use auberean_shell::interface::{SoundOrder, SoundSlot};
+    ASKED.with(|a| a.borrow_mut().clear());
+    let (_s, _retail) = into_the_world();
+    let sounds: Vec<SoundOrder> = asked()
+        .into_iter()
+        .filter_map(|r| match r {
+            Request::Sound(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    let stop = SoundOrder::Stop {
+        slot: SoundSlot::Screens,
+        fade: 2.0,
+    };
+    let played: Vec<u32> = sounds
+        .iter()
+        .filter_map(|s| match s {
+            SoundOrder::Play {
+                data,
+                slot: Some(SoundSlot::Screens),
+            } => Some(data.id),
+            _ => None,
+        })
+        .collect();
+    assert!(!played.is_empty(), "the screens play music: {sounds:?}");
+    assert!(
+        played.iter().all(|id| id >> 24 == 0x2C || id >> 24 == 0x2A),
+        "each a sound or music setting: {played:x?}"
+    );
+    assert_eq!(
+        sounds.first(),
+        Some(&stop),
+        "the intro stops what played first"
+    );
+    assert_eq!(
+        sounds.last(),
+        Some(&stop),
+        "the play screen stops the music"
+    );
+}
+
 /// The element the pointer is over at `(x, y)` is the field that lies over the world.
 fn over_the_world(retail: &Rc<RefCell<Retail>>, (x, y): (f32, f32)) -> bool {
     let r = retail.borrow();
@@ -1003,6 +1362,77 @@ fn a_click_in_the_world_selects_what_lies_under_it() {
     assert!(none, "nothing is selected: {:?}", &asked()[before..]);
 }
 
+/// A man named in his description, selected, then renamed by the server (a visual update of his
+/// name quality, stamped next after his creation): the player's scripts tell the panels his radar
+/// look changed, the interface asks his name again and the panels hear the notice with the world
+/// that has it, so the selection's name over him is the new one.
+///
+/// Behaviour: desktop.interface.a-renamed-selection-is-named-anew
+#[test]
+fn a_renamed_selection_is_named_anew() {
+    use auberean_client_sdk::protocol::quality::VisualQuality;
+    use auberean_client_sdk::protocol::types::ObjectStamp;
+    /// The visual messages' ordering type.
+    const VISUAL: u64 = 0x0200_0000_0000_0000;
+    let mut script = with_a_man();
+    for e in &mut script.events {
+        if let Step::Msg { msg, .. } = e {
+            if msg.mtype == 0x10058 {
+                if let Ok(ServerMessage::CreateObject(mut man)) = ServerMessage::decode(&msg.raw) {
+                    if man.id == MAN {
+                        // A human's scripts, which give his name.
+                        man.weenie = player_weenie();
+                        set_string_info(
+                            &mut man.weenie,
+                            NAME_QUALITY,
+                            StringInfo::literal("Aldric"),
+                        );
+                        msg.raw = ServerMessage::CreateObject(man).encode();
+                    }
+                }
+            }
+        }
+    }
+    let rename = ServerMessage::UpdateStringInfoVisual(VisualQuality {
+        object: ObjectStamp {
+            id: MAN,
+            instance_stamp: 1,
+            other_stamp: 9,
+        },
+        quality: NAME_QUALITY,
+        value: StringInfo::literal("Corpse of Aldric"),
+    });
+    script.events.push(s2c(40.0, 1, 1, VISUAL | 9, &rename));
+    let (mut s, retail) = into_the_world_running(script, data_with_scripts());
+    assert!(
+        until(&mut s, 3.0, |s| on_screen(s, MAN).is_some()),
+        "the man is drawn"
+    );
+    let settled = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .seen
+            .camera
+            .is_some_and(|c| (c.fov_y - s.scene.fov).abs() < 0.01)
+    };
+    assert!(until(&mut s, 10.0, settled), "the view settles");
+    let at = on_screen(&s, MAN).expect("on the screen");
+    click(&mut s, at);
+    let named = |want: &'static str| {
+        let r = Rc::clone(&retail);
+        move |_: &Shell<'_, DoubleHost>| text_of(&r, "SelectionName").as_deref() == Some(want)
+    };
+    assert!(
+        until(&mut s, 2.0, named("Aldric")),
+        "the selection's name: {:?}",
+        text_of(&retail, "SelectionName")
+    );
+    assert!(
+        until(&mut s, 45.0, named("Corpse of Aldric")),
+        "the selection's name after the rename: {:?}",
+        text_of(&retail, "SelectionName")
+    );
+}
+
 /// A bow the player holds in its left hand.
 const BOW: u64 = 0x8130_0000_0000_0B0B;
 /// The look a recorded 2017 player's bow was made from.
@@ -1047,7 +1477,7 @@ fn with_a_bow_held() -> Script {
 }
 
 /// A point of the window where the world's pick finds object `id` (scanned over the box its
-/// drawn body fills), once the world drew it.
+/// drawn body fills, at whole pixels, as a click is), once the world drew it.
 fn picks(s: &Shell<'_, DoubleHost>, id: u64) -> Option<(f32, f32)> {
     let seen = &s.scene.seen;
     let body = seen.body(id)?;
@@ -1059,12 +1489,12 @@ fn picks(s: &Shell<'_, DoubleHost>, id: u64) -> Option<(f32, f32)> {
         lo = (lo.0.min(x), lo.1.min(y));
         hi = (hi.0.max(x), hi.1.max(y));
     }
-    let mut y = lo.1.max(0.0);
+    let mut y = lo.1.max(0.0).floor();
     while y <= hi.1.min(767.0) {
-        let mut x = lo.0.max(0.0);
+        let mut x = lo.0.max(0.0).floor();
         while x <= hi.0.min(1023.0) {
             if s.scene.pick_world((x, y), (1024, 768)) == Some(id) {
-                return Some((x.trunc(), y.trunc()));
+                return Some((x, y));
             }
             x += 2.0;
         }
@@ -1369,4 +1799,116 @@ fn the_paper_doll_finds_the_part_under_the_pointer() {
         middle.mesh_type
     );
     assert!(beside.is_none(), "nothing beside the figure: {beside:?}");
+}
+
+/// The servers name the player in its own description, as every 2017 player's creation did: its
+/// scripts write the player's own name from it (not the name quality's absence).
+///
+/// Behaviour: desktop.interface.the-players-scripts-write-its-own-name
+#[test]
+fn the_players_scripts_write_its_own_name() {
+    let (mut s, _retail) = into_the_world_running(script(), data_with_scripts());
+    let named =
+        |s: &mut Shell<'_, DoubleHost>| s.client.as_mut().and_then(|c| c.object_name(PLAYER, 1));
+    assert!(
+        until(&mut s, 5.0, |s| s
+            .client
+            .as_ref()
+            .is_some_and(|c| c.model.player_object().is_some())),
+        "the player stands"
+    );
+    assert_eq!(named(&mut s).as_deref(), Some(NAME));
+}
+
+/// Enter starts a chat line: the host's input method is turned on over the part of the chat entry
+/// that shows, in the window's pixels; Enter again ends the line and turns it off.
+///
+/// Behaviour: desktop.interface.the-input-method-writes-over-the-chat-entry-while-it-takes-the-keys
+#[test]
+fn the_input_method_writes_over_the_chat_entry_while_it_takes_the_keys() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    assert_eq!(s.host.input_method, None, "off before a line is started");
+    press(&mut s, Key::Enter);
+    step(&mut s);
+    let entry = {
+        let r = retail.borrow();
+        let ui = r.ui();
+        let e = ui.find(Token::of("ChatEntry")).expect("the entry");
+        assert_eq!(ui.focus(), Some(e), "the entry takes the keys");
+        ui.screen_clip_rect(e).expect("the entry shows")
+    };
+    let area = s
+        .host
+        .input_method
+        .expect("on while the entry takes the keys");
+    assert_eq!(
+        (area.x, area.y),
+        (entry.x0, entry.y0),
+        "at the entry's corner: the screens are drawn 1:1 in a 1024 by 768 window"
+    );
+    assert_eq!(
+        (area.width, area.height),
+        (
+            u32::try_from(entry.x1 - entry.x0).unwrap_or(0),
+            u32::try_from(entry.y1 - entry.y0).unwrap_or(0)
+        ),
+        "over the part of the entry that shows"
+    );
+    press(&mut s, Key::Enter);
+    step(&mut s);
+    assert_eq!(s.host.input_method, None, "the line ended turns it off");
+}
+
+/// The play screen's kept places go into a table of saved places as the client keeps them (each
+/// panel under its layout and its name, its corners and whether it shows) and come back from one:
+/// a panel moved after the table was made stands where the table keeps it once put back.
+///
+/// Behaviour: desktop.interface.the-play-screens-kept-places-go-into-a-table-and-come-back
+#[test]
+fn the_play_screens_kept_places_go_into_a_table_and_come_back() {
+    use auberean_client_sdk::script::ui_locations::UiLocations;
+    use auberean_interface::places;
+    let (_s, retail) = into_the_world();
+    let mut r = retail.borrow_mut();
+    let frame = r
+        .play()
+        .map(auberean_ui_game::gameplay::GamePlay::frame)
+        .expect("the play screen");
+    let kept = r.ui().frame_kept_places(frame);
+    assert!(
+        kept.len() >= 3,
+        "the play screen's kept panels: {}",
+        kept.len()
+    );
+    let table = UiLocations::read(&places::table(&kept).write()).expect("the table reads");
+    for ((layout, name), l) in &kept {
+        let want = [
+            l.x0.to_bits(),
+            l.y0.to_bits(),
+            l.x1.to_bits(),
+            l.y1.to_bits(),
+            u32::from(l.visible),
+        ];
+        assert_eq!(table.location(*layout, name.raw()), Some(want), "{name:?}");
+    }
+    let ((_, name), l) = kept[0];
+    let ui = r.ui_mut();
+    let panel = ui.find(name).expect("the panel");
+    let at = ui.screen_origin(panel).expect("placed");
+    ui.move_to(panel, at.0 + 37, at.1 + 21);
+    assert_ne!(ui.screen_origin(panel), Some(at));
+    assert!(ui.frame_apply_locations(frame, &places::kept(&table)));
+    // The corner the table keeps, in the display's pixels (clip space read back cuts toward
+    // zero, so it may stand a pixel from where it was read).
+    let (w, h) = ui.display();
+    let want = auberean_ui::location::clip_to_pixel(l.x0, l.y0, w, h);
+    assert_eq!(ui.screen_origin(panel), Some(want), "put back");
+    assert!(
+        (want.0 - at.0).abs() <= 1 && (want.1 - at.1).abs() <= 1,
+        "{want:?} {at:?}"
+    );
 }

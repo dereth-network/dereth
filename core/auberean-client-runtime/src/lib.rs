@@ -6,8 +6,9 @@
 //! `auberean-glue`), the data files (`auberean-dat`, `auberean-assets`), `auberean-primitives`,
 //! the contract's actions (`auberean-client-contract`), localized text (`auberean-text`), the
 //! bodies' collision state and the missiles (`auberean-physics`), the visual descriptions in the
-//! client's own form (`auberean-world`) and the shared math (`dereth-primitives`). **Used by** the
-//! SDK (`auberean-client-sdk`) and through it every front end.
+//! client's own form (`auberean-world`), the shared math (`dereth-primitives`) and the chat
+//! service's packets (`dereth-protocol`). **Used by** the SDK (`auberean-client-sdk`) and through
+//! it every front end.
 //!
 //! A [`Client`] takes datagrams and actions in and gives datagrams out; the host owns the socket
 //! and the clock and calls [`Client::frame`] once a frame. Each frame, as the September 2013 client
@@ -36,10 +37,14 @@
 
 pub mod acts;
 pub mod body;
+pub mod cache;
+mod clock;
 pub mod combat;
 pub mod craft;
+pub mod creation;
 pub mod data;
 pub mod description;
+pub mod download;
 pub mod effects;
 pub mod examination;
 pub mod files;
@@ -49,17 +54,22 @@ pub mod interface;
 pub mod inventory;
 pub mod latent;
 pub mod lifecycle;
+pub mod log_system;
 pub mod looks;
 pub mod motion;
 pub mod notices;
+pub mod physics_object;
 pub mod repository;
+pub mod rooms;
 pub mod selection;
 pub mod shell;
 pub mod skills;
 pub mod social;
 pub mod store;
+pub mod strings;
 pub mod text;
 pub mod toolbar;
+pub mod world;
 
 use dereth_primitives::num::math;
 use std::collections::BTreeMap;
@@ -95,14 +105,19 @@ pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
 
 /// The server's events for an object's body that the scene plays ([`Client::physics`]): a
 /// behavior played and stopped, a change of mode (gone through, or set at once), an effect played
-/// and stopped, a combat story, a move ordered, and the scales of its speed, its acceleration and
-/// its jump.
-pub const PHYSICS_EVENTS: [u32; 11] = [
+/// and stopped, a combat story, a move ordered, the scales of its speed, its acceleration and its
+/// jump, and where it looks (what at, and its head's direction).
+pub const PHYSICS_EVENTS: [u32; 13] = [
     0x1007F, 0x10080, 0x10082, 0x100A9, 0x100A0, 0x100A1, 0x100A8, 0x10083, 0x10092, 0x10093,
-    0x100BA,
+    0x100BA, 0x10096, 0x100C9,
 ];
 /// How many of them are kept for a scene that has not taken them.
 pub const PHYSICS_KEPT: usize = 1024;
+/// How many of the player's selection looks are kept for a scene that has not taken them.
+pub const LOOKS_KEPT: usize = 64;
+/// The server is told where the player's head points at most this often, seconds (more than this
+/// apart), and only when it moved more than [`motion::EPSILON`].
+pub const HEAD_INTERVAL: f64 = 0.5;
 
 /// What the client needs to start.
 #[derive(Clone, Debug)]
@@ -138,10 +153,14 @@ impl core::fmt::Debug for ClientData {
     }
 }
 
-/// Link the script library of a portal file against the client's natives.
+/// Link the script library of a portal file against the client's natives: the library is the
+/// record the client's enumeration names (no other is ever chosen: the program's options to read a
+/// library from a named file are kept and ignored), read by the data's own resolver, its natives
+/// dispatched by the client's table and its objects made by the client's factory.
 ///
 /// # Errors
 /// The library is not there, or does not load or link.
+// D2-00741, D2-07978, D2-08022, D2-07998, D2-07997, D2-07992, D2-07993, D2-00748, D2-00749
 pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
     let lib = auberean_script::library::Library::from_record(
         &portal
@@ -211,6 +230,8 @@ pub struct Client {
     pub session: Session,
     pub queue: EventQueue,
     pub model: Model,
+    /// The world the objects are kept in: its region, and whether their upkeep waits.
+    pub world: world::ClientWorld,
     pub scripts: Option<Scripts>,
     pub body: Body,
     pub calls: CallTally,
@@ -222,6 +243,8 @@ pub struct Client {
     /// told of their objects' lives (made, into the world, out of it, destroyed), counted.
     pub life: lifecycle::Life,
     pub lives: CallTally,
+    /// How the saved states the data cache loaded were asked for their records, counted.
+    pub states_named: auberean_glue::data_ids::Named,
     /// A scene places the objects' bodies: an object enters and leaves the world as the scene
     /// says ([`Client::set_in_world`]), not once it has a place and no parent.
     pub bodies_place: bool,
@@ -245,6 +268,7 @@ pub struct Client {
     /// The connection as last measured, and how many times it was.
     heartbeat: Option<Heartbeat>,
     data: data::DataFiles,
+    download: download::DataDownload,
     account: Vec<u8>,
     script_sends: bool,
     /// The scene waits to be reported drawn.
@@ -252,8 +276,10 @@ pub struct Client {
     portal_space: bool,
     /// The entry's session was ended: one log-off an entry into the world.
     ended: bool,
-    /// The game clock: the server's last time, and when it arrived.
-    clock: Option<(f64, f64)>,
+    /// How the session ended under the player, as far as it has.
+    session_end: SessionEnd,
+    /// The game clock.
+    clock: clock::Clock,
     now: f64,
     sent: Vec<Sent>,
     /// Calls from the server a host wants to see as they take effect, by function id.
@@ -274,16 +300,29 @@ pub struct Client {
     pub notices: Vec<host::PanelNotice>,
     /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play
     /// and stop, their modes, the effects they play and stop, the combat stories told on them, the
-    /// moves it orders, their speed, acceleration and jump scales), in the order it took effect, for the scene to play; past [`PHYSICS_KEPT`] the oldest go when no scene takes
-    /// them.
+    /// moves it orders, their speed, acceleration and jump scales, where they look), in the order
+    /// it took effect, for the scene to play. When no scene takes them, the oldest
+    /// [`PHYSICS_KEPT`] go once twice that many are kept (the heads' directions come many times a
+    /// second).
     pub physics: Vec<ServerMessage>,
     /// The object that last attacked the player with a harmful skill, as its story told it (0 for
     /// none yet).
     pub last_attacker: u64,
     /// The option to look at each new selection.
     pub look_at_selection: bool,
-    /// What the player looks at (0 for nothing).
+    /// What the player looks at (0 for nothing): its selection, or what the server or its scripts
+    /// said, until it stops looking.
     pub looking_at: u64,
+    /// What the player was asked to look at by its selections since the scene last took them (0
+    /// for nothing), in order: its head turns there. The last [`LOOKS_KEPT`] are kept.
+    pub selection_looks: Vec<u64>,
+    /// Where the player's head points (the pitch and the turn of its look sliders) as the world
+    /// last moved it, once a world moves it; the server is told when it changes
+    /// ([`HEAD_INTERVAL`]).
+    pub head: Option<(f32, f32)>,
+    /// The head as the server was last told, and when (game time).
+    head_sent: Option<(f32, f32)>,
+    head_sent_at: f64,
     /// The lines the player typed.
     pub shell: shell::History,
     /// What the skill window shows, as the scripts last answered; the player it was first asked
@@ -314,6 +353,8 @@ pub struct Client {
     trade_items: std::collections::BTreeSet<u64>,
     /// The friends service's layer, when the player was started with one.
     friends: Option<friends::Friends>,
+    /// Rooms (lent to the scripts while a call runs).
+    rooms: Option<rooms::RoomChat>,
     /// The login was given its secret directly: a friends service that cannot be reached does not
     /// end it.
     login_secret_given: bool,
@@ -323,7 +364,8 @@ pub use motion::Body;
 
 /// The connection as the client measures it every two seconds or more: the average round trip
 /// (seconds), the share of packets lost, the bytes received and sent over the last span (seconds),
-/// and the seconds since the server was last heard; `count` numbers the measures.
+/// and the seconds since the server was last heard; the packets received over the last span, and
+/// the bytes received a second over the last two measures; `count` numbers the measures.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Heartbeat {
     pub count: u64,
@@ -333,6 +375,26 @@ pub struct Heartbeat {
     pub bytes_out: u32,
     pub span: f32,
     pub since_heard: f32,
+    pub packets_in: u16,
+    pub rate_in: f64,
+}
+
+/// How the session ended under the player, as far as it has: the login failed (`login_failed`),
+/// or the login server let its connection go, with an error (`None` inside: one this client has no
+/// name for); and whether the server is gone (the client has logged off).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SessionEnd {
+    pub connect_failed: Option<Option<auberean_client_net::NetErrorCode>>,
+    pub login_failed: bool,
+    pub server_died: bool,
+}
+
+impl SessionEnd {
+    /// Whether the session can go no further: the login failed, or the server is gone.
+    #[must_use]
+    pub const fn over(&self) -> bool {
+        self.server_died || self.login_failed
+    }
 }
 
 impl Client {
@@ -345,16 +407,22 @@ impl Client {
             timestamp: settings.timestamp,
             session_key: settings.session_key,
         };
+        // One data cache for the whole client: the scripts read records through the one the
+        // download stores into.
+        let download = download::DataDownload::new(settings.timestamp).over(&data.files);
         Self {
             session: Session::new(Settings {
                 login_server: settings.login_server,
                 logon,
             }),
+            // The world: its objects' book and their model, in no region yet.
+            // D2-10800
             queue: EventQueue::new(),
             model: Model::new(),
+            world: world::ClientWorld::new(),
             scripts: data.scripts.map(|(portal, program)| {
                 let mut s = Scripts::new(portal, program);
-                s.host.set_data_files(&data.files.files);
+                s.host.set_data_cache(download.cache().clone());
                 s
             }),
             body: Body::default(),
@@ -363,6 +431,7 @@ impl Client {
             stat_changes: CallTally::default(),
             life: lifecycle::Life::default(),
             lives: CallTally::default(),
+            states_named: auberean_glue::data_ids::Named::default(),
             bodies_place: false,
             toolbar: toolbar::Toolbar::default(),
             toolbar_stale: false,
@@ -374,13 +443,15 @@ impl Client {
             acts_stale: false,
             acts_player: None,
             heartbeat: None,
+            download,
             data: data.files,
             account: settings.account,
             script_sends: settings.script_sends,
             scene_wanted: false,
             portal_space: false,
             ended: false,
-            clock: None,
+            session_end: SessionEnd::default(),
+            clock: clock::Clock::default(),
             now: 0.0,
             sent: Vec::new(),
             observe: Vec::new(),
@@ -394,6 +465,10 @@ impl Client {
             last_attacker: 0,
             look_at_selection: true,
             looking_at: 0,
+            selection_looks: Vec::new(),
+            head: None,
+            head_sent: None,
+            head_sent_at: f64::NEG_INFINITY,
             shell: shell::History::default(),
             skills: skills::Skills::default(),
             skills_player: None,
@@ -410,6 +485,7 @@ impl Client {
             open_containers: std::collections::BTreeSet::new(),
             trade_items: std::collections::BTreeSet::new(),
             friends: None,
+            rooms: Some(rooms::RoomChat::default()),
             login_secret_given,
         }
     }
@@ -441,18 +517,16 @@ impl Client {
         self.now
     }
 
-    /// The game clock now: the server's last time plus what passed since.
+    /// The game clock now: the client's own clock until the server's time moves it forward.
     #[must_use]
-    pub fn game_time(&self) -> f64 {
-        self.clock.map_or(0.0, |(t, at)| t + (self.now - at))
+    pub const fn game_time(&self) -> f64 {
+        self.clock.now()
     }
 
     /// The server's clock from a time-sync header: the game clock moves forward to it, never back.
     // D2-17628
     pub fn sync_time(&mut self, server: f64) {
-        if self.clock.is_none() || server - self.game_time() > 1e-9 {
-            self.clock = Some((server, self.now));
-        }
+        self.clock.set(server, self.now);
     }
 
     fn send(&mut self, m: ClientMessage) {
@@ -672,7 +746,7 @@ impl Client {
                 // D2-00526, D2-01277
                 None => self.ask(function::STOP_EXAMINATION, &[]),
             },
-            // D2-02713
+            // D2-02713, D2-00591, D2-01078
             Action::CancelQuest { quest } => {
                 self.ask(function::CANCEL_QUEST, &[InterfaceArg::Word(quest)]);
             }
@@ -735,7 +809,7 @@ impl Client {
 
     /// Ask the player's scripts through the interface, and keep how it went.
     /// What the skill window asks of a skill, of the player's scripts.
-    // D2-00504, D2-00505, D2-00506, D2-00507
+    // D2-00504, D2-00505, D2-00506, D2-00507, D2-01225, D2-01226, D2-01219, D2-01227
     fn skill(&mut self, a: SkillAction) {
         use skills::function as f;
         match a {
@@ -799,7 +873,7 @@ impl Client {
 
     /// Something selected (or nothing) and the examination's request set, of the player's
     /// scripts.
-    // D2-00523
+    // D2-00523, D2-01250
     fn examine(&mut self, request: &examination::Request, selection: u64) {
         self.ask(function::SET_SELECTION, &[InterfaceArg::Long(selection)]);
         let bytes = request.pack();
@@ -948,12 +1022,13 @@ impl Client {
     }
 
     /// The player looks at its new selection, or, with the option off, at nothing; the server is
-    /// told when what the player looks at changes, or with the option on at every selection.
+    /// told what the player then looks at (nothing, for the player itself or what it holds), when
+    /// that changes, or with the option on at every selection.
     // D2-08159, D2-06084, D2-04043
     fn look_at_selection(&mut self, target: u64) {
-        if self.model.player_object().is_none() {
+        let Some(player) = self.model.player_object().map(|o| o.id) else {
             return;
-        }
+        };
         let target = if self.look_at_selection {
             target
         } else if self.looking_at == 0 {
@@ -961,8 +1036,56 @@ impl Client {
         } else {
             0
         };
-        self.looking_at = target;
-        self.send(ClientMessage::LookAt(Target(target)));
+        self.looking_at = self.look_of(player, target);
+        if self.selection_looks.len() >= LOOKS_KEPT {
+            self.selection_looks.remove(0);
+        }
+        self.selection_looks.push(self.looking_at);
+        self.send(ClientMessage::LookAt(Target(self.looking_at)));
+    }
+
+    /// What `object` looks at when asked to look at `target`: nothing for itself or for something
+    /// it holds.
+    // D2-06234
+    fn look_of(&self, object: u64, target: u64) -> u64 {
+        if target == object || self.model.children(object).contains(&target) {
+            0
+        } else {
+            target
+        }
+    }
+
+    /// Whether the server is told where the player's head points this frame: the player looks at
+    /// nothing, more than [`HEAD_INTERVAL`] has passed since it was last told, and the head moved
+    /// more than [`motion::EPSILON`] either way since.
+    // D2-09637
+    fn should_send_head(&self, now: f64) -> bool {
+        let Some((pitch, turn)) = self.head else {
+            return false;
+        };
+        if self.model.player_object().is_none() || self.looking_at != 0 {
+            return false;
+        }
+        if now - self.head_sent_at <= HEAD_INTERVAL {
+            return false;
+        }
+        self.head_sent.is_none_or(|(p, t)| {
+            (pitch - p).abs() > motion::EPSILON || (turn - t).abs() > motion::EPSILON
+        })
+    }
+
+    /// The server told where the player's head points, when the player is in the world.
+    // D2-09638, D2-04044
+    fn send_head(&mut self, now: f64) {
+        let Some((x, y)) = self.head else {
+            return;
+        };
+        if !self.model.player_object().is_some_and(|o| o.in_world) || !self.body.placed() {
+            return;
+        }
+        self.head_sent = Some((x, y));
+        self.head_sent_at = now;
+        self.send(ClientMessage::TurnHead(HeadDirection { x, y }));
     }
 
     fn new_character(&self, c: NewCharacter) -> CreateCharacter {
@@ -986,6 +1109,8 @@ impl Client {
     pub fn frame(&mut self, now: LocalTime) {
         let dt = (now.0 - self.now).max(0.0);
         self.now = now.0;
+        self.clock.update(now.0);
+        self.download.set_time(now.0);
         // The friends service's news first; while its part of the login runs, the game login
         // waits.
         self.friends_frame();
@@ -1128,7 +1253,32 @@ impl Client {
     /// itself, a recording, calls it once a frame.)
     pub fn upkeep(&mut self) {
         self.wake_due();
-        self.queue.use_time(self.now);
+        // The data cache's worker and its askers.
+        let now = self.now;
+        let sends = Self::naming_states(
+            &mut self.scripts,
+            &mut self.model,
+            &mut self.states_named,
+            |states| self.download.use_time(now, states),
+        );
+        for m in sends {
+            self.send(m);
+        }
+        // The world's upkeep: the objects', unless the scene waits for the cells around the
+        // player.
+        // D2-10802
+        if !self.world.blocking_for_cells {
+            self.maintain_objects();
+        }
+    }
+
+    /// The objects' upkeep: the creations whose records have all finished make their objects,
+    /// then the event queue's (the objects asked for again, the objects let go of).
+    fn maintain_objects(&mut self) {
+        self.download.finish_creations();
+        let download = &self.download;
+        self.queue
+            .use_time_creating(self.now, |id| download.is_object_being_created(id));
         for id in self.queue.take_force_creates() {
             // D2-04042
             self.send(ClientMessage::ForceCreate(Target(id)));
@@ -1138,8 +1288,18 @@ impl Client {
             if self.life.leave(id) {
                 self.tell_leave_world(id);
             }
+            self.forget_waiting(id);
             self.model.forget(id);
             self.forget_look(id);
+        }
+    }
+
+    /// An object goes: the calls of its scripts that wait are dropped, as its interface is
+    /// destroyed.
+    // D2-08046
+    fn forget_waiting(&mut self, object: u64) {
+        if let Some(p) = self.scripts.as_ref().and_then(|s| s.process(object)) {
+            latent::purge(&mut self.waiting, p);
         }
     }
 
@@ -1291,28 +1451,145 @@ impl Client {
                 if self.model.object(object).is_some() {
                     self.tell_life(object, lifecycle::function::HANDLE_DESTRUCTION);
                 }
+                self.download.object_gone(object);
             }
         }
+    }
+
+    /// The character has left the world: its connections left, the events waiting for it
+    /// dropped, the scripts started afresh, the body and the objects' lives gone.
+    fn left_world(&mut self) {
+        self.session.exit_world();
+        self.queue.leave_world();
+        if let Some(s) = self.scripts.as_mut() {
+            s.reset();
+        }
+        self.body = Body::default();
+        self.life.clear();
+        self.download.objects_gone();
+        self.world.leave_region();
+        self.scene_wanted = false;
+        self.portal_space = false;
+        self.looking_at = 0;
+    }
+
+    /// The region the player's creation names becomes the world's: its number looked up in the
+    /// region mapping for its record, which says its own number.
+    // D2-10649
+    fn set_region_id(&mut self, region: u32) {
+        let cache = self.download.cache();
+        let load = |n: u32| {
+            if cache.is_empty() {
+                return None;
+            }
+            let db = cache.database();
+            let record = db.data_id_by_enum(n, world::REGION_MAPPING);
+            db.get::<auberean_assets::region::Region>(record)
+                .map(|r| (record, r.number))
+        };
+        self.world.set_region(region, load);
+    }
+
+    /// The physics object of game object `id`, made by the scene (see
+    /// [`world::create_physics_obj`]): from the physics record its qualities name, as its
+    /// repository answers them (its own qualities without scripts). Whether it was made.
+    pub fn create_physics_obj(&mut self, id: u64, scene: &mut dyn world::WorldScene) -> bool {
+        let own = self.model.object(id).map_or(0, |o| {
+            o.qualities
+                .data_ids
+                .get(&world::PHYSICS_RECORD)
+                .copied()
+                .unwrap_or(0)
+        });
+        let record = self
+            .with_host(|h| repository::phys_obj_id(h, id))
+            .unwrap_or(own);
+        world::create_physics_obj(&self.model, id, record, scene)
     }
 
     /// Set the client's clock without a frame (a host that hands messages over itself).
     pub fn set_time(&mut self, now: LocalTime) {
         self.now = now.0;
+        self.clock.update(now.0);
+        self.download.set_time(now.0);
+    }
+
+    /// The data download as it stands: the connecting screen's events this session, oldest
+    /// first, the notice of a record that did not store (which stops the client), and the files
+    /// it stores into.
+    #[must_use]
+    pub fn data_download(&self) -> &download::DataDownload {
+        &self.download
+    }
+
+    /// The data download and the data cache's requests, to ask for records through.
+    pub fn data_download_mut(&mut self) -> &mut download::DataDownload {
+        &mut self.download
     }
 
     fn event(&mut self, e: Event) {
-        if let Event::Message(r) = e {
-            let Incoming::Message(m) = r.incoming else {
-                return;
-            };
-            self.take_message(r.blob_id, *m);
+        match e {
+            Event::Message(r) => {
+                let Incoming::Message(m) = r.incoming else {
+                    return;
+                };
+                self.take_message(r.blob_id, *m);
+            }
+            Event::LoginFailed(error) => {
+                self.session_end.login_failed = true;
+                self.connect_failed(Some(error));
+            }
+            Event::ConnectionError {
+                login: true, error, ..
+            } => self.connect_failed(error),
+            Event::ServerDied => self.server_died(),
+            _ => {}
         }
+    }
+
+    /// The login failed, or the login server is letting its connection go, with an error: the
+    /// connection's watchers are told why (the connecting screen, while it is up, says it). A
+    /// world server's goodbye with an error is told to watchers that do nothing with it.
+    fn connect_failed(&mut self, error: Option<auberean_client_net::NetErrorCode>) {
+        if self.session_end.connect_failed.is_none() {
+            self.session_end.connect_failed = Some(error);
+        }
+    }
+
+    /// The server is gone: the client has logged off, and whoever listens for it is told (the
+    /// game's flow, which puts up the disconnected screen).
+    // D2-03995
+    fn server_died(&mut self) {
+        self.session_end.server_died = true;
+    }
+
+    /// How the session has ended under the player so far (nothing yet, while it goes on).
+    #[must_use]
+    pub const fn session_state(&self) -> SessionEnd {
+        self.session_end
+    }
+
+    /// How the session ended under the player, once it can go no further: the login failed, or
+    /// the server is gone. A host ends the session there.
+    #[must_use]
+    pub fn session_end(&self) -> Option<SessionEnd> {
+        self.session_end.over().then_some(self.session_end)
     }
 
     /// A message from a server, as it came off its queue: through the event queue, and whatever
     /// may take effect does. (The session hands messages here; a host that reads messages from
     /// elsewhere, a recording, may too.)
     pub fn take_message(&mut self, blob_id: u64, message: ServerMessage) {
+        // The chat service's packets go to its client, not through the event queue.
+        if let ServerMessage::Chat(p) = &message {
+            self.hear_rooms(&p.0);
+            return;
+        }
+        if let ServerMessage::CharacterList(l) = &message {
+            if let Some(r) = self.rooms.as_mut() {
+                r.character_set(l.uses_chat_service);
+            }
+        }
         self.queue.receive(self.now, Item { blob_id, message });
         while let Some(item) = self.queue.pop() {
             self.take_effect(&item);
@@ -1332,12 +1609,26 @@ impl Client {
                 self.server_moved_player(p);
             }
         }
+        // A move the server orders the player's body keeps the order's stamp, and every report
+        // after it carries that stamp: the server tells by it whether a report that the player
+        // moved by hand interrupts the move it ordered.
+        if let ServerMessage::MoveTo(e) = &item.message {
+            if Some(e.sender.id) == self.model.player {
+                self.body.move_to_stamp = e.action.stamp;
+            }
+        }
+        // What the server says the player looks at (nothing for itself or what it holds).
+        if let ServerMessage::LookAt(e) = &item.message {
+            if Some(e.sender.id) == self.model.player {
+                self.looking_at = self.look_of(e.sender.id, e.action.0);
+            }
+        }
         if let ServerMessage::Notice(n) = &item.message {
             self.server_text(n);
         }
         if PHYSICS_EVENTS.contains(&item.message.message_type()) {
-            if self.physics.len() >= PHYSICS_KEPT {
-                self.physics.remove(0);
+            if self.physics.len() >= 2 * PHYSICS_KEPT {
+                self.physics.drain(..PHYSICS_KEPT);
             }
             self.physics.push(item.message.clone());
         }
@@ -1371,48 +1662,86 @@ impl Client {
         if let ServerMessage::CreateObject(c) = &item.message {
             self.forget_look(c.id);
         }
+        // The incarnation the client has, sent again: its description is set over the one it has.
+        let described_again = match &item.message {
+            ServerMessage::CreateObject(c) => self
+                .model
+                .object(c.id)
+                .is_some_and(|o| o.instance_stamp == c.physics.instance_stamp)
+                .then_some(c.id),
+            _ => None,
+        };
         let effects = self.model.apply(item);
+        if let ServerMessage::PlayerObject(p) = &item.message {
+            self.set_region_id(p.region);
+        }
+        if let Some(id) = described_again {
+            // D2-08218, D2-07359
+            self.with_host(|h| body::described_again(h, id));
+        }
+        // A new object's creation asks the data cache for its records.
+        if let (Some(lifecycle::Change::Made { .. }), ServerMessage::CreateObject(c)) =
+            (&change, &item.message)
+        {
+            Self::naming_states(
+                &mut self.scripts,
+                &mut self.model,
+                &mut self.states_named,
+                |states| creation::start(&mut self.download, c, states),
+            );
+        }
         if let Some(c) = change {
             self.live(c);
         }
         for fx in effects {
+            let mut out = Vec::new();
+            let theirs = Self::naming_states(
+                &mut self.scripts,
+                &mut self.model,
+                &mut self.states_named,
+                |states| self.download.on_effect(&fx, &self.data, &mut out, states),
+            );
+            if theirs {
+                out.into_iter().for_each(|m| self.send(m));
+                continue;
+            }
             match fx {
-                Effect::DataQuery => {
-                    let held = self.data.held();
-                    self.send(ClientMessage::DataHeld(held));
-                }
+                // The download's, taken above.
+                Effect::DataQuery
+                | Effect::DownloadBegins(_)
+                | Effect::DataRecord(_)
+                | Effect::DataRefused(_)
+                | Effect::DownloadWaiting(_)
+                | Effect::DownloadEnds => {}
                 Effect::PlayerCreated(_) => self.scene_wanted = true,
                 Effect::Teleported => self.scene_wanted = true,
-                // An entry refused for a reason the screens know: the play screen opened on the
-                // entry goes, logging off the character it never had (0) and leaving the world's
-                // connections, as the client does whichever screen the reason leads to.
+                // An entry refused, or a session ended (a boot), for a reason the screens know:
+                // the play screen opened on the entry goes, logging off the character (0 when it
+                // never had one) and leaving the world's connections, as the client does whichever
+                // screen the reason leads to. A session that was in the world lets the world go
+                // with it, as when the character leaves: nothing of it is shown again.
                 // D2-01936, D2-05339
                 Effect::Refused(reason) if (2..=21).contains(&reason) => {
                     self.end_session();
-                    self.session.exit_world();
-                    self.queue.leave_world();
-                    self.scene_wanted = false;
-                    self.portal_space = false;
+                    if self.model.player.is_some() {
+                        self.model.leave_world();
+                        self.left_world();
+                    } else {
+                        self.session.exit_world();
+                        self.queue.leave_world();
+                        self.scene_wanted = false;
+                        self.portal_space = false;
+                    }
                 }
                 Effect::Refused(_) => {}
-                Effect::LeftWorld => {
-                    self.session.exit_world();
-                    self.queue.leave_world();
-                    if let Some(s) = self.scripts.as_mut() {
-                        s.reset();
-                    }
-                    self.body = Body::default();
-                    self.life.clear();
-                    self.scene_wanted = false;
-                    self.portal_space = false;
-                    self.looking_at = 0;
-                }
+                Effect::LeftWorld => self.left_world(),
                 Effect::Call {
                     object,
                     function,
                     args,
                 } => self.call(object, function, args.as_ref()),
-                Effect::PlayerObject | Effect::Characters => {}
+                // Nothing in the client listens for a deletion: the list that follows shows it.
+                Effect::PlayerObject | Effect::Characters | Effect::CharacterDeleted(_) => {}
             }
         }
         self.stat_changed(changed);
@@ -1448,7 +1777,8 @@ impl Client {
         }
     }
 
-    /// The server placed the player: on a teleport or a forced position, the body goes there.
+    /// The server placed the player: on a teleport or a forced position, the body goes there. The
+    /// position's time leaves the game clock alone: only the server's time-sync sets it.
     fn server_moved_player(&mut self, p: &auberean_protocol::physics::ObjectPosition) {
         let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
         let jumped = p.teleport_stamp != self.body.teleport_stamp
@@ -1459,7 +1789,6 @@ impl Client {
         if jumped {
             self.body.place(p.cell, p.origin, heading);
         }
-        self.clock = Some((p.time, self.now));
     }
 
     fn call(&mut self, object: Option<u64>, function: u32, args: Option<&ScriptArgs>) {
@@ -1484,6 +1813,28 @@ impl Client {
         }
     }
 
+    /// Run `f` with the client's scripts lent to the data cache to name the records of each saved
+    /// state it loads (none without scripts), the model lent to the scripts meanwhile.
+    fn naming_states<T>(
+        scripts: &mut Option<Scripts>,
+        model: &mut Model,
+        named: &mut auberean_glue::data_ids::Named,
+        f: impl FnOnce(Option<&dyn auberean_assets::requests::StateRecords>) -> T,
+    ) -> T {
+        let Some(s) = scripts.as_mut() else {
+            return f(None);
+        };
+        std::mem::swap(&mut s.host.model, model);
+        let namer = auberean_glue::data_ids::StateNamer::new(&mut s.vm, &mut s.host);
+        let out = f(Some(&namer));
+        named.add(&namer.named());
+        drop(namer);
+        std::mem::swap(&mut s.host.model, model);
+        s.vm.heap.abandon_builds();
+        s.vm.stopped_at = None;
+        out
+    }
+
     /// The scripts' host with the model lent to it, as a native sees it; nothing when no scripts
     /// run.
     pub fn with_host<T>(&mut self, f: impl FnOnce(&mut host::ClientHost) -> T) -> Option<T> {
@@ -1501,7 +1852,8 @@ impl Client {
         scripts.host.model = std::mem::take(&mut self.model);
         scripts.host.history = std::mem::take(&mut self.shell);
         scripts.host.friends = self.friends.take();
-        scripts.host.clock = self.clock.map_or(0.0, |(t, at)| t + (self.now - at));
+        scripts.host.rooms = self.rooms.take();
+        scripts.host.clock = self.clock.now();
         scripts.host.my_position = self.body.placed().then(|| {
             let o = self.body.origin;
             // The heading turns the body about the up axis, clockwise from north.
@@ -1539,6 +1891,7 @@ impl Client {
         self.model = std::mem::take(&mut scripts.host.model);
         self.shell = std::mem::take(&mut scripts.host.history);
         self.friends = scripts.host.friends.take();
+        self.rooms = scripts.host.rooms.take();
         for (w, seconds) in std::mem::take(&mut scripts.host.sleeps) {
             self.waiting.push((self.now + seconds, w));
         }
@@ -1573,6 +1926,15 @@ impl Client {
                     args: ScriptArgs(args),
                 }));
             }
+        }
+        // The scripts' room lines go to the chat service on the login connection.
+        for p in self
+            .rooms
+            .as_mut()
+            .map(rooms::RoomChat::take_packets)
+            .unwrap_or_default()
+        {
+            self.send(ClientMessage::Chat(auberean_protocol::login::ChatPacket(p)));
         }
         Some(out)
     }
@@ -1612,6 +1974,12 @@ impl Client {
         Some(text::from_script(info).text(&mut scripts.host.text))
     }
 
+    /// A string reference written as the scripts write text; `None` when no scripts run.
+    pub fn write_info(&mut self, info: &auberean_text::StringInfo) -> Option<String> {
+        let scripts = self.scripts.as_mut()?;
+        Some(info.clone().text(&mut scripts.host.text))
+    }
+
     /// The player's quests as the journal asks for them, newest given first; `None` when no
     /// scripts run or there is no player.
     pub fn quests(&mut self) -> Option<Vec<auberean_script::native_object::QuestInfo>> {
@@ -1624,6 +1992,29 @@ impl Client {
     /// no player, or it has none.
     pub fn options(&mut self) -> Option<auberean_script::options::GameplayOptions> {
         self.with_scripts(Scripts::options).flatten()
+    }
+
+    /// The windows' saved places the player's scripts keep (a table's packed form); `None` when
+    /// no scripts run, there is no player, or the scripts keep none.
+    pub fn ui_save_locations(&mut self) -> Option<Vec<u8>> {
+        self.with_scripts(Scripts::ui_save_locations).flatten()
+    }
+
+    /// Keep the windows' saved places (a table's packed form) with the player's options, through
+    /// the player's interface.
+    // D2-00563, D2-01267
+    pub fn set_ui_save_locations(&mut self, table: Vec<u8>) {
+        let ty = auberean_script::native_object::native_type::UI_SAVE_LOCATIONS;
+        self.ask(
+            function::SET_UI_SAVE_LOCATIONS,
+            &[InterfaceArg::Native { ty, bytes: table }],
+        );
+    }
+
+    /// Send the windows' saved places and opacities to the server to keep.
+    // D2-00596, D2-01284
+    pub fn upload_ui_settings(&mut self) {
+        self.ask(function::UPLOAD_UI_SETTINGS, &[]);
     }
 
     /// The player's shortcuts, slot by slot, as the toolbar asks for them; `None` when no scripts
@@ -1661,6 +2052,8 @@ impl Client {
             bytes_out: s.bytes_sent,
             span: s.snapshot_duration,
             since_heard: s.time_since_last_got_data,
+            packets_in: s.pkts_received,
+            rate_in: self.session.average_bytes_per_second_received(),
         });
     }
 
@@ -1994,6 +2387,18 @@ impl Client {
             .flatten()
     }
 
+    /// An object's name as its scripts give it for a number of it, as a string reference, for a
+    /// text element to write once the string tables it reads are at hand; `None` as for
+    /// [`Self::object_name`].
+    pub fn object_name_info(
+        &mut self,
+        object: u64,
+        quantity: u32,
+    ) -> Option<auberean_text::StringInfo> {
+        self.with_scripts(|s| s.object_name_info(object, quantity))
+            .flatten()
+    }
+
     /// A line typed for the player's command line (see [`shell`]): kept among the lines typed,
     /// expanded, then carried out (a command's function called on the player with the line's
     /// words and the rest of the line). Returns how it went; `Failure` for an empty line or with no
@@ -2085,6 +2490,10 @@ impl Client {
             let time = self.game_time();
             let report = self.body.report(self.now, time);
             self.send(ClientMessage::Position(report));
+        }
+        let time = self.game_time();
+        if self.should_send_head(time) {
+            self.send_head(time);
         }
     }
 

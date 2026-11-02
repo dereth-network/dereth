@@ -40,7 +40,8 @@ use crate::land::{cell_of, land_cell_id, Land};
 use crate::solid;
 
 /// The game objects for a host that has none: no object is of a kind a detection reports, and
-/// nothing is noted of any.
+/// nothing is noted of any (an object's own note starts its sighting over with its own id, which
+/// the sighting already has).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoGameObjects;
 
@@ -48,11 +49,12 @@ impl GameObjects for NoGameObjects {
     fn matches(&self, _object: u64, _report: &ReportType) -> bool {
         false
     }
+    // D2-08064
     fn note(&self, _object: u64, _sighting: &mut Sighting) {}
 }
 
 /// What a line of sight traces: the physics shapes of the surroundings and of what stands in them.
-const PHYSICS_SHAPES: u32 = 0;
+pub(crate) const PHYSICS_SHAPES: u32 = 0;
 /// What a line of sight traces: the drawn surfaces.
 const DRAWN_SURFACES: u32 = 1;
 /// What a line of sight traces: doorways only, the second of these going through those that lead

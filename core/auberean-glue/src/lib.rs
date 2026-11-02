@@ -20,9 +20,12 @@
 //! - [`adaptors`]: the objects scripts fill for the interface's panels.
 //! - [`combat`]: what a hit shows: its effects and behaviors, and the floating text.
 //! - [`missile`]: what a missile is: its flight, its aim and what it passes through.
+//! - [`motion`]: how a body is asked to move, turn and be placed; headings and rays.
 //! - [`story`]: the story's acts, scenes and keyframes, as the quest window's story page reads them.
 //! - [`quests`]: a quest's record and the player's list of them, as the journal reads them.
+//! - [`selection`]: a table of words picked at random by weight, each once until it starts over.
 //! - [`entity`]: entity descriptions, filled from entity records and asked for properties.
+//! - [`data_ids`]: the records a saved state needs, as its scripts gather them.
 //! - [`behavior`]: the parameters of a behavior an object is asked to play.
 //! - [`options`]: the player's options profile and its shortcuts.
 //! - [`chat_options`]: the chat's part of the options profile, as the chat windows read it.
@@ -30,6 +33,7 @@
 //! - [`friends`]: a friend's state as the friends service gives it.
 //! - [`position`]: positions (their parts, distances, land and map coordinates, text) and vectors.
 //! - [`text`]: strings and the string-building natives.
+//! - [`names`]: the client's table of file names: a record's id by its file's name, and back.
 //! - [`containers`]: hashes, sets, lists and arrays, and their iterators.
 //! - [`buffer`]: argument buffers, and sending a call to the other side.
 //! - [`color`]: colors, set whole, by their alpha or as 32-bit colors, and attenuated.
@@ -50,6 +54,7 @@ pub mod chat_options;
 pub mod color;
 pub mod combat;
 pub mod containers;
+pub mod data_ids;
 pub mod debug;
 pub mod effects;
 pub mod entity;
@@ -58,10 +63,14 @@ pub mod examination;
 pub mod friends;
 pub mod machine;
 pub mod missile;
+pub mod motion;
+pub mod names;
 pub mod numbers;
 pub mod options;
 pub mod position;
 pub mod quests;
+pub mod selection;
+pub mod skill_nodes;
 pub mod story;
 pub mod stubs;
 pub mod text;
@@ -75,14 +84,18 @@ pub fn natives(lib: &Library) -> NativeTable {
     adaptors::bind(&mut t);
     combat::bind(&mut t);
     missile::bind(&mut t);
+    motion::bind(&mut t);
     text::bind(&mut t);
     buffer::bind(&mut t);
     numbers::bind(&mut t);
     debug::bind(&mut t);
     story::bind(&mut t);
     quests::bind(&mut t);
+    selection::bind(&mut t);
     entity::bind(&mut t);
+    data_ids::bind(&mut t);
     enums::bind(&mut t);
+    names::bind(&mut t);
     examination::bind(&mut t);
     behavior::bind(&mut t);
     color::bind(&mut t);
@@ -90,6 +103,7 @@ pub fn natives(lib: &Library) -> NativeTable {
     effects::bind(&mut t);
     friends::bind(&mut t);
     position::bind(&mut t);
+    skill_nodes::bind(&mut t);
     containers::bind(&mut t, lib);
     t
 }

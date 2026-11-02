@@ -68,7 +68,7 @@ impl Ui {
 
     /// A framework goes: a child leaves its parent's children; a screen's top removes the
     /// elements it made; its listening is undone.
-    // D2-11900, D2-11895, D2-11878, D2-11882, D2-11897, D2-11891
+    // D2-11900, D2-11895, D2-11878, D2-11882, D2-11897, D2-11891, D2-11905, D2-11893
     pub fn drop_frame(&mut self, f: FrameId) {
         let Some(d) = self.frame(f).cloned() else {
             return;
@@ -243,11 +243,18 @@ impl Ui {
             .unwrap_or_default()
     }
 
-    /// The kept places of the screen's top-level elements whose place is kept (`save_loc`).
-    // D2-11888
+    /// The kept places of the screen's top-level elements whose place is kept (`save_loc`), each
+    /// by its layout and name.
+    // D2-11888, D2-13082
     #[must_use]
     pub fn frame_inq_locations(&self, f: FrameId) -> Locations {
-        let mut out = Locations::new();
+        self.frame_kept_places(f).into_iter().collect()
+    }
+
+    /// As [`Ui::frame_inq_locations`], in the order the screen's top made its elements.
+    #[must_use]
+    pub fn frame_kept_places(&self, f: FrameId) -> Vec<((u32, Token), Location)> {
+        let mut out = Vec::new();
         for r in self.frame_roots(f) {
             let Some(n) = self.node(r) else { continue };
             let layout = self
@@ -255,7 +262,7 @@ impl Ui {
                 .layout(self.library().get(n.refdesc).layout)
                 .id;
             if let Some(loc) = self.location(r) {
-                out.insert((layout, n.id), loc);
+                out.push(((layout, n.id), loc));
             }
         }
         out
@@ -263,7 +270,7 @@ impl Ui {
 
     /// Put the screen's top-level elements back where they were kept: nothing moves unless every
     /// kept element still keeps its place; then each takes its place and the children are told.
-    // D2-11889, D2-11881
+    // D2-11889, D2-11881, D2-13077
     pub fn frame_apply_locations(&mut self, f: FrameId, kept: &Locations) -> bool {
         let roots = self.frame_roots(f);
         let key = |ui: &Self, r: Handle| {

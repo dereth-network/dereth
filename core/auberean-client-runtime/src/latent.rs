@@ -48,6 +48,13 @@ pub struct Waiting {
     pub context: u32,
 }
 
+/// An object's scripts' process goes: every call of it that waits, to sleep out or to go on after
+/// a wait was closed, is dropped, the others kept in order.
+// D2-05199, D2-05194
+pub fn purge(waiting: &mut Vec<(f64, Waiting)>, process: usize) {
+    waiting.retain(|(_, w)| w.process != process);
+}
+
 /// The sleep native: the receiver's call is left suspended for `fp[-3..-2]` seconds (a 64-bit
 /// float, low word first), marked as waiting in the sleep unless it waits in something already.
 // D2-04660, D2-08094
@@ -151,8 +158,8 @@ impl Scripts {
         })
     }
 
-    /// A call whose wait was closed goes on from where it stands.
-    // D2-08080, D2-08036
+    /// A call whose wait was closed goes on from where it stands; finished or crashed, it goes.
+    // D2-08080, D2-08036, D2-08037
     pub fn go_on(&mut self, w: Waiting) -> Option<CallResult> {
         let mut cx = self.vm.take_suspended(w.process, w.context)?;
         self.vm.budget = crate::host::BUDGET;

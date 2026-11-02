@@ -13,7 +13,9 @@ use auberean_ui::token::{attr, msg};
 use auberean_ui::{Handle, Mail, Ui, Value as Attr};
 
 use crate::flow::mode;
-use crate::pregame::{self, message, Connection, Data, Notice, Request, Screen, INVALID_ID};
+use crate::pregame::{
+    self, message, ConnectError, Connection, Data, Notice, Request, Screen, INVALID_ID,
+};
 
 /// The layout the screen is built from, by enumeration value.
 pub const LAYOUT_ENUM: u32 = 0x4100_000D;
@@ -43,6 +45,27 @@ pub mod event {
     pub const DONE: u32 = 3;
     /// More bytes came (the value: how many).
     pub const PROGRESS: u32 = 4;
+}
+
+/// The connection errors' string table, by enumeration value.
+pub const CONNECTION_ERRORS: u32 = 0x4000_0005;
+
+/// The errors the connecting screen words its own way, by identifier.
+const GENERIC: &str = "ID_ConnectionError_Generic";
+const CANT_CRYPTO: &str = "ID_NetError_CantCrypto";
+const LOGON_SERVER_MIGRATED: &str = "ID_ConnectionError_LogonServerMigrated";
+const SERVER_CLOSED_CONNECTION: &str = "ID_ConnectionError_ServerClosedConnection";
+
+/// A connection error's own line, written with its variables; empty when the table has none.
+fn connection_error(ui: &Ui, error: &str, vars: &[(&str, Value)]) -> String {
+    let table = ui
+        .assets()
+        .data_id_by_enum(CONNECTION_ERRORS, crate::flow::TABLE_MAPPING);
+    let mut info = auberean_text::StringInfo::entry(table, auberean_ui::Token::of(error).raw());
+    for (n, v) in vars {
+        info.add_var(auberean_ui::Token::of(n).raw(), v.clone());
+    }
+    ui.assets().write(&info).unwrap_or_default()
 }
 
 /// The connecting screen.
@@ -103,22 +126,50 @@ impl DataPatch {
         out.push(Request::Connect);
     }
 
-    /// The connection failed: the disconnected screen, with why: the server and port the client
-    /// could not reach.
+    /// The connection failed with `error` (its identifier: the login refused, or the login
+    /// server letting its connection go): the disconnected screen, with why. The server's address
+    /// not understood names the host; the generic error, the server and port the client could not
+    /// reach; any other, its own line. An error with no line of its own leaves the screen as it is
+    /// (a migrated login server's says the server closed the connection).
     // D2-01737
-    fn on_connect_failed(&mut self, ui: &mut Ui, host: &str, port: u16, out: &mut Vec<Request>) {
-        let error = message(
-            ui,
-            "ID_NetErr_Error",
-            &[
-                (
-                    "host",
-                    Value::Text(Box::new(auberean_text::StringInfo::literal(host))),
-                ),
-                ("port", Value::Int(i32::from(port))),
-            ],
-        );
-        if error.is_empty() {
+    fn on_connect_failed(
+        &mut self,
+        ui: &mut Ui,
+        host: &str,
+        port: u16,
+        error: &ConnectError,
+        out: &mut Vec<Request>,
+    ) {
+        let host_value = || Value::Text(Box::new(auberean_text::StringInfo::literal(host)));
+        let ConnectError::Named(error) = error else {
+            let text = message(ui, "ID_NetErr_ResolveHostname", &[("host", host_value())]);
+            Self::connect_failed_with(ui, &text, out);
+            return;
+        };
+        let error = error.as_str();
+        let mut text = match error {
+            GENERIC => message(
+                ui,
+                "ID_NetErr_Error",
+                &[
+                    ("host", host_value()),
+                    ("port", Value::Int(i32::from(port))),
+                ],
+            ),
+            // The host's last crypto error, which this client never has.
+            CANT_CRYPTO => connection_error(ui, error, &[("error", Value::Int(0))]),
+            _ => connection_error(ui, error, &[]),
+        };
+        if text.is_empty() && error == LOGON_SERVER_MIGRATED {
+            text = connection_error(ui, SERVER_CLOSED_CONNECTION, &[]);
+        }
+        Self::connect_failed_with(ui, &text, out);
+    }
+
+    /// The disconnected screen, saying the connection failed with this error's line (none: the
+    /// screen stays as it is).
+    fn connect_failed_with(ui: &Ui, text: &str, out: &mut Vec<Request>) {
+        if text.is_empty() {
             return;
         }
         let text = message(
@@ -126,7 +177,7 @@ impl DataPatch {
             "ID_DataPatch_ConnectFailed",
             &[(
                 "error",
-                Value::Text(Box::new(auberean_text::StringInfo::literal(&error))),
+                Value::Text(Box::new(auberean_text::StringInfo::literal(text))),
             )],
         );
         out.push(Request::Mode(mode::DISCONNECTED, text));
@@ -151,8 +202,8 @@ impl DataPatch {
                 self.downloading = true;
                 return;
             }
-            Connection::Failed { host, port } => {
-                self.on_connect_failed(ui, host, *port, out);
+            Connection::Failed { host, port, error } => {
+                self.on_connect_failed(ui, host, *port, error, out);
                 return;
             }
         };
@@ -318,6 +369,7 @@ impl Screen for DataPatch {
     fn notice(&mut self, ui: &mut Ui, data: &mut Data, n: &Notice, out: &mut Vec<Request>) {
         match n {
             Notice::Net(s) => self.on_net_status_change(ui, s, out),
+            Notice::Ddd { event, value } => self.on_ddd_event(ui, *event, *value),
             Notice::Heartbeat { rate, received } if self.downloading => {
                 self.on_heartbeat(ui, *rate, *received);
             }

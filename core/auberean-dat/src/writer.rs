@@ -140,7 +140,7 @@ impl Writer {
     }
 
     /// Zeros to the next multiple of four bytes from the start of the record.
-    // D2-03470
+    // D2-03470, D2-00237
     pub fn align(&mut self) {
         while !self.buf.len().is_multiple_of(4) {
             self.buf.push(0);

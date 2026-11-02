@@ -83,6 +83,9 @@ pub mod attr {
     pub const HIDE: Token = Token::of("hide");
     pub const MOUSE_INVISIBLE: Token = Token::of("mouse_invisible");
     pub const SIZE_IMAGE_TO_OWNER: Token = Token::of("size_image_to_owner");
+    /// A top-level element drawn into no picture of its own: it takes the pointer over its
+    /// rectangle but shows nothing.
+    pub const NO_SURFACE_OBJECT: Token = Token::of("no_surface_object");
     pub const ALPHA_VALUE: Token = Token::of("alpha_value");
     // Buttons.
     pub const GHOSTED: Token = Token::of("ghosted");

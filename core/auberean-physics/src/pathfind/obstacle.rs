@@ -13,7 +13,7 @@ use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use super::map::PathMap;
 use crate::geom::Ray;
-use crate::pack::{read_vec3, write_vec3, Writer};
+use crate::pack::{read_vec3, write_vec3, Writer, BBOX_SIZE};
 
 /// The record type of an obstacle description.
 // D2-13644
@@ -27,10 +27,9 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    /// Kept as the client has it: a box is stored with a leading word the client copies over the
-    /// box's own type in memory, so a reader passes over it.
+    /// The two corners, low then high: six floats.
+    // D2-13224
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
-        r.u32()?;
         Ok(Self {
             min: read_vec3(r)?,
             max: read_vec3(r)?,
@@ -38,7 +37,6 @@ impl Bounds {
     }
 
     pub fn write(&self, w: &mut Writer) {
-        w.u32(0);
         write_vec3(w, self.min);
         write_vec3(w, self.max);
     }
@@ -79,9 +77,10 @@ pub struct Footprint {
 
 impl Footprint {
     /// The boxes, then the cylinders, each counted.
+    // D2-13657
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            boxes: r.list(28, Bounds::read)?,
+            boxes: r.list(BBOX_SIZE, Bounds::read)?,
             cylinders: r.list(20, Cylinder::read)?,
         })
     }
@@ -276,7 +275,7 @@ impl ObstacleShape {
 
     /// The record (see the module's header); its path map is read as a record of its own, id
     /// first.
-    // D2-13651
+    // D2-13651, D2-13649
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         let footprint = Footprint::read(r)?;
         let has_map = r.u32()? != 0;

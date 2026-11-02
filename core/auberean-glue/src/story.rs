@@ -17,7 +17,9 @@
 //! - **A list of scenes** keeps copies: added at the end or after those whose number is no
 //!   greater, the first taken as for acts, its size read.
 //! - **A keyframe** is read and set field by field: setting a track, the subtitle or the movie
-//!   also marks it defined; its duration is a 64-bit float stored through the floating-point unit
+//!   also marks it defined (a track named by its file is the id the client's table of file names
+//!   gives, 0 on an install of the relaunched game: the track is then defined and empty); its
+//!   duration is a 64-bit float stored through the floating-point unit
 //!   (a signalling not-a-number comes out quiet); its subtitle and movie are read back as new
 //!   copies.
 //!
@@ -54,16 +56,20 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (KEYFRAME, 0x06, key_set_number),
     (KEYFRAME, 0x07, key_video),
     (KEYFRAME, 0x08, key_set_video),
+    (KEYFRAME, 0x09, key_set_video_by_name),
     (KEYFRAME, 0x0A, key_audio),
     (KEYFRAME, 0x0B, key_set_audio),
+    (KEYFRAME, 0x0C, key_set_audio_by_name),
     (KEYFRAME, 0x0D, key_voice),
     (KEYFRAME, 0x0E, key_set_voice),
+    (KEYFRAME, 0x0F, key_set_voice_by_name),
     (KEYFRAME, 0x10, key_subtitle),
     (KEYFRAME, 0x11, key_set_subtitle),
     (KEYFRAME, 0x12, key_movie),
     (KEYFRAME, 0x13, key_set_movie),
     (KEYFRAME, 0x14, key_duration),
     (KEYFRAME, 0x15, key_set_duration),
+    (SCENE_INFO, 0x02, scene_records),
     (SCENE_INFO, 0x04, scene_clear),
     (SCENE_INFO, 0x05, scene_id),
     (SCENE_INFO, 0x06, scene_set_id),
@@ -376,6 +382,32 @@ fn scene_set_playable(c: &mut Call<'_>) -> Result<Status, Stop> {
     set(c, scene_mut, |s, v| s.playable = v)
 }
 
+/// A keyframe's records, asked about records of type `kind`: its video, audio and voice records
+/// (unless the type is one the tracks are never fetched for), then its subtitle's tables.
+// D2-12320
+fn keyframe_records(k: &Keyframe, kind: u32, out: &mut auberean_dat::QualifiedIds) {
+    if crate::data_ids::tracks_asked(kind) {
+        out.add(k.video);
+        out.add(k.audio);
+        out.add(k.voice);
+    }
+    crate::text::to_formatter(&k.subtitle).sub_data_ids(out);
+}
+
+/// Every keyframe's records, asked about records of the type at `fp[-2]`, into the set the
+/// reference at `fp[-3]` holds.
+// D2-01645, D2-12288
+fn scene_records(c: &mut Call<'_>) -> Result<Status, Stop> {
+    with_receiver!(c, r);
+    let kind = c.cx.at(-2)?;
+    let frames = scene_mut(c, r)?.keyframes.clone();
+    let out = crate::data_ids::out_ids(c, -3)?;
+    for k in &frames {
+        keyframe_records(k, kind, out);
+    }
+    Ok(Status::Success)
+}
+
 // D2-01635, D2-12287, D2-12337
 fn scene_clear_for_hackers(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
@@ -502,6 +534,56 @@ fn key_set_audio(c: &mut Call<'_>) -> Result<Status, Stop> {
         k.audio = v;
         k.tracks |= track::AUDIO;
     })
+}
+
+/// A track's id from the file name at `fp[-2]` (typed by its extension), for a keyframe that is
+/// there: none for a null receiver, which crashes the call.
+fn track_by_name(c: &mut Call<'_>) -> Result<Option<(u32, u32)>, Stop> {
+    let Some(r) = receiver(c)? else {
+        return Ok(None);
+    };
+    let n = c.cx.at(-2)?;
+    if n == NULL {
+        return Err(c.fail("a track's file name is the null reference"));
+    }
+    let name = text_of(c, n)?;
+    Ok(Some((r, crate::names::id_by_file_name(c, &name))))
+}
+
+/// The video track by its file's name.
+// D2-01608, D2-12331
+fn key_set_video_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, id)) = track_by_name(c)? else {
+        return Ok(Status::Crash);
+    };
+    let k = key_mut(c, r)?;
+    k.video = id;
+    k.tracks |= track::VIDEO;
+    Ok(Status::Success)
+}
+
+/// The audio track by its file's name.
+// D2-01603, D2-12332
+fn key_set_audio_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, id)) = track_by_name(c)? else {
+        return Ok(Status::Crash);
+    };
+    let k = key_mut(c, r)?;
+    k.audio = id;
+    k.tracks |= track::AUDIO;
+    Ok(Status::Success)
+}
+
+/// The voice track by its file's name.
+// D2-01610, D2-12333
+fn key_set_voice_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((r, id)) = track_by_name(c)? else {
+        return Ok(Status::Crash);
+    };
+    let k = key_mut(c, r)?;
+    k.voice = id;
+    k.tracks |= track::VOICE;
+    Ok(Status::Success)
 }
 
 // D2-01372

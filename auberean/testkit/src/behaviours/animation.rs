@@ -162,6 +162,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "animation.records.each-animation-kind-answers-its-number",
+        says: "Each kind of animation answers the number its records give it: keyframes 40000001, \
+               a blend 40000002, a body's 40000003, a look 40000005, an axis cube 40000006, a \
+               random node 40000007, a switch 40000008, the angle limits 4000000A (hexadecimal).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-KINDS"),
+        station: "auberean-animation::cpu::records::each_animation_kind_answers_its_number",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "animation.records.every-animation-decodes-and-plays",
         says: "Every animation record of the end-of-retail set decodes, every keyed track starts \
                at time 0, and every animation has a period and plays into a pose of numbers.",
@@ -187,6 +197,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ANIM-SCRIPTS"),
         station: "auberean-animation::cpu::scripts::a_script_plays_once_over_its_period",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "animation.setups.a-place-not-read-from-a-setup-is-on-no-bone",
+        says: "A holding location or connection point not yet read from a setup is of kind 0 and \
+               on no bone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-EMPTY-LOCATION"),
+        station: "auberean-animation::cpu::records::a_place_not_read_from_a_setup_is_on_no_bone",
         tier: Tier::Cpu,
     },
     behaviour! {

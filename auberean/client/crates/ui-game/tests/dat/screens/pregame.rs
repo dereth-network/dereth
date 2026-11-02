@@ -13,7 +13,7 @@ use auberean_ui_game::disconnected::Disconnected;
 use auberean_ui_game::flow::mode;
 use auberean_ui_game::intro::Intro;
 use auberean_ui_game::pregame::{
-    Avatar, Character, CharacterSet, Connection, Data, Notice, Request, Screen,
+    Avatar, Character, CharacterSet, ConnectError, Connection, Data, Notice, Request, Screen,
 };
 
 use crate::common::records;
@@ -270,6 +270,7 @@ fn connecting_says_how_it_goes_and_the_list_leads_on() {
     r.tell(&Notice::Net(Connection::Failed {
         host: "127.0.0.1".into(),
         port: 9000,
+        error: ConnectError::Named("ID_ConnectionError_Generic".into()),
     }));
     assert_eq!(
         r.take(),
@@ -318,6 +319,40 @@ fn connecting_says_how_it_goes_and_the_list_leads_on() {
             Request::Mode(mode::GAMEPLAY, String::new())
         ]
     );
+}
+
+/// A login refused, or a login server letting its connection go, with an error leads from
+/// connecting to the disconnected screen with that error's own line; an address the client cannot
+/// understand names the host; an error with no line of its own leaves the screen as it is.
+///
+/// Behaviour: ui.datapatch.a-failed-connection-says-its-errors-own-line
+#[test]
+fn a_failed_connection_says_its_errors_own_line() {
+    let failed = |error: ConnectError| {
+        let mut r = Run::new();
+        r.show(|ui, data, out| Box::new(DataPatch::new(ui, data, out)));
+        r.take();
+        r.tell(&Notice::Net(Connection::Failed {
+            host: "example".into(),
+            port: 9000,
+            error,
+        }));
+        r.take()
+    };
+    let shown = |error: ConnectError| match failed(error.clone()).as_slice() {
+        [Request::Mode(m, text)] if *m == mode::DISCONNECTED => text.clone(),
+        other => panic!("{error:?}: {other:?}"),
+    };
+    let named = |id: &str| ConnectError::Named(id.into());
+    assert_eq!(
+        shown(named("ID_ConnectionError_ServerFull")),
+        "Connection failed:\n Server Full"
+    );
+    assert_eq!(
+        shown(ConnectError::BadAddress),
+        "Connection failed:\n Couldn't look up server hostname 'example'."
+    );
+    assert_eq!(failed(named("")), Vec::new(), "no line of its own");
 }
 
 /// The disconnected screen shows why the session ended, and its button leaves the game.

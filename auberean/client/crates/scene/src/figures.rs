@@ -207,3 +207,18 @@ pub(crate) fn global(cell: u32, origin: Vec3) -> Vec3 {
         origin.z,
     )
 }
+
+/// An opacity under this is none: the figure is not to be seen.
+const UNSEEN: f32 = 0.0002;
+
+/// Whether a figure is to be seen: its animation's opacity (its fade slider, held to 0..1) is not
+/// under 0.0002.
+// D2-05875
+#[must_use]
+pub fn is_visible(figure: &auberean_animation::body::Body) -> bool {
+    let opacity = figure
+        .sliders
+        .current(auberean_physics::body::parent::FADE_SLIDER)
+        .clamp(0.0, 1.0);
+    opacity >= UNSEEN
+}

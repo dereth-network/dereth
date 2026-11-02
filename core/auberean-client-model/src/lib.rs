@@ -12,6 +12,7 @@
 //!
 //! **Must never** do I/O or read a clock: times come in as numbers.
 
+pub mod characters;
 pub mod events;
 pub mod ids;
 pub mod model;

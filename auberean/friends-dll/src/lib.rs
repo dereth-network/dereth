@@ -37,7 +37,9 @@
 //! RUSTFLAGS=-Ctarget-feature=+crt-static cargo build -p auberean-friends-dll --release --target i686-pc-windows-msvc
 //! ```
 //!
-//! Its tests on that target also load the built library and call it as the retail client does
+//! Cargo writes it as `auberean_friends_dll.dll`, apart from the friends stream's own library;
+//! `cargo xtask package friends-dll`, and `cargo xtask build` on Windows, build it and name it
+//! `auberean_friends.dll`, the name the launcher carries it under. Its tests on that target also load the built library and call it as the retail client does
 //! (`cargo test -p auberean-friends-dll --target i686-pc-windows-msvc`). The example
 //! `friends-world` serves the friends stream alone, for trying the library with the retail client
 //! beside a server that has no friends service.

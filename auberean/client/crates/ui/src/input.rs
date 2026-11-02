@@ -90,7 +90,7 @@ impl Ui {
     }
 
     /// The pointer came over the element or left it.
-    // D2-11304
+    // D2-11304, D2-11179
     pub(crate) fn element_mouse_over(&mut self, h: Handle, on: bool, _handled: &mut bool) {
         if let Some(n) = self.node_mut(h) {
             n.over = on;
@@ -100,7 +100,7 @@ impl Ui {
 
     /// The element became or stopped being the topmost under the pointer; becoming it shows the
     /// element's cursor, when it has one.
-    // D2-11305
+    // D2-11305, D2-11180
     pub(crate) fn element_mouse_over_top(&mut self, h: Handle, on: bool, _handled: &mut bool) {
         if let Some(n) = self.node_mut(h) {
             n.over_top = on;
@@ -463,6 +463,8 @@ impl Ui {
         }
     }
 
+    /// Whether the element has a cursor of its own.
+    // D2-11322
     pub(crate) fn has_cursor(&self, h: Handle) -> bool {
         self.node(h)
             .and_then(|n| n.cursor)
@@ -477,8 +479,8 @@ impl Ui {
 
     /// What a yes-or-no attribute does when it changes: hiding shows or hides the element,
     /// `activatable` counts it among those that take the keyboard, `mouse_invisible` lets the
-    /// pointer through; then what its kind does.
-    // D2-11383
+    /// pointer through; then what its kind does (a panel's are any element's).
+    // D2-11383, D2-11642
     pub(crate) fn bool_changed(&mut self, h: Handle, a: Token, v: bool) {
         if a == attr::ACTIVATABLE {
             self.update_activatable(h);
@@ -487,10 +489,17 @@ impl Ui {
             self.set_visible(h, !v);
         }
         if a == attr::MOUSE_INVISIBLE {
-            if let Some(n) = self.node_mut(h) {
-                n.mouse_visible = !v;
-            }
+            self.set_mouse_visible(h, !v);
         }
         self.kind_bool_changed(h, a, v);
+    }
+
+    /// Whether the pointer sees the element (a region it does not see lets the pointer through to
+    /// what is under it).
+    // D2-11155
+    pub(crate) fn set_mouse_visible(&mut self, h: Handle, on: bool) {
+        if let Some(n) = self.node_mut(h) {
+            n.mouse_visible = on;
+        }
     }
 }

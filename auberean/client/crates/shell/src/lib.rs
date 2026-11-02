@@ -4,12 +4,13 @@
 //!
 //! **Depends on** the client (`auberean-client-sdk`), the world a window shows (`auberean-scene`),
 //! drawing's frame (`auberean-draw`), the world (`auberean-world`, `auberean-physics`), the key
-//! maps' records and files (`auberean-assets`, `auberean-dat`), `auberean-primitives` and
+//! maps' records and files (`auberean-assets`, `auberean-dat`), the game's sound
+//! (`auberean-audio`) and the sound device's seam (`dereth-audio`), `auberean-primitives` and
 //! `dereth-primitives`. **Used by** the desktop client (`auberean-client`), which is its host, and
 //! by the game's interface, which plugs in through [`interface::Interface`].
 //!
 //! A [`Shell`] is generic over its [`Host`] (the platform: clock, network, pointer, title,
-//! settings and the player's files) and holds one [`interface::Interface`]. Each event goes to the
+//! settings, the player's files and the sound device) and holds one [`interface::Interface`]. Each event goes to the
 //! interface first and, if the interface does not take it, to the world's controls
 //! ([`controls`]), which turn it into actions through the key maps ([`keys`]): the player's,
 //! read from their files at startup and written when the key map screen applies new ones. Each frame
@@ -21,26 +22,33 @@
 //! 3. in the world, the controls' intent moves the body and the camera ([`auberean_scene`]), and
 //!    selecting and using objects become the server calls the client makes ([`calls`]);
 //! 4. the client runs its frame, and what it sends goes out through the host;
-//! 5. the frame to draw is the scene's, with the interface's overlay (and the developer's status
+//! 5. the sounds the interface asked for and the world's effects played are played, with the
+//!    listener at the camera ([`sound`]);
+//! 6. the frame to draw is the scene's, with the interface's overlay (and the developer's status
 //!    overlay when asked for, [`dev`]) over it.
 //!
 //! **Must never** name a platform (a window system, the operating system, a sound device): the
 //! host brings those (`cargo xtask seams`).
 
 pub mod calls;
+pub mod command_line;
 pub mod controls;
 pub mod dev;
 pub mod host;
 pub mod input;
 pub mod interface;
 pub mod keys;
+pub mod preferences;
+pub mod profile;
 pub mod settings;
+pub mod sound;
 
 use std::collections::VecDeque;
 
 use core::net::SocketAddr;
 
 use auberean_client_sdk::net::LocalTime;
+use auberean_client_sdk::runtime::SessionEnd;
 use auberean_client_sdk::{Client, ClientData, ClientSettings};
 use auberean_draw::scene::Frame;
 use auberean_scene::{Scene, WorldData};
@@ -70,6 +78,12 @@ macro_rules! game {
             seen: &$s.scene.seen,
             world_pick: $s.world_pick,
             keys: &$s.keys,
+            screens_sound: $s
+                .sound
+                .has_device()
+                .then(|| !$s.sound.finished(interface::SoundSlot::Screens)),
+            stopped: $s.stopped,
+            ended: $s.ended,
         }
     };
 }
@@ -91,6 +105,9 @@ pub struct Output<'a> {
     pub overlay: &'a Overlay,
     /// The interface's viewport scenes, each to be drawn in its rectangle.
     pub views: Vec<auberean_scene::view::ViewFrame>,
+    /// The landblocks whose objects fade in, each with the opacity its objects are drawn at
+    /// (see [`auberean_scene::Frames::fade`]).
+    pub fade: Vec<((u8, u8), f32)>,
     /// The program should close.
     pub quit: bool,
 }
@@ -117,6 +134,10 @@ pub struct Shell<'w, H: Host> {
     entering: bool,
     /// How many entry refusals the shell has seen (a refusal ends the entering).
     refusals: u32,
+    /// The notice that stopped the last session (the data download could not store a record).
+    stopped: Option<u32>,
+    /// How the last session ended under the player, when the server ended it.
+    ended: Option<SessionEnd>,
     /// Seconds the last frame spent moving the world, in the client, and framing the world.
     pub costs: [f64; 3],
     quit: bool,
@@ -131,6 +152,8 @@ pub struct Shell<'w, H: Host> {
     notices: Vec<Notice>,
     overlay: Overlay,
     title_at: f64,
+    /// The account the player logged in with, as typed, which the window's title names.
+    account: String,
     /// The answer to the interface's last pick in the world, for its next frame.
     world_pick: Option<Option<u64>>,
     /// The client's random numbers: one generator for the program's life, never seeded, which
@@ -138,6 +161,8 @@ pub struct Shell<'w, H: Host> {
     random: auberean_primitives::random::Random,
     /// Where the friends service is for the next session.
     pub friends: FriendsService,
+    /// The game's sound.
+    pub sound: sound::Sound,
 }
 
 /// Where a session finds the friends service.
@@ -200,6 +225,7 @@ impl<'w, H: Host> Shell<'w, H> {
         scene.set_random(&random);
         interface.set_random(&random);
         scene.camera = auberean_scene::CameraControl::new(settings.camera);
+        interface.set_preferences(&settings, &world.records);
         interface.set_graphics(&graphics);
         // The key maps: the base map, then the player's from their files (the data's Defaults where
         // a file does not load).
@@ -209,6 +235,11 @@ impl<'w, H: Host> Shell<'w, H> {
             &mut crate::host::HostFiles(&mut host),
         );
         let last = host.now();
+        let sound = sound::Sound::start(
+            &mut host,
+            data.files.files.clone(),
+            auberean_scene::BLOCK_LENGTH,
+        );
         Self {
             size: settings.window,
             host,
@@ -224,6 +255,8 @@ impl<'w, H: Host> Shell<'w, H> {
             dev_overlay: false,
             entering: false,
             refusals: 0,
+            stopped: None,
+            ended: None,
             costs: [0.0; 3],
             quit: false,
             last,
@@ -234,9 +267,11 @@ impl<'w, H: Host> Shell<'w, H> {
             notices: Vec::new(),
             overlay: Overlay::default(),
             title_at: f64::NEG_INFINITY,
+            account: String::new(),
             world_pick: None,
             random,
             friends: FriendsService::default(),
+            sound,
         }
     }
 
@@ -314,6 +349,12 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.scene.init_preferences(&g);
                 self.settings.graphics = Some(g);
             }
+            Request::KeepPreferences(writes) => {
+                for (section, key, value) in &writes {
+                    self.settings.keep(section, key, value);
+                }
+                self.host.save_settings(&self.settings.write());
+            }
             Request::Move { action, extent } => {
                 self.controls.action_handler(
                     &self.keys,
@@ -323,6 +364,8 @@ impl<'w, H: Host> Shell<'w, H> {
                     action,
                 );
             }
+            Request::Sound(r) => self.sound.request(r),
+            Request::InputMethod(area) => self.host.set_input_method(area),
             Request::KeyMaps(maps) => {
                 let [n, s, c] = &maps;
                 if !self
@@ -350,14 +393,49 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
             CameraRequest::Zoom { inward } => cam.press(Press::Wheel(if inward { 1 } else { -1 })),
+            CameraRequest::Options(o) => {
+                cam.options = o;
+                cam.apply_options();
+                self.settings.camera = o;
+            }
         }
     }
 
+    /// The client stops for notice `notice`: the session ends where it is (no goodbye is said),
+    /// and the interface is told why.
+    // D2-09653, D2-17492
+    fn stop(&mut self, notice: u32) {
+        tracing::error!(
+            notice = format_args!("{notice:#x}"),
+            line = auberean_client_sdk::runtime::download::notice_line(notice),
+            "the client stops"
+        );
+        self.stopped = Some(notice);
+        if self.client.take().is_some_and(|c| c.friends().is_some()) {
+            self.host.friends_close();
+        }
+        self.entering = false;
+    }
+
+    /// The session ended under the player (the login failed, or the server is gone): the
+    /// session ends where it is, and the interface is told how.
+    fn end(&mut self, end: SessionEnd) {
+        tracing::info!(?end, "the session ended");
+        self.ended = Some(end);
+        if self.client.take().is_some_and(|c| c.friends().is_some()) {
+            self.host.friends_close();
+        }
+        self.entering = false;
+    }
+
     fn connect(&mut self, server: SocketAddr, account: &str, password: &str) {
+        self.stopped = None;
+        self.ended = None;
         if let Err(e) = self.host.connect(server) {
             tracing::warn!(%server, "cannot reach the server: {e}");
             return;
         }
+        account.trim().clone_into(&mut self.account);
         let mut key = [0u8; 64];
         self.host.random(&mut key);
         let settings = ClientSettings {
@@ -370,6 +448,8 @@ impl<'w, H: Host> Shell<'w, H> {
         };
         let mut client = Client::new(settings, self.data.clone());
         client.set_random(&self.random);
+        let local = self.host.local_system();
+        client.with_host(|h| h.set_local(local));
         client.observe.extend(HEARD_CALLS);
         if self.client.as_ref().is_some_and(|c| c.friends().is_some()) {
             self.host.friends_close();
@@ -543,6 +623,7 @@ impl<'w, H: Host> Shell<'w, H> {
                     kind: s.kind,
                     about: s.about,
                     text,
+                    info: Some(auberean_client_sdk::runtime::text::from_script(&s.text)),
                 });
             }
         }
@@ -634,6 +715,14 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
         }
+        // A record the data download could not store stops the client: the session ends there,
+        // and the interface says why.
+        if let Some(notice) = self.client.as_ref().and_then(|c| c.data_download().fatal) {
+            self.stop(notice);
+        }
+        if let Some(end) = self.client.as_ref().and_then(Client::session_end) {
+            self.end(end);
+        }
         self.carry_friends(stream_now);
         let phase_now = self.phase();
         let free = self.interface.wants_pointer(&game!(self, phase_now));
@@ -656,6 +745,7 @@ impl<'w, H: Host> Shell<'w, H> {
         for r in requests {
             self.request(r);
         }
+        self.sound_frame(now, phase_now == Phase::World);
         // What to draw over the world.
         let mut overlay = std::mem::take(&mut self.overlay);
         overlay.quads.clear();
@@ -690,18 +780,45 @@ impl<'w, H: Host> Shell<'w, H> {
             veil: frames.over,
             overlay: &self.overlay,
             views,
+            fade: frames.fade,
             quit,
         }
     }
 
-    fn title(&self) -> String {
-        let s = &self.scene.status;
-        match self.phase() {
-            Phase::World => format!(
-                "Auberean - {:08X} ({:.1}, {:.1}, {:.1}) heading {:.0}",
-                s.cell, s.origin.x, s.origin.y, s.origin.z, s.heading
-            ),
-            p => format!("Auberean - {p:?}"),
+    /// The sound's turn: the sounds the world's effects played or stopped, the sounds of objects no
+    /// longer in the world stopped, then the ambient sound's turn and the manager's with the
+    /// listener at the camera.
+    fn sound_frame(&mut self, now: f64, in_world: bool) {
+        for (object, s) in self.scene.take_sounds() {
+            self.sound.effect(object, s);
+        }
+        for e in self.sound.manager.emitters() {
+            // The ambient sound's objects are no objects of the world.
+            if auberean_audio::ambient::is_emitter(e) {
+                continue;
+            }
+            let here = self
+                .client
+                .as_ref()
+                .and_then(|c| c.model.object(e))
+                .is_some_and(|o| o.in_world);
+            if !here {
+                self.sound.object_gone(e);
+            }
+        }
+        self.sound
+            .frame(now, &self.scene.seen, in_world, self.world, &self.random);
+    }
+
+    /// The window's title: the product's name, and the account the player logged in with after
+    /// it (`Auberean | kara`), as Dereth's client names its window; the name alone before a login.
+    /// The task bar's button is what tells several clients on one machine apart.
+    #[must_use]
+    pub fn title(&self) -> String {
+        if self.account.is_empty() {
+            "Auberean".to_owned()
+        } else {
+            format!("Auberean | {}", self.account)
         }
     }
 
@@ -782,6 +899,20 @@ impl<'w, H: Host> Shell<'w, H> {
                     .collect();
                 l.push(format!("NEAR {}", near.join("  ")));
             }
+        }
+        if self.sound.has_device() {
+            let (peak, blocks, silent) = self.sound.take_meter();
+            let playing: Vec<String> = self
+                .sound
+                .manager
+                .playing()
+                .iter()
+                .map(|(_, id, life)| format!("{id:08X} {life:?}"))
+                .collect();
+            l.push(format!(
+                "SOUND PEAK {peak:.3}  BLOCKS {blocks} ({silent} SILENT)  PLAYING {}",
+                playing.join(", ")
+            ));
         }
         l.extend(self.heard.iter().map(|t| format!("> {t}")));
         l

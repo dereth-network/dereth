@@ -28,8 +28,48 @@ fn lib() -> auberean_script::Library {
             native: true,
         },
         Pkg {
+            name: "LAHashSet",
+            id: 0x1AC8,
+            size: 0,
+            parent: None,
+            functions: vec![],
+            native: true,
+        },
+        Pkg {
+            name: "LLMultiHash",
+            id: 0x3D,
+            size: 0,
+            parent: None,
+            functions: vec![],
+            native: true,
+        },
+        Pkg {
+            name: "AAHashIter",
+            id: 2,
+            size: 0,
+            parent: None,
+            functions: vec![],
+            native: true,
+        },
+        Pkg {
             name: "RList",
             id: 0x65,
+            size: 0,
+            parent: None,
+            functions: vec![],
+            native: true,
+        },
+        Pkg {
+            name: "LLMultiHashIter",
+            id: 0x3E,
+            size: 0,
+            parent: None,
+            functions: vec![],
+            native: true,
+        },
+        Pkg {
+            name: "NAHash",
+            id: 0x4C,
             size: 0,
             parent: None,
             functions: vec![],
@@ -296,4 +336,258 @@ fn behavior_parameters_pack_only_what_differs_from_a_new_ones() {
         ..BehaviorParams::default()
     };
     assert_eq!(quiet.bits(), 0x200);
+}
+
+/// Behaviour: script.graph.a-native-copy-reverses-each-hash-chain
+#[test]
+fn a_native_copy_of_a_hash_reverses_each_chain_and_keeps_everything_else_in_order() {
+    use auberean_script::native_object::Item::{Long, Word};
+    let l = lib();
+    // New tables: a hash and a set of 47 buckets, a multi-hash of 193, an empty list, an iterator
+    // over nothing.
+    let NativeObject::Hash(mut h) = NativeObject::new(&l, 1) else {
+        panic!("a hash")
+    };
+    let NativeObject::HashSet(mut s) = NativeObject::new(&l, 0x1AC8) else {
+        panic!("a set")
+    };
+    let NativeObject::MultiHash(mut m) = NativeObject::new(&l, 0x3D) else {
+        panic!("a multi-hash")
+    };
+    assert_eq!(
+        (h.buckets.len(), s.buckets.len(), m.buckets.len()),
+        (47, 47, 193)
+    );
+    assert_eq!(
+        NativeObject::new(&l, 2),
+        NativeObject::Iterator {
+            container: auberean_script::value::NULL,
+            position: 0
+        }
+    );
+    // 50, 3 and 97 share bucket 3 of 47, 10 is alone in bucket 10.
+    for k in [50u32, 3, 97, 10] {
+        let b = Word(k).bucket(47);
+        h.buckets[b].insert(0, (Word(k), Word(k * 10)));
+        s.buckets[b].insert(0, Long(u64::from(k)));
+        m.insert(Long(u64::from(k)), Long(u64::from(k) + 1));
+    }
+    let chain = |o: &NativeObject, b: usize| -> Vec<u32> {
+        match o {
+            NativeObject::Hash(h) => h.buckets[b]
+                .iter()
+                .map(|(k, _)| match k {
+                    Word(k) => *k,
+                    _ => 0,
+                })
+                .collect(),
+            NativeObject::HashSet(s) => s.buckets[b]
+                .iter()
+                .map(|k| match k {
+                    #[allow(clippy::cast_possible_truncation)]
+                    Long(k) => *k as u32,
+                    _ => 0,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let (h, s) = (NativeObject::Hash(h), NativeObject::HashSet(s));
+    assert_eq!(chain(&h, 3), vec![97, 3, 50]);
+    let (hc, sc) = (h.copied(), s.copied());
+    assert_eq!(chain(&hc, 3), vec![50, 3, 97], "each chain reversed");
+    assert_eq!(chain(&sc, 3), vec![50, 3, 97]);
+    assert_eq!(chain(&hc, 10), vec![10]);
+    let NativeObject::Hash(copy) = &hc else {
+        panic!("a hash")
+    };
+    assert_eq!((copy.size_index, copy.buckets.len()), (2, 47));
+    // A multi-hash, a list and an iterator are copied as they are.
+    let m = NativeObject::MultiHash(m);
+    assert_eq!(m.copied(), m);
+    let list = NativeObject::Sequence {
+        item: auberean_script::library::Elem::Word,
+        items: vec![Word(3), Word(1), Word(2)],
+    };
+    assert_eq!(list.copied(), list);
+    let at = NativeObject::Iterator {
+        container: 7,
+        position: 2,
+    };
+    assert_eq!(at.copied(), at);
+}
+
+/// The table packed from `root` and read back in under new ids: the new root.
+fn repacked(heap: &mut Heap, root: u32, l: &auberean_script::Library) -> (Vec<u8>, u32) {
+    let bytes = heap.export(root).unwrap().encode().unwrap();
+    let g = Graph::decode(&bytes, l).unwrap();
+    (bytes, heap.import(&g, None).unwrap())
+}
+
+/// Behaviour: script.graph.an-iterator-packs-its-container-and-its-steps
+#[test]
+fn an_iterator_packs_its_container_and_its_steps_and_stands_there_again_when_read_in() {
+    use auberean_script::native_object::{Item::Long, Item::Word, ITERATOR_END};
+    let l = lib();
+    let mut heap = Heap::new();
+    // A hash of three entries in buckets 1, 3 and 10, walked in that order; an iterator at its
+    // second entry and one past its last.
+    let NativeObject::Hash(mut h) = NativeObject::new(&l, 1) else {
+        panic!("a hash")
+    };
+    for k in [10u32, 3, 1] {
+        h.buckets[k as usize].push((Word(k), Word(k * 100)));
+    }
+    let hash = heap.add_native(1, NativeObject::Hash(h));
+    for (place, steps) in [(1, 1), (ITERATOR_END, 3)] {
+        let at = heap.add_native(
+            2,
+            NativeObject::Iterator {
+                container: hash,
+                position: place,
+            },
+        );
+        let (bytes, back) = repacked(&mut heap, at, &l);
+        let words: Vec<u32> = bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        assert!(
+            words.windows(2).any(|w| w == [hash, steps]),
+            "the container, then {steps} steps: {words:x?}"
+        );
+        let NativeObject::Iterator {
+            container,
+            position,
+        } = heap.native(back).unwrap().clone()
+        else {
+            panic!("an iterator")
+        };
+        assert_ne!(container, hash, "the container read in anew");
+        assert!(matches!(heap.native(container), Ok(NativeObject::Hash(_))));
+        assert_eq!(position, place);
+    }
+    // A multi-hash's iterator names its entry; it packs the entry's place in walking order and
+    // names the same entry of the copy read in.
+    let NativeObject::MultiHash(mut m) = NativeObject::new(&l, 0x3D) else {
+        panic!("a multi-hash")
+    };
+    m.insert(Long(5), Long(50));
+    let second = m.insert(Long(2), Long(20));
+    m.insert(Long(7), Long(70));
+    let walked: Vec<u64> = m
+        .entries()
+        .map(|n| match n.key {
+            Long(k) => k,
+            _ => 0,
+        })
+        .collect();
+    let steps = walked.iter().position(|k| *k == 2).unwrap();
+    let multi = heap.add_native(0x3D, NativeObject::MultiHash(m));
+    let at = heap.add_native(
+        0x3E,
+        NativeObject::Iterator {
+            container: multi,
+            position: second,
+        },
+    );
+    let (_, back) = repacked(&mut heap, at, &l);
+    let NativeObject::Iterator {
+        container,
+        position,
+    } = heap.native(back).unwrap().clone()
+    else {
+        panic!("an iterator")
+    };
+    let NativeObject::MultiHash(copy) = heap.native(container).unwrap() else {
+        panic!("a multi-hash")
+    };
+    assert_eq!(copy.node(position).map(|n| n.key), Some(Long(2)));
+    assert_eq!(
+        copy.entries().position(|n| n.id == position),
+        Some(steps),
+        "{walked:?}"
+    );
+}
+
+/// Behaviour: script.graph.a-hashed-key-read-in-is-hashed-through-what-it-names
+#[test]
+fn a_hashed_reference_key_read_into_the_table_follows_its_object_and_stops_using_its_filed_hash() {
+    use auberean_script::native_object::Item;
+    let l = lib();
+    let NativeObject::Hash(mut h) = NativeObject::new(&l, 0x4C) else {
+        panic!("a hash")
+    };
+    // Key: the string packed as 41, filed under hash 5, its filed hash in use.
+    h.buckets[5].push((
+        Item::HashedRef {
+            id: 41,
+            hash: 5,
+            use_hash: 1,
+        },
+        Item::Word(9),
+    ));
+    let g = Graph {
+        ids: vec![40, 41],
+        entries: vec![
+            Entry {
+                field: field::OBJECT | field::LOADED | field::ROOT,
+                body: Body::Object(PackedObject {
+                    state: 0,
+                    package: 0xFFFF,
+                    native_type: 0x4C,
+                    native: Some(NativeObject::Hash(h)),
+                    slots: vec![],
+                    tags: vec![],
+                }),
+            },
+            Entry {
+                field: field::OBJECT | field::LOADED,
+                body: Body::Object(PackedObject {
+                    state: 0,
+                    package: 0xFFFF,
+                    native_type: 0x76,
+                    native: Some(NativeObject::Text("ab".encode_utf16().collect())),
+                    slots: vec![],
+                    tags: vec![],
+                }),
+            },
+        ],
+    };
+    let g = Graph::decode(&g.encode().unwrap(), &l).unwrap();
+    let mut heap = Heap::new();
+    let root = heap.import(&g, None).unwrap();
+    let NativeObject::Hash(h) = heap.native(root).unwrap() else {
+        panic!("a hash")
+    };
+    let (key, _) = h.entries().next().copied().unwrap();
+    let Item::HashedRef { id, hash, use_hash } = key else {
+        panic!("a hashed reference")
+    };
+    assert!(matches!(heap.native(id), Ok(NativeObject::Text(_))));
+    assert_eq!((hash, use_hash), (5, 0), "filed hash kept, no longer used");
+    assert_eq!(h.buckets[5].len(), 1, "it stays in its bucket");
+}
+
+/// Behaviour: script.library.taken-only-from-the-machines-version
+#[test]
+fn a_library_is_taken_only_when_it_names_the_machine_version_the_client_runs() {
+    use auberean_assets::script::Section;
+    let with = |entries: &[(&str, &str)]| {
+        let mut lib = crate::asm::sections(&[w(op::END)], &[], &[]);
+        lib.sections.push(Section::Versions(
+            entries
+                .iter()
+                .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+                .collect(),
+        ));
+        auberean_script::Library::from_sections(lib)
+    };
+    assert!(with(&[("$wcc", "13"), ("GlueGenEngine", "anything")]).is_ok());
+    assert!(
+        with(&[("other", "12")]).is_ok(),
+        "only the machine's entry is checked"
+    );
+    let refused = with(&[("$wcc", "12")]).unwrap_err();
+    assert!(refused.0.contains("version is 12"), "{refused:?}");
 }

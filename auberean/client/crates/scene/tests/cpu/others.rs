@@ -12,7 +12,7 @@ use auberean_physics::land::{Block, Land};
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::World;
 use auberean_primitives::Vec3;
-use auberean_scene::others::{is_loaded, position_of, LostCell, OtherBody, Received};
+use auberean_scene::others::{is_loaded, position_of, LostCell, LostCells, OtherBody, Received};
 use dereth_physics::geom::Sphere;
 
 const FRAME: f64 = 1.0 / 60.0;
@@ -237,7 +237,8 @@ fn far_reports_and_stuck_bodies_are_put_in_place() {
 }
 
 /// Only the land cells of the landblocks the land holds (the near window: the player's and the
-/// eight beside it) and the interior cells of those nine blocks are loaded. A position in a cell
+/// eight beside it) and the interior cells of those nine blocks are loaded; with no player, no cell
+/// is (the client holds none then). A position in a cell
 /// not loaded takes the body out of the world (it is neither moved nor drawn) and keeps it where
 /// it was sent; when it enters the world again it is there. An object taken out of a cell's lost
 /// list leaves the last one in its place.
@@ -255,7 +256,7 @@ fn objects_in_cells_not_loaded_wait_out_of_the_world() {
     let loaded = |c: u32, at: Option<u32>| is_loaded(c, at, &land);
     assert!(loaded(0x4141_0005, Some(here)) && loaded(0x3F3F_0100, Some(here)));
     assert!(!loaded(0x4240_0001, Some(here)) && !loaded(0x403E_0001, Some(here)));
-    assert!(loaded(0x0101_0001, None), "with no player, everything");
+    assert!(!loaded(0x4040_0001, None), "with no player, nothing");
     assert!(
         land.release_block(0x41, 0x41).is_some() && !loaded(0x4141_0005, Some(here)),
         "a land cell of a block let go of"
@@ -280,6 +281,30 @@ fn objects_in_cells_not_loaded_wait_out_of_the_world() {
     }
     assert!(lost.remove(2) && !lost.remove(9));
     assert_eq!(lost.objects, vec![1, 4, 3]);
+}
+
+/// An object lost in a cell goes out of any cell it was lost in first; one that hangs from another
+/// is then lost in none. A cell loaded gives back the objects lost in it, in the order they were
+/// lost, and none of them is lost any more.
+///
+/// Behaviour: desktop.others.an-object-hanging-from-another-is-lost-in-no-cell
+#[test]
+fn an_object_hanging_from_another_is_lost_in_no_cell() {
+    let (here, there) = (0x4240_0003, 0x4240_0004);
+    let mut lost = LostCells::default();
+    assert!(lost.goto(1, here, false) && lost.goto(2, here, false));
+    assert_eq!(lost.cell_of(1), here);
+    assert!(lost.goto(1, there, false), "moved to another cell");
+    assert!(!lost.goto(2, there, true), "it hangs from another");
+    assert_eq!(
+        (lost.cell_of(2), lost.len()),
+        (0, 1),
+        "out of the cell it was in"
+    );
+    assert!(!lost.goto(3, 0, false), "no cell");
+    assert!(lost.goto(4, there, false));
+    assert_eq!(lost.take(there), vec![1, 4]);
+    assert!(lost.is_empty() && lost.take(here).is_empty());
 }
 
 /// An object the server made, with no qualities of its own, entity template `entity`.
@@ -410,4 +435,81 @@ fn a_still_body_is_solid_at_its_whole_scale() {
         (whole / by_look - 1.5).abs() < 1e-5,
         "{whole} against {by_look} at its look's scale"
     );
+}
+
+/// Whether an object moves is asked of one qualities record: its entity template's when its
+/// description names an entity (none when the id named is not an entity's), else its script
+/// package's (package `0xFFFF` when it names none). The object moves when that record does not say
+/// otherwise, never when the data has no such record, and a body that does not move stays where it
+/// stands whatever positions are sent for it.
+///
+/// Behaviour: desktop.others.an-object-moves-as-its-qualities-record-says
+#[test]
+fn an_object_moves_as_its_qualities_record_says() {
+    use auberean_assets::script::Qualities as Record;
+    use auberean_client_sdk::protocol::types::WeenieDesc;
+    use auberean_scene::profile::{is_mobile, mobility_record, MOBILE};
+    let entity = |did: u32| WeenieDesc {
+        mask: WeenieDesc::ENTITY | WeenieDesc::PACKAGE,
+        entity_did: did,
+        package_id: 0x37F,
+        ..WeenieDesc::default()
+    };
+    assert_eq!(mobility_record(&entity(0x4700_0530)), 0x8100_0530);
+    assert_eq!(
+        mobility_record(&entity(0x0200_0001)),
+        0,
+        "a setup is no entity"
+    );
+    let package = WeenieDesc {
+        mask: WeenieDesc::PACKAGE,
+        entity_did: 0x4700_0530,
+        package_id: 0x0001_037F,
+        ..WeenieDesc::default()
+    };
+    assert_eq!(
+        mobility_record(&package),
+        0x8000_037F,
+        "no entity said: the package's"
+    );
+    assert_eq!(mobility_record(&WeenieDesc::default()), 0x8000_FFFF);
+
+    let says = |v: Option<i32>| {
+        Some(Record {
+            bools: v.map(|v| vec![(MOBILE, v)]).unwrap_or_default(),
+            ..Record::default()
+        })
+    };
+    let w = entity(0x4700_0530);
+    assert!(is_mobile(&w, |_| says(Some(1))));
+    assert!(is_mobile(&w, |_| says(None)), "a record that does not say");
+    assert!(
+        !is_mobile(&w, |_| says(Some(0))),
+        "a record that says still"
+    );
+    assert!(!is_mobile(&w, |_| None), "no record");
+    let mut asked = false;
+    assert!(!is_mobile(&entity(0x0200_0001), |_| {
+        asked = true;
+        says(Some(1))
+    }));
+    assert!(!asked, "record 0 is never read");
+
+    // A still body sent a place 2 m off stays; a moving one follows it there.
+    let land = world();
+    let mut table = World::new();
+    let at = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let to = place(72.0, 20.0, 0.0, 0.0, 0.0, 2);
+    let mut ends = Vec::new();
+    for mobile in [true, false] {
+        let mut b = OtherBody::new(7, config(), position_of(&at), 0.0, (1, 0));
+        b.body.set_mobile(mobile);
+        assert_eq!(b.receive(&to, None, true), Received::Taken);
+        for i in 1..=30 {
+            b.tick(&land, &mut table, &mut NoObjects, 0.1 * f64::from(i));
+        }
+        ends.push(b.body.position.frame.origin.x);
+    }
+    assert!((ends[0] - 72.0).abs() < 0.05, "followed: {}", ends[0]);
+    assert!((ends[1] - 70.0).abs() < 1e-4, "stayed: {}", ends[1]);
 }

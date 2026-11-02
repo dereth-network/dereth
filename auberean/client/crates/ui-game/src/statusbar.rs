@@ -558,7 +558,22 @@ impl Vitals {
     }
 }
 
+impl Vitals {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x403, 0x1_040C, 0x477];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Vitals {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -912,7 +927,22 @@ impl Effects {
     }
 }
 
+impl Effects {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x45D, 0x410, 0x47B, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Effects {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1286,7 +1316,22 @@ impl Graph {
     }
 }
 
+impl NetworkIndicator {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x46D, 0x417];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for NetworkIndicator {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1377,7 +1422,22 @@ impl PkStatus {
     }
 }
 
+impl PkStatus {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x460, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for PkStatus {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1479,7 +1539,22 @@ impl VitaeStatus {
     }
 }
 
+impl VitaeStatus {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x45D, 0x461, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for VitaeStatus {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1576,7 +1651,23 @@ impl Indicators {
     }
 }
 
+impl Indicators {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            NetworkIndicator::notices_of(),
+            PkStatus::notices_of(),
+            VitaeStatus::notices_of(),
+        ])
+    }
+}
+
 impl Child for Indicators {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1592,7 +1683,7 @@ impl Child for Indicators {
 
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         for c in &mut self.children {
-            c.notice(ui, n, out);
+            gameplay::hand(c.as_mut(), ui, n, out);
         }
     }
 
@@ -1705,7 +1796,25 @@ impl StatusBar {
     }
 }
 
+impl StatusBar {
+    /// The notices its panels register for as they are made, in the order they are made.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::union([
+            Vitals::notices_of(),
+            Effects::notices_of(),
+            NetworkIndicator::notices_of(),
+            PkStatus::notices_of(),
+            VitaeStatus::notices_of(),
+        ])
+    }
+}
+
 impl Child for StatusBar {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1725,12 +1834,13 @@ impl Child for StatusBar {
             .node(r)
             .and_then(|n| n.int_attr(name::PRECLUDE_HEIGHT))
             .unwrap_or(0);
+        // D2-00322
         out.push(Request::PrecludeFromTop(if shown { height } else { 0 }));
     }
 
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         for c in &mut self.children {
-            c.notice(ui, n, out);
+            gameplay::hand(c.as_mut(), ui, n, out);
         }
     }
 

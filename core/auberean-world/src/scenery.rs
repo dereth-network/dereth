@@ -24,7 +24,10 @@ use auberean_assets::visual::{ScatterGroup, Scene, SceneObject};
 use auberean_primitives::{DataId, Quat, Vec3};
 
 use crate::land::LandConstants;
-use crate::math::{cross, dot, normalize, quat_axis_angle, quat_mul, rotation_rows, sub, Mat4};
+use crate::math::{
+    circle_over_polygon, cross, dot, normalize, over_polygon, quat_axis_angle, quat_mul,
+    rotation_rows, sub, Mat4,
+};
 use crate::random::fraction;
 use crate::terrain::TerrainBlock;
 
@@ -292,38 +295,9 @@ impl Facet {
         }
     }
 
-    fn edge_side(p: (f32, f32), a: Vec3, b: Vec3) -> f32 {
-        (b.x - a.x) * (p.1 - a.y) - (b.y - a.y) * (p.0 - a.x)
-    }
-
-    fn contains(&self, x: f32, y: f32) -> bool {
-        let p = (x, y);
-        let s = [
-            Self::edge_side(p, self.a, self.b),
-            Self::edge_side(p, self.b, self.c),
-            Self::edge_side(p, self.c, self.a),
-        ];
-        s.iter().all(|&v| v >= 0.0) || s.iter().all(|&v| v <= 0.0)
-    }
-
-    /// Whether a circle about `(x, y)` reaches the triangle, seen from above.
-    fn touches_circle(&self, x: f32, y: f32, r: f32) -> bool {
-        if self.contains(x, y) {
-            return true;
-        }
-        let seg = |a: Vec3, b: Vec3| {
-            let (dx, dy) = (b.x - a.x, b.y - a.y);
-            let l2 = dx * dx + dy * dy;
-            let t = if l2 > 0.0 {
-                (((x - a.x) * dx + (y - a.y) * dy) / l2).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let (px, py) = (a.x + t * dx - x, a.y + t * dy - y);
-            px * px + py * py
-        };
-        let r2 = r * r;
-        seg(self.a, self.b) <= r2 || seg(self.b, self.c) <= r2 || seg(self.c, self.a) <= r2
+    /// The corners, in order.
+    fn corners(&self) -> [[f32; 3]; 3] {
+        [self.a, self.b, self.c].map(|v| [v.x, v.y, v.z])
     }
 }
 
@@ -497,6 +471,39 @@ pub fn vertex_scene(
     (!last.scene.is_none()).then_some(last.scene)
 }
 
+/// The scene each vertex of block `(bx, by)` grows, in the vertices' order (x-major), from the
+/// block's vertex words: what the client keeps of a block it may stand near, and asks the data
+/// cache for. `None` for a vertex that grows none.
+// D2-03732
+#[must_use]
+pub fn vertex_scenes(
+    land: &LandConstants,
+    terrain: &TerrainDesc,
+    scenes: &SceneDesc,
+    (bx, by): (u32, u32),
+    vertices: &[u32],
+) -> Vec<Option<DataId>> {
+    let per_block = u32::try_from(land.grid().squares_per_side()).unwrap_or(0);
+    let side = land.grid().vertices_per_side();
+    (0..side * side)
+        .map(|k| {
+            let word = *vertices.get(k)?;
+            let (i, j) = (
+                u32::try_from(k / side).unwrap_or(0),
+                u32::try_from(k % side).unwrap_or(0),
+            );
+            let (x, y) = (per_block * bx + i, per_block * by + j);
+            vertex_scene(
+                terrain,
+                scenes,
+                land.word.terrain.of(word),
+                land.word.scene.of(word),
+                scene_fraction(x, y),
+            )
+        })
+        .collect()
+}
+
 struct Placer<'a> {
     input: &'a SceneryInput<'a>,
     source: &'a dyn SceneSource,
@@ -514,20 +521,32 @@ impl Placer<'_> {
         self.input.land.grid().block_length()
     }
 
-    /// The ground under `(x, y)`: the first of its square's two triangles that holds it.
+    /// The ground under `(x, y)`: of the triangles of the land cell holding it, its squares taken
+    /// x-major and each square's two in order, the first it lies over (within the band).
     // D2-03823
     fn facet_at(&self, x: f32, y: f32) -> Option<&Facet> {
         let n = self.squares();
-        let step = self.input.land.grid().vertex_spacing();
+        let cell = self.input.land.grid().cell_length;
+        let per = n / self.input.land.grid().cells_per_side;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (sx, sy) = ((x / step).floor() as isize, (y / step).floor() as isize);
-        let (sx, sy) = (usize::try_from(sx).ok()?, usize::try_from(sy).ok()?);
-        if sx >= n || sy >= n {
+        let (cx, cy) = ((x / cell).floor() as isize, (y / cell).floor() as isize);
+        let (cx, cy) = (usize::try_from(cx).ok()?, usize::try_from(cy).ok()?);
+        if (cx + 1) * per > n || (cy + 1) * per > n {
             return None;
         }
-        let k = 2 * (sx * n + sy);
-        let pair = &self.facets[k..k + 2];
-        pair.iter().find(|f| f.contains(x, y)).or(pair.first())
+        let p = [x, y, 0.0];
+        for sx in cx * per..(cx + 1) * per {
+            for sy in cy * per..(cy + 1) * per {
+                let k = 2 * (sx * n + sy);
+                if let Some(f) = self.facets[k..k + 2]
+                    .iter()
+                    .find(|f| over_polygon(&f.corners(), p, true))
+                {
+                    return Some(f);
+                }
+            }
+        }
+        None
     }
 
     /// Whether `(x, y)` is on the road.
@@ -606,7 +625,13 @@ impl Placer<'_> {
                             if in_range && !g.align {
                                 continue;
                             }
-                            if !f.touches_circle(o.x, o.y, r) {
+                            if !circle_over_polygon(
+                                &f.corners(),
+                                f.normal.z,
+                                [o.x, o.y, o.z],
+                                true,
+                                r,
+                            ) {
                                 continue;
                             }
                             if !in_range {

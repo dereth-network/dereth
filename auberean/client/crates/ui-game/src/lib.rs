@@ -3,8 +3,9 @@
 //!
 //! **Depends on** the element framework (`auberean-ui`), where a cell lies on the land
 //! (`auberean-primitives`), the game's string references (`auberean-text`: the toolbar's
-//! tooltips, the dialogs' messages, a place's map coordinates) and the original's float-to-integer
-//! conversion (`dereth-primitives`). **Used by** the client's interface, which
+//! tooltips, the dialogs' messages, a place's map coordinates), how the C library reads a number
+//! (`auberean-dat`: a preference's text form) and the original's float-to-integer conversion
+//! (`dereth-primitives`). **Used by** the client's interface, which
 //! opens the screens, feeds them what the model knows and turns what they ask into actions.
 //!
 //! - [`pregame`]: what the screens before the world share: what lives across them, what they ask
@@ -15,7 +16,8 @@
 //!   [`keyboard`]: the key map it leads to.
 //! - [`creation`]: character creation's hall, appearance and name.
 //! - [`flow`]: the flow between the game's screens, by mode.
-//! - [`gameplay`]: the play screen, the frame every panel of the world hangs from.
+//! - [`gameplay`]: the play screen, the frame every panel of the world hangs from; [`notices`]:
+//!   which panels hear which notices, in the order they registered.
 //! - [`camera`]: mouse look, first person, the wheel's zoom and the arrows' movement.
 //! - [`toolbar`]: the toolbar, its windows' buttons and keys, its wings.
 //! - [`options`]: the options window: the commands, the character's and the client's options.
@@ -69,6 +71,7 @@ pub mod inventory;
 pub mod keyboard;
 pub mod map;
 pub mod names;
+pub mod notices;
 pub mod options;
 pub mod pet;
 pub mod pregame;

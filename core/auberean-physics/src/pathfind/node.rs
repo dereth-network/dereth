@@ -304,7 +304,7 @@ impl Link {
     }
 
     /// Its id, then its way.
-    // D2-13431
+    // D2-13431, D2-13444
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         let dest_id = r.u32()?;
         let data = LinkData::read(r)?;

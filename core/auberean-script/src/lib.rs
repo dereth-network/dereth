@@ -19,9 +19,11 @@
 //!   fails the load.
 //! - [`wire`], [`native_object`], [`graph`], [`args`]: the packed object graph, one codec shared
 //!   by saved states, script-call arguments on the network and object copying, with the packed
-//!   form of every native object it meets; [`multi_hash`], the engine's multi-hash table;
-//!   [`options`], the player's options and shortcuts as the engine holds them, and
-//!   [`options_file`], their text form for exporting and importing them.
+//!   form of every native object it meets; [`multi_hash`], the engine's multi-hash table, and
+//!   [`multi_map`], its ordered multi-map;
+//!   [`options`], the player's options and shortcuts as the engine holds them,
+//!   [`options_file`], their text form for exporting and importing them, and [`ui_locations`],
+//!   the windows' saved places among them.
 //! - [`heap`]: the reference table: script objects, native objects, references into a slot,
 //!   singletons filled from saved states on first use, mark-and-sweep collection.
 //! - [`context`], [`interp`]: a context's slot stack and call stack, and the handler table the
@@ -30,6 +32,7 @@
 //! - [`native`]: the native interface: what a native sees, the statuses and stops, the table of
 //!   natives by id.
 //! - [`bridge`]: script calls that arrive from, or leave for, the other side of the connection.
+//! - [`local`]: the wall clock and the files in the client's own folder, as a host gives them.
 //!
 //! **Must never** do I/O, read a clock or draw a random number: saved states arrive through
 //! [`native::Host`], time and randomness through the natives the host implements, and every run
@@ -43,7 +46,9 @@ pub mod heap;
 pub mod interp;
 pub mod library;
 pub mod link;
+pub mod local;
 pub mod multi_hash;
+pub mod multi_map;
 pub mod native;
 pub mod native_object;
 pub mod opcode;
@@ -51,6 +56,7 @@ pub mod options;
 pub mod options_file;
 pub mod states;
 pub mod story;
+pub mod ui_locations;
 pub mod value;
 pub mod vm;
 pub mod wire;

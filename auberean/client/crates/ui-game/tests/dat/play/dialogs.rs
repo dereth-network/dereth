@@ -26,7 +26,12 @@ pub(crate) struct World {
 
 impl World {
     pub(crate) fn new() -> Self {
-        let mut ui = Ui::new(records(), 1024, 768);
+        Self::over(records())
+    }
+
+    /// The same over other records.
+    pub(crate) fn over(assets: std::sync::Arc<dyn auberean_ui::Assets + Send + Sync>) -> Self {
+        let mut ui = Ui::new(assets, 1024, 768);
         let mut out = Vec::new();
         let mut play = GamePlay::new(&mut ui, &mut out);
         play.login_finished(&mut ui, &mut out);
@@ -402,4 +407,63 @@ fn a_timed_question_counts_down_and_answers_no() {
         "answered no once its 15 seconds have run out"
     );
     assert_eq!(f.up(), None);
+}
+
+/// The scripts' message comes as a string reference and goes to its dialog's text as one: while
+/// the string table it reads is on its way the dialog is up with no text, and the text shows once
+/// the table has come.
+///
+/// Behaviour: ui.dialogs.a-message-waits-for-its-string-table
+#[test]
+fn a_message_waits_for_its_string_table() {
+    use super::stage::{Lacking, LACKING};
+    let assets = Lacking::new();
+    let mut w = World::over(assets.clone());
+    let message = Notice {
+        native: notice::DISPLAY_MESSAGE,
+        about: Some(1),
+        records: vec![Some(Record::Text(StringInfo::entry(LACKING, 3)))],
+        ..Notice::default()
+    };
+    w.tick(&[message]);
+    w.tick(&[]);
+    assert!(w.dialogs.window().is_some(), "the message is up");
+    assert_eq!(w.text("TextField"), "", "waiting on the table");
+    assets.arrive();
+    w.tick(&[]);
+    let text = w.text("TextField");
+    assert!(text.starts_with("From the server"), "{text:?}");
+}
+
+/// The scripts' message says whether it goes up at once: one that does goes up in place of the
+/// message up, which waits at the head of the line and comes back when it closes; one that does
+/// not waits its turn behind them.
+///
+/// Behaviour: ui.dialogs.a-message-the-scripts-ask-for-first-goes-up-at-once
+#[test]
+fn a_message_the_scripts_ask_for_first_goes_up_at_once() {
+    let mut w = World::new();
+    let message = |text: &str, first: u32| Notice {
+        native: notice::DISPLAY_MESSAGE,
+        about: Some(1),
+        words: vec![0, first],
+        records: vec![Some(Record::Text(StringInfo::literal(text))), None],
+    };
+    w.tick(&[message("Waits", 0)]);
+    w.tick(&[]);
+    assert_eq!(w.text("TextField"), "Waits");
+    w.tick(&[message("At once", 1)]);
+    w.tick(&[]);
+    assert_eq!(w.text("TextField"), "At once", "in place of the one up");
+    w.tick(&[message("Last", 0)]);
+    w.tick(&[]);
+    assert_eq!(w.text("TextField"), "At once", "the next waits its turn");
+    let up = w.dialogs.up().expect("a dialog is up");
+    w.dialogs.close_dialog(&mut w.ui, up, &mut Vec::new());
+    w.tick(&[]);
+    assert_eq!(
+        w.text("TextField"),
+        "Waits",
+        "the displaced one comes back first"
+    );
 }

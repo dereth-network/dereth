@@ -3,15 +3,7 @@
 //! through made-up rooms; path requests over a made-up path map; and missiles and combat stories
 //! behind made-up hosts.
 
-mod camera;
-mod collision;
-mod detect;
-mod detections;
-mod element;
-mod missile;
-mod moving;
-mod objects;
-mod pathfind;
-mod rules;
-mod solid;
-mod steering;
+mod contact;
+mod geometry;
+mod motion;
+mod paths;

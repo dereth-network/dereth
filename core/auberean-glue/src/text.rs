@@ -27,6 +27,10 @@ const LOG: u32 = 0x75;
 const TEXT: u32 = 0x76;
 const TOKENIZE: u32 = 0x6D;
 const STRING_UTILS: u32 = 0x1ACE;
+/// The text utilities.
+const PS_UTILS: u32 = 0x5D;
+/// The case-insensitive string.
+const CI_TEXT: u32 = 0x1ACF;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
@@ -62,6 +66,52 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (TEXT, 0x1B, parse_float),
     (TEXT, 0x1E, upper),
     (TEXT, 0x1F, lower),
+    (TEXT, 1, hash),
+    (TEXT, 0xF, trim),
+    (TEXT, 0x10, compare),
+    (TEXT, 0x13, less),
+    (TEXT, 0x14, greater),
+    (TEXT, 0x15, less_or_equal),
+    (TEXT, 0x16, greater_or_equal),
+    (TEXT, 0x1C, encrypt),
+    (TEXT, 0x1D, decrypt),
+    (TEXT, 0x20, append_long),
+    (TEXT, 0x21, append_double),
+    (TEXT, 0x22, replace),
+    // The case-insensitive string's natives: the string's, the client binding both to one function.
+    (CI_TEXT, 0x01, hash),
+    (CI_TEXT, 0x02, is_empty),
+    (CI_TEXT, 0x03, length),
+    (CI_TEXT, 0x04, clear),
+    (CI_TEXT, 0x05, assign),
+    (CI_TEXT, 0x06, append_text),
+    (CI_TEXT, 0x07, append_int),
+    (CI_TEXT, 0x08, append_long),
+    (CI_TEXT, 0x09, append_int),
+    (CI_TEXT, 0x0A, append_hex),
+    (CI_TEXT, 0x0B, append_uint),
+    (CI_TEXT, 0x0C, append_hex),
+    (CI_TEXT, 0x0D, append_float),
+    (CI_TEXT, 0x0E, find),
+    (CI_TEXT, 0x0F, substring),
+    (CI_TEXT, 0x10, trim),
+    (CI_TEXT, 0x11, compare),
+    (CI_TEXT, 0x12, equal),
+    (CI_TEXT, 0x13, not_equal),
+    (CI_TEXT, 0x14, less),
+    (CI_TEXT, 0x15, greater),
+    (CI_TEXT, 0x16, less_or_equal),
+    (CI_TEXT, 0x17, greater_or_equal),
+    (CI_TEXT, 0x18, replace),
+    (CI_TEXT, 0x19, parse_int),
+    (CI_TEXT, 0x1A, parse_uint),
+    (CI_TEXT, 0x1B, parse_long),
+    (CI_TEXT, 0x1C, parse_ulong),
+    (CI_TEXT, 0x1D, parse_float),
+    (CI_TEXT, 0x1E, encrypt),
+    (CI_TEXT, 0x1F, decrypt),
+    (CI_TEXT, 0x20, upper),
+    (CI_TEXT, 0x21, lower),
     (STRING_UTILS, 0x01, is_word_in_string),
     (TEXT_INFO, 2, add_text_variable),
     (TEXT_INFO, 3, add_int_variable),
@@ -96,7 +146,19 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (TEXT_INFO, 0x1F, get_string_id),
     (TEXT_INFO, 0x20, get_table_id),
     (TOKENIZE, 1, tokenize),
+    (PS_UTILS, 0x01, current_folder),
+    (PS_UTILS, 0x02, folder_name_cleaned),
+    (PS_UTILS, 0x03, is_int32),
+    (PS_UTILS, 0x04, is_uint32),
+    (PS_UTILS, 0x05, is_int64),
+    (PS_UTILS, 0x06, is_uint64),
+    (PS_UTILS, 0x07, is_double),
+    (PS_UTILS, 0x08, is_double),
+    (PS_UTILS, 0x09, remove_extension),
+    (PS_UTILS, 0x0A, strip_directory),
+    (TIMER, 1, time),
     (TIMER, 2, time),
+    (TIMER, 3, real_time),
     (LOG, 1, not_logging),
     (LOG, 2, not_logging),
     (LOG, 9, no_log),
@@ -220,34 +282,14 @@ fn to_ulong(text: &[u16]) -> u32 {
     }
 }
 
-/// An unsigned 64-bit number.
+/// An unsigned 64-bit number, in base 0.
 fn to_u64(text: &[u16]) -> u64 {
-    let (neg, v, overflow) = leading(text);
-    if overflow {
-        return u64::MAX;
-    }
-    if neg {
-        v.wrapping_neg()
-    } else {
-        v
-    }
+    fmt::wide::to_uint64(text, 0).0
 }
 
-/// A signed 64-bit number.
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+/// A signed 64-bit number, in base 0.
 fn to_i64(text: &[u16]) -> u64 {
-    let (neg, v, overflow) = leading(text);
-    if neg {
-        if overflow || v > 1 << 63 {
-            i64::MIN as u64
-        } else {
-            (v as i64).wrapping_neg() as u64
-        }
-    } else if overflow || v > i64::MAX as u64 {
-        i64::MAX as u64
-    } else {
-        v
-    }
+    fmt::wide::to_int64(text, 0).0.cast_unsigned()
 }
 
 /// A float as the C library reads one (the longest leading part that is a number).
@@ -294,7 +336,7 @@ fn give_text(c: &mut Call<'_>, slot: i64, units: Vec<u16>) -> Result<Status, Sto
 }
 
 /// Two strings joined.
-// D2-09591
+// D2-09591, D2-16500
 fn concat_text(c: &mut Call<'_>) -> Result<Status, Stop> {
     let mut a = text_arg(c, -2)?;
     a.extend(text_arg(c, -3)?);
@@ -302,7 +344,7 @@ fn concat_text(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and a signed integer joined.
-// D2-09588
+// D2-09588, D2-16504
 fn concat_int(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     #[allow(clippy::cast_possible_wrap)]
@@ -312,7 +354,7 @@ fn concat_int(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and an unsigned integer joined.
-// D2-09592
+// D2-09592, D2-16505
 fn concat_uint(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     let v = c.cx.at(-3)?;
@@ -321,7 +363,7 @@ fn concat_uint(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and a float joined.
-// D2-09587
+// D2-09587, D2-16506
 fn concat_float(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     let v = f64::from(f32::from_bits(c.cx.at(-3)?));
@@ -330,7 +372,7 @@ fn concat_float(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and a signed 64-bit integer joined.
-// D2-09590
+// D2-09590, D2-16507
 fn concat_long(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     #[allow(clippy::cast_possible_wrap)]
@@ -340,7 +382,7 @@ fn concat_long(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and an unsigned 64-bit integer joined.
-// D2-09593
+// D2-09593, D2-16508
 fn concat_ulong(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     let v = join(c.cx.at(-4)?, c.cx.at(-3)?);
@@ -349,7 +391,7 @@ fn concat_ulong(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A string and a 64-bit float joined.
-// D2-09589
+// D2-09589, D2-16509
 fn concat_double(c: &mut Call<'_>) -> Result<Status, Stop> {
     let s = text_arg(c, -2)?;
     let v = f64::from_bits(join(c.cx.at(-4)?, c.cx.at(-3)?));
@@ -358,14 +400,14 @@ fn concat_double(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A number as `0x` and eight upper-case hex digits.
-// D2-09584
+// D2-09584, D2-16512, D2-16510
 fn to_hex(c: &mut Call<'_>) -> Result<Status, Stop> {
     let v = c.cx.at(-2)?;
     give_text(c, -3, units(&format!("0x{v:08X}")))
 }
 
 /// A 64-bit instance id as four groups of four hex digits, the high word first.
-// D2-09585
+// D2-09585, D2-16501
 fn to_instance_id(c: &mut Call<'_>) -> Result<Status, Stop> {
     let v = join(c.cx.at(-3)?, c.cx.at(-2)?);
     let g = |s: u32| (v >> s) & 0xFFFF;
@@ -526,20 +568,18 @@ fn fold(u: u16) -> u16 {
     }
 }
 
+/// Whether the receiver equals the string at `fp[-2]` as C strings, case kept when the low byte
+/// of `fp[-3]` is set; `None` for a null receiver.
 fn same_text(c: &mut Call<'_>) -> Result<Option<bool>, Stop> {
     let other = text_arg(c, -2)?;
-    let ignore_case = c.cx.at(-3)? & 0xFF != 0;
+    let keep_case = c.cx.at(-3)? & 0xFF != 0;
     let Some(this) = this_text(c)? else {
         return Ok(None);
     };
-    Ok(Some(if ignore_case {
-        this.len() == other.len() && this.iter().zip(&other).all(|(a, b)| fold(*a) == fold(*b))
-    } else {
-        *this == other
-    }))
+    Ok(Some(fmt::wide::equal(this, &other, keep_case)))
 }
 
-/// Whether two strings are equal, ignoring case when asked.
+/// Whether two strings are equal, case kept when asked.
 // D2-09242
 fn equal(c: &mut Call<'_>) -> Result<Status, Stop> {
     let Some(eq) = same_text(c)? else {
@@ -549,7 +589,7 @@ fn equal(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Whether two strings differ, ignoring case when asked.
+/// Whether two strings differ, case kept when asked.
 // D2-09250
 fn not_equal(c: &mut Call<'_>) -> Result<Status, Stop> {
     let Some(eq) = same_text(c)? else {
@@ -623,6 +663,251 @@ fn lower(c: &mut Call<'_>) -> Result<Status, Stop> {
     for u in text_or_crash!(c).iter_mut() {
         *u = fold(*u);
     }
+    Ok(Status::Success)
+}
+
+/// The units of a string up to its first zero unit, as the C library's wide string functions
+/// read it (only an encrypted string holds a zero unit).
+fn c_string(t: &[u16]) -> &[u16] {
+    t.iter().position(|u| *u == 0).map_or(t, |n| &t[..n])
+}
+
+/// Two strings compared as the C library compares them: case kept, -1, 0 or 1; case ignored
+/// (each unit lowered as `towlower` lowers it), the difference of the first two units that differ.
+fn order(a: &[u16], b: &[u16], keep_case: bool) -> i32 {
+    let (a, b) = (c_string(a), c_string(b));
+    let mut k = 0;
+    loop {
+        let x = a.get(k).copied().unwrap_or(0);
+        let y = b.get(k).copied().unwrap_or(0);
+        let (x, y) = if keep_case {
+            (x, y)
+        } else {
+            (fmt::crt::to_lower(x), fmt::crt::to_lower(y))
+        };
+        if x != y || x == 0 {
+            let d = i32::from(x) - i32::from(y);
+            return if keep_case { d.signum() } else { d };
+        }
+        k += 1;
+    }
+}
+
+/// The receiver compared with the string at `fp[-2]`, case kept when the low byte of `fp[-3]` is
+/// set; `None` for a null receiver.
+fn compared(c: &mut Call<'_>) -> Result<Option<i32>, Stop> {
+    let other = text_arg(c, -2)?;
+    let keep_case = c.cx.at(-3)? & 0xFF != 0;
+    let Some(this) = this_text(c)? else {
+        return Ok(None);
+    };
+    Ok(Some(order(this, &other, keep_case)))
+}
+
+/// How the string orders against another (`fp[-2]`), case kept when asked (`fp[-3]`), answered
+/// at `fp[-4]`.
+// D2-09240
+fn compare(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some(d) = compared(c)? else {
+        return Ok(Status::Crash);
+    };
+    #[allow(clippy::cast_sign_loss)]
+    ret(c, 2, d as u32, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// One of the four orderings of the string against another, as a truth value at `fp[-4]` (its
+/// low byte: the client writes a byte there).
+fn ordering(c: &mut Call<'_>, holds: fn(i32) -> bool) -> Result<Status, Stop> {
+    let Some(d) = compared(c)? else {
+        return Ok(Status::Crash);
+    };
+    let i = c.cx.frame_index(-4)?;
+    c.cx.data[i] = (c.cx.data[i] & !0xFF) | u32::from(holds(d));
+    c.cx.tags[i] = tag::MIXED;
+    Ok(Status::Success)
+}
+
+/// Whether the string orders before another.
+// D2-09249, D2-09238
+fn less(c: &mut Call<'_>) -> Result<Status, Stop> {
+    ordering(c, |d| d < 0)
+}
+
+/// Whether the string orders after another.
+// D2-09245, D2-09236
+fn greater(c: &mut Call<'_>) -> Result<Status, Stop> {
+    ordering(c, |d| d > 0)
+}
+
+/// Whether the string orders before another or equals it.
+// D2-09247, D2-09237
+fn less_or_equal(c: &mut Call<'_>) -> Result<Status, Stop> {
+    ordering(c, |d| d <= 0)
+}
+
+/// Whether the string orders after another or equals it.
+// D2-09244, D2-09235
+fn greater_or_equal(c: &mut Call<'_>) -> Result<Status, Stop> {
+    ordering(c, |d| d >= 0)
+}
+
+/// A string's hash: each unit added to the hash shifted left four bits, the top four bits folded
+/// back into the low byte's high nibble and cleared; all ones becomes all ones but the lowest bit.
+// D2-01377
+#[must_use]
+pub fn string_hash(t: &[u16]) -> u32 {
+    let mut h: u32 = 0;
+    for u in c_string(t) {
+        h = (h << 4).wrapping_add(u32::from(*u));
+        let top = h & 0xF000_0000;
+        if top != 0 {
+            h = ((top >> 24) ^ h) & 0x0FFF_FFFF;
+        }
+    }
+    if h == u32::MAX {
+        0xFFFF_FFFE
+    } else {
+        h
+    }
+}
+
+/// The string's hash, answered below the receiver.
+// D2-09246
+fn hash(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let h = string_hash(text_or_crash!(c));
+    ret(c, 0, h, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The white space a string is trimmed of: space, line feed, carriage return, tab, form feed.
+const WHITE_SPACE: [u16; 5] = [0x20, 0x0A, 0x0D, 0x09, 0x0C];
+
+/// The string trimmed of white space at both ends: leading units up to the first zero, trailing
+/// ones (a zero unit counting as white space there, as the C library finds a string's own end).
+// D2-09256, D2-02273
+fn trim(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let t = text_or_crash!(c);
+    let start = t
+        .iter()
+        .position(|u| *u == 0 || !WHITE_SPACE.contains(u))
+        .unwrap_or(t.len());
+    let mut end = t.len();
+    while end > start && (t[end - 1] == 0 || WHITE_SPACE.contains(&t[end - 1])) {
+        end -= 1;
+    }
+    *t = t[start..end].to_vec();
+    Ok(Status::Success)
+}
+
+/// The key the string's 32-bit words are scrambled with, a word each in turn.
+const SCRAMBLE: [u32; 16] = [
+    0xE584_9238,
+    0xEB2D_767D,
+    0xFC0F_DD03,
+    0xCB45_A6A6,
+    0x7F21_E6BB,
+    0xF5A6_CDC8,
+    0x22D9_AD12,
+    0xB2A3_D4DE,
+    0x3B83_4DB7,
+    0xC406_C91C,
+    0x8392_305E,
+    0x0A9F_0099,
+    0x0943_B90C,
+    0xA66D_953C,
+    0x0D92_9E1F,
+    0x0E2E_9AD4,
+];
+
+/// Each whole 32-bit word of the units (two units, the first low) exclusive-ored with the key; a
+/// last odd unit is left.
+// D2-00376
+fn scramble_words(t: &mut [u16]) {
+    for (k, pair) in t.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+        let w = (u32::from(pair[0]) | u32::from(pair[1]) << 16) ^ SCRAMBLE[k & 0xF];
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            pair[0] = w as u16;
+            pair[1] = (w >> 16) as u16;
+        }
+    }
+}
+
+/// Each byte of the units with its two halves swapped.
+fn swap_nibbles(t: &mut [u16]) {
+    for u in t.iter_mut() {
+        let [lo, hi] = u.to_le_bytes();
+        *u = u16::from_le_bytes([lo.rotate_left(4), hi.rotate_left(4)]);
+    }
+}
+
+/// The string scrambled: each byte's halves swapped, then its words keyed.
+// D2-09252, D2-04339
+fn encrypt(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let t = text_or_crash!(c);
+    swap_nibbles(t);
+    scramble_words(t);
+    Ok(Status::Success)
+}
+
+/// The string unscrambled: its words keyed, then each byte's halves swapped.
+// D2-09251, D2-04338
+fn decrypt(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let t = text_or_crash!(c);
+    scramble_words(t);
+    swap_nibbles(t);
+    Ok(Status::Success)
+}
+
+/// Append a signed 64-bit integer (`fp[-3]` low, `fp[-2]` high), in decimal.
+// D2-09607, D2-09254
+fn append_long(c: &mut Call<'_>) -> Result<Status, Stop> {
+    #[allow(clippy::cast_possible_wrap)]
+    let v = long_arg(c, -3)? as i64;
+    text_or_crash!(c).extend(units(&v.to_string()));
+    Ok(Status::Success)
+}
+
+/// Append a 64-bit float (`fp[-3]` low, `fp[-2]` high), with six decimals.
+// D2-09604, D2-09603
+fn append_double(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let v = f64::from_bits(long_arg(c, -3)?);
+    text_or_crash!(c).extend(units(&fixed(v)));
+    Ok(Status::Success)
+}
+
+/// Every occurrence of a string (`fp[-2]`) replaced by another (`fp[-3]`), searching on after
+/// each; how many, answered at `fp[-4]`. Searching for the empty string never ends in the client;
+/// the run stops there.
+// D2-09257, D2-02279
+fn replace(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let find = text_arg(c, -2)?;
+    let with = text_arg(c, -3)?;
+    let find = c_string(&find).to_vec();
+    if find.is_empty() {
+        return Err(c.fail("replacing the empty string never ends"));
+    }
+    let Some(t) = this_text(c)? else {
+        return Ok(Status::Crash);
+    };
+    let hay = c_string(t).to_vec();
+    let mut out = Vec::with_capacity(hay.len());
+    let (mut at, mut n) = (0, 0u32);
+    while let Some(k) = hay[at..]
+        .windows(find.len())
+        .position(|w| w == find.as_slice())
+    {
+        out.extend_from_slice(&hay[at..at + k]);
+        out.extend_from_slice(c_string(&with));
+        at += k + find.len();
+        n += 1;
+    }
+    if n > 0 {
+        out.extend_from_slice(&hay[at..]);
+        *t = out;
+    }
+    ret(c, 2, n, tag::MIXED)?;
     Ok(Status::Success)
 }
 
@@ -1203,11 +1488,516 @@ fn tokenize(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Text utilities
+// ---------------------------------------------------------------------------------------------
+
+/// Whether the C library reads all of a text (to its first zero unit) as a whole number of
+/// `bits` bits, signed or not, in base 0, without its range error: leading white space, a sign,
+/// `0x` or `0X` for base 16, a leading `0` for base 8, else base 10, then digits and letters
+/// below the base. A text with no digit is read as nothing, which counts only when the text is
+/// empty. Too many for `bits` bits is a range error; a signed number past its range is one too,
+/// while an unsigned one takes a minus sign as negation.
+#[must_use]
+pub fn reads_as_whole_number(t: &[u16], bits: u32, signed: bool) -> bool {
+    let t = &t[..t.iter().position(|&u| u == 0).unwrap_or(t.len())];
+    let at = |i: usize| t.get(i).copied().unwrap_or(0);
+    let mut i = 0;
+    while crt_space(at(i)) {
+        i += 1;
+    }
+    let negative = at(i) == u16::from(b'-');
+    if negative || at(i) == u16::from(b'+') {
+        i += 1;
+    }
+    let x = |u: u16| u == u16::from(b'x') || u == u16::from(b'X');
+    let base: u64 = if at(i) != u16::from(b'0') {
+        10
+    } else if x(at(i + 1)) {
+        i += 2;
+        16
+    } else {
+        8
+    };
+    let max = if bits == 64 {
+        u64::MAX
+    } else {
+        u64::from(u32::MAX)
+    };
+    let (mut n, mut read, mut over) = (0u64, false, false);
+    loop {
+        let u = at(i);
+        let d = match u8::try_from(u) {
+            Ok(b @ b'0'..=b'9') => u64::from(b - b'0'),
+            Ok(b @ (b'a'..=b'z' | b'A'..=b'Z')) => u64::from(b.to_ascii_uppercase() - b'A' + 10),
+            _ => break,
+        };
+        if d >= base {
+            break;
+        }
+        read = true;
+        match n.checked_mul(base).and_then(|m| m.checked_add(d)) {
+            Some(m) if m <= max => n = m,
+            _ => over = true,
+        }
+        i += 1;
+    }
+    if !read {
+        return t.is_empty();
+    }
+    let half = 1u64 << (bits - 1);
+    let range = over || (signed && if negative { n > half } else { n >= half });
+    i == t.len() && !range
+}
+
+/// Whether the C library takes a unit for white space: its own table below 256 (tab, line feed,
+/// vertical tab, form feed, carriage return, space and the no-break space; not the next-line
+/// control 0x85), and the system's character types above (taken here as Unicode's white space).
+fn crt_space(u: u16) -> bool {
+    match u {
+        0x09..=0x0D | 0x20 | 0xA0 => true,
+        0..=0xFF => false,
+        _ => char::from_u32(u32::from(u)).is_some_and(char::is_whitespace),
+    }
+}
+
+/// The character of a number a unit becomes when the C library narrows it in the client's
+/// Western code page, best fit allowed: the digits, signs, point and exponent letters themselves,
+/// and the units the code page writes as one of them (full-width forms, sub- and superscript
+/// digits, letters with marks, dashes and box lines, infinity as `8`). Any other unit ends a
+/// number.
+fn number_char(u: u16) -> Option<u8> {
+    const FITS: &[(u16, u8)] = &[
+        (0x010E, b'D'),
+        (0x010F, b'd'),
+        (0x0111, b'd'),
+        (0x0112, b'E'),
+        (0x0113, b'e'),
+        (0x0114, b'E'),
+        (0x0115, b'e'),
+        (0x0116, b'E'),
+        (0x0117, b'e'),
+        (0x0118, b'E'),
+        (0x0119, b'e'),
+        (0x011A, b'E'),
+        (0x011B, b'e'),
+        (0x03B4, b'd'),
+        (0x03B5, b'e'),
+        (0x2010, b'-'),
+        (0x2011, b'-'),
+        (0x2074, b'4'),
+        (0x2075, b'5'),
+        (0x2076, b'6'),
+        (0x2077, b'7'),
+        (0x2078, b'8'),
+        (0x2080, b'0'),
+        (0x2081, b'1'),
+        (0x2082, b'2'),
+        (0x2083, b'3'),
+        (0x2084, b'4'),
+        (0x2085, b'5'),
+        (0x2086, b'6'),
+        (0x2087, b'7'),
+        (0x2088, b'8'),
+        (0x2089, b'9'),
+        (0x2107, b'E'),
+        (0x212E, b'e'),
+        (0x212F, b'e'),
+        (0x2130, b'E'),
+        (0x2212, b'-'),
+        (0x221E, b'8'),
+        (0x2500, b'-'),
+        (0x250C, b'+'),
+        (0x2510, b'+'),
+        (0x2514, b'+'),
+        (0x2518, b'+'),
+        (0x251C, b'+'),
+        (0x252C, b'-'),
+        (0x2534, b'-'),
+        (0x253C, b'+'),
+        (0x2550, b'-'),
+        (0x2552, b'+'),
+        (0x2553, b'+'),
+        (0x2554, b'+'),
+        (0x2555, b'+'),
+        (0x2556, b'+'),
+        (0x2557, b'+'),
+        (0x2558, b'+'),
+        (0x2559, b'+'),
+        (0x255A, b'+'),
+        (0x255B, b'+'),
+        (0x255C, b'+'),
+        (0x255D, b'+'),
+        (0x2564, b'-'),
+        (0x2565, b'-'),
+        (0x2566, b'-'),
+        (0x2567, b'-'),
+        (0x2568, b'-'),
+        (0x2569, b'-'),
+        (0x256A, b'+'),
+        (0x256B, b'+'),
+        (0x256C, b'+'),
+        (0xFF0B, b'+'),
+        (0xFF0D, b'-'),
+        (0xFF0E, b'.'),
+        (0xFF10, b'0'),
+        (0xFF11, b'1'),
+        (0xFF12, b'2'),
+        (0xFF13, b'3'),
+        (0xFF14, b'4'),
+        (0xFF15, b'5'),
+        (0xFF16, b'6'),
+        (0xFF17, b'7'),
+        (0xFF18, b'8'),
+        (0xFF19, b'9'),
+        (0xFF24, b'D'),
+        (0xFF25, b'E'),
+        (0xFF44, b'd'),
+        (0xFF45, b'e'),
+    ];
+    match u8::try_from(u) {
+        Ok(b @ (b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E' | b'd' | b'D')) => Some(b),
+        Ok(_) => None,
+        Err(_) => FITS
+            .binary_search_by_key(&u, |&(w, _)| w)
+            .ok()
+            .map(|k| FITS[k].1),
+    }
+}
+
+/// The most significant digits the C library keeps of a number's digits; the rest are dropped.
+const KEPT_DIGITS: usize = 21;
+
+/// Whether the C library reads all of a text (to its first zero unit) as a floating-point number
+/// without its range error. Leading white space is passed over; then, each unit narrowed: a sign,
+/// digits with at most one point and at least one digit, and an exponent (`e`, `E`, `d` or `D`, a
+/// sign, digits; without its digits the exponent is not read). A text with no number is read as
+/// nothing, which counts only when the text is empty. The number is its first 21 significant
+/// digits, the rest dropped; rounded to 53 bits, below the least normal double (`2^-1022`, so
+/// every subnormal) or from `2^1024` on is a range error, and zero never is. The library works
+/// the value out in 80-bit arithmetic, which can answer the other way for a number within about
+/// one part in `2^64` of either limit.
+#[must_use]
+pub fn reads_as_whole_double(t: &[u16]) -> bool {
+    let t = &t[..t.iter().position(|&u| u == 0).unwrap_or(t.len())];
+    let mut i = 0;
+    while i < t.len() && crt_space(t[i]) {
+        i += 1;
+    }
+    let at = |i: usize| t.get(i).copied().and_then(number_char);
+    let digit = |c: Option<u8>| c.filter(u8::is_ascii_digit).map(|b| b - b'0');
+    if matches!(at(i), Some(b'+' | b'-')) {
+        i += 1;
+    }
+    // The significant digits kept, and the power of ten they are scaled by.
+    let (mut kept, mut scale, mut any) = (Vec::<u8>::new(), 0i64, false);
+    let mut point = false;
+    loop {
+        match at(i) {
+            Some(b'.') if !point => point = true,
+            c => {
+                let Some(d) = digit(c) else { break };
+                any = true;
+                if kept.is_empty() && d == 0 {
+                    if point {
+                        scale -= 1;
+                    }
+                } else if kept.len() < KEPT_DIGITS {
+                    kept.push(d);
+                    if point {
+                        scale -= 1;
+                    }
+                } else if !point {
+                    scale += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    if !any {
+        return t.is_empty();
+    }
+    if matches!(at(i), Some(b'e' | b'E' | b'd' | b'D')) {
+        let mut j = i + 1;
+        let negative = at(j) == Some(b'-');
+        if matches!(at(j), Some(b'+' | b'-')) {
+            j += 1;
+        }
+        if digit(at(j)).is_some() {
+            let mut e = 0i64;
+            while let Some(d) = digit(at(j)) {
+                e = (e * 10 + i64::from(d)).min(1 << 40);
+                j += 1;
+            }
+            scale += if negative { -e } else { e };
+            i = j;
+        }
+    }
+    i == t.len() && !out_of_range(&kept, scale)
+}
+
+/// Whether `digits` (most significant first, the first not zero) times ten to `scale` rounds, to
+/// 53 bits, below `2^-1022` or to `2^1024` or more (halves round up). No digits is zero.
+fn out_of_range(digits: &[u8], scale: i64) -> bool {
+    if digits.is_empty() {
+        return false;
+    }
+    // The number lies in [10^m, 10^(m+1)).
+    let m = scale + digits.len() as i64 - 1;
+    if m >= 309 || m <= -309 {
+        return true;
+    }
+    if (-307..=306).contains(&m) {
+        return false;
+    }
+    let d = digits
+        .iter()
+        .fold(Big::from(0), |n, &k| n.times(10).plus(u32::from(k)));
+    // The two limits, each where rounding to 53 bits turns: 2^-1022 - 2^-1076 and 2^1024 - 2^970.
+    let edge = Big::from((1 << 27) - 1).shifted(27).plus((1 << 27) - 1);
+    if m < 0 {
+        // Below when d / 10^n < edge * 2^-1076, i.e. d * 2^(1076 - n) < edge * 5^n.
+        let n = u32::try_from(-scale).unwrap_or(u32::MAX);
+        let left = d.shifted(1076 - n);
+        let right = (0..n).fold(edge, |b, _| b.times(5));
+        left < right
+    } else {
+        // At or above when d * 10^scale >= edge * 2^970.
+        let n = u32::try_from(scale).unwrap_or(0);
+        let left = (0..n).fold(d, |b, _| b.times(10));
+        left >= edge.shifted(970)
+    }
+}
+
+/// A whole number of any size, in 32-bit words, least significant first, no high zero words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Big(Vec<u32>);
+
+impl Big {
+    fn from(n: u32) -> Self {
+        Self(if n == 0 { Vec::new() } else { vec![n] })
+    }
+
+    fn times(mut self, k: u32) -> Self {
+        let mut carry = 0u64;
+        for w in &mut self.0 {
+            let (lo, hi) = split(u64::from(*w) * u64::from(k) + carry);
+            *w = lo;
+            carry = u64::from(hi);
+        }
+        if carry != 0 {
+            self.0.push(split(carry).0);
+        }
+        self.trim()
+    }
+
+    fn plus(mut self, k: u32) -> Self {
+        let mut carry = u64::from(k);
+        for w in &mut self.0 {
+            if carry == 0 {
+                break;
+            }
+            let (lo, hi) = split(u64::from(*w) + carry);
+            *w = lo;
+            carry = u64::from(hi);
+        }
+        if carry != 0 {
+            self.0.push(split(carry).0);
+        }
+        self
+    }
+
+    fn shifted(self, bits: u32) -> Self {
+        let (words, rest) = ((bits / 32) as usize, bits % 32);
+        let mut out = vec![0u32; words];
+        let mut carry = 0u32;
+        for w in self.0 {
+            out.push(if rest == 0 { w } else { (w << rest) | carry });
+            carry = if rest == 0 { 0 } else { w >> (32 - rest) };
+        }
+        if carry != 0 {
+            out.push(carry);
+        }
+        Self(out).trim()
+    }
+
+    fn trim(mut self) -> Self {
+        while self.0.last() == Some(&0) {
+            self.0.pop();
+        }
+        self
+    }
+}
+
+impl PartialOrd for Big {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Big {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .len()
+            .cmp(&other.0.len())
+            .then_with(|| self.0.iter().rev().cmp(other.0.iter().rev()))
+    }
+}
+
+/// Whether a string (`fp[-2]`) reads whole as a floating-point number; a byte below it (`fp[-3]`).
+/// The script library's single and double precision ask the same.
+// D2-08765, D2-08761
+fn is_double(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let t = text_of(c, c.cx.at(-2)?)?;
+    let yes = reads_as_whole_double(&t);
+    let before = c.cx.at(-3)?;
+    c.write(-3, (before & !0xFF) | u32::from(yes), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Whether a string (`fp[-2]`) reads whole as a number of a kind; a byte below it (`fp[-3]`).
+fn is_number(c: &mut Call<'_>, bits: u32, signed: bool) -> Result<Status, Stop> {
+    let t = text_of(c, c.cx.at(-2)?)?;
+    let yes = reads_as_whole_number(&t, bits, signed);
+    let before = c.cx.at(-3)?;
+    c.write(-3, (before & !0xFF) | u32::from(yes), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+// D2-08766, D2-08762
+fn is_int32(c: &mut Call<'_>) -> Result<Status, Stop> {
+    is_number(c, 32, true)
+}
+
+// D2-08768, D2-02247
+fn is_uint32(c: &mut Call<'_>) -> Result<Status, Stop> {
+    is_number(c, 32, false)
+}
+
+// D2-08767, D2-08763, D2-14313, D2-14312
+fn is_int64(c: &mut Call<'_>) -> Result<Status, Stop> {
+    is_number(c, 64, true)
+}
+
+// D2-08769, D2-08764, D2-14314
+fn is_uint64(c: &mut Call<'_>) -> Result<Status, Stop> {
+    is_number(c, 64, false)
+}
+
+/// Narrow text as the client narrows a wide string and widens it back: each unit past the narrow
+/// range a `?`.
+fn narrowed(t: &[u16]) -> Vec<u16> {
+    t.iter()
+        .take_while(|&&u| u != 0)
+        .map(|&u| if u > 0xFF { u16::from(b'?') } else { u })
+        .collect()
+}
+
+/// A path without its extension: cut at its last `.`, wherever that is (unchanged without one).
+#[must_use]
+pub fn without_extension(t: &[u16]) -> Vec<u16> {
+    let t = narrowed(t);
+    match t.iter().rposition(|&u| u == u16::from(b'.')) {
+        Some(i) => t[..i].to_vec(),
+        None => t,
+    }
+}
+
+/// A path without its folders: what follows its last `\`, `/` or `:` (unchanged without one).
+#[must_use]
+pub fn without_directory(t: &[u16]) -> Vec<u16> {
+    let t = narrowed(t);
+    match t
+        .iter()
+        .rposition(|&u| b"\\/:".iter().any(|&b| u == u16::from(b)))
+    {
+        Some(i) => t[i + 1..].to_vec(),
+        None => t,
+    }
+}
+
+/// Change the string an out reference (`fp[-2]`) holds; a byte 1 below it (`fp[-3]`).
+fn change_path(c: &mut Call<'_>, f: fn(&[u16]) -> Vec<u16>) -> Result<Status, Stop> {
+    let out = c.cx.at(-2)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = f(t),
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    let before = c.cx.at(-3)?;
+    c.write(-3, (before & !0xFF) | 1, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+// D2-08772, D2-17805, D2-17785
+fn remove_extension(c: &mut Call<'_>) -> Result<Status, Stop> {
+    change_path(c, without_extension)
+}
+
+// D2-08773, D2-17806, D2-17796
+fn strip_directory(c: &mut Call<'_>) -> Result<Status, Stop> {
+    change_path(c, without_directory)
+}
+
+/// A folder's name made one way round: each `\` a `/` (`backslash` 0), or each `/` a `\`, then that
+/// separator added after a name that does not end in it (an empty name stays empty).
+#[must_use]
+pub fn folder_cleaned(t: &[u16], backslash: bool) -> Vec<u16> {
+    let (from, to) = if backslash {
+        (u16::from(b'/'), u16::from(b'\\'))
+    } else {
+        (u16::from(b'\\'), u16::from(b'/'))
+    };
+    let mut out: Vec<u16> = narrowed(t)
+        .into_iter()
+        .map(|u| if u == from { to } else { u })
+        .collect();
+    if out.last().is_some_and(|&u| u != to) {
+        out.push(to);
+    }
+    out
+}
+
+/// The folder files are named in, into the string the reference at `fp[-2]` reaches; answers 1
+/// (`fp[-3]`). Files a script names stay in the folder the host keeps them in, so the folder is
+/// the empty name a bare file name is built on (the client answered its working folder, each `\`
+/// a `/`).
+// D2-08771
+fn current_folder(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let out = c.cx.at(-2)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => t.clear(),
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    c.write(-3, 1, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The folder name the reference at `fp[-2]` reaches, made one way round ([`folder_cleaned`]:
+/// backslashes when the word at `fp[-3]` is not 0); answers 1 (`fp[-4]`).
+// D2-08770, D2-17812, D2-17811, D2-17810
+fn folder_name_cleaned(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let out = c.cx.at(-2)?;
+    let backslash = c.cx.at(-3)? != 0;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = folder_cleaned(t, backslash),
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    c.write(-4, 1, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+// ---------------------------------------------------------------------------------------------
 // The clock and the log
 // ---------------------------------------------------------------------------------------------
 
-/// The game's clock, a 64-bit float.
-// D2-09545
+/// The game's clock, a 64-bit float: the frame's (`get_time`), or read afresh (`compute_time`), which
+/// is the same clock here: a call runs at one time.
+// D2-09545, D2-09543
 fn time(c: &mut Call<'_>) -> Result<Status, Stop> {
     let (lo, hi) = split(c.host.time().to_bits());
     c.write(-3, lo, tag::LONG | tag::MIXED)?;
@@ -1216,22 +2006,31 @@ fn time(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Whether a log of a level is being written: none is.
-// D2-09045, D2-09046
+/// The wall clock: seconds since 1970, -1 when the host has no clock (the C library's answer
+/// when the time cannot be had).
+// D2-09544, D2-17620
+fn real_time(c: &mut Call<'_>) -> Result<Status, Stop> {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let t = c.host.real_time().map_or(u32::MAX, |t| t as i32 as u32);
+    c.write(-2, t, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Whether a log of a level is being written, for a host that keeps no log masks: none is (the
+/// client keeps them and answers as it does).
 fn not_logging(c: &mut Call<'_>) -> Result<Status, Stop> {
     ret(c, 1, 0, tag::MIXED)?;
     Ok(Status::Success)
 }
 
-/// The log level being written: none.
-// D2-09043, D2-09044
+/// The log level being written, for a host that keeps no log masks: none.
 fn no_log(c: &mut Call<'_>) -> Result<Status, Stop> {
     ret(c, 0, 0, tag::MIXED)?;
     Ok(Status::Success)
 }
 
 /// A log message: written nowhere.
-// D2-09042
+// D2-09042, D2-09041
 fn log_message(_: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }

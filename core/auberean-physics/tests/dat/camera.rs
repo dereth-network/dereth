@@ -1,59 +1,78 @@
 //! The cell the camera stands in, which chooses what a frame of the world draws. Fixture: hall
 //! copy 0x0298 of the September 2013 cell file (rooms 40 m across, a room open to the sky above
-//! each), and block 0x6967, whose cave's first room (0x0100) has a doorway out to the land.
+//! each), and block 0x6967's land (its cave's first room, 0x0100, has a doorway out to it).
 
-use auberean_physics::camera::{camera_cell, touches_outside};
-use auberean_physics::interior::add_block_cells;
-use auberean_physics::land::Land;
+use auberean_physics::camera::{touches_outside, Camera, CameraSettings};
+use auberean_physics::interior::{add_block_cells, is_interior};
+use auberean_physics::land::{cell_of, Land};
 use auberean_physics::mesh::Trees;
-use dereth_primitives::{CellId, Vec3};
+use dereth_primitives::{CellId, Frame, Position, Quat};
 
 use crate::common::need_world;
+use crate::interior::{body, sighted, with_the_player};
 
-/// From a room the camera stands in the room, or a room it sees, that holds its point; past every
-/// room it sees, on the land outside under the point where one of them has a doorway out, and in
-/// the room it started from where none has (the camera keeps to the rooms). From the land it
-/// stands on the land, unless a room of the block with a doorway out holds the point.
+/// The camera stands in the cell its last line of sight ended in: behind a body turned every eighth
+/// of a turn in the hall's starting room, in that room or one beyond a doorway (a line that leaves
+/// a room by its open top, through no doorway, ends in the room); behind one on the land, in the
+/// land cell under it.
 ///
 /// Behaviour: draw.inside.the-frame-is-chosen-by-the-cell-the-camera-stands-in
 #[test]
-fn the_camera_stands_in_the_room_that_holds_it_or_on_the_land() {
+fn the_camera_stands_in_the_cell_its_last_line_ended_in() {
     let w = need_world!();
     let land = Land::new();
     let mut trees = Trees::default();
     add_block_cells(&land, &w.records, &mut trees, 0x02, 0x98);
-    let hall = CellId(0x0298_0109);
-    // in the room itself, and in the room beside it (0x0100, 40 m west)
-    let here = camera_cell(&land, hall, Vec3::new(59.0, 240.0, -44.0));
-    assert_eq!(here.map(|(c, _)| c), Some(hall));
-    let (beside, at) = camera_cell(&land, hall, Vec3::new(5.0, 262.0, -44.0)).expect("a cell");
-    assert_eq!(beside, CellId(0x0298_0100));
-    assert_eq!((at.x, at.y), (5.0, 262.0), "the same block");
-    // far above every room: the hall has no doorway out, so the room it started from
-    let (kept, _) = camera_cell(&land, hall, Vec3::new(100.0, 100.0, 900.0)).expect("a cell");
-    assert_eq!(kept, hall);
-
-    // The cave mouth: its first room leads out.
     land.add_block(&w.records, &w.region, &mut trees, 0x69, 0x67);
     add_block_cells(&land, &w.records, &mut trees, 0x69, 0x67);
     let mouth = CellId(0x6967_0100);
     let geom = land.cell(mouth).expect("the cave's first room");
     assert!(touches_outside(&geom));
-    let o = geom.frame.origin;
-    let inside = Vec3::new(o.x, o.y, o.z + 1.0);
-    let ground = camera_cell(&land, CellId(0x6967_0001), Vec3::new(5.0, 5.0, 300.0))
-        .expect("a cell")
-        .0;
-    assert_eq!(ground.0 >> 16, 0x6967);
-    assert!((1..=64).contains(&(ground.0 & 0xFFFF)));
-    let walked_in = camera_cell(&land, ground, inside).expect("a cell").0;
-    assert_eq!(
-        walked_in, mouth,
-        "the room holding the point, from the land"
-    );
-    assert_eq!(camera_cell(&land, mouth, inside).map(|c| c.0), Some(mouth));
-    // out through the doorway, high above the room: the land outside
-    let (out, _) = camera_cell(&land, mouth, Vec3::new(o.x, o.y, o.z + 400.0)).expect("a cell");
-    assert_eq!(out.0 >> 16, 0x6967);
-    assert!((1..=64).contains(&(out.0 & 0xFFFF)), "{:08X}", out.0);
+    let (ground, _) = land
+        .ground(
+            dereth_primitives::LandblockId::new(0x69, 0x67),
+            dereth_primitives::Vec3::new(30.0, 30.0, 0.0),
+        )
+        .expect("the land under it");
+    let camera = Camera::new(CameraSettings::default());
+    let (mut rooms, mut outside) = (0, 0);
+    for at in [
+        Position::new(
+            CellId(0x0298_0109),
+            Frame::new(
+                dereth_primitives::Vec3::new(59.0, 240.0, -44.0),
+                Quat::IDENTITY,
+            ),
+        ),
+        Position::new(
+            CellId(0x6967_000C),
+            Frame::new(
+                dereth_primitives::Vec3::new(30.0, 30.0, ground),
+                Quat::IDENTITY,
+            ),
+        ),
+    ] {
+        let world = with_the_player(w, &land, &mut body(w, at, 0.0));
+        for k in 0..8u8 {
+            let heading = f32::from(k) * 45.0;
+            let (look, wanted) = camera.wanted(at.frame.origin, heading);
+            let seen = sighted(&world, &land, &at, look, wanted);
+            let eye = seen.eye;
+            if is_interior(eye.cell) {
+                rooms += 1;
+                assert_eq!(eye.cell.0 >> 16, at.cell.0 >> 16);
+                assert!(land.cell(eye.cell).is_some(), "{heading}: {seen:?}");
+            } else {
+                outside += 1;
+                let (cx, cy) = cell_of(eye.frame.origin).expect("on the block");
+                assert_eq!(
+                    eye.cell.0 & 0xFFFF,
+                    u32::try_from(cx * 8 + cy + 1).expect("a land cell"),
+                    "{heading}: {seen:?}"
+                );
+            }
+        }
+    }
+    assert!(rooms >= 8, "{rooms} in rooms");
+    assert_eq!(outside, 8, "on the land, in the land cell under it");
 }

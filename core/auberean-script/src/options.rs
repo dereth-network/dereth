@@ -41,7 +41,8 @@ pub mod kind {
     pub const RECIPE: u32 = 0x4000_0006;
 }
 
-/// One shortcut.
+/// One shortcut. A copy is a copy of its kind and of every value it holds.
+// D2-12179, D2-12178
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shortcut {
     pub kind: u32,
@@ -235,10 +236,12 @@ pub const VERSION: u32 = 6;
 /// buckets.
 pub const NO_UI_LOCATIONS: [u8; 4] = [0, 0, 0, 2];
 
-/// The player's options.
+/// The player's options. A copy takes every part; dropped, every part goes.
+// D2-12007, D2-12003, D2-01961
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GameplayOptions {
     /// Alias to what it stands for, both wide strings.
+    // D2-01464
     pub aliases: Table<(Vec<u16>, Vec<u16>)>,
     pub shortcuts: Vec<Shortcut>,
     pub shortcut_set: u32,
@@ -330,7 +333,7 @@ impl GameplayOptions {
     }
 
     /// Read a packed profile into a new one, as the engine reads one.
-    // D2-12002
+    // D2-12002, D2-01447, D2-01468, D2-01469
     pub fn read(r: &mut In<'_>) -> Result<Self> {
         let mut o = Self::default();
         let m = r.u32()?;

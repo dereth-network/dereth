@@ -118,3 +118,62 @@ fn a_camera_refuses_a_property_it_has_not_or_of_another_kind() {
     assert!(c.apply_property(VERTICAL_SCALE, &PropertyValue::Float(2.5)));
     assert_eq!(c.vertical_scale, 2.5);
 }
+
+/// A ray meets a list of triangles as the client's trace finds it: the nearest triangle whose plane
+/// the ray reaches, as a share of the ray's length, with the triangle's normal (its first edge across
+/// its second) and the point weighted as the client weights it; one-sided, only from in front of a
+/// triangle; a triangle whose normal is under 0.0002 long, a ray that ends short of the plane, and a
+/// ray running within 0.0002 of the plane all miss. (The point is weighted as the client weights it,
+/// not where the ray met; no pick reads it.)
+///
+/// Behaviour: desktop.interface.a-ray-meets-triangles-as-the-clients-trace-finds-them
+#[test]
+fn a_ray_meets_triangles_as_the_clients_trace_finds_them() {
+    use auberean_scene::view::ray_intersects_tri_list as trace;
+    let v = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
+    // A triangle in the plane z = 0, facing up (its first edge across its second).
+    let floor = [v(0.0, 0.0, 0.0), v(2.0, 0.0, 0.0), v(0.0, 2.0, 0.0)];
+    let down = v(0.0, 0.0, -1.0);
+    let hit = trace(v(0.5, 0.5, 10.0), down, 100.0, [floor], false).expect("from in front");
+    assert!((hit.fraction - 0.1).abs() < 1e-6);
+    assert_eq!(hit.normal, v(0.0, 0.0, 1.0));
+    // Its edges' shares there are a quarter each, and the client weights the first corner by the
+    // first edge's share, the second by the second's, the third by the rest: (0.5, 1) where the ray
+    // met (0.5, 0.5).
+    assert!((hit.point.x - 0.5).abs() < 1e-5 && (hit.point.y - 1.0).abs() < 1e-5);
+    let up = v(0.0, 0.0, 1.0);
+    assert_eq!(
+        trace(v(0.5, 0.5, -10.0), up, 100.0, [floor], false),
+        None,
+        "from behind"
+    );
+    assert!(
+        trace(v(0.5, 0.5, -10.0), up, 100.0, [floor], true).is_some(),
+        "two-sided"
+    );
+    assert_eq!(
+        trace(v(0.5, 0.5, 10.0), down, 5.0, [floor], true),
+        None,
+        "ends short"
+    );
+    let tiny = [v(0.5, 0.5, 0.0), v(0.51, 0.5, 0.0), v(0.5, 0.51, 0.0)];
+    assert_eq!(
+        trace(v(0.505, 0.505, 1.0), down, 10.0, [tiny], true),
+        None,
+        "too small"
+    );
+    // Nearly along the plane, within 0.0002 of it end to end: its determinant is under 0.0002.
+    let e = 0.000_02_f32;
+    let along = v(1.0 / (1.0 + e * e).sqrt(), 0.0, -e / (1.0 + e * e).sqrt());
+    assert_eq!(
+        trace(v(0.0, 0.5, 0.000_01), along, 10.0, [floor], true),
+        None
+    );
+    // The nearer of two.
+    let high = [v(0.0, 0.0, 5.0), v(2.0, 0.0, 5.0), v(0.0, 2.0, 5.0)];
+    let hit = trace(v(0.5, 0.5, 10.0), down, 100.0, [floor, high], false).expect("met");
+    assert!((hit.fraction - 0.05).abs() < 1e-6);
+    // Shares a half and an eighth: (0.25, 0.75).
+    let hit = trace(v(1.0, 0.25, 1.0), down, 10.0, [floor], false).expect("met");
+    assert!((hit.point.x - 0.25).abs() < 1e-5 && (hit.point.y - 0.75).abs() < 1e-5);
+}

@@ -14,7 +14,7 @@ pub static ROWS: &[Behaviour] = &[
                block is in.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-TRANSITION-DOORWAY-OUT"),
-        station: "auberean-physics::cpu::rules::a_body_in_a_doorway_out_reaches_the_20_m_land_cells_under_it",
+        station: "auberean-physics::cpu::motion::rules::a_body_in_a_doorway_out_reaches_the_20_m_land_cells_under_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -24,7 +24,7 @@ pub static ROWS: &[Behaviour] = &[
                nowhere.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-TRANSITION-FALL-OUT"),
-        station: "auberean-physics::cpu::rules::a_move_that_leaves_every_cell_falls_into_the_land_cell_under_it",
+        station: "auberean-physics::cpu::motion::rules::a_move_that_leaves_every_cell_falls_into_the_land_cell_under_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -34,7 +34,67 @@ pub static ROWS: &[Behaviour] = &[
                walls is marked as that, and a plane on an object as neither.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-TRANSITION-LANDSCAPE"),
-        station: "auberean-physics::cpu::rules::ground_on_the_land_is_the_landscape",
+        station: "auberean-physics::cpu::motion::rules::ground_on_the_land_is_the_landscape",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.land.the-ground-under-a-point-is-the-first-triangle-of-its-cell-over-it",
+        says: "The ground under a point on the land is the first triangle of its 20 m land cell \
+               the point lies over, within a hair of each edge, the cell's squares taken west to \
+               east and south to north: a point on the line between two squares stands on the \
+               first square's ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-GROUND-ORDER"),
+        station: "auberean-physics::cpu::motion::rules::the_ground_under_a_point_is_the_first_triangle_of_its_cell_over_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.obstacle.a-body-slides-as-the-client-slides-it",
+        says: "A body slides along a surface as the client slides it, to the bit, wherever the \
+               transition slides it: along a surface's normal (taken as parallel to the plane it \
+               stands on only within 0.0002 squared, the normal it collides with turned back \
+               along its move), along the step-up normal when it cannot step up, and along a \
+               physics tree's face, the face's normal turned into the world as the client turns it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBSTACLE-SLIDE"),
+        station: "auberean-physics::cpu::contact::obstacles::a_body_slides_as_the_client_slides_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.obstacle.a-cylinder-is-met-as-the-client-meets-it",
+        says: "A body meeting another object's upright cylinder answers, and leaves its transition \
+               (where it is, the walk interpolation, the landing, the contact plane, the collision \
+               normal), as the client's own code does, to the bit, in every arm: placed or passing \
+               through, stepping down onto its top, checking where it may walk, settling onto its \
+               top after a landing, stepping up onto it or sliding along it on the ground, meeting \
+               it at a face or at its side when it clips its path, and landing on it in the air.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBSTACLE-CYLINDER"),
+        station: "auberean-physics::cpu::contact::obstacles::a_cylinder_is_met_as_the_client_meets_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.obstacle.a-shape-is-placed-at-its-objects-position-and-scale",
+        says: "A sphere or cylinder given in its object's frame is placed at the object's position \
+               and its scale along each axis (a sphere's radius by the scale's height, a cylinder's \
+               height by it and its radius by the mean of the two widths) before it is met, as the \
+               client places it, to the bit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBSTACLE-PLACED"),
+        station: "auberean-physics::cpu::contact::obstacles::a_shape_is_placed_at_its_objects_position_and_scale",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.obstacle.a-sphere-is-met-as-the-client-meets-it",
+        says: "A body meeting another object's sphere answers, and leaves its transition, as the \
+               client's own code does, to the bit, in every arm: placed or passing through, stepping \
+               down onto it (never onto a creature or missile), checking where it may walk, settling \
+               onto it after a landing, stepping up onto it or sliding along it on the ground (a \
+               slide against a parallel contact plane turning the step-up normal back along the \
+               move), meeting it as a point when it clips its path, and landing on it in the air.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBSTACLE-SPHERE"),
+        station: "auberean-physics::cpu::contact::obstacles::a_sphere_is_met_as_the_client_meets_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -52,7 +112,18 @@ pub static ROWS: &[Behaviour] = &[
                0.001 of no turn, and keeps a rotation of no length as it is.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-TRANSITION-RULES"),
-        station: "auberean-physics::cpu::rules::placements_retry_the_other_cells_and_moves_turn_plainly",
+        station: "auberean-physics::cpu::motion::rules::placements_retry_the_other_cells_and_moves_turn_plainly",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "transition.rules.the-polygon-tests-take-only-an-exact-parallel-as-parallel",
+        says: "A movement counts as lying along a polygon's surface only when it does exactly: a \
+               body sunk a hair into a floor and stepping down into it by less than a fifth of a \
+               millimeter is still lifted onto it, and the ground under a body is never refused \
+               for lying along its up direction.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-PARALLEL"),
+        station: "auberean-physics::cpu::motion::rules::the_polygon_tests_take_only_an_exact_parallel_as_parallel",
         tier: Tier::Cpu,
     },
 ];

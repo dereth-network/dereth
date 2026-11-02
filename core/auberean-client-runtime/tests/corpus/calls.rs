@@ -311,6 +311,149 @@ fn every_recorded_objects_life_is_told_to_its_scripts() {
     assert!(n(f::HANDLE_DESTRUCTION) >= 34_000, "{told:?}");
 }
 
+/// Every rename the 2017 servers sent (each a visual update of the name quality) reaches the
+/// object's name as its scripts read it, through the event queue as the client runs it. One stamped
+/// past the object's last visual stamp takes effect, and the name is the new one at once. One
+/// stamped at or before it is dropped (the servers send an object's earlier visual messages again
+/// after its creation, which already carries their result): the name the creation brought is
+/// already the same. One about an object the client does not have yet waits, and the name is the
+/// new one once the object's creation comes. Of 16,315 renames, at least 16,313 reach the name
+/// (the rest are renamed again before theirs comes), every one taken at once.
+///
+/// Behaviour: script.model.every-recorded-rename-reaches-the-objects-name
+#[test]
+fn every_recorded_rename_reaches_the_objects_name() {
+    use auberean_client_runtime::repository;
+    use auberean_script::native_object::TextInfo;
+    use std::collections::BTreeMap;
+    /// A rename's message type.
+    const RENAME: u32 = 0x100BD;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    /// How the renames went.
+    #[derive(Debug, Default)]
+    struct Renames {
+        fed: u64,
+        taken: u64,
+        taken_reached: u64,
+        dropped: u64,
+        dropped_already_named: u64,
+        held: u64,
+        held_already_named: u64,
+        reached_later: u64,
+        superseded: u64,
+        never_reached: u64,
+    }
+    let mut r = Renames::default();
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    // Renames whose name is not yet the object's: by object, the newest.
+    let mut pending = BTreeMap::<u64, TextInfo>::new();
+    let name_is = |c: &mut Client, id: u64, v: &TextInfo| {
+        c.with_host(|h| repository::answer(h, &repository::STRING_INFO, id, repository::NAME))
+            .flatten()
+            .as_ref()
+            == Some(v)
+    };
+    let settle = |c: &mut Client, pending: &mut BTreeMap<u64, TextInfo>, r: &mut Renames| {
+        pending.retain(|id, v| {
+            let reached = name_is(c, *id, v);
+            r.reached_later += u64::from(reached);
+            !reached
+        });
+    };
+    let close = |pending: &mut BTreeMap<u64, TextInfo>, r: &mut Renames| {
+        r.never_reached += std::mem::take(pending).len() as u64;
+    };
+    let mut stats = auberean_client_model::events::QueueStats::default();
+    captures::messages_in_time_order(&index, &types, &[2017], |m| {
+        if m.capture != capture {
+            settle(&mut c, &mut pending, &mut r);
+            close(&mut pending, &mut r);
+            add_stats(&mut stats, c.queue.stats());
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+            settle(&mut c, &mut pending, &mut r);
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        let rename = match &msg {
+            ServerMessage::UpdateStringInfoVisual(q) if m.message_type == RENAME => {
+                Some((q.object.id, repository::text_info(&q.value)))
+            }
+            _ => None,
+        };
+        let before = c.queue.stats();
+        c.take_message(m.blob_id, msg);
+        let Some((id, v)) = rename else {
+            return;
+        };
+        r.fed += 1;
+        let reached = name_is(&mut c, id, &v);
+        let after = c.queue.stats();
+        if after.dropped > before.dropped {
+            r.dropped += 1;
+            r.dropped_already_named += u64::from(reached);
+        } else if after.waited == before.waited && after.held_visual == before.held_visual {
+            r.taken += 1;
+            r.taken_reached += u64::from(reached);
+        } else {
+            r.held += 1;
+            r.held_already_named += u64::from(reached);
+        }
+        if !reached && pending.insert(id, v).is_some() {
+            r.superseded += 1;
+        }
+    })
+    .expect("the index reads");
+    settle(&mut c, &mut pending, &mut r);
+    close(&mut pending, &mut r);
+    add_stats(&mut stats, c.queue.stats());
+    eprintln!("{r:?}; the event queue: {stats:?}");
+    assert_eq!(r.fed, 16_315);
+    assert_eq!(r.taken_reached, r.taken, "{r:?}");
+    assert!(r.taken >= 24, "{r:?}");
+    assert_eq!(r.dropped_already_named, r.dropped, "{r:?}");
+    assert_eq!(r.never_reached, 0, "{r:?}");
+    assert!(
+        r.taken_reached + r.dropped_already_named + r.held_already_named + r.reached_later
+            >= 16_313,
+        "{r:?}"
+    );
+}
+
+fn add_stats(
+    into: &mut auberean_client_model::events::QueueStats,
+    s: auberean_client_model::events::QueueStats,
+) {
+    into.held_entering += s.held_entering;
+    into.waited += s.waited;
+    into.held_visual += s.held_visual;
+    into.dropped += s.dropped;
+    into.force_creates += s.force_creates;
+    into.queues_given_up += s.queues_given_up;
+}
+
 fn tally_into(into: &mut CallTally, from: &CallTally) {
     into.calls += from.calls;
     into.completed += from.completed;
@@ -558,5 +701,188 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
         ("with physics types", typed, 327_000),
     ] {
         assert!(n >= floor, "{n} missiles {what}");
+    }
+}
+
+/// Every player's creation the 2005 and 2017 servers sent (449) puts the world in the region it
+/// names, region 1, whose record the install's region mapping names (the region record the scene
+/// reads) and which says it is region 1: the scene is asked to take the region up at the first
+/// creation after entering the world (183), and a creation again in the same world (a hand-off to
+/// another server, 266) changes nothing.
+///
+/// Behaviour: model.world.every-recorded-player-creation-puts-the-world-in-its-region
+#[test]
+fn every_recorded_player_creation_puts_the_world_in_its_region() {
+    const PLAYER_OBJECT: u32 = 0x10060;
+    const CHAR_EXIT_GAME: u32 = 0x10027;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let types = [PLAYER_OBJECT, CHAR_EXIT_GAME, PLAY_CHARACTER];
+    let (mut creations, mut changes, mut again, mut elsewhere) = (0u64, 0u64, 0u64, 0u64);
+    let mut records = std::collections::BTreeSet::new();
+    let mut capture = -1;
+    let mut c = client(&data);
+    captures::messages_in_time_order(&index, &types, &[2005, 2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        let creation = matches!(msg, ServerMessage::PlayerObject(_));
+        c.take_message(m.blob_id, msg);
+        if !creation {
+            return;
+        }
+        creations += 1;
+        elsewhere += u64::from(c.world.region() != 1);
+        match c.world.take_region_change() {
+            Some(r) => {
+                changes += 1;
+                records.insert(r);
+            }
+            None => again += 1,
+        }
+    })
+    .expect("the index reads");
+    eprintln!(
+        "{creations} player creations: {changes} took a region up ({records:x?}), {again} named the region the world was in, {elsewhere} left the world elsewhere"
+    );
+    assert_eq!(creations, 449);
+    assert_eq!(elsewhere, 0);
+    assert_eq!((changes, again), (183, 266));
+    assert_eq!(records.into_iter().collect::<Vec<_>>(), vec![REGION_RECORD]);
+}
+
+/// The region record every world of the install starts from.
+const REGION_RECORD: u32 = 0x0F00_0000;
+
+/// Records asked for, by type and id, each with when it was first asked.
+type Asks = std::collections::BTreeMap<(u32, u32), f64>;
+
+/// **A created object's saved state names its records as the recorded clients' did**: over the
+/// 2013 and 2017 sessions, every saved state the created objects' records bring, or name in turn,
+/// is asked by the scripts which records it needs (about 42,600 times, a state asked again only once it
+/// has left memory), each answer running to its end, naming about 15,300 ids. Given the gaps the recorded
+/// clients' files had (every record a recorded client asked the server for, removed from ours),
+/// our client asks the server for no picture, sound or saved state: the 12 pictures and the music
+/// a state names that the recorded clients asked for came with a story's subtitle tables, when the
+/// story played, not at a creation, and no state a creation brought named them before.
+///
+/// Behaviour: data.cache.a-created-objects-state-names-its-records
+#[test]
+fn every_created_objects_saved_state_names_its_records_and_asks_for_none_the_recorded_clients_did_not(
+) {
+    use auberean_dat::{QualifiedId, RecordType};
+    use std::collections::BTreeMap;
+    const DATA_REQUEST: u32 = 0x10034;
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let years = [2013, 2017];
+    // What the recorded clients asked for, by capture.
+    let mut retail = BTreeMap::<i64, Asks>::new();
+    captures::messages_in_time_order(&index, &[DATA_REQUEST], &years, |m| {
+        if let Ok(ClientMessage::DataRequest(r)) = ClientMessage::decode(&m.raw) {
+            retail
+                .entry(m.capture)
+                .or_default()
+                .entry((r.kind, r.id))
+                .or_insert(m.time);
+        }
+    })
+    .expect("the index reads");
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut ours = BTreeMap::<i64, Asks>::new();
+    let mut named = auberean_glue::data_ids::Named::default();
+    let mut take = |c: &Client, capture: i64, ours: &mut BTreeMap<i64, Asks>| {
+        named.add(&c.states_named);
+        for s in c.sent() {
+            if let ClientMessage::DataRequest(r) = &s.message {
+                ours.entry(capture)
+                    .or_default()
+                    .entry((r.kind, r.id))
+                    .or_insert(s.at);
+            }
+        }
+    };
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut frame = f64::NEG_INFINITY;
+    captures::messages_in_time_order(&index, &types, &years, |m| {
+        if m.capture != capture {
+            take(&c, capture, &mut ours);
+            capture = m.capture;
+            c = client(&data);
+            frame = f64::NEG_INFINITY;
+            // Our client's files lack what the recorded client's lacked.
+            let stores = c.data_download().cache().stores();
+            for &(kind, id) in retail.get(&capture).map(|a| a.keys()).into_iter().flatten() {
+                let _ = stores.purge_data(QualifiedId { id, kind });
+            }
+        }
+        if m.time > frame {
+            frame = m.time;
+            c.set_time(LocalTime(m.time));
+            c.upkeep();
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        if let Ok(msg) = ServerMessage::decode(&m.raw) {
+            c.take_message(m.blob_id, msg);
+        }
+    })
+    .expect("the index reads");
+    take(&c, capture, &mut ours);
+    let count = |asks: &BTreeMap<i64, Asks>, kind: RecordType| -> usize {
+        asks.values()
+            .map(|a| a.keys().filter(|(k, _)| *k == kind.0).count())
+            .sum()
+    };
+    let named_kinds = [
+        RecordType::PICTURE,
+        RecordType::MUSIC_INFO,
+        RecordType::ENCODED_WAVE,
+        RecordType::SCRIPT_STATE,
+    ];
+    for kind in named_kinds {
+        eprintln!(
+            "{:#x}: the recorded clients asked for {}, ours {}",
+            kind.0,
+            count(&retail, kind),
+            count(&ours, kind)
+        );
+    }
+    eprintln!("{named:?}");
+    assert!(named.stopped.is_empty(), "{named:?}");
+    assert_eq!(named.completed, named.asked, "{named:?}");
+    assert!(named.asked >= 42_000, "{named:?}");
+    assert!(named.records >= 15_000, "{named:?}");
+    assert_eq!(
+        (
+            count(&retail, RecordType::PICTURE),
+            count(&retail, RecordType::MUSIC_INFO)
+        ),
+        (12, 1)
+    );
+    for kind in named_kinds {
+        assert_eq!(count(&ours, kind), 0, "{:#x}: {ours:x?}", kind.0);
     }
 }

@@ -1,6 +1,7 @@
 //! The player's options profile: the chat options it answers.
 
-use auberean_script::options::{GameplayOptions, Table};
+use auberean_script::options::{GameplayOptions, Table, NO_UI_LOCATIONS};
+use auberean_script::ui_locations::UiLocations;
 
 /// A profile no packed form filled answers the chat options a new profile holds: the four chat
 /// windows' filters, every text kind small, the kinds' colors, the devoted windows' channels (say,
@@ -102,4 +103,55 @@ fn a_profiles_aliases_go_to_the_head_of_their_bucket_and_pack_in_bucket_order() 
     assert_eq!(p.aliases.header, 0x0200_0003);
     p.flush_aliases();
     assert_eq!(p.aliases.header, 0x0200_0000);
+}
+
+/// A new table of the windows' saved places packs as no window in 47 buckets. A place added goes
+/// to the head of its chain in a new table copied in as the window's: so a window's second
+/// element in the same bucket as its first stands after it once copied in, a place for an element
+/// already held is refused, and each place packs as its four corners and a shown word under its
+/// window and its element; read back, every place is found again.
+///
+/// Behaviour: script.options.the-windows-saved-places-add-and-pack-as-the-engines
+#[test]
+fn the_windows_saved_places_add_and_pack_as_the_engines() {
+    let mut t = UiLocations::new();
+    assert_eq!(t.write(), NO_UI_LOCATIONS);
+    let a = [1, 2, 3, 4, 1];
+    let b = [5, 6, 7, 8, 0];
+    assert!(t.add_location(0x2100_0001, 7, a));
+    assert!(t.add_location(0x2100_0001, 7 + 47, b), "the same bucket");
+    assert!(
+        !t.add_location(0x2100_0001, 7, b),
+        "an element already held"
+    );
+    let words: Vec<u32> = t
+        .write()
+        .chunks(4)
+        .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        .collect();
+    assert_eq!(
+        words,
+        [
+            0x0200_0001,
+            0x2100_0001,
+            0x0200_0002,
+            7,
+            1,
+            2,
+            3,
+            4,
+            1,
+            54,
+            5,
+            6,
+            7,
+            8,
+            0
+        ],
+        "the second added stands after the first: the window's table is a copy"
+    );
+    let back = UiLocations::read(&t.write()).expect("reads");
+    assert_eq!(back.location(0x2100_0001, 7), Some(a));
+    assert_eq!(back.location(0x2100_0001, 54), Some(b));
+    assert_eq!(back.location(0x2100_0002, 7), None);
 }

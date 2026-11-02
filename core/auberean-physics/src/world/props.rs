@@ -6,7 +6,7 @@
 //! a shadow on the landscape or a volume of shadow, whether it is drawn with those seen through,
 //! and whether it is drawn in the game at all.
 
-use auberean_assets::entity::{EntityLookup, CHAIN_LIMIT};
+use auberean_assets::entity::{Entity, EntityLookup, CHAIN_LIMIT};
 use auberean_assets::property::{
     PhysicsMaterial, Property, PropertyCollection, PropertyGroup, PropertyValue,
 };
@@ -50,6 +50,50 @@ pub mod graphics {
     pub const LANDSCAPE_SHADOW: u32 = 0x2;
     /// It is drawn with the objects seen through.
     pub const TRANSLUCENT: u32 = 0x4;
+}
+
+/// The bit of the graphics state a drawing property that is a truth value sets or clears.
+fn graphics_bit(id: u32) -> Option<u32> {
+    match id {
+        render::LANDSCAPE_SHADOW_CAST => Some(graphics::LANDSCAPE_SHADOW),
+        render::VOLUME_SHADOW_CAST => Some(graphics::VOLUME_SHADOW),
+        render::TRANSLUCENT => Some(graphics::TRANSLUCENT),
+        _ => None,
+    }
+}
+
+/// The graphics state an object made from entity `e` takes from its drawing properties (an
+/// entity a landblock or a cell places, kept whole there): the entities it is made from first
+/// (along its object while that is an entity, found by `entity`), then its own, each truth value
+/// among those saying how it is drawn setting or clearing its bit, as
+/// [`World::apply_entity_properties`] applies them to an object in the world.
+#[must_use]
+pub fn entity_graphics_state(e: &Entity, entity: EntityLookup<'_>) -> u32 {
+    let mut parents = Vec::new();
+    let mut at = e.object.unwrap_or(0);
+    for _ in 0..CHAIN_LIMIT {
+        if divine_type(at) != ENTITY_TYPE {
+            break;
+        }
+        let Some(p) = entity(at) else {
+            break;
+        };
+        at = p.object.unwrap_or(0);
+        parents.push(p);
+    }
+    let own = std::iter::once(e.properties.as_ref());
+    parents
+        .iter()
+        .rev()
+        .map(|p| p.properties.as_ref())
+        .chain(own)
+        .flatten()
+        .flat_map(PropertyCollection::iter)
+        .fold(0, |state, p| match (graphics_bit(p.id), &p.value) {
+            (Some(bit), PropertyValue::Bool(true)) => state | bit,
+            (Some(bit), PropertyValue::Bool(false)) => state & !bit,
+            _ => state,
+        })
 }
 
 impl World {
@@ -105,17 +149,14 @@ impl World {
         let PropertyValue::Bool(on) = p.value else {
             return false;
         };
-        let bit = match p.id {
-            render::LANDSCAPE_SHADOW_CAST => graphics::LANDSCAPE_SHADOW,
-            render::VOLUME_SHADOW_CAST => graphics::VOLUME_SHADOW,
-            render::TRANSLUCENT => graphics::TRANSLUCENT,
-            render::INVISIBLE_INGAME => {
-                return self.entries.get_mut(&key).is_some_and(|e| {
-                    e.game_draw = Some(!on);
-                    true
-                });
-            }
-            _ => return false,
+        if p.id == render::INVISIBLE_INGAME {
+            return self.entries.get_mut(&key).is_some_and(|e| {
+                e.game_draw = Some(!on);
+                true
+            });
+        }
+        let Some(bit) = graphics_bit(p.id) else {
+            return false;
         };
         self.set_graphics_state(key, bit, on)
     }

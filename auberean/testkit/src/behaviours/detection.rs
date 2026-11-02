@@ -19,7 +19,7 @@ pub static ROWS: &[Behaviour] = &[
                dropped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-WORLD-SEARCH"),
-        station: "auberean-physics::cpu::detections::a_detection_made_at_once_finds_what_is_in_its_volume",
+        station: "auberean-physics::cpu::contact::detections::a_detection_made_at_once_finds_what_is_in_its_volume",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -30,7 +30,7 @@ pub static ROWS: &[Behaviour] = &[
                and one after the body has moved does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-GLOBAL-STAMP"),
-        station: "auberean-physics::cpu::detections::each_detection_of_a_target_takes_it_again",
+        station: "auberean-physics::cpu::contact::detections::each_detection_of_a_target_takes_it_again",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -42,7 +42,7 @@ pub static ROWS: &[Behaviour] = &[
                0.0002.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-BLOCK-RAY"),
-        station: "auberean-physics::cpu::detections::a_ray_is_cut_at_landblock_edges",
+        station: "auberean-physics::cpu::contact::detections::a_ray_is_cut_at_landblock_edges",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -55,7 +55,7 @@ pub static ROWS: &[Behaviour] = &[
                at resolution 3 the middles of the edges and faces whose corners were taken.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-COVER-RAYS"),
-        station: "auberean-physics::cpu::detections::an_object_is_covered_by_more_rays_as_asked",
+        station: "auberean-physics::cpu::contact::detections::an_object_is_covered_by_more_rays_as_asked",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -66,7 +66,7 @@ pub static ROWS: &[Behaviour] = &[
                the line again from its start.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS-OUT"),
-        station: "auberean-physics::cpu::detections::rooms::a_line_of_sight_goes_out_through_a_doorway_onto_the_land",
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_of_sight_goes_out_through_a_doorway_onto_the_land",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -79,7 +79,7 @@ pub static ROWS: &[Behaviour] = &[
                doorways it stays in its first room.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS-DOORWAYS"),
-        station: "auberean-physics::cpu::detections::rooms::a_line_of_sight_goes_through_doorways_into_the_rooms_beyond",
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_of_sight_goes_through_doorways_into_the_rooms_beyond",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -90,7 +90,7 @@ pub static ROWS: &[Behaviour] = &[
                the surroundings only; stopped, it ends where it was stopped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS"),
-        station: "auberean-physics::cpu::detections::objects_and_walls_stop_a_line_of_sight",
+        station: "auberean-physics::cpu::contact::detections::objects_and_walls_stop_a_line_of_sight",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -101,7 +101,7 @@ pub static ROWS: &[Behaviour] = &[
                nothing asked tells them nothing; its state word set whole does the same.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-UNDETECTABLE"),
-        station: "auberean-physics::cpu::detections::a_bodys_own_hiding_reaches_its_cells_watchers",
+        station: "auberean-physics::cpu::contact::detections::a_bodys_own_hiding_reaches_its_cells_watchers",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -112,7 +112,7 @@ pub static ROWS: &[Behaviour] = &[
                undetectable one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-WATCHERS"),
-        station: "auberean-physics::cpu::detections::a_watcher_is_told_what_comes_and_goes",
+        station: "auberean-physics::cpu::contact::detections::a_watcher_is_told_what_comes_and_goes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -123,7 +123,7 @@ pub static ROWS: &[Behaviour] = &[
                radius.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-WATCH-COUNT"),
-        station: "auberean-physics::cpu::detections::watches_are_counted_and_the_first_and_last_tell",
+        station: "auberean-physics::cpu::contact::detections::watches_are_counted_and_the_first_and_last_tell",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -131,7 +131,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Each tick a body's other updates run while woken, and they check its detection spheres against the world it moves in: a sphere around another body notices it once a second has passed since the last check and the other is within the sphere's radius and its own together; the updates keep running while the body has a sphere.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-UPDATE"),
-        station: "auberean-physics::cpu::detections::a_bodys_updates_check_its_spheres_against_the_world",
+        station: "auberean-physics::cpu::contact::detections::a_bodys_updates_check_its_spheres_against_the_world",
         tier: Tier::Cpu,
     },
 ];

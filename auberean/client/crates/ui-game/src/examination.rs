@@ -6,7 +6,8 @@
 //! left to right and wrap to a new line (keeping the line's indent) when they do not fit, pictures
 //! take their own width, indents move on by 16 pixels each, a break starts a new line at the left.
 //! Before a profile comes, the window shows "nothing examined" for a request about nothing, else
-//! "waiting".
+//! "waiting". A line whose string reference waits on string tables the data lacks shows empty;
+//! when they come (or are refused), the window empties to "waiting" again until the next profile.
 //!
 //! The window starts as the classic window (every tab's lines at once, the tab buttons hidden);
 //! the player's options can make it the tabbed one (the first tab, and the tab buttons: general,
@@ -22,11 +23,13 @@ use auberean_text::{StringInfo, Value, Variable};
 use auberean_ui::framework::FrameId;
 use auberean_ui::manager::global;
 use auberean_ui::token::{msg, state};
+use auberean_ui::types::text::text_msg::DOWNLOAD_DONE;
 use auberean_ui::{Handle, Mail, Token, Ui};
 
 use crate::flow;
 use crate::gameplay::{self, notice, Child, Notice, Record, Request};
 use crate::shortcuts::TOOLBAR_LAYOUT_ENUM;
+use crate::time_display::TimeLeft;
 
 /// The first tab's tabs: what a new request asks for, and what every profile shows.
 pub const FIRST_TAB: u32 = 0x203;
@@ -134,8 +137,8 @@ impl Default for ExamRequest {
 }
 
 /// One line of a profile: its kind, the tabs it shows on, the element it is drawn with (0 for the
-/// window's own), its value (a word, or 64 bits), a time left, a string reference, an icon's
-/// first picture.
+/// window's own), its value (a word, or 64 bits), the game time a countdown runs out at, a string
+/// reference, an icon's first picture.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub kind: u32,
@@ -184,8 +187,8 @@ pub struct Examination {
     pub tabs: u32,
     /// The row being laid out.
     row: Option<Handle>,
-    /// The times left shown.
-    countdowns: Vec<Handle>,
+    /// The times left shown: each one's element and its display.
+    countdowns: Vec<(Handle, TimeLeft)>,
     /// A profile is being laid out.
     processing: bool,
     /// The classic window (every tab at once).
@@ -393,7 +396,8 @@ impl Examination {
         if let Some(l) = self.list {
             ui.list_flush(l);
         }
-        for c in self.countdowns.drain(..) {
+        for (c, d) in self.countdowns.drain(..) {
+            d.close(ui);
             ui.remove(c);
         }
         self.x = 0;
@@ -522,8 +526,11 @@ impl Examination {
 
     /// One line laid out in the row (made the list's width at the first line): text where the row
     /// is (on a new line, indented, when it does not fit and the line has more than its indent),
-    /// cut to the row's width, as tall as its text; a picture as wide as it is; a break; indents;
-    /// a time left.
+    /// cut to the row's width, as tall as its text (a string reference waiting on the string
+    /// tables it reads takes the rest of the row, empty); a picture as wide as it is; a break; indents;
+    /// a countdown, the time left until its end kept current by the clock (months and days above a
+    /// month, days and hours above a day, hours and minutes above an hour, else minutes and
+    /// seconds).
     // D2-02607
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     fn process_line(&mut self, ui: &mut Ui, l: &Line) {
@@ -547,9 +554,19 @@ impl Examination {
                 let Some(e) = self.element_for(ui, l.appearance) else {
                     return;
                 };
-                let text = ui.assets().write(&info).unwrap_or_default();
-                ui.set_text(e, &text);
-                let (mut w, _) = ui.inq_size_with_margins(e, &text).unwrap_or((0, 0));
+                // Added at once, it is measured; waiting on the string tables it reads, the
+                // window hears when they come, and the line takes what is left of the row.
+                let (mut w, _) = if ui.set_string_info(e, &info) {
+                    let text = String::from_utf16_lossy(&ui.assets().element_text(&info));
+                    ui.inq_size_with_margins(e, &text).unwrap_or((0, 0))
+                } else {
+                    if let (Some(listener), Some(id)) =
+                        (ui.frame_listener(self.frame), ui.node(e).map(|n| n.id))
+                    {
+                        ui.listen_for_message(listener, id, DOWNLOAD_DONE);
+                    }
+                    (row_w, 0)
+                };
                 if row_w <= self.x + w && self.indent * 16 < self.x {
                     self.line_break(true);
                 }
@@ -622,8 +639,9 @@ impl Examination {
                 ui.set_parent(e, row);
                 ui.move_to(e, self.x, self.y);
                 ui.resize_to(e, w, 16);
-                ui.set_text(e, &countdown_text(l.time));
-                self.countdowns.push(e);
+                let mut d = TimeLeft::new(ui);
+                d.init(ui, Some(e), l.time, 1, 1, 60);
+                self.countdowns.push((e, d));
                 e
             }
             kind::EFFECT => {
@@ -659,14 +677,22 @@ impl Examination {
     }
 }
 
-/// A time left as the window first shows it: hours, minutes and seconds.
-fn countdown_text(seconds: f64) -> String {
-    #[allow(clippy::cast_possible_truncation)]
-    let s = seconds.max(0.0) as i64;
-    format!("({}:{:02}:{:02})", s / 3600, s / 60 % 60, s % 60)
+impl Examination {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x45F, 0x417, 0x46D, 0x441, 0x45D, 0x1_040C];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
 }
 
 impl Child for Examination {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -724,6 +750,18 @@ impl Child for Examination {
                 param,
                 ..
             } => {
+                // A line's text came: the window no longer hears it, and (unless a profile is
+                // being laid out) empties to the request examined, waiting for its profile again.
+                if what == DOWNLOAD_DONE {
+                    if let Some(listener) = ui.frame_listener(self.frame) {
+                        ui.unregister_for_message(listener, element, DOWNLOAD_DONE);
+                    }
+                    if !self.processing {
+                        let r = self.request;
+                        self.update(ui, r);
+                    }
+                    return;
+                }
                 if what == msg::SET_SHOW_STATE && Some(from) == self.field {
                     self.show(ui, param != 0, out);
                 }
@@ -785,6 +823,13 @@ impl Child for Examination {
                 self.set_classic(ui, bits & CLASSIC_EXAMINATION != 0, out);
             }
             _ => {}
+        }
+    }
+
+    /// The clock: each time left written again when it is time to look.
+    fn update(&mut self, ui: &mut Ui, _view: &gameplay::View<'_>, _out: &mut Vec<Request>) {
+        for (_, d) in &mut self.countdowns {
+            d.tick(ui);
         }
     }
 

@@ -383,6 +383,21 @@ impl StringInfo {
         self.inq_internal(src, false).0 == Code::Success
     }
 
+    /// The string tables the reference reads: its own table (none for a literal, nor anything
+    /// nested in one) and every nested reference's, the same way.
+    // D2-14139
+    pub fn sub_data_ids(&self, out: &mut QualifiedIds) {
+        if self.literal.is_some() {
+            return;
+        }
+        out.add(self.table);
+        for v in self.effective_variables() {
+            if let Value::Text(nested) = &v.value {
+                nested.sub_data_ids(out);
+            }
+        }
+    }
+
     /// The private tables the reference's entries in table `table` send their tokens on to: its
     /// own entry's when it names that table, and every nested reference's the same way.
     // D2-14140

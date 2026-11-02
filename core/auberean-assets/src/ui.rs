@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
+use auberean_dat::qualified::divine_type;
 use auberean_dat::reader::Result;
+use auberean_dat::types::RecordType;
 use auberean_dat::Reader;
 use auberean_primitives::DataId;
 
@@ -26,7 +28,8 @@ pub struct UiLayout {
     pub elements: Vec<Element>,
 }
 
-/// An element of a layout: a rectangle with states.
+/// An element of a layout: a rectangle with states. Dropped with its states.
+// D2-11078, D2-11077
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Element {
     pub id: u32,
@@ -43,7 +46,9 @@ pub struct Element {
     pub states: Vec<ElementState>,
 }
 
-/// One state of an element: its own rectangle, what it shows and does, and its children.
+/// One state of an element: its own rectangle, what it shows and does, and its children. Dropped
+/// with its attributes, media, transitions and children.
+// D2-11087
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ElementState {
     pub id: u32,
@@ -59,7 +64,8 @@ pub struct ElementState {
     pub children: Vec<Element>,
 }
 
-/// A named value set on a state.
+/// A named value set on a state. Dropped with its text, when it holds text.
+// D2-11099
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
     pub id: u32,
@@ -87,7 +93,9 @@ pub enum AttributeValue {
     Empty(u8),
 }
 
-/// What a state shows or does while it is current, in order.
+/// What a state shows or does while it is current, in order. Dropped with what it holds (a
+/// video's file name).
+// D2-11095, D2-11096, D2-11121
 #[derive(Clone, Debug, PartialEq)]
 pub enum Media {
     /// Kind 1: frames of pictures played over a duration.
@@ -124,6 +132,7 @@ pub enum Media {
 }
 
 /// A change animated over time when something happens.
+// D2-11106
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transition {
     /// 1 move, 2 resize, 3 fade, 4 rotate.
@@ -371,6 +380,7 @@ impl Element {
     }
 }
 
+// D2-11070, D2-05044, D2-11071, D2-11064, D2-11063, D2-11062
 impl Decode for UiLayout {
     /// The id, a counted list of referenced record ids, the string table id, the width and height
     /// (16 bits each), a 16-bit count of elements, alignment, the elements.
@@ -439,9 +449,53 @@ pub struct Glyph {
     pub offset: u32,
 }
 
+/// The character a font draws in place of one it lacks.
+pub const MISSING_CHARACTER: u16 = 0x003F;
+
+/// Where each character's glyph stands among a font's glyphs: the least and greatest code points
+/// it holds, and for every code point from the one to the other the glyph's place, or none.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct CharacterMap {
+    pub first: u16,
+    pub last: u16,
+    pub places: Vec<Option<u32>>,
+}
+
+impl CharacterMap {
+    /// The map of `glyphs`, or none for a font without glyphs. A code point held twice maps to
+    /// its last glyph.
+    // D2-10045, D2-10047
+    #[must_use]
+    pub fn of(glyphs: &[Glyph]) -> Option<Self> {
+        let first = glyphs.iter().map(|g| g.code_point).min()?;
+        let last = glyphs.iter().map(|g| g.code_point).max()?;
+        let mut places = vec![None; usize::from(last - first) + 1];
+        for (i, g) in glyphs.iter().enumerate() {
+            places[usize::from(g.code_point - first)] = u32::try_from(i).ok();
+        }
+        Some(Self {
+            first,
+            last,
+            places,
+        })
+    }
+
+    /// The place of `ch`'s glyph, if the map holds one.
+    #[must_use]
+    pub fn place(&self, ch: u16) -> Option<usize> {
+        if ch < self.first || ch > self.last {
+            return None;
+        }
+        self.places[usize::from(ch - self.first)].map(|p| p as usize)
+    }
+}
+
 /// A bitmap font (`.font`, `0x42000000`-`0x42000FFF`; local `0x42001000`+): its glyphs and one
 /// strip of pixels `total_width` wide and `max_height` high, a byte a pixel when antialiased,
-/// else a bit a pixel.
+/// else a bit a pixel. A font read from the files carries the map of its characters; one made
+/// otherwise has none, and its glyphs are searched in order. A new font is empty, and dropping
+/// it lets go of its glyphs, its pixels and its map.
+// D2-10039, D2-10040, D2-10041, D2-05064, D2-05065, D2-05066, D2-05068, D2-05104, D2-05067
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Font {
     pub max_height: u32,
@@ -451,11 +505,76 @@ pub struct Font {
     pub antialiased: bool,
     pub glyphs: Vec<Glyph>,
     pub pixels: Vec<u8>,
+    pub character_map: Option<CharacterMap>,
+}
+
+impl Font {
+    /// The glyph `ch` is drawn with: its own, else the font's question mark's, else none.
+    // D2-10042
+    #[must_use]
+    pub fn char_desc(&self, ch: u16) -> Option<&Glyph> {
+        self.own_glyph(ch).or_else(|| {
+            (ch != MISSING_CHARACTER)
+                .then(|| self.own_glyph(MISSING_CHARACTER))
+                .flatten()
+        })
+    }
+
+    fn own_glyph(&self, ch: u16) -> Option<&Glyph> {
+        match &self.character_map {
+            Some(m) => m.place(ch).and_then(|i| self.glyphs.get(i)),
+            None => self.glyphs.iter().find(|g| g.code_point == ch),
+        }
+    }
+
+    /// How wide `ch` is drawn, in pixels (0 when the font has neither it nor a question mark).
+    // D2-10043
+    #[must_use]
+    pub fn char_width(&self, ch: u16) -> u32 {
+        self.char_desc(ch).map_or(0, |g| g.width)
+    }
+
+    /// Whether the font has every character of `s` but new lines. A font without a map of its
+    /// characters is taken to have them all.
+    // D2-10044
+    #[must_use]
+    pub fn contains_string(&self, s: &[u16]) -> bool {
+        let Some(m) = &self.character_map else {
+            return true;
+        };
+        s.iter().all(|&c| c == 0x000A || m.place(c).is_some())
+    }
+
+    /// The width of `s`'s widest line, its lines broken at new lines.
+    // D2-10049, D2-10046
+    #[must_use]
+    pub fn string_width(&self, s: &[u16]) -> u32 {
+        let (mut widest, mut line) = (0u32, 0u32);
+        for &c in s {
+            if c == 0x000A {
+                widest = widest.max(line);
+                line = 0;
+            } else {
+                line = line.wrapping_add(self.char_width(c));
+            }
+        }
+        widest.max(line)
+    }
+}
+
+/// The kind a font's id is read as: a font of the shared files or of the language's own file;
+/// none for an id of any other kind.
+// D2-10050, D2-10053
+#[must_use]
+pub fn font_kind(id: u32) -> Option<RecordType> {
+    let kind = RecordType(divine_type(id));
+    (kind == RecordType::FONT || kind == RecordType::FONT_LOCAL).then_some(kind)
 }
 
 impl Decode for Font {
     /// The id, the greatest height and width, the glyph count, the average width, the strip's
-    /// width, the antialiased flag, the glyphs (12 bytes each), then the strip's bytes.
+    /// width, the antialiased flag, the glyphs (12 bytes each), then the strip's bytes; the map
+    /// of its characters made once it is read.
     // D2-10048
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
@@ -482,6 +601,7 @@ impl Decode for Font {
             n >>= 3;
         }
         let pixels = r.bytes(n)?.to_vec();
+        let character_map = CharacterMap::of(&glyphs);
         Ok(Self {
             max_height,
             max_width,
@@ -490,6 +610,7 @@ impl Decode for Font {
             antialiased,
             glyphs,
             pixels,
+            character_map,
         })
     }
 }
@@ -516,7 +637,7 @@ pub struct KeyMap {
 impl Decode for KeyMap {
     /// The id, the name (a narrow string), the 16-byte GUID, then a counted list of bindings (the
     /// action, the input, a narrow-string name).
-    // D2-04889
+    // D2-04889, D2-04900
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let name = r.narrow_string()?;
@@ -602,7 +723,7 @@ impl ActionBindings {
 
     /// An action's name and description as tokens of the map's string table, if it has a name
     /// (a description token of 0 is none).
-    // D2-03408
+    // D2-03408, D2-03436
     #[must_use]
     pub fn descrip_values(&self, action: u32) -> Option<(u32, u32)> {
         self.texts
@@ -651,7 +772,7 @@ impl ActionBindings {
 
 impl KeyMap {
     /// Write the record as [`KeyMap`] decodes it.
-    // D2-04889
+    // D2-04889, D2-04899
     pub fn write(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.narrow_string(&self.name);

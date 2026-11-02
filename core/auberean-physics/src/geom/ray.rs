@@ -39,9 +39,15 @@ impl Ray {
             self.dir = Vec3::new(0.0, 1.0, 0.0);
             return;
         }
-        self.length = (offset.x * offset.x + offset.y * offset.y + offset.z * offset.z).sqrt();
-        let k = 1.0 / self.length;
-        self.dir = Vec3::new(k * offset.x, k * offset.y, k * offset.z);
+        // Worked as the client's floating-point unit works it: the length summed wide and
+        // stored, its reciprocal kept wide.
+        let w = f64::from;
+        let o = offset;
+        #[allow(clippy::cast_possible_truncation)]
+        let n = |v: f64| v as f32;
+        self.length = n(((w(o.z) * w(o.z) + w(o.y) * w(o.y)) + w(o.x) * w(o.x)).sqrt());
+        let k = 1.0 / w(self.length);
+        self.dir = Vec3::new(n(k * w(o.x)), n(k * w(o.y)), n(k * w(o.z)));
     }
 
     /// From one point to another.

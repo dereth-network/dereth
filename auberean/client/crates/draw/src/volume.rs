@@ -424,6 +424,49 @@ impl VolumeMaker {
         room: &mut VolumeRoom,
         out: &mut Vec<Volume>,
     ) {
+        let level = |mesh: &Mesh| volume_level(mesh, detail, model_detail);
+        self.make(records, batches, toward, &level, NEAR_OFFSET, room, out);
+    }
+
+    /// As [`VolumeMaker::cast`], for an object that makes its volumes as it is drawn (the self
+    /// shadowing setting): each mesh's from the level it is drawn at (`detail`, `model_detail`),
+    /// its near cap pushed five centimeters along the light, so a surface facing the light is not
+    /// darkened by its own cap while the shadow its other parts throw still falls on it.
+    // D2-05510, D2-10547
+    #[allow(clippy::too_many_arguments)]
+    pub fn cast_as_drawn(
+        &mut self,
+        records: &WorldRecords,
+        batches: &[ObjectBatch],
+        toward: Vec3,
+        detail: f32,
+        model_detail: u32,
+        room: &mut VolumeRoom,
+        out: &mut Vec<Volume>,
+    ) {
+        let level = |mesh: &Mesh| crate::mesh::level_at(mesh, detail, model_detail);
+        self.make(
+            records,
+            batches,
+            toward,
+            &level,
+            DRAWN_NEAR_OFFSET,
+            room,
+            out,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make(
+        &mut self,
+        records: &WorldRecords,
+        batches: &[ObjectBatch],
+        toward: Vec3,
+        level_of: &dyn Fn(&Mesh) -> Option<usize>,
+        near: f32,
+        room: &mut VolumeRoom,
+        out: &mut Vec<Volume>,
+    ) {
         let mut seen: Vec<(u32, *const Vec<crate::mesh::MeshVertex>)> = Vec::new();
         for b in batches {
             if b.mesh == 0 || room.volumes == 0 {
@@ -437,7 +480,7 @@ impl VolumeMaker {
             let Some(mesh) = self.mesh(records, b.mesh) else {
                 continue;
             };
-            let Some(level) = volume_level(&mesh, detail, model_detail) else {
+            let Some(level) = level_of(&mesh) else {
                 continue;
             };
             let positions: Vec<Vec3> = b
@@ -476,7 +519,7 @@ impl VolumeMaker {
                 &positions,
                 local,
                 0.0,
-                NEAR_OFFSET,
+                near,
                 room.vertices,
                 room.indices,
             ) else {
@@ -564,4 +607,56 @@ pub fn point_light_shadow(l: &ShadowLight, at: Vec3, up: Vec3, sun: Vec3) -> Vec
     }
     let away = unit(sub(at, l.origin));
     unit(sub(away, scale(up, 0.2)))
+}
+
+/// One object casting volumes in a frame: how far it stands from the camera, its draws (a run of
+/// the frame's objects), the way its shadow falls, and the detail it is drawn at.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Caster {
+    pub distance: f32,
+    pub draws: std::ops::Range<usize>,
+    pub toward: Vec3,
+    pub detail: f32,
+}
+
+/// The objects the world places that cast a volume of shadow in `frame` and stand within `reach`
+/// of its camera (forty meters, [`VOLUME_REACH`], when the frame makes the volumes; any distance
+/// when each object makes its own as it is drawn), as they stand among its draws: each placed
+/// object's run of draws, how far it stands, the way its shadow falls (its own lights' way, else
+/// `sun`) and the detail its first part is drawn at there (full when its setup gives no
+/// distances).
+// D2-06220, D2-06658
+#[must_use]
+pub fn placed_casters(frame: &crate::scene::Frame, sun: Vec3, reach: f32) -> Vec<Caster> {
+    let eye = frame.camera.position;
+    let mut out = Vec::new();
+    let mut k = 0;
+    while k < frame.objects.len() {
+        let Some(c) = frame.objects[k].caster else {
+            k += 1;
+            continue;
+        };
+        let start = k;
+        while frame
+            .objects
+            .get(k)
+            .is_some_and(|b| b.caster.is_some_and(|o| o.object == c.object))
+        {
+            k += 1;
+        }
+        let distance = length(sub(c.at, eye));
+        if distance > reach {
+            continue;
+        }
+        let detail = c
+            .detail
+            .map_or(1.0, |d| crate::mesh::detail_at(&d, distance).unwrap_or(0.0));
+        out.push(Caster {
+            distance,
+            draws: start..k,
+            toward: c.toward.unwrap_or(sun),
+            detail,
+        });
+    }
+    out
 }

@@ -235,6 +235,8 @@ pub struct Shortcuts {
     shortcuts: Vec<Shortcut>,
     /// The attack state as the player's scripts last said.
     attacking: bool,
+    /// The player targets automatically, as last seen.
+    pub auto_target: bool,
     /// Special attacks asked for: their number and skill.
     special: Vec<(u32, u32)>,
     time_left: Vec<TimeLeft>,
@@ -280,6 +282,7 @@ impl Shortcuts {
             list,
             shortcuts: Vec::new(),
             attacking: false,
+            auto_target: false,
             special: Vec::new(),
             time_left: Vec::new(),
             offset: 0,
@@ -396,8 +399,9 @@ impl Shortcuts {
         self.check_attack_buttons(ui);
     }
 
-    /// A button asks to start or stop attacking; the buttons go on showing the state the player
-    /// is in until the scripts say it changed.
+    /// A button asks to start or stop attacking: to start, a player who targets automatically
+    /// selects the nearest foe first; the buttons go on showing the state the player is in until
+    /// the scripts say it changed.
     // D2-02492
     pub fn request_attack_state_change(
         &mut self,
@@ -405,6 +409,14 @@ impl Shortcuts {
         start: bool,
         out: &mut Vec<Request>,
     ) {
+        if start && self.auto_target {
+            // D2-00170
+            out.push(Request::Notice(Notice {
+                native: crate::selection::notice::SELECT,
+                words: vec![crate::selection::key::NEAREST_FOE],
+                ..Notice::default()
+            }));
+        }
         out.push(Request::Attack { start });
         self.check_attack_buttons(ui);
     }
@@ -1468,7 +1480,25 @@ fn drop_in(ui: &Ui, item: Handle, list: Handle) -> bool {
     index < 100 && kind != 0
 }
 
+impl Shortcuts {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[
+        0x1_040B, 0x40F, 0x417, 0x46D, 0x497, 0x405, 0x406, 0x407, 0x465, 0x466, 0x413, 0x47C,
+        0x415, 0x416, 0x1_040C,
+    ];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for Shortcuts {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }
@@ -1501,6 +1531,9 @@ impl Child for Shortcuts {
 
     /// This frame's word from the scripts, then the notices that waited for it.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
+        if let Some(w) = view.world {
+            self.auto_target = w.auto_target;
+        }
         if let Some(s) = view.shortcuts {
             self.take_source(ui, s, out);
         }

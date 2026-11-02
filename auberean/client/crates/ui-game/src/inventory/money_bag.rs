@@ -152,6 +152,7 @@ impl MoneyBag {
             kind: dialog::CONFIRMATION,
             text,
             modal: false,
+            info: None,
         }));
     }
 
@@ -287,7 +288,22 @@ impl MoneyBag {
     }
 }
 
+impl MoneyBag {
+    /// The notices it registers for as it is made, by their own numbers.
+    pub const NOTICES: &'static [u32] = &[0x1_040C, 0x457, 0x45A, 0x436];
+
+    /// Its notices as the panels name them.
+    #[must_use]
+    pub fn notices_of() -> Vec<u32> {
+        crate::notices::keys(Self::NOTICES)
+    }
+}
+
 impl Child for MoneyBag {
+    fn notices(&self) -> Vec<u32> {
+        Self::notices_of()
+    }
+
     fn frame(&self) -> FrameId {
         self.frame
     }

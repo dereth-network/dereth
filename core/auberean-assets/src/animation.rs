@@ -70,7 +70,7 @@ pub struct AnimMap {
     pub entries: Vec<(u32, DataId)>,
 }
 
-// D2-05020, D2-14899, D2-14902, D2-14903, D2-14904, D2-14905, D2-15359
+// D2-05020, D2-14899, D2-14902, D2-14903, D2-14904, D2-14905, D2-15359, D2-14906
 impl Decode for AnimMap {
     /// The id, then a hash table from a key word to an animation id.
     // D2-14897, D2-00124
@@ -324,9 +324,9 @@ pub struct CharacterTemplate {
     pub player_sliders: Vec<u32>,
 }
 
-// D2-15067, D2-15068, D2-15069, D2-15070, D2-15086, D2-15089, D2-15093, D2-14907, D2-15177, D2-15151
+// D2-15067, D2-15068, D2-15069, D2-15070, D2-15086, D2-15089, D2-15093, D2-14907, D2-15177, D2-15151, D2-15094
 impl Decode for CharacterTemplate {
-    // D2-15062, D2-14908, D2-15178, D2-15152
+    // D2-15062, D2-14908, D2-15178, D2-15152, D2-15090, D2-15092, D2-15091
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let behaviors = r.hash_table(12, |r| Ok((r.u32()?, r.u64()?)))?;
@@ -440,6 +440,7 @@ pub struct Impulse {
 /// What happens during an animation besides the bones moving, and its hold loop.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct AnimationEvents {
+    // D2-15259
     pub effects: Vec<EffectTrigger>,
     pub hooks: Vec<GameHook>,
     pub impulses: Vec<Impulse>,
@@ -503,6 +504,7 @@ pub struct KeyframeAnimation {
 /// A slider and the animation ticks along it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct SliderTicks {
+    // D2-15312, D2-14834
     pub slider: u32,
     pub ticks: Vec<u32>,
 }
@@ -563,8 +565,9 @@ pub struct Animation {
 // D2-05021, D2-15109, D2-15117, D2-15118, D2-15121, D2-15116, D2-14826, D2-14829, D2-15236, D2-15246, D2-15294, D2-15275, D2-15276, D2-15277, D2-15278, D2-15300, D2-15301, D2-15303, D2-15318, D2-15296, D2-15299
 // D2-15319, D2-15323, D2-15324, D2-15328, D2-15335, D2-15336, D2-15348, D2-15355, D2-15356, D2-15357, D2-15358, D2-15382, D2-15387, D2-15388, D2-15390, D2-15399, D2-15400
 // D2-14827, D2-15407, D2-15409, D2-15413, D2-15422, D2-15423, D2-15424, D2-15425, D2-15428, D2-15365, D2-15366, D2-15367, D2-15368, D2-15372, D2-15257, D2-15290
+// D2-15122, D2-15260, D2-16991
 impl Decode for Animation {
-    // D2-15123, D2-14831, D2-15292, D2-15283, D2-15306, D2-15298, D2-15317, D2-15326, D2-15410, D2-15418, D2-15381, D2-15341, D2-15342
+    // D2-15123, D2-14831, D2-15292, D2-15283, D2-15306, D2-15298, D2-15317, D2-15326, D2-15410, D2-15418, D2-15381, D2-15341, D2-15342, D2-15351
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let at = r.pos();
