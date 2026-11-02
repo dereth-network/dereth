@@ -8,7 +8,8 @@
 //!
 //! - the **client** sends its clock request and an echo request every six half-second intervals;
 //! - the **server** sends its clock with its first data and every [`SERVER_TIME_SYNC_INTERVAL`]
-//!   seconds, and answers each echo request at once with an acknowledgement.
+//!   seconds, and answers each echo request at once with an acknowledgement;
+//! - the **server** sends its large messages at a pace ([`crate::pace`]).
 //!
 //! Sans-IO: the caller passes the time and sends the datagrams [`Endpoint::tick`] returns.
 
@@ -19,18 +20,20 @@ use dereth_transport::blob::{NetBlob, NetBlobId};
 use dereth_transport::conn::{ConnectSeeds, Referral, ServerSwitch};
 use dereth_transport::flow::{FlowQueue, IntervalEvent, TimeSensitive, ACK_INTERVAL, NAK_INTERVAL};
 use dereth_transport::indicator::{CompletedBlob, Indicator};
-use dereth_transport::session::{lhs_newer, ReceiverData, RejectReason};
+use dereth_transport::session::{lhs_newer, ReceiverData, RejectReason, MAX_NAK_IDS};
 use dereth_transport::wire::optional::seq_ids;
 use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
 use dereth_transport::CryptoSystem;
+
+use crate::pace::Pace;
 
 /// How often the server sends its clock: the January 2017 servers sent it with the first data
 /// packet and then about every 20 seconds.
 pub const SERVER_TIME_SYNC_INTERVAL: f64 = 20.0;
 
-/// The most packets resent in one [`Endpoint::tick`]. The rest of a long retransmit request is
-/// dropped; the peer asks again for what is still missing.
-pub const MAX_RESENDS_PER_TICK: usize = 32;
+/// The most packets resent in one [`Endpoint::tick`]: as many as one retransmit request can ask
+/// for. The rest of a longer list is dropped; the peer asks again for what is still missing.
+pub const MAX_RESENDS_PER_TICK: usize = MAX_NAK_IDS;
 
 /// Which end of the connection this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,10 +86,13 @@ pub struct Endpoint {
     held: bool,
     last_time_sync: Option<LocalTime>,
     ack_now: bool,
-    /// The highest sequence the peer has acknowledged.
+    /// The highest sequence the peer has acknowledged: by its acknowledgement, or by asking for
+    /// the one after it again (it has everything before the first it asks for).
     pub peer_acked: u32,
     last_message_seq: u32,
     unsent_blobs: usize,
+    /// Server: the large messages, sent at a pace.
+    pub pace: Pace,
     pub stats: Stats,
 }
 
@@ -136,6 +142,7 @@ impl Endpoint {
             peer_acked: 1,
             last_message_seq: 1,
             unsent_blobs: 0,
+            pace: Pace::default(),
             stats: Stats::default(),
         }
     }
@@ -226,6 +233,10 @@ impl Endpoint {
                 if first != self.flush_num && lhs_newer(first, self.flush_num) {
                     self.flush_num = first;
                 }
+                let has = first.wrapping_sub(1);
+                if lhs_newer(has, self.peer_acked) {
+                    self.peer_acked = has;
+                }
             }
         }
         if let Some(b) = p.optional.get(&PacketFlags::REJECT_RETRANSMIT) {
@@ -259,14 +270,20 @@ impl Endpoint {
         Ok(inc)
     }
 
-    /// Queue one message with the blob id it carries.
+    /// Queue one message with the blob id it carries. A server's large message goes by its
+    /// [`Pace`].
     pub fn send_blob(&mut self, queue: u16, blob_id: u64, payload: Vec<u8>) {
+        let paced = self.role == Role::Server && self.pace.takes(queue, payload.len());
         let mut b = NetBlob::for_send(payload, queue);
         b.id = NetBlobId(blob_id);
         b.saved_net_blob_id = b.id;
-        self.flow.enqueue_blob(b);
+        if paced {
+            self.pace.push(&b);
+        } else {
+            self.flow.enqueue_blob(b);
+            self.unsent_blobs += 1;
+        }
         self.stats.blobs_out += 1;
-        self.unsent_blobs += 1;
     }
 
     /// Queue an optional header (a referral, a server switch...).
@@ -285,7 +302,8 @@ impl Endpoint {
     }
 
     /// Run the connection for this moment: acknowledgements or retransmit requests, the clock,
-    /// retransmissions, then everything queued. Returns the datagrams for [`Self::peer`].
+    /// retransmissions, then everything queued, then what the pace lets go of a server's large
+    /// messages. Returns the datagrams for [`Self::peer`].
     pub fn tick(&mut self, now: LocalTime) -> Vec<Vec<u8>> {
         self.indicator.flush_timed_out_eph_info(now);
         let mut sync_due = false;
@@ -294,6 +312,7 @@ impl Endpoint {
                 sync_due = true;
             }
         }
+        self.pace.at_interval(self.flow.cur_local_interval);
         let mut sections: Vec<(u32, Vec<u8>)> = Vec::new();
         let since = now.seconds_since(self.recv.time_stamp);
         let naks = self.recv.get_naks();
@@ -358,6 +377,16 @@ impl Endpoint {
             }
         }
         out.extend(new);
+        self.pace.spend(out.iter().map(Vec::len).sum());
+        if !self.pace.is_empty() {
+            let paced = self
+                .pace
+                .send(&mut self.flow, &mut crypto, self.peer_acked, now);
+            if let Some(last) = paced.last().and_then(|d| ProtoHeader::from_bytes(d).ok()) {
+                self.last_message_seq = last.seq_id;
+            }
+            out.extend(paced);
+        }
         self.recv.crypto_outgoing = crypto;
         if self.flush_num != 0 {
             self.flow.flush_sent_packets(self.flush_num);
@@ -372,7 +401,9 @@ impl Endpoint {
     /// carried them?
     #[must_use]
     pub fn messages_acknowledged(&self) -> bool {
-        self.unsent_blobs == 0 && !lhs_newer(self.last_message_seq, self.peer_acked)
+        self.unsent_blobs == 0
+            && self.pace.is_empty()
+            && !lhs_newer(self.last_message_seq, self.peer_acked)
     }
 
     /// The goodbye this end sends when it goes away: unsequenced, alone in its packet.

@@ -149,3 +149,53 @@ fn our_client_enters_again_with_the_weapon_it_left_wielded() {
             .expect("held");
     assert_ne!(held.location, 0, "the server keeps it wielded");
 }
+
+/// Our client keeps a panel's place as the play screen keeps one (through the player's interface
+/// into its options, then sent to the server to keep), logs off and enters again: its scripts
+/// answer the place it kept. A new character keeps none.
+/// Behaviour: session.server.our-clients-kept-window-places-come-back-on-the-next-entry
+#[test]
+fn our_clients_kept_window_places_come_back_on_the_next_entry() {
+    use auberean_client_sdk::protocol::ClientMessage;
+    use auberean_script::ui_locations::UiLocations;
+    const WINDOW_SETTINGS: u32 = 0x8212_002F;
+    const RADAR: (u32, u32) = (0x2100_0050, 0x1000_0207);
+    fn kept(s: &mut InProcess) -> UiLocations {
+        for _ in 0..20_000 {
+            if let Some(t) = s.client().ui_save_locations() {
+                return UiLocations::read(&t).expect("a table that reads");
+            }
+            s.step();
+        }
+        panic!("the scripts never answered the kept places");
+    }
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    assert_eq!(
+        kept(&mut s).location(RADAR.0, RADAR.1),
+        None,
+        "a new character keeps none"
+    );
+    let place = [
+        0.5f32.to_bits(),
+        0.75f32.to_bits(),
+        0.9f32.to_bits(),
+        0.25f32.to_bits(),
+        1,
+    ];
+    let mut t = UiLocations::new();
+    assert!(t.add_location(RADAR.0, RADAR.1, place));
+    let from = s.client_ref().sent().len();
+    s.client().set_ui_save_locations(t.write());
+    s.client().upload_ui_settings();
+    ok(play::until(&mut s, play::HANG, "the places sent", |c| {
+        play::sent_since(c, from)
+            .iter()
+            .any(|m| matches!(m, ClientMessage::ServerCall(c) if c.function.0 == WINDOW_SETTINGS))
+    }));
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    assert_eq!(kept(&mut s).location(RADAR.0, RADAR.1), Some(place));
+}

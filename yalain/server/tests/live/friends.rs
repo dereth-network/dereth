@@ -19,7 +19,7 @@ use tungstenite::WebSocket;
 use yalain_testkit::session::{self as play, Drive};
 
 use crate::network::{next, send, stand_in_hub, start_server, HANG};
-use crate::session::{free_ports, must, scratch, Loopback, Running};
+use crate::session::{must, scratch, serving, Loopback};
 
 /// One player's friends stream: the stream's client half over a TCP socket, on the real clock.
 struct Stream {
@@ -213,9 +213,7 @@ fn say(c: &mut Client, text: &str) {
 fn the_server_serves_friends_and_tells_within_the_world_and_across_the_link() {
     let dir = scratch("yalain-live-friends");
     let (hub, links) = stand_in_hub();
-    let port = free_ports();
-    let (child, _console) = start_server(&dir, port, hub);
-    let _server = Running(child);
+    let (port, _server, _console) = serving(&dir, |port| start_server(&dir, port, hub));
     let mut link = must(
         links
             .recv_timeout(HANG)

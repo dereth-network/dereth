@@ -271,3 +271,49 @@ fn each_step_is_a_share_of_the_greatest_with_the_players_effects() {
     steps_at(&health, 630.0, 1.0);
     assert_eq!(health.last().map(|x| x.1), Some(630), "full with the buff");
 }
+
+/// A creature hurt to 10 of its 100 health regains nothing for eight seconds; from then on it
+/// regains its greatest in a minute, in whole points, never a point every step. Hurt again, it
+/// rests again first.
+/// Behaviour: server.regen.a-creature-unhurt-regains-a-share-a-second
+#[test]
+fn a_creature_unhurt_for_eight_seconds_regains_its_greatest_health_in_a_minute() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.run_until(400, |h| h.server.things.by_id.values().any(|t| t.alive()));
+    let id = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.alive())
+        .map(|t| t.id)
+        .expect("the camp's creature");
+    let hurt = h.now.0;
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.max_health = 100;
+        t.health = 10;
+        t.last_hurt = hurt;
+    }
+    let health = |h: &Harness| h.server.things.get(id).map_or(0, |t| t.health);
+    // The world's own steps, a quarter of a second apart.
+    let run_to = |h: &mut Harness, t: f64| {
+        while h.now.0 < t {
+            h.step();
+        }
+    };
+    run_to(&mut h, hurt + 7.5);
+    assert_eq!(health(&h), 10, "nothing while it rests");
+    run_to(&mut h, hurt + 8.0 + 20.0);
+    // 20 s at 100 a minute, within a step either way.
+    let got = health(&h);
+    assert!((32..=34).contains(&(got - 10)), "regained {}", got - 10);
+    // Hurt again, it rests again before it regains anything.
+    let again = h.now.0;
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health = 10;
+        t.last_hurt = again;
+    }
+    run_to(&mut h, again + 7.5);
+    assert_eq!(health(&h), 10, "nothing while it rests again");
+}

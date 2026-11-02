@@ -66,11 +66,11 @@ tables it compiles to.
 
 To pick up edits to the database without a restart, type `reload` into the running server's
 console. It compiles the database again (the `--world-db` folder, or the pinned release) and
-takes what can change while players are in the world: templates, loot, stores, quests, what
-people say, the story's scenes, effects and crafting, and the `--banned-names` file. Placed
-objects (the market's brokers among them) and camps change only at the next start; the log says
-which tables were reloaded and which need a restart. A database that does not compile leaves the
-world as it was, and the log says why. `help` lists the console's commands.
+takes it while players are in the world: templates, loot, stores, quests, what people say, the
+story's scenes, effects and crafting, the `--banned-names` file, the areas of player conflict,
+placed objects, camps and veins (`SETUP.md` section 6 says how players see them change); the log
+says which tables were reloaded. A database that does not compile leaves the world as it was, and
+the log says why. `help` lists the console's commands.
 
 `--banned-names <file>` refuses new character names holding the words it lists: one pattern a
 line, `*` for any run of letters, matched against a name's letters in small letters. The list is

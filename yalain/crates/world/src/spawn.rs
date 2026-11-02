@@ -6,6 +6,11 @@
 //! host knows the land); indoors at one of the camp's spots. A creature's greatest health is its
 //! template's, varied a little each time one appears.
 //!
+//! **Items.** A camp whose template is an item (no creature, a template with a value) keeps it
+//! lying at the camp's place: once it is taken (picked up, or gone), a new one lies there after the
+//! camp's period (2017: quest items lying alone came back 20.0-20.1 s after their taking, 9 of 9
+//! timed; keys 30.0-30.1 s, 6 of 6; a dungeon's mushrooms 181-193 s, 6 of 6).
+//!
 //! **Summons.** A camp never makes a summoned creature (a template with a pet's AI or a pet's NPC
 //! table): those were players' pets and conjurings, seen beside their owners and never made by a
 //! camp (2017: every one of the 417 creatures given a player as its pet was of such a template).
@@ -100,6 +105,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         fill(s, net, i, now);
     }
     crate::ai::step(s, net, clock);
+    crate::reload::retire_rested(s, net);
     crate::walkers::step(s, net, clock);
     crate::pets::step(s, net, clock);
     crate::combat::swing_all(s, net, clock);
@@ -115,6 +121,23 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, now: f64) {
         return;
     };
     let population = s.spawns.camps[i].population as usize;
+    // Its items taken from where they lay are replaced after its period, as its dead creatures are.
+    let regen = s.spawns.camps[i].regen;
+    let things = &s.things;
+    let taken: Vec<u64> = state
+        .alive
+        .iter()
+        .copied()
+        .filter(|id| {
+            things
+                .get(*id)
+                .is_none_or(|t| t.kind == Kind::Item && (t.at.is_none() || t.container.is_some()))
+        })
+        .collect();
+    for id in taken {
+        state.alive.retain(|x| *x != id);
+        state.due.push(now + regen);
+    }
     let mut make = 0;
     if state.filled {
         state.due.sort_by(f64::total_cmp);
@@ -135,7 +158,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, now: f64) {
     }
 }
 
-/// A camp makes one creature. Returns its id.
+/// A camp makes one creature, or lays one item. Returns its id.
 pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     let mut camp = s.spawns.camps.get(i)?.clone();
     camp.templates
@@ -152,6 +175,10 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     )?;
     let template = s.catalog.get(camp.templates[pick].0)?.clone();
     let Some(mut stats) = yalain_content::CreatureStats::from_props(&template.props) else {
+        if is_item(&template.props) {
+            let (at, _) = place(s, &camp);
+            return lay(s, template.id, at);
+        }
         s.unhandled.note(format!(
             "a camp's template {:08X} is no creature",
             template.id
@@ -165,40 +192,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         .as_ref()
         .filter(|r| !r.waypoints.is_empty())
         .map(|r| crate::ai::Patrol::new(r.clone(), camp.moves.start, camp.moves.backward));
-    let at = if camp.spots.is_empty() {
-        // A point drawn uniformly inside the camp's circle.
-        let r = camp.radius * s.rng.unit().sqrt();
-        let a = s.rng.between(0.0, std::f32::consts::TAU);
-        let (cell, x, y) = outdoor(
-            camp.cell >> 16,
-            camp.origin[0] + r * math::cosf(a),
-            camp.origin[1] + r * math::sinf(a),
-        );
-        let z = s
-            .ground
-            .as_ref()
-            .and_then(|g| g.height(cell, [x, y, camp.origin[2]]))
-            .unwrap_or(camp.origin[2]);
-        StoredPosition {
-            cell,
-            origin: [x, y, z],
-            rotation: [1.0, 0.0, 0.0, 0.0],
-        }
-    } else {
-        let (cell, p) = camp.spots[s.rng.below(camp.spots.len())];
-        StoredPosition {
-            cell,
-            origin: p,
-            rotation: [1.0, 0.0, 0.0, 0.0],
-        }
-    };
-    // Facing a random way.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let heading = (s.rng.unit() * 256.0) as u8;
-    let at = StoredPosition {
-        rotation: crate::world::rotation_of_heading(heading),
-        ..at
-    };
+    let (at, heading) = place(s, &camp);
     let max_health = if s.rng.chance(HEALTH_EXACT) {
         stats.max_health
     } else {
@@ -252,6 +246,61 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     });
     s.things.insert(t);
     crate::arms::arm(s, id);
+    Some(id)
+}
+
+/// Where a camp's next creature or item appears, facing a random way, and that heading.
+fn place<S: Store>(s: &mut Server<S>, camp: &yalain_content::Camp) -> (StoredPosition, u8) {
+    let at = if camp.spots.is_empty() {
+        // A point drawn uniformly inside the camp's circle.
+        let r = camp.radius * s.rng.unit().sqrt();
+        let a = s.rng.between(0.0, std::f32::consts::TAU);
+        let (cell, x, y) = outdoor(
+            camp.cell >> 16,
+            camp.origin[0] + r * math::cosf(a),
+            camp.origin[1] + r * math::sinf(a),
+        );
+        let z = s
+            .ground
+            .as_ref()
+            .and_then(|g| g.height(cell, [x, y, camp.origin[2]]))
+            .unwrap_or(camp.origin[2]);
+        StoredPosition {
+            cell,
+            origin: [x, y, z],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        }
+    } else {
+        let (cell, p) = camp.spots[s.rng.below(camp.spots.len())];
+        StoredPosition {
+            cell,
+            origin: p,
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        }
+    };
+    // Facing a random way.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let heading = (s.rng.unit() * 256.0) as u8;
+    let at = StoredPosition {
+        rotation: crate::world::rotation_of_heading(heading),
+        ..at
+    };
+    (at, heading)
+}
+
+/// Is a template an item (no creature: one with a value of its own)?
+#[must_use]
+pub fn is_item(props: &yalain_content::Props) -> bool {
+    props.int("Item_Value").is_some()
+}
+
+/// Lay an item of a template where a camp keeps it. Returns its id.
+fn lay<S: Store>(s: &mut Server<S>, template: u32, at: StoredPosition) -> Option<u64> {
+    let value = crate::inventory::item_value(s, template);
+    let id = crate::inventory::make_item(s, template, 1, value)?;
+    if let Some(t) = s.things.get_mut(id) {
+        t.at = Some(at);
+    }
     Some(id)
 }
 

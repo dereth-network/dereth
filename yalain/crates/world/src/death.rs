@@ -24,7 +24,8 @@
 //!
 //! **What a corpse holds**: the creature's fixed drops at their rates, the named extras of its
 //! loot profile at theirs, and as many items again drawn from the profile's items as the
-//! profile's count says (counting the drops and extras already in).
+//! profile's count says (counting the drops and extras already in). Each item drawn carries what
+//! the creature's level gives it of its own ([`crate::treasure`]).
 //!
 //! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
 //! seconds after it was closed empty, a minute after it was closed with items left.
@@ -38,6 +39,7 @@ use auberean_protocol::types::{
 };
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
+use auberean_script::native_object::TextInfo;
 use yalain_content::quests::Trigger;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
@@ -83,8 +85,9 @@ pub mod look {
     pub const CORPSE_FX: u32 = 0x4100_0004;
     pub const CORPSE_MODE: u32 = 0x4100_0003;
     pub const SLIDER: u32 = 0x4000_000A;
-    /// A dead creature's ethereal physics type.
+    /// A dead creature's ethereal physics type, and the bit a dead pet's own takes.
     pub const ETHEREAL: i32 = 0x40_0000 | 0x30;
+    pub const DEAD_BIT: i32 = 0x10;
 }
 
 /// When the corpse appears after the death, and the creature leaves after it, in seconds.
@@ -545,10 +548,16 @@ pub fn corpse_appears<S: Store>(
     let Some(dead) = s.things.get(creature).cloned() else {
         return;
     };
+    // A pet keeps its own physics type, kingdom and all, with the dead bit.
+    let value = if dead.summoner.is_some() {
+        dead.description.numbers[0] | look::DEAD_BIT
+    } else {
+        look::ETHEREAL
+    };
     let ethereal = ServerMessage::UpdateIntVisual(VisualQuality {
         object: visual(s, creature),
         quality: q::ETHEREAL_LOW,
-        value: look::ETHEREAL,
+        value,
     });
     to_all_seeing(s, net, creature, &ethereal);
     let Some(corpse_t) = s.catalog.get(CORPSE_TEMPLATE).cloned().or_else(|| {
@@ -565,9 +574,17 @@ pub fn corpse_appears<S: Store>(
     corpse.instance = 0;
     corpse.visual = 10;
     let loot = roll_loot(s, &dead);
+    let (level, quality) = dead
+        .creature
+        .as_ref()
+        .map_or((0, None), |c| (c.stats.level, c.stats.loot_quality));
     let mut contents = Vec::new();
     for (template, value) in loot {
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
+            // A treasure item (one drawn from the profile, with a value) carries its own.
+            if value > 0 {
+                crate::treasure::endow(s, item, level, quality);
+            }
             if let Some(t) = s.things.get_mut(item) {
                 t.container = Some((id, u32::try_from(contents.len()).unwrap_or(0)));
             }
@@ -908,6 +925,24 @@ fn player_stamp(p: &mut Player) -> ObjectStamp {
     }
 }
 
+/// What killed a player, as its death names it: a creature by its name, another player by its name
+/// as the world writes it (2017: `Sighclops [M]`, the killer's own name with its mark, 1 of 1), else
+/// misadventure.
+fn killer_name<S: Store>(s: &Server<S>, killer: Option<u64>) -> TextInfo {
+    let Some(k) = killer else {
+        return progress::text(MISADVENTURE);
+    };
+    if let Some(w) = crate::social::world_of(s, k) {
+        return crate::social::name_text(&crate::social::name_of(s, w));
+    }
+    progress::text(
+        s.things
+            .get(k)
+            .and_then(|t| t.facts.name)
+            .unwrap_or(MISADVENTURE),
+    )
+}
+
 /// A player dies: in one tick its death message (the last attacker's name), and for everyone who
 /// sees it, it is dead, wounded, its killer announced, unselectable, in a death pose, playing its
 /// death. Its corpse is made ten seconds later.
@@ -940,10 +975,7 @@ pub fn player_dies<S: Store>(
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let name = killer
-        .and_then(|k| s.things.get(k))
-        .and_then(|t| t.facts.name)
-        .unwrap_or(MISADVENTURE);
+    let name = killer_name(s, killer);
     let attacking = p.attacking.is_some();
     if attacking {
         if let Some(p) = s.players.get_mut(&world) {
@@ -957,7 +989,7 @@ pub fn player_dies<S: Store>(
     }
     let said = session::call(
         player_fn::DEATH_MESSAGE,
-        &[crate::chat::text_arg(progress::text(name))],
+        &[crate::chat::text_arg(name.clone())],
     )
     .expect("packs");
     progress::private(net, world, &said);
@@ -994,7 +1026,7 @@ pub fn player_dies<S: Store>(
             function: FunctionId(player_fn::WHO_KILLED),
             args: Some(
                 ScriptArgs::from_values(&[
-                    crate::chat::text_arg(progress::text(name)),
+                    crate::chat::text_arg(name),
                     Arg::LongInt(killer.unwrap_or(0)),
                 ])
                 .expect("packs"),

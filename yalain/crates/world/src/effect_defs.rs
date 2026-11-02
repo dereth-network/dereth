@@ -12,7 +12,9 @@
 //! learned or forgotten; a combination that adds one effect or another as the target has an
 //! effect of some type or not; an aura, held by its user, that puts its pulsed effects on the
 //! players around it every so often; a pet summoned, of a class, for a lifetime or for good; a
-//! teleport, which sends its target to its place when its time is up.
+//! teleport, which sends its target to its place when its time is up; a recall, which is its
+//! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
+//! places, or to its allegiance's hall.
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -173,8 +175,23 @@ pub enum Kind {
     Pet { class: u32, lifetime: Scale },
     /// Sends its target to a place when its time is up, and is no record: the place.
     Teleport(yalain_store::StoredPosition),
+    /// A recall: where its skill takes its user.
+    Recall(Recall),
     /// Anything else (kept as a record only).
     Other,
+}
+
+/// Where a recall takes its user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recall {
+    /// To the place of a kind the user keeps (its lifestone's, its last portal's).
+    Link(u32),
+    /// To one of these places, by their names, chosen at random; `told`: the user is told it
+    /// arrived (a recall of a class of its own; 2017: a city's 208 of 208, the generic class's
+    /// none of 4).
+    Named { names: Vec<String>, told: bool },
+    /// To the hall its user's allegiance is bound to.
+    Allegiance,
 }
 
 /// An effect's definition.
@@ -385,6 +402,28 @@ impl EffectDef {
                 }),
                 None => Kind::Other,
             }
+        } else if is("TravelRecallEffect") {
+            Kind::Recall(Recall::Link(word("m_link")?))
+        } else if is("RandomRecallEffect") {
+            let names = nav
+                .field(o, "m_destinationArray")
+                .ok()
+                .filter(|r| *r != 0 && *r != NULL)
+                .and_then(|r| nav.items(r).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|i| match nav.native(i.reference()?).ok()? {
+                    NativeObject::Text(t) => Some(String::from_utf16_lossy(t)),
+                    _ => None,
+                })
+                .collect();
+            let generic = lib.package_id("RandomRecallEffect") == Some(o.package_id());
+            Kind::Recall(Recall::Named {
+                names,
+                told: !generic,
+            })
+        } else if is("Eff_Com_AllegianceRecall") {
+            Kind::Recall(Recall::Allegiance)
         } else if is("GrantRecipeEffect") {
             Kind::GrantRecipe(word("m_didRecipe")?)
         } else if is("RemoveRecipeEffect") {

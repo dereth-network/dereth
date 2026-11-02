@@ -10,7 +10,8 @@
 //! killer (2017 played the kill's private effect in only 451 of 4,040 solo awards; this server
 //! does not).
 //!
-//! **A level-up** sends the level, the skill repository with a credit more, the greatest health
+//! **A level-up** sends the level, the skill repository with a credit more (and from level 45 the
+//! level's hero skill credits), the greatest health
 //! and vigor of the level, "Congratulations! You are now level %1..." (the unspent experience, the
 //! health and vigor gained, the level, the credits), health and vigor made whole (2017 sent the
 //! maxima before the text in 41 of 70 level-ups, after it in 29), and to every client that sees the
@@ -401,6 +402,12 @@ pub fn level_up<S: Store>(
                 .map_or(CREDITS_PER_LEVEL, |x| x.skill_credits)
         })
         .sum();
+    // From level 45 each level brings hero skill credits too, sent in the same repository (2017:
+    // 3 of 3 rises of 100 came with a level reached, 48 to 50; every session start at level 45 or
+    // above, 151 of 151, had some, none below).
+    let gained_hero_credits: i32 = (was + 1..=now)
+        .filter_map(|l| s.levels.level(l).map(|x| x.hero_credits))
+        .sum();
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -415,10 +422,14 @@ pub fn level_up<S: Store>(
         .play
         .credits
         .saturating_add(u32::try_from(gained_credits.max(0)).unwrap_or(0));
+    p.play.hero_credits = p
+        .play
+        .hero_credits
+        .saturating_add(u32::try_from(gained_hero_credits.max(0)).unwrap_or(0));
     private(
         net,
         world,
-        &crate::skills::repository_update(p.play.credits),
+        &crate::skills::repository_update(p.play.credits, p.play.hero_credits),
     );
     send_int(net, world, quality::HEALTH_MAX, health);
     send_int(net, world, quality::VIGOR_MAX, vigor);

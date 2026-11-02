@@ -17,6 +17,9 @@ auberean-primitives.workspace = true
 dereth-transport.workspace = true
 dereth-primitives.workspace = true
 tracing.workspace = true
+# The status ping's tokens: an HMAC-SHA256 code over the asker's address.
+hmac.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

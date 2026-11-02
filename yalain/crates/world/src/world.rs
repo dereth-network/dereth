@@ -148,6 +148,10 @@ pub struct Player {
     pub dropped: bool,
     /// A skill it is untraining, until it has earned the skill's experience again.
     pub untraining: Option<crate::skills::Untraining>,
+    /// The conflict status of where it is, as its client was last told it.
+    pub conflict: u32,
+    /// When it last asked to change its account's password (the transport's seconds).
+    pub passwd_at: Option<f64>,
 }
 
 impl Player {
@@ -302,7 +306,13 @@ pub fn enter<S: Store>(
             .note("a character with no start area for its race");
         return;
     };
+    // Never in the world before (one the operator made with a build holds what it was given, and
+    // is new all the same).
+    let first_entry = st.instances == 0;
     st.instances = st.instances.wrapping_add(1).max(1);
+    let new_character = st.play.is_empty() || first_entry;
+    let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
+    crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
     let _ = s.store.set_world_state(character, &st);
     let options = Options::from_packed(&st.options).unwrap_or_else(|e| {
         tracing::warn!(
@@ -359,6 +369,7 @@ pub fn enter<S: Store>(
         making: None,
         flying: Vec::new(),
         protected: None,
+        passwd_at: None,
         using: None,
         queued: None,
         in_run: None,
@@ -369,6 +380,7 @@ pub fn enter<S: Store>(
         logging_off: false,
         dropped: false,
         untraining: None,
+        conflict,
     };
     let me = ObjectStamp {
         id: character,
@@ -378,7 +390,15 @@ pub fn enter<S: Store>(
     // It is drawn wearing what it wears.
     p.look = crate::equip::dressed(&look, &s.catalog, &p.play.items, c.race, c.sex);
     let at = player::placement(&position);
-    let object = player::player_object(character, &c.name, c.sex, p.look.clone(), at, p.instance);
+    let object = player::player_object(
+        character,
+        &c.name,
+        c.sex,
+        p.look.clone(),
+        at,
+        p.instance,
+        &player::Marks::of(&qualities),
+    );
     send(
         net,
         world,
@@ -397,6 +417,9 @@ pub fn enter<S: Store>(
         BlobKind::PRIVATE,
         &ServerMessage::PlayerQualities(player::description(qualities)),
     );
+    if new_character {
+        crate::kingdoms::told_first(net, world, conflict);
+    }
     p.visual = p.visual.wrapping_add(1);
     let fx = ServerMessage::DoFx(auberean_protocol::physics::ObjectEvent {
         sender: ObjectStamp {
@@ -409,6 +432,23 @@ pub fn enter<S: Store>(
         },
     });
     send(net, world, BlobKind::VISUAL, &fx);
+    if new_character {
+        // Its ethereality, the template's in its object, is set for where it stands.
+        let want = crate::kingdoms::ethereality(conflict, crate::kingdoms::of(&p.qualities));
+        if crate::kingdoms::kept_ethereality(&p.qualities) != want {
+            crate::kingdoms::set_ethereality(&mut p.qualities, want);
+            p.visual = p.visual.wrapping_add(1);
+            let m = ServerMessage::UpdateIntVisual(auberean_protocol::quality::VisualQuality {
+                object: ObjectStamp {
+                    other_stamp: p.visual,
+                    ..me
+                },
+                quality: crate::kingdoms::quality::ETHEREALITY,
+                value: want,
+            });
+            send(net, world, BlobKind::VISUAL, &m);
+        }
+    }
     send(
         net,
         world,
@@ -424,7 +464,6 @@ pub fn enter<S: Store>(
         action: Word(PORTAL_FX),
     });
     send(net, world, BlobKind::VISUAL, &stop);
-    let new_character = st.play.is_empty();
     if new_character {
         // A new character's pack: its race's starting weapons, from the character data.
         for template in crate::inventory::starting_pack(c.race) {
@@ -470,7 +509,7 @@ pub fn enter<S: Store>(
     let effects = crate::effects::registry(s, &p);
     let start = SessionStart {
         server_faction: 0,
-        local_faction: 1,
+        local_faction: conflict,
         skills: crate::skills::held(
             &s.start.skills.get(&c.race).cloned().unwrap_or_default(),
             &p.play.skills,
@@ -481,6 +520,7 @@ pub fn enter<S: Store>(
         contents,
         quests: crate::quests::list(&s.quests, &p.play.quests, game_now, game_epoch),
         credits: p.play.credits,
+        hero_credits: p.play.hero_credits,
         effects,
         scenes: crate::scenes::registry(s, &p.play.scenes),
         worn,
@@ -529,12 +569,24 @@ pub fn enter<S: Store>(
     crate::market::enter(s, net, world);
     presence::refresh(s, net, world);
     crate::chat::tell_allegiance_and_channels(s, net, world);
+    crate::admin::entered(s, net, world);
+    // The operator's message of the day, one notice (its lines in order), as Empyrean shows its
+    // own at entry.
+    if !s.cfg.motd.trim().is_empty() {
+        crate::login::notice(net, world, &s.cfg.motd);
+    }
     tracing::info!(
-        ?world,
-        id = format_args!("{character:#x}"),
-        cell = format_args!("{:08X}", position.cell),
-        objects = s.players.get(&world).map_or(0, |p| p.known.len()),
-        "in the world"
+        target: crate::answers::TARGET,
+        "{}",
+        crate::answers::entered(
+            &c.name,
+            character,
+            &format!(
+                "in the world at {:08X} on {world:?}, {} objects known",
+                position.cell,
+                s.players.get(&world).map_or(0, |p| p.known.len())
+            )
+        )
     );
 }
 
@@ -542,6 +594,7 @@ pub fn enter<S: Store>(
 /// ([`crate::saves`]).
 fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     s.saves.kept(p.character);
+    crate::admin::kept(s, p.character);
     let mut play = p.play.clone();
     play.last_used = p.last_used.iter().map(|(k, t)| (*k, *t)).collect();
     play.last_used.sort_by_key(|(k, _)| *k);
@@ -561,6 +614,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
                 destination: t.destination,
                 bonuses: t.bonuses.clone(),
                 binds_on_use: t.binds_on_use,
+                own: t.own,
             })
         })
         .collect();
@@ -601,12 +655,19 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if let Some(p) = s.players.remove(&world) {
         presence::depart(s, net, &p);
         keep(s, &p);
+        crate::admin::left(s, p.character);
         crate::inventory::leave(s, &p.play.items);
         tracing::info!(
-            ?world,
-            id = format_args!("{:#x}", p.character),
-            cell = format_args!("{:08X}", p.position.cell),
-            "left the world"
+            target: crate::answers::TARGET,
+            "{}",
+            crate::answers::left(
+                &p.name,
+                p.character,
+                &format!(
+                    "left the world at {:08X} from {world:?}",
+                    p.position.cell
+                )
+            )
         );
     }
 }
@@ -864,7 +925,9 @@ pub fn message<S: Store>(
                 send(net, world, BlobKind::VISUAL, &stop);
                 // The things of the other cells of an interior, held back until now.
                 s.players.insert(world, p);
-                return presence::refresh(s, net, world);
+                presence::refresh(s, net, world);
+                // Arrived: the status of where it now is.
+                return crate::kingdoms::check(s, net, world);
             }
         }
         ClientMessage::Position(c) => {
@@ -966,6 +1029,9 @@ fn moved<S: Store>(
             != presence::land_cell(before.cell, before.origin);
     if moved_view {
         presence::refresh(s, net, world);
+    }
+    if c.cell >> 16 != before.cell >> 16 {
+        crate::kingdoms::check(s, net, world);
     }
     crate::places::arrived(s, net, world, clock);
     crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);

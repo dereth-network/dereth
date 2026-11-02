@@ -145,6 +145,7 @@ fn world() -> Harness {
             person(CARTOMANCER, CARTOMANCER_T, [60.0, 241.0, -44.6]),
             person(MILLER, MILLER_T, [58.0, 241.0, -44.6]),
         ],
+        ..ContentPack::default()
     };
     h.server.talk = TalkTable {
         lines: vec![

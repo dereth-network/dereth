@@ -87,3 +87,40 @@ fn the_summoning_skills_read_as_recalls_at_half_vigor() {
     let portal = p.template(yalain_world::usable::portals::TEMPLATE);
     assert_eq!(portal.description.package, 0xF12);
 }
+
+/// Portal Recall, the cities' recalls and Allegiance Recall are used as the lifestone's recall is
+/// (a 10 s power-up, only on their user, the whole of its vigor, the wait every skill shares of
+/// 30 s): Portal Recall names its recall as the effect on its target, the others put theirs on
+/// their user, the cities' with their protection.
+/// Behaviour: server.skills.recall-skills-read
+#[test]
+fn the_recall_skills_read_as_the_lifestones() {
+    let p = Portal::open();
+    let t = p.skills();
+    for (skill, target, user) in [
+        (870, vec![0x7000_0727], vec![]),
+        (925, vec![], vec![0x7000_1FC0, 0x7000_2014]),
+        (926, vec![], vec![0x7000_1FC1, 0x7000_2014]),
+        (927, vec![], vec![0x7000_1FC2, 0x7000_2014]),
+        (1045, vec![], vec![0x6F00_0222, 0x7000_2014]),
+        (999, vec![], vec![0x7000_1EC5]),
+    ] {
+        let u = t.skills[&skill].usage.clone().expect("a recall is used");
+        assert_eq!(
+            (
+                u.powerup,
+                u.powerup_behavior,
+                u.vigor_mult,
+                u.valid_targets,
+                u.reset
+            ),
+            (10.0, 0x4100_00BF, 1.0, 1, 30.0),
+            "{skill}"
+        );
+        assert_eq!(
+            (u.target_effects, u.user_effects),
+            (target, user),
+            "{skill}"
+        );
+    }
+}

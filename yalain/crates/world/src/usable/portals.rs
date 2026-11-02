@@ -1,5 +1,6 @@
 //! Portals a player summons: Summon Lifestone opens one to the lifestone the summoner is bound to,
-//! Summon Portal one to where the summoner's last portal took it. Anyone may use it while it stands.
+//! Summon Portal one to where the last portal it used that may be recalled to took it (the place
+//! Portal Recall returns to). Anyone may use it while it stands.
 //!
 //! **Summoning.** Both skills are used as the lifestone recall is: they power up, then their story
 //! and their vigor (half of it, as their definitions say). A little after the story (2017: a median

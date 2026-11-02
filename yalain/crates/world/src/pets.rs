@@ -4,7 +4,11 @@
 //! kind's name, the skill's icon, and its data: no time left in the world, its class, its flags),
 //! and the pet appears two meters from its owner, naming it as its summoner, moving at 1.75 times
 //! the faster of its kind's own velocity scale and its owner's. Its level is its owner's rating in
-//! the skill; its vigor twenty times that, its health its kind's at that level. A summoning skill
+//! the skill; its vigor twenty times that, its health its kind's at that level. It is of its
+//! owner's kingdom (an owner in none: the neutral one), in its description and its physics type,
+//! and passes through what its owner would where it stands: its owner's movement ethereality for
+//! the pet's own landblock, with a bit of its own; walking into a landblock of another status, it
+//! tells everyone who knows it its new one. A summoning skill
 //! is refused (the client writes "You have too many pets to use that skill.") to an owner who has
 //! as many live pets of its class as the skill allows; pets of other classes do not count.
 //!
@@ -28,7 +32,8 @@
 //! three times in five.
 //!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
-//! pet is taken off its owner's list and falls as a creature does, in one tick; its corpse comes a
+//! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
+//! as it dies its own, kingdom and all, with the dead bit); its corpse comes a
 //! second and a half later and its body leaves three seconds after that. An owner leaving the
 //! world takes its pets out of the world with it (nothing more sent to the owner). A pet goes with
 //! its owner through portals.
@@ -576,6 +581,12 @@ pub fn summon<S: Store>(
     let now = clock.local.0;
     let mut t = Thing::of(id, &template, Kind::Creature);
     t.at = Some(at);
+    if let Some((k, ethereal)) = of_owners_kingdom(s, owner, at.cell) {
+        t.kingdom = Some(k);
+        t.description.numbers[PHYSICS] =
+            t.description.numbers[PHYSICS] & !KINGDOM_BITS | crate::kingdoms::bit(k);
+        t.description.numbers[ETHEREAL] = ethereal;
+    }
     t.heading_motion = u32::from(crate::world::heading_of_rotation(owner_at.rotation)) << 24
         | crate::world::IDLE_MOTION;
     t.max_health = stats.max_health;
@@ -642,6 +653,60 @@ pub fn summon<S: Store>(
         );
     }
     Some(id)
+}
+
+/// A pet's description's numbers its kingdom sets: its physics type and its movement ethereality
+/// (their low words); the kingdoms' bits in them.
+const PHYSICS: usize = 0;
+const ETHEREAL: usize = 2;
+const KINGDOM_BITS: i32 = 0x3C00_0000;
+
+/// The bit a pet's movement ethereality carries beside its owner's.
+pub const ETHEREAL_BIT: i32 = 0x4000_0000;
+
+/// What a pet takes of its owner's kingdom where it stands in `cell`: the kingdom (the owner's as
+/// it counts), and the movement ethereality, the owner's for the status of the pet's landblock
+/// with the owner's permissions (a pet is never protected: an owner's protection leaves its pets
+/// as they were), with the pet's own bit. `None` when the owner is not in the world.
+#[must_use]
+pub fn of_owners_kingdom<S: Store>(s: &Server<S>, owner: u64, cell: u32) -> Option<(u32, i32)> {
+    let p = s.players.values().find(|p| p.character == owner)?;
+    let q = crate::quals::read(&p.qualities);
+    let (allow, _) = crate::kingdoms::permissions_of(&q);
+    let area = crate::kingdoms::status_at(&s.content.conflict, cell);
+    let status = crate::kingdoms::status_with(area, allow, false);
+    let k = crate::kingdoms::counted(crate::kingdoms::of_qualities(&q));
+    Some((
+        k,
+        crate::kingdoms::ethereality(status, Some(k)) | ETHEREAL_BIT,
+    ))
+}
+
+/// A pet has moved into another cell: when the landblock it stands in now calls for another
+/// movement ethereality, it takes it, and every client that knows the pet is told.
+pub fn settle_ethereality<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let Some(owner) = s.pets.by_id.get(&id).map(|p| p.owner) else {
+        return;
+    };
+    let Some(cell) = s.things.get(id).and_then(|t| t.at).map(|a| a.cell) else {
+        return;
+    };
+    let Some((_, want)) = of_owners_kingdom(s, owner, cell) else {
+        return;
+    };
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    if t.description.numbers[ETHEREAL] == want {
+        return;
+    }
+    t.description.numbers[ETHEREAL] = want;
+    let m = ServerMessage::UpdateIntVisual(VisualQuality {
+        object: crate::inventory::visual(s, id),
+        quality: crate::kingdoms::quality::ETHEREALITY,
+        value: want,
+    });
+    crate::combat::to_all_seeing(s, net, id, &m);
 }
 
 /// A pet's lifetime is over: taken off its owner's list and out of the world at once, with no

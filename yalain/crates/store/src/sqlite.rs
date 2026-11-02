@@ -16,15 +16,19 @@
 //! 3. runs each migration in a transaction of its own, recording the new version in it;
 //! 4. keeps the newest [`KEEP_BACKUPS`] backups of the file and removes older ones.
 //!
-//! The one migration so far makes the tables: a file kept before versions gains those it lacks
-//! (the Dereth Network's, the friends service's), empty.
+//! The migrations so far:
+//!
+//! 1. makes the tables: a file kept before versions gains those it lacks (the Dereth Network's,
+//!    the friends service's), empty;
+//! 2. the operator's moderation: each account's access level (every account a player's) and its
+//!    ban (none), and the gagged characters (none).
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Row};
 
 use crate::{
-    physique_bytes, physique_from, position_bytes, position_from, Account, Character, Listed,
+    physique_bytes, physique_from, position_bytes, position_from, Account, Ban, Character, Listed,
     NetworkList, Store, StoreError, StoreResult, WorldState,
 };
 
@@ -80,17 +84,57 @@ CREATE TABLE IF NOT EXISTS network_list (
 );
 ";
 
+/// The operator's moderation: each account's access level and ban, the gags.
+const MODERATION_COLUMNS: [(&str, &str); 5] = [
+    ("access", "INTEGER NOT NULL DEFAULT 0"),
+    ("banned_at", "INTEGER"),
+    ("banned_until", "INTEGER"),
+    ("banned_by", "TEXT"),
+    ("ban_reason", "TEXT"),
+];
+const GAGS: &str = "
+CREATE TABLE IF NOT EXISTS gag (
+    id INTEGER PRIMARY KEY REFERENCES character (id),
+    seconds REAL NOT NULL
+);
+";
+
+/// A migration: what it does to a file. Each may meet a file that had it before (a version put
+/// back by hand), and leaves that as it was.
+type Migration = fn(&Connection) -> rusqlite::Result<()>;
+
+fn tables(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(SCHEMA)
+}
+
+fn moderation(db: &Connection) -> rusqlite::Result<()> {
+    for (column, kind) in MODERATION_COLUMNS {
+        let has: i64 = db.query_row(
+            "SELECT count(*) FROM pragma_table_info('account') WHERE name = ?1",
+            [column],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            db.execute_batch(&format!("ALTER TABLE account ADD COLUMN {column} {kind}"))?;
+        }
+    }
+    db.execute_batch(GAGS)
+}
+
 /// The schema's migrations, in order: a file at version `n` has had the first `n`.
-const MIGRATIONS: &[&str] = &[SCHEMA];
+const MIGRATIONS: &[Migration] = &[tables, moderation];
 
 /// The schema version this build keeps its files at.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// How many backups of a file are kept (the newest), as Empyrean keeps.
 pub const KEEP_BACKUPS: usize = 3;
 
 /// What follows a file's name in its backups' names.
 const BACKUP_MARKER: &str = ".backup-";
+
+const ACCOUNT_COLUMNS: &str =
+    "id, name, secret, created_at, access, banned_at, banned_until, banned_by, ban_reason";
 
 const CHARACTER_COLUMNS: &str =
     "id, account, name, race, sex, class, implement, start_area, entity_did, physique, look, created_at, deleted_at, last_played";
@@ -100,10 +144,40 @@ fn err(e: rusqlite::Error) -> StoreError {
     StoreError(e.to_string())
 }
 
+/// An update meant for one account: an error when it found none.
+fn one_account(changed: usize, account: u64) -> StoreResult<()> {
+    if changed == 0 {
+        return Err(StoreError(format!("no account {account}")));
+    }
+    Ok(())
+}
+
 /// The SQLite store.
 #[derive(Debug)]
 pub struct SqliteStore {
     db: Connection,
+}
+
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+fn account(r: &Row<'_>) -> rusqlite::Result<Account> {
+    let at: Option<i64> = r.get(5)?;
+    let until: Option<i64> = r.get(6)?;
+    Ok(Account {
+        id: r.get::<_, i64>(0)? as u64,
+        name: r.get(1)?,
+        secret: r.get(2)?,
+        created_at: r.get(3)?,
+        access: u32::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+        ban: match (at, until) {
+            (Some(at), Some(until)) => Some(Ban {
+                at,
+                until,
+                by: r.get::<_, Option<String>>(7)?.unwrap_or_default(),
+                reason: r.get(8)?,
+            }),
+            _ => None,
+        },
+    })
 }
 
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -191,12 +265,10 @@ fn upgrade(db: &Connection, file: Option<&Path>) -> StoreResult<()> {
         _ => None,
     };
     let applied = usize::try_from(from).unwrap_or(0);
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(applied) {
+    for (i, migrate) in MIGRATIONS.iter().enumerate().skip(applied) {
         db.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
         let to = i64::try_from(i + 1).unwrap_or(i64::MAX);
-        let done = db
-            .execute_batch(sql)
-            .and_then(|()| db.pragma_update(None, "user_version", to));
+        let done = migrate(db).and_then(|()| db.pragma_update(None, "user_version", to));
         match done {
             Ok(()) => db.execute_batch("COMMIT").map_err(err)?,
             Err(e) => {
@@ -312,21 +384,74 @@ fn utc_stamp(unix: i64) -> String {
     )
 }
 
+/// Keep a new character's row.
+#[allow(clippy::cast_possible_wrap)]
+fn insert_character(db: &Connection, c: &Character) -> StoreResult<()> {
+    let sql = format!(
+        "INSERT INTO character ({CHARACTER_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
+    );
+    db.execute(
+        &sql,
+        params![
+            c.id as i64,
+            c.account as i64,
+            c.name,
+            i64::from(c.race),
+            i64::from(c.sex),
+            i64::from(c.class),
+            i64::from(c.implement),
+            i64::from(c.start_area),
+            i64::from(c.entity_did),
+            physique_bytes(&c.physique),
+            c.look,
+            c.created_at,
+            c.deleted_at,
+            c.last_played
+        ],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
+/// Write what a character is in the world, inside a transaction the caller commits.
+#[allow(clippy::cast_possible_wrap)]
+fn write_state(tx: &rusqlite::Transaction<'_>, id: u64, s: &WorldState) -> StoreResult<()> {
+    tx.execute(
+        "INSERT INTO world_state (id, position, instances, qualities, options) VALUES (?1, ?2, ?3, ?4, ?5)                  ON CONFLICT (id) DO UPDATE SET position = ?2, instances = ?3, qualities = ?4, options = ?5",
+        params![
+            id as i64,
+            s.position.as_ref().map(position_bytes),
+            i64::from(s.instances),
+            s.qualities,
+            s.options
+        ],
+    )
+    .map_err(err)?;
+    tx.execute(
+        "INSERT INTO play_state (id, play) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET play = ?2",
+        params![id as i64, s.play],
+    )
+    .map_err(err)?;
+    tx.execute("DELETE FROM kept_place WHERE id = ?1", [id as i64])
+        .map_err(err)?;
+    for (kind, p) in &s.places {
+        tx.execute(
+            "INSERT INTO kept_place (id, kind, position) VALUES (?1, ?2, ?3)",
+            params![id as i64, i64::from(*kind), position_bytes(p)],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 impl Store for SqliteStore {
     fn account_by_name(&mut self, name: &str) -> StoreResult<Option<Account>> {
         self.db
             .query_row(
-                "SELECT id, name, secret, created_at FROM account WHERE name = ?1",
+                &format!("SELECT {ACCOUNT_COLUMNS} FROM account WHERE name = ?1"),
                 [name],
-                |r| {
-                    Ok(Account {
-                        id: r.get::<_, i64>(0)? as u64,
-                        name: r.get(1)?,
-                        secret: r.get(2)?,
-                        created_at: r.get(3)?,
-                    })
-                },
+                account,
             )
             .optional()
             .map_err(err)
@@ -350,6 +475,8 @@ impl Store for SqliteStore {
             name: name.to_string(),
             secret,
             created_at: now,
+            access: 0,
+            ban: None,
         })
     }
 
@@ -361,10 +488,73 @@ impl Store for SqliteStore {
                 params![account as i64, secret],
             )
             .map_err(err)?;
-        if n == 0 {
-            return Err(StoreError(format!("no account {account}")));
+        one_account(n, account)
+    }
+
+    fn accounts(&mut self) -> StoreResult<Vec<Account>> {
+        let mut st = self
+            .db
+            .prepare(&format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM account ORDER BY name COLLATE NOCASE, id"
+            ))
+            .map_err(err)?;
+        let rows = st.query_map([], account).map_err(err)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
+    }
+
+    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE account SET access = ?2 WHERE id = ?1",
+                params![account as i64, i64::from(access)],
+            )
+            .map_err(err)?;
+        one_account(n, account)
+    }
+
+    fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE account SET banned_at = ?2, banned_until = ?3, banned_by = ?4, \
+                 ban_reason = ?5 WHERE id = ?1",
+                params![
+                    account as i64,
+                    ban.map(|b| b.at),
+                    ban.map(|b| b.until),
+                    ban.map(|b| b.by.as_str()),
+                    ban.and_then(|b| b.reason.as_deref())
+                ],
+            )
+            .map_err(err)?;
+        one_account(n, account)
+    }
+
+    fn gag(&mut self, character: u64) -> StoreResult<Option<f64>> {
+        self.db
+            .query_row(
+                "SELECT seconds FROM gag WHERE id = ?1",
+                [character as i64],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err)
+    }
+
+    fn set_gag(&mut self, character: u64, seconds: Option<f64>) -> StoreResult<()> {
+        match seconds {
+            Some(s) => self.db.execute(
+                "INSERT INTO gag (id, seconds) VALUES (?1, ?2) \
+                 ON CONFLICT (id) DO UPDATE SET seconds = ?2",
+                params![character as i64, s],
+            ),
+            None => self
+                .db
+                .execute("DELETE FROM gag WHERE id = ?1", [character as i64]),
         }
-        Ok(())
+        .map(|_| ())
+        .map_err(err)
     }
 
     fn characters(&mut self, account: u64) -> StoreResult<Vec<Character>> {
@@ -428,31 +618,19 @@ impl Store for SqliteStore {
     }
 
     fn insert_character(&mut self, c: &Character) -> StoreResult<()> {
-        let sql = format!(
-            "INSERT INTO character ({CHARACTER_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
-        );
-        self.db
-            .execute(
-                &sql,
-                params![
-                    c.id as i64,
-                    c.account as i64,
-                    c.name,
-                    i64::from(c.race),
-                    i64::from(c.sex),
-                    i64::from(c.class),
-                    i64::from(c.implement),
-                    i64::from(c.start_area),
-                    i64::from(c.entity_did),
-                    physique_bytes(&c.physique),
-                    c.look,
-                    c.created_at,
-                    c.deleted_at,
-                    c.last_played
-                ],
-            )
-            .map(|_| ())
-            .map_err(err)
+        insert_character(&self.db, c)
+    }
+
+    // All or nothing: a character is never kept without the state it was made with.
+    fn insert_character_with_state(
+        &mut self,
+        c: &Character,
+        state: &WorldState,
+    ) -> StoreResult<()> {
+        let tx = self.db.transaction().map_err(err)?;
+        insert_character(&tx, c)?;
+        write_state(&tx, c.id, state)?;
+        tx.commit().map_err(err)
     }
 
     fn set_deleted(&mut self, id: u64, at: Option<i64>) -> StoreResult<()> {
@@ -484,6 +662,7 @@ impl Store for SqliteStore {
             "play_state",
             "network_character",
             "network_list",
+            "gag",
             "character",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id as i64])
@@ -546,31 +725,7 @@ impl Store for SqliteStore {
     // All or nothing: a save that fails part way leaves the one before it whole.
     fn set_world_state(&mut self, id: u64, s: &WorldState) -> StoreResult<()> {
         let tx = self.db.transaction().map_err(err)?;
-        tx.execute(
-                "INSERT INTO world_state (id, position, instances, qualities, options) VALUES (?1, ?2, ?3, ?4, ?5)                  ON CONFLICT (id) DO UPDATE SET position = ?2, instances = ?3, qualities = ?4, options = ?5",
-                params![
-                    id as i64,
-                    s.position.as_ref().map(position_bytes),
-                    i64::from(s.instances),
-                    s.qualities,
-                    s.options
-                ],
-            )
-        .map_err(err)?;
-        tx.execute(
-            "INSERT INTO play_state (id, play) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET play = ?2",
-            params![id as i64, s.play],
-        )
-        .map_err(err)?;
-        tx.execute("DELETE FROM kept_place WHERE id = ?1", [id as i64])
-            .map_err(err)?;
-        for (kind, p) in &s.places {
-            tx.execute(
-                "INSERT INTO kept_place (id, kind, position) VALUES (?1, ?2, ?3)",
-                params![id as i64, i64::from(*kind), position_bytes(p)],
-            )
-            .map_err(err)?;
-        }
+        write_state(&tx, id, s)?;
         tx.commit().map_err(err)
     }
 

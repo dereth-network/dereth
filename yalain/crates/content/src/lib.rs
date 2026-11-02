@@ -206,7 +206,8 @@ impl Place {
 
 /// What examining an object shows of its template: its name and description (string references:
 /// string id, table), level, greatest health and vigor, the kingdom it belongs to, whether it is
-/// a group monster, the level a player needs to use it.
+/// a group monster, the level a player needs to use it; and of a placed portal, what may be
+/// recalled to it ([`portal`] flags).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Facts {
     pub name: Option<(u32, u32)>,
@@ -217,6 +218,17 @@ pub struct Facts {
     pub faction: Option<u32>,
     pub group: bool,
     pub min_level: Option<i32>,
+    /// A placed portal's flags: whether a player's portal recall returns to where it leads, and
+    /// whether a summoned portal opens to it.
+    pub portal: u32,
+}
+
+/// A portal's flags.
+pub mod portal {
+    /// A player who used it may recall to where it leads.
+    pub const RECALL: u32 = 0x1;
+    /// A player who used it may summon a portal to where it leads.
+    pub const SUMMON: u32 = 0x2;
 }
 
 impl Facts {
@@ -247,6 +259,9 @@ impl Facts {
         if self.group {
             out.push("group=1".into());
         }
+        if self.portal != 0 {
+            out.push(format!("portal={:X}", self.portal));
+        }
         out.join(";")
     }
 
@@ -276,6 +291,7 @@ impl Facts {
                 "minlevel" => f.min_level = Some(int(v)?),
                 "faction" => f.faction = Some(hex32(v)?),
                 "group" => f.group = v == "1",
+                "portal" => f.portal = hex32(v)?,
                 other => return Err(format!("an unknown fact {other}")),
             }
         }
@@ -424,10 +440,64 @@ impl ContentObject {
     }
 }
 
-/// The world's objects.
+/// The world's objects, and the kind of player conflict its landblocks allow.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ContentPack {
     pub objects: Vec<ContentObject>,
+    /// The landblocks that allow player conflict of some kind; any other is a peace area. Not part
+    /// of the text form: the world database's areas fill it.
+    pub conflict: BTreeMap<u16, Conflict>,
+}
+
+/// The kind of player conflict a place allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Conflict {
+    /// No player may fight another.
+    #[default]
+    Peace,
+    /// Players of different kingdoms may fight, neutral players stay out of it.
+    Controlled,
+    /// Players of different kingdoms may fight.
+    KingdomVsKingdom,
+    /// Any player may fight any other.
+    FreeForAll,
+}
+
+impl Conflict {
+    /// The status the client is told of (1 to 4).
+    #[must_use]
+    pub const fn status(self) -> u32 {
+        match self {
+            Self::Peace => 1,
+            Self::Controlled => 2,
+            Self::KingdomVsKingdom => 3,
+            Self::FreeForAll => 4,
+        }
+    }
+
+    /// Its word, as the world database writes it.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Peace => "peace",
+            Self::Controlled => "controlled",
+            Self::KingdomVsKingdom => "kingdom-vs-kingdom",
+            Self::FreeForAll => "free-for-all",
+        }
+    }
+
+    /// The kind a word names.
+    #[must_use]
+    pub fn from_word(w: &str) -> Option<Self> {
+        [
+            Self::Peace,
+            Self::Controlled,
+            Self::KingdomVsKingdom,
+            Self::FreeForAll,
+        ]
+        .into_iter()
+        .find(|c| c.word() == w)
+    }
 }
 
 /// Property ids of the entity templates (the property list's own numbers).
@@ -738,7 +808,10 @@ impl ContentPack {
                 },
             });
         }
-        Ok(Self { objects })
+        Ok(Self {
+            objects,
+            conflict: BTreeMap::new(),
+        })
     }
 
     /// The objects standing within `radius` landblocks of a landblock (a square), in pack order.

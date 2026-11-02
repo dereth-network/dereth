@@ -112,6 +112,9 @@ pub struct Tables {
     /// The places templates name: where a person who sends players by a map sends the holder of
     /// a map of that template.
     pub places_named: BTreeMap<u32, TablePlace>,
+    /// The places by their names (lowercase): where an effect that sends a player to a named place
+    /// (a city's recall) sends it.
+    pub places_by_name: BTreeMap<String, TablePlace>,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -342,6 +345,18 @@ impl Ctx<'_> {
     }
 }
 
+/// A placed portal's flags: recalled to, summoned to.
+fn portal_flags(recall: bool, summon: bool) -> u32 {
+    let mut f = 0;
+    if recall {
+        f |= yalain_content::portal::RECALL;
+    }
+    if summon {
+        f |= yalain_content::portal::SUMMON;
+    }
+    f
+}
+
 /// The subquests of the quests the rows name, each from its definition in the install where no row
 /// gives it, with no challenge, duration or wait of its own; every subquest hidden (none is ever
 /// shown on its own).
@@ -536,7 +551,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     label: install.label(o.template),
                     placed: prov_text(&o.prov),
                     destination,
-                    facts: facts(o.template, &entity, &ids),
+                    facts: yalain_content::Facts {
+                        portal: portal_flags(o.recall, o.summon),
+                        ..facts(o.template, &entity, &ids)
+                    },
                     walks,
                     gate,
                 });
@@ -879,12 +897,23 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Place(p) => {
-                if p.named_by.is_empty() {
+                if p.named_by.is_empty() && p.destination.is_none() {
                     continue;
                 }
                 let Some(at) = cx.place_row(l) else {
                     continue;
                 };
+                if let Some(name) = &p.destination {
+                    if t.places_by_name
+                        .insert(name.to_ascii_lowercase(), at)
+                        .is_some()
+                    {
+                        cx.problem(
+                            l,
+                            format!("destination: {name} is another place's name too"),
+                        );
+                    }
+                }
                 for &template in &p.named_by {
                     if t.places_named.insert(template, at).is_some() {
                         cx.problem(
@@ -892,6 +921,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             format!("named_by: {template:08X} is named by another place too"),
                         );
                     }
+                }
+            }
+            Row::Area(r) => {
+                if r.conflict == yalain_content::Conflict::Peace {
+                    t.content.conflict.remove(&r.landblock);
+                } else {
+                    t.content.conflict.insert(r.landblock, r.conflict);
                 }
             }
             Row::Talk(_) | Row::Route(_) | Row::Remove(_) => {}

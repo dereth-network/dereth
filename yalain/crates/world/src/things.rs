@@ -184,6 +184,10 @@ pub struct Thing {
     pub fresh: bool,
     /// When it was last hurt (world seconds).
     pub last_hurt: f64,
+    /// When it began regaining health (world seconds; 0 while it is not), and how much it has
+    /// regained since.
+    pub regen_since: f64,
+    pub regained: i32,
     pub creature: Option<Creature>,
     pub corpse: Option<Corpse>,
     pub node: Option<Node>,
@@ -192,6 +196,8 @@ pub struct Thing {
     /// The player who summoned it (a pet: its character id), and the velocity scale it moves with.
     pub summoner: Option<u64>,
     pub velocity_scale: Option<f32>,
+    /// The kingdom it shows as its own (a pet: its owner's).
+    pub kingdom: Option<u32>,
     /// The name it is shown with in place of its template's (a pet its owner named).
     pub named: Option<StringInfo>,
     /// Its durability now, once use has worn it below its template's.
@@ -213,6 +219,8 @@ pub struct Thing {
     /// It becomes bound to its holder when used in combat (an item its making binds), and has not
     /// been yet.
     pub binds_on_use: bool,
+    /// What a treasure item carries of its own (its least level, Arcane Lore, a potion's effect).
+    pub own: crate::treasure::Own,
 }
 
 impl Thing {
@@ -241,12 +249,15 @@ impl Thing {
             value: 0,
             fresh: false,
             last_hurt: 0.0,
+            regen_since: 0.0,
+            regained: 0,
             creature: None,
             corpse: None,
             node: None,
             crafter: None,
             summoner: None,
             velocity_scale: None,
+            kingdom: None,
             named: None,
             durability: None,
             pose: None,
@@ -256,6 +267,7 @@ impl Thing {
             inscription: None,
             bonuses: Vec::new(),
             binds_on_use: false,
+            own: crate::treasure::Own::default(),
         }
     }
 
@@ -332,8 +344,10 @@ impl Things {
     }
 }
 
-/// The place among a weenie's object ids of the player who summoned it.
+/// The place among a weenie's object ids of the player who summoned it, and among its numbers of
+/// its kingdom.
 const PET_SUMMONER: usize = 6;
+const FACTION: usize = 2;
 
 /// A thing's object as the world creates it, whenever a client is told of it: an item as items
 /// are, with its quantity and name; a corpse as corpses are, lying in its pose; a dead creature
@@ -381,6 +395,10 @@ pub fn standing_create(t: &Thing) -> CreateObject {
         // A pet names the player who summoned it.
         weenie.mask |= WeenieDesc::OBJECT_BITS[PET_SUMMONER];
         weenie.objects[PET_SUMMONER] = owner;
+    }
+    if let Some(k) = t.kingdom {
+        weenie.mask |= WeenieDesc::NUMBER_BITS[FACTION];
+        weenie.numbers[FACTION] = k.cast_signed();
     }
     let at = t.at.unwrap_or(StoredPosition {
         cell: 0,

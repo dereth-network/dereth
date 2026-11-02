@@ -89,6 +89,7 @@ fn hall() -> Harness {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     let mut key = Props::default();
     key.set(interactions::TABLE, Prop::Word(KEY_TABLE))
@@ -338,6 +339,68 @@ fn an_item_used_on_an_object_its_table_names_is_answered_at_once_and_kept_when_i
         [(0, interactions::FLAGS_KEPT, interactions::text::USED_ON.0)]
     );
     assert_eq!(held(&h, world, BELL_TEMPLATE), Some(bell), "kept");
+}
+
+/// An item with no table for the object, whose quest step on it waits for another phase of the
+/// player's quest (a glyph used on its portal before the step that takes it there): answered at
+/// once as done, the flags of an item kept, nothing moved, and the item still held, so it is free
+/// to use again.
+/// Behaviour: server.places.item-used-on-an-object-moving-nothing-is-answered
+#[test]
+fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_and_kept() {
+    const GLYPH_TEMPLATE: u32 = 0x4700_1AED;
+    const HALL_QUEST: u32 = 0x4000_0088;
+    let mut h = hall();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        GLYPH_TEMPLATE,
+        0x18F,
+        Props::default(),
+    ));
+    h.server.quests.steps.push(Step {
+        quest: HALL_QUEST,
+        needs: 6,
+        trigger: Trigger::UseOn(GLYPH_TEMPLATE, STOCKPILE_TEMPLATE),
+        tell: None,
+        update: Update::Advance(7),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: vec![GLYPH_TEMPLATE],
+        to: Some(yalain_content::quests::Place {
+            cell: 0x0299_0109,
+            origin: [10.0, 10.0, -44.6],
+            heading: 0,
+        }),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+    });
+    let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: HALL_QUEST,
+            status: status::UNDERWAY,
+            phase: 5,
+            started: 0,
+            updated: 0,
+        });
+    east_of_stockpile(&mut h, world, 2.0);
+    let at = h.server.players[&world].position;
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, glyph, STOCKPILE);
+    assert_eq!(answers(&h, a, fa), [(0, interactions::FLAGS_KEPT, 0)]);
+    assert_eq!(updates(&h, a, fa), 0, "nothing moved");
+    assert_eq!(held(&h, world, GLYPH_TEMPLATE), Some(glyph), "kept");
+    assert_eq!(h.server.players[&world].position, at, "not taken anywhere");
 }
 
 /// Too far from the object for the table, or the item's quest not where it needs it (the hoard's

@@ -1,0 +1,231 @@
+# Yalain configuration: yalain.toml.
+#
+# The file takes the form of Empyrean's empyrean.toml: the same sections and key names, with the
+# same meanings and units, wherever Yalain has the setting. A setting Empyrean lacks has a key in
+# the section Empyrean would put it in (each marked "Yalain only"); Empyrean's keys Yalain has no
+# setting for are warned about at start and ignored, so a file copied from an Empyrean world reads.
+#
+# Every key is optional: a key left out keeps its default, which each key's comment gives with the
+# command-line option it stands for. The server reads yalain.toml from the working folder, else
+# from beside the executable; `--config <file>` names another. The command line is read after this
+# file, so an option given on both wins on the command line. A relative path is read from the
+# folder this file is in. SETUP.md, sections 3.2 and 3.6, says more of each.
+
+# ----------------------------------------------------------------------------------------------
+[server]
+# The game server.
+
+# default: "Local World" (--world-name)
+# The world's name, shown at login.
+world_name = "Local World"
+
+# default: "" (--dats)
+# The folder of the Asheron's Call 2 install the server reads its data from (portal.dat,
+# cell_1.dat and the rest). Empty means this file's folder.
+dat_files_directory = ""
+
+# default: "" (--motd; Yalain only)
+# A message shown to each player as its character enters the world. Empty shows none. Use \n for
+# a new line.
+message_of_the_day = ""
+
+# default: "" (--world-db; Yalain only)
+# The world database to serve: a folder (a checkout of the database, or an Athenaeum world).
+# Empty, or "pinned", means the release this build pins, from the cache `yalain world fetch`
+# fills.
+world_database_path = ""
+
+# default: "" (--world-base; Yalain only)
+# The base database an Athenaeum world lies over. Empty means the pinned release in the cache.
+world_base_path = ""
+
+# default: 120 (--shutdown-interval)
+# Seconds a shutdown counts down, telling the players, before the server stops (0 to 99999).
+shutdown_interval = 120
+
+# default: 300 (--save-interval; Yalain only)
+# Seconds between saves of each character in the world.
+player_save_interval = 300
+
+# default: "info" (--verbose for "debug")
+# The server log's level: "info", or "debug" (and "trace") for every connection event and more.
+# "error" and "warn" log at "info".
+log_level = "info"
+
+# default: "" (--status)
+# The HTTP status endpoint (GET /status and GET /health) as "<ip>:<port>", for example
+# "127.0.0.1:9100". Empty leaves it off. It has no authentication: keep it on loopback or a
+# private network.
+status_address = ""
+
+# default: false (--stop-at-console-end; Yalain only)
+# Stop, saving everyone in the world, when the console's input ends: for a program that runs the
+# server and holds its console. Leave it off for a server run as a service.
+stop_at_console_end = false
+
+# ----------------------------------------------------------------------------------------------
+[server.network]
+# The listeners and session limits.
+
+# default: "127.0.0.1" (--bind)
+# The address to listen on. "0.0.0.0" listens on every address of this machine, and then needs
+# advertised_address.
+host = "127.0.0.1"
+
+# default: 9000 (--login-port)
+# The login's UDP port, an even number: the server also opens port + 1, and the friends service
+# listens on TCP at this port. Open them in the firewall.
+port = 9000
+
+# default: port + 2 (--world-port; Yalain only)
+# The world service's UDP port, an even number: the server also opens world_port + 1.
+# world_port = 9002
+
+# default: "" (--advertise; Yalain only)
+# The IPv4 address players from elsewhere are sent to for the world; players on this computer or
+# its network get the nearby address. Empty means host (it must be given when host is 0.0.0.0 or
+# an IPv6 address).
+advertised_address = ""
+
+# default: true (--no-referral when false; Yalain only)
+# Send each player to the world's port as it enters the world, as the 2017 worlds did. Off, each
+# player stays on its login connection.
+world_referral = true
+
+# default: true (--no-friends when false; Yalain only)
+# Serve the friends service (friends, presence and tells, on TCP at port).
+friends_service = true
+
+# default: 128 (--max-sessions)
+# How many logins the world holds at once.
+maximum_allowed_sessions = 128
+
+# default: -1 (--max-sessions-per-address)
+# Logins one IP address holds at once; -1 is unlimited.
+maximum_allowed_sessions_per_ip_address = -1
+
+# default: [] (--unlimited-sessions-from)
+# IP addresses exempt from that limit. Example: ["127.0.0.1"]
+allow_unlimited_sessions_from_ip_addresses = []
+
+# ----------------------------------------------------------------------------------------------
+[server.accounts]
+# Account creation.
+
+# default: true (--listed-accounts when false)
+# Create an account on its first login. Off, only the accounts below (and those made at the
+# console) log in.
+allow_auto_account_creation = true
+
+# default: 8 (--secret-cost)
+# The bcrypt work factor tickets are kept at, 4 to 31.
+password_hash_work_factor = 8
+
+# default: [] (--add-account; Yalain only)
+# Accounts made at start, as "name:ticket".
+accounts = []
+
+# default: "" (--banned-names; Yalain only)
+# A file of patterns new character names may not hold, one a line ("*" for any letters). Empty
+# bans none.
+banned_names_path = ""
+
+# ----------------------------------------------------------------------------------------------
+[status]
+# The status ping: a launcher, or the Dereth Network's check from outside, asks the login port for
+# the world's state, players, version and name, in two steps, with no login. Requests past the
+# limits get no answer.
+
+# default: true (--no-status-ping turns it off)
+# Answer the status ping on the login port.
+udp_ping = true
+
+# default: 4 (--status-ping-hellos)
+# First steps (hellos) a minute from one address.
+hellos_per_minute = 4
+
+# default: 4 (--status-ping-asks)
+# Second steps (asks) a minute from one address.
+asks_per_minute = 4
+
+# default: 50 (--status-ping-replies)
+# Replies a second, to everyone together.
+replies_per_second = 50
+
+# ----------------------------------------------------------------------------------------------
+[database]
+# The database of accounts and characters.
+
+# default: "./yalain.sqlite" (--data)
+# The database, a SQLite file created on first start: it holds the accounts as well as the
+# characters (Empyrean's shard and authentication databases in one).
+shard_db_path = "./yalain.sqlite"
+
+# default: false (--memory; Yalain only)
+# Keep nothing: accounts and characters live in memory and are gone when the server stops.
+in_memory = false
+
+# ----------------------------------------------------------------------------------------------
+[federation]
+# The Dereth Network (SETUP.md, section 8): the world listed at the hub, and linked to it so its
+# players reach characters on other worlds. The world must be registered at the hub; linking
+# also needs its federation flag on there.
+
+# default: false (--federation with the hub's options)
+# Link to the hub and turn the network on for this world's players. It lists the world too.
+enabled = false
+
+# default: false (--hub with --hub-slug and --hub-key-file; Yalain only)
+# List the world at the hub, with how many are playing, without linking it.
+listed = false
+
+# default: "wss://hub.dereth.network" (--hub)
+# The hub's address: wss://host[:port], or ws:// on this machine alone. The server posts its
+# heartbeat to the same host over https:// (http:// for ws://).
+hub_url = "wss://hub.dereth.network"
+
+# default: "" (--hub-slug)
+# The world's slug in the hub's registry (2-12 lowercase letters, digits and hyphens to link; up
+# to 40 to be listed).
+slug = ""
+
+# default: "network.key" (--hub-key-file)
+# The file that holds the world's registry key (drth_...), relative to this file's folder. The
+# key is never written in this file; keep that one readable by the server only.
+key_file = "network.key"
+
+# ----------------------------------------------------------------------------------------------
+[testing]
+# Setting up characters and the clock for trials (Yalain only; a world needs none of these).
+
+# default: [] (--add-character)
+# Characters made at start, as "account:name:race:sex".
+add_characters = []
+
+# default: [] (--place)
+# Where characters enter next, as "account:name:cell:x:y:z:heading".
+place_characters = []
+
+# default: [] (--money)
+# The money of characters that have played, as "account:name:amount".
+character_money = []
+
+# default: [] (--make-character)
+# Recipe files of characters made with a build before they first play (SETUP.md, section 6.2).
+make_characters = []
+
+# default: true (--no-echo when false)
+# Send players their own positions back.
+echo_positions = true
+
+# default: false (--hold-clock)
+# Hold the game clock where it starts.
+hold_clock = false
+
+# default: now (--game-time)
+# The game clock's start, in seconds after 1 December 2012.
+# game_time = 0
+
+# default: none (--seconds)
+# Stop after this many seconds.
+# run_seconds = 3600

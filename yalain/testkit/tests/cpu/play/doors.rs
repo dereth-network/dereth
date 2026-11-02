@@ -78,6 +78,7 @@ fn hall(x: f32, y: f32) -> Harness {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     h.server
         .doors

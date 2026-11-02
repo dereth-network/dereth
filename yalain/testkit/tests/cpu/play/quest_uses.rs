@@ -244,7 +244,10 @@ fn doctrines_world() -> Harness {
             [x, 241.0, -44.6],
         ));
     }
-    h.server.content = ContentPack { objects };
+    h.server.content = ContentPack {
+        objects,
+        ..ContentPack::default()
+    };
     let mut quests = vec![QuestDef {
         subquests: vec![Subquests {
             phase: 1,
@@ -345,6 +348,7 @@ fn a_failed_quest_is_given_again_only_once_its_wait_is_over() {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![object(0x8130_0000_0000_0501, SHRINE, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
@@ -399,6 +403,7 @@ fn a_quest_is_not_given_under_its_least_level_and_the_person_says_why() {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![object(0x8130_0000_0000_0601, DERU, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
@@ -526,6 +531,7 @@ fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
             object(0x8130_0000_0000_0701, ORLEN, [61.0, 241.0, -44.6]),
             object(0x8130_0000_0000_0702, GUARD, [62.0, 241.0, -44.6]),
         ],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable {
         quests: vec![
@@ -575,6 +581,7 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
             object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6]),
             object(0x8130_0000_0000_0802, STARTER, [62.0, 241.0, -44.6]),
         ],
+        ..ContentPack::default()
     };
     let mut quests: Vec<QuestDef> = QUESTS
         .iter()

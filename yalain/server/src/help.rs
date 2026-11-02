@@ -9,8 +9,9 @@ yalain --dats <install folder> [options]
   --bind IP             the address to listen on (default 127.0.0.1)
   --login-port P        the login service's even port (default 9000; P + 1 is used too)
   --world-port P        the world service's even port (default 9002; P + 1 is used too)
-  --advertise IP        the IPv4 address a referral sends clients to (default: --bind; needed
-                        when --bind is 0.0.0.0 or an IPv6 address)
+  --advertise IP        the IPv4 address players from elsewhere are sent to for the world;
+                        players on this computer or its network get the nearby address
+                        (default: --bind; needed when --bind is 0.0.0.0 or an IPv6 address)
   --data FILE           the database of accounts and characters (default yalain.sqlite)
   --memory              keep nothing: a database in memory
   --world-name NAME     the world's name, shown at login (default \"Local World\")
@@ -19,6 +20,17 @@ yalain --dats <install folder> [options]
   --banned-names FILE   refuse character names holding these words: one pattern a line, `*`
                         for any run of letters (default: none)
   --add-account N:T     make account N with ticket T, then carry on
+  --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8)
+  --save-interval S     keep each character in the world every S seconds (default 300)
+  --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
+  --max-sessions N      how many logins the world holds at once (default 128); a login past
+                        them is told the server is full
+  --max-sessions-per-address N  how many logins one address holds at once (default
+                        `unlimited`)
+  --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
+                        many times)
+  --motd TEXT           a message shown to each player as its character enters the world
+                        (`\\n` starts a new line)
   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
                         with a middling physique, then carry on; a missing account is made on
                         an open world only
@@ -26,6 +38,9 @@ yalain --dats <install folder> [options]
                         in degrees) before it next enters, then carry on
   --money A:N:AMOUNT    set the money of character N of account A (one that has played) before
                         it next enters, then carry on
+  --make-character FILE make the character a recipe file describes, with its build (a level or
+                        experience, skills, money, items, quests, a hero, a place), before it
+                        first plays, then carry on
   --world-db DIR        the world database to serve, compiled against --dats at start: a
                         folder, or `pinned` (the default) for the release this build pins,
                         fetched into the per-user cache with `yalain world fetch`; a world
@@ -56,6 +71,22 @@ yalain --dats <install folder> [options]
                         number
   --seconds S           stop after S seconds (default: run until stopped)
   --verbose             log at the debug level (every connection event, and more)
+  --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
+                        for a program that runs the server and holds its console (by
+                        default the end of the input ends only the console)
+  --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
+                        HTTP at this address (default: off); keep it on loopback or a private
+                        network: it has no authentication
+  --no-status-ping      answer no status ping: by default the login port tells a launcher or
+                        the Dereth Network's check the world's state, players, version and
+                        name, with no login
+  --status-ping-hellos N  status ping first steps a minute from one address (default 4)
+  --status-ping-asks N  status ping second steps a minute from one address (default 4)
+  --status-ping-replies N  status ping replies a second, to everyone (default 50)
+  --config FILE         read the settings from this configuration file, in the form of
+                        Empyrean's empyrean.toml (default: yalain.toml in the working folder,
+                        else beside the executable, if there is one); the command line wins
+                        over it
 
 yalain world check|release|fetch|compile ...
 
@@ -64,6 +95,14 @@ yalain world check|release|fetch|compile ...
 yalain --version
 
   print the server's version and stop
+
+yalain --release-facts
+
+  print, as one line of JSON, the version, the target, the database's schema version and the
+  world database release this build serves, for a launcher's updates, and stop
+
+Exit codes: 0 stopped as asked; 1 failed; 3 a port the server listens on is held by another
+program (its log's line ends in [ports-taken]).
 ";
 
 #[cfg(test)]
@@ -102,5 +141,7 @@ mod tests {
         }
         assert!(TEXT.contains("log at the debug level (every connection event, and more)"));
         assert!(TEXT.contains("yalain --version"));
+        assert!(TEXT.contains("yalain --release-facts"));
+        assert!(TEXT.contains("3 a port the server listens on is held"));
     }
 }

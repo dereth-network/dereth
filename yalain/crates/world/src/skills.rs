@@ -259,7 +259,14 @@ pub struct SkillDef {
     pub kind: Option<crate::rules::Kind>,
     /// A skill a creature uses on itself or its friends (a heal, a buff), by its name.
     pub helps: bool,
+    /// The attribute it rates (0: none; [`ARCANE_LORE_CATEGORY`] Arcane Lore), and its measure of
+    /// it: the attribute is its rating times that.
+    pub category: u32,
+    pub attribute_mod: f32,
 }
+
+/// The attribute category of the skills that rate a player's Arcane Lore.
+pub const ARCANE_LORE_CATEGORY: u32 = 5;
 
 /// Every skill's definition, and the advancement tables (the experience each level needs).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -374,6 +381,8 @@ impl SkillDef {
             },
             kind: None,
             helps: false,
+            category: nav.field(root, "m_category").unwrap_or(0),
+            attribute_mod: nav.number(root, "m_attributeMod").unwrap_or(1.0),
         })
     }
 }
@@ -618,7 +627,9 @@ impl SkillTable {
         (h.granted + bonus + level).min(cap)
     }
 
-    /// Why a player may not train a skill, if it may not.
+    /// Why a player may not train a skill, if it may not: a hero skill only by a hero, paid in
+    /// hero skill credits (`credits.hero`, none for a player who is no hero); any other in skill
+    /// credits.
     #[must_use]
     pub fn train_refusal(
         &self,
@@ -626,7 +637,7 @@ impl SkillTable {
         skill: u32,
         level: i32,
         race: u32,
-        credits: u32,
+        credits: Credits,
     ) -> Option<u32> {
         let trained = |s: u32| {
             skills
@@ -648,7 +659,8 @@ impl SkillTable {
         if d.species != 0 && d.species & race != race {
             return Some(refusal::RACE);
         }
-        if d.flags & flag::HERO != 0 {
+        let hero_skill = d.flags & flag::HERO != 0;
+        if hero_skill && credits.hero.is_none() {
             return Some(refusal::HERO);
         }
         if d.parents.iter().any(|(p, _)| !trained(*p)) {
@@ -660,7 +672,12 @@ impl SkillTable {
         {
             return Some(refusal::PREREQUISITE);
         }
-        if credits < d.cost {
+        let short = if hero_skill {
+            credits.hero.unwrap_or(0) < d.hero_cost
+        } else {
+            credits.skill < d.cost
+        };
+        if short {
             return Some(refusal::CREDITS);
         }
         None
@@ -702,16 +719,21 @@ impl SkillTable {
     }
 }
 
-/// The repository with its credits and empty perk and category tables, its skills left out (the
-/// client keeps the ones it has).
+/// The repository with its credits and hero skill credits and empty perk and category tables, its
+/// skills left out (the client keeps the ones it has).
 #[must_use]
-pub fn repository_update(credits: u32) -> ServerMessage {
-    repository_untraining(credits, None)
+pub fn repository_update(credits: u32, hero_credits: u32) -> ServerMessage {
+    repository_untraining(credits, hero_credits, None)
 }
 
-/// The repository with its credits and the skill being untrained with the experience to earn.
+/// The repository with its credits and hero skill credits and the skill being untrained with the
+/// experience to earn.
 #[must_use]
-pub fn repository_untraining(credits: u32, untraining: Option<(u32, u64)>) -> ServerMessage {
+pub fn repository_untraining(
+    credits: u32,
+    hero_credits: u32,
+    untraining: Option<(u32, u64)>,
+) -> ServerMessage {
     let (skill, xp) = untraining.unwrap_or((0, 0));
     let mut b = Builder::new();
     let repo = b.reserve(package::SKILL_REPOSITORY.0);
@@ -728,7 +750,7 @@ pub fn repository_untraining(credits: u32, untraining: Option<(u32, u64)>) -> Se
         &[
             Slot::Int(credits),
             Slot::Long(xp),
-            Slot::Int(0),
+            Slot::Int(hero_credits),
             Slot::Ref(Some(perks)),
             Slot::Int(skill),
             Slot::Ref(Some(categories)),
@@ -800,7 +822,14 @@ fn skill_of(v: &[Value]) -> Option<u32> {
 
 /// Keep a player's skills where they differ from its race's start.
 fn keep(p: &mut crate::world::Player, starting: &[(u32, u32)], skills: &[Held]) {
-    p.play.skills = skills
+    p.play.skills = kept(starting, skills);
+}
+
+/// The skills a character keeps: those it holds beyond its race's starting skills, or changed
+/// since.
+#[must_use]
+pub fn kept(starting: &[(u32, u32)], skills: &[Held]) -> Vec<SkillState> {
+    skills
         .iter()
         .filter(|h| {
             starting
@@ -815,31 +844,56 @@ fn keep(p: &mut crate::world::Player, starting: &[(u32, u32)], skills: &[Held]) 
                 })
         })
         .map(|h| SkillState::from(*h))
-        .collect();
+        .collect()
 }
 
-/// A player asks to train a skill.
-pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    let Some(skill) = skill_of(v) else {
-        s.unhandled.note("a training that does not read");
-        return;
-    };
-    let Some(p) = s.players.get(&world) else {
-        return;
-    };
-    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
-    let mut skills = held(&starting, &p.play.skills);
-    let level = crate::examine::level_of(&p.qualities);
-    if let Some(code) = s
-        .skill_table
-        .train_refusal(&skills, skill, level, p.race, p.play.credits)
-    {
-        refuse(net, world, &s.skill_table, skill, code);
-        return;
+/// A skill trained: the new skill, the parents and prerequisites it changed, and what it cost in
+/// skill credits and in hero skill credits.
+pub type Trained = (Held, Vec<Held>, (u32, u32));
+
+/// What a player may spend on training: its skill credits, and a hero's hero skill credits (none
+/// for a player who is no hero). As a cost: what a training spends of each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Credits {
+    pub skill: u32,
+    pub hero: Option<u32>,
+}
+
+impl Credits {
+    /// A player's: its skill credits, and its hero skill credits when it is a hero.
+    #[must_use]
+    pub fn of(p: &crate::world::Player) -> Self {
+        Self {
+            skill: p.play.credits,
+            hero: crate::focus::is_hero(&p.qualities).then_some(p.play.hero_credits),
+        }
     }
-    let Some(d) = s.skill_table.skills.get(&skill).cloned() else {
-        return;
+}
+
+/// Train a skill into the skills a player holds, by the rules a player's training follows: its
+/// trained parents count one more child, its prerequisites one more dependent, and the new skill
+/// is pushed, its cost when learned its cost in the credits it is paid in (a hero skill's in hero
+/// skill credits; 2017: 7 of 7 hero skills trained). Returns the new skill, the parents and
+/// prerequisites it changed, and what it costs of each kind of credit; or the refusal's code,
+/// nothing changed.
+///
+/// # Errors
+/// Why the player may not train it ([`refusal`]).
+pub fn trained(
+    table: &SkillTable,
+    skills: &mut Vec<Held>,
+    skill: u32,
+    level: i32,
+    race: u32,
+    credits: Credits,
+) -> Result<Trained, u32> {
+    if let Some(code) = table.train_refusal(skills, skill, level, race, credits) {
+        return Err(code);
+    }
+    let Some(d) = table.skills.get(&skill) else {
+        return Err(refusal::NOT_BY_PLAYER);
     };
+    let hero_skill = d.flags & flag::HERO != 0;
     let mut changed = Vec::new();
     for (parent, _) in &d.parents {
         if let Some(h) = skills.iter_mut().find(|h| h.skill == *parent) {
@@ -863,21 +917,62 @@ pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
             } else {
                 mask::PLAYERS_TO_UNTRAIN
             },
-        cost: d.cost,
+        cost: if hero_skill { d.hero_cost } else { d.cost },
         children: 0,
         dependents: 0,
     };
     skills.push(new);
+    Ok((
+        new,
+        changed,
+        if hero_skill {
+            (0, d.hero_cost)
+        } else {
+            (d.cost, 0)
+        },
+    ))
+}
+
+/// A player asks to train a skill.
+pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+    let Some(skill) = skill_of(v) else {
+        s.unhandled.note("a training that does not read");
+        return;
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let mut skills = held(&starting, &p.play.skills);
+    let level = crate::examine::level_of(&p.qualities);
+    let (new, changed, (cost, hero_cost)) = match trained(
+        &s.skill_table,
+        &mut skills,
+        skill,
+        level,
+        p.race,
+        Credits::of(p),
+    ) {
+        Ok(t) => t,
+        Err(code) => {
+            refuse(net, world, &s.skill_table, skill, code);
+            return;
+        }
+    };
+    let Some(d) = s.skill_table.skills.get(&skill).cloned() else {
+        return;
+    };
     for h in &changed {
         progress::private(net, world, &info_update(h, None));
     }
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    p.play.credits -= d.cost;
-    let credits = p.play.credits;
+    p.play.credits -= cost;
+    p.play.hero_credits -= hero_cost;
+    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     keep(p, &starting, &skills);
-    progress::private(net, world, &repository_update(credits));
+    progress::private(net, world, &repository_update(credits, hero_credits));
     progress::private(net, world, &info_update(&new, None));
     let said = text_with(
         (text::TRAINED_IT, TEXTS),
@@ -970,7 +1065,7 @@ pub fn untrain<S: Store>(
         return;
     }
     let total = quals::long(&p.qualities, progress::q::TOTAL_XP).unwrap_or(0);
-    let credits = p.play.credits;
+    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     let name = skill_name(&s.skill_table, skill);
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -983,7 +1078,7 @@ pub fn untrain<S: Store>(
     progress::private(
         net,
         world,
-        &repository_untraining(credits, Some((skill, h.xp))),
+        &repository_untraining(credits, hero_credits, Some((skill, h.xp))),
     );
     let said = text_with(
         (untraining::UNDER_WAY, TEXTS),
@@ -1062,11 +1157,16 @@ fn untrained<S: Store>(
     );
     let gone = session::call(function::REMOVE_INFO, &[Arg::Int(skill)]).expect("a skill packs");
     progress::private(net, world, &gone);
-    p.play.credits += h.cost;
+    // A hero skill's cost goes back to the hero skill credits it was paid in.
+    if def.as_ref().is_some_and(|d| d.flags & flag::HERO != 0) {
+        p.play.hero_credits += h.cost;
+    } else {
+        p.play.credits += h.cost;
+    }
     p.untraining = None;
-    let credits = p.play.credits;
+    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     keep(p, &starting, &skills);
-    progress::private(net, world, &repository_update(credits));
+    progress::private(net, world, &repository_update(credits, hero_credits));
     crate::world::keep_player(s, world);
 }
 
@@ -1097,10 +1197,10 @@ pub fn cancel_untraining<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world
     let Some(u) = p.untraining.take() else {
         return;
     };
-    let credits = p.play.credits;
+    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let skills = held(&starting, &p.play.skills);
-    progress::private(net, world, &repository_update(credits));
+    progress::private(net, world, &repository_update(credits, hero_credits));
     if let Some(h) = skills.iter().find(|h| h.skill == u.skill) {
         progress::private(net, world, &info_update(h, None));
     }

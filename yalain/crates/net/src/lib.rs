@@ -2,8 +2,8 @@
 //! connection's reliable transport, the referral that takes a client from the login service to
 //! the world, message sending under blob ids, and teardown.
 //!
-//! **Depends on** the shared transport (`dereth-transport`, unchanged, with `dereth-primitives`)
-//! and `auberean-primitives`. **Used by** the game server (`yalain-world`), the server executable
+//! **Depends on** the shared transport (`dereth-transport`, unchanged, with `dereth-primitives`),
+//! `auberean-primitives`, and `hmac` with `sha2` for the status ping's tokens. **Used by** the game server (`yalain-world`), the server executable
 //! (`yalain`), its test kit (`yalain-testkit`) and the client's test kit's server double
 //! (`auberean-testkit`).
 //!
@@ -11,7 +11,10 @@
 //! - [`endpoint::Endpoint`]: one connection's transport, either end (the test kit's clients use
 //!   the client end).
 //! - [`login`]: the game login body.
+//! - [`referral`]: which address a referral sends a client to.
+//! - [`pace`]: the pace a server sends its large messages at.
 //! - [`memory::MemoryNet`]: an in-memory network for tests; [`udp`] (feature `udp`): sockets.
+//! - [`status_ping`]: the world's live status for a launcher or a hub, on the login port.
 //!
 //! **Must never** read what a message means: it moves message bytes and queue numbers.
 
@@ -19,7 +22,10 @@ pub mod blob;
 pub mod endpoint;
 pub mod login;
 pub mod memory;
+pub mod pace;
+pub mod referral;
 pub mod server;
+pub mod status_ping;
 #[cfg(feature = "udp")]
 pub mod udp;
 

@@ -10,8 +10,9 @@
 //! protocol (`dereth-network-protocol`) for its heartbeat to a hub, its link
 //! (`dereth-network-link`) and the world's half of it (`yalain-federation`), with the system's
 //! random source (`getrandom`) for the directory's allegiance keys, and the players' friends
-//! service (`yalain-friends`), and `ctrlc` for the system's stop signals. **Used by** nothing: it
-//! is the `yalain` program.
+//! service (`yalain-friends`), and `ctrlc` for the system's stop signals, with `serde` and
+//! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files). **Used
+//! by** nothing: it is the `yalain` program.
 //!
 //! ```text
 //! yalain --dats <install folder> [options]
@@ -21,8 +22,9 @@
 //!   --bind IP             the address to listen on (default 127.0.0.1)
 //!   --login-port P        the login service's even port (default 9000; P + 1 is used too)
 //!   --world-port P        the world service's even port (default 9002; P + 1 is used too)
-//!   --advertise IP        the IPv4 address a referral sends clients to (default: --bind; needed
-//!                         when --bind is 0.0.0.0 or an IPv6 address)
+//!   --advertise IP        the IPv4 address players from elsewhere are sent to for the world;
+//!                         players on this computer or its network get the nearby address
+//!                         (default: --bind; needed when --bind is 0.0.0.0 or an IPv6 address)
 //!   --data FILE           the database of accounts and characters (default yalain.sqlite)
 //!   --memory              keep nothing: a database in memory
 //!   --world-name NAME     the world's name, shown at login (default "Local World")
@@ -36,6 +38,14 @@
 //!   --save-interval S     keep each character in the world every S seconds, 1 or more (default
 //!                         300); it is kept as it leaves, and at some events, besides
 //!   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
+//!   --max-sessions N      how many logins the world holds at once (default 128); a login past
+//!                         them is told the server is full
+//!   --max-sessions-per-address N  how many logins one address holds at once (default
+//!                         `unlimited`)
+//!   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
+//!                         many times)
+//!   --motd TEXT           a message shown to each player as its character enters the world
+//!                         (`\n` starts a new line)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -43,6 +53,9 @@
 //!                         in degrees) before it next enters, then carry on
 //!   --money A:N:AMOUNT    set the money of character N of account A (one that has played) before
 //!                         it next enters, then carry on
+//!   --make-character FILE make the character a recipe file describes, with its build (a level or
+//!                         experience, skills, money, items, quests, a hero, a place), before it
+//!                         first plays, then carry on (the `characters` module)
 //!   --world-db DIR        the world database to serve, compiled against --dats at start: a
 //!                         folder, or `pinned` (the default) for the release this build pins,
 //!                         fetched into the per-user cache with `yalain world fetch`; a world
@@ -73,6 +86,16 @@
 //!                         number
 //!   --seconds S           stop after S seconds (default: run until stopped)
 //!   --verbose             log at the debug level (every connection event, and more)
+//!   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
+//!                         for a program that runs the server and holds its console (by
+//!                         default the end of the input ends only the console)
+//!   --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
+//!                         HTTP at this address (default: off); keep it on loopback or a private
+//!                         network: it has no authentication
+//!   --config FILE         read the settings from this configuration file, in the form of
+//!                         Empyrean's empyrean.toml (default: yalain.toml in the working folder,
+//!                         else beside the executable, if there is one); the command line wins
+//!                         over it (the `config` module)
 //!
 //! yalain --version
 //!
@@ -87,7 +110,15 @@
 //! module): `reload` compiles the world database again and takes what can change without a
 //! restart; `shutdown [message]` tells every player in the world the world is shutting down,
 //! counts down (two minutes, or `--shutdown-interval`) and stops; `cancel-shutdown`,
-//! `set-shutdown-interval`, `stop-now` and `save-world` are as Empyrean's console has them.
+//! `set-shutdown-interval`, `stop-now` (or `stop`, `exit`) and `save-world` are as Empyrean's
+//! console has them; `hero`, `teleport`, `place`, `make-character`, `apply-build`,
+//! `deletecharacter`, `export-character` and `import-character` act on characters; and so are the moderation commands (`accountcreate`, `accountget`, `accountlist`,
+//! `set-accountpassword`, `set-accountaccess`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`).
+//! Staff (an account an advocate's or above) say the same commands in game, after `@`.
+//! Each command's answer is one line in a fixed form a program reads (its words, then `[ok
+//! <command>]` or `[refused <command>]`: `yalain_world::answers`). When the input ends the console ends
+//! and the world goes on, unless `--stop-at-console-end` was given: then the server stops as at
+//! `stop`.
 //!
 //! A line a player says that is `@dn` or begins with `@dn ` is the Dereth Network's command: heard
 //! by nobody, and answered by the friends service in the player's chat window.
@@ -99,11 +130,12 @@
 //! **Must never** hold the game's rules: it reads, binds and runs the loop; the game is
 //! `yalain-world`'s.
 
-use dereth_primitives::num::math;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod characters;
+mod config;
 mod console;
 mod data;
 mod friends;
@@ -111,6 +143,7 @@ mod help;
 mod hub;
 mod network;
 mod referral;
+mod status;
 mod stop;
 mod world;
 
@@ -146,9 +179,25 @@ struct Options {
     save_seconds: u32,
     /// Seconds a shutdown counts down (`--shutdown-interval`).
     shutdown_seconds: u32,
+    /// Logins the world holds at once (`--max-sessions`).
+    max_sessions: u32,
+    /// Logins one address holds at once (`--max-sessions-per-address`; none: no limit).
+    max_sessions_per_address: Option<u32>,
+    /// Addresses no per-address limit holds back (`--unlimited-sessions-from`).
+    unlimited_addresses: Vec<IpAddr>,
+    /// The message of the day (`--motd`).
+    motd: String,
+    /// Where the status endpoint listens (`--status`; none: off).
+    status: Option<std::net::SocketAddr>,
+    /// Answer the status ping on the login port (not `--no-status-ping`), within these limits
+    /// (`--status-ping-hellos`, `--status-ping-asks`, `--status-ping-replies`).
+    status_ping: bool,
+    status_ping_limits: yalain_net::status_ping::Limits,
     add_characters: Vec<(String, String, u32, u32)>,
     places: Vec<(String, String, StoredPosition)>,
     money: Vec<(String, String, i32)>,
+    /// Recipe files of characters to make with their builds (`--make-character`).
+    recipes: Vec<PathBuf>,
     world_db: String,
     world_base: Option<PathBuf>,
     referral: bool,
@@ -163,10 +212,38 @@ struct Options {
     friends: bool,
     seconds: Option<f64>,
     verbose: bool,
+    /// Stop, keeping everyone, when the console's input ends (`--stop-at-console-end`).
+    stop_at_console_end: bool,
 }
 
-fn parse() -> Result<Options, String> {
-    parse_from(std::env::args().skip(1))
+/// The options the configuration file and the command line give (the command line after the
+/// file, so it wins), and what to log about the file once logging is up.
+fn parse() -> Result<(Options, Vec<String>), String> {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let exe = std::env::current_exe().ok();
+    let exe_dir = exe.as_deref().and_then(Path::parent);
+    let mut notes = Vec::new();
+    let mut all = Vec::new();
+    if let Some(file) = config::locate(&mut args, &cwd, exe_dir)? {
+        let text =
+            std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let folder = match file.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => cwd.clone(),
+        };
+        let (from_file, warnings) =
+            config::arguments(&text, &folder).map_err(|e| format!("{}: {e}", file.display()))?;
+        notes.push(format!("configuration read from {}", file.display()));
+        notes.extend(
+            warnings
+                .into_iter()
+                .map(|w| format!("{}: {w}", file.display())),
+        );
+        all = from_file;
+    }
+    all.extend(args);
+    Ok((parse_from(all)?, notes))
 }
 
 /// The options these arguments give; `Err("")` for `--help`.
@@ -186,9 +263,17 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         secret_cost: yalain_world::login::SECRET_COST,
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
+        max_sessions: yalain_world::login::MAX_SESSIONS,
+        max_sessions_per_address: None,
+        unlimited_addresses: Vec::new(),
+        motd: String::new(),
+        status: None,
+        status_ping: true,
+        status_ping_limits: yalain_net::status_ping::Limits::default(),
         add_characters: Vec::new(),
         places: Vec::new(),
         money: Vec::new(),
+        recipes: Vec::new(),
         world_db: "pinned".into(),
         world_base: None,
         referral: true,
@@ -200,6 +285,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         friends: true,
         seconds: None,
         verbose: false,
+        stop_at_console_end: false,
     };
     let (mut hub_url, mut hub_slug, mut hub_key_file) = (None, None, None);
     let mut args = args.into_iter();
@@ -254,6 +340,45 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 }
                 o.shutdown_seconds = n;
             }
+            "--max-sessions" => {
+                o.max_sessions = value()?
+                    .parse()
+                    .map_err(|e| format!("--max-sessions: {e}"))?;
+            }
+            "--max-sessions-per-address" => {
+                let v = value()?;
+                o.max_sessions_per_address = if v == "unlimited" || v == "-1" {
+                    None
+                } else {
+                    Some(
+                        v.parse()
+                            .map_err(|e| format!("--max-sessions-per-address: {e}"))?,
+                    )
+                };
+            }
+            "--unlimited-sessions-from" => o.unlimited_addresses.push(
+                value()?
+                    .parse()
+                    .map_err(|e| format!("--unlimited-sessions-from: {e}"))?,
+            ),
+            "--motd" => o.motd = value()?.replace("\\n", "\n"),
+            "--status" => {
+                o.status = Some(value()?.parse().map_err(|e| format!("--status: {e}"))?);
+            }
+            "--no-status-ping" => o.status_ping = false,
+            "--status-ping-hellos" | "--status-ping-asks" | "--status-ping-replies" => {
+                let n: u32 = value()?.parse().map_err(|e| format!("{a}: {e}"))?;
+                let l = &mut o.status_ping_limits;
+                match a.as_str() {
+                    "--status-ping-hellos" => l.hellos_per_minute = n,
+                    "--status-ping-asks" => l.asks_per_minute = n,
+                    _ => l.replies_per_second = n,
+                }
+            }
+            // Taken out before the options are read (the `config` module).
+            "--config" => {
+                value()?;
+            }
             "--add-character" => {
                 let v = value()?;
                 let p: Vec<&str> = v.split(':').collect();
@@ -275,11 +400,10 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 };
                 let f = |s: &str| s.parse::<f32>().map_err(|e| format!("--place: {e}"));
                 let cell = u32::from_str_radix(cell, 16).map_err(|e| format!("--place: {e}"))?;
-                let half = -f(h)?.to_radians() / 2.0;
                 let at = StoredPosition {
                     cell,
                     origin: [f(x)?, f(y)?, f(z)?],
-                    rotation: [math::cosf(half), 0.0, 0.0, math::sinf(half)],
+                    rotation: console::rotation_of_degrees(f(h)?),
                 };
                 o.places.push((a.to_string(), n.to_string(), at));
             }
@@ -292,6 +416,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 let m = m.parse::<i32>().map_err(|e| format!("--money: {e}"))?;
                 o.money.push((a.to_string(), n.to_string(), m));
             }
+            "--make-character" => o.recipes.push(PathBuf::from(value()?)),
             "--content" | "--spawns" | "--loot" | "--stores" | "--quests" => {
                 return Err(format!(
                     "{a}: the world's content is the world database now: give --world-db <folder>, or nothing for the pinned release"
@@ -318,6 +443,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 o.seconds = Some(value()?.parse().map_err(|e| format!("--seconds: {e}"))?)
             }
             "--verbose" => o.verbose = true,
+            "--stop-at-console-end" => o.stop_at_console_end = true,
             "--help" | "-h" => return Err(String::new()),
             other => return Err(format!("unknown option {other}")),
         }
@@ -443,19 +569,54 @@ struct Play {
     story: yalain_content::StoryTable,
     locks: yalain_content::LockTable,
     places_named: std::collections::BTreeMap<u32, yalain_content::Place>,
+    places_by_name: std::collections::BTreeMap<String, yalain_content::Place>,
     brokers: std::collections::BTreeMap<u32, yalain_world::market::Broker>,
     walk_in: std::collections::HashSet<u32>,
     persons: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
+    shrine_kingdoms: std::collections::HashMap<u32, u32>,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
     destroyed_on_use: std::collections::HashSet<u32>,
+    treasure: yalain_world::treasure::Kinds,
+    tesserae: std::collections::HashSet<u32>,
     inscribable: std::collections::HashSet<u32>,
     held_answers: std::collections::HashMap<u32, (u32, u32)>,
     weapons: std::collections::HashMap<String, u32>,
     weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
+}
+
+/// The exit code of a server whose ports another program holds, beside the line that says so
+/// (`yalain_world::answers::ports_taken`): a program starting the server tries other ports.
+const PORTS_TAKEN: u8 = 3;
+
+/// Why the server stopped short: the words, and whether a port it listens on was taken.
+#[derive(Debug)]
+struct Failure {
+    why: String,
+    ports_taken: bool,
+}
+
+impl From<String> for Failure {
+    fn from(why: String) -> Self {
+        Self {
+            why,
+            ports_taken: false,
+        }
+    }
+}
+
+impl Failure {
+    /// A port could not be bound: `what` and the system's error, which says whether another
+    /// program holds it.
+    fn binding(what: String, e: &std::io::Error) -> Self {
+        Self {
+            why: format!("{what}: {e}"),
+            ports_taken: e.kind() == std::io::ErrorKind::AddrInUse,
+        }
+    }
 }
 
 fn run<S: Store>(
@@ -466,7 +627,7 @@ fn run<S: Store>(
     start: StartRules,
     content: ContentPack,
     play: Play,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     seed(o, &mut store, &rules);
     // Cookies, checksum seeds and the world's dice: the clock's nanoseconds and the process id.
     #[allow(clippy::cast_possible_truncation)]
@@ -487,6 +648,10 @@ fn run<S: Store>(
         secret_cost: o.secret_cost,
         save_seconds: o.save_seconds,
         shutdown_seconds: o.shutdown_seconds,
+        max_sessions: o.max_sessions,
+        max_sessions_per_address: o.max_sessions_per_address,
+        unlimited_addresses: o.unlimited_addresses.clone(),
+        motd: o.motd.clone(),
         ..ServerConfig::default()
     };
     let advertise = if o.referral {
@@ -494,8 +659,19 @@ fn run<S: Store>(
     } else {
         o.advertise.unwrap_or(Ipv4Addr::LOCALHOST)
     };
-    let mut ports = UdpPorts::bind(o.bind, o.login_port, o.world_port)
-        .map_err(|e| format!("binding the ports: {e}"))?;
+    let mut ports = UdpPorts::bind(o.bind, o.login_port, o.world_port).map_err(|e| {
+        Failure::binding(
+            format!(
+                "binding the ports: {}:{}-{} and {}-{}",
+                o.bind,
+                o.login_port,
+                o.login_port + 1,
+                o.world_port,
+                o.world_port + 1
+            ),
+            &e,
+        )
+    })?;
     let started = Instant::now();
     let local = || LocalTime(started.elapsed().as_secs_f64());
     #[allow(clippy::cast_precision_loss)]
@@ -508,6 +684,9 @@ fn run<S: Store>(
         game_time,
         local(),
     );
+    if o.referral {
+        net.refer_nearby(o.bind, yalain_net::udp::address_toward);
+    }
     if o.hold_clock {
         net.hold_clock(local());
         tracing::info!("the game clock is held at {game_time} s");
@@ -538,29 +717,48 @@ fn run<S: Store>(
     server.story = play.story;
     server.locks = play.locks;
     server.places_named = play.places_named;
+    server.places_by_name = play.places_by_name;
     server.brokers = play.brokers;
     server.walk_in_packages = play.walk_in;
     server.person_packages = play.persons;
     server.shrine_packages = play.shrines;
+    server.shrine_kingdoms = play.shrine_kingdoms;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
     server.destroyed_on_use = play.destroyed_on_use;
+    server.treasure = play.treasure;
+    server.tesserae = play.tesserae;
     server.inscribable_packages = play.inscribable;
     server.held_answers = play.held_answers;
     server.creature_weapons = play.weapons;
     server.creature_weapon_rules = play.weapon_rules;
+    for path in &o.recipes {
+        make_character(&mut server, path, unix_now());
+    }
     tracing::info!(
-        "listening on {}:{}/{} (login) and {}:{}/{} (world, referred as {advertise})",
-        o.bind,
-        o.login_port,
-        o.login_port + 1,
-        o.bind,
-        o.world_port,
-        o.world_port + 1
+        target: yalain_world::answers::TARGET,
+        "{}",
+        yalain_world::answers::listening(&format!(
+            "listening on {}:{}/{} (login) and {}:{}/{} (world, referred as {advertise})",
+            o.bind,
+            o.login_port,
+            o.login_port + 1,
+            o.bind,
+            o.world_port,
+            o.world_port + 1
+        ))
     );
+    let mut ping = status_ping(o);
     let mut reporter = o.hub.clone().map(hub::Reporter::start);
+    let status = o
+        .status
+        .map(|at| status::Endpoint::start(at, snapshot(&server, &net, started)))
+        .transpose()?;
+    if let Some(s) = &status {
+        tracing::info!("status endpoint listening on http://{}/status", s.addr());
+    }
     let mut network = match (&o.hub, o.federation) {
         (Some(h), true) => Some(network::Network::start(h, unix_now(), &mut server.store)?),
         _ => None,
@@ -583,6 +781,9 @@ fn run<S: Store>(
     // The console's commands that act on the world, run at the loop's next clock.
     let mut pending: Vec<console::Command> = Vec::new();
     let interrupt = stop::Interrupt::install();
+    // Whether the console's input is still open, and whether its end stops the server.
+    let mut console_open = true;
+    let mut console_ended = false;
     loop {
         if o.seconds
             .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
@@ -593,30 +794,85 @@ fn run<S: Store>(
             tracing::info!("stopping at the system's word");
             break;
         }
-        while let Ok(line) = typed.try_recv() {
-            match console::parse(&line) {
-                None => {}
-                Some(console::Command::Help) => tracing::info!("{}", console::HELP),
-                Some(
-                    c @ (console::Command::Shutdown(_)
-                    | console::Command::CancelShutdown
-                    | console::Command::StopNow(_)
-                    | console::Command::SaveWorld),
-                ) => pending.push(c),
-                Some(console::Command::SetShutdownInterval(None)) => {
-                    tracing::info!("set-shutdown-interval takes seconds, 0 to 99999");
+        if console_ended {
+            break;
+        }
+        loop {
+            let line = match typed.try_recv() {
+                Ok(line) => line,
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    if console_open {
+                        console_open = false;
+                        if o.stop_at_console_end {
+                            tracing::info!("stopping: the console's input ended");
+                            console_ended = true;
+                        } else {
+                            tracing::info!(
+                                "the console's input ended: no more commands are read, and the \
+                                 world goes on"
+                            );
+                        }
+                    }
+                    break;
                 }
-                Some(console::Command::SetShutdownInterval(Some(n))) => {
-                    tracing::info!(
-                        "the shutdown interval is {n} seconds (it was {})",
-                        server.cfg.shutdown_seconds
+            };
+            let Some(c) = console::parse(&line) else {
+                continue;
+            };
+            let name = c.name();
+            match c {
+                console::Command::Help => console::answer(&name, &Ok(console::HELP.to_owned())),
+                c @ (console::Command::Shutdown(_)
+                | console::Command::CancelShutdown
+                | console::Command::StopNow(_)
+                | console::Command::SaveWorld
+                | console::Command::Teleport(Ok(_))
+                | console::Command::Place(Ok(_))
+                | console::Command::MakeCharacter(Ok(_))
+                | console::Command::ApplyBuild(Ok(_))
+                | console::Command::DeleteCharacter(Ok(_))
+                | console::Command::ForceLogoff(Ok(_))
+                | console::Command::ExportCharacter(Ok(_))
+                | console::Command::ImportCharacter(Ok(_))
+                | console::Command::Admin(Ok(_))) => pending.push(c),
+                // The moderation commands answer in Empyrean's words, under their own word.
+                console::Command::Admin(Err(usage)) => console::answer(
+                    &line
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase(),
+                    &Err(usage),
+                ),
+                console::Command::Teleport(Err(usage))
+                | console::Command::Place(Err(usage))
+                | console::Command::MakeCharacter(Err(usage))
+                | console::Command::ApplyBuild(Err(usage))
+                | console::Command::DeleteCharacter(Err(usage))
+                | console::Command::ForceLogoff(Err(usage))
+                | console::Command::ExportCharacter(Err(usage))
+                | console::Command::ImportCharacter(Err(usage)) => {
+                    console::answer(&name, &Err(usage));
+                }
+                console::Command::SetShutdownInterval(None) => console::answer(
+                    &name,
+                    &Err("set-shutdown-interval takes seconds, 0 to 99999".into()),
+                ),
+                console::Command::SetShutdownInterval(Some(n)) => {
+                    console::answer(
+                        &name,
+                        &Ok(format!(
+                            "the shutdown interval is {n} seconds (it was {})",
+                            server.cfg.shutdown_seconds
+                        )),
                     );
                     server.cfg.shutdown_seconds = n;
                 }
-                Some(console::Command::Reload) if reloading.is_some() => {
-                    tracing::info!("a reload is already running");
+                console::Command::Reload if reloading.is_some() => {
+                    console::answer(&name, &Err("a reload is already running".into()));
                 }
-                Some(console::Command::Reload) => {
+                console::Command::Reload => {
                     tracing::info!("reloading the world database");
                     let dats = o.dats.clone().unwrap_or_default();
                     let (db, base) = (o.world_db.clone(), o.world_base.clone());
@@ -625,7 +881,8 @@ fn run<S: Store>(
                         reload_world(&dats, &db, base.as_deref(), banned.as_deref())
                     }));
                 }
-                Some(console::Command::Network(words)) => {
+                // The network's lines, as its own console has them.
+                console::Command::Network(words) => {
                     let words: Vec<&str> = words.iter().map(String::as_str).collect();
                     match &mut network {
                         Some(n) => {
@@ -636,19 +893,20 @@ fn run<S: Store>(
                         None => tracing::info!("This world is not on the Dereth Network."),
                     }
                 }
-                Some(console::Command::Hero(None)) => {
-                    tracing::info!(
-                        "hero <name> makes a character a hero, hero <name> off no longer"
+                console::Command::Hero(None) => console::answer(
+                    &name,
+                    &Err("hero <name> makes a character a hero, hero <name> off no longer".into()),
+                ),
+                console::Command::Hero(Some((who, on))) => console::answer(
+                    &name,
+                    &yalain_world::focus::set_hero(&mut server, &mut net, &who, on)
+                        .map_err(|e| format!("hero: {e}")),
+                ),
+                console::Command::Unknown(c) => {
+                    console::answer(
+                        &name,
+                        &Err(format!("{c}: not a command ({})", console::HELP)),
                     );
-                }
-                Some(console::Command::Hero(Some((name, on)))) => {
-                    match yalain_world::focus::set_hero(&mut server, &mut net, &name, on) {
-                        Ok(done) => tracing::info!("{done}"),
-                        Err(e) => tracing::warn!("hero: {e}"),
-                    }
-                }
-                Some(console::Command::Unknown(c)) => {
-                    tracing::warn!("{c}: not a command ({})", console::HELP);
                 }
             }
         }
@@ -656,16 +914,47 @@ fn run<S: Store>(
             reloading = None;
             match done {
                 Ok((dir, tables)) => {
-                    let r = server.reload(tables);
-                    tracing::info!("world database {}: {}", dir.display(), r.summary());
+                    let clock = Clock {
+                        local: local(),
+                        unix: unix_now(),
+                    };
+                    let r = server.reload(&mut net, clock, tables);
+                    console::answer(
+                        "reload",
+                        &Ok(format!("world database {}: {}", dir.display(), r.summary())),
+                    );
+                    for line in &r.details {
+                        tracing::info!("{line}");
+                    }
                 }
-                Err(e) => tracing::warn!(
-                    "the world database did not compile; the world is unchanged: {e}"
+                Err(e) => console::answer(
+                    "reload",
+                    &Err(format!(
+                        "the world database did not compile; the world is unchanged: {e}"
+                    )),
                 ),
             }
         }
         let now = local();
-        let got = ports.receive(|port, from, bytes| net.on_datagram(port, from, bytes, now));
+        // The status ping is answered on the login port before the transport reads anything.
+        let mut pinged = Vec::new();
+        let seconds = started.elapsed().as_secs();
+        let got = ports.receive(|port, from, bytes| {
+            if port == yalain_net::Port::LOGIN_EVEN
+                && yalain_net::status_ping::is_status_ping(bytes)
+            {
+                if let Some(reply) = ping.answer(from, bytes, seconds) {
+                    pinged.push(yalain_net::Datagram {
+                        from: port,
+                        to: from,
+                        bytes: reply,
+                    });
+                }
+                return;
+            }
+            net.on_datagram(port, from, bytes, now);
+        });
+        ports.send(&pinged);
         let clock = Clock {
             local: now,
             unix: unix_now(),
@@ -685,6 +974,15 @@ fn run<S: Store>(
                 u32::try_from(server.players.len()).unwrap_or(u32::MAX),
             );
         }
+        if let Some(s) = &status {
+            s.set(snapshot(&server, &net, started));
+        }
+        ping.facts.state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
+            yalain_net::status_ping::WorldState::Open
+        } else {
+            yalain_net::status_ping::WorldState::ShuttingDown
+        };
+        ping.facts.players = u16::try_from(server.players.len()).unwrap_or(u16::MAX);
         if let Some(n) = &mut network {
             n.directory(&mut server, now.0);
             n.pump(&mut friends.service, now.0);
@@ -721,35 +1019,141 @@ fn run<S: Store>(
     Ok(())
 }
 
-/// Run a console command that acts on the world.
+/// The status ping on the login port, as Empyrean's on its game port: on unless turned off, with
+/// the world's name and this server's version.
+fn status_ping(o: &Options) -> yalain_net::status_ping::StatusPing {
+    use yalain_net::status_ping::{Facts, StatusPing, WorldState};
+    let limits = o.status_ping_limits;
+    if o.status_ping {
+        tracing::info!(
+            "status ping on the login port: {} hellos and {} asks a minute from one address, {} \
+             replies a second",
+            limits.hellos_per_minute,
+            limits.asks_per_minute,
+            limits.replies_per_second
+        );
+    } else {
+        tracing::info!("status ping off ([status] udp_ping = false)");
+    }
+    StatusPing::new(
+        o.status_ping,
+        limits,
+        Facts {
+            state: WorldState::Starting,
+            players: 0,
+            software: "Yalain".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            world_name: o.world_name.clone(),
+        },
+        Box::new(|| {
+            let mut secret = [0u8; 32];
+            getrandom::fill(&mut secret).expect("the system's random source");
+            secret
+        }),
+    )
+}
+
+/// What the status endpoint says of the world now.
+fn snapshot<S: Store>(server: &Server<S>, net: &ServerNet, started: Instant) -> status::Snapshot {
+    status::Snapshot {
+        world_name: server.cfg.world_name.clone(),
+        uptime_seconds: started.elapsed().as_secs(),
+        shutting_down: server.shutdown != yalain_world::shutdown::Shutdown::No,
+        players: server.players.len(),
+        logins: server.sessions.len(),
+        max_logins: server.cfg.max_sessions,
+        connections: net.connection_count(),
+    }
+}
+
+/// Run a console command that acts on the world, and answer it.
 fn world_command<S: Store>(
     server: &mut Server<S>,
     net: &mut ServerNet,
     clock: Clock,
     c: console::Command,
 ) {
+    use yalain_world::characters;
     use yalain_world::shutdown;
-    match c {
+    let name = c.name();
+    let done = match c {
         console::Command::Shutdown(message) => {
-            if !shutdown::begin(server, net, clock, message.as_deref()) {
-                tracing::info!("a shutdown is already in progress");
+            if shutdown::begin(server, net, clock, message.as_deref()) {
+                Ok(format!(
+                    "the world shuts down in {} seconds",
+                    server.cfg.shutdown_seconds.min(shutdown::MAX_SECONDS)
+                ))
+            } else {
+                Err("a shutdown is already in progress".to_owned())
             }
         }
         console::Command::CancelShutdown => {
-            if !shutdown::cancel(server, net) {
-                tracing::info!("no shutdown is counting down");
+            if shutdown::cancel(server, net) {
+                Ok("the shutdown is cancelled".to_owned())
+            } else {
+                Err("no shutdown is counting down".to_owned())
             }
         }
         console::Command::StopNow(message) => {
-            tracing::info!("stopping now");
             shutdown::stop_now(server, net, clock, message.as_deref());
+            Ok("stopping now".to_owned())
         }
         console::Command::SaveWorld => {
             let n = yalain_world::saves::save_world(server, clock);
-            tracing::info!("saved: {n} characters in the world kept");
+            Ok(format!("saved: {n} characters in the world kept"))
         }
-        _ => {}
-    }
+        console::Command::Teleport(Ok((who, to))) => {
+            characters::teleport(server, net, clock, &who, &to)
+        }
+        console::Command::Place(Ok((who, to))) => characters::place(server, &who, &to),
+        console::Command::MakeCharacter(Ok(path)) => {
+            return make_character(server, &path, clock.unix)
+        }
+        console::Command::ApplyBuild(Ok(path)) => crate::characters::read_recipe(&path)
+            .and_then(|r| characters::apply(server, &r, clock.unix)),
+        console::Command::DeleteCharacter(Ok((who, false))) => {
+            characters::delete(server, net, clock, &who)
+        }
+        console::Command::DeleteCharacter(Ok((who, true))) => {
+            characters::delete_now(server, net, clock, &who)
+        }
+        console::Command::ForceLogoff(Ok(who)) => {
+            characters::force_logoff(server, net, clock, &who)
+        }
+        console::Command::ExportCharacter(Ok((who, path))) => characters::export(server, &who)
+            .and_then(|f| crate::characters::write_file(&path, &f).map(|()| f.character.name))
+            .map(|who| format!("{who} written to {}", path.display())),
+        console::Command::ImportCharacter(Ok((path, account, who))) => {
+            crate::characters::read_file(&path)
+                .and_then(|f| characters::import(server, &f, &account, who.as_deref(), clock.unix))
+        }
+        // Each line of its answer in Empyrean's words, under the command's own word.
+        console::Command::Admin(Ok(c)) => {
+            for line in yalain_world::admin::answered(
+                server,
+                net,
+                clock,
+                &yalain_world::admin::Issuer::Console,
+                &c,
+            ) {
+                console::answer(c.word(), &line);
+            }
+            return;
+        }
+        _ => return,
+    };
+    // A character command's refusal names the command first, as it always has.
+    let shutting = ["shutdown", "cancel-shutdown"].contains(&name.as_str());
+    let done = done.map_err(|e| if shutting { e } else { format!("{name}: {e}") });
+    console::answer(&name, &done);
+}
+
+/// Make the character a recipe file describes, with its build; the answer logged.
+fn make_character<S: Store>(server: &mut Server<S>, path: &Path, now: i64) {
+    let done = crate::characters::read_recipe(path)
+        .and_then(|r| yalain_world::characters::make(server, &r, now))
+        .map_err(|e| format!("make-character {}: {e}", path.display()));
+    console::answer("make-character", &done);
 }
 
 /// Compile the world database (a folder, or `pinned`) against the install: its folder and tables.
@@ -777,6 +1181,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
         story,
         locks,
         places_named,
+        places_by_name,
         weapons: listed_weapons,
         weapon_rules,
         ..
@@ -937,6 +1342,8 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
         states.extend(item_uses.values().flatten().map(|e| e.state));
         states.extend(yalain_world::item_use::FOOD_EFFECTS);
         states.extend(worn_effects.values().flatten().map(|e| e.state));
+        // The treasure potions' effects, put on when they are drunk.
+        states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
         mounts.note_items(&item_uses);
         let effects = data::effect_table(&portal, &states)?;
         tracing::info!(
@@ -956,6 +1363,13 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             &content,
             &yalain_world::usable::shrines::FACTION_SHRINES,
         )?;
+        // The kingdom each shrine's use joins, by its kind.
+        let mut shrine_kingdoms = std::collections::HashMap::new();
+        for (kind, kingdom) in yalain_world::kingdoms::SHRINES {
+            for package in data::packages_deriving_from(&portal, &content, &[kind])? {
+                shrine_kingdoms.insert(package, kingdom);
+            }
+        }
         let cannot_use =
             data::packages_deriving_from(&portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
         let (doors, doors_through_locks) = data::door_packages(&portal, &content)?;
@@ -966,6 +1380,16 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             "the doors' and chests' kinds read"
         );
         let destroyed_on_use = data::destroyed_on_use(&portal, &catalog)?;
+        let treasure = data::treasure(&portal, &catalog)?;
+        let tesserae =
+            data::catalog_packages_from(&portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
+        tracing::info!(
+            equipment = treasure.equipment.len(),
+            potions = treasure.potions.len(),
+            looks = treasure.potion_looks.len(),
+            tesserae = tesserae.len(),
+            "the treasure items' kinds read"
+        );
         let interactions = data::interactions(&portal, &catalog)?;
         tracing::info!(
             tables = interactions.tables.len(),
@@ -1012,15 +1436,19 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             story,
             locks,
             places_named,
+            places_by_name,
             brokers,
             walk_in,
             persons,
             shrines,
+            shrine_kingdoms,
             cannot_use,
             doors,
             doors_through_locks,
             chests,
             destroyed_on_use,
+            treasure,
+            tesserae,
             inscribable,
             held_answers,
             weapons,
@@ -1054,11 +1482,23 @@ fn reload_world(
         story: p.story,
         locks: p.locks,
         places_named: p.places_named,
+        places_by_name: p.places_by_name,
         effects: p.effects,
         crafting: p.craft,
         weapons: p.weapons,
         weapon_rules: p.weapon_rules,
         names,
+        kinds: Some(yalain_world::reload::PlacedKinds {
+            brokers: p.brokers,
+            walk_in: p.walk_in,
+            persons: p.persons,
+            shrines: p.shrines,
+            cannot_use: p.cannot_use,
+            doors: p.doors,
+            doors_through_locks: p.doors_through_locks,
+            chests: p.chests,
+        }),
+        ground: Some(Box::new(p.ground)),
     };
     Ok((dir, tables))
 }
@@ -1076,6 +1516,10 @@ fn main() -> std::process::ExitCode {
         print!("{}", version_text());
         return std::process::ExitCode::SUCCESS;
     }
+    if args == ["--release-facts"] {
+        println!("{}", release_facts());
+        return std::process::ExitCode::SUCCESS;
+    }
     if args.first().map(String::as_str) == Some("world") {
         return match world::main(&args[1..]) {
             Ok(()) => std::process::ExitCode::SUCCESS,
@@ -1085,7 +1529,7 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
-    let o = match parse() {
+    let (o, notes) = match parse() {
         Ok(o) => o,
         Err(e) if e.is_empty() => {
             print!("{}", help::TEXT);
@@ -1093,8 +1537,9 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end]");
             eprintln!("       yalain world check|release|fetch|compile ...");
+            eprintln!("       yalain --version | --release-facts");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -1106,6 +1551,13 @@ fn main() -> std::process::ExitCode {
         })
         .with_ansi(false)
         .init();
+    for n in &notes {
+        if n.starts_with("configuration read") {
+            tracing::info!("{n}");
+        } else {
+            tracing::warn!("{n}");
+        }
+    }
     let Some(dats) = o.dats.clone() else {
         eprintln!("yalain: --dats names the install to read the data from");
         return std::process::ExitCode::FAILURE;
@@ -1190,13 +1642,21 @@ fn main() -> std::process::ExitCode {
                 }
                 run(&o, names, store, rules, start, content, play)
             }
-            Err(e) => Err(format!("{}: {e}", o.data.display())),
+            Err(e) => Err(format!("{}: {e}", o.data.display()).into()),
         }
     };
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("yalain: {e}");
+        Err(f) if f.ports_taken => {
+            tracing::error!(
+                target: yalain_world::answers::TARGET,
+                "{}",
+                yalain_world::answers::ports_taken(&f.why)
+            );
+            std::process::ExitCode::from(PORTS_TAKEN)
+        }
+        Err(f) => {
+            eprintln!("yalain: {}", f.why);
             std::process::ExitCode::FAILURE
         }
     }
@@ -1213,10 +1673,43 @@ fn version_text() -> String {
     )
 }
 
+/// What `yalain --release-facts` prints, one line of JSON, as Empyrean's: this build's version and
+/// target, its database's schema version and the world database release it serves by default,
+/// which a launcher compares with a release's upgrade declaration.
+fn release_facts() -> String {
+    let target = option_env!("YALAIN_BUILD_TARGET").map_or_else(
+        || match (std::env::consts::ARCH, std::env::consts::OS) {
+            ("x86_64", "windows") => "x86_64-pc-windows-msvc".to_owned(),
+            ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
+            ("aarch64", "linux") => "aarch64-unknown-linux-gnu".to_owned(),
+            ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
+            (arch, os) => format!("{arch}-{os}"),
+        },
+        str::to_owned,
+    );
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "target": target,
+        "databases": { "store": yalain_store::SCHEMA_VERSION },
+        "world_database": yalain_world_db::release::PINNED_TAG,
+    })
+    .to_string()
+}
+
 #[cfg(test)]
 mod version_tests {
-    //! Behaviour: none (tooling: what `--version` prints, which the release workflow checks)
-    use super::version_text;
+    //! Behaviour: none (tooling: what `--version` and `--release-facts` print for releases)
+    use super::{release_facts, version_text};
+
+    #[test]
+    fn release_facts_name_the_version_the_database_schema_and_the_world_database() {
+        let v: serde_json::Value =
+            serde_json::from_str(&release_facts()).expect("one line of JSON");
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(v["databases"]["store"], yalain_store::SCHEMA_VERSION);
+        assert_eq!(v["world_database"], yalain_world_db::release::PINNED_TAG);
+        assert!(v["target"].as_str().is_some_and(|t| !t.is_empty()));
+    }
 
     #[test]
     fn version_names_the_program_its_version_its_commit_and_its_target() {

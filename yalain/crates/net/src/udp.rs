@@ -1,7 +1,7 @@
 //! The native host's sockets: the four ports of the two services, non-blocking.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
 use crate::server::{Datagram, Port};
 
@@ -62,5 +62,32 @@ impl UdpPorts {
                 let _ = s.send_to(&d.bytes, d.to);
             }
         }
+    }
+}
+
+/// This machine's own address on the way to `client`, as its routes choose it: loopback for a
+/// client on loopback, its address on a network for a client on that network. Nothing is sent.
+#[must_use]
+pub fn address_toward(client: Ipv4Addr) -> Option<Ipv4Addr> {
+    let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    // Any port: connecting a datagram socket only chooses the route.
+    s.connect((client, 9)).ok()?;
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V4(own) if !own.is_unspecified() => Some(own),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the host's route lookup, on this machine's own sockets)
+    use super::*;
+
+    #[test]
+    fn the_address_toward_a_client_on_loopback_is_loopback() {
+        assert_eq!(
+            address_toward(Ipv4Addr::LOCALHOST),
+            Some(Ipv4Addr::LOCALHOST)
+        );
     }
 }

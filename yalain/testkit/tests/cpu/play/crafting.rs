@@ -327,6 +327,56 @@ fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
     );
 }
 
+/// Making a recipe ends a protection first: "You are no longer protected by the portal's magic.",
+/// the protection taken away and its glow stopped, before the recipe's animation.
+/// Behaviour: server.craft.ends-protection
+#[test]
+fn making_a_recipe_ends_a_protection_before_its_animation() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let clock = h.clock();
+    effects::protect_with(
+        &mut h.server,
+        &mut h.net,
+        world,
+        effects::RECALL_PROTECTION,
+        (me, 0),
+        clock,
+    );
+    h.run(2);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    h.run(4);
+    let msgs = h.world_messages(b, from);
+    let ended = msgs.iter().position(|m| match m {
+        ServerMessage::PlayerCall(c) if c.function.0 == 0x8205_0011 => c
+            .args
+            .as_ref()
+            .and_then(|a| calls::values(&a.0).ok())
+            .unwrap_or_default()
+            .iter()
+            .any(|v| matches!(v.root(), Some(Node::TextInfo(t)) if t.string_id == effects::RECALL_PROTECTION.ended.0)),
+        _ => false,
+    });
+    let removed = msgs.iter().position(
+        |m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == effects::function::REMOVE),
+    );
+    let glow = msgs.iter().position(
+        |m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == 0x4100_000F),
+    );
+    let anim = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == me));
+    assert!(
+        ended.is_some() && ended < removed && removed < glow && glow < anim,
+        "{ended:?} {removed:?} {glow:?} {anim:?}"
+    );
+    assert!(h
+        .server
+        .players
+        .get(&world)
+        .is_some_and(|p| p.protected.is_none()));
+}
+
 /// The pool qualities a list of messages sets, in order: (quality, value).
 fn pool_updates(msgs: &[ServerMessage]) -> Vec<(u32, u64)> {
     msgs.iter()

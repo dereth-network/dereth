@@ -416,6 +416,7 @@ fn going_into_portal_space_turns_auras_off() {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     let (b, me) = armed(&mut h, "one", "Elara");
     turned_on(&mut h, b);

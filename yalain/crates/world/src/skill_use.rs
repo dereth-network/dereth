@@ -26,6 +26,12 @@
 //! time, a combination's link, or a combination that finds one (a creature's opening is one such:
 //! an effect it takes on as it attacks).
 //!
+//! **A hostile skill aimed at another player** is refused, with the reason, where who may harm
+//! whom forbids it ([`crate::kingdoms::may_harm`]); else it is used as on a creature (2017: every
+//! special at a player, in 2017's two fights, told the story the skill tells at creatures), the
+//! player reached by its hooks as the creature would be, each hook that hurts it giving the health
+//! lost as PK damage, and its target effects put on that player.
+//!
 //! **A toggled skill** (one whose user effect is an aura) turns its aura on when its use ends: the
 //! aura's first pulse and record, not attacking, the toggle on, the skill's information marked
 //! toggled, the pulse's appearance, peace. Used again while on, it turns off at once: attacking,
@@ -47,10 +53,13 @@
 //! an attack run, a special takes the run's next swing, and the run goes on after it.
 //!
 //! **A recall** powers up for its time (the player's behavior held), then its story and its vigor
-//! (the whole of it), into portal space and out beside the lifestone the player bound to, "You
-//! recall to your lifestone.", and the end: the skill's information and the wait every skill
-//! shares (30 seconds). A player never bound plays it all and is told it failed. Moving while it
-//! powers up interrupts it, and nothing is spent.
+//! (the whole of it), into portal space and out where its recall effect says, its text ("You
+//! recall to your lifestone."), and the end: the skill's information and the wait every skill
+//! shares (30 seconds). Where it goes ([`recall_of`]): the lifestone the player bound to; the
+//! last portal it used that may be recalled to (Portal Recall); a city's place (the cities'
+//! recalls, which protect it for 30 s as they end); the hall its allegiance is bound to. A player
+//! with no such place plays it all and is told it failed. Moving while it powers up interrupts
+//! it, and nothing is spent.
 //!
 //! **A summoning** (a portal to the lifestone or to the last portal's place) plays as a recall
 //! does to its story; then its portal appears ([`crate::usable::portals`]) and the use ends.
@@ -68,10 +77,11 @@ use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
 use yalain_net::{ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::calls::Value;
 use crate::combat::{self, player_event, to_all_seeing};
+use crate::effect_defs::{EffectDef, Kind as EffectKind, Recall};
 use crate::player::quality;
 use crate::rules::{self, Direction, Kind, Outcome};
 use crate::skills::{Hook, Usage};
@@ -136,10 +146,16 @@ pub const TOGGLED_ON: u32 = 0x80;
 
 /// The recalls: lifestone, last portal, the cities', the allegiance's.
 pub const LIFESTONE_RECALL: u32 = 835;
+pub const PORTAL_RECALL: u32 = 870;
+pub const CRAGSTONE_RECALL: u32 = 925;
+pub const ALLEGIANCE_RECALL: u32 = 999;
+pub const ARRAMORA_RECALL: u32 = 1045;
 
-/// Texts of recalls (string id, table) and their kind.
+/// Texts: a recall's, in its recall effect's own table ("You recall to your lifestone.", "You
+/// fail to recall to your lifestone."); fatigue's (string id, table).
 pub mod text {
-    pub const RECALL_FAILED: (u32, u32) = (0xCF46_E5A6, 0x2500_115A);
+    pub const RECALLED: u32 = 0x912E_FF1D;
+    pub const RECALL_FAILED: u32 = 0xCF46_E5A6;
     pub const FATIGUED: (u32, u32) = (0xF902_C5FE, 0x2500_000B);
 }
 
@@ -484,10 +500,55 @@ pub(crate) fn moving(p: &crate::world::Player) -> bool {
     p.heading_motion & 0x00FF_FFFF != crate::world::IDLE_MOTION
 }
 
+/// A skill's recall, if it is one: where its recall effect takes its user, and the string table
+/// of its texts (the effect's name's).
+#[must_use]
+pub fn recall_of<S: Store>(s: &Server<S>, skill: u32) -> Option<(Recall, u32)> {
+    let u = s.skill_table.skills.get(&skill)?.usage.as_ref()?;
+    u.target_effects
+        .iter()
+        .chain(&u.user_effects)
+        .find_map(|e| match s.effect_table.get(*e) {
+            Some(EffectDef {
+                kind: EffectKind::Recall(r),
+                name,
+                ..
+            }) => Some((r.clone(), name.map_or(0, |(_, table)| table))),
+            _ => None,
+        })
+}
+
 /// Is this skill a recall?
 #[must_use]
-pub fn is_recall(skill: u32) -> bool {
-    skill == LIFESTONE_RECALL
+pub fn is_recall<S: Store>(s: &Server<S>, skill: u32) -> bool {
+    recall_of(s, skill).is_some()
+}
+
+/// The places a recall may take a player now: the place it keeps of the link's kind; the named
+/// places the world has; none for an allegiance's hall (no allegiance is bound to one).
+#[must_use]
+pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<StoredPosition> {
+    let Some(p) = s.players.get(&world) else {
+        return Vec::new();
+    };
+    match r {
+        Recall::Link(kind) => p
+            .places
+            .iter()
+            .filter(|(k, _)| k == kind)
+            .map(|(_, at)| *at)
+            .collect(),
+        Recall::Named { names, .. } => names
+            .iter()
+            .filter_map(|n| s.places_by_name.get(&n.to_ascii_lowercase()))
+            .map(|pl| StoredPosition {
+                cell: pl.cell,
+                origin: pl.origin,
+                rotation: pl.rotation,
+            })
+            .collect(),
+        Recall::Allegiance => Vec::new(),
+    }
 }
 
 /// Is this use's skill used on its user alone?
@@ -503,7 +564,7 @@ pub fn helpful(u: &Usage) -> bool {
 
 /// Whom a use is aimed at: a skill used on its user alone, at it; a helpful skill at the player
 /// the request names, else at its user (a creature, nothing or itself named); any other at the
-/// thing the request names.
+/// other player the request names, else at the thing it names.
 #[must_use]
 pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> Aim {
     let me = s.players.get(&world).map_or(0, |p| p.character);
@@ -517,7 +578,10 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
             .find(|(_, p)| p.character == r.target)
             .map_or(Aim::Me, |(c, _)| Aim::Player(*c, r.target));
     }
-    Aim::Thing(r.target)
+    match combat::player_target(s, world, r.target) {
+        Some(c) => Aim::Player(c, r.target),
+        None => Aim::Thing(r.target),
+    }
 }
 
 /// A player's rating in a skill (the spellcraft of the skill's effects).
@@ -687,7 +751,11 @@ fn check<S: Store>(
     let walks = u.ui_flags & ui_flag::MOVE_TO != 0;
     match aim_of(s, world, r, &u) {
         Aim::Me => {}
-        Aim::Player(_, other) => {
+        Aim::Player(c, other) => {
+            // A hostile skill at another player: only as who may harm whom allows.
+            if !helpful(&u) {
+                combat::may_attack_player(s, world, c)?;
+            }
             let at = s
                 .players
                 .values()
@@ -698,6 +766,9 @@ fn check<S: Store>(
             });
             if !walks && d.is_none_or(|d| d > u.max_range) {
                 return Err(refusal::TOO_FAR);
+            }
+            if !walks && !helpful(&u) && u.min_range > 0.0 && d.is_some_and(|d| d < u.min_range) {
+                return Err(refusal::TOO_CLOSE);
             }
         }
         Aim::Thing(target) => {
@@ -1234,10 +1305,16 @@ fn roll_hook<S: Store>(
     me: rules::Hitter,
     target: u64,
 ) -> Option<(Outcome, i32)> {
-    let (level, armor) = s
-        .things
-        .get(target)
-        .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor)))?;
+    let (level, armor) = match crate::social::world_of(s, target) {
+        Some(c) => s
+            .players
+            .get(&c)
+            .map(|q| (crate::examine::level_of(&q.qualities), 0))?,
+        None => s
+            .things
+            .get(target)
+            .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor)))?,
+    };
     let kind = if h.flags & hook_flag::PROJECTILE != 0 {
         Kind::Missile
     } else {
@@ -1309,7 +1386,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     // A strike that walks the player to its target does not reach from afar: wait for the player
     // to come into reach.
     if !on_self && missile_hook(&u).is_none() && u.ui_flags & ui_flag::MOVE_TO != 0 {
-        let at = s.things.get(target).and_then(|t| t.at);
+        let at = position_of(s, aim, target);
         let d = at.and_then(|a| crate::presence::distance(&p.position, &a));
         match d {
             None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
@@ -1340,10 +1417,17 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         crate::equip::in_combat(s, world);
     }
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
-    let target_thing = s
-        .things
-        .get(target)
-        .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor)));
+    let target_thing = match aim {
+        // Another player: its level, no armor.
+        Aim::Player(c, _) if !helpful(&u) => s
+            .players
+            .get(&c)
+            .map(|q| (crate::examine::level_of(&q.qualities), 0)),
+        _ => s
+            .things
+            .get(target)
+            .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor))),
+    };
     let mut outcome = None;
     if let (Some((_, h)), Some((level, armor))) = (damaging_hook(&u), target_thing) {
         let kind = if h.flags & hook_flag::PROJECTILE != 0 {
@@ -1382,6 +1466,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         landings_of(s, world, &u, aim, target, outcome, me_hits)
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
+    let hostile_at_player = matches!(aim, Aim::Player(..)) && !helpful(&u);
     let behavior = if on_self {
         u.behavior_self[0]
     } else {
@@ -1406,6 +1491,10 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         x.outcome = outcome;
         x.landings.clone_from(&landings);
     }
+    let mut told = told;
+    if hostile_at_player {
+        combat::with_pk_damage(&mut told, target);
+    }
     to_all_seeing(s, net, me, &told);
     for (item, _) in &held {
         let plays = ServerMessage::PlayBehavior(ObjectEvent {
@@ -1427,12 +1516,8 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         );
         return;
     }
-    if is_recall(r.skill) {
-        let bound = s.players.get(&world).is_some_and(|p| {
-            p.places
-                .iter()
-                .any(|(k, _)| *k == crate::places::kind::LIFESTONE)
-        });
+    if let Some((recall, _)) = recall_of(s, r.skill) {
+        let bound = !recall_places(s, world, &recall).is_empty();
         let wait = if bound {
             RECALL_TO_PORTAL
         } else {
@@ -1470,10 +1555,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
                 spellcraft,
             });
         }
-        let d = s
-            .things
-            .get(target)
-            .and_then(|t| t.at)
+        let d = position_of(s, aim, target)
             .zip(s.players.get(&world).map(|p| p.position))
             .and_then(|(a, b)| crate::presence::distance(&b, &a))
             .unwrap_or(0.0);
@@ -1514,8 +1596,9 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
 }
 
 /// How a hostile use's striking hooks come out: a hook with an area on every creature it reaches
-/// around its center (the target, or the user), any other on the target when it is a creature
-/// (its damaging hook's outcome already rolled).
+/// around its center (the target, or the user), and on the other player it is aimed at; any other
+/// on the target when it is a creature or another player (its damaging hook's outcome already
+/// rolled).
 fn landings_of<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
@@ -1531,15 +1614,25 @@ fn landings_of<S: Store>(
             .get(t)
             .and_then(|x| x.at)
             .map(|at| (at, crate::reach::body_of(s, t))),
-        Aim::Me | Aim::Player(..) => s
+        Aim::Player(c, _) => s
+            .players
+            .get(&c)
+            .map(|p| (p.position, crate::reach::PLAYER)),
+        Aim::Me => s
             .players
             .get(&world)
             .map(|p| (p.position, crate::reach::PLAYER)),
     };
-    let primary_creature = s
-        .things
-        .get(target)
-        .is_some_and(|t| t.alive() && t.creature.is_some());
+    let primary_creature = match aim {
+        Aim::Player(c, _) => s
+            .players
+            .get(&c)
+            .is_some_and(|q| q.dying.is_none() && !combat::is_dead(q)),
+        _ => s
+            .things
+            .get(target)
+            .is_some_and(|t| t.alive() && t.creature.is_some()),
+    };
     let first_damaging = damaging_hook(u).map(|(i, _)| i);
     let mut out = Vec::new();
     for (i, h) in u.hooks.iter().enumerate() {
@@ -1547,7 +1640,13 @@ fn landings_of<S: Store>(
             continue;
         }
         let targets = if h.flags & hook_flag::AREA != 0 && h.radius > 0.0 {
-            center.map_or_else(Vec::new, |(at, body)| area_targets(s, &at, body, h.radius))
+            let mut around =
+                center.map_or_else(Vec::new, |(at, body)| area_targets(s, &at, body, h.radius));
+            // Aimed at another player, it reaches that player first.
+            if primary_creature && matches!(aim, Aim::Player(..)) {
+                around.insert(0, target);
+            }
+            around
         } else if primary_creature {
             vec![target]
         } else {
@@ -1569,6 +1668,14 @@ fn landings_of<S: Store>(
         }
     }
     out
+}
+
+/// Where the one a use is aimed at stands: another player, or a thing.
+fn position_of<S: Store>(s: &Server<S>, aim: Aim, target: u64) -> Option<StoredPosition> {
+    match aim {
+        Aim::Player(c, _) => s.players.get(&c).map(|p| p.position),
+        _ => s.things.get(target).and_then(|t| t.at),
+    }
 }
 
 /// The one a use is aimed at, other than its user.
@@ -1627,7 +1734,14 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
     for l in &landings {
-        if l.outcome.landed() && l.damage > 0 && s.things.get(l.target).is_some_and(|t| t.alive()) {
+        if !(l.outcome.landed() && l.damage > 0) {
+            continue;
+        }
+        if let Some(c) = combat::player_target(s, world, l.target) {
+            if s.players.get(&c).is_some_and(|q| q.dying.is_none()) {
+                combat::hurt_player(s, net, c, me, l.damage, clock);
+            }
+        } else if s.things.get(l.target).is_some_and(|t| t.alive()) {
             combat::hurt_creature(s, net, l.target, me, l.damage, clock);
         }
     }
@@ -1638,7 +1752,9 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
         }
     }
     for t in &hit {
-        put_target_effects(s, net, me, &u, *t, spellcraft, clock);
+        let on = combat::player_target(s, world, *t)
+            .map_or(crate::effects::On::Creature(*t), crate::effects::On::Player);
+        put_target_effects(s, net, me, &u, on, spellcraft, clock);
     }
     let mut reached: Vec<u64> = Vec::new();
     for l in &landings {
@@ -1653,13 +1769,14 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     }
 }
 
-/// A skill's target effects put on a creature it landed on, cast by the player at its rating.
+/// A skill's target effects put on a creature or another player it landed on, cast by the player
+/// at its rating.
 fn put_target_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     me: u64,
     u: &Usage,
-    target: u64,
+    on: crate::effects::On,
     spellcraft: f32,
     clock: Clock,
 ) {
@@ -1667,7 +1784,7 @@ fn put_target_effects<S: Store>(
         crate::effects::apply_on(
             s,
             net,
-            crate::effects::On::Creature(target),
+            on,
             *state,
             crate::effects::Cast {
                 caster: me,
@@ -1690,7 +1807,12 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     };
     let (r, u, outcome, spellcraft) = (f.req, f.usage, f.outcome, f.spellcraft);
     let me = s.players.get(&world).map_or(0, |p| p.character);
-    if !s.things.get(r.target).is_some_and(|t| t.alive()) {
+    let player = combat::player_target(s, world, r.target);
+    let alive = |s: &Server<S>| match player {
+        Some(c) => s.players.get(&c).is_some_and(|q| q.dying.is_none()),
+        None => s.things.get(r.target).is_some_and(|t| t.alive()),
+    };
+    if !alive(s) {
         return;
     }
     let (o, dmg) = outcome.unwrap_or((Outcome::Evade, 0));
@@ -1709,8 +1831,15 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     if hurts {
         hook.numbers[3] = -dmg;
     }
-    let told = ServerMessage::DoStory(ObjectEvent {
-        sender: crate::inventory::visual(s, r.target),
+    let sender = match player {
+        Some(c) => match s.players.get_mut(&c) {
+            Some(q) => combat::player_event(q, ()).sender,
+            None => return,
+        },
+        None => crate::inventory::visual(s, r.target),
+    };
+    let mut told = ServerMessage::DoStory(ObjectEvent {
+        sender,
         action: PhysicsStory {
             bits: ARRIVAL_STORY,
             attacker: me,
@@ -1719,36 +1848,79 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
             ..PhysicsStory::default()
         },
     });
+    if player.is_some() {
+        combat::with_pk_damage(&mut told, r.target);
+    }
     to_all_seeing(s, net, r.target, &told);
+    if let Some(c) = player {
+        if hurts {
+            combat::hurt_player(s, net, c, me, dmg, clock);
+        }
+        if o.landed() && alive(s) {
+            put_target_effects(
+                s,
+                net,
+                me,
+                &u,
+                crate::effects::On::Player(c),
+                spellcraft,
+                clock,
+            );
+        }
+        return;
+    }
     if hurts {
         combat::hurt_creature(s, net, r.target, me, dmg, clock);
     }
     if o.landed() && s.things.get(r.target).is_some_and(|t| t.alive()) {
-        put_target_effects(s, net, me, &u, r.target, spellcraft, clock);
+        put_target_effects(
+            s,
+            net,
+            me,
+            &u,
+            crate::effects::On::Creature(r.target),
+            spellcraft,
+            clock,
+        );
     }
     if s.things.get(r.target).is_some_and(|t| t.alive()) {
         crate::ai::go_after(s, net, r.target, me, clock);
     }
 }
 
-/// A recall's story is over: into portal space toward the lifestone it is bound to, or, never
-/// bound, told it failed.
+/// A recall's story is over: into portal space toward its place (one of several at random), or,
+/// with none, told it failed (a city's recall, whose place the world lacks, says nothing).
 fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some(p) = s.players.get(&world) else {
+    let Some((id, skill)) = s
+        .players
+        .get(&world)
+        .and_then(|p| p.using.as_ref())
+        .map(|u| (u.req.id, u.req.skill))
+    else {
         return;
     };
-    let id = p.using.as_ref().map_or(0, |u| u.req.id);
-    let to = p
-        .places
-        .iter()
-        .find(|(k, _)| *k == crate::places::kind::LIFESTONE)
-        .map(|(_, at)| *at);
+    let Some((recall, table)) = recall_of(s, skill) else {
+        return;
+    };
+    let places = recall_places(s, world, &recall);
+    let to = match places.len() {
+        0 => None,
+        1 => places.first().copied(),
+        n => places.get(s.rng.below(n)).copied(),
+    };
+    let named = matches!(recall, Recall::Named { .. });
     let Some(to) = to else {
-        progress::private(
-            net,
-            world,
-            &crate::chat::show_text(2, progress::text(text::RECALL_FAILED)),
-        );
+        // A recall that fails puts nothing on its user (a city's protection).
+        if let Some(u) = s.players.get_mut(&world).and_then(|p| p.using.as_mut()) {
+            u.usage.user_effects.clear();
+        }
+        if !named {
+            progress::private(
+                net,
+                world,
+                &crate::chat::show_text(2, progress::text((text::RECALL_FAILED, table))),
+            );
+        }
         s.after(
             clock,
             FAILED_ENDS_AFTER,
@@ -1760,7 +1932,9 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         );
         return;
     };
-    crate::places::recall_trip(s, net, world, to);
+    let told = !matches!(recall, Recall::Named { told: false, .. });
+    let said = told.then(|| progress::text((text::RECALLED, table)));
+    crate::places::recall_trip(s, net, world, to, said);
     s.after(
         clock,
         RECALL_IN_PORTAL,
@@ -1795,7 +1969,7 @@ fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     );
 }
 
-/// A recall comes out of portal space at the lifestone; its end follows.
+/// A recall comes out of portal space at its place; its end follows.
 fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let id = s
         .players
@@ -1838,6 +2012,15 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     // summons is told of first and appears as the use's end is told.
     let mut summons = Vec::new();
     for state in &x.usage.user_effects {
+        if *state == crate::effects::RECALL_PROTECTION.state {
+            let skill_state = s
+                .skill_table
+                .skills
+                .get(&x.req.skill)
+                .map_or(0, |d| d.state);
+            recall_protects(s, net, world, (me, skill_state), clock);
+            continue;
+        }
         let pet = matches!(
             s.effect_table.get(*state).map(|d| &d.kind),
             Some(crate::effect_defs::Kind::Pet { .. })
@@ -1904,6 +2087,42 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     }
     crate::world::keep_player(s, world);
     take_up_waiting(s, net, world, clock);
+}
+
+/// A city's recall protects its user as it ends: the protection, and its glow played for everyone
+/// who sees it (2017: the glow after the player's place, 215 of 215).
+fn recall_protects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    from: (u64, u32),
+    clock: Clock,
+) {
+    crate::effects::protect_with(
+        s,
+        net,
+        world,
+        crate::effects::RECALL_PROTECTION,
+        from,
+        clock,
+    );
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    p.visual = p.visual.wrapping_add(1);
+    let glow = ServerMessage::DoFx(ObjectEvent {
+        sender: auberean_protocol::types::ObjectStamp {
+            id: p.character,
+            instance_stamp: p.instance,
+            other_stamp: p.visual,
+        },
+        action: auberean_protocol::physics::Fx {
+            fx: crate::effects::protection::GLOW,
+            scalar: 1.0,
+        },
+    });
+    let me = p.character;
+    to_all_seeing(s, net, me, &glow);
 }
 
 /// A request that waited is taken up as the use before it ends.
@@ -2085,7 +2304,8 @@ pub fn cut_by_transmute<S: Store>(
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .is_some_and(|x| !is_recall(x.req.skill));
+        .map(|x| x.req.skill)
+        .is_some_and(|skill| !is_recall(s, skill));
     if cut {
         interrupt(s, net, world, refusal::INTERRUPTED, clock);
     }

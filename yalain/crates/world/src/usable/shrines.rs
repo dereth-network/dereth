@@ -4,7 +4,9 @@
 //! player on a mount is told then that the shrine's use is canceled (3 of 3 mounted arrivals; none
 //! of 6 on foot).
 //!
-//! Joining a faction at a shrine (once in 2017) is not made: the world has no factions.
+//! A player on foot of another kingdom than the shrine's (a player in none counts as of the
+//! neutral kingdom) joins the shrine's kingdom 3.83 s later ([`crate::kingdoms::join`]; 2017: 1
+//! of 1); one of its kingdom already is told nothing more (5 of 5).
 
 use auberean_protocol::physics::ObjectEvent;
 use auberean_protocol::types::BehaviorParams;
@@ -13,7 +15,7 @@ use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::places::{self, Use};
-use crate::{progress, Clock, Server};
+use crate::{kingdoms, progress, Clock, Server};
 
 /// The script library's kind of the faction shrines.
 pub const FACTION_SHRINES: [&str; 1] = ["FactionShrineTemplate"];
@@ -38,8 +40,16 @@ pub fn used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
 }
 
 /// A player has come to a faction shrine (its walk stopped): the behaviors and the text (and the
-/// use canceled for a mounted player), and no answer.
-pub fn at_shrine<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Use) {
+/// use canceled for a mounted player, the shrine's kingdom joined by one on foot of another), and
+/// no answer. `package` is the shrine's script package.
+pub fn at_shrine<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    package: u32,
+    clock: Clock,
+) {
     let shrine = ServerMessage::PlayBehavior(ObjectEvent {
         sender: places::object_stamp(s, u.item),
         action: BehaviorParams::behavior(SHRINE_BEHAVIOR),
@@ -66,5 +76,16 @@ pub fn at_shrine<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             world,
             &crate::chat::show_text(SHOWN_AS, progress::text(CANCELED)),
         );
+        return;
+    }
+    let Some(&shrine) = s.shrine_kingdoms.get(&package) else {
+        return;
+    };
+    let mine = s
+        .players
+        .get(&world)
+        .and_then(|p| kingdoms::of(&p.qualities));
+    if !kingdoms::of_shrines_kingdom(mine, shrine) {
+        kingdoms::join_after(s, world, shrine, clock);
     }
 }

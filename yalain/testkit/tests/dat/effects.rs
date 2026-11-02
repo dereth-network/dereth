@@ -511,3 +511,65 @@ fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
     }
     assert_eq!(flags, [1, 2], "health, then vigor");
 }
+
+/// The recalls' effects read where they go: the lifestone's and Portal Recall's to the places a
+/// player keeps (links 0x40000001 and 0x40000004), each city's to its place by name (told, in its
+/// own table), Arramora's to its place untold (the generic class's own), Allegiance Recall's to the
+/// allegiance's hall; a city recall's protection lasts 30 s with the lifestone's glow.
+/// Behaviour: server.effects.recalls-read
+#[test]
+fn the_recalls_read_where_they_go() {
+    use yalain_world::effect_defs::Recall;
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x7000_0722,
+        0x7000_0727,
+        0x7000_1FC0,
+        0x7000_1FC1,
+        0x7000_1FC2,
+        0x6F00_0222,
+        0x7000_1EC5,
+        0x7000_2014,
+    ]);
+    let recall = |state: u32| match &t.get(state).expect("read").kind {
+        Kind::Recall(r) => (r.clone(), t.get(state).and_then(|d| d.name).map(|n| n.1)),
+        other => panic!("{state:08X}: {other:?}"),
+    };
+    assert_eq!(
+        recall(0x7000_0722),
+        (Recall::Link(0x4000_0001), Some(0x2500_115A))
+    );
+    assert_eq!(
+        recall(0x7000_0727),
+        (Recall::Link(0x4000_0004), Some(0x2500_115B))
+    );
+    for (state, name, table) in [
+        (0x7000_1FC0, "human_recall_cragstone_01", 0x2500_1239),
+        (0x7000_1FC1, "tumerok_recall_ikeras_01", 0x2500_123A),
+        (0x7000_1FC2, "lugian_recall_linvaktukal_01", 0x2500_123B),
+    ] {
+        assert_eq!(
+            recall(state),
+            (
+                Recall::Named {
+                    names: vec![name.into()],
+                    told: true
+                },
+                Some(table)
+            )
+        );
+    }
+    assert_eq!(
+        recall(0x6F00_0222).0,
+        Recall::Named {
+            names: vec!["arramora_start".into()],
+            told: false
+        }
+    );
+    assert_eq!(recall(0x7000_1EC5).0, Recall::Allegiance);
+    let protection = t.get(0x7000_2014).expect("the protection");
+    assert_eq!(
+        (protection.duration.at(1.0), protection.fx),
+        (Some(30.0), 0x4100_000F)
+    );
+}

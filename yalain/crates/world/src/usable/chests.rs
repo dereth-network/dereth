@@ -574,6 +574,40 @@ fn key_answer<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, w: &Wai
     progress::private(net, w.world, &done);
 }
 
+/// A chest the world database's reload takes away or places again is let go: a use waiting on it is
+/// refused as busy (a key used on it is kept); its opener is told it closed, and what it held goes
+/// (forgotten by every client that holds it). It is closed, with no steps of its moving to come.
+pub(crate) fn release<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let Some(c) = s.chests.by_id.remove(&id) else {
+        return;
+    };
+    if let Some(w) = c.waiting {
+        let busy = places::use_refused(&w.used, 0, None, w.distance, places::ACTIONS_LOCKED);
+        progress::private(net, w.world, &busy);
+    }
+    if let Some(w) = c.opener {
+        let done =
+            session::call(function::CLOSE_DONE, &[Arg::Int(0), Arg::LongInt(id)]).expect("packs");
+        progress::private(net, w, &done);
+        if let Some(p) = s.players.get_mut(&w) {
+            if p.open_container == Some(id) {
+                p.open_container = None;
+            }
+        }
+    }
+    for item in c.contents {
+        let Some(t) = s.things.get(item) else {
+            continue;
+        };
+        if t.container.map(|c| c.0) != Some(id) {
+            continue;
+        }
+        let instance = t.instance;
+        presence::thing_gone(s, net, item, instance);
+        s.things.remove(item);
+    }
+}
+
 /// A step of a chest's moving is due (none if it has moved since).
 pub fn step<S: Store>(
     s: &mut Server<S>,

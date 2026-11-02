@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Serves the whole world from the official world database, fetched with `yalain world fetch`.
 - Serves worlds made in Athenaeum over the world database.
 - New `reload` console command, to take database edits without a restart.
+- `reload` now also takes placed objects, camps, veins and conflict areas, without a restart.
 - Worlds can be listed on a Dereth Network hub with `--hub`.
 - New `--federation` option links the world to the Dereth Network; the console gains `dn` blocks.
 - New `shutdown` console command warns players, then stops the server; it can be cancelled.
@@ -23,6 +24,21 @@ what they see, not how it was done.
 - Open worlds check an account's password after its first login.
 - Passwords are stored as bcrypt hashes; older ones are converted at the next login.
 - Five wrong passwords from one address lock it out for a minute.
+- New console commands to make accounts, set passwords and access levels, ban, gag and boot.
+- New console commands to teleport, place, delete, export, import and build characters.
+- New `forcelogoff` console command takes a character out of the world at once.
+- Exported characters list their level, skill ratings, items and quests in plain text.
+- New `gamecast` console command shows every player in the world a message.
+- A server whose ports are taken says so and exits with code 3.
+- Launchers and the network's outside check now see a world's name, players and version.
+- Releases say what upgrading to them involves, so launchers can update hosted worlds.
+- Console commands take character names with spaces; `stop` and `exit` stop the server.
+- Programs running the server can read its console's answers and stop it by closing the console.
+- A full world tells new players the server is full; logins per address can be capped too.
+- Refused logins are disconnected at once instead of waiting to time out.
+- Settings can be kept in a `yalain.toml` file, laid out like Empyrean's `empyrean.toml`.
+- New `--motd` option shows players a message as they enter the world.
+- New `--status` option serves a health and status page.
 - Logging in again after a crash frees the old character in about twenty seconds.
 - Logging off takes about nineteen seconds.
 - The start area's quests, the training hall's included, can be started and finished.
@@ -32,6 +48,7 @@ what they see, not how it was done.
 - Story shards play their scenes, and books can be read.
 - Players can die and be resurrected, protected by the lifestone for a while after.
 - Lifestone recall works, and Lugian and Tumerok lifestones bind players too.
+- Portal Recall and the city recalls work, and portals say whether you can recall to them.
 - Walking into a portal takes you through it.
 - Skills can be trained, raised and untrained.
 - Special attacks work, and skills affect creatures, hit whole areas and toggle auras.
@@ -89,3 +106,18 @@ what they see, not how it was done.
 - Moving off while walking to a portal, person or corpse now cancels the use.
 - Forges and road signs now say they can't be used.
 - Every store opens, and stores hide or mark the sales you can't buy.
+- Faction shrines let you join a kingdom, and you're told when you enter a PvP area.
+- Players of rival kingdoms can now fight each other in PvP areas.
+- Armor and weapons now check race, skill, level and quest before you can equip them.
+- Coins turn into money when used, and training hall potions work.
+- Dropped potions now have their own effects, and dropped gear its own level and lore needs.
+- Hero skill credits now come from levels and Tesserae, and heroes spend them on hero skills.
+- Fixed a hosted world's own player never entering the game.
+- Items lying in the world come back a while after someone takes them.
+- Messages to a chat channel you aren't in are refused instead of left unanswered.
+- Typed emotes now reach players nearby.
+- Pets now belong to their owner's kingdom.
+- Quest items used away from their spot are now refused.
+- Players can change their own password in game with `@passwd`.
+- Creatures heal slowly after a fight, as in 2017, instead of almost at once.
+- Fixed a rare failed start reading the script library: a bad read is read again.

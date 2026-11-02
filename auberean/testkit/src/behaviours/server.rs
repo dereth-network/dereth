@@ -4651,6 +4651,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.item-used-on-an-object-moving-nothing-is-answered",
+        says: "An item used on an object that no interaction table, door, chest, vault or step of \
+               the player's quests as they stand moves is answered at once as done, the flags of an \
+               item kept, and the item is kept and free to use again; a step with nowhere to take \
+               the player is answered the same way once it has run, the flags of an item used up \
+               when it took the item.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-ON-NOTHING"),
+        station: "yalain-testkit::cpu::play::interactions::an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.item-used-on-an-object-plays-a-behavior",
         says: "An item used on an object its interaction table names (by template, or by a class \
                the object's package is or derives from) whose own use behavior, else the object's, \

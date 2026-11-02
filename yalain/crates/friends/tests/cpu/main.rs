@@ -21,7 +21,7 @@ use dereth_network_protocol::limits::Limits;
 use dereth_network_protocol::wire::PROTOCOL;
 use dereth_network_protocol::{Address, Message, WorldInfo};
 use yalain_federation::{Federation, Settings};
-use yalain_friends::{Config, Out, Service, StreamId};
+use yalain_friends::{Config, Out, Service, StreamId, GAGGED};
 use yalain_store::{Character, MemoryStore, Store};
 
 /// This world's name, as its login shows it, and its slug.

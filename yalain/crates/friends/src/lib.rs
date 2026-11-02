@@ -28,6 +28,8 @@
 //!   player with a stream has them, on the network or not.
 //! - **Other worlds' characters** need the character on the Dereth Network (`@dn on`, said in
 //!   chat) and the world linked; the link's half does the rest ([`Service::said`]).
+//! - **A gagged character** ([`Service::set_gagged`]) tells nobody, here or on another world: it
+//!   is shown [`GAGGED`], and its client that the tell could not be sent.
 //! - **Names.** A name whose world part is the world's own name (any case) or its slug is a
 //!   character of the world, and is written back as `Name@` and the world's name exactly, so the
 //!   client knows its own world. Every other character is written as its network address.
@@ -67,6 +69,11 @@ pub const MAX_STREAMS: usize = 2_000;
 
 /// The most names one character keeps on each of its lists.
 pub const MAX_LISTED: usize = 100;
+
+/// What a gagged character is told when it tells anyone through the service: the world's own line
+/// for a gagged character's chat.
+pub const GAGGED: &str =
+    "You are unable to talk locally, globally, or send tells because you have been gagged.";
 
 /// Refused tickets from one address within [`LOCKOUT`] past which its next are refused unchecked.
 pub const REFUSALS: usize = 5;
@@ -268,6 +275,8 @@ pub struct Service {
     accounts_changed: bool,
     /// The time of the call being served, for the link's callbacks.
     now: Duration,
+    /// The characters the world has gagged, as the host says.
+    gagged: HashSet<u64>,
 }
 
 /// The time as the link's half counts it.
@@ -325,6 +334,7 @@ impl Service {
             ignores_changed: true,
             accounts_changed: true,
             now: Duration::ZERO,
+            gagged: HashSet::new(),
         }
     }
 
@@ -561,6 +571,12 @@ impl Service {
             }
         }
         self.settle(now, store, fed);
+    }
+
+    /// The characters the world has gagged, as the world counts its gags: their tells through the
+    /// service go nowhere.
+    pub fn set_gagged(&mut self, characters: HashSet<u64>) {
+        self.gagged = characters;
     }
 
     /// The ticket a stream presented is refused (`banned`: the account is banned). Counted

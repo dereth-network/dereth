@@ -3,7 +3,8 @@
 //! its stack, an egg's mount that lasts until taken off, is never spent and costs focus, and
 //! nothing else done while a potion is drunk; the uses refused (moving, a mount with full hands
 //! or on a mount, far from the item's place, without its quest, a hidden one's as mysterious,
-//! below its level); a reward quest done with the quest it rewards; an item only looked at.
+//! below its level), before any quest step its use moves; a reward quest done with the quest it
+//! rewards; an item only looked at.
 //! Fixture: the test world with made-up potion, charm, egg, rod, token and trophy templates and
 //! their effects as the data defines them.
 
@@ -621,6 +622,65 @@ fn an_item_used_far_from_its_place_is_refused_and_says_so() {
     assert_eq!(records_from(&h, world, rod).len(), 1);
 }
 
+/// An item whose use moves a quest is held to its own requirements first: away from its place it
+/// is refused (10054) as any item is, told how far, and the quest is not moved; at its place the
+/// use moves the quest.
+/// Behaviour: server.items.place-before-its-quest-step
+#[test]
+fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_there() {
+    use yalain_content::quests::{Step, Trigger, Update};
+    let mut h = world();
+    h.server.quests.steps.push(Step {
+        quest: TOKEN_QUEST,
+        needs: 0,
+        trigger: Trigger::Use(ROD),
+        tell: None,
+        update: Update::Bestow,
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        to: None,
+    });
+    let (b, me, world) = in_world(&mut h);
+    let rod = give(&mut h, world, ROD, 1);
+    let quests = |h: &Harness| -> Vec<u32> {
+        h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .map(|q| q.quest)
+            .collect()
+    };
+    stand_at(&mut h, world, ROD_CELL, [32.5, 69.1, 95.2]);
+    let from = send_use(&mut h, b, me, rod, 0.2);
+    let base = flags::AT_ONCE | flags::NOT_WHILE_MOVING | flags::UNLOCKS;
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: refusal::NOT_THERE,
+            flags: base & !flags::CARRIED_OUT,
+            text: 0,
+        }]
+    );
+    assert_eq!(
+        h.texts(b, from),
+        vec![(1, yalain_world::usable::maps::text::OUTSIDE)]
+    );
+    assert!(quests(&h).is_empty(), "the quest not moved");
+    stand_at(&mut h, world, ROD_CELL, [33.5, 61.1, 95.2]);
+    let from = send_use(&mut h, b, me, rod, 0.2);
+    assert_eq!(answers(&h, b, from)[0].status, 0);
+    assert_eq!(quests(&h), [TOKEN_QUEST], "moved at its place");
+}
+
 /// An item that needs its quest under way is refused when the player never had it (10019) and
 /// when it is done (10020), and goes through while it is under way.
 /// Behaviour: server.items.needs-its-quest
@@ -987,4 +1047,183 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
         "answered as before, not spent"
     );
     assert!(held(&h, world, FOOD).is_none(), "destroyed through overuse");
+}
+
+/// A training hall's potion, whose template names no effect, is drunk as a potion is: the drink
+/// played, then at its end its one effect at the spellcraft of 1, the potion spent and "You drink
+/// {the} %1.".
+/// Behaviour: server.items.training-hall-potions
+#[test]
+fn a_training_hall_potion_is_drunk_for_its_one_effect() {
+    let mut h = world();
+    let (potion_template, state) = item_use::TRAINING_POTIONS[0];
+    let mut p = Props::default();
+    p.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    template(&mut h, potion_template, p);
+    let d = def(
+        state,
+        Kind::Numeric {
+            flags: 0x4,
+            stats: vec![speed::VELOCITY],
+            magnitude: Scale(vec![(0.0, 1.2)]),
+        },
+        Some(300.0),
+    );
+    h.server.effect_table.effects.insert(d.state, d);
+    let (b, me, world) = in_world(&mut h);
+    let potion = give(&mut h, world, potion_template, 1);
+    let from = send_use(&mut h, b, me, potion, 3.5);
+    assert!(
+        h.world_messages(b, from).iter().any(
+            |m| matches!(m, ServerMessage::PlayBehavior(p) if p.action.behavior == item_use::DRINK)
+        ),
+        "the drink played"
+    );
+    assert!(answers(&h, b, from).is_empty(), "drinking");
+    run_for(&mut h, 1.0);
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: 0,
+            flags: flags::PLAYED | flags::SPENT,
+            text: item_use::text::DRINK.0,
+        }]
+    );
+    let states: Vec<(u32, f32)> = records_from(&h, world, potion)
+        .iter()
+        .map(|e| (e.state, e.spellcraft))
+        .collect();
+    assert_eq!(states, vec![(state, 1.0)]);
+    assert!(held(&h, world, potion_template).is_none(), "spent");
+}
+
+/// A treasure potion's own effect: dropped by a level 46 creature it is given one of the nine kinds
+/// of the highest tier at a spellcraft from 0 to 100, named "{the potion} of {the effect}" and
+/// colored by it; drunk, it puts on that effect at that spellcraft, spent, "You drink {the} %1.".
+/// Behaviour: server.items.treasure-potions-drunk-for-their-own-effect
+#[test]
+fn a_treasure_potion_is_named_colored_and_drunk_for_its_own_effect() {
+    use yalain_world::inventory::{item_create, potion_name, POTION_COLOR};
+    use yalain_world::treasure::{self, POTION_EFFECTS};
+    const MAGIC: u32 = 0x4700_11B4;
+    const MAGIC_PACKAGE: u32 = 0xF15;
+    let mut h = world();
+    let mut p = Props::default();
+    p.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    let mut t = yalain_testkit::test_template(MAGIC, MAGIC_PACKAGE, p);
+    t.description.name = Some(ITEM_NAME);
+    t.facts.name = Some(ITEM_NAME);
+    h.server.catalog.insert(t);
+    h.server.treasure.potions.insert(MAGIC_PACKAGE);
+    for (n, &state) in POTION_EFFECTS.iter().flatten().enumerate() {
+        let n = u32::try_from(n).unwrap();
+        h.server
+            .treasure
+            .potion_looks
+            .insert(state, (0x2500_08D0 + n, 0.1 + 0.01 * n as f32));
+        let d = def(
+            state,
+            Kind::Numeric {
+                flags: 0x4,
+                stats: vec![speed::VELOCITY],
+                magnitude: Scale(vec![(0.0, 1.1), (100.0, 1.3)]),
+            },
+            Some(300.0),
+        );
+        h.server.effect_table.effects.insert(state, d);
+    }
+    let (b, me, world) = in_world(&mut h);
+    let potion = give(&mut h, world, MAGIC, 1);
+    treasure::endow(&mut h.server, potion, 46, Some(470));
+    let own = h.server.things.get(potion).unwrap().own;
+    let e = own
+        .effect
+        .expect("a treasure potion has an effect of its own");
+    assert!(
+        POTION_EFFECTS.iter().any(|kind| kind[4] == e.state),
+        "the highest tier's: {:08X}",
+        e.state
+    );
+    assert!((0.0..=100.0).contains(&e.spellcraft));
+    assert_eq!(
+        own.min_level, None,
+        "a potion has no least level of its own"
+    );
+    let made = item_create(h.server.things.get(potion).unwrap());
+    assert_eq!(made.weenie.name, potion_name(ITEM_NAME, e.table));
+    let colors = &made.visual.global.appearance.entries;
+    assert_eq!(colors.len(), 1);
+    assert_eq!(colors[0].0, POTION_COLOR.0);
+    assert_eq!(colors[0].1.entries, vec![(POTION_COLOR.1, e.color)]);
+    let from = send_use(&mut h, b, me, potion, 5.0);
+    assert!(
+        h.world_messages(b, from).iter().any(
+            |m| matches!(m, ServerMessage::PlayBehavior(p) if p.action.behavior == item_use::DRINK)
+        ),
+        "the drink played"
+    );
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: 0,
+            flags: flags::PLAYED | flags::SPENT,
+            text: item_use::text::DRINK.0,
+        }]
+    );
+    let states: Vec<(u32, f32)> = records_from(&h, world, potion)
+        .iter()
+        .map(|r| (r.state, r.spellcraft))
+        .collect();
+    assert_eq!(states, vec![(e.state, e.spellcraft)]);
+    assert!(held(&h, world, MAGIC).is_none(), "spent");
+}
+
+/// A Tessera used from the pack plays its use (its user free to move), and at its end gives a
+/// hero skill credit more, the skill repository sent with it; the Tessera is spent and the use
+/// answered "You use {the} %1." with flags 309.
+/// Behaviour: server.items.tessera-gives-a-hero-skill-credit
+#[test]
+fn a_tessera_used_gives_a_hero_skill_credit_and_is_spent() {
+    const TESSERA: u32 = 0x4700_052F;
+    const TESSERA_PACKAGE: u32 = 0x1B33;
+    let mut h = world();
+    let mut p = Props::default();
+    p.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    let mut t = yalain_testkit::test_template(TESSERA, TESSERA_PACKAGE, p);
+    t.description.name = Some(ITEM_NAME);
+    h.server.catalog.insert(t);
+    h.server.tesserae.insert(TESSERA_PACKAGE);
+    let (b, me, world) = in_world(&mut h);
+    {
+        let p = h.server.players.get_mut(&world).unwrap();
+        p.play.hero_credits = 38;
+        p.play.credits = 1;
+    }
+    let tessera = give(&mut h, world, TESSERA, 1);
+    let from = send_use(&mut h, b, me, tessera, 1.0);
+    assert!(
+        h.world_messages(b, from).iter().any(|m| matches!(
+            m,
+            ServerMessage::PlayBehavior(p) if p.action.behavior == item_use::TESSERA_BEHAVIOR
+        )),
+        "its use played"
+    );
+    assert!(answers(&h, b, from).is_empty(), "playing");
+    run_for(&mut h, 3.0);
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: 0,
+            flags: 309,
+            text: item_use::text::USE.0,
+        }]
+    );
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| *m == yalain_world::skills::repository_update(1, 39)),
+        "the repository with a hero skill credit more"
+    );
+    assert_eq!(h.server.players[&world].play.hero_credits, 39);
+    assert!(held(&h, world, TESSERA).is_none(), "spent");
 }

@@ -206,6 +206,7 @@ pub fn shard_used<S: Store>(
         step: None,
         resurrect: false,
         sent: false,
+        said: None,
     });
     let id = p.character;
     places::to_all_knowing(s, net, id, &plays);

@@ -51,6 +51,9 @@ pub fn item(l: &Located) -> Option<Item> {
             name: r.name.clone(),
         },
         Row::Route(r) => Item::Route { key: r.key.clone() },
+        Row::Area(r) => Item::Area {
+            landblock: r.landblock,
+        },
         Row::Remove(_) => return None,
     })
 }
@@ -82,6 +85,7 @@ fn value(row: &Row) -> String {
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),
         Row::Route(x) => x.prov = crate::rows::Prov::default(),
+        Row::Area(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }
     format!("{r:?}")

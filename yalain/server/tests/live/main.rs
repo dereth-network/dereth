@@ -4,9 +4,15 @@
 //! step waits for what it should leave in the client's model, with a time limit only against a
 //! hang. Fixture: the built executable and the install.
 
+mod configured;
 mod friends;
 mod hub;
 mod network;
+mod ports;
+mod referral;
 mod reload;
 mod relogin;
+mod rooms;
 mod session;
+mod status_ping;
+mod stopping;

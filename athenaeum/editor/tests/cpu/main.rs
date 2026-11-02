@@ -169,6 +169,8 @@ fn a_rows_letter_says_where_it_came_from() {
             route_start: 0,
             route_backward: false,
             requires: None,
+            recall: false,
+            summon: false,
             prov: Prov::AUTHORED,
         })
     };

@@ -143,6 +143,7 @@ fn world() -> Harness {
             place(OBJECT, OBJECT_T, Kind::Static, [58.0, 241.0, -44.6]),
             place(FAR, FAR_T, Kind::Npc, [59.0, 260.0, -44.6]),
         ],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable {
         quests: vec![quest(QUEST, 3)],

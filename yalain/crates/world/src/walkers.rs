@@ -19,9 +19,6 @@ use yalain_store::{Store, StoredPosition};
 use crate::ai::{self, Patrol};
 use crate::{presence, Clock, Server};
 
-/// The instance stamp the world's own objects are made with.
-const INSTANCE: u16 = 1;
-
 /// One person on its route: the content object (by index), its way along the route, and the
 /// stamps and motion its places are told with.
 #[derive(Debug, Clone, PartialEq)]
@@ -162,6 +159,7 @@ fn place<S: Store>(
     clock: Clock,
 ) {
     let time = net.game_time(clock.local);
+    let instance_stamp = s.placed.instance(id);
     let Some(w) = s.walkers.by_id.get_mut(&id) else {
         return;
     };
@@ -178,7 +176,7 @@ fn place<S: Store>(
     let m = ObjectPosition {
         sender: ObjectStamp {
             id,
-            instance_stamp: INSTANCE,
+            instance_stamp,
             other_stamp: 0,
         },
         time,

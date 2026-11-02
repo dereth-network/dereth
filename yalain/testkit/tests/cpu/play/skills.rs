@@ -138,3 +138,138 @@ fn a_tables_level_and_raise_cost_follow_the_library() {
     assert_eq!(raise_cost(&t, 4), 8);
     assert_eq!(raise_cost(&t, 24), 0);
 }
+
+/// A hero skill (Arcane Lore's kind) is trained only by a hero and paid in hero skill credits: a
+/// player who is no hero is refused (30047); a hero short of its hero cost is refused (30006); a
+/// hero with it pays the hero cost from its hero skill credits, its skill credits untouched, the
+/// skill kept with that cost, and the repository sent with the hero skill credits left.
+/// Behaviour: server.skills.hero-skills-paid-in-hero-credits
+#[test]
+fn a_hero_skill_is_trained_only_by_a_hero_and_paid_in_hero_skill_credits() {
+    use yalain_world::skills::{flag, refusal, repository_update, Credits};
+    const HERO_SKILL: u32 = 1126;
+    let mut h = Harness::new();
+    let b = trainee(&mut h);
+    h.server.skill_table.skills.insert(
+        HERO_SKILL,
+        SkillDef {
+            id: HERO_SKILL,
+            name: (0xA860_7CEC, 0x2500_0DD4),
+            hero_cost: 75,
+            cap: 1000,
+            flags: flag::HERO | flag::MAY_UNTRAIN,
+            ..SkillDef::default()
+        },
+    );
+    let refusal_of = |h: &Harness, hero: Option<u32>| {
+        h.server
+            .skill_table
+            .train_refusal(&[], HERO_SKILL, 2, 1, Credits { skill: 1000, hero })
+    };
+    assert_eq!(refusal_of(&h, None), Some(refusal::HERO), "no hero");
+    assert_eq!(refusal_of(&h, Some(74)), Some(refusal::CREDITS), "short");
+    assert_eq!(refusal_of(&h, Some(75)), None, "a hero with its cost");
+    let train = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(TRAIN, &[Arg::Int(HERO_SKILL)]),
+        );
+        h.run(10);
+        from
+    };
+    for p in h.server.players.values_mut() {
+        p.play.hero_credits = 80;
+    }
+    let from = train(&mut h);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(fs, vec![SHOW_TEXT], "no hero: a text alone");
+    for p in h.server.players.values_mut() {
+        yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+        p.play.hero_credits = 74;
+    }
+    let from = train(&mut h);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(fs, vec![SHOW_TEXT], "short of hero credits: a text alone");
+    for p in h.server.players.values_mut() {
+        p.play.hero_credits = 80;
+    }
+    let from = train(&mut h);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(fs, vec![UPDATE_REPOSITORY, UPDATE_INFO, SHOW_TEXT]);
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| *m == repository_update(1, 5)),
+        "the repository with the hero credits left"
+    );
+    let repo = calls_of(&h, b, from)
+        .into_iter()
+        .find(|(f, _)| *f == UPDATE_REPOSITORY)
+        .expect("the repository");
+    let Some(Value::Graph(g)) = repo.1.first() else {
+        panic!("a repository graph");
+    };
+    let slots = g
+        .iter()
+        .find_map(|(_, n)| match n {
+            calls::Node::Script {
+                package: 0x233,
+                slots,
+            } => Some(slots.clone()),
+            _ => None,
+        })
+        .expect("the repository object");
+    let words: Vec<u32> = slots.iter().map(|(_, v)| *v).collect();
+    assert_eq!(
+        words[..4],
+        [1, 0, 0, 5],
+        "credits, the untraining's experience, hero credits"
+    );
+    let p = h.server.players.values().next().expect("the player");
+    assert_eq!((p.play.credits, p.play.hero_credits), (1, 5));
+    assert!(p
+        .play
+        .skills
+        .iter()
+        .any(|s| s.skill == HERO_SKILL && s.mask == 0x3 && s.cost == 75));
+}
+
+/// Reaching a level that brings hero skill credits (from level 45, 100 a level in the client's
+/// table) adds them with the level's skill credit, the repository sent with both.
+/// Behaviour: server.skills.hero-credits-by-level
+#[test]
+fn a_level_from_45_brings_its_hero_skill_credits() {
+    use yalain_world::levels::{Level, LevelTable};
+    use yalain_world::skills::repository_update;
+    let mut h = Harness::new();
+    let b = trainee(&mut h);
+    h.server.levels = LevelTable {
+        levels: (1..=46)
+            .map(|l: u64| Level {
+                xp: l * 10,
+                health: 100,
+                vigor: 100,
+                skill_credits: 1,
+                hero_credits: if l >= 45 { 100 } else { 0 },
+            })
+            .collect(),
+    };
+    let world = *h.server.players.keys().next().expect("in the world");
+    h.server.players.get_mut(&world).unwrap().play.hero_credits = 3;
+    let from = h.bots[b].inbox.len();
+    yalain_world::progress::level_up(&mut h.server, &mut h.net, world, 43, 44);
+    h.run(3);
+    assert_eq!(h.server.players[&world].play.hero_credits, 3, "none at 44");
+    yalain_world::progress::level_up(&mut h.server, &mut h.net, world, 44, 46);
+    h.run(3);
+    let p = &h.server.players[&world];
+    assert_eq!((p.play.credits, p.play.hero_credits), (4, 203));
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| *m == repository_update(4, 203)),
+        "the repository with both"
+    );
+}

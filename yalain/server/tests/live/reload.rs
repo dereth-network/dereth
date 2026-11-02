@@ -1,7 +1,8 @@
 //! The operator's `reload` typed into the running executable's console: a database that does not
 //! compile leaves the world as it was; one that does changes what the guard says to a player
-//! already in the world, and reports the guard's new place as waiting for a restart. Fixture: a
-//! copy of the authored world's database in a scratch folder, edited between reloads.
+//! already in the world, and moves the guard, the player's client seeing it made again where it
+//! now stands. Fixture: a copy of the authored world's database in a scratch folder, edited
+//! between reloads.
 
 use std::io::Write as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -12,7 +13,7 @@ use std::time::Instant;
 use yalain_testkit::authored;
 use yalain_testkit::session::{self as play, call, Drive};
 
-use crate::session::{free_ports, must, scratch, Loopback, Running};
+use crate::session::{must, scratch, serving, Loopback};
 
 /// The guard's lines, relative to the database's folder.
 const GUARD_TALK: &str = "hall/server/talk/47002DFD.toml";
@@ -115,18 +116,16 @@ fn guard_says(s: &mut Loopback, guard: u64, strings: &[u32]) -> Result<Vec<u32>,
 }
 
 /// The executable, serving a copy of the authored world, reloads it from its console while a
-/// player of our client is in the world: a broken database changes nothing and says so; a
-/// database where the guard has a new line and a new place gives the player the new line on the
-/// next use, and reports the place as needing a restart.
+/// player of our client is in the world: a broken database changes nothing and says so (the guard
+/// stays where it stood); a database where the guard has a new line and a new place gives the
+/// player the new line on the next use, and the guard where it now stands.
 /// Behaviour: server.operator.reload-from-the-console
 #[test]
 fn reload_at_the_console_changes_the_running_world_or_nothing() {
     let dir = scratch("yalain-live-reload");
     let db = dir.join("world");
     copy_dir(&authored::database_dir(), &db);
-    let port = free_ports();
-    let (child, mut console) = start_server(&dir, &db, port);
-    let _server = Running(child);
+    let (port, _server, mut console) = serving(&dir, |port| start_server(&dir, &db, port));
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
     socket.set_nonblocking(true).expect("nonblocking");
     let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
@@ -150,8 +149,10 @@ fn reload_at_the_console_changes_the_running_world_or_nothing() {
         "the line before"
     );
 
-    // A database that does not read: nothing changes.
+    // A database that does not read, the guard moved in it: nothing changes.
     let talk = std::fs::read_to_string(db.join(GUARD_TALK)).expect("the guard's lines");
+    let places = std::fs::read_to_string(db.join(HALL_PLACES)).expect("the hall's places");
+    edit(&db, HALL_PLACES, "at = [52.16,", "at = [53.16,");
     std::fs::write(db.join(GUARD_TALK), "[[talk]\n").expect("broken");
     let said = must(reload(&mut s, &mut console, &dir), &dir);
     assert!(said.contains("the world is unchanged"), "{said}");
@@ -160,9 +161,17 @@ fn reload_at_the_console_changes_the_running_world_or_nothing() {
         [authored::GUARD_LINE.0],
         "the line as it was"
     );
+    let still = play::find(s.client_ref(), authored::GUARD).expect("the guard");
+    assert_eq!(still.instance_stamp, guard.instance_stamp, "not made again");
+    assert_eq!(
+        still.place.expect("placed").origin.x,
+        at.x,
+        "where it stood"
+    );
 
-    // A new line and a new place: the line now, the place after a restart.
+    // A new line and a new place: both at once.
     std::fs::write(db.join(GUARD_TALK), talk).expect("restored");
+    std::fs::write(db.join(HALL_PLACES), places).expect("restored");
     edit(
         &db,
         GUARD_TALK,
@@ -172,8 +181,16 @@ fn reload_at_the_console_changes_the_running_world_or_nothing() {
     edit(&db, HALL_PLACES, "at = [52.16,", "at = [53.16,");
     let said = must(reload(&mut s, &mut console, &dir), &dir);
     assert!(
-        said.contains("reloaded: talk; needs a restart: placed objects;"),
+        said.contains("reloaded: talk, placed objects; needs a restart: nothing;"),
         "{said}"
+    );
+    must(
+        play::until(&mut s, play::HANG, "the guard where it now stands", |c| {
+            play::find(c, authored::GUARD).is_some_and(|g| {
+                g.id == guard.id && g.place.is_some_and(|p| (p.origin.x - 53.16).abs() < 0.01)
+            })
+        }),
+        &dir,
     );
     assert_eq!(
         must(guard_says(&mut s, guard.id, &lines), &dir),

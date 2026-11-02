@@ -102,6 +102,26 @@ fn person_kind_objects_and_faction_shrines_are_told_by_their_script_kinds() {
     }
 }
 
+/// Each faction shrine joins the kingdom its script kind names: the placed shrines are the
+/// Dominion's, the neutral kingdom's and the Order's, each of one kind alone.
+/// Behaviour: server.kingdoms.shrine-kinds-read
+#[test]
+fn each_faction_shrine_joins_the_kingdom_its_script_kind_names() {
+    use yalain_world::kingdoms::{kingdom, SHRINES};
+    let p = Portal::open();
+    let of = |t: u32| -> Vec<u32> {
+        SHRINES
+            .iter()
+            .filter(|(kind, _)| p.derives(t, &[*kind]))
+            .map(|(_, k)| *k)
+            .collect()
+    };
+    assert_eq!(of(0x4700_100D), [kingdom::DOMINION]);
+    assert_eq!(of(0x4700_100F), [kingdom::NEUTRAL]);
+    assert_eq!(of(0x4700_1010), [kingdom::ORDER]);
+    assert!(of(0x4700_33ED).is_empty(), "a person joins none");
+}
+
 /// The kinds of placed objects that cannot be used are the script library's forges and road
 /// signs (the town signs and the gateway signs among them); persons, portals and lifestones are
 /// none of them.

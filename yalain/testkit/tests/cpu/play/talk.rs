@@ -137,6 +137,7 @@ fn world(talk: Vec<Line>, quests: QuestTable) -> (Harness, usize, u64) {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![person([61.0, 241.0, -44.6])],
+        ..ContentPack::default()
     };
     h.server.talk = TalkTable { lines: talk };
     h.server.quests = quests;
@@ -452,7 +453,10 @@ fn an_idle_broadcast_reaches_the_speakers_landblock_and_the_eight_around_it_ever
     let mut h = Harness::new();
     let mut p = person([30.0, 30.0, 0.0]);
     p.cell = OUTDOORS;
-    h.server.content = ContentPack { objects: vec![p] };
+    h.server.content = ContentPack {
+        objects: vec![p],
+        ..ContentPack::default()
+    };
     h.server.talk = TalkTable { lines: vec![idle] };
     // One player in the speaker's landblock but far from it, one in the landblock beside it, one
     // two landblocks off.

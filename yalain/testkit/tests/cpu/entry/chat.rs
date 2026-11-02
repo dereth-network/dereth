@@ -1,4 +1,4 @@
-//! Chat: sayings, tells, emotes and the chat service's room lines.
+//! Chat: sayings, tells, emotes, typed emotes and the chat service's room lines.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::login::ChatPacket;
@@ -194,6 +194,99 @@ fn an_emote_plays_its_behavior_on_the_emoter_for_everyone_who_sees_it() {
     assert!(played.bits & 0x40_0000 != 0, "a context");
 }
 
+/// A string as the client packs one.
+fn string(text: &str) -> Arg {
+    let mut b = Builder::new();
+    b.native(0x76, NativeObject::Text(text.encode_utf16().collect()));
+    Arg::Object(b.graph())
+}
+
+/// The typed emotes a client heard about an emoter: (id, name, words) each.
+fn typed_emotes(h: &Harness, b: usize, from: usize, emoter: u64) -> Vec<(u64, String, String)> {
+    let text = |v: Option<&Value>| match v.and_then(Value::root) {
+        Some(Node::Text(t)) => t.clone(),
+        _ => String::new(),
+    };
+    h.world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::CellObjectCall(c)
+                if c.object.id == emoter && c.call.function.0 == said::HEAR_TYPED_EMOTE =>
+            {
+                let v = calls::values(&c.call.args?.0).ok()?;
+                let id = match v.get(2) {
+                    Some(Value::Long(l)) => *l,
+                    _ => 0,
+                };
+                Some((id, text(v.get(1)), text(v.first())))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A typed emote reaches the emoter and every player whose view holds it, on the emoter's object,
+/// with its id, its name alone and the words as typed; a player in another place does not hear
+/// it, and a gagged player's reaches nobody.
+/// Behaviour: server.chat.typed-emote-heard-nearby
+#[test]
+fn a_typed_emote_reaches_the_emoter_and_the_players_who_see_it_with_its_name_and_words() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    let (c, _) = h.player_in_world("three", "Farwalker");
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &report(
+            0x0298_0109,
+            Vec3::new(59.0, 240.0, -44.6),
+            0,
+            IDLE_MOTION,
+            0,
+        ),
+    );
+    h.run(20);
+    let (fa, fb, fc) = (
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    );
+    let typed = server_call(function::TYPED_EMOTE, &[string("waves farewell")]);
+    h.bots[a].send(true, queue::WEENIE, &typed);
+    h.run(30);
+    let want = vec![(ida, "Elara".to_string(), "waves farewell".to_string())];
+    assert_eq!(
+        typed_emotes(&h, a, fa, ida),
+        want,
+        "the emoter hears its own"
+    );
+    assert_eq!(
+        typed_emotes(&h, b, fb, ida),
+        want,
+        "a player in its view hears it"
+    );
+    assert!(
+        typed_emotes(&h, c, fc, ida).is_empty(),
+        "a player in another copy of the hall does not"
+    );
+    let gag = yalain_world::admin::parse("gag elara")
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    yalain_world::admin::run(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        &yalain_world::admin::Issuer::Console,
+        &gag,
+    );
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.bots[a].send(true, queue::WEENIE, &typed);
+    h.run(30);
+    assert!(typed_emotes(&h, a, fa, ida).is_empty() && typed_emotes(&h, b, fb, ida).is_empty());
+}
+
 /// A line sent to a chat room comes back to the sender as the room's line (its name, the words
 /// and what its client said of it), then as the answer to its request, and reaches every other
 /// player in the world; each line read back by the shared chat-packet reader.
@@ -254,6 +347,61 @@ fn a_room_line_is_echoed_answered_and_relayed_to_the_other_players() {
         matches!(&to_b[..], [IncomingPayload::RoomEvent(e)] if e.name == "Elara" && e.room == 1),
         "{to_b:?}"
     );
+}
+
+/// A line to a room the speaker may not use (one that is no room of the world's, or a kingdom's
+/// room the speaker is not of) is answered with a refusal, and nobody hears it: not the speaker,
+/// not the other players.
+/// Behaviour: server.chat.room-line-to-a-room-not-the-speakers-is-refused
+#[test]
+fn a_line_to_a_room_the_speaker_may_not_use_is_refused_and_reaches_nobody() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    // A room no channel names, and the first kingdom's room (the speaker is of none).
+    for (context, room) in [(3, 999), (4, 3)] {
+        let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+        let packet = SendToRoomById {
+            context,
+            room,
+            text: "hello?".into(),
+            extra: ExtraBlob::Other(vec![1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0xD4, 0]),
+        }
+        .network_packet()
+        .expect("packs");
+        h.bots[a].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+        h.run(30);
+        let service = |b: usize, from: usize| -> Vec<IncomingPayload> {
+            h.bots[b].inbox[from..]
+                .iter()
+                .filter(|r| !r.world)
+                .filter_map(|r| match r.message() {
+                    Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                        &[
+                            &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                            &p,
+                        ]
+                        .concat(),
+                    )
+                    .ok()
+                    .map(|i| i.payload),
+                    _ => None,
+                })
+                .collect()
+        };
+        let to_a = service(a, fa);
+        assert!(
+            matches!(&to_a[..], [IncomingPayload::RoomResponse(r)]
+                if r.context == context && r.result == chat::REFUSED),
+            "room {room}: refused, and no echo: {to_a:?}"
+        );
+        assert_eq!(
+            service(b, fb),
+            Vec::new(),
+            "room {room}: nobody else hears it"
+        );
+    }
 }
 
 /// The Dereth Network's command said aloud (`@dn`, or `@dn` and words, in any case) is heard by

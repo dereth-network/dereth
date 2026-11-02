@@ -208,10 +208,34 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
         ui_flags: 0x32C0,
         ..recall.clone()
     };
+    // Portal Recall, the cities' recalls (their recall and protection put on their user) and
+    // Allegiance Recall are used as the lifestone's is.
+    let recall_to = |effect: u32| Usage {
+        target_effects: vec![effect],
+        ui_flags: 0x22E0,
+        ..recall.clone()
+    };
+    let city = |effect: u32| Usage {
+        target_effects: Vec::new(),
+        user_effects: vec![effect, RECALL_PROTECTION_EFFECT],
+        ui_flags: 0x22E0,
+        ..recall.clone()
+    };
     let mut skills = std::collections::HashMap::new();
     for (id, usage) in [
         (871, summon(0x7000_0728)),
         (872, summon(0x7000_0729)),
+        (870, recall_to(PORTAL_RECALL_EFFECT)),
+        (925, city(CRAGSTONE_RECALL_EFFECT)),
+        (1045, city(ARRAMORA_RECALL_EFFECT)),
+        (
+            999,
+            Usage {
+                target_effects: Vec::new(),
+                user_effects: vec![ALLEGIANCE_RECALL_EFFECT],
+                ..recall.clone()
+            },
+        ),
         (835, recall),
         (
             96,
@@ -657,6 +681,18 @@ pub const ROBUSTIFY_EFFECT: u32 = 0x6F00_10F0;
 /// A crafted item's bonus while worn: a combat health rate of 0.08 (its wearer shown it, a death
 /// ending it).
 pub const WORN_HEALTH_RATE_EFFECT: u32 = 0x6F00_1730;
+/// The recalls' effects: the lifestone's and Portal Recall's (to the places a player keeps),
+/// Cragstone's and Arramora's (to named places), Allegiance Recall's, and a city recall's
+/// protection.
+pub const LIFESTONE_RECALL_EFFECT: u32 = 0x7000_0722;
+pub const PORTAL_RECALL_EFFECT: u32 = 0x7000_0727;
+pub const CRAGSTONE_RECALL_EFFECT: u32 = 0x7000_1FC0;
+pub const ARRAMORA_RECALL_EFFECT: u32 = 0x6F00_0222;
+pub const ALLEGIANCE_RECALL_EFFECT: u32 = 0x7000_1EC5;
+pub const RECALL_PROTECTION_EFFECT: u32 = 0x7000_2014;
+/// The places Cragstone's and Arramora's recalls name.
+pub const CRAGSTONE_PLACE: &str = "human_recall_cragstone_01";
+pub const ARRAMORA_PLACE: &str = "arramora_start";
 /// A creature's opening, the starting specials' combination that exploits it and what that does.
 pub const OPENING_EFFECT: u32 = 0x7000_06D7;
 pub const EXPLOIT_COMBO: u32 = 0x7000_0725;
@@ -691,7 +727,9 @@ pub const TOOLS: u32 = 0x6F00_06A7;
 /// The effects the tests put on players (see the constants above).
 #[must_use]
 pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
-    use yalain_world::effect_defs::{EffectDef, EffectTable, Kind, Scale, REMOVED_ON_DEATH};
+    use yalain_world::effect_defs::{
+        EffectDef, EffectTable, Kind, Recall, Scale, REMOVED_ON_DEATH,
+    };
     let def = |state: u32, kind: Kind| EffectDef {
         state,
         kind,
@@ -760,6 +798,50 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
             internal_flags: 0,
             name: Some((0xA860_7CEC, 0x2500_1070)),
             ..def(GRANT_MINES_RECIPE, Kind::GrantRecipe(MINES_RECIPE))
+        },
+        // The recalls: their links, places and allegiance's hall, named in their own tables.
+        EffectDef {
+            name: Some((0x5A43_338D, 0x2500_115A)),
+            ..def(
+                LIFESTONE_RECALL_EFFECT,
+                Kind::Recall(Recall::Link(0x4000_0001)),
+            )
+        },
+        EffectDef {
+            name: Some((0x5A43_338D, 0x2500_115B)),
+            ..def(
+                PORTAL_RECALL_EFFECT,
+                Kind::Recall(Recall::Link(0x4000_0004)),
+            )
+        },
+        EffectDef {
+            name: Some((0xA860_7CEC, 0x2500_1239)),
+            ..def(
+                CRAGSTONE_RECALL_EFFECT,
+                Kind::Recall(Recall::Named {
+                    names: vec![CRAGSTONE_PLACE.into()],
+                    told: true,
+                }),
+            )
+        },
+        EffectDef {
+            name: Some((0xA860_7CEC, 0x2500_1890)),
+            ..def(
+                ARRAMORA_RECALL_EFFECT,
+                Kind::Recall(Recall::Named {
+                    names: vec![ARRAMORA_PLACE.into()],
+                    told: false,
+                }),
+            )
+        },
+        EffectDef {
+            name: Some((0xA860_7CEC, 0x2500_114F)),
+            ..def(ALLEGIANCE_RECALL_EFFECT, Kind::Recall(Recall::Allegiance))
+        },
+        EffectDef {
+            duration: Scale(vec![(0.0, 30.0)]),
+            fx: 0x4100_000F,
+            ..def(RECALL_PROTECTION_EFFECT, Kind::Other)
         },
         EffectDef {
             internal_flags: 0,

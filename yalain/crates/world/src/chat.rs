@@ -14,13 +14,22 @@
 //! nobody: it is kept for the world's friends service ([`Server::network_commands`]), which
 //! answers it.
 //!
+//! **Gags and admins.** A gagged player ([`crate::admin`]) says, tells, emotes and speaks into a
+//! room to nobody, and is told it is gagged. A line an admin says as one of the admin commands is
+//! heard by nobody, and answered.
+//!
 //! **Emotes.** An emote plays its behavior on the emoter for every client that knows it, with
-//! the emote's id, from which each client writes the emote's text itself.
+//! the emote's id, from which each client writes the emote's text itself. A typed emote reaches
+//! the emoter and every client that knows it as the emoter's, with its id, its name (the name
+//! alone) and the words as typed; each client writes "name words" itself. The emoter's client
+//! shows its own only as it hears it back.
 //!
 //! **Channels.** The chat service runs on the login connection: a line a client sends to a room
 //! comes back to it as the room's line, then as the answer to its request, and goes to every
-//! other player in the world. The rooms a client may use are the channels the world sends it as
-//! it enters.
+//! other player in the world (a kingdom's, an allegiance's or a fellowship's room: to its members).
+//! The rooms a client may use are the channels the world sends it as it enters, and the rooms of
+//! its kingdom, allegiance and fellowship. A line to any other room, or from a client not in the
+//! world, is answered with a refusal and reaches nobody.
 
 use auberean_protocol::login::ChatPacket;
 use auberean_protocol::physics::ObjectEvent;
@@ -35,7 +44,7 @@ use yalain_store::Store;
 
 use crate::calls::{Node, Value};
 use crate::graph::{hash, Builder, Slot};
-use crate::{player, session, Server, Stage};
+use crate::{player, session, Clock, Server, Stage};
 
 /// The client functions chat answers with.
 pub mod function {
@@ -45,6 +54,8 @@ pub mod function {
     pub const HEAR_TELL: u32 = 0x8205_0017;
     /// The chat channels the player may use.
     pub const CHANNELS: u32 = 0x8205_001E;
+    /// A typed emote, on the emoter's object: its id, its name, the words.
+    pub const HEAR_TYPED_EMOTE: u32 = 0x8205_0013;
     /// The player's allegiance.
     pub const ALLEGIANCE_PROFILE: u32 = 0x8203_002E;
 }
@@ -203,15 +214,27 @@ fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bo
     true
 }
 
-/// A player says something: it and every client that knows it hear it. The network's command is
-/// heard by nobody.
-pub fn say<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, call: &ServerCall) {
+/// A player says something: it and every client that knows it hear it. The network's command and
+/// an admin's command ([`crate::admin`]) are heard by nobody; a gagged player is told it may not
+/// talk, and nobody hears it.
+pub fn say<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    call: &ServerCall,
+    clock: Clock,
+) {
     let said = crate::calls::values(&call.args.0)
         .ok()
         .and_then(|v| v.get(1).and_then(text_of))
         .and_then(|t| t.literal)
         .map(|l| String::from_utf16_lossy(&l));
-    if said.is_some_and(|t| network_command(s, world, &t)) {
+    if let Some(t) = said {
+        if crate::admin::said(s, net, world, &t, clock) || network_command(s, world, &t) {
+            return;
+        }
+    }
+    if crate::admin::refuse_gagged(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -283,6 +306,9 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         s.unhandled.note("a tell that does not read");
         return;
     };
+    if crate::admin::refuse_gagged(s, net, world) {
+        return;
+    }
     let Some(teller) = s.players.get(&world) else {
         return;
     };
@@ -366,6 +392,9 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         s.unhandled.note(format!("emote {id:#010x}"));
         return;
     };
+    if crate::admin::refuse_gagged(s, net, world) {
+        return;
+    }
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {
@@ -401,6 +430,56 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     .encode();
     let id = p.character;
     send_to_knowers(s, net, world, id, BlobKind::VISUAL, &m);
+}
+
+/// The script type of a string.
+const STRING: u16 = 0x76;
+
+fn string_arg(text: &str) -> Arg {
+    let mut b = Builder::new();
+    b.native(STRING, NativeObject::Text(text.encode_utf16().collect()));
+    Arg::Object(b.graph())
+}
+
+/// A typed emote as everyone hears it, on the emoter's object (its stamp): its id, its name, the
+/// words.
+#[must_use]
+pub fn heard_typed_emote(emoter: ObjectStamp, name: &str, words: &str) -> ServerMessage {
+    ServerMessage::CellObjectCall(ObjectCall {
+        object: emoter,
+        call: ClientCall {
+            function: FunctionId(function::HEAR_TYPED_EMOTE),
+            args: Some(
+                auberean_protocol::script::ScriptArgs::from_values(&[
+                    string_arg(words),
+                    string_arg(name),
+                    Arg::LongInt(emoter.id),
+                ])
+                .expect("a typed emote packs"),
+            ),
+        },
+    })
+}
+
+/// A player types an emote: it and every client that knows it hear it. A gagged player is told it
+/// may not talk, and nobody hears it.
+pub fn typed_emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+    let Some(words) = v.first().and_then(|x| match x.root() {
+        Some(Node::Text(t)) => Some(t.clone()),
+        _ => None,
+    }) else {
+        s.unhandled.note("a typed emote that does not read");
+        return;
+    };
+    if crate::admin::refuse_gagged(s, net, world) {
+        return;
+    }
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let m = heard_typed_emote(p.stamp(), &p.name, &words).encode();
+    let id = p.character;
+    send_to_knowers(s, net, world, id, BlobKind::UNORDERED, &m);
 }
 
 // ---- the allegiance and the channels, sent as a character enters --------------------------------
@@ -530,6 +609,46 @@ pub fn channels(world_name: &str, list: &[Channel]) -> ServerMessage {
     session::call(function::CHANNELS, &[Arg::Object(b.graph())]).expect("the channels pack")
 }
 
+/// The faction channel of each kingdom: its room, its faction and its name after the world's.
+pub const KINGDOM_CHANNELS: [(u32, u32, &str); 4] = [
+    (crate::kingdoms::kingdom::SHADOW, 3, "Faction Faction1 "),
+    (crate::kingdoms::kingdom::ORDER, 4, "Faction Faction2 "),
+    (crate::kingdoms::kingdom::DOMINION, 5, "Faction Faction3 "),
+    (crate::kingdoms::kingdom::NEUTRAL, 6, "Faction Neutral "),
+];
+
+/// The channels of a player of a kingdom (none: the neutral kingdom's): a new character's, with
+/// its kingdom's faction channel.
+#[must_use]
+pub fn channels_of(kingdom: Option<u32>) -> [Channel; 4] {
+    let mut list = NEW_CHANNELS;
+    let k = crate::kingdoms::counted(kingdom);
+    if let Some((faction, room, name)) = KINGDOM_CHANNELS.iter().find(|c| c.0 == k) {
+        list[3] = Channel {
+            room: *room,
+            faction: *faction,
+            name,
+            ..list[3].clone()
+        };
+    }
+    list
+}
+
+/// Send a player its channels, `times` times over.
+pub fn send_channels<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, times: usize) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let ch = channels(
+        &s.cfg.world_name,
+        &channels_of(crate::kingdoms::of(&p.qualities)),
+    )
+    .encode();
+    for _ in 0..times {
+        net.send(world, queue::EVENT, BlobKind::PRIVATE, ch.clone());
+    }
+}
+
 /// What a character entering the world is told of its allegiance and its channels, after the
 /// objects around it: its allegiance's profile, then its channels, twice (as 2017 sent them).
 pub fn tell_allegiance_and_channels<S: Store>(
@@ -538,10 +657,7 @@ pub fn tell_allegiance_and_channels<S: Store>(
     world: ConnId,
 ) {
     crate::allegiance::enter(s, net, world);
-    let ch = channels(&s.cfg.world_name, &NEW_CHANNELS).encode();
-    for _ in 0..2 {
-        net.send(world, queue::EVENT, BlobKind::PRIVATE, ch.clone());
-    }
+    send_channels(s, net, world, 2);
     crate::allegiance::after_entry(s, net, world);
 }
 
@@ -549,6 +665,11 @@ pub fn tell_allegiance_and_channels<S: Store>(
 
 /// The chat service's queue on the login connection.
 pub const CHAT_QUEUE: u16 = 4;
+
+/// The code a line is answered with when it may not go: from a client not in the world, to a room
+/// that is not one of the world's, or to a room the speaker is not in. Its client shows that the
+/// room is not available. (Every line the 2017 servers answered was answered 0.)
+pub const REFUSED: u32 = 0xC112_0018;
 
 /// A line a client sends to a room.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -657,7 +778,13 @@ fn send_chat(net: &mut ServerNet, login: ConnId, packet: Vec<u8>) {
 }
 
 /// A client's packet to the chat service, on its login connection.
-pub fn service<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, packet: &[u8]) {
+pub fn service<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    packet: &[u8],
+    clock: Clock,
+) {
     let Some(line) = read_room_line(packet) else {
         s.unhandled
             .note("a chat-service request other than a room line");
@@ -667,18 +794,29 @@ pub fn service<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, 
         Stage::InWorld { world, .. } => s.players.get(&world).map(|p| p.name.clone()),
         _ => None,
     });
+    let refuse = |net: &mut ServerNet| {
+        send_chat(
+            net,
+            login,
+            room_response(service_word(login), line.context, REFUSED),
+        );
+    };
     let Some(name) = speaker else {
-        s.unhandled
-            .note("a room line from a client not in the world");
+        refuse(net);
         return;
     };
-    // The network's command, said into a room: answered, and heard by nobody.
     let world = s.sessions.get(&login).and_then(|x| match x.stage {
         Stage::InWorld { world, .. } => Some(world),
         _ => None,
     });
+    // The network's command or an admin's, said into a room: answered, and heard by nobody. A
+    // gagged player's line is answered, and goes nowhere.
     if let Some(world) = world {
-        if network_command(s, world, &String::from_utf16_lossy(&line.text)) {
+        let text = String::from_utf16_lossy(&line.text);
+        if crate::admin::said(s, net, world, &text, clock)
+            || network_command(s, world, &text)
+            || crate::admin::refuse_gagged(s, net, world)
+        {
             send_chat(
                 net,
                 login,
@@ -687,11 +825,12 @@ pub fn service<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, 
             return;
         }
     }
-    // An allegiance's or a fellowship's room reaches its members alone.
-    let members = crate::allegiance::room_members(s, line.room)
+    // A kingdom's, an allegiance's or a fellowship's room reaches its members alone.
+    let members = crate::kingdoms::room_members(s, line.room)
+        .or_else(|| crate::allegiance::room_members(s, line.room))
         .or_else(|| s.fellowships.room_members(line.room));
     if !NEW_CHANNELS.iter().any(|c| c.room == line.room) && members.is_none() {
-        s.unhandled.note(format!("a line to room {}", line.room));
+        refuse(net);
         return;
     }
     let speaker_id = s.sessions.get(&login).and_then(|x| match x.stage {
@@ -700,8 +839,7 @@ pub fn service<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, 
     });
     if let Some(m) = &members {
         if !speaker_id.is_some_and(|id| m.contains(&id)) {
-            s.unhandled
-                .note(format!("a line to room {} from outside it", line.room));
+            refuse(net);
             return;
         }
     }

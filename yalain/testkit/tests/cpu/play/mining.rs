@@ -361,6 +361,7 @@ fn with_quest_mines(h: &mut Harness, quest: u32) -> (u64, u64) {
     let (barium, ruby) = (0x4002_9900_0000_0091, 0x4002_9900_0000_0092);
     h.server.content = ContentPack {
         objects: vec![mine(barium, BARIUM_MINE, 61.0), mine(ruby, RUBY_MINE, 57.0)],
+        ..ContentPack::default()
     };
     let mut b = Props::default();
     b.set("Mine_Object", Prop::Word(ORE))
@@ -536,6 +537,7 @@ fn with_hoard_vein(h: &mut Harness) -> u64 {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     mining::place_veins(&mut h.server);
     assert!(

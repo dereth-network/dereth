@@ -41,6 +41,9 @@ dereth-network-link.workspace = true
 yalain-federation.workspace = true
 # The players' friends service, served on TCP beside the login.
 yalain-friends.workspace = true
+# The operator's character recipes, read from TOML (character files are JSON, with serde_json).
+serde.workspace = true
+toml.workspace = true
 # Ctrl-C and the service manager's stop (SIGTERM): the world keeps everyone in it, then stops.
 ctrlc = { workspace = true, features = ["termination"] }
 # The keys the network's directory knows the world's allegiances by: random, from the system.

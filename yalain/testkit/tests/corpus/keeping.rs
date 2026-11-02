@@ -98,6 +98,7 @@ fn ours(w: Worn) -> Vec<Arg> {
         contents: Vec::new(),
         quests: Vec::new(),
         credits: 0,
+        hero_credits: 0,
         effects: Registry::default(),
         scenes: Vec::new(),
         worn: vec![w],

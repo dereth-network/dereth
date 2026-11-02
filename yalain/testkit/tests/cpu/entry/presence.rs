@@ -356,6 +356,7 @@ fn objects_in_an_interior_are_made_as_the_players_cell_comes_to_see_theirs() {
             static_object(next, NEXT),
             static_object(far, FAR),
         ],
+        ..ContentPack::default()
     };
     let (b, _) = h.player_in_world("one", "Elara");
     h.run(10);

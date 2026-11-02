@@ -1,0 +1,153 @@
+//! The pace a server sends its large messages at: a record from the data download, say, which can
+//! be seven megabytes and sixteen thousand fragments.
+//!
+//! Sent all at once, such a message fills the client's socket and loses most of it, and the client
+//! asks for lost packets again only 114 at a time, once every 0.6 s, while a server keeps a sent
+//! packet for resending 120 s and its last 4,096 at most: the download never completes. So a
+//! message longer than one interval's budget leaves the connection's own queue for this one and is
+//! sent from it a part at a time:
+//!
+//! - **the rate:** at most [`BYTES_PER_INTERVAL`] in each half-second interval, counting what the
+//!   connection resends and its other messages first, which go out at once as before: the budget
+//!   is the large messages', and they take what the rest leave of it;
+//! - **the window:** never more than [`WINDOW`] sequenced packets out that the client has not
+//!   acknowledged (by its acknowledgement, or by asking for a later packet first), so that even a
+//!   whole window lost is asked for again long before any of it is let go.
+//!
+//! A message on a queue that already has a large message waiting waits behind it, whatever its
+//! length, so each queue keeps its order; the other queues' messages are not held.
+
+use std::collections::{BTreeMap, VecDeque};
+
+use dereth_primitives::LocalTime;
+use dereth_transport::blob::NetBlob;
+use dereth_transport::flow::FlowQueue;
+use dereth_transport::session::MAX_NAK_IDS;
+use dereth_transport::wire::{
+    Fragment, OutPacket, ProtoHeader, MAX_BUILD_PAYLOAD, MAX_FRAGS_PER_PACKET,
+};
+use dereth_transport::CryptoSystem;
+
+/// What a server sends of its large messages in one half-second interval. The January 2013
+/// servers sent a seven-megabyte download in one burst each half second, 66 to 69 full packets,
+/// about 32 KB: some 64 KB and 135 packets a second.
+pub const BYTES_PER_INTERVAL: usize = 32 * 1024;
+
+/// The most sequenced packets a server has out unacknowledged before its large messages wait: ten
+/// of the client's requests to send again, which it makes one each 0.6 s, so a whole window lost
+/// is asked for again within six seconds, far inside the 120 s and the 4,096 packets a server
+/// keeps for resending.
+#[allow(clippy::cast_possible_truncation)]
+pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
+
+/// One connection's large messages, waiting as fragments.
+#[derive(Debug, Default)]
+pub struct Pace {
+    /// The fragments waiting, in the order they go.
+    fragments: VecDeque<Fragment>,
+    /// How many of them each queue has.
+    by_queue: BTreeMap<u16, usize>,
+    /// Bytes sent in the current interval.
+    spent: usize,
+    /// The interval `spent` counts.
+    interval: Option<u16>,
+}
+
+impl Pace {
+    /// Does a message of `len` bytes on `queue` go by the pace: longer than an interval's budget,
+    /// or on a queue with a large message waiting?
+    #[must_use]
+    pub fn takes(&self, queue: u16, len: usize) -> bool {
+        len > BYTES_PER_INTERVAL || self.by_queue.get(&queue).is_some_and(|n| *n > 0)
+    }
+
+    /// Queue a message, as its fragments.
+    pub fn push(&mut self, blob: &NetBlob) {
+        let frags = blob.fragmentize();
+        *self.by_queue.entry(blob.queue_id).or_default() += frags.len();
+        self.fragments.extend(frags);
+    }
+
+    /// Nothing waiting?
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.fragments.is_empty()
+    }
+
+    /// How many fragments are waiting.
+    #[must_use]
+    pub fn waiting(&self) -> usize {
+        self.fragments.len()
+    }
+
+    /// The connection is in interval `interval`: a new one starts its budget again.
+    pub fn at_interval(&mut self, interval: u16) {
+        if self.interval != Some(interval) {
+            self.interval = Some(interval);
+            self.spent = 0;
+        }
+    }
+
+    /// Count bytes the connection sent otherwise against this interval's budget.
+    pub fn spend(&mut self, bytes: usize) {
+        self.spent = self.spent.saturating_add(bytes);
+    }
+
+    /// Send what the budget and the window allow, numbering, keying and caching each packet as the
+    /// connection's queue does its own: the datagrams, after whatever the queue sent this moment.
+    /// `acknowledged` is the newest sequence the peer has said it has everything up to.
+    pub fn send(
+        &mut self,
+        flow: &mut FlowQueue,
+        crypto: &mut CryptoSystem,
+        acknowledged: u32,
+        now: LocalTime,
+    ) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        while !self.fragments.is_empty()
+            && self.spent < BYTES_PER_INTERVAL
+            && flow.highest_id_sent.wrapping_sub(acknowledged) < WINDOW
+        {
+            let mut packet = OutPacket::new(ProtoHeader {
+                rec_id: flow.net_id,
+                interval: flow.cur_local_interval,
+                iteration: flow.iteration,
+                ..Default::default()
+            });
+            while let Some(f) = self.fragments.front() {
+                if packet.fragments.len() >= MAX_FRAGS_PER_PACKET
+                    || packet.payload_len() + f.wire_len() > MAX_BUILD_PAYLOAD
+                {
+                    break;
+                }
+                let Some(f) = self.fragments.pop_front() else {
+                    break;
+                };
+                if let Some(n) = self.by_queue.get_mut(&f.header.queue_id) {
+                    *n -= 1;
+                    if *n == 0 {
+                        self.by_queue.remove(&f.header.queue_id);
+                    }
+                }
+                // The bounds were just checked, so this cannot fail.
+                let _ = packet.add_fragment(f);
+            }
+            if packet.fragments.is_empty() {
+                break;
+            }
+            flow.highest_id_sent = flow.highest_id_sent.wrapping_add(1);
+            if flow.highest_id_sent == 0 {
+                flow.highest_id_sent = 1;
+            }
+            packet.header.seq_id = flow.highest_id_sent;
+            // A packet of fragments with its key always serializes.
+            let Ok(bytes) = packet.serialize(Some(crypto.next())) else {
+                break;
+            };
+            self.spend(bytes.len());
+            out.push(bytes);
+            flow.sent.add_sent_packet(packet, now);
+        }
+        out
+    }
+}

@@ -1,14 +1,13 @@
 //! The world database taken again while the server runs: what people say changes at once for a
-//! player already in the world; a placed object that moved, or a camp that changed, waits for a
-//! restart; a template the new database dropped stays known. Fixture: a person beside a new
-//! player, the person's lines authored for the test.
+//! player already in the world; a template the new database dropped stays known. Fixture: a person
+//! beside a new player, the person's lines authored for the test.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::talk::{How, Line, Role, TalkTable, When};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Words};
 use yalain_testkit::play::server_call;
-use yalain_testkit::{test_camp, test_catalog, test_template, Harness};
+use yalain_testkit::{test_catalog, test_template, Harness};
 use yalain_world::calls::{self, Node};
 use yalain_world::graph::{Builder, Slot};
 use yalain_world::reload::{table, Reloaded, WorldTables};
@@ -69,7 +68,7 @@ fn talk(string: u32) -> TalkTable {
 }
 
 /// The world as the server holds it, as a reload would hand it over.
-fn tables_of(h: &Harness) -> WorldTables {
+pub(super) fn tables_of(h: &Harness) -> WorldTables {
     let s = &h.server;
     WorldTables {
         content: s.content.clone(),
@@ -82,12 +81,21 @@ fn tables_of(h: &Harness) -> WorldTables {
         story: s.story.clone(),
         locks: s.locks.clone(),
         places_named: s.places_named.clone(),
+        places_by_name: s.places_by_name.clone(),
         effects: s.effect_table.clone(),
         crafting: s.crafting.clone(),
         weapons: s.creature_weapons.clone(),
         weapon_rules: s.creature_weapon_rules.clone(),
         names: None,
+        kinds: None,
+        ground: None,
     }
+}
+
+/// Reload the world database the server is handed.
+pub(super) fn reload(h: &mut Harness, t: WorldTables) -> Reloaded {
+    let clock = h.clock();
+    h.server.reload(&mut h.net, clock, t)
 }
 
 /// A new player beside the person, its scene drawn.
@@ -95,6 +103,7 @@ fn world() -> (Harness, usize, u64) {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![person(BESIDE)],
+        ..ContentPack::default()
     };
     h.server.talk = talk(0xA1);
     let (b, me) = h.player_in_world("one", "Elara");
@@ -158,64 +167,52 @@ fn tells_on_use(h: &mut Harness, b: usize, me: u64) -> Vec<u32> {
         .collect()
 }
 
-/// A reload of a database whose person says something new and stands somewhere else: the player
-/// in the world hears the new line on the next use, the person stays where the player saw it, and
-/// the report names the lines as taken and the placed objects as waiting for a restart.
+/// A reload of a database whose person says something new: the player in the world hears the new
+/// line on the next use, and the report names the lines as taken.
 /// Behaviour: server.operator.reload-takes-what-changes-live
 #[test]
-fn a_reload_changes_what_people_say_at_once_and_holds_placed_objects_for_a_restart() {
+fn a_reload_changes_what_people_say_at_once() {
     let (mut h, b, me) = world();
     assert_eq!(tells_on_use(&mut h, b, me), [0xA1], "the line before");
 
     let mut t = tables_of(&h);
     t.talk = talk(0xB2);
-    t.content.objects[0].origin = [70.0, 241.0, -44.6];
-    let r = h.server.reload(t);
+    let r = reload(&mut h, t);
     assert_eq!(r.applied, [table::TALK]);
-    assert_eq!(r.restart, [table::PLACED]);
+    assert!(r.restart.is_empty());
     assert!(r
         .summary()
-        .starts_with("reloaded: talk; needs a restart: placed objects;"));
+        .starts_with("reloaded: talk; needs a restart: nothing;"));
 
     assert_eq!(tells_on_use(&mut h, b, me), [0xB2], "the new line, at once");
-    assert_eq!(
-        h.server.content.objects[0].origin, BESIDE,
-        "the person stays where the player saw it"
-    );
 
     let same = tables_of(&h);
+    let r = reload(&mut h, same);
     assert_eq!(
-        h.server.reload(same).applied,
+        r.applied,
         Vec::<&str>::new(),
         "a reload of the same database changes nothing"
     );
+    assert!(r.details.is_empty());
 }
 
-/// A reload whose camps changed holds them for a restart; one whose database no longer names a
-/// template keeps the template known (a thing of it may be in the world), and takes a new one.
+/// A reload whose database no longer names a template keeps the template known (a thing of it may
+/// be in the world), and takes a new one.
 /// Behaviour: server.operator.reload-keeps-what-the-world-holds
 #[test]
-fn a_reload_keeps_the_camps_and_every_template_the_world_may_hold() {
+fn a_reload_keeps_every_template_the_world_may_hold() {
     let mut h = Harness::new();
     h.server.catalog = test_catalog();
-    h.server.spawns.camps = vec![test_camp(1)];
     let held: Vec<u32> = h.server.catalog.templates.keys().copied().collect();
     let gone = held[0];
 
     let mut t = tables_of(&h);
-    t.spawns.camps[0].population += 1;
     t.catalog.templates.remove(&gone);
     let new = test_template(0x4700_7777, 0x200, yalain_content::Props::default());
     t.catalog.insert(new.clone());
-    let r: Reloaded = h.server.reload(t);
+    let r: Reloaded = reload(&mut h, t);
 
-    assert_eq!(r.restart, [table::CAMPS]);
     assert_eq!(r.applied, [table::TEMPLATES]);
-    assert_eq!(
-        h.server.spawns.camps[0].population,
-        test_camp(1).population,
-        "the camps as they were"
-    );
     assert!(
         h.server.catalog.get(gone).is_some(),
         "the dropped template still known"
@@ -225,4 +222,44 @@ fn a_reload_keeps_the_camps_and_every_template_the_world_may_hold() {
         Some(&new),
         "the new one taken"
     );
+}
+
+/// The conflict statuses a client was told since `from`.
+fn statuses(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::kingdoms::STATUS => {
+                c.args.as_ref()
+            }
+            _ => None,
+        })
+        .filter_map(|a| calls::values(&a.0).ok())
+        .filter_map(|v| match v.first() {
+            Some(calls::Value::Int(s)) => Some(*s),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A reload whose database makes the player's landblock a free-for-all: the player is told the
+/// new status at once, and a reload of the same areas tells it nothing.
+/// Behaviour: server.operator.reload-tells-new-conflict-areas
+#[test]
+fn a_reload_that_changes_the_conflict_where_a_player_stands_tells_it_at_once() {
+    use yalain_content::Conflict;
+    let (mut h, b, _) = world();
+    let from = h.bots[b].inbox.len();
+    let mut t = tables_of(&h);
+    t.content.conflict.insert(0x0299, Conflict::FreeForAll);
+    let r = reload(&mut h, t);
+    h.run(5);
+    assert_eq!(r.applied, [table::CONFLICT]);
+    assert_eq!(statuses(&h, b, from), [Conflict::FreeForAll.status()]);
+
+    let from = h.bots[b].inbox.len();
+    let same = tables_of(&h);
+    reload(&mut h, same);
+    h.run(5);
+    assert!(statuses(&h, b, from).is_empty());
 }

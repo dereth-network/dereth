@@ -258,7 +258,7 @@ fn who_a_stores_sales_are_for_is_read_from_the_install() {
     );
     let mut hiding = pinned().tables.stores.hiding.clone();
     hiding.sort_unstable();
-    assert_eq!(hiding, [0x6F00_16EC, 0x6F00_16EE]);
+    assert_eq!(hiding, [0x6F00_16EC, 0x6F00_16ED, 0x6F00_16EE]);
 }
 
 /// The compiled world, served: a new character starts in the training hall copy the database
@@ -467,12 +467,12 @@ fn a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say(
     );
 }
 
-/// A world whose rows name no place for the surveyor's maps (the pinned release) sends no one
-/// anywhere by a map: no place it holds is named by a map's template, so a cartomancer hands every
-/// map back.
-/// Behaviour: server.gives.maps-without-rows
+/// The pinned release names a place for each surveyor's map whose trip 2017 recorded: 116 maps of
+/// the search areas a cartomancer sent players to. A world without those rows sends no one (the
+/// cpu test of a map with no place).
+/// Behaviour: server.gives.maps-named-by-the-release
 #[test]
-fn a_world_naming_no_place_for_the_maps_sends_no_one_by_a_map() {
+fn the_pinned_release_names_a_place_for_the_maps_2017_sent_players_by() {
     let t = &pinned().tables;
     let maps = |x: &u32| {
         (0x4700_0C23..=0x4700_0C81).contains(x)
@@ -480,7 +480,7 @@ fn a_world_naming_no_place_for_the_maps_sends_no_one_by_a_map() {
             || *x == 0x4700_1425
     };
     let named: Vec<&u32> = t.places_named.keys().filter(|x| maps(x)).collect();
-    assert!(named.is_empty(), "maps named: {named:08X?}");
+    assert_eq!(named.len(), 116, "maps named: {named:08X?}");
 }
 
 /// The compiled world on a harness, with a character in it.
@@ -553,6 +553,145 @@ fn use_of(item: u64, player: u64) -> auberean_script::args::Arg {
             Slot::Long(player),
             Slot::Int((-1.0f32).to_bits()),
             Slot::Long(0),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    auberean_script::args::Arg::Object(b.graph())
+}
+
+/// The training hall's last portal, from the database: a player at the step's phase holding the
+/// glyph uses it on the portal from across the room, is walked there, plays the use, and goes
+/// through portal space to the vault's chamber, the glyph taken and the quest moved on.
+#[test]
+fn the_hall_s_glyph_used_on_its_last_portal_takes_the_player_to_the_chamber() {
+    use yalain_content::quests::Trigger;
+    let t = &compiled().tables;
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == 0x4000_0088 && s.trigger == Trigger::UseOn(0x4700_1AED, 0x4700_1CE8))
+        .expect("the glyph's step")
+        .clone();
+    let (mut h, b, me) = served(t);
+    let world = *h.server.players.keys().next().expect("in");
+    let now = h.server.players[&world]
+        .play
+        .quests
+        .first()
+        .map_or(0, |q| q.started);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: 0x4000_0088,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: step.needs,
+            started: now,
+            updated: now,
+        });
+    let portal_dat = yalain_testkit::authored::Portal::open();
+    h.server.catalog = portal_dat.catalog(t);
+    h.server.catalog.insert(portal_dat.template(0x4700_1AED));
+    h.server.catalog.insert(portal_dat.template(0x4700_1CE8));
+    let targets: Vec<(u32, u32)> = h
+        .server
+        .catalog
+        .templates
+        .values()
+        .map(|x| (x.id, x.description.package))
+        .collect();
+    let templates: Vec<u32> = h.server.catalog.templates.keys().copied().collect();
+    h.server.interactions = portal_dat.interactions(&templates, &targets);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, 0x4700_1AED, 1);
+    h.run(3);
+    let glyph = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == 0x4700_1AED)
+        .expect("the glyph held")
+        .id;
+    let i = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == 0x4700_1CE8 && o.landblock() == 0x0298)
+        .expect("the hall's last portal");
+    let o = &t.content.objects[i];
+    let portal = yalain_world::presence::content_id(&t.content.objects, i);
+    let away = |d: f32| [o.origin[0] + d, o.origin[1], o.origin[2]];
+    let cell = o.cell;
+    for p in h.server.players.values_mut() {
+        p.position.cell = cell;
+        p.position.origin = away(12.0);
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_on(glyph, me, portal)]),
+    );
+    h.run(3);
+    // The client walks there and comes to rest a little beyond the use's reach.
+    for p in h.server.players.values_mut() {
+        p.position.origin = away(5.6);
+        p.heading_motion = yalain_world::world::IDLE_MOTION;
+    }
+    let clock = h.clock();
+    yalain_world::places::arrived(&mut h.server, &mut h.net, world, clock);
+    h.run(3);
+    let until = h.now.0 + 8.0;
+    while h.now.0 < until {
+        h.step();
+    }
+    let msgs = h.world_messages(b, from);
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ServerMessage::PlayBehavior(_))),
+        "the glyph's use plays"
+    );
+    let p = &h.server.players[&world];
+    assert_eq!(
+        p.position.cell,
+        step.to.expect("a place").cell,
+        "in the chamber"
+    );
+    assert!(
+        !p.play.items.iter().any(|i| i.template == 0x4700_1AED),
+        "the glyph taken"
+    );
+    assert!(
+        yalain_world::quests::phase_of(&p.play.quests, 0x4000_0088) > step.needs,
+        "the quest moved on"
+    );
+}
+
+/// A use of a held item on an object (`TryToUseItem`'s argument).
+fn use_on(item: u64, player: u64, on: u64) -> auberean_script::args::Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(player),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(on),
             Slot::Int(0),
             Slot::Long(0),
             Slot::Int(0),

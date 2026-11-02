@@ -77,6 +77,7 @@ fn world() -> Harness {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![shard()],
+        ..ContentPack::default()
     };
     h.server.story = story();
     h

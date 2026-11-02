@@ -1,6 +1,6 @@
-//! Chat held to the January 2017 recordings: what this server builds for a tell, an emote, the
-//! allegiance and channel lists, and the chat service's lines and answers is what the 2017 servers
-//! sent, apart from the ids a packed graph numbers its entries with.
+//! Chat held to the January 2017 recordings: what this server builds for a tell, an emote, a typed
+//! emote, the allegiance and channel lists, and the chat service's lines and answers is what the
+//! 2017 servers sent, apart from the ids a packed graph numbers its entries with.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -112,9 +112,9 @@ impl Tally {
 }
 
 /// The chat messages this server builds are the 2017 servers': the empty allegiance profile and a
-/// new character's channel list (graph ids aside), each emote's behavior (its context aside), the
-/// tell confirmations and refusals, and the chat service's echoes and answers to every recorded
-/// line, byte for byte; every recorded line reads.
+/// new character's channel list (graph ids aside), each emote's behavior (its context aside), each
+/// typed emote another player made, the tell confirmations and refusals, and the chat service's
+/// echoes and answers to every recorded line, byte for byte; every recorded line reads.
 /// Behaviour: server.chat.messages-as-2017-sent-them
 #[test]
 fn chat_messages_are_built_as_the_2017_servers_sent_them() {
@@ -128,7 +128,7 @@ fn chat_messages_are_built_as_the_2017_servers_sent_them() {
         .prepare(
             "SELECT m.session_id, m.dir, m.raw, s.world_login FROM message m JOIN session s USING (session_id) \
              JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
-             AND m.mtype IN (65619, 65638, 65663, 65747) ORDER BY m.session_id, m.idx",
+             AND m.mtype IN (65619, 65638, 65639, 65663, 65747) ORDER BY m.session_id, m.idx",
         )
         .expect("prepares");
     let mut rows = st.query([]).expect("runs");
@@ -250,6 +250,42 @@ fn chat_messages_are_built_as_the_2017_servers_sent_them() {
                     same,
                 );
             }
+            ServerMessage::CellObjectCall(c) if c.call.function.0 == function::HEAR_TYPED_EMOTE => {
+                // Another player's typed emote: ours from its id, name and words.
+                let v = c
+                    .call
+                    .args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())
+                    .unwrap_or_default();
+                let text = |x: Option<&Value>| match x.and_then(Value::root) {
+                    Some(Node::Text(t)) => Some(t.clone()),
+                    _ => None,
+                };
+                // The values come last first: the words, the name, the id.
+                let (Some(words), Some(name)) = (text(v.first()), text(v.get(1))) else {
+                    t.count("a typed emote reads", false);
+                    continue;
+                };
+                let ours = chat::heard_typed_emote(c.object, &name, &words);
+                let decoded = |m: &ServerMessage| match m {
+                    ServerMessage::CellObjectCall(c) => {
+                        decode(&c.call.args.as_ref()?.0, lib).ok().map(|a| {
+                            a.into_iter()
+                                .map(|x| match x {
+                                    Arg::Object(g) => Arg::Object(renumbered(&g)),
+                                    other => other,
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    }
+                    _ => None,
+                };
+                let same = v.get(2) == Some(&Value::Long(c.object.id))
+                    && decoded(&ours).is_some()
+                    && decoded(&ours) == decoded(&m);
+                t.count("a typed emote built from its emoter, name and words", same);
+            }
             ServerMessage::PlayerCall(c) if c.function.0 == function::ALLEGIANCE_PROFILE => {
                 let got = args_of(&m, lib);
                 let empty = got.as_ref().is_some_and(
@@ -355,4 +391,94 @@ fn chat_messages_are_built_as_the_2017_servers_sent_them() {
     }
     assert!(!t.0.is_empty());
     assert!(bad.is_empty(), "not as recorded: {bad:?}");
+}
+
+/// The faction channel of a packed channel list: its slots and tags but the name's reference, and
+/// its name.
+fn faction_channel(g: &Graph) -> Option<(Vec<u32>, Vec<u8>, String)> {
+    let at = |id: u32| {
+        g.ids
+            .iter()
+            .position(|x| *x == id)
+            .and_then(|i| g.entries.get(i))
+    };
+    g.entries.iter().find_map(|e| match &e.body {
+        Body::Object(o)
+            if o.package == chat::CHANNEL_DATA.0 && o.slots.get(1) == Some(&0x40_0000) =>
+        {
+            let name = o
+                .slots
+                .get(6)
+                .and_then(|id| at(*id))
+                .and_then(|n| match &n.body {
+                    Body::Object(t) => match &t.native {
+                        Some(NativeObject::Text(u)) => Some(String::from_utf16_lossy(u)),
+                        _ => None,
+                    },
+                    _ => None,
+                })?;
+            Some((o.slots[..6].to_vec(), o.tags.clone(), name))
+        }
+        _ => None,
+    })
+}
+
+/// Every faction channel the 2017 servers sent a player in its channel list is the one this server
+/// gives a player of the kingdom it names, slot for slot: the Shadow's room 3, the Order's 4, the
+/// Dominion's 5, the neutral kingdom's 6, each with its kingdom and its name after the world's.
+/// Behaviour: server.kingdoms.channel-of-the-kingdom
+#[test]
+fn every_recorded_faction_channel_is_ours_for_the_kingdom_it_names() {
+    use yalain_world::chat::{channels_of, KINGDOM_CHANNELS};
+    let path = auberean_testkit::data::require_capture_index();
+    let Some(lib) = library() else {
+        println!("no September 2013 install here");
+        return;
+    };
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.mtype = 65638 AND substr(m.raw, 5, 4) = X'1E000582'",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut by_kingdom: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(m) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        let Some((_, a)) = args_of(&m, lib) else {
+            continue;
+        };
+        let Some(Arg::Object(g)) = a.first() else {
+            continue;
+        };
+        let Some((slots, tags, name)) = faction_channel(g) else {
+            continue;
+        };
+        let Some((world, &(kingdom, _, _))) = KINGDOM_CHANNELS.iter().find_map(|c| {
+            name.strip_suffix(c.2)
+                .map(|w| (w.trim_end().to_string(), c))
+        }) else {
+            continue;
+        };
+        let Some((_, ours)) = args_of(&chat::channels(&world, &channels_of(Some(kingdom))), lib)
+        else {
+            continue;
+        };
+        let Some(Arg::Object(og)) = ours.first() else {
+            continue;
+        };
+        let e = by_kingdom.entry(kingdom).or_default();
+        e.0 += usize::from(faction_channel(og) == Some((slots, tags, name)));
+        e.1 += 1;
+    }
+    println!("2017 faction channels by kingdom (as ours, of): {by_kingdom:?}");
+    assert_eq!(by_kingdom.len(), 4, "every kingdom's");
+    for (k, (same, of)) in &by_kingdom {
+        assert_eq!(same, of, "kingdom {k:#x}");
+    }
 }

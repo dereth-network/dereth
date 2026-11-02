@@ -1,0 +1,25 @@
+# What upgrading to each Yalain release involves, beyond replacing its program.
+#
+# `cargo xtask package yalain` writes it, with what the code says, into the release's
+# release.json (its `upgrade` object), which a launcher hosting a world reads before it installs
+# anything. From the code, at this release and at the previous release's tag: the database's
+# schema version (and so the migration between the two; Yalain backs the database up before it
+# migrates), and the world database release the program serves by default (and so whether it must
+# be fetched, `yalain world fetch`, before the new program starts). Declared here, because the
+# code cannot say it:
+#
+#   version        the release, MAJOR.MINOR.PATCH (its pre-releases carry the same declaration)
+#   upgrades_from  the oldest version that can upgrade straight to it; the previous release or
+#                  older, and for the first release the release itself
+#   config         keys it removes or newly requires, each
+#                  { key = "server.some_key", change = "removed" | "required", note = "..." }
+#   notes          anything else an operator should read first
+#
+# Every first, minor and major release has an entry. A patch release has none: it declares
+# nothing, and the packaging refuses a patch release that migrates the database. Entries are never
+# removed.
+
+[[release]]
+version = "0.1.0"
+upgrades_from = "0.1.0"
+notes = "The first release: its database schema is version 2."

@@ -46,8 +46,13 @@
 //! resurrection plays on the player) stays on it. It ends, with "You are no longer protected by
 //! the Lifestone's Magic.", the protection taken away and the glow stopped, when its three minutes
 //! are up, when the player attacks (after the attack state is raised, before the attack), or when
-//! the player comes out of portal space somewhere else (before the use is answered). Creatures do
-//! not take on a protected player.
+//! the player comes out of portal space somewhere else (before the use is answered), or when it
+//! makes a recipe (2017: 3 of the early ends). Creatures do not take on a protected player.
+//!
+//! **A city's recall protection** is the same for 30 s, put on as the recall ends (its own record,
+//! flags 0x42, and its glow played), and its end says "You are no longer protected by the portal's
+//! magic." (2017: 196 of 215 ran out at 30 s; of the 17 cut short with the text, 14 by a recipe
+//! made).
 
 use std::collections::HashMap;
 
@@ -220,6 +225,31 @@ pub mod protection {
     pub const ENDED: (u32, u32) = (0x847E_5E83, 0x2500_000B);
     pub const ENDED_KIND: u32 = 8;
 }
+
+/// A protection: its saved state, how long it lasts, its record's flags, the text its end shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Protection {
+    pub state: u32,
+    pub seconds: f64,
+    pub flags: u32,
+    pub ended: (u32, u32),
+}
+
+/// Lifestone protection, as a player is resurrected.
+pub const LIFESTONE_PROTECTION: Protection = Protection {
+    state: protection::STATE,
+    seconds: protection::SECONDS,
+    flags: protection::FLAGS,
+    ended: protection::ENDED,
+};
+
+/// A city's recall protection, as its recall ends.
+pub const RECALL_PROTECTION: Protection = Protection {
+    state: 0x7000_2014,
+    seconds: 30.0,
+    flags: 0x42,
+    ended: (0x6E03_B375, 0x2500_000B),
+};
 
 /// The slots of a record (its state's singleton at `state_ref`).
 #[must_use]
@@ -422,7 +452,7 @@ pub fn apply_on<S: Store>(
         (Kind::InstantVital { flags, change }, On::Player(world)) => {
             let amount =
                 dereth_primitives::num::floor_to_i32(change.at(cast.spellcraft).unwrap_or(0.0));
-            heal(s, net, world, &def, *flags, amount, cast);
+            heal(s, net, world, &def, (*flags, amount), cast, clock);
             true
         }
         (Kind::InstantVital { flags, change }, On::Creature(id)) => {
@@ -487,8 +517,9 @@ pub fn apply_on<S: Store>(
             On::Creature(_),
         )
         | (Kind::Aura(_), _) => false,
-        // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect.
-        (Kind::Pet { .. }, _) => false,
+        // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
+        // recall is its skill's trip ([`crate::skill_use`]).
+        (Kind::Pet { .. } | Kind::Recall(_), _) => false,
         (Kind::Combo(c), _) => {
             combine(s, net, on, &def, c, cast, clock);
             true
@@ -601,9 +632,9 @@ fn heal<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     def: &EffectDef,
-    flags: u32,
-    amount: i32,
+    (flags, amount): (u32, i32),
     cast: Cast,
+    clock: Clock,
 ) {
     if def.fx != 0 {
         show_fx(s, net, world, def.fx);
@@ -614,7 +645,15 @@ fn heal<S: Store>(
         (vital::FOCUS, quality::FOCUS, quality::FOCUS_MAX),
     ] {
         if flags & bit != 0 {
-            change_vital(s, net, world, cur, max, amount, cast.caster);
+            change_vital(
+                s,
+                net,
+                world,
+                (cur, max),
+                amount,
+                (cast.caster, cast.pk),
+                clock,
+            );
         }
     }
 }
@@ -682,16 +721,25 @@ fn creature_health<S: Store>(
     crate::combat::wounded(s, net, id, share, was);
 }
 
+/// Is a change to a player's health harm another player did it (an effect a player cast, on
+/// another; told as PK damage too, and it may kill)? 2017: every harmful change between two
+/// players, 63 of 63 ticks, gave the health lost as PK damage; no creature's harm to a player did
+/// (49,170 of 49,170).
+fn harm_by_player(me: u64, amount: i32, (caster, pk): (u64, bool)) -> bool {
+    pk && amount < 0 && caster != me
+}
+
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the
-/// story of a health change tells the whole amount.
+/// story of a health change tells the whole amount. Harm another player did is told as PK damage
+/// too, and with no health left the player dies, the caster its killer.
 fn change_vital<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    cur: u32,
-    max_quality: u32,
+    (cur, max_quality): (u32, u32),
     amount: i32,
-    caster: u64,
+    (caster, pk): (u64, bool),
+    clock: Clock,
 ) {
     let Some(p) = s.players.get(&world) else {
         return;
@@ -699,13 +747,17 @@ fn change_vital<S: Store>(
     let max = max_vital(s, p, max_quality).max(1);
     let was = quals::int(&p.qualities, cur).unwrap_or(max);
     let now = (was + amount).clamp(0, max.max(was));
+    let by_player = cur == quality::HEALTH && harm_by_player(p.character, amount, (caster, pk));
     if cur == quality::HEALTH {
         let Some(p) = s.players.get_mut(&world) else {
             return;
         };
         let me = p.character;
         let sender = crate::combat::player_event(p, ()).sender;
-        let told = health_story(sender, caster, amount);
+        let mut told = health_story(sender, caster, amount);
+        if by_player {
+            crate::combat::with_pk_damage(&mut told, me);
+        }
         crate::combat::to_all_seeing(s, net, me, &told);
     }
     let Some(p) = s.players.get_mut(&world) else {
@@ -718,6 +770,9 @@ fn change_vital<S: Store>(
         #[allow(clippy::cast_precision_loss)]
         let (share, before) = (now as f32 / max as f32, was as f32 / max as f32);
         crate::combat::wounded(s, net, me, share, before);
+        if by_player && now == 0 && was > 0 {
+            crate::combat::after_hurt(s, net, world, caster, clock);
+        }
     }
 }
 
@@ -1114,19 +1169,34 @@ pub fn tick<S: Store>(
     else {
         return;
     };
-    let dead = s.players.get(&world).is_some_and(crate::combat::is_dead);
+    let dead = s
+        .players
+        .get(&world)
+        .is_some_and(|p| crate::combat::is_dead(p) || p.dying.is_some());
+    let rate = per_second.at(e.spellcraft).unwrap_or(0.0);
+    let amount =
+        dereth_primitives::num::to_i32_f64((f64::from(rate) * (clock.local.0 - since)).floor());
     if !dead {
-        let rate = per_second.at(e.spellcraft).unwrap_or(0.0);
-        let amount =
-            dereth_primitives::num::to_i32_f64((f64::from(rate) * (clock.local.0 - since)).floor());
         if amount != 0 {
             for (bit, cur, max) in [
                 (vital::HEALTH, quality::HEALTH, quality::HEALTH_MAX),
                 (vital::VIGOR, quality::VIGOR, quality::VIGOR_MAX),
             ] {
                 if flags & bit != 0 {
-                    change_vital(s, net, world, cur, max, amount, e.caster);
+                    change_vital(s, net, world, (cur, max), amount, (e.caster, e.pk), clock);
                 }
+            }
+        }
+    } else if flags & vital::HEALTH != 0 {
+        // A dead player's harm over time from another player is still told, and changes nothing
+        // (2017: Gromlin's, 8 hooks in 5 ticks between his death and his return).
+        if let Some(p) = s.players.get_mut(&world) {
+            let me = p.character;
+            if harm_by_player(me, amount, (e.caster, e.pk)) {
+                let sender = crate::combat::player_event(p, ()).sender;
+                let mut told = health_story(sender, e.caster, amount);
+                crate::combat::with_pk_damage(&mut told, me);
+                crate::combat::to_all_seeing(s, net, me, &told);
             }
         }
     }
@@ -1305,16 +1375,32 @@ pub fn registry<S: Store>(s: &Server<S>, p: &crate::world::Player) -> session::R
     }
 }
 
-/// A player's lifestone protection: the effect's id and when it runs out (on the server's clock).
+/// A player's protection: the effect's id, when it runs out (on the server's clock), and the text
+/// its end shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Protected {
     pub eid: u32,
     pub until: f64,
+    pub ended: (u32, u32),
 }
 
 /// Protect a player as it is resurrected: the effect added on its client, and its end in three
 /// minutes.
 pub fn protect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
+    protect_with(s, net, world, LIFESTONE_PROTECTION, (0, 0), clock);
+}
+
+/// Protect a player: the effect added on its client (cast by a caster, from a skill's saved state:
+/// none for a resurrection's), and its end when its time is up. A protection it had already is
+/// replaced.
+pub fn protect_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kind: Protection,
+    (caster, skill): (u64, u32),
+    clock: Clock,
+) {
     let cast = net.game_time(clock.local);
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -1322,21 +1408,22 @@ pub fn protect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     let eid = next_eid(p);
     p.protected = Some(Protected {
         eid,
-        until: clock.local.0 + protection::SECONDS,
+        until: clock.local.0 + kind.seconds,
+        ended: kind.ended,
     });
     #[allow(clippy::cast_possible_truncation)]
     let e = EffectState {
         eid,
-        state: protection::STATE,
+        state: kind.state,
         cast,
-        timeout: protection::SECONDS as f32,
-        caster: 0,
+        timeout: kind.seconds as f32,
+        caster,
         spellcraft: 0.0,
         pk: false,
         acting: 0,
-        skill: 0,
+        skill,
         item: 0,
-        flags: protection::FLAGS,
+        flags: kind.flags,
         categories: protection::CATEGORIES,
     };
     net.send(
@@ -1345,11 +1432,10 @@ pub fn protect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         BlobKind::PRIVATE,
         add_call(&e).encode(),
     );
-    s.after(
-        clock,
-        protection::SECONDS,
-        Timer::ProtectionEnds { world, eid },
-    );
+    // A player whom kingdoms may fight anywhere may not be fought while protected: its ethereality
+    // follows.
+    crate::kingdoms::settle_ethereality(s, net, world);
+    s.after(clock, kind.seconds, Timer::ProtectionEnds { world, eid });
 }
 
 /// Is a player under lifestone protection?
@@ -1374,8 +1460,8 @@ pub fn unprotect<S: Store>(
         return false;
     };
     let ended = TextInfo {
-        string_id: protection::ENDED.0,
-        table: protection::ENDED.1,
+        string_id: prot.ended.0,
+        table: prot.ended.1,
         ..TextInfo::default()
     };
     let private = |net: &mut ServerNet, m: &ServerMessage| {
@@ -1389,6 +1475,9 @@ pub fn unprotect<S: Store>(
     private(net, &crate::chat::show_text(protection::ENDED_KIND, ended));
     private(net, &remove_call(prot.eid));
     then(s, net);
+    // Its ethereality follows, before its glow stops (2017: in the same instant, 26 of 26 players
+    // whom kingdoms may fight anywhere).
+    crate::kingdoms::settle_ethereality(s, net, world);
     let Some(p) = s.players.get_mut(&world) else {
         return true;
     };

@@ -179,6 +179,23 @@ pub const FOOD_EFFECTS: [u32; 2] = [0x6F00_2255, 0x6F00_2251];
 pub const FOOD_SPELLCRAFT: f32 = 40.0;
 pub const FOOD_DURABILITY: u32 = 5;
 
+/// The training hall's potions (haste, healing, thorns): their templates name no effect, but each
+/// is drunk for its one effect, at the spellcraft of 1 (2017: 5 of 5 drinks, 2 haste, 2 healing,
+/// 1 thorns).
+pub const TRAINING_POTIONS: [(u32, u32); 3] = [
+    (0x4700_1AEE, 0x7000_0A13),
+    (0x4700_1AEF, 0x7000_0A00),
+    (0x4700_1AF0, 0x7000_09FD),
+];
+
+/// The effect a training hall's potion is drunk for, if the template is one.
+fn training_potion(template: u32) -> Option<u32> {
+    TRAINING_POTIONS
+        .iter()
+        .find(|(t, _)| *t == template)
+        .map(|(_, state)| *state)
+}
+
 /// The effects an item's use puts on that the server's own code names, not its template.
 #[must_use]
 pub fn own_effects(template: u32) -> Vec<UsageEffect> {
@@ -190,6 +207,11 @@ pub fn own_effects(template: u32) -> Vec<UsageEffect> {
                 spellcraft: FOOD_SPELLCRAFT,
             })
             .collect()
+    } else if let Some(state) = training_potion(template) {
+        vec![UsageEffect {
+            state,
+            spellcraft: 1.0,
+        }]
     } else {
         Vec::new()
     }
@@ -273,6 +295,8 @@ pub mod flags {
     pub const MOUNT: u32 = 828;
     /// The item was spent.
     pub const SPENT: u32 = 0x1;
+    /// The use holds its user still while it plays (a Tessera's does not).
+    pub const LOCKS: u32 = 0x8;
     /// The template asks for its user to be let go for its effects.
     pub const UNLOCKS: u32 = 0x2000;
     /// The item may not be used moving.
@@ -308,10 +332,36 @@ pub fn use_behavior(props: &Props) -> Option<u32> {
 }
 
 /// The use behavior of an item of a template: its template's, else the drink for a forager's food
-/// (2017: the drink played, 65 of 65 uses).
+/// and a training hall's potion (2017: the drink played, 65 of 65 uses; 5 of 5).
 #[must_use]
 pub fn behavior_of(template: u32, props: &Props) -> Option<u32> {
-    use_behavior(props).or((template == FOOD).then_some(DRINK))
+    use_behavior(props)
+        .or((template == FOOD || training_potion(template).is_some()).then_some(DRINK))
+}
+
+/// A Tessera's use behavior. Its use plays it, and at its end gives its user a hero skill credit
+/// more (the skill repository sent with it), spends the Tessera and is answered "You use {the}
+/// %1." with flags that neither lock the user nor stop it moving (2017: 10 of 10 uses, 2.6 s after
+/// the request, flags 309; the user moved while it played).
+pub const TESSERA_BEHAVIOR: u32 = 0x4100_00FC;
+
+/// The use behavior of one item: a treasure potion's (one with an effect of its own) the drink, a
+/// Tessera's its own, else its template's ([`behavior_of`]).
+#[must_use]
+pub fn item_behavior<S: Store>(
+    s: &Server<S>,
+    item: u64,
+    template: u32,
+    props: &Props,
+) -> Option<u32> {
+    let t = s.things.get(item);
+    if t.is_some_and(|t| t.own.effect.is_some()) {
+        Some(DRINK)
+    } else if t.is_some_and(|t| s.tesserae.contains(&t.description.package)) {
+        Some(TESSERA_BEHAVIOR)
+    } else {
+        behavior_of(template, props)
+    }
 }
 
 /// A player uses an item it holds that names effects for its use, or is only looked at: it is
@@ -331,10 +381,15 @@ pub fn begin<S: Store>(
     };
     let examined = t.props.word("Item_UsageAction") == Some(EXAMINE_ACTION);
     let seed = crate::plants::is_seed(template);
+    let own = s
+        .things
+        .get(u.item)
+        .is_some_and(|i| i.own.effect.is_some() || s.tesserae.contains(&i.description.package));
     if s.item_uses.get(&template).is_none_or(Vec::is_empty)
         && own_effects(template).is_empty()
         && !examined
         && !seed
+        && !own
     {
         return false;
     }
@@ -343,7 +398,7 @@ pub fn begin<S: Store>(
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
-    let Some(behavior) = behavior_of(template, &props) else {
+    let Some(behavior) = item_behavior(s, u.item, template, &props) else {
         carry_out(s, net, world, u.clone(), false, clock);
         return true;
     };
@@ -660,8 +715,24 @@ fn carry_out<S: Store>(
     }
     let mut list = s.item_uses.get(&template).cloned().unwrap_or_default();
     list.extend(own_effects(template));
+    // A treasure potion's own effect, at its own spellcraft.
+    let drunk = s.things.get(u.item).and_then(|i| i.own.effect);
+    list.extend(drunk.map(|e| UsageEffect {
+        state: e.state,
+        spellcraft: e.spellcraft,
+    }));
     for e in list {
         put_on(s, net, world, me, u.item, e, clock);
+    }
+    // A Tessera's hero skill credit.
+    let behavior = item_behavior(s, u.item, template, &t.props);
+    let tessera = behavior == Some(TESSERA_BEHAVIOR);
+    if tessera {
+        if let Some(p) = s.players.get_mut(&world) {
+            p.play.hero_credits = p.play.hero_credits.saturating_add(1);
+            let m = crate::skills::repository_update(p.play.credits, p.play.hero_credits);
+            progress::private(net, world, &m);
+        }
     }
     // A seed's plant stands.
     crate::plants::sow(s, net, world, template, clock);
@@ -670,6 +741,9 @@ fn carry_out<S: Store>(
         crate::craft::use_up(s, net, world, u.item, 1);
     }
     let mut f = answer_flags(&t.props, played);
+    if tessera {
+        f &= !flags::LOCKS;
+    }
     if spent {
         f |= flags::SPENT;
     }
@@ -678,7 +752,6 @@ fn carry_out<S: Store>(
         Some(yalain_content::Prop::Str(sid, table)) => Some((*sid, *table)),
         _ => None,
     };
-    let behavior = behavior_of(template, &t.props);
     let said = own.or_else(|| {
         played.then_some(if behavior == Some(DRINK) {
             text::DRINK
@@ -753,7 +826,7 @@ pub(crate) fn put_on<S: Store>(
     };
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
-        Kind::Other | Kind::Pet { .. } | Kind::Aura(_) => {
+        Kind::Other | Kind::Pet { .. } | Kind::Aura(_) | Kind::Recall(_) => {
             s.unhandled
                 .note(format!("an item's effect {:08X} of no kind made", e.state));
         }

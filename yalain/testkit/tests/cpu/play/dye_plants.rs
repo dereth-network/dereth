@@ -679,6 +679,34 @@ fn last_profile(h: &Harness, b: usize, from: usize) -> Option<Vec<u8>> {
         })
 }
 
+/// Examined, a plant shows its planter's kingdom.
+/// Behaviour: server.kingdoms.plant-shows-its-planters
+#[test]
+fn a_plants_profile_shows_its_planters_kingdom() {
+    let mut h = garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(SEED, 1)]);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::kingdoms::set_kingdom(
+            &mut p.qualities,
+            yalain_world::kingdoms::kingdom::ORDER,
+        );
+    }
+    let plant = planted(&mut h, a, me, world);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        yalain_world::requests::function::EXAMINE,
+        &[about(plant)],
+        3,
+    );
+    let shown = last_profile(&h, a, from).expect("a profile");
+    let has = |id: u32| shown.windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(yalain_world::profile::kingdom(
+        yalain_world::kingdoms::kingdom::ORDER
+    )));
+    assert!(!has(yalain_world::profile::line::NEUTRAL));
+}
+
 /// Examined, a growing plant shows its need of water and of fertilizer, its pollen and a countdown
 /// to the game time it is ripe (180 s after it was planted), sent again as they change; ripe, that
 /// it is now mature.

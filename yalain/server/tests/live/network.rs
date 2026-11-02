@@ -17,7 +17,7 @@ use tungstenite::handshake::server::{Request, Response};
 use tungstenite::WebSocket;
 use yalain_testkit::authored;
 
-use crate::session::{free_ports, must, scratch, Running};
+use crate::session::{must, scratch, serving};
 
 pub(crate) const KEY: &str = "drth_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
@@ -170,9 +170,7 @@ fn logged(dir: &Path, line: &str) -> Result<(), String> {
 fn the_server_links_to_its_hub_and_answers_another_worlds_tell_and_watch() {
     let dir = scratch("yalain-live-network");
     let (hub, links) = stand_in_hub();
-    let port = free_ports();
-    let (child, mut console) = start_server(&dir, port, hub);
-    let _server = Running(child);
+    let (_, _server, mut console) = serving(&dir, |port| start_server(&dir, port, hub));
 
     let mut link = must(
         links

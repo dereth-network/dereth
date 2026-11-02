@@ -38,23 +38,34 @@
 //! - [`social`], [`allegiance`], [`fellowship`], [`trade`]: what players ask of one another: the
 //!   allegiance's oaths and profiles, fellowships and their shared experience, trades.
 //! - [`pets`]: the creatures players' skills summon, their orders, their behavior and their end.
+//! - [`kingdoms`]: a player's kingdom, joined at a faction shrine, and the kind of player conflict
+//!   each place allows, which the client is told of as its player comes and goes.
 //! - [`plants`]: dye plants: planted from seeds, cared for, pollinated and harvested.
 //! - [`mounts`]: saddles and mount eggs put their user on a beast; riding, dismounting and the
 //!   ride's end.
 //! - [`usable`]: doors, chests, their locks and keys, surveyor's maps, items used on the objects
 //!   their interaction tables name (a hoard's key on its stockpile).
+//! - [`treasure`]: what a treasure item carries of its own, chosen as it drops.
 //! - [`walkers`]: placed people walking their routes.
 //! - [`reload`]: the world database taken again while the server runs.
 //! - [`saves`], [`shutdown`]: every character in the world kept every few minutes; the world shut
 //!   down, its countdown, cancelled or cut short.
+//! - [`admin`]: the operator's moderation: access levels, accounts made and changed while the
+//!   world runs, bans, gags and boots, at the console and said in game by staff.
+//! - [`characters`], [`answers`]: the operator's characters (made with a build, given one, placed,
+//!   deleted, carried between worlds, teleported), and the fixed form of the log lines a program
+//!   driving the console reads.
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
 
+pub mod admin;
 pub mod ai;
 pub mod allegiance;
+pub mod answers;
 pub mod arms;
 pub mod books;
 pub mod butchery;
 pub mod calls;
+pub mod characters;
 pub mod chargen;
 pub mod chat;
 pub mod combat;
@@ -73,6 +84,7 @@ pub mod gives;
 pub mod graph;
 pub mod inventory;
 pub mod item_use;
+pub mod kingdoms;
 pub mod levels;
 pub mod login;
 pub mod map_trips;
@@ -114,6 +126,7 @@ pub mod storms;
 pub mod talk;
 pub mod things;
 pub mod trade;
+pub mod treasure;
 pub mod unhandled;
 pub mod uploads;
 pub mod usable;
@@ -123,6 +136,7 @@ pub mod world;
 pub mod xp;
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
 use yalain_net::{ConnId, LocalTime, NetEvent, ServerNet};
@@ -177,6 +191,16 @@ pub struct ServerConfig {
     pub save_seconds: u32,
     /// Seconds a shutdown counts down ([`shutdown::LEAD`] unless the operator gives another).
     pub shutdown_seconds: u32,
+    /// How many logins the world holds at once ([`login::MAX_SESSIONS`] unless the operator
+    /// gives another); a login past them is told the world is full.
+    pub max_sessions: u32,
+    /// How many logins one address holds at once; `None` for no limit (the default).
+    pub max_sessions_per_address: Option<u32>,
+    /// Addresses no per-address limit holds back.
+    pub unlimited_addresses: Vec<IpAddr>,
+    /// The operator's message of the day, shown to each player as its character enters the
+    /// world, in one notice (empty: none).
+    pub motd: String,
 }
 
 impl Default for ServerConfig {
@@ -193,6 +217,10 @@ impl Default for ServerConfig {
             secret_cost: login::SECRET_COST,
             save_seconds: saves::SAVE_SECONDS,
             shutdown_seconds: shutdown::LEAD,
+            max_sessions: login::MAX_SESSIONS,
+            max_sessions_per_address: None,
+            unlimited_addresses: Vec::new(),
+            motd: String::new(),
         }
     }
 }
@@ -231,6 +259,8 @@ pub struct Server<S: Store> {
     pub sessions: HashMap<ConnId, Session>,
     /// The addresses whose logins were refused, and those refused unchecked for a while.
     pub login_guard: login::LoginGuard,
+    /// The gags of the characters in the world.
+    pub gags: admin::Gags,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
@@ -315,6 +345,8 @@ pub struct Server<S: Store> {
     /// The portal storms of crowded landblocks.
     pub storms: storms::Storms,
     pub shrine_packages: std::collections::HashSet<u32>,
+    /// The kingdom each faction shrine's use joins, by the shrine's package.
+    pub shrine_kingdoms: HashMap<u32, u32>,
     /// The packages of the world's objects that cannot be used (forges, road signs).
     pub cannot_use_packages: std::collections::HashSet<u32>,
     /// The packages of the items that take an inscription.
@@ -329,6 +361,10 @@ pub struct Server<S: Store> {
     pub creature_weapon_rules: HashMap<String, yalain_content::WeaponRule>,
     /// The packages whose items are destroyed on use by their kind (keys, potions, ...).
     pub destroyed_on_use: std::collections::HashSet<u32>,
+    /// The packages of the treasure items that carry properties of their own (equipment, potions).
+    pub treasure: treasure::Kinds,
+    /// The packages of the Tesserae (each use a hero skill credit more).
+    pub tesserae: std::collections::HashSet<u32>,
     /// The object each player's body touches that it walked into.
     pub touching: HashMap<ConnId, u64>,
     /// The allegiances (kept as a record of the world), the fellowships and the trades between
@@ -350,6 +386,8 @@ pub struct Server<S: Store> {
     /// The places templates name: where a person who sends players by their maps sends the
     /// holder of a map of the template.
     pub places_named: std::collections::BTreeMap<u32, yalain_content::Place>,
+    /// The places by their names (lowercase): where a city's recall sends a player.
+    pub places_by_name: std::collections::BTreeMap<String, yalain_content::Place>,
     pub doors: usable::doors::Doors,
     /// The chests' states.
     pub chests: usable::chests::Chests,
@@ -359,6 +397,8 @@ pub struct Server<S: Store> {
     pub interactions: usable::interactions::Interactions,
     /// The placed people walking their routes.
     pub walkers: walkers::Walkers,
+    /// What reloading the world database keeps of the placed objects and camps between reloads.
+    pub placed: reload::Placed,
 }
 
 /// The height of the ground under a point outdoors (a cell, a point in its landblock), and the
@@ -484,6 +524,10 @@ pub enum Timer {
     },
     /// A dye plant thinks: its look, its needs.
     PlantThinks { plant: u64 },
+    /// A player's join of a kingdom at a faction shrine is made.
+    KingdomJoin { world: ConnId, kingdom: u32 },
+    /// A player who joined a kingdom is sent its channels again.
+    KingdomChannels { world: ConnId },
     /// A player's harvest of a dye plant has played out.
     Harvest {
         world: ConnId,
@@ -535,6 +579,8 @@ pub enum Timer {
     Shutdown { left: u32 },
     /// The world's shutdown is through.
     ShutdownEnds,
+    /// A connection told its login is over (a boot, a ban) is closed.
+    Close { conn: ConnId },
 }
 
 impl<S: Store> Server<S> {
@@ -550,6 +596,7 @@ impl<S: Store> Server<S> {
             content: ContentPack::default(),
             sessions: HashMap::new(),
             login_guard: login::LoginGuard::default(),
+            gags: admin::Gags::default(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
@@ -593,6 +640,7 @@ impl<S: Store> Server<S> {
             person_packages: std::collections::HashSet::new(),
             storms: storms::Storms::default(),
             shrine_packages: std::collections::HashSet::new(),
+            shrine_kingdoms: HashMap::new(),
             cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),
@@ -600,6 +648,8 @@ impl<S: Store> Server<S> {
             creature_weapons: HashMap::new(),
             creature_weapon_rules: HashMap::new(),
             destroyed_on_use: std::collections::HashSet::new(),
+            treasure: treasure::Kinds::default(),
+            tesserae: std::collections::HashSet::new(),
             touching: HashMap::new(),
             allegiances: allegiance::Allegiances::default(),
             fellowships: fellowship::Fellowships::default(),
@@ -611,11 +661,13 @@ impl<S: Store> Server<S> {
             plants: plants::Plants::default(),
             locks: yalain_content::LockTable::default(),
             places_named: std::collections::BTreeMap::new(),
+            places_by_name: std::collections::BTreeMap::new(),
             doors: usable::doors::Doors::default(),
             chests: usable::chests::Chests::default(),
             mounts: mounts::Mounts::default(),
             interactions: usable::interactions::Interactions::default(),
             walkers: walkers::Walkers::default(),
+            placed: reload::Placed::default(),
         }
     }
 
@@ -640,7 +692,20 @@ impl<S: Store> Server<S> {
         self.catalog = catalog;
         self.spawns = spawns;
         self.loot = loot;
+        let veins = self
+            .content
+            .objects
+            .iter()
+            .filter(|o| {
+                self.catalog
+                    .get(o.template)
+                    .is_some_and(mining::is_craft_node)
+            })
+            .cloned()
+            .collect();
         mining::place_veins(&mut self);
+        self.placed.loaded = Some(self.content.objects.clone());
+        self.placed.veins = veins;
         self
     }
 
@@ -725,6 +790,10 @@ impl<S: Store> Server<S> {
                     item_use::played(self, net, world, &using, clock);
                 }
                 Timer::PlantThinks { plant } => plants::thinks(self, net, plant, clock),
+                Timer::KingdomJoin { world, kingdom } => {
+                    kingdoms::join(self, net, world, kingdom, clock);
+                }
+                Timer::KingdomChannels { world } => chat::send_channels(self, net, world, 1),
                 Timer::Harvest { world, used } => {
                     plants::harvested(self, net, world, &used, clock);
                 }
@@ -770,6 +839,11 @@ impl<S: Store> Server<S> {
                 Timer::LogOff { world, step } => world::log_off_step(self, net, world, step, clock),
                 Timer::Shutdown { left } => shutdown::step(self, net, left, clock),
                 Timer::ShutdownEnds => shutdown::ends(self),
+                Timer::Close { conn } => {
+                    if net.service(conn).is_some() {
+                        net.close(conn);
+                    }
+                }
             }
         }
         let due = self
@@ -780,6 +854,7 @@ impl<S: Store> Server<S> {
             spawn::step(self, net, clock);
         }
         saves::tick(self, clock);
+        admin::tick(self, net, clock);
         fellowship::tick(self, net, clock.local);
         trade::look(self, net, clock);
         market::look(self, net, clock);

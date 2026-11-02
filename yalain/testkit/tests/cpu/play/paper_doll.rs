@@ -1,8 +1,9 @@
 //! The paper doll: an item dragged onto it is worn or wielded at the place the client names (a
 //! ring on either hand, a weapon in the off hand), whatever was there taken off to where the item
 //! was in the pack, the answers flagged as directives; an item dragged off it goes to the pack slot
-//! the client names, a weapon's slider moved to rest only for the primary hand. Fixture: a new
-//! player given two made-up rings and a made-up sword by the world.
+//! the client names, a weapon's slider moved to rest only for the primary hand. An item the player
+//! may not put on is answered as the directive it asked for, with the refusal for its status.
+//! Fixture: a new player given two made-up rings and a made-up sword by the world.
 
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
@@ -264,4 +265,39 @@ fn a_sword_dragged_to_the_off_hand_and_off_again_goes_to_the_slot_named() {
     );
     assert!(!slid(&h, from));
     assert_eq!(slot_of(&h, world, second), (0, 1));
+}
+
+/// A ring that names a race other than the player's, dragged to the doll, is answered as the
+/// directive it asked for with the wrong race for its status (10015), at the place named and the
+/// ring's slot, and stays in the pack.
+/// Behaviour: server.equip.requirements-refuse-directives
+#[test]
+fn a_ring_for_another_race_dragged_to_the_doll_is_refused_and_stays_in_the_pack() {
+    let (mut h, b, me, world, [ring, _, _]) = player();
+    let race = h.server.players[&world].race;
+    let mut t = h.server.catalog.get(RING).expect("the ring").clone();
+    t.props.set("Usage_RequiredRace", Prop::Word(!race & 0x7));
+    h.server.catalog.insert(t);
+    let at = slot_of(&h, world, ring).1;
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::DIRECTIVE_EQUIP,
+        &[directive(ring, me, 512, 0, at)],
+        3,
+    );
+    assert_eq!(
+        answers(&h, b, from),
+        [(
+            function::EQUIP_DONE,
+            ring,
+            512,
+            equip::flags::DIRECTED,
+            equip::refusal::WRONG_RACE,
+            0,
+            at,
+            0
+        )]
+    );
+    assert_eq!(slot_of(&h, world, ring), (0, at), "still in the pack");
 }

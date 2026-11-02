@@ -7,7 +7,9 @@ use auberean_protocol::login::{
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::{NarrowString, WideString};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
-use yalain_net::Service;
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+
+use yalain_net::{NetConfig, ServerNet, Service};
 use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, WORLD_PORT};
 use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE, SECRET_COST};
@@ -22,7 +24,12 @@ fn types(msgs: &[ServerMessage]) -> Vec<u32> {
 
 /// Log a new bot in and answer the data query; returns it once the character list is in.
 pub(super) fn at_character_list(h: &mut Harness, account: &str) -> usize {
-    let b = h.add_bot();
+    at_character_list_from(h, account, Ipv4Addr::LOCALHOST)
+}
+
+/// [`at_character_list`] for a bot at `ip`.
+fn at_character_list_from(h: &mut Harness, account: &str, ip: Ipv4Addr) -> usize {
+    let b = h.add_bot_from(ip);
     let now = h.now;
     h.bots[b].log_in(account, b"ticket", now);
     assert!(h.run_until(STEPS, |h| h.bots[b]
@@ -303,6 +310,62 @@ fn entering_the_world_refers_the_client_to_the_world_service() {
     )));
     let world = *h.server.worlds.keys().next().expect("a world connection");
     assert_eq!(h.net.service(world), Some(Service::World));
+}
+
+/// A world that names another address for players from elsewhere, listening on every address,
+/// refers each client to the address it reached the world at: one on the machine itself to
+/// loopback, where it enters; one on the machine's home network to the machine's address there;
+/// one from elsewhere to the named address.
+/// Behaviour: server.net.nearby-clients-referred-where-they-reached-the-world
+#[test]
+fn each_client_is_referred_to_the_world_at_the_address_it_reached_the_login_by() {
+    let mut h = Harness::new();
+    let named = Ipv4Addr::new(203, 0, 113, 10);
+    let own_on_lan = Ipv4Addr::new(192, 168, 1, 20);
+    h.net = ServerNet::new(
+        NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
+        0x5EED,
+        1.25e8,
+        h.now,
+    );
+    // The machine's routes: loopback to itself, its home network's address to everyone else.
+    h.net
+        .refer_nearby(IpAddr::V4(Ipv4Addr::UNSPECIFIED), move |client| {
+            Some(if client.is_loopback() {
+                Ipv4Addr::LOCALHOST
+            } else {
+                own_on_lan
+            })
+        });
+    let here = at_character_list_from(&mut h, "here", Ipv4Addr::LOCALHOST);
+    let lan = at_character_list_from(&mut h, "neighbor", Ipv4Addr::new(192, 168, 1, 30));
+    let away = at_character_list_from(&mut h, "traveler", Ipv4Addr::new(198, 51, 100, 7));
+    let mut ids = Vec::new();
+    for (b, name) in [
+        (here, "Hearthkeeper"),
+        (lan, "Neighbor"),
+        (away, "Wayfarer"),
+    ] {
+        let id = create(&mut h, b, name).identity.id;
+        h.bots[b].send(false, queue::LOGON, &enter(id));
+        ids.push(id);
+    }
+    assert!(h.run_until(STEPS, |h| h.bots[here].in_world()
+        && [lan, away].iter().all(|&b| !h.bots[b].referrals.is_empty())));
+    let to = |b: usize| {
+        let r = h.bots[b].referrals[0];
+        (*r.addr.ip(), r.addr.port())
+    };
+    assert_eq!(
+        to(here),
+        (Ipv4Addr::LOCALHOST, WORLD_PORT),
+        "on the machine"
+    );
+    assert_eq!(to(lan), (own_on_lan, WORLD_PORT), "on its network");
+    assert_eq!(to(away), (named, WORLD_PORT), "from elsewhere");
+    assert!(h.run_until(STEPS, |h| h.server.sessions.values().any(
+        |s| matches!(s.stage, Stage::InWorld { character, .. } if character == ids[0])
+    )));
 }
 
 /// A character already in the world is refused a second entry (the reason the 2017 servers gave,

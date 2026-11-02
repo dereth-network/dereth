@@ -879,11 +879,18 @@ pub fn profile<S: Store>(
         pk_damage: 0,
         pk_vigor_loss: 0,
     };
-    // Players have no kingdom here: the plant shows none.
+    // The plant shows its planter's kingdom.
+    let kingdom = s
+        .plants
+        .by_id
+        .get(&t.id)
+        .and_then(|p| s.players.values().find(|q| q.character == p.owner))
+        .and_then(|q| crate::kingdoms::of(&q.qualities))
+        .unwrap_or(0);
     let shown = Shown {
         name: t.facts.name,
         level: t.level(),
-        kingdom: 0,
+        kingdom,
         vitals: v,
         armor,
     };

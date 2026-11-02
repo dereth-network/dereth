@@ -23,8 +23,10 @@
 //! that carries a player to its lifestone) plays the recall, then takes the player through portal
 //! space to a place beside the lifestone, facing it.
 //!
-//! **Kept places.** A character keeps where its recall lands and the last place a portal took
-//! it.
+//! **Kept places.** A character keeps where its recall lands and where the last portal it used
+//! that may be recalled to took it (the portal's flags, [`yalain_content::portal`]; 2017: Portal
+//! Recall's landing was that portal's place 156 of 156 times, past the portals that may not be,
+//! the summoned ones and every other trip; Summon Portal's portal led there 34 of 34).
 
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::{Fx, MoveOrder, ObjectEvent, Word};
@@ -48,7 +50,7 @@ use yalain_content::quests::Trigger;
 pub mod kind {
     /// Where its lifestone recall takes it.
     pub const LIFESTONE: u32 = 0x4000_0001;
-    /// The last place a portal took it.
+    /// Where the last portal it used that may be recalled to took it (Portal Recall's place).
     pub const LAST_PORTAL: u32 = 0x4000_0004;
 }
 
@@ -95,16 +97,16 @@ pub const OPENS_AFTER: f64 = 2.5;
 /// Texts of trips: (string id, table).
 pub mod text {
     pub const TELEPORTING: (u32, u32) = (0xADE9_426F, 0x2500_0014);
-    pub const RECALLED: (u32, u32) = (0x912E_FF1D, 0x2500_115A);
     pub const BOUND: (u32, u32) = (0x1E2D_6E94, 0x2500_0014);
 }
 
 /// Items of the pack whose use does nothing but answer, by the script package they derive from:
 /// the answer's status and control flags (2017: motes refused as unusable 11 of 11, a dye plant
-/// answered 1 of 1).
-pub const HELD_ANSWERED: [(&str, u32, u32); 2] = [
+/// answered 1 of 1, lodestones answered 6 of 6, each at once with nothing else).
+pub const HELD_ANSWERED: [(&str, u32, u32); 3] = [
     ("MoteTemplate", USE_STATUS_IN_USE, 316),
     ("DyePlantTemplate", USE_STATUS_OK, 444),
+    ("Lodestone", USE_STATUS_OK, 444),
 ];
 
 /// The teaching stones' script package (the training hall's signs: "Movement", "Quest Panel", ...),
@@ -213,6 +215,8 @@ pub struct Trip {
     pub resurrect: bool,
     /// Sent by an effect: no word of it on arrival.
     pub sent: bool,
+    /// A recall's text on arrival ("You recall to your lifestone."), if it says one.
+    pub said: Option<TextInfo>,
 }
 
 fn send(net: &mut ServerNet, conn: ConnId, kind: BlobKind, m: &ServerMessage) {
@@ -246,11 +250,12 @@ pub(crate) fn to_knowers<S: Store>(s: &Server<S>, net: &mut ServerNet, id: u64, 
 
 /// The next visual stamp of a content object (made with stamp 1).
 pub fn object_stamp<S: Store>(s: &mut Server<S>, id: u64) -> ObjectStamp {
+    let instance_stamp = s.placed.instance(id);
     let v = s.visuals.entry(id).or_insert(1);
     *v = v.wrapping_add(1);
     ObjectStamp {
         id,
-        instance_stamp: 1,
+        instance_stamp,
         other_stamp: *v,
     }
 }
@@ -887,6 +892,13 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         let Some(i) = presence::content_by_id(&s.content.objects, u.target) else {
             s.unhandled
                 .note("an item used on an object the world does not have");
+            let m = use_answer_on(
+                &u,
+                crate::usable::interactions::FLAGS_KEPT,
+                0.0,
+                USE_STATUS_OK,
+            );
+            send(net, world, BlobKind::PRIVATE, &m);
             return;
         };
         let o = &s.content.objects[i];
@@ -911,6 +923,10 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         let me = p_id(s, world);
         let m = use_answer(&u, me, Some(flags), false, 0.0, status);
         send(net, world, BlobKind::PRIVATE, &m);
+        return;
+    }
+    // Coins go into the money bag.
+    if crate::pack::coins_used(s, net, world, &u) {
         return;
     }
     // A surveyor's map leads to its hidden place, and conjures a resource node there.
@@ -950,6 +966,18 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         send(net, world, BlobKind::PRIVATE, &done);
         return;
     }
+    // An item's own requirements (its place among them) come before the quest step its use moves:
+    // away from its place it is refused, and told how far.
+    if crate::quests::step_for(s, world, Trigger::Use(item), clock.unix).is_some() {
+        let props = s
+            .catalog
+            .get(item)
+            .map(|t| t.props.clone())
+            .unwrap_or_default();
+        if crate::item_use::refuse(s, net, world, &u, &props, clock) {
+            return;
+        }
+    }
     if crate::quests::triggered(s, net, world, Trigger::Use(item), None, clock) {
         let done = use_done(&u, me, USE_FLAGS_PERSON, false, 0.0);
         send(net, world, BlobKind::PRIVATE, &done);
@@ -959,7 +987,7 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     if crate::item_use::begin(s, net, world, &u, clock) {
         return;
     }
-    crate::equip::use_held(s, net, world, u.item, clock);
+    crate::equip::use_held(s, net, world, &u, clock);
 }
 
 /// A held item used on an object, the player in reach: the quest step it triggers. One that takes
@@ -985,17 +1013,41 @@ fn held_on_object<S: Store>(
         return;
     }
     let item = s.things.get(u.item).map_or(0, |t| t.template);
-    let target = presence::content_by_id(&s.content.objects, u.target)
-        .map_or(0, |i| s.content.objects[i].template);
+    let (target, distance) =
+        presence::content_by_id(&s.content.objects, u.target).map_or((0, 0.0), |i| {
+            let o = &s.content.objects[i];
+            let d = s
+                .players
+                .get(&world)
+                .and_then(|p| reach(&p.position, o.cell, o.origin))
+                .unwrap_or(0.0);
+            (o.template, d)
+        });
     let trigger = Trigger::UseOn(item, target);
+    // Every use is answered, so the item is free again: one that moves no step of the player's
+    // quests is answered as done, the item kept.
     let Some(step) = crate::quests::step_for(s, world, trigger, clock.unix) else {
         s.unhandled.note(format!(
             "an item of template {item:08X} used on one of {target:08X}"
         ));
+        let m = use_answer_on(
+            &u,
+            crate::usable::interactions::FLAGS_KEPT,
+            distance,
+            USE_STATUS_OK,
+        );
+        send(net, world, BlobKind::PRIVATE, &m);
         return;
     };
     let Some(place) = step.to else {
+        let flags = if step.takes.contains(&item) {
+            crate::usable::interactions::FLAGS_USED_UP
+        } else {
+            crate::usable::interactions::FLAGS_KEPT
+        };
         crate::quests::triggered(s, net, world, trigger, None, clock);
+        let m = use_answer_on(&u, flags, distance, USE_STATUS_OK);
+        send(net, world, BlobKind::PRIVATE, &m);
         return;
     };
     s.next_context = s.next_context.wrapping_add(1);
@@ -1027,6 +1079,7 @@ fn held_on_object<S: Store>(
         step: Some(step),
         resurrect: false,
         sent: false,
+        said: None,
     });
     to_all_knowing(s, net, id, &plays);
     s.after(
@@ -1172,7 +1225,7 @@ pub fn walked<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
                 && s.walk_in_packages.contains(&o.description.package)
         })
         .find(|o| touches(&at, o.cell, o.origin))
-        .and_then(|o| o.object);
+        .and_then(|o| s.placed.database_id(o));
     let before = s.touching.get(&world).copied();
     match touched {
         None => {
@@ -1374,7 +1427,7 @@ fn carry_out<S: Store>(
         return;
     }
     if s.shrine_packages.contains(&o.description.package) {
-        crate::usable::shrines::at_shrine(s, net, world, &u);
+        crate::usable::shrines::at_shrine(s, net, world, &u, o.description.package, clock);
         return;
     }
     if LIFESTONES.contains(&o.template) {
@@ -1480,6 +1533,7 @@ pub(crate) fn through_portal<S: Store>(
             step: None,
             resurrect: false,
             sent: false,
+            said: None,
         });
     }
     s.after(
@@ -1535,6 +1589,7 @@ fn through_door<S: Store>(
         step: None,
         resurrect: false,
         sent: false,
+        said: None,
     });
     s.after(
         clock,
@@ -1745,12 +1800,13 @@ pub fn beside(cell: u32, stone: [f32; 3], player: &StoredPosition) -> StoredPosi
 }
 
 /// A recall takes the player into portal space toward the place it lands (its powering up and
-/// its story told by the skill's use).
+/// its story told by the skill's use), and what it says as it arrives.
 pub fn recall_trip<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     to: StoredPosition,
+    said: Option<TextInfo>,
 ) {
     enter_portal_space(s, net, world, false);
     if let Some(p) = s.players.get_mut(&world) {
@@ -1760,6 +1816,7 @@ pub fn recall_trip<S: Store>(
             step: None,
             resurrect: false,
             sent: false,
+            said,
         });
     }
 }
@@ -1795,6 +1852,7 @@ pub fn sent_away<S: Store>(
             step: None,
             resurrect: false,
             sent: true,
+            said: None,
         });
     }
     s.after(
@@ -1805,6 +1863,15 @@ pub fn sent_away<S: Store>(
             step: Step::Arrive,
         },
     );
+}
+
+/// Does using this portal leave its user a place to recall to (its portal flags)? A portal of the
+/// world whose flags say so, used itself (not an item used on it); a summoned portal never does.
+fn recalled_to<S: Store>(s: &Server<S>, u: &Use) -> bool {
+    u.target == 0
+        && presence::content_by_id(&s.content.objects, u.item).is_some_and(|i| {
+            s.content.objects[i].facts.portal & yalain_content::portal::RECALL != 0
+        })
 }
 
 /// Where a dead player returns: the lifestone it is bound to; never bound, beside the nearest
@@ -1848,6 +1915,7 @@ pub fn resurrection_trip<S: Store>(
             step: None,
             resurrect: true,
             sent: false,
+            said: None,
         });
     }
     s.after(
@@ -2017,6 +2085,16 @@ fn arrive<S: Store>(
             &use_done(u, p.character, USE_FLAGS_TELEPORTED, true, distance),
         );
     }
+    // A recall says where it came out before the player's place (2017: every recall's text before
+    // its position).
+    if let Some(said) = trip.said.clone() {
+        send(
+            net,
+            world,
+            BlobKind::PRIVATE,
+            &crate::chat::show_text(2, said),
+        );
+    }
     // Clients that held the player at the old place and do not see the new one see it leave.
     let to = trip.to;
     presence::leave_from(s, net, &p, |q| {
@@ -2026,7 +2104,7 @@ fn arrive<S: Store>(
     p.position = trip.to;
     p.heading_motion =
         u32::from(heading_of_rotation(trip.to.rotation)) << 24 | crate::world::IDLE_MOTION;
-    if trip.used.is_some() {
+    if trip.used.as_ref().is_some_and(|u| recalled_to(s, u)) {
         p.places.retain(|(k, _)| *k != kind::LAST_PORTAL);
         p.places.push((kind::LAST_PORTAL, trip.to));
     }
@@ -2043,18 +2121,6 @@ fn arrive<S: Store>(
     }
     if trip.resurrect {
         crate::death::returned(s, net, world);
-    } else if trip.used.is_none() && !trip.sent {
-        let recalled = TextInfo {
-            string_id: text::RECALLED.0,
-            table: text::RECALLED.1,
-            ..TextInfo::default()
-        };
-        send(
-            net,
-            world,
-            BlobKind::PRIVATE,
-            &crate::chat::show_text(2, recalled),
-        );
     }
     if let Some(u) = trip.used.as_ref().filter(|u| u.target != 0) {
         // An item used on an object: the use answered, as the object's work is done (a vault's

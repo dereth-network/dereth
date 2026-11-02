@@ -85,7 +85,7 @@ pub fn content_speaker<S: Store>(s: &Server<S>, i: usize) -> Speaker {
         name: o.description.name.or(o.facts.name),
         stamp: ObjectStamp {
             id,
-            instance_stamp: 1,
+            instance_stamp: s.placed.instance(id),
             other_stamp: s.visuals.get(&id).copied().unwrap_or(1),
         },
     }

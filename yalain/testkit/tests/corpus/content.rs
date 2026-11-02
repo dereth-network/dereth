@@ -206,6 +206,7 @@ fn the_session_start_reads_back_against_the_client_library() {
         contents: Vec::new(),
         quests: Vec::new(),
         credits: 0,
+        hero_credits: 0,
         effects: yalain_world::session::Registry::default(),
         scenes: vec![(0x4000_0008, vec![0x4000_0021])],
         worn: vec![yalain_world::session::Worn {

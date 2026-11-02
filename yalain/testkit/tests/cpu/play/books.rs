@@ -177,6 +177,7 @@ fn a_shi_used_answers_the_use_then_shows_the_architects_book() {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     let from = h.bots[b].inbox.len();
     h.ask(

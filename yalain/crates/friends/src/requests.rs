@@ -8,7 +8,7 @@
 //! | `GetIgnoredList` | every ignored name |
 //! | `IgnoredAdd`, `IgnoredDelete` | kept (at most [`MAX_LISTED`]) or forgotten |
 //! | `SetLoc` | the character's state; its friends in the world are told its new mode, when it changed |
-//! | `SendToUserEx` | this world's: shown to the character when present and not ignoring the teller; another world's: through the link, answered when it ends |
+//! | `SendToUserEx` | this world's: shown to the character when present and not ignoring the teller; another world's: through the link, answered when it ends; from a gagged teller: denied, and it is told why |
 //!
 //! The stream answers the rest itself (the ticket's place, `Flags`, the reserved requests).
 
@@ -315,6 +315,11 @@ impl Service {
         store: &mut impl Store,
         fed: Option<&mut Federation>,
     ) {
+        if self.gagged.contains(&teller.character) {
+            self.line(teller.character, crate::GAGGED);
+            self.answer(stream, cx, Hr::DENIED, Answer::SendToUserEx);
+            return;
+        }
         let hr = match self.target(user) {
             Target::NoSuchUser => Hr::NO_SUCH_USER,
             Target::Local(n) => self.tell_here(teller, &n, text, extra, store),

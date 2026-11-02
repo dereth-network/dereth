@@ -13,8 +13,9 @@
 //! (health then fills in a minute, vigor in half of one), the combat rates nothing unless an effect
 //! gives them (a buff, a worn item's), so a player without one regains nothing in combat.
 //!
-//! **Creatures** not hurt for eight seconds regain 1.8% of their greatest health a second (seen
-//! only through 2017's selection pushes; nothing is sent for them).
+//! **Creatures** not hurt for eight seconds regain their greatest health in a minute (a share of it a
+//! second), in whole points as the share earned adds up (measured through 2017's selection pushes;
+//! nothing is sent for them).
 
 use yalain_net::ServerNet;
 use yalain_store::Store;
@@ -41,7 +42,7 @@ pub mod rate {
 }
 /// Seconds a creature must go unhurt before it regains health, and the share a second.
 pub const CREATURE_REST: f64 = 8.0;
-pub const CREATURE_HEALTH_RATE: f64 = 0.018;
+pub const CREATURE_HEALTH_RATE: f64 = 1.0 / 60.0;
 
 /// What one step gives a vital: its greatest times its rate and the seconds since the last step,
 /// over the seconds a rate of 1 takes to fill it, rounded down.
@@ -165,11 +166,20 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
     }
     for t in s.things.by_id.values_mut() {
         if !t.alive() || t.health >= t.max_health || now - t.last_hurt < CREATURE_REST {
+            t.regen_since = 0.0;
+            t.regained = 0;
             continue;
         }
-        let gain = dereth_primitives::num::to_i32_f64(
-            (f64::from(t.max_health) * CREATURE_HEALTH_RATE * crate::spawn::STEP_SECONDS).ceil(),
+        // From the end of its rest, or from the last step when it came to be below its greatest
+        // otherwise.
+        if t.regen_since == 0.0 {
+            t.regen_since = (t.last_hurt + CREATURE_REST).max(now - crate::spawn::STEP_SECONDS);
+        }
+        let earned = dereth_primitives::num::to_i32_f64(
+            (f64::from(t.max_health) * CREATURE_HEALTH_RATE * (now - t.regen_since)).floor(),
         );
-        t.health = (t.health + gain.max(1)).min(t.max_health);
+        let gain = (earned - t.regained).max(0);
+        t.regained += gain;
+        t.health = (t.health + gain).min(t.max_health);
     }
 }

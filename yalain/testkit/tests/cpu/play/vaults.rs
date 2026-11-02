@@ -87,6 +87,7 @@ fn hall() -> Harness {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     h.server.locks.objects.insert(
         VAULT,

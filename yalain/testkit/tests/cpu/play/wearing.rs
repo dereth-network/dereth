@@ -1,9 +1,11 @@
 //! Wearing armor, clothing and jewelry: an item of the pack used is worn at the place its template
 //! prefers (or another free one of its places), replacing what is there; the wearer's look gains
 //! the appearance the item gives its race and sex, for everyone who sees it; used again it comes
-//! off to the pack's front. And what others see a player hold: the weapon in its hand made for
-//! them hung from the hand. Fixture: players in the test hall, made-up garment templates naming
-//! an appearance for the wearer's race and sex, the human starting bow.
+//! off to the pack's front. An item whose race, skill, level or quest the wearer does not meet is
+//! refused and stays in the pack. And what others see a player hold: the weapon in its hand made
+//! for them hung from the hand. Fixture: players in the test hall, made-up garment templates naming
+//! an appearance for the wearer's race and sex (one also naming requirements), a made-up hidden
+//! quest, the human starting bow.
 
 use auberean_protocol::types::VisualDesc;
 use auberean_protocol::ServerMessage;
@@ -405,4 +407,245 @@ fn a_weapon_another_player_holds_is_made_in_its_hand_for_those_who_see_it() {
     h.enter_world(a, "one", me);
     h.run(10);
     assert!(hung(&h, w, fw).is_some(), "made for the one waiting");
+}
+
+/// The use answers a client was sent since `from`: (status, control flags, effective target).
+fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, u32)> {
+    const USE_DONE: u32 = 0x8216_0021;
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == USE_DONE)
+        .filter_map(|(_, v)| {
+            let Value::Graph(g) = v.first()? else {
+                return None;
+            };
+            g.iter().find_map(|(_, n)| match n {
+                Node::Script { slots, .. } => Some((slots[11].1, slots[17].1, slots[12].1)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A chest piece that names a race other than the wearer's, a skill, a least level and a hidden
+/// quest is refused, each in turn as the one before is met: the race (10015), the skill (10013),
+/// the level (10009), the quest as mysterious (10043); each answered alone, with the use's flags
+/// and no effective target, the piece left in the pack. With all of them met it is worn.
+/// Behaviour: server.equip.requirements-refuse
+#[test]
+fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_that_order() {
+    use yalain_content::quests::{QuestDef, QuestTable};
+    use yalain_world::item_use::refusal as use_refusal;
+    use yalain_world::quests::status;
+    use yalain_world::state::{QuestState, SkillState};
+    const GUARDED: u32 = 0x4700_7105;
+    const SKILL: u32 = 0x163;
+    const QUEST: u32 = 0x4000_0297;
+    const LEVEL: u32 = 302;
+    let (mut h, a, me, _) = two_players();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .unwrap()
+        .0;
+    let (race, sex) = {
+        let p = &h.server.players[&world];
+        (p.race, p.sex)
+    };
+    let mut t = garment(GUARDED, (2, 2, 0), CHEST_LOOK, race, sex);
+    t.props
+        .set("Usage_RequiredRace", Prop::Word(!race & 0x7))
+        .set("Usage_RequiredSkill1", Prop::Word(SKILL))
+        .set("Usage_MinLevel", Prop::Int(30))
+        .set("Usage_RequiredQuest", Prop::Word(QUEST))
+        .set("Usage_RequiredQuestStatus", Prop::Word(status::COMPLETED));
+    h.server.catalog.insert(t);
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            id: QUEST,
+            name: (0xA860_7CEC, 0x2500_17EE),
+            description: (0x6C45_9364, 0x2500_17EE),
+            icon: 0,
+            play_fx: false,
+            journals: Vec::new(),
+            challenge: -999,
+            duration: 0.0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: true,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+        }],
+        steps: Vec::new(),
+    };
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        LEVEL,
+        10,
+    );
+    let fa = h.bots[a].inbox.len();
+    let item = h.arm(a, me, GUARDED);
+    let refused = |h: &mut Harness, fa: usize, why: u32, what: &str| {
+        assert_eq!(use_answers(h, a, fa), [(why, 316, 0)], "{what}");
+        assert!(answers(h, a, fa).is_empty(), "{what}: no equipping");
+        assert_eq!(held(h, me, item).0, 0, "{what}: still in the pack");
+    };
+    refused(&mut h, fa, equip::refusal::WRONG_RACE, "the race first");
+    let edit = |h: &mut Harness, f: &dyn Fn(&mut yalain_world::world::Player)| {
+        f(h.server.players.get_mut(&world).unwrap());
+    };
+    edit(&mut h, &|p| {
+        let want = !race & 0x7;
+        p.race = want.isolate_lowest_one();
+    });
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(&mut h, fa, equip::refusal::MISSING_SKILL, "then the skill");
+    edit(&mut h, &|p| {
+        p.play.skills.push(SkillState {
+            skill: SKILL,
+            granted: 0,
+            mask: 1,
+            cost: 2,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    });
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(&mut h, fa, use_refusal::LEVEL_TOO_LOW, "then the level");
+    edit(&mut h, &|p| {
+        yalain_world::quals::set_int(&mut p.qualities, LEVEL, 30);
+    });
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(
+        &mut h,
+        fa,
+        use_refusal::MYSTERIOUS_USE,
+        "then the hidden quest",
+    );
+    edit(&mut h, &|p| {
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: status::COMPLETED,
+            phase: 0,
+            started: 0,
+            updated: 0,
+        });
+    });
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    assert!(use_answers(&h, a, fa).is_empty(), "met: no refusal");
+    assert_eq!(answers(&h, a, fa).len(), 1, "worn");
+    assert_eq!(held(&h, me, item).0, 2, "on the chest");
+}
+
+/// A treasure chest piece whose template names no requirement carries its own least level and
+/// Arcane Lore: used below its level it is refused 10009; at its level, without the lore, 10050;
+/// with an Arcane Lore skill rated at the item's lore it is worn.
+/// Behaviour: server.equip.own-requirements-refuse
+#[test]
+fn a_treasure_chest_piece_is_refused_by_its_own_least_level_then_its_own_arcane_lore() {
+    use yalain_world::item_use::refusal as use_refusal;
+    use yalain_world::skills::{SkillDef, ARCANE_LORE_CATEGORY};
+    use yalain_world::state::SkillState;
+    const TREASURE: u32 = 0x4700_7106;
+    const LORE_SKILL: u32 = 0x466;
+    const LEVEL: u32 = 302;
+    let (mut h, a, me, _) = two_players();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .unwrap()
+        .0;
+    let (race, sex) = {
+        let p = &h.server.players[&world];
+        (p.race, p.sex)
+    };
+    h.server
+        .catalog
+        .insert(garment(TREASURE, (2, 2, 0), CHEST_LOOK, race, sex));
+    h.server.skill_table.skills.insert(
+        LORE_SKILL,
+        SkillDef {
+            id: LORE_SKILL,
+            cap: 1000,
+            category: ARCANE_LORE_CATEGORY,
+            attribute_mod: 1.0,
+            ..SkillDef::default()
+        },
+    );
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        LEVEL,
+        49,
+    );
+    let fa = h.bots[a].inbox.len();
+    let item = h.arm(a, me, TREASURE);
+    assert_eq!(
+        answers(&h, a, fa).len(),
+        1,
+        "with nothing of its own it is worn"
+    );
+    use_it(&mut h, a, me, item);
+    assert_eq!(held(&h, me, item).0, 0, "taken off again");
+    h.server.things.get_mut(item).unwrap().own = yalain_world::treasure::Own {
+        min_level: Some(50),
+        arcane_lore: Some(26),
+        effect: None,
+    };
+    let refused = |h: &mut Harness, why: u32, what: &str| {
+        let fa = h.bots[a].inbox.len();
+        use_it(h, a, me, item);
+        assert_eq!(use_answers(h, a, fa), [(why, 316, 0)], "{what}");
+        assert!(answers(h, a, fa).is_empty(), "{what}: no equipping");
+        assert_eq!(held(h, me, item).0, 0, "{what}: still in the pack");
+    };
+    refused(&mut h, use_refusal::LEVEL_TOO_LOW, "below its own level");
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        LEVEL,
+        50,
+    );
+    refused(
+        &mut h,
+        equip::refusal::ARCANE_LORE_TOO_LOW,
+        "without its Arcane Lore",
+    );
+    let lore = |h: &mut Harness, rating: u32| {
+        let p = h.server.players.get_mut(&world).unwrap();
+        p.play.skills.retain(|k| k.skill != LORE_SKILL);
+        p.play.skills.push(SkillState {
+            skill: LORE_SKILL,
+            granted: rating,
+            mask: 1,
+            cost: 75,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    };
+    lore(&mut h, 25);
+    refused(
+        &mut h,
+        equip::refusal::ARCANE_LORE_TOO_LOW,
+        "an Arcane Lore one short",
+    );
+    lore(&mut h, 26);
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    assert!(use_answers(&h, a, fa).is_empty(), "met: no refusal");
+    assert_eq!(answers(&h, a, fa).len(), 1, "worn");
+    assert_eq!(held(&h, me, item).0, 2, "on the chest");
 }

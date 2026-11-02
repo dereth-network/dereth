@@ -100,6 +100,7 @@ fn shop() -> Harness {
     h.server.catalog = test_catalog();
     h.server.content = ContentPack {
         objects: vec![person(KEEPER, KEEPER_TEMPLATE, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
     };
     h.server.stores = StoreTable {
         keepers: vec![Keeper {
@@ -701,6 +702,7 @@ fn quest_givers_give_a_quest_and_move_it_on_in_order() {
             person(GUARD, GUARD_TEMPLATE, [61.0, 241.0, -44.6]),
             person(LIEUTENANT, LIEUTENANT_TEMPLATE, [60.0, 238.0, -44.6]),
         ],
+        ..ContentPack::default()
     };
     h.server.quests = quests();
     let (b, me) = h.player_in_world("one", "Elara");

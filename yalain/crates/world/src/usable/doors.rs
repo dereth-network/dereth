@@ -536,6 +536,8 @@ pub fn created<S: Store>(
     o: &yalain_content::ContentObject,
 ) -> auberean_protocol::physics::CreateObject {
     let mut m = crate::player::content_object(id, o);
+    // An object placed again by a reload is made with its newer instance stamp.
+    m.physics.instance_stamp = s.placed.instance(id);
     // A person walking its route is made with the stamp its place was last told with.
     if let Some(stamp) = crate::walkers::position_stamp(s, id) {
         m.physics.stamps[0] = stamp;
@@ -802,6 +804,18 @@ pub(crate) fn fits_answer<S: Store>(
     let mut used = u.clone();
     used.message = Some(progress::text_with(text::FITS, vars));
     used
+}
+
+/// A door the world database's reload takes away or places again is let go: a use waiting on it is
+/// refused as busy (a key used on it is kept), and it is closed, with no steps of its moving to come.
+pub(crate) fn release<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let Some(d) = s.doors.by_id.remove(&id) else {
+        return;
+    };
+    for w in [d.waiting, d.cut_short].into_iter().flatten() {
+        let busy = places::use_refused(&w.used, 0, None, w.distance, places::ACTIONS_LOCKED);
+        progress::private(net, w.world, &busy);
+    }
 }
 
 /// A step of a door's moving is due (none if the door has moved since).

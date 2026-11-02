@@ -1,8 +1,8 @@
 //! A player's own small requests: using another player (refused, the other told nothing), using an
-//! item of the pack that has no use (a mote refused, a dye plant only answered), setting and
-//! removing an alias (kept with the options, nothing answered), inscribing an item (a weapon takes
-//! it, anything else is refused with a text), listing the skills it trained, and cancelling a
-//! quest. Fixture: new players in the test world, made-up item templates and a made-up quest.
+//! item of the pack that has no use (a mote refused, a dye plant and a lodestone only answered),
+//! setting and removing an alias (kept with the options, nothing answered), inscribing an item (a
+//! weapon takes it, anything else is refused with a text), listing the skills it trained, and
+//! cancelling a quest. Fixture: new players in the test world, made-up item templates and a made-up quest.
 
 use std::collections::HashMap;
 
@@ -367,4 +367,43 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
             .any(|q| q.quest == quest && q.status == status::CANCELLED),
         "kept as cancelled"
     );
+}
+
+/// A lodestone used from the pack is only answered, made with the flags of a use at once, and is
+/// neither wielded nor spent.
+/// Behaviour: server.inventory.lodestones-only-answer
+#[test]
+fn a_lodestone_used_from_the_pack_is_only_answered() {
+    const LODESTONE: u32 = 0x4700_0C1D;
+    const LODESTONE_PACKAGE: u32 = 0x2203;
+    let mut h = world_of_items();
+    let (_, status, flags) = yalain_world::places::HELD_ANSWERED
+        .iter()
+        .find(|(base, _, _)| *base == "Lodestone")
+        .copied()
+        .expect("lodestones are answered");
+    h.server.catalog.insert(yalain_testkit::test_template(
+        LODESTONE,
+        LODESTONE_PACKAGE,
+        Props::default(),
+    ));
+    h.server
+        .held_answers
+        .insert(LODESTONE_PACKAGE, (status, flags));
+    let (a, me, world) = player(&mut h, "one");
+    let stone = give(&mut h, world, LODESTONE);
+    let fa = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &server_call(USE, &[use_of(stone, me)]));
+    h.run(5);
+    let got = answers(&h, a, fa);
+    assert_eq!(got.len(), 1);
+    assert_eq!((got[0].0, got[0].1), (0, 444));
+    let held: Vec<u32> = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.id == stone)
+        .map(|i| i.location)
+        .collect();
+    assert_eq!(held, [0], "kept in the pack, not wielded");
 }

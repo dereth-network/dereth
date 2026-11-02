@@ -31,18 +31,21 @@ fn levels() -> LevelTable {
                 health: 100,
                 vigor: 100,
                 skill_credits: 0,
+                hero_credits: 0,
             },
             Level {
                 xp: 10,
                 health: 130,
                 vigor: 130,
                 skill_credits: 1,
+                hero_credits: 0,
             },
             Level {
                 xp: 1000,
                 health: 160,
                 vigor: 160,
                 skill_credits: 1,
+                hero_credits: 0,
             },
         ],
     }
@@ -256,6 +259,34 @@ fn a_dead_creature_leaves_a_corpse_with_its_loot_and_then_leaves() {
             .any(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == beetle))
     });
     assert!(left, "the creature leaves");
+}
+
+/// An item drawn from a creature's loot profile carries what its dropper's level gives it of its
+/// own: a piece of equipment dropped by the level 2 beetle (no loot quality of its own) a least
+/// level of 2 to 5 and no Arcane Lore.
+/// Behaviour: server.loot.treasure-own-properties
+#[test]
+fn equipment_a_creature_drops_carries_a_least_level_of_its_own_by_the_creatures_level() {
+    let (mut h, b, _, _) = fight();
+    h.server.treasure.equipment.insert(0x200);
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let own: Vec<_> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_ITEM)
+        .map(|t| t.own)
+        .collect();
+    assert!(!own.is_empty(), "the corpse holds the item");
+    for o in own {
+        let least = o.min_level.expect("its own least level");
+        assert!((2..=5).contains(&least), "{least}");
+        assert_eq!(o.arcane_lore, None, "no Arcane Lore below a base of 52");
+        assert_eq!(o.effect, None);
+    }
 }
 
 /// Using the corpse opens it: the opener is told what it holds (the beetle's profile always
@@ -891,4 +922,59 @@ fn turning_a_corpses_items_into_money_keeps_a_quest_item_and_pays_the_rest() {
     assert!(lists(&v, 10, quest) && !lists(&v, 2, quest));
     assert!(lists(&v, 2, other) && !lists(&v, 10, other));
     assert_eq!(held_by(&h, corpse), vec![quest], "the quest item stays");
+}
+
+/// What a treasure item carries of its own follows its dropper: the loot base is the loot quality
+/// in tens (else the level); equipment's least level the base plus 0 to 3, every one of those
+/// drawn, at most 50; Arcane Lore only above a base of 51, from the game's table, below the base's
+/// own; a potion's effect of its level's tier (up to 15, 16-29, 30-39, 40-44, 45 up) at a
+/// spellcraft from 0 to 100.
+/// Behaviour: server.loot.treasure-own-properties-by-level
+#[test]
+fn a_treasure_items_own_properties_follow_its_droppers_level() {
+    use yalain_world::rng::Rng;
+    use yalain_world::treasure::{
+        arcane_lore, base_of, lore_at, min_level, potion_effect, potion_tier, POTION_EFFECTS,
+    };
+    assert_eq!(base_of(43, Some(440)), 44);
+    assert_eq!(base_of(20, None), 20);
+    let tiers: Vec<usize> = [1, 15, 16, 29, 30, 39, 40, 44, 45, 60]
+        .iter()
+        .map(|l| potion_tier(*l))
+        .collect();
+    assert_eq!(tiers, [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    assert_eq!(lore_at(50.0), None);
+    assert_eq!(lore_at(50.5), Some(8));
+    assert_eq!(lore_at(51.0), Some(17));
+    assert_eq!(lore_at(150.0), Some(887));
+    let mut rng = Rng::new(7);
+    let mut seen = [false; 4];
+    let (mut low, mut high) = (100.0f32, 0.0f32);
+    for _ in 0..2000 {
+        let l = min_level(&mut rng, 20);
+        assert!((20..=23).contains(&l), "{l}");
+        seen[usize::try_from(l - 20).unwrap()] = true;
+        assert!(min_level(&mut rng, 49) <= 50);
+        assert_eq!(min_level(&mut rng, 60), 50);
+        assert_eq!(arcane_lore(&mut rng, 51), None);
+        let lore = arcane_lore(&mut rng, 57).expect("a base of 57 always draws above 50");
+        assert!((17..=lore_at(56.0).unwrap()).contains(&lore), "{lore}");
+        let (state, spellcraft) = potion_effect(&mut rng, 10);
+        assert!(POTION_EFFECTS.iter().any(|k| k[0] == state), "{state:08X}");
+        assert!((0.0..=100.0).contains(&spellcraft));
+        low = low.min(spellcraft);
+        high = high.max(spellcraft);
+    }
+    assert_eq!(seen, [true; 4], "each of the base plus 0 to 3 drawn");
+    assert!(
+        low < 5.0 && high > 95.0,
+        "spellcraft over 0 to 100: {low} to {high}"
+    );
+    let some = (0..200)
+        .filter(|_| arcane_lore(&mut rng, 53).is_some())
+        .count();
+    assert!(
+        (40..=120).contains(&some),
+        "about two in five above 50: {some}"
+    );
 }

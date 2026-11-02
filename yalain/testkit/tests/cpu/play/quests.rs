@@ -197,6 +197,7 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
             Kind::Static,
             [61.0, 241.0, -44.6],
         )],
+        ..ContentPack::default()
     };
     let to = Place {
         cell: 0x0299_014D,
@@ -280,6 +281,7 @@ fn one_use_completes_a_quest_and_gives_the_next_that_requires_it() {
             Kind::Npc,
             [61.0, 241.0, -44.6],
         )],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable {
         quests: vec![quest(NEXT_QUEST, 0, -999), quest(HALL_QUEST, 0, -999)],
@@ -383,6 +385,7 @@ fn explorer_world(quests: Vec<QuestDef>, steps: Vec<Step>) -> Harness {
             Kind::Npc,
             [61.0, 241.0, -44.6],
         )],
+        ..ContentPack::default()
     };
     h.server.quests = QuestTable { quests, steps };
     h

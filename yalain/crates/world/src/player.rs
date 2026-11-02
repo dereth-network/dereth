@@ -194,6 +194,40 @@ pub fn physics_at(
     p
 }
 
+/// What a player's object shows of its qualities: its kingdom (none for a character that never
+/// joined one) and its six physics words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Marks {
+    pub kingdom: Option<u32>,
+    pub numbers: [i32; 6],
+}
+
+impl Default for Marks {
+    fn default() -> Self {
+        Self {
+            kingdom: None,
+            numbers: PLAYER_NUMBERS,
+        }
+    }
+}
+
+impl Marks {
+    /// A player's marks, as its qualities keep them.
+    #[must_use]
+    pub fn of(q: &Qualities) -> Self {
+        let mut numbers = PLAYER_NUMBERS;
+        for (i, n) in numbers.iter_mut().enumerate() {
+            if q.weenie.mask & WeenieDesc::NUMBER_BITS[NUMBERS_FROM + i] != 0 {
+                *n = q.weenie.numbers[NUMBERS_FROM + i];
+            }
+        }
+        Self {
+            kingdom: crate::kingdoms::of_qualities(q),
+            numbers,
+        }
+    }
+}
+
 /// The player's object.
 #[must_use]
 pub fn player_object(
@@ -203,8 +237,9 @@ pub fn player_object(
     look: VisualDesc,
     at: Placement,
     instance_stamp: u16,
+    marks: &Marks,
 ) -> CreateObject {
-    let weenie = weenie_with_numbers(
+    let mut weenie = weenie_with_numbers(
         WeenieDesc {
             mask: WeenieDesc::PACKAGE | WeenieDesc::NAME | WeenieDesc::ENTITY,
             package_id: PLAYER_PACKAGE,
@@ -212,8 +247,12 @@ pub fn player_object(
             name: StringInfo::literal(&world_name(name, sex)),
             ..WeenieDesc::default()
         },
-        PLAYER_NUMBERS,
+        marks.numbers,
     );
+    if let Some(k) = marks.kingdom {
+        weenie.mask |= WeenieDesc::NUMBER_BITS[2];
+        weenie.numbers[2] = k.cast_signed();
+    }
     CreateObject {
         id,
         visual: look,

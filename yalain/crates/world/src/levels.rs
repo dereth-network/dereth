@@ -1,5 +1,5 @@
-//! The character levels: the experience each level starts at, and the health, vigor and skill
-//! credits it brings, read from the client's level table (a saved state the client also reads to
+//! The character levels: the experience each level starts at, and the health, vigor, skill
+//! credits and hero skill credits it brings, read from the client's level table (a saved state the client also reads to
 //! show a character's progress).
 
 use auberean_script::graph::Graph;
@@ -19,6 +19,8 @@ pub struct Level {
     pub vigor: i32,
     /// The skill credits reaching the level grants.
     pub skill_credits: i32,
+    /// The hero skill credits reaching the level grants (100 a level from level 45).
+    pub hero_credits: i32,
 }
 
 /// Every level, from level 1.
@@ -56,6 +58,9 @@ impl LevelTable {
                 health: nav.field(o, "mHealth")?.cast_signed(),
                 vigor: nav.field(o, "mVigor")?.cast_signed(),
                 skill_credits: nav.field(o, "mSkillCredits")?.cast_signed(),
+                hero_credits: nav
+                    .field(o, "mHeroSkillCredits")
+                    .map_or(0, u32::cast_signed),
             });
         }
         if levels.is_empty() {

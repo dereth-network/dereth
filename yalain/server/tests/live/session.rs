@@ -1,16 +1,21 @@
-//! A whole session of our client against the server's executable on loopback.
+//! A whole session of our client against the server's executable on loopback, and a large record
+//! a client asks it for, served whole.
 
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use auberean_client_sdk::net::LocalTime;
+use auberean_client_sdk::protocol::login::DataRequest;
+use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
 use auberean_client_sdk::{Action, Client};
 use yalain_testkit::authored;
+use yalain_testkit::bot::Bot;
 use yalain_testkit::session::{self as play, sent, Drive};
+use yalain_world::download::{file_of, packed, DataFiles};
 
 /// A folder of its own under cargo's temporary folder for tests, emptied.
 pub(crate) fn scratch(name: &str) -> PathBuf {
@@ -20,10 +25,10 @@ pub(crate) fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-/// An even port with the three above it free on loopback now, below the ports the system hands
-/// out on its own (so a socket bound meanwhile cannot take one), starting from one of this
-/// process's own; never one this process handed out before, so tests running beside each other
-/// each have their own.
+/// An even port with the three above it free on loopback now as UDP, and the port itself as TCP,
+/// starting from one of this process's own; never one this process handed out before, so tests
+/// running beside each other each have their own. Each is let go before it is returned, so another
+/// program can take one before the server does: [`serving`] starts the server again on fresh ports.
 pub(crate) fn free_ports() -> u16 {
     static GIVEN: Mutex<Vec<u16>> = Mutex::new(Vec::new());
     let mut given = GIVEN
@@ -37,12 +42,114 @@ pub(crate) fn free_ports() -> u16 {
         let held: Vec<UdpSocket> = (0..4)
             .filter_map(|i| UdpSocket::bind((Ipv4Addr::LOCALHOST, p + i)).ok())
             .collect();
-        if held.len() == 4 {
+        let stream = TcpListener::bind((Ipv4Addr::LOCALHOST, p)).is_ok();
+        if held.len() == 4 && stream {
             given.push(p);
             return p;
         }
     }
     panic!("no four free ports on loopback");
+}
+
+/// How many times a server is started on fresh ports before a test gives up.
+pub(crate) const STARTS: u32 = 5;
+
+/// What the server's log says once it listens for clients, and once it has every port: its
+/// friends service's TCP listener is the last it takes.
+const LISTENING: &str = " [listening]";
+const SERVING: &str = "friends service listening on TCP";
+
+/// How many servers this test run starts at once. Each reads the install's tables and compiles its
+/// world database before it listens, which on a loaded machine takes minutes; the others wait their
+/// turn, and each one's wait against a hang begins only when it starts.
+const STARTING_AT_ONCE: usize = 2;
+
+/// A turn to start a server: held from its start until it serves or stops.
+pub(crate) struct Turn;
+
+static STARTING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+impl Turn {
+    /// Waits until fewer than [`STARTING_AT_ONCE`] servers are starting.
+    pub(crate) fn take() -> Self {
+        let (n, free) = &STARTING;
+        let mut n = n.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *n >= STARTING_AT_ONCE {
+            n = free
+                .wait(n)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *n += 1;
+        Self
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let (n, free) = &STARTING;
+        let mut n = n.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *n -= 1;
+        free.notify_one();
+    }
+}
+
+/// The exit code of a server whose ports another program holds.
+pub(crate) const PORTS_TAKEN: i32 = 3;
+
+/// Whether the log holds the server's line saying another program holds a port of its.
+pub(crate) fn ports_taken(log: &str) -> bool {
+    log.lines().any(|l| {
+        l.contains(" yalain: binding the ports: ") && l.trim_end().ends_with(" [ports-taken]")
+    })
+}
+
+/// The server's executable started by `start` on a login port this test chose (the world's two
+/// above), with its log in `dir`'s `server.log`, once its log says it listens and has every port:
+/// the port, the server and what `start` gave beside it. It starts at its [`Turn`]. Each port was
+/// let go before the server took it, so another program can take one first: the server then stops
+/// with its ports-taken exit code, and is started again on fresh ports. Fails when the server
+/// stops for anything else.
+pub(crate) fn serving<T>(dir: &Path, start: impl FnMut(u16) -> (Child, T)) -> (u16, Running, T) {
+    serving_on(dir, free_ports, start)
+}
+
+/// [`serving`] with the login ports chosen by `ports` for each start.
+fn serving_on<T>(
+    dir: &Path,
+    mut ports: impl FnMut() -> u16,
+    mut start: impl FnMut(u16) -> (Child, T),
+) -> (u16, Running, T) {
+    for _ in 0..STARTS {
+        let turn = Turn::take();
+        let port = ports();
+        let (child, more) = start(port);
+        let mut server = Running(child);
+        let started = Instant::now();
+        loop {
+            let exit = server.0.try_wait().expect("the server's state");
+            let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
+            if log.contains(LISTENING) && log.contains(SERVING) {
+                drop(turn);
+                return (port, server, more);
+            }
+            if let Some(exit) = exit {
+                assert!(
+                    exit.code() == Some(PORTS_TAKEN) && ports_taken(&log),
+                    "the server stopped at its start: {exit}\n{log}"
+                );
+                eprintln!(
+                    "a port of {port} was taken by another program; started again on fresh ports"
+                );
+                break;
+            }
+            assert!(
+                started.elapsed().as_secs_f64() < play::HANG,
+                "the server never had its ports\n{log}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    panic!("the server lost a port to another program {STARTS} times");
 }
 
 /// How long a server a test starts runs before it stops by itself, in seconds: a stop for one a
@@ -52,6 +159,11 @@ pub(crate) const LIFE: u32 = 1_800;
 /// The server's executable, serving the authored world's database with its files in `dir`, for at
 /// most `seconds`.
 pub(crate) fn start_server(dir: &Path, login: u16, seconds: u32) -> Child {
+    start_server_with(dir, login, seconds, &[])
+}
+
+/// [`start_server`] with more options on its command line.
+pub(crate) fn start_server_with(dir: &Path, login: u16, seconds: u32, more: &[&str]) -> Child {
     let install = auberean_dat::testing::require_target_install();
     let log = std::fs::File::create(dir.join("server.log")).expect("the server's log");
     Command::new(env!("CARGO_BIN_EXE_yalain"))
@@ -62,6 +174,7 @@ pub(crate) fn start_server(dir: &Path, login: u16, seconds: u32) -> Child {
         .arg("--world-db")
         .arg(authored::database_dir())
         .args(["--seconds", &seconds.to_string(), "--verbose"])
+        .args(more)
         .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(log.try_clone().expect("the log twice"))
@@ -145,9 +258,23 @@ pub(crate) fn must<T>(r: Result<T, String>, dir: &Path) -> T {
 /// Behaviour: session.server.our-client-plays-a-whole-session-on-the-server-executable
 #[test]
 fn our_client_plays_a_whole_session_on_the_server_executable() {
+    // A new character can lose its fight with the sentinel, which strikes back (about one fight in
+    // eighty): the session is played again from the start, on a server of its own, when it does.
+    for _ in 0..FIGHTS {
+        if plays_a_whole_session() {
+            return;
+        }
+    }
+    panic!("the player lost the fight {FIGHTS} times");
+}
+
+/// How many times the whole session is played before a lost fight fails it.
+const FIGHTS: u32 = 3;
+
+/// The whole session, played through; `false` when the player lost the fight.
+fn plays_a_whole_session() -> bool {
     let dir = scratch("yalain-live-session");
-    let port = free_ports();
-    let _server = Running(start_server(&dir, port, LIFE));
+    let (port, _server, ()) = serving(&dir, |port| (start_server(&dir, port, LIFE), ()));
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
     socket.set_nonblocking(true).expect("nonblocking");
     let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
@@ -183,7 +310,13 @@ fn our_client_plays_a_whole_session_on_the_server_executable() {
         order,
         [sent::SET_SELECTION, sent::QUERY_EXAMINATION, sent::LOOK_AT]
     );
-    must(play::attack_until_dead(&mut s, sentinel.id), &dir);
+    match play::attack_until_dead(&mut s, sentinel.id) {
+        Err(e) if e.starts_with(play::LOST_THE_FIGHT) => {
+            eprintln!("{e}; played again");
+            return false;
+        }
+        r => must(r, &dir),
+    }
     let (_, item) = must(play::open_corpse(&mut s), &dir);
     must(play::take(&mut s, item), &dir);
     must(play::say(&mut s, "Well met."), &dir);
@@ -218,4 +351,127 @@ fn our_client_plays_a_whole_session_on_the_server_executable() {
         &dir,
     );
     must(play::log_off(&mut s), &dir);
+    true
+}
+
+/// The script library: its kind and id.
+const LIBRARY_KIND: u32 = 0x4000_004F;
+const LIBRARY: u32 = 0x5600_0005;
+/// The data download's queue.
+const DATABASE: u16 = 5;
+
+/// The script library, seven megabytes compressed and sixteen thousand fragments, goes from the
+/// server's executable to a client on loopback whole, as the install holds it, at the server's
+/// pace: sent all at once, most of it was lost in the client's socket and never came.
+/// Behaviour: server.net.large-record-served-over-real-sockets
+#[test]
+fn a_client_on_loopback_takes_the_script_library_whole_from_the_server_executable() {
+    let (file, name) = file_of(LIBRARY_KIND).expect("a portal kind");
+    let record = authored::install_files()
+        .read(file, LIBRARY)
+        .expect("the install holds the library");
+    let want = packed(name, LIBRARY_KIND, LIBRARY, &record);
+
+    let dir = scratch("yalain-live-download");
+    let (port, _server, ()) = serving(&dir, |port| (start_server(&dir, port, LIFE), ()));
+    let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
+    socket.set_nonblocking(true).expect("nonblocking");
+    let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let mut bot = Bot::new(socket.local_addr().expect("its address"), login);
+    let start = Instant::now();
+    let time = || LocalTime(1.0 + start.elapsed().as_secs_f64());
+    bot.log_in("downloader", b"ticket", time());
+    let mut buf = vec![0; 65_536];
+    let mut asked = false;
+    let mut checked = Instant::now();
+    let got = loop {
+        assert!(
+            start.elapsed().as_secs_f64() < play::HANG,
+            "the library never came: {} messages",
+            bot.messages(false).len()
+        );
+        loop {
+            match socket.recv_from(&mut buf) {
+                Ok((n, from)) => bot.on_datagram(from, &buf[..n], time()),
+                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+        if bot.logged_in() && !asked {
+            bot.send(
+                false,
+                DATABASE,
+                &ClientMessage::DataRequest(DataRequest {
+                    kind: LIBRARY_KIND,
+                    id: LIBRARY,
+                }),
+            );
+            asked = true;
+        }
+        for (to, bytes) in bot.tick(time()) {
+            let _ = socket.send_to(&bytes, to);
+        }
+        if checked.elapsed() > Duration::from_millis(500) {
+            checked = Instant::now();
+            let record = bot.messages(false).into_iter().find_map(|m| match m {
+                ServerMessage::DataRecord(r) if r.id == LIBRARY => Some(r),
+                _ => None,
+            });
+            if let Some(r) = record {
+                break r;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert_eq!(
+        (got.dat_file, got.kind, got.size, got.bytes.len()),
+        (want.dat_file, want.kind, want.size, want.bytes.len())
+    );
+    assert!(
+        got.bytes == want.bytes,
+        "the install's record, byte for byte"
+    );
+}
+
+mod starts {
+    //! The live tests' own start of the server: one whose port another program took before it
+    //! bound it is started again on fresh ports.
+    //!
+    //! Behaviour: none (checks the live tests' own harness: how they start the server)
+
+    use std::net::{Ipv4Addr, UdpSocket};
+
+    use super::{free_ports, scratch, serving_on, start_server, LIFE};
+
+    #[test]
+    fn a_server_that_loses_a_port_before_it_binds_it_is_started_again_on_fresh_ports() {
+        let dir = scratch("yalain-live-lost-port");
+        // The first start's ports: chosen until this test holds the world's second port of them
+        // (another program may take a port first), the socket holding it kept to the end.
+        let mut held: Option<UdpSocket> = None;
+        let mut chosen = Vec::new();
+        let (port, _server, ()) = serving_on(
+            &dir,
+            || loop {
+                let port = free_ports();
+                if held.is_some() {
+                    break port;
+                }
+                if let Ok(s) = UdpSocket::bind((Ipv4Addr::LOCALHOST, port + 3)) {
+                    held = Some(s);
+                    break port;
+                }
+            },
+            |port| {
+                chosen.push(port);
+                (start_server(&dir, port, LIFE), ())
+            },
+        );
+        assert!(held.is_some(), "a port held");
+        assert!(chosen.len() >= 2, "started again: {chosen:?}");
+        assert_eq!(chosen.last(), Some(&port));
+        let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
+        let listening = format!("listening on 127.0.0.1:{port}/{} (login)", port + 1);
+        assert!(log.contains(&listening), "{log}");
+    }
 }

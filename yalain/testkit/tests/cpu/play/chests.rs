@@ -87,6 +87,7 @@ fn hall(template: u32, lockable: bool, opens_on_unlock: bool) -> Harness {
             walks: None,
             gate: None,
         }],
+        ..ContentPack::default()
     };
     h.server.chests.packages.insert(PACKAGE);
     let mut chest = Props::default();

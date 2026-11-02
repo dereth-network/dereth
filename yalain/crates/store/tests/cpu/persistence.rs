@@ -2,7 +2,7 @@
 //! folder, removed at the end.
 
 use yalain_store::{
-    backups, Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition,
+    backups, Ban, Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition,
     WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
 };
 
@@ -466,6 +466,59 @@ fn a_save_or_purge_that_fails_part_way_leaves_the_one_before_it_whole() {
     assert!(s.character(n).expect("reads").is_some(), "still there");
 }
 
+/// A character the operator makes with a build, or brings from another world, is kept with its
+/// state in one transaction: when the state fails part way, no character is left without it; when
+/// both go, both read back.
+/// Behaviour: server.operator.characters-exported-and-imported
+#[test]
+fn a_character_kept_with_its_state_is_kept_whole_or_not_at_all() {
+    let file = temp("with-state");
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let a = s.create_account("Tester", None, 100).expect("made");
+    let n = s.next_character_number().expect("number");
+    s.insert_character_with_state(&character(n, a.id, "Babyfare"), &world())
+        .expect("kept");
+    assert_eq!(s.world_state(n).expect("reads"), Some(world()));
+    assert!(s.character(n).expect("reads").is_some());
+
+    let other = rusqlite::Connection::open(&file.0).expect("a second connection");
+    other
+        .execute_batch(
+            "CREATE TRIGGER refuse_places BEFORE INSERT ON kept_place \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
+        .expect("a trigger");
+    let m = s.next_character_number().expect("number");
+    assert!(
+        s.insert_character_with_state(&character(m, a.id, "Halfmade"), &world())
+            .is_err(),
+        "its places refused"
+    );
+    assert_eq!(
+        s.character(m).expect("reads"),
+        None,
+        "no character without its state"
+    );
+    assert!(
+        !s.name_taken("Halfmade").expect("reads"),
+        "its name still free"
+    );
+
+    let mut mem = MemoryStore::default();
+    let a = mem.create_account("Tester", None, 100).expect("made");
+    mem.insert_character_with_state(&character(7, a.id, "Babyfare"), &world())
+        .expect("kept");
+    assert_eq!(mem.world_state(7).expect("reads"), Some(world()));
+    assert!(mem
+        .insert_character_with_state(&character(8, a.id, "babyfare"), &world())
+        .is_err());
+    assert_eq!(
+        mem.world_state(8).expect("reads"),
+        None,
+        "nothing of a refused one"
+    );
+}
+
 /// A temporary file of its own, with nothing of a run before at its place.
 fn temp(name: &str) -> TempFile {
     let file = TempFile(
@@ -648,4 +701,73 @@ fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
     std::mem::forget(s);
     let mut again = SqliteStore::open(&file.0).expect("opens after the crash");
     assert_eq!(again.world_state(5).expect("reads"), Some(world()));
+}
+
+/// The operator's moderation is kept, in SQLite and in memory alike: an account's access level
+/// and ban (with who made it, when it ends and why), each change at once, a ban lifted; a
+/// character's gag with the seconds it has still to run, lifted, and forgotten with the character.
+/// The accounts list by name without regard to case. A file kept before them gains them: every
+/// account a player's, none banned, nobody gagged.
+/// Behaviour: server.operator.moderation-kept
+#[test]
+fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
+    let file = temp("moderation");
+    earlier_store(&file.0);
+    let mut sql = SqliteStore::open(&file.0).expect("an earlier file opens");
+    let tester = sql
+        .account_by_name("tester")
+        .expect("reads")
+        .expect("the earlier account");
+    assert_eq!((tester.access, tester.ban.clone()), (0, None));
+    assert_eq!(sql.gag(7).expect("reads"), None);
+    let ban = Ban {
+        at: 1_000,
+        until: 2_000,
+        by: "CONSOLE".into(),
+        reason: Some("spam".into()),
+    };
+    let mut memory = MemoryStore::default();
+    memory.create_account("Tester", None, 100).expect("made");
+    memory
+        .insert_character(&character(7, 1, "Babyfare"))
+        .expect("kept");
+    for store in [&mut sql as &mut dyn Store, &mut memory] {
+        store.create_account("alma", None, 5).expect("made");
+        store.set_account_access(1, 2).expect("set");
+        store.set_account_ban(1, Some(&ban)).expect("banned");
+        store.set_gag(7, Some(250.5)).expect("gagged");
+        assert!(store.set_account_access(99, 1).is_err(), "no such account");
+        assert!(store.set_account_ban(99, None).is_err(), "no such account");
+        let names: Vec<String> = store
+            .accounts()
+            .expect("reads")
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(names, ["alma", "Tester"], "by name, without regard to case");
+    }
+    drop(sql);
+    let mut sql = SqliteStore::open(&file.0).expect("opens again");
+    for store in [&mut sql as &mut dyn Store, &mut memory] {
+        let a = store
+            .account_by_name("TESTER")
+            .expect("reads")
+            .expect("kept");
+        assert_eq!((a.access, a.ban), (2, Some(ban.clone())), "kept");
+        assert_eq!(store.gag(7).expect("reads"), Some(250.5));
+        store.set_account_ban(1, None).expect("lifted");
+        store.set_gag(7, None).expect("ungagged");
+        assert_eq!(
+            store
+                .account_by_name("tester")
+                .expect("reads")
+                .expect("kept")
+                .ban,
+            None
+        );
+        assert_eq!(store.gag(7).expect("reads"), None);
+        store.set_gag(7, Some(10.0)).expect("gagged");
+        store.purge_character(7).expect("purged");
+        assert_eq!(store.gag(7).expect("reads"), None, "forgotten with it");
+    }
 }

@@ -566,6 +566,27 @@ pub fn done<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// A node the world database's reload takes away: a player's work on it is answered, the node
+/// used up, and nothing of it comes.
+pub(crate) fn release<S: Store>(s: &mut Server<S>, net: &mut ServerNet, node: u64) {
+    let mut i = 0;
+    while i < s.timers.len() {
+        let Timer::Mine { world, work } = &s.timers[i].1 else {
+            i += 1;
+            continue;
+        };
+        if work.node != node {
+            i += 1;
+            continue;
+        }
+        let (world, used) = (*world, work.used.clone());
+        s.timers.remove(i);
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let m = crate::places::use_answer_to(&used, me, 0, TARGET_KIND, 0.0, refusal::USED_UP);
+        progress::private(net, world, &m);
+    }
+}
+
 /// A node that goes: its id, whether it is spent, and a vein's template and place to come back to.
 type Going = (u64, bool, Option<(u32, StoredPosition)>);
 

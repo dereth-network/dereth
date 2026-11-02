@@ -1293,6 +1293,8 @@ pub fn execute<S: Store>(
             return refuse(net, error::INVALID_INGREDIENTS);
         }
     }
+    // Making a recipe ends a protection, before its behavior.
+    crate::effects::unprotect(s, net, world, |_, _| {});
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {

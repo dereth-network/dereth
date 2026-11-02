@@ -245,6 +245,8 @@ pub struct CreatureStats {
     pub loot_profile: Option<u32>,
     pub loot_min: Option<i64>,
     pub loot_max: Option<i64>,
+    /// The quality its loot is made at, when its template sets one (in tenths of a level).
+    pub loot_quality: Option<i64>,
     /// Fixed drops: the item template and the chance of it.
     pub trophies: Vec<(u32, f32)>,
     /// The effects its death applies to its killer, by name.
@@ -299,6 +301,7 @@ pub mod creature_property {
     pub const SCALE: &str = "Scale";
     pub const LOOT_PROFILE: &str = "NPC_DeathLootProfile";
     pub const LOOT_MIN: &str = "NPC_DeathLootMinQuantityOverride";
+    pub const LOOT_QUALITY: &str = "NPC_DeathLootQualityOverride";
     pub const LOOT_MAX: &str = "NPC_DeathLootMaxQuantityOverride";
     pub const WEAPON: &str = "AI_Inventory1";
     pub const WEAPONS_HELD: &str = "AI_Inventory1Quantity";
@@ -407,6 +410,7 @@ impl CreatureStats {
             loot_profile: p.word(k::LOOT_PROFILE),
             loot_min: p.int(k::LOOT_MIN),
             loot_max: p.int(k::LOOT_MAX),
+            loot_quality: p.int(k::LOOT_QUALITY),
             trophies,
             death_effects,
             weapon: p.text(k::WEAPON).map(str::to_string),

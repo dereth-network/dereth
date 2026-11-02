@@ -1,7 +1,11 @@
 //! The login connection, as the January 2017 login server ran it.
 //!
 //! - **Login.** The account is checked ([`AccountPolicy`]); the server sends the world's name and
-//!   asks which data the client holds.
+//!   asks which data the client holds. A login refused is answered with the refusal and its
+//!   connection closed at once.
+//! - **A full world.** A login past the logins the world holds, or past those one address may
+//!   hold, is refused unchecked with the client's "server full" reason (19), as the January 2017
+//!   login server refused one.
 //! - **The character list.** When the client answers, the server says the download is over and
 //!   sends the account's characters twice: by name and id ([`CharacterNames`], those in play), then
 //!   with their looks ([`CharacterList`], deleted ones still greyed out included).
@@ -12,6 +16,8 @@
 //!   then belongs to that character.
 //! - **Leaving** the world answers that the character has left, and the lists again; a character
 //!   in the world lingers in it for about nineteen seconds first ([`fn@crate::world::log_off`]).
+//! - **A banned account** is admitted no further: its login is ended with the client's line that
+//!   the account is banned ([`crate::admin`]).
 //! - **Logging in again.** An account has one character in the world at a time: entering is
 //!   refused (reason 11) while one of its characters is in the world or on its way in. A new login
 //!   of an account whose character is still in the world (its client gone without logging off)
@@ -59,6 +65,8 @@ pub fn retail_data_query() -> DataQuery {
 
 /// The refusal reason for an account that may not log in.
 pub const ACCOUNT_INVALID: u32 = 7;
+/// How many logins a world holds at once unless its operator says otherwise: Empyrean's 128.
+pub const MAX_SESSIONS: u32 = 128;
 /// A character answer for choices that make no character (an unknown race or sex).
 pub const CORRUPT: u32 = 5;
 /// A character answer when the character could not be kept.
@@ -339,6 +347,11 @@ pub(crate) fn logged_in<S: Store>(
     login: &GameLogin,
     clock: Clock,
 ) {
+    if let Some(why) = full(s, net, conn) {
+        tracing::info!(?conn, "login refused: {why}");
+        refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
+        return;
+    }
     let name = login.account.trim().to_string();
     let address = net.peer(conn).map(|a| address_key(a.ip()));
     let now = clock.local.0;
@@ -366,12 +379,14 @@ pub(crate) fn logged_in<S: Store>(
                 s.login_guard.refused(a, now);
             }
         }
-        let m = ServerMessage::CharacterRefused(CharacterRefused {
-            reason: ACCOUNT_INVALID,
-        });
-        send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
+        refuse_login(net, conn, ACCOUNT_INVALID, clock);
         return;
     };
+    if crate::admin::banned(&mut s.store, &account, clock.unix) {
+        tracing::info!(?conn, account = %account.name, "login refused: the account is banned");
+        crate::admin::end_login(s, net, conn, crate::admin::BANNED, clock);
+        return;
+    }
     tracing::info!(?conn, account = %account.name, version = %login.version, "logged in");
     logged_in_again(s, net, account.id, clock);
     s.sessions.insert(
@@ -390,6 +405,37 @@ pub(crate) fn logged_in<S: Store>(
         BlobKind::LOGIN,
         &ServerMessage::DataQuery(retail_data_query()),
     );
+}
+
+/// Why a new login on `conn` finds the world full, if it does: as many logins as the world holds,
+/// or as many from its address as one address may hold (an address the operator exempts is held
+/// back by the first only). Counted before the ticket is checked, as Empyrean counts.
+fn full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'static str> {
+    let held = s.sessions.keys().filter(|c| **c != conn);
+    if held.clone().count() >= s.cfg.max_sessions as usize {
+        return Some("the world is full");
+    }
+    let limit = s.cfg.max_sessions_per_address?;
+    let ip = net.peer(conn)?.ip().to_canonical();
+    if s.cfg
+        .unlimited_addresses
+        .iter()
+        .any(|a| a.to_canonical() == ip)
+    {
+        return None;
+    }
+    let from_it = held
+        .filter(|c| net.peer(**c).is_some_and(|a| a.ip().to_canonical() == ip))
+        .count();
+    (from_it >= limit as usize).then_some("its address holds as many logins as it may")
+}
+
+/// Refuse a login: the refusal, and the connection closed with it, as the January 2017 login
+/// server ended a login it refused for a full world (the refusal and its goodbye together).
+fn refuse_login(net: &mut ServerNet, conn: ConnId, reason: u32, clock: Clock) {
+    let m = ServerMessage::CharacterRefused(CharacterRefused { reason });
+    send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
+    net.end(conn, clock.local);
 }
 
 /// An account logs in again while an earlier login of it still has a character in the world (its
@@ -844,7 +890,7 @@ pub(crate) fn message<S: Store>(
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
         ClientMessage::DownloadEnds(_) => {}
-        ClientMessage::Chat(p) => crate::chat::service(s, net, conn, &p.0),
+        ClientMessage::Chat(p) => crate::chat::service(s, net, conn, &p.0, clock),
         other => s.unhandled.note(format!(
             "message {:#x} on the login connection",
             other.message_type()
@@ -960,6 +1006,26 @@ pub fn seed_character<S: Store>(
     sex: u32,
     now: i64,
 ) -> Result<Character, String> {
+    let record = new_character_record(store, rules, account, name, race, sex, now)?;
+    store.insert_character(&record).map_err(|e| e.to_string())?;
+    Ok(record)
+}
+
+/// The record of a character made outside a client's login, as [`seed_character`] makes one, not
+/// yet kept: its name checked and free, a middling physique, its look, and a new id.
+///
+/// # Errors
+/// The name is not a name or is taken, there is no body for the race and sex, or the store
+/// failed.
+pub fn new_character_record<S: Store>(
+    store: &mut S,
+    rules: &crate::CharGenRules,
+    account: &Account,
+    name: &str,
+    race: u32,
+    sex: u32,
+    now: i64,
+) -> Result<Character, String> {
     let name = crate::names::NameRules::default()
         .check(name)
         .map_err(|why| format!("the name {name} is not a name ({why:?})"))?;
@@ -1001,6 +1067,5 @@ pub fn seed_character<S: Store>(
         deleted_at: None,
         last_played: now,
     };
-    store.insert_character(&record).map_err(|e| e.to_string())?;
     Ok(record)
 }

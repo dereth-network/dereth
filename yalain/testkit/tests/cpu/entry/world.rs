@@ -125,10 +125,11 @@ fn kind_of(m: &ServerMessage) -> String {
 }
 
 /// As a character enters, its world connection carries, in this order: the player's object, the
-/// message that makes it the client's player, its description, the arrival effect, a freeze of
-/// its movement, the end of the portal effect, the session start and the welcome, a new
-/// character's craft skills and the craft registry, then (after the objects around) its
-/// allegiance's profile and its chat channels twice; the private ones
+/// message that makes it the client's player, its description, a new character's conflict
+/// status, the arrival effect, a new character's movement ethereality, a freeze of its movement,
+/// the end of the portal effect, the session start and the welcome, a new character's craft
+/// skills and the craft registry, then (after the objects around) its allegiance's profile and
+/// its chat channels twice; the private ones
 /// numbered from 1, the object messages unordered, the effects ordered by the object's visual
 /// stamps after the one it was made with.
 /// Behaviour: server.world.entry-in-the-recorded-order
@@ -150,7 +151,9 @@ fn entering_sends_the_player_its_object_description_and_session_start_in_the_rec
             "0x10058".to_string(),
             "0x10060".into(),
             "0x10068".into(),
+            format!("call {:08X}", yalain_world::kingdoms::STATUS),
             "0x100a0".into(),
+            "0x1006a".into(),
             format!("call {:08X}", function::MOVEMENT_FROZEN),
             "0x100a1".into(),
             format!("call {:08X}", function::SESSION_START),
@@ -165,9 +168,12 @@ fn entering_sends_the_player_its_object_description_and_session_start_in_the_rec
     let tops: Vec<u64> = v.iter().map(|r| r.blob_id >> 56).collect();
     assert_eq!(
         tops,
-        [0x03, 0x03, 0x01, 0x02, 0x01, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01]
+        [
+            0x03, 0x03, 0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01
+        ]
     );
-    assert_eq!(private_stamps(&v), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(private_stamps(&v), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let Some(ServerMessage::CreateObject(o)) = v[0].message() else {
         panic!()
     };
@@ -199,15 +205,15 @@ fn entering_sends_the_player_its_object_description_and_session_start_in_the_rec
         (q.0.ints.get(290), q.0.ints.get(291), q.0.ints.get(292)),
         (Some(&1), Some(&0x1000), Some(&2))
     );
-    let Some(ServerMessage::DoFx(fx)) = v[3].message() else {
+    let Some(ServerMessage::DoFx(fx)) = v[4].message() else {
         panic!()
     };
     assert_eq!((fx.action.fx, fx.sender.other_stamp), (ARRIVAL_FX, 9));
-    let Some(ServerMessage::StopFx(stop)) = v[5].message() else {
+    let Some(ServerMessage::StopFx(stop)) = v[7].message() else {
         panic!()
     };
-    assert_eq!((stop.action.0, stop.sender.other_stamp), (PORTAL_FX, 10));
-    let Some(ServerMessage::PlayerCall(frozen)) = v[4].message() else {
+    assert_eq!((stop.action.0, stop.sender.other_stamp), (PORTAL_FX, 11));
+    let Some(ServerMessage::PlayerCall(frozen)) = v[6].message() else {
         panic!()
     };
     assert_eq!(
@@ -217,7 +223,7 @@ fn entering_sends_the_player_its_object_description_and_session_start_in_the_rec
     let skills = vec![(835, 0), (96, 0), (176, 0), (207, 0), (1, 1), (7, 1)];
     let options = Options::new_character(&skills).to_packed();
     assert!(
-        v[6].bytes.windows(options.len()).any(|w| w == options),
+        v[8].bytes.windows(options.len()).any(|w| w == options),
         "the session start holds a new character's options"
     );
 }
@@ -250,8 +256,8 @@ fn the_drawn_scene_frees_the_player_and_ends_the_arrival_effect() {
     let Some(ServerMessage::StopFx(stop)) = v[1].message() else {
         panic!()
     };
-    assert_eq!((stop.action.0, stop.sender.other_stamp), (ARRIVAL_FX, 11));
-    assert_eq!(private_stamps(&v), [10]);
+    assert_eq!((stop.action.0, stop.sender.other_stamp), (ARRIVAL_FX, 12));
+    assert_eq!(private_stamps(&v), [11]);
 }
 
 fn position(cell: u32, origin: Vec3, heading: u8) -> ClientMessage {
@@ -394,6 +400,7 @@ fn objects_in_range_are_made_as_the_player_enters_and_as_it_walks_into_their_lan
             object(0x4700_2D31, None, 0x029A_0012),
             object(0x4700_2225, None, 0x029B_0013),
         ],
+        ..ContentPack::default()
     };
     h.server.content = pack;
     let b = at_character_list(&mut h, "tester");
@@ -593,7 +600,8 @@ fn without_a_referral_the_world_comes_on_the_login_connection() {
             .collect();
         assert!(is_player_object(&v[0], id), "round {round}");
         // A new character's craft skills come once, before its first registry.
-        let privates: Vec<u16> = (1..=if round == 0 { 9 } else { 8 }).collect();
+        // A new character is told its conflict status too.
+        let privates: Vec<u16> = (1..=if round == 0 { 10 } else { 8 }).collect();
         assert_eq!(private_stamps(&v), privates, "round {round}");
         let from = h.bots[b].inbox.len();
         h.bots[b].send(

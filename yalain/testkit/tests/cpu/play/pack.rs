@@ -1,7 +1,7 @@
 //! The pack and its three bags: where an item comes in (at the front of the first segment with
 //! room, every item there moving up one, the move naming that slot), moving items about the pack
-//! and its bags (a plain move, a split, a merge), selling an item in the money bag, and taking
-//! everything from an open corpse. Fixture: a new player given test items by the world, as a
+//! and its bags (a plain move, a split, a merge), selling an item in the money bag, coins used into
+//! the money bag, and taking everything from an open corpse. Fixture: a new player given test items by the world, as a
 //! quest's reward gives them, and a corpse made beside it holding items.
 
 use auberean_protocol::ServerMessage;
@@ -749,4 +749,59 @@ fn the_packs_segments_are_windows_that_tile_its_contents_in_order() {
     assert_eq!(total as usize, contents.len(), "the counts tile the list");
     assert_eq!(contents[..42], main[..], "the main window first");
     assert_eq!(contents[42], bag_item, "the first bag's window after it");
+}
+
+/// Coins used from the pack go into the money bag whole, one gold each, as a drag of them would:
+/// "Adding %1 pieces of Gold.", the money up by as many, the coins gone, and the drag's answer
+/// from the player at slot 0, with no answer to the use.
+/// Behaviour: server.inventory.coins-used-into-money
+#[test]
+fn coins_used_from_the_pack_go_into_the_money_bag_whole() {
+    const USE_DONE: u32 = 0x8216_0021;
+    let (mut h, b, me, world) = player();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        pack::COINS,
+        0x181,
+        yalain_content::Props::default(),
+    ));
+    inventory::give(&mut h.server, &mut h.net, world, pack::COINS, 500);
+    h.run(2);
+    let coins = pack_order(&h, world)[0];
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        MONEY,
+        100,
+    );
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        yalain_world::requests::function::USE,
+        &[yalain_testkit::play::use_of(coins, me)],
+        4,
+    );
+    let calls = h.calls(b, from);
+    let text = calls
+        .iter()
+        .position(|(f, _)| *f == yalain_world::session::function::SHOW_TEXT)
+        .expect("told");
+    let done = calls
+        .iter()
+        .position(|(f, _)| *f == function::TO_MONEY_BAG_DONE)
+        .expect("answered as a drag");
+    assert!(text < done, "told first");
+    assert_eq!(
+        calls[done].1,
+        [Value::Long(me), Value::Int(0), Value::Long(0)],
+        "from the player, slot 0, nothing left"
+    );
+    assert!(
+        !calls.iter().any(|(f, _)| *f == USE_DONE),
+        "the use not answered"
+    );
+    assert!(
+        h.world_messages(b, from).iter().any(|m| matches!(m,
+            ServerMessage::UpdateInt(q) if q.quality == MONEY && q.value == 600)),
+        "the money up by 500"
+    );
+    assert!(pack_order(&h, world).is_empty(), "the coins gone");
 }

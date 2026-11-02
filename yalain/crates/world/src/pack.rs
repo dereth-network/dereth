@@ -403,16 +403,38 @@ pub fn to_money_bag<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
             .note("a drag to the money bag of an item the pack does not hold");
         return;
     };
+    into_money_bag(s, net, world, h, quantity, &done);
+}
+
+/// What so many of an item bring into the money bag: a treasure item its own value, coins one each
+/// (2017: 3 of 3 coins dragged, 15 of 15 used), any other its template's for each one.
+fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 {
+    if own_value > 0 {
+        own_value
+    } else if template == COINS {
+        n
+    } else {
+        inv::item_value(s, template).saturating_mul(n)
+    }
+}
+
+/// So many of an item of the pack go into the money bag: "Adding %1 pieces of Gold.", the money
+/// up by their worth, the stack down by as many or the item gone, then `done` answered (with the
+/// item when some is left, else none).
+fn into_money_bag<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    h: Held,
+    quantity: u32,
+    done: &dyn Fn(u64) -> ServerMessage,
+) {
+    let item = h.id;
     let Some((own_value, have)) = s.things.get(item).map(|t| (t.value, t.quantity.max(1))) else {
         return;
     };
     let sold = quantity.clamp(1, have);
-    // A treasure item carries its own value; any other is its template's for each one.
-    let gold = if own_value > 0 {
-        own_value
-    } else {
-        inv::item_value(s, h.template).saturating_mul(sold)
-    };
+    let gold = worth(s, h.template, own_value, sold);
     let added = crate::chat::show_text(
         text::ADDING_SHOWN_AS,
         progress::text_with(
@@ -446,6 +468,40 @@ pub fn to_money_bag<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
         destroyed(s, net, world, item);
     }
     crate::world::keep_player(s, world);
+}
+
+/// A player uses coins of its pack: the whole stack goes into its money bag as a drag of it would,
+/// answered as a drag from the player at slot 0 and not as a use (2017: 15 of 15). Returns false
+/// for any other item.
+pub fn coins_used<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &crate::places::Use,
+) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let Some(h) = p
+        .play
+        .items
+        .iter()
+        .find(|h| h.id == u.item && h.location == 0 && h.template == COINS)
+        .copied()
+    else {
+        return false;
+    };
+    let me = p.character;
+    let done = |item: u64| {
+        session::call(
+            function::TO_MONEY_BAG_DONE,
+            &[Arg::LongInt(me), Arg::Int(0), Arg::LongInt(item)],
+        )
+        .expect("packs")
+    };
+    let all = s.things.get(h.id).map_or(1, |t| t.quantity.max(1));
+    into_money_bag(s, net, world, h, all, &done);
+    true
 }
 
 /// The coins' template: what the money bag gives when coins are dragged out of it.

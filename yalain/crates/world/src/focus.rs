@@ -148,14 +148,19 @@ pub fn set_hero<S: Store>(
         // Never in the world yet: the qualities it will first enter with.
         st.qualities = crate::world::first_state(s, &c).qualities;
     }
-    quals::set_bool(&mut st.qualities, HERO, hero);
-    if hero {
-        // Its greatest when it enters: the base and its own focus quality.
-        let own = quals::int(&st.qualities, quality::FOCUS_MAX).unwrap_or(0);
-        quals::set_int(&mut st.qualities, quality::FOCUS, BASE + own);
-    }
+    set_hero_kept(&mut st.qualities, hero);
     s.store
         .set_world_state(c.id, &st)
         .map_err(|e| format!("the store: {e}"))?;
     Ok(format!("{} {said} (out of the world).", c.name))
+}
+
+/// Make a character out of the world a hero, or no longer one, in its kept qualities: made one,
+/// its focus is its greatest when it enters (the base and its own focus quality).
+pub fn set_hero_kept(qualities: &mut Vec<u8>, hero: bool) {
+    quals::set_bool(qualities, HERO, hero);
+    if hero {
+        let own = quals::int(qualities, quality::FOCUS_MAX).unwrap_or(0);
+        quals::set_int(qualities, quality::FOCUS, BASE + own);
+    }
 }

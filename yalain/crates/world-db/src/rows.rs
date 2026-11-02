@@ -135,6 +135,9 @@ pub struct Object {
     /// The quest a player must hold, and where, to use it (a portal its placed instance keeps
     /// closed).
     pub requires: Option<(u32, Gate)>,
+    /// A portal a player who used it may recall to, and summon a portal to.
+    pub recall: bool,
+    pub summon: bool,
     pub prov: Prov,
 }
 
@@ -372,6 +375,16 @@ pub enum Row {
     Shard(Shard),
     Weapon(Weapon),
     Route(Route),
+    Area(Area),
+}
+
+/// `[[area]]`: the kind of player conflict a landblock allows (a landblock no row names is a
+/// peace area).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Area {
+    pub landblock: u16,
+    pub conflict: yalain_content::Conflict,
+    pub prov: Prov,
 }
 
 /// `[[weapon]]`: the template of the weapon a creature's template names, where the name is no
@@ -471,6 +484,7 @@ impl Row {
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
             Self::Route(_) => "route",
+            Self::Area(_) => "area",
         }
     }
 
@@ -493,19 +507,20 @@ impl Row {
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
+            Self::Area(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 16] = [
+pub const KINDS: [&str; 17] = [
     "object", "camp", "loot", "keeper", "sale", "quest", "step", "place", "talk", "remove",
-    "craft", "butchery", "scene", "shard", "weapon", "route",
+    "craft", "butchery", "scene", "shard", "weapon", "route", "area",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 16] = [
+pub const FIELDS: [(&str, &[&str]); 17] = [
     (
         "object",
         &[
@@ -528,6 +543,8 @@ pub const FIELDS: [(&str, &[&str]); 16] = [
             "route_start",
             "route_direction",
             "requires",
+            "recall",
+            "summon",
             "prov",
         ],
     ),
@@ -693,6 +710,7 @@ pub const FIELDS: [(&str, &[&str]); 16] = [
         "route",
         &["key", "waypoints", "shape", "gait", "speed", "rest", "prov"],
     ),
+    ("area", &["landblock", "conflict", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -974,6 +992,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 route_start: f.u32("route_start").unwrap_or(0),
                 route_backward,
                 requires: f.gate("requires"),
+                recall: f.bool("recall").unwrap_or(false),
+                summon: f.bool("summon").unwrap_or(false),
                 prov: f.req_prov()?,
             })
         }
@@ -1239,6 +1259,27 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 gait,
                 speed,
                 rest,
+                prov: f.req_prov()?,
+            })
+        }
+        "area" => {
+            let landblock = f.req_id("landblock")?;
+            let Ok(landblock) = u16::try_from(landblock) else {
+                f.bad("landblock", "a landblock is 0xXXYY");
+                return None;
+            };
+            let conflict = match f.word(
+                "conflict",
+                yalain_content::Conflict::from_word,
+                "peace, controlled, kingdom-vs-kingdom or free-for-all",
+            ) {
+                Some(Some(c)) => c,
+                Some(None) => return None,
+                None => return f.missing("conflict"),
+            };
+            Row::Area(Area {
+                landblock,
+                conflict,
                 prov: f.req_prov()?,
             })
         }

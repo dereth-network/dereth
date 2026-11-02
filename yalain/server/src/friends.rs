@@ -18,6 +18,7 @@ use yalain_federation::Federation;
 use yalain_friends::{Out, Service, StreamId};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
+use yalain_world::admin::Ticket;
 use yalain_world::Server;
 
 /// The most bytes read from one connection in one pass.
@@ -52,11 +53,17 @@ impl Friends {
     ///
     /// # Errors
     /// The port cannot be bound.
-    pub fn start(service: Service, at: Option<SocketAddr>) -> Result<Self, String> {
+    pub fn start(service: Service, at: Option<SocketAddr>) -> Result<Self, crate::Failure> {
         let listener = match at {
             Some(at) => {
                 let l = TcpListener::bind(at).map_err(|e| {
-                    format!("the friends service on TCP {at}: {e} (--no-friends turns it off)")
+                    crate::Failure::binding(
+                        format!(
+                            "binding the ports: the friends service on TCP {at} (--no-friends \
+                             turns it off)"
+                        ),
+                        &e,
+                    )
                 })?;
                 l.set_nonblocking(true)
                     .map_err(|e| format!("the friends service: {e}"))?;
@@ -85,18 +92,17 @@ impl Friends {
         mut fed: Option<&mut Federation>,
     ) -> bool {
         let mut busy = self.accept(now);
+        self.service.set_gagged(server.gags.characters());
         busy |= self.read(now, &mut server.store, fed.as_deref_mut());
         for t in self.service.take_tickets() {
-            let account = yalain_world::login::admits(
-                server.cfg.accounts,
-                server.cfg.secret_cost,
-                &mut server.store,
+            // A banned account's ticket is refused as banned: the client says the account is.
+            match yalain_world::admin::ticket(
+                server,
                 &t.ticket.account,
                 t.ticket.secret.as_bytes(),
                 unix_now(),
-            );
-            match account {
-                Some(a) => self.service.admit(
+            ) {
+                Ticket::Admitted(a) => self.service.admit(
                     now,
                     t.stream,
                     t.cx,
@@ -104,11 +110,11 @@ impl Friends {
                     &mut server.store,
                     fed.as_deref_mut(),
                 ),
-                None => self.service.refuse(
+                refused => self.service.refuse(
                     now,
                     t.stream,
                     t.cx,
-                    false,
+                    refused == Ticket::Banned,
                     &mut server.store,
                     fed.as_deref_mut(),
                 ),

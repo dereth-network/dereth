@@ -18,8 +18,9 @@ pub mod function {
     pub const SAY: u32 = 0x8205_0006;
     /// Tell someone something.
     pub const TELL: u32 = 0x8205_0002;
-    /// Show an emote.
+    /// Show an emote; type one.
     pub const EMOTE: u32 = 0x8205_000B;
+    pub const TYPED_EMOTE: u32 = 0x8205_0004;
     /// Examine an object.
     pub const EXAMINE: u32 = 0x820A_0007;
     /// Ask for an allegiance's profile.
@@ -48,9 +49,10 @@ pub fn call<S: Store>(
     match f {
         function::SET_SELECTION => select(s, net, world, &values),
         function::EXAMINE => examine_object(s, net, world, &values, clock),
-        function::SAY => chat::say(s, net, world, call),
+        function::SAY => chat::say(s, net, world, call, clock),
         function::TELL => chat::tell(s, net, world, &values),
         function::EMOTE => chat::emote(s, net, world, &values),
+        function::TYPED_EMOTE => chat::typed_emote(s, net, world, &values),
         // A member's profile is answered; the client's asking for nothing (id 0) is not.
         function::QUERY_ALLEGIANCE => crate::allegiance::query(s, net, world, &values),
         crate::allegiance::function::SWEAR => {
@@ -253,6 +255,30 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
         v.durability = Some((i32::try_from(now).unwrap_or(i32::MAX), most));
     }
     v.destroyed_on_use |= s.destroyed_on_use.contains(&t.description.package);
+    // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
+    // name.
+    if let Some(l) = t.own.min_level {
+        v.min_level = l;
+    }
+    if let Some(l) = t.own.arcane_lore {
+        v.arcane_lore = l;
+    }
+    if let Some(e) = t.own.effect {
+        let shown = s
+            .effect_table
+            .get(e.state)
+            .and_then(profile::EffectShown::of);
+        v.effects.push(profile::ItemEffect {
+            when: profile::When::Used,
+            table: e.table,
+            spellcraft: shown
+                .is_none_or(|x| x.spellcraft_shown)
+                .then_some(dereth_primitives::num::to_i32(e.spellcraft)),
+        });
+        if t.quantity <= 1 {
+            v.name = Some(profile::potion_name(&t.facts, e.table));
+        }
+    }
     // The skills it takes, by their names.
     if let Some(tp) = s.catalog.get(t.template) {
         v.skills = ["Usage_RequiredSkill1", "Usage_RequiredSkill2"]
@@ -381,6 +407,7 @@ fn profile_bytes<S: Store>(
             q.race,
             q.sex,
             examine::level_of(&q.qualities),
+            crate::kingdoms::of(&q.qualities),
             v,
         )
     } else if let Some(t) = s.things.get(req.object) {
@@ -425,7 +452,7 @@ fn profile_bytes<S: Store>(
                 let recall = if lifestone {
                     profile::line::LIFESTONE_RECALL
                 } else {
-                    profile::line::CANNOT_RECALL_PORTAL
+                    profile::portal_line(f.portal)
                 };
                 if lifestone || o.destination.is_some() {
                     profile::place(

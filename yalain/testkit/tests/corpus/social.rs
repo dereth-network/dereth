@@ -94,6 +94,7 @@ fn content() -> ContentPack {
             ),
             object(BROKER, BROKER_TEMPLATE, [60.0, 240.2, -44.6], None),
         ],
+        ..ContentPack::default()
     }
 }
 

@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 18] = [
+pub const RULES: [&str; 19] = [
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
@@ -47,6 +47,7 @@ pub const RULES: [&str; 18] = [
     "hoard-key-text",
     "hoard-teleport-place",
     "map-marked-place",
+    "item-spot-regen",
 ];
 
 /// An evidence handle: capital letters, digits and hyphens, in parts joined by hyphens (the
@@ -150,6 +151,12 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if r.kind == crate::rows::ObjectKind::Npc && r.id.is_some() {
                     problems.push(at(
                         "id: a person is numbered by the server; only a static object keeps an id"
+                            .into(),
+                    ));
+                }
+                if (r.recall || r.summon) && r.to.is_none() {
+                    problems.push(at(
+                        "recall, summon: only a portal (an object with `to`) is recalled or summoned to"
                             .into(),
                     ));
                 }

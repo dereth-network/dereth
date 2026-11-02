@@ -1,11 +1,15 @@
-//! The two ends of a connection, and the game login body.
+//! The two ends of a connection, the game login body, and where a referral sends a client.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+mod pace;
+mod status_ping;
 
 use dereth_transport::conn::ConnectSeeds;
 use dereth_transport::wire::ParsedPacket;
 use yalain_net::endpoint::{Endpoint, Role, Stats};
 use yalain_net::login::{build_login, parse_login, TICKET};
+use yalain_net::referral::world_ip;
 use yalain_net::LocalTime;
 
 fn pair(now: LocalTime) -> (Endpoint, Endpoint) {
@@ -106,4 +110,79 @@ fn a_game_login_reads_back_to_what_was_written() {
         "the version, scrambled and padded"
     );
     assert!(parse_login(&body[..body.len() - 1]).is_none());
+}
+
+/// A client close by is referred to an address on its own side, and anyone else to the address
+/// named for players from elsewhere: services on one address refer a client close by to it; services
+/// on every address to this machine's own address on the way to the client when that is on the
+/// client's kind of network (loopback, a home network, a shared network), and otherwise to the
+/// named address (a server in a container, behind the host's address translation); a client on
+/// IPv6, or from the internet, to the named address, without a route asked for.
+/// Behaviour: server.net.nearby-clients-referred-where-they-reached-the-world
+#[test]
+fn a_client_close_by_is_referred_to_an_address_on_its_side_and_anyone_else_to_the_named_one() {
+    let ip = |s: &str| -> IpAddr { s.parse().expect("an address") };
+    let v4 = |s: &str| -> Ipv4Addr { s.parse().expect("an address") };
+    let named = v4("203.0.113.10");
+    let every = ip("0.0.0.0");
+    let unasked = |_: Ipv4Addr| -> Option<Ipv4Addr> { panic!("no route is needed") };
+
+    // One address listened on: the only one a client close by can have reached.
+    let one = ip("192.168.1.20");
+    assert_eq!(
+        world_ip(one, named, ip("192.168.1.30"), unasked),
+        v4("192.168.1.20")
+    );
+    assert_eq!(
+        world_ip(one, named, ip("10.8.0.5"), unasked),
+        v4("192.168.1.20")
+    );
+    assert_eq!(world_ip(one, named, ip("198.51.100.7"), unasked), named);
+
+    // Every address listened on: this machine's own address on the way to the client.
+    let routes = |client: Ipv4Addr| -> Option<Ipv4Addr> {
+        Some(match client.octets() {
+            [127, ..] => v4("127.0.0.1"),
+            [100, ..] => v4("100.101.7.8"),
+            _ => v4("192.168.1.20"),
+        })
+    };
+    assert_eq!(
+        world_ip(every, named, ip("127.0.0.1"), routes),
+        v4("127.0.0.1")
+    );
+    assert_eq!(
+        world_ip(every, named, ip("::ffff:127.0.0.1"), routes),
+        v4("127.0.0.1")
+    );
+    assert_eq!(
+        world_ip(ip("::"), named, ip("::ffff:127.0.0.1"), routes),
+        v4("127.0.0.1")
+    );
+    assert_eq!(
+        world_ip(every, named, ip("192.168.1.30"), routes),
+        v4("192.168.1.20")
+    );
+    assert_eq!(
+        world_ip(every, named, ip("100.102.3.4"), routes),
+        v4("100.101.7.8")
+    );
+    assert_eq!(world_ip(every, named, ip("169.254.9.9"), routes), named);
+    assert_eq!(
+        world_ip(every, named, ip("10.0.0.9"), |_| Some(v4("172.17.0.2"))),
+        named
+    );
+    assert_eq!(
+        world_ip(every, named, ip("127.0.0.1"), |_| None),
+        v4("127.0.0.1")
+    );
+    assert_eq!(world_ip(every, named, ip("192.168.1.30"), |_| None), named);
+
+    // From elsewhere, or on IPv6: the named address.
+    assert_eq!(world_ip(every, named, ip("198.51.100.7"), unasked), named);
+    assert_eq!(world_ip(every, named, ip("2001:db8::7"), unasked), named);
+    assert_eq!(
+        world_ip(ip("2001:db8::1"), named, ip("192.168.1.30"), unasked),
+        named
+    );
 }

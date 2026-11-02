@@ -190,6 +190,7 @@ pub fn glyph_at_vault<S: Store>(
         step: None,
         resurrect: false,
         sent: false,
+        said: None,
     });
     places::to_all_knowing(s, net, me, &plays);
     s.vault_trips.entry(vault_id).or_default().under_way = Some(world);

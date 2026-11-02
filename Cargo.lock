@@ -7030,7 +7030,9 @@ dependencies = [
  "dereth-primitives",
  "embed-resource",
  "getrandom 0.4.3",
+ "serde",
  "serde_json",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "tungstenite",
@@ -7080,6 +7082,8 @@ dependencies = [
  "auberean-primitives",
  "dereth-primitives",
  "dereth-transport",
+ "hmac",
+ "sha2",
  "tracing",
 ]
 

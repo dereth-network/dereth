@@ -13,7 +13,7 @@ use std::time::Instant;
 use yalain_testkit::authored;
 use yalain_testkit::session::{self as play};
 
-use crate::session::{free_ports, must, scratch, Loopback, Running};
+use crate::session::{must, scratch, serving, Loopback};
 
 const KEY: &str = "drth_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -111,9 +111,7 @@ fn next(beats: &Receiver<Beat>, what: &str, dir: &Path) -> Beat {
 fn the_server_reports_itself_to_a_hub_as_an_auberean_world_with_the_characters_in_it() {
     let dir = scratch("yalain-live-hub");
     let (hub, beats) = stand_in_hub();
-    let port = free_ports();
-    let (child, mut console) = start_server(&dir, port, hub);
-    let _server = Running(child);
+    let (port, _server, mut console) = serving(&dir, |port| start_server(&dir, port, hub));
 
     let first = next(&beats, "the first heartbeat", &dir);
     assert_eq!(first.line, "POST /v1/servers/shardfall/heartbeat HTTP/1.1");

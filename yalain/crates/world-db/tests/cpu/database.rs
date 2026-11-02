@@ -652,6 +652,52 @@ fn a_step_can_be_moved_by_an_item_given_to_a_person() {
 }
 
 #[test]
+fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gate = |t: &yalain_world_db::compile::Tables| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.destination.is_some())
+            .map(|o| o.facts.portal)
+    };
+    assert_eq!(
+        gate(&t),
+        Some(0),
+        "a portal is recalled to only when its row says so"
+    );
+    assert!(t.places_by_name.is_empty());
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"",
+        "to = \"inn\"\nrecall = true\nsummon = true",
+    );
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\ndestination = \"Human_Recall_Town_01\"",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(gate(&t), Some(0x3));
+    let inn = t.places_by_name.get("human_recall_town_01").expect("named");
+    assert_eq!((inn.cell, inn.origin), (0x77B8_0003, [1.18, 53.42, 183.82]));
+    // Flags on an object that leads nowhere are a problem.
+    let mut bad = fixture();
+    edit(
+        &mut bad,
+        "town/server/landblocks/77B7.toml",
+        "key = \"sign\"",
+        "key = \"sign\"\nrecall = true",
+    );
+    assert!(check(&bad)
+        .iter()
+        .any(|p| p.to_string().contains("recall, summon: only a portal")));
+}
+
+#[test]
 fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(t.places_named.is_empty(), "no place names a template");
@@ -1018,6 +1064,63 @@ fn a_weapon_row_names_the_template_of_a_creatures_weapon_and_must_name_one_insta
             .into(),
     );
     assert!(read(&files).is_err());
+}
+
+#[test]
+fn an_area_row_sets_the_conflict_its_landblock_allows_and_peace_is_the_default() {
+    use yalain_content::Conflict;
+    let mut files = fixture();
+    files.insert(
+        "town/server/areas.toml".into(),
+        "[[area]]\nlandblock = 0x77B8\nconflict = \"controlled\"\nprov = { from = \"authored\" }\n\n\
+         [[area]]\nlandblock = 0x77B7\nconflict = \"free-for-all\"\nprov = { from = \"authored\" }\n\n\
+         [[area]]\nlandblock = 0x77B6\nconflict = \"peace\"\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        t.content
+            .conflict
+            .iter()
+            .map(|(k, v)| (*k, *v))
+            .collect::<Vec<_>>(),
+        [
+            (0x77B7, Conflict::FreeForAll),
+            (0x77B8, Conflict::Controlled)
+        ],
+        "a peace area is no entry"
+    );
+    // A later pack that overrides an earlier one names a landblock's area otherwise.
+    files.insert(
+        "town-fixes/server/areas.toml".into(),
+        "[[area]]\nlandblock = 0x77B8\nconflict = \"kingdom-vs-kingdom\"\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    assert!(
+        merged
+            .overridden
+            .iter()
+            .any(|o| o.starts_with("area 77B8:")),
+        "{:?}",
+        merged.overridden
+    );
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.conflict.get(&0x77B8),
+        Some(&Conflict::KingdomVsKingdom)
+    );
+    // Its words and its landblock are the format's.
+    for bad in [
+        "[[area]]\nlandblock = 0x77B8\nconflict = \"war\"\nprov = { from = \"authored\" }\n",
+        "[[area]]\nlandblock = 0x77B80001\nconflict = \"peace\"\nprov = { from = \"authored\" }\n",
+        "[[area]]\nlandblock = 0x77B8\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert("town-fixes/server/areas.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
 }
 
 #[test]

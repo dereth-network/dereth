@@ -113,6 +113,7 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
         1,
         0x1000,
         1,
+        None,
         Vitals {
             health: 100,
             max_health: 100,
@@ -495,6 +496,102 @@ fn stop() -> Arg {
         },
     );
     Arg::Object(b.graph())
+}
+
+/// A treasure item's own least level and Arcane Lore stay with it across a logout, its profile
+/// listing them under its requirements, and its holder's hero skill credits are kept.
+/// Behaviour: server.world.treasure-own-kept-across-sessions
+#[test]
+fn a_treasure_items_own_requirements_and_the_hero_credits_are_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    let own = yalain_world::treasure::Own {
+        min_level: Some(33),
+        arcane_lore: Some(17),
+        effect: None,
+    };
+    h.server.things.get_mut(item).expect("made").own = own;
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .hero_credits = 7;
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    assert!(h.server.things.get(item).is_none(), "out of the world");
+    let entered = h.bots[a].inbox.len();
+    h.enter_world(a, "one", me);
+    assert_eq!(h.server.things.get(item).expect("back").own, own);
+    let p = h.server.players.values().next().expect("back in the world");
+    assert_eq!(p.play.hero_credits, 7, "the hero skill credits kept");
+    let repository = h
+        .world_messages(a, entered)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == 0x8212_0027 => {
+                c.args.as_ref().and_then(|x| calls::values(&x.0).ok())
+            }
+            _ => None,
+        })
+        .flatten()
+        .find_map(|v| match v {
+            Value::Graph(g) => g.iter().find_map(|(_, n)| match n {
+                Node::Script {
+                    package: 0x233,
+                    slots,
+                } => Some(slots.iter().map(|(_, w)| *w).collect::<Vec<u32>>()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("the session start's skill repository");
+    assert_eq!(repository[3], 7, "the session start sends them");
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "answered once");
+    let mut view = profile::ItemView::of(
+        &h.server
+            .catalog
+            .get(yalain_testkit::TEST_ITEM)
+            .expect("made")
+            .props,
+        1,
+        None,
+    );
+    view.min_level = 33;
+    view.arcane_lore = 17;
+    let p = profile::item(0x3FF, &view);
+    assert_eq!(
+        got[0][20..],
+        p.packed(&got[0][..20])[20..],
+        "its own requirements listed"
+    );
 }
 
 /// A made item kept in the pack names its maker again after its holder logs out and back in.

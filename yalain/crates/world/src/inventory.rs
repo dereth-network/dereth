@@ -193,6 +193,8 @@ pub mod treasure_name {
     pub const PREFIX_NAME: u32 = 0x9B26_2000;
     pub const SUFFIX: u32 = 0xA13E_9D40;
     pub const ITEM: u32 = 0x9D06_6C50;
+    /// The string of an effect's name table that names an item for it ("of Revival").
+    pub const EFFECT_SUFFIX: u32 = 0x5A43_338D;
 }
 
 /// A move of an item: each field the server sets (the rest 0).
@@ -402,8 +404,31 @@ pub fn treasure_item_name(template_name: (u32, u32)) -> StringInfo {
     s
 }
 
+/// A treasure potion's name: its template's name with its effect's, "{the potion} of {the
+/// effect}" (the effect's name table holds the suffix, the template's name inside it).
+#[must_use]
+pub fn potion_name(template_name: (u32, u32), effect_table: u32) -> StringInfo {
+    use treasure_name as n;
+    let mut suffix = name_ref((n::EFFECT_SUFFIX, effect_table));
+    suffix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
+    suffix.variable_count = 1;
+    let vars = ordered(vec![
+        nested(n::PREFIX, StringInfo::literal("")),
+        nested(n::SUFFIX, suffix),
+        nested(n::ITEM, name_ref(template_name)),
+    ]);
+    let mut s = name_ref(n::NAME);
+    s.variable_count = 3;
+    s.variables = vars;
+    s
+}
+
+/// The whole-object appearance a treasure potion's color is set in, and its key there.
+pub const POTION_COLOR: (u32, u32) = (0x2000_011F, 2);
+
 /// An item's object as a client is told of it: in its container with no place, or standing where
-/// it was put down; named and valued when it is a treasure item (one with a value).
+/// it was put down; named and valued when it is a treasure item (one with a value); a treasure
+/// potion named for its effect and colored by it.
 #[must_use]
 pub fn item_create(t: &Thing) -> CreateObject {
     let d = &t.description;
@@ -421,9 +446,15 @@ pub fn item_create(t: &Thing) -> CreateObject {
         weenie.mask |= WeenieDesc::OBJECT_BITS[0];
         weenie.objects[0] = owner;
     }
-    if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
-        weenie.mask |= WeenieDesc::NAME | WeenieDesc::NUMBER_BITS[1];
+    if let (Some(name), Some(e)) = (t.facts.name, t.own.effect) {
+        weenie.mask |= WeenieDesc::NAME;
+        weenie.name = potion_name(name, e.table);
+    } else if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
+        weenie.mask |= WeenieDesc::NAME;
         weenie.name = treasure_item_name(name);
+    }
+    if t.value > 0 {
+        weenie.mask |= WeenieDesc::NUMBER_BITS[1];
         weenie.numbers[1] = i32::try_from(t.value).unwrap_or(0);
     }
     if let Some(sc) = d.scale {
@@ -448,13 +479,25 @@ pub fn item_create(t: &Thing) -> CreateObject {
         physics.bits &= !auberean_protocol::types::PhysicsDesc::POSITION;
         physics.stamps = [0; 4];
     }
+    let mut visual = VisualDesc {
+        bits: VisualDesc::PARENT,
+        parent: d.look,
+        ..VisualDesc::default()
+    };
+    if let Some(e) = t.own.effect {
+        let (table, key) = POTION_COLOR;
+        crate::equip::put_on(
+            &mut visual,
+            table,
+            auberean_protocol::table::Table::from_inserted(
+                auberean_protocol::table::SMALL,
+                [(key, e.color)],
+            ),
+        );
+    }
     CreateObject {
         id: t.id,
-        visual: VisualDesc {
-            bits: VisualDesc::PARENT,
-            parent: d.look,
-            ..VisualDesc::default()
-        },
+        visual,
         physics,
         weenie,
     }
@@ -1654,6 +1697,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.destination = k.and_then(|k| k.destination);
         item.bonuses = k.map(|k| k.bonuses.clone()).unwrap_or_default();
         item.binds_on_use = k.is_some_and(|k| k.binds_on_use);
+        item.own = k.map(|k| k.own).unwrap_or_default();
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));
         } else if h.location != 0 {

@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Account, Character, Listed, NetworkList, Store, StoreError, StoreResult, WorldState};
+use crate::{
+    Account, Ban, Character, Listed, NetworkList, Store, StoreError, StoreResult, WorldState,
+};
 
 /// The in-memory store.
 #[derive(Debug, Default, Clone)]
@@ -15,6 +17,16 @@ pub struct MemoryStore {
     network: BTreeSet<u64>,
     blocks: BTreeSet<String>,
     lists: Vec<Listed>,
+    gags: BTreeMap<u64, f64>,
+}
+
+impl MemoryStore {
+    fn account_mut(&mut self, account: u64) -> StoreResult<&mut Account> {
+        self.accounts
+            .iter_mut()
+            .find(|a| a.id == account)
+            .ok_or_else(|| StoreError(format!("no account {account}")))
+    }
 }
 
 impl Store for MemoryStore {
@@ -40,18 +52,43 @@ impl Store for MemoryStore {
             name: name.to_string(),
             secret,
             created_at: now,
+            access: 0,
+            ban: None,
         };
         self.accounts.push(a.clone());
         Ok(a)
     }
 
     fn set_account_secret(&mut self, account: u64, secret: Vec<u8>) -> StoreResult<()> {
-        let a = self
-            .accounts
-            .iter_mut()
-            .find(|a| a.id == account)
-            .ok_or_else(|| StoreError(format!("no account {account}")))?;
-        a.secret = Some(secret);
+        self.account_mut(account)?.secret = Some(secret);
+        Ok(())
+    }
+
+    fn accounts(&mut self) -> StoreResult<Vec<Account>> {
+        let mut v = self.accounts.clone();
+        v.sort_by_key(|a| a.name.to_lowercase());
+        Ok(v)
+    }
+
+    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
+        self.account_mut(account)?.access = access;
+        Ok(())
+    }
+
+    fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()> {
+        self.account_mut(account)?.ban = ban.cloned();
+        Ok(())
+    }
+
+    fn gag(&mut self, character: u64) -> StoreResult<Option<f64>> {
+        Ok(self.gags.get(&character).copied())
+    }
+
+    fn set_gag(&mut self, character: u64, seconds: Option<f64>) -> StoreResult<()> {
+        match seconds {
+            Some(s) => self.gags.insert(character, s),
+            None => self.gags.remove(&character),
+        };
         Ok(())
     }
 
@@ -98,6 +135,16 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn insert_character_with_state(
+        &mut self,
+        c: &Character,
+        state: &WorldState,
+    ) -> StoreResult<()> {
+        self.insert_character(c)?;
+        self.worlds.insert(c.id, state.clone());
+        Ok(())
+    }
+
     fn set_deleted(&mut self, id: u64, at: Option<i64>) -> StoreResult<()> {
         if let Some(c) = self.characters.iter_mut().find(|c| c.id == id) {
             c.deleted_at = at;
@@ -117,6 +164,7 @@ impl Store for MemoryStore {
         self.worlds.remove(&id);
         self.network.remove(&id);
         self.lists.retain(|l| l.character != id);
+        self.gags.remove(&id);
         Ok(())
     }
 

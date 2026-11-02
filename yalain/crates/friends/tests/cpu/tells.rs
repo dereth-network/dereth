@@ -138,3 +138,44 @@ fn tells_within_the_world_are_held_to_the_characters_pace() {
         .iter()
         .all(|l| l == yalain_federation::TOO_QUICKLY));
 }
+
+/// A character the world has gagged tells nobody through the service: a tell to a character of
+/// this world or of another is shown to nobody and sends nothing to the hub, and the teller's
+/// client is answered that it could not be sent, with the world's line that it is gagged. Its gag
+/// lifted, it tells again.
+/// Behaviour: server.friends.gagged-tells-go-nowhere
+#[test]
+fn a_gagged_characters_tells_through_the_service_go_nowhere() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    let cara = w.player("Cara");
+    w.on("Ann");
+    w.frames();
+    let (_, ann_id) = w.ids("Ann");
+    w.service.set_gagged(std::iter::once(ann_id).collect());
+    for user in ["Cara", "Bob@coldeve"] {
+        let cx = w.request(
+            ann,
+            Request::SendToUserEx {
+                user: user.into(),
+                text: "hi".into(),
+                extra: None,
+            },
+        );
+        assert_eq!(answer(&w.take(ann), cx).0, Hr::DENIED, "{user}");
+        assert_eq!(w.lines_of("Ann"), vec![GAGGED.to_owned()], "{user}");
+    }
+    assert!(events(&w.take(cara)).is_empty(), "Cara is shown nothing");
+    assert!(w.frames().is_empty(), "nothing goes to the hub");
+    w.service.set_gagged(std::collections::HashSet::new());
+    let cx = w.request(
+        ann,
+        Request::SendToUserEx {
+            user: "Cara".into(),
+            text: "hi".into(),
+            extra: None,
+        },
+    );
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::OK, "ungagged");
+    assert_eq!(events(&w.take(cara)).len(), 1);
+}

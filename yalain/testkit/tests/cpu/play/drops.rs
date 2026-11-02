@@ -633,3 +633,87 @@ fn a_drudges_drop_takes_its_bodys_longer_time() {
     h.run(steps(0.7));
     assert_eq!(answers(&h, b, from).len(), 1, "answered by 4 s");
 }
+
+/// A quest item of the test world with a value: one a camp keeps lying.
+const LYING: u32 = 0x4700_1B8A;
+
+/// The ids of the items of the lying template made for a client since `from`, with where.
+fn lying_made(h: &Harness, b: usize, from: usize) -> Vec<(u64, u32, [f32; 3])> {
+    h.world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == LYING => {
+                let p = &o.physics.position;
+                let at = &p.frame.origin;
+                Some((o.id, p.cell, [at.x, at.y, at.z]))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A camp whose template is an item keeps it lying at its spot: the item is made for the player
+/// in view there; once picked up, nothing lies there until the camp's period is over, and then a
+/// new one (an object of its own) lies at the same spot.
+///
+/// Behaviour: server.inventory.an-item-a-camp-keeps-lies-again-after-its-taking
+#[test]
+fn an_item_a_camp_keeps_lies_again_at_its_spot_once_its_period_after_the_taking_is_over() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_Value", yalain_content::Prop::Int(5));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(LYING, 0x200, props));
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = world_of(&h, me);
+    let stand = h.server.players[&world].position;
+    let spot = [stand.origin[0] + 1.0, stand.origin[1], stand.origin[2]];
+    let mut camp = yalain_testkit::test_camp(1);
+    camp.id = "lying".into();
+    camp.cell = stand.cell;
+    camp.origin = spot;
+    camp.regen = 20.0;
+    camp.templates = vec![(LYING, 1)];
+    camp.spots = vec![(stand.cell, spot)];
+    h.server.spawns.camps.push(camp);
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    let from = h.bots[b].inbox.len();
+    h.run(5);
+    let made = lying_made(&h, b, from);
+    assert_eq!(made.len(), 1, "the item made for the player in view");
+    let (item, cell, at) = made[0];
+    assert_eq!((cell, at), (stand.cell, spot), "at the camp's spot");
+
+    h.bots[b].send(true, queue::WEENIE, &use_item(item, me));
+    h.run(steps(2.5));
+    assert_eq!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .map(|i| i.id)
+            .collect::<Vec<_>>(),
+        [item],
+        "picked up"
+    );
+    let from = h.bots[b].inbox.len();
+    h.run(steps(19.0));
+    assert!(
+        lying_made(&h, b, from).is_empty(),
+        "none before the period is over"
+    );
+    h.run(steps(1.5));
+    let again = lying_made(&h, b, from);
+    assert_eq!(again.len(), 1, "a new one once it is over");
+    assert_ne!(again[0].0, item, "an object of its own");
+    assert_eq!(
+        (again[0].1, again[0].2),
+        (stand.cell, spot),
+        "at the same spot"
+    );
+}

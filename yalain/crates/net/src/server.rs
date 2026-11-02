@@ -12,7 +12,7 @@
 //! seeded stream the host chooses.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::net::{SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use dereth_primitives::LocalTime;
 use dereth_transport::conn::{ConnectRequest, ConnectSeeds, Referral};
@@ -83,7 +83,8 @@ pub struct ServiceId {
 pub struct NetConfig {
     pub login: ServiceId,
     pub world: ServiceId,
-    /// The world service's even port as clients reach it: what a referral names.
+    /// The world service's even port as clients reach it: what a referral names (for a client
+    /// close by, see [`ServerNet::refer_nearby`]).
     pub world_addr: SocketAddrV4,
 }
 
@@ -216,6 +217,23 @@ struct Conn {
     next_stream: u32,
 }
 
+/// This machine's own address on the way to a client, if it has one.
+type Toward = Box<dyn FnMut(Ipv4Addr) -> Option<Ipv4Addr> + Send>;
+
+/// Referrals of clients close by to an address on their own side ([`crate::referral`]).
+struct Nearby {
+    listening: IpAddr,
+    toward: Toward,
+}
+
+impl std::fmt::Debug for Nearby {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Nearby")
+            .field("listening", &self.listening)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct PendingReferral {
     login: ConnId,
@@ -230,6 +248,7 @@ pub struct ServerNet {
     conns: BTreeMap<ConnId, Conn>,
     next_conn: u32,
     referrals: HashMap<u64, PendingReferral>,
+    nearby: Option<Nearby>,
     switch_stamp: u32,
     /// The game clock at `clock_base`.
     game_time: f64,
@@ -251,6 +270,7 @@ impl ServerNet {
             conns: BTreeMap::new(),
             next_conn: 1,
             referrals: HashMap::new(),
+            nearby: None,
             switch_stamp: 0,
             game_time,
             clock_base: now,
@@ -264,6 +284,34 @@ impl ServerNet {
     #[must_use]
     pub const fn config(&self) -> &NetConfig {
         &self.cfg
+    }
+
+    /// Refer a client close by (on this machine or a network of its own kind) to the address it
+    /// reached the services at, rather than to the configured world address, which stays the one
+    /// for everyone else ([`crate::referral`]). `listening` is the address the services listen on;
+    /// `toward` is this machine's own address on the way to a client, for services listening on
+    /// every address (the host's route lookup).
+    pub fn refer_nearby(
+        &mut self,
+        listening: IpAddr,
+        toward: impl FnMut(Ipv4Addr) -> Option<Ipv4Addr> + Send + 'static,
+    ) {
+        self.nearby = Some(Nearby {
+            listening,
+            toward: Box::new(toward),
+        });
+    }
+
+    /// The world service's address as a referral names it to a client at `client`.
+    fn world_addr_for(&mut self, client: IpAddr) -> SocketAddrV4 {
+        let named = self.cfg.world_addr;
+        match self.nearby.as_mut() {
+            Some(n) => SocketAddrV4::new(
+                crate::referral::world_ip(n.listening, *named.ip(), client, &mut n.toward),
+                named.port(),
+            ),
+            None => named,
+        }
     }
 
     /// The game clock now.
@@ -437,6 +485,27 @@ impl ServerNet {
     /// Close a connection, telling the client.
     pub fn close(&mut self, conn: ConnId) {
         self.close_with(conn, CloseReason::Closed, true);
+    }
+
+    /// Send what is queued on a connection now, then close it, telling the client: its last
+    /// message and the goodbye leave together.
+    pub fn end(&mut self, conn: ConnId, now: LocalTime) {
+        if let Some(c) = self.conns.get_mut(&conn) {
+            if c.handshake.is_none() {
+                let from = Port {
+                    service: c.service,
+                    odd: true,
+                };
+                for bytes in c.ep.tick(now) {
+                    self.out.push(Datagram {
+                        from,
+                        to: c.peer,
+                        bytes,
+                    });
+                }
+            }
+        }
+        self.close(conn);
     }
 
     /// Take in one datagram that arrived on `port` from `from`.
@@ -703,13 +772,15 @@ impl ServerNet {
     /// will bring to the world.
     pub fn refer(&mut self, login: ConnId, now: LocalTime) -> Option<u64> {
         let cookie = self.seeds.next_u64();
-        let c = self.conns.get_mut(&login)?;
+        let c = self.conns.get(&login)?;
         if c.service != Service::Login || c.handshake.is_some() {
             return None;
         }
+        let addr = self.world_addr_for(c.peer.ip());
+        let c = self.conns.get_mut(&login)?;
         let r = Referral {
             cookie,
-            addr: self.cfg.world_addr,
+            addr,
             id_server: self.cfg.world.server_id,
             family: 2,
         };

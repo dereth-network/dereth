@@ -115,8 +115,9 @@ pub struct SessionStart {
     pub contents: Vec<u64>,
     /// Its quests under way, packed as the quest list is.
     pub quests: Vec<u8>,
-    /// Its unspent skill credits.
+    /// Its unspent skill credits and hero skill credits.
     pub credits: u32,
+    pub hero_credits: u32,
     /// Its effects.
     pub effects: Registry,
     /// The story's scenes it holds, by act.
@@ -161,7 +162,11 @@ pub const NEW_SEGMENTS: [(u32, u32); 4] = [(42, 0), (12, 0), (12, 0), (12, 0)];
 
 const NONE: Slot = Slot::Ref(None);
 
-fn skills_graph(skills: &[crate::skills::Held], credits: u32, last_used: &[(u32, f64)]) -> Arg {
+fn skills_graph(
+    skills: &[crate::skills::Held],
+    (credits, hero_credits): (u32, u32),
+    last_used: &[(u32, f64)],
+) -> Arg {
     let mut b = Builder::new();
     let repo = b.reserve(package::SKILL_REPOSITORY.0);
     let perks = b.native(
@@ -204,7 +209,7 @@ fn skills_graph(skills: &[crate::skills::Held], credits: u32, last_used: &[(u32,
         &[
             Slot::Int(credits),
             Slot::Long(0),
-            Slot::Int(0),
+            Slot::Int(hero_credits),
             Slot::Ref(Some(perks)),
             Slot::Int(0),
             Slot::Ref(Some(categories)),
@@ -477,7 +482,11 @@ impl SessionStart {
                     bytes: self.options.clone(),
                 },
             ),
-            skills_graph(&self.skills, self.credits, &self.last_used),
+            skills_graph(
+                &self.skills,
+                (self.credits, self.hero_credits),
+                &self.last_used,
+            ),
             effects_graph(&self.effects),
             Arg::Int(filled_places(&self.worn)),
             worn_graph(&self.worn, false),

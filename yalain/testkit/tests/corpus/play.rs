@@ -83,12 +83,14 @@ fn a_play() -> Vec<ServerMessage> {
                 health: 100,
                 vigor: 100,
                 skill_credits: 0,
+                hero_credits: 0,
             },
             yalain_world::levels::Level {
                 xp: 10,
                 health: 130,
                 vigor: 130,
                 skill_credits: 1,
+                hero_credits: 0,
             },
         ],
     };
@@ -578,6 +580,7 @@ fn a_visit() -> Vec<ServerMessage> {
     h.server.catalog = yalain_testkit::test_catalog();
     h.server.content = ContentPack {
         objects: vec![person(keeper, 0x4700_33D0), person(guard, 0x4700_2DFD)],
+        ..ContentPack::default()
     };
     h.server.stores = StoreTable {
         keepers: vec![Keeper {

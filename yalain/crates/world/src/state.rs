@@ -111,6 +111,8 @@ pub struct ItemState {
     pub bonuses: Vec<(u32, f32)>,
     /// It becomes bound when used in combat, and has not been yet.
     pub binds_on_use: bool,
+    /// What a treasure item carries of its own.
+    pub own: crate::treasure::Own,
 }
 
 /// Everything a character holds and has done in play.
@@ -138,13 +140,21 @@ pub struct PlayState {
     pub kept_at: f64,
     /// What its items carry of their own.
     pub item_states: Vec<ItemState>,
+    /// Its unspent hero skill credits.
+    pub hero_credits: u32,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
-/// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses).
-const VERSION: u32 = 10;
+/// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
+/// after an item's binding).
+const VERSION: u32 = 11;
+
+/// Which of a treasure item's own properties are kept: its least level, its Arcane Lore, its effect.
+const OWN_MIN_LEVEL: u32 = 0x1;
+const OWN_ARCANE_LORE: u32 = 0x2;
+const OWN_EFFECT: u32 = 0x4;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -284,7 +294,31 @@ impl PlayState {
                 w32(&mut out, spellcraft.to_bits());
             }
             w32(&mut out, u32::from(i.binds_on_use));
+            let own = &i.own;
+            let has = if own.min_level.is_some() {
+                OWN_MIN_LEVEL
+            } else {
+                0
+            } | if own.arcane_lore.is_some() {
+                OWN_ARCANE_LORE
+            } else {
+                0
+            } | if own.effect.is_some() { OWN_EFFECT } else { 0 };
+            w32(&mut out, has);
+            if let Some(v) = own.min_level {
+                w32(&mut out, v.cast_unsigned());
+            }
+            if let Some(v) = own.arcane_lore {
+                w32(&mut out, v.cast_unsigned());
+            }
+            if let Some(e) = own.effect {
+                w32(&mut out, e.state);
+                w32(&mut out, e.spellcraft.to_bits());
+                w32(&mut out, e.table);
+                w32(&mut out, e.color.to_bits());
+            }
         }
+        w32(&mut out, self.hero_credits);
         out
     }
 
@@ -429,6 +463,24 @@ impl PlayState {
                     }
                 }
                 let binds_on_use = version >= 10 && r.u32().ok_or_else(bad)? != 0;
+                let mut own = crate::treasure::Own::default();
+                if version >= 11 {
+                    let has = r.u32().ok_or_else(bad)?;
+                    if has & OWN_MIN_LEVEL != 0 {
+                        own.min_level = Some(r.u32().ok_or_else(bad)?.cast_signed());
+                    }
+                    if has & OWN_ARCANE_LORE != 0 {
+                        own.arcane_lore = Some(r.u32().ok_or_else(bad)?.cast_signed());
+                    }
+                    if has & OWN_EFFECT != 0 {
+                        own.effect = Some(crate::treasure::OwnEffect {
+                            state: r.u32().ok_or_else(bad)?,
+                            spellcraft: r.f32().ok_or_else(bad)?,
+                            table: r.u32().ok_or_else(bad)?,
+                            color: r.f32().ok_or_else(bad)?,
+                        });
+                    }
+                }
                 s.item_states.push(ItemState {
                     id,
                     instance,
@@ -437,8 +489,12 @@ impl PlayState {
                     destination,
                     bonuses,
                     binds_on_use,
+                    own,
                 });
             }
+        }
+        if version >= 11 {
+            s.hero_credits = r.u32().ok_or_else(bad)?;
         }
         if !r.0.is_empty() {
             return Err(bad());

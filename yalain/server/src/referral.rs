@@ -1,16 +1,16 @@
-//! The address the login refers clients to for the world (`--advertise`).
+//! The address the login refers players from elsewhere to for the world (`--advertise`).
 //!
 //! A server listening on one IPv4 address refers clients to it. One listening on every address
-//! (`--bind 0.0.0.0`) cannot tell which of them a client reached it by: a datagram's destination
-//! address is not something the standard sockets report, and behind a router that forwards the
-//! ports it would be the machine's own private address anyway, not the one players reach. So such
-//! a server, or one listening on IPv6, needs `--advertise`, and will not start without it.
-//! Referrals carry an IPv4 address only.
+//! (`--bind 0.0.0.0`) cannot name one address that every client reaches it at: behind a router
+//! that forwards the ports, its own address is a private one, not the one players reach. So such a
+//! server, or one listening on IPv6, needs `--advertise`, and will not start without it. A client
+//! close by (on this machine or its network) is referred to an address on its own side instead
+//! (`yalain_net::referral`); everyone else to this one. Referrals carry an IPv4 address only.
 
 use std::net::{IpAddr, Ipv4Addr};
 
-/// The address clients are referred to: `--advertise`, else the listening address when it is one
-/// IPv4 address.
+/// The address players from elsewhere are referred to: `--advertise`, else the listening address
+/// when it is one IPv4 address.
 ///
 /// # Errors
 /// What the operator must give instead: an `--advertise` that is no address a client can reach,

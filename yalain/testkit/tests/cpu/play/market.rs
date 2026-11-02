@@ -48,6 +48,7 @@ fn world() -> Harness {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![broker()],
+        ..ContentPack::default()
     };
     h.server.brokers.insert(
         BROKER_TEMPLATE,

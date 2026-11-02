@@ -104,6 +104,7 @@ fn a_portal_takes_the_player_through_portal_space_to_its_destination() {
     };
     h.server.content = ContentPack {
         objects: vec![object(PORTAL, 0x4700_1154, [61.0, 240.2, -44.6], Some(to))],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     let (b, _) = h.player_in_world("two", "Babyfare");
@@ -157,6 +158,7 @@ fn a_lifestone_binds_and_the_recall_takes_the_player_back_where_it_bound() {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -252,6 +254,7 @@ fn a_use_in_portal_space_is_refused_as_actions_locked() {
     };
     h.server.content = ContentPack {
         objects: vec![object(PORTAL, 0x4700_1154, [61.0, 240.2, -44.6], Some(to))],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -301,6 +304,7 @@ fn every_kind_of_lifestone_binds_the_player() {
         let mut h = Harness::new();
         h.server.content = ContentPack {
             objects: vec![object(STONE, template, [60.0, 241.0, -44.6], None)],
+            ..ContentPack::default()
         };
         let (a, ida) = h.player_in_world("one", "Elara");
         h.run(10);
@@ -349,6 +353,7 @@ fn binding_plays_the_players_behavior_for_about_a_second() {
     let mut h = Harness::new();
     h.server.content = ContentPack {
         objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -388,6 +393,7 @@ fn a_trip_through_portal_space_ends_an_attack_run() {
     };
     h.server.content = ContentPack {
         objects: vec![object(PORTAL, 0x4700_1154, [61.0, 240.2, -44.6], Some(to))],
+        ..ContentPack::default()
     };
     h.add_creatures(1);
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -464,6 +470,7 @@ fn walking_into_a_portal_takes_the_player_as_a_use_does_and_once_while_touching(
     let summoned = object(SUMMONED, 0x4700_0604, [80.0, 240.0, -44.6], Some(to));
     h.server.content = ContentPack {
         objects: vec![walked, summoned],
+        ..ContentPack::default()
     };
     h.server.walk_in_packages.insert(0x1A01);
     let (a, _) = h.player_in_world("one", "Elara");
@@ -575,6 +582,7 @@ fn a_door_plays_its_scene_in_place_of_portal_space_and_takes_the_player_through(
     );
     h.server.content = ContentPack {
         objects: vec![door],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -704,6 +712,7 @@ fn a_portal_its_quest_keeps_the_player_out_of_is_refused_at_once() {
             object(PORTAL, STOCKPILE, [61.0, 240.2, -44.6], Some(to)),
             object(FAR, STOCKPILE, [61.0, 259.2, -44.6], Some(to)),
         ],
+        ..ContentPack::default()
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -807,6 +816,7 @@ fn a_portals_effects_are_put_on_as_the_player_comes_out() {
     };
     h.server.content = ContentPack {
         objects: vec![object(PORTAL, CHAOS_PORTAL, [61.0, 240.2, -44.6], Some(to))],
+        ..ContentPack::default()
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -878,6 +888,7 @@ fn a_portal_its_placed_instance_keeps_closed_by_a_quest_is_refused_at_a_use_and_
     nowhere.description.package = 0x1A01;
     h.server.content = ContentPack {
         objects: vec![gated, twin, nowhere],
+        ..ContentPack::default()
     };
     h.server.walk_in_packages.insert(0x1A01);
     let (a, me) = h.player_in_world("one", "Elara");
@@ -992,6 +1003,7 @@ fn a_placed_instances_gate_asks_its_quest_at_a_phase_under_way_or_completed() {
     let mut portal = object(PORTAL, 0x4700_1154, [61.0, 240.2, -44.6], Some(to));
     h.server.content = ContentPack {
         objects: vec![portal.clone()],
+        ..ContentPack::default()
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -1070,6 +1082,7 @@ fn a_person_kind_object_with_nothing_to_say_answers_as_a_person() {
     let other = object(OTHER, 0x4700_7777, [62.0, 240.2, -44.6], None);
     h.server.content = ContentPack {
         objects: vec![near, far, other],
+        ..ContentPack::default()
     };
     h.server.person_packages.insert(0x13A3);
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -1117,6 +1130,7 @@ fn a_faction_shrine_records_the_rating_and_never_answers() {
     shrine.description.package = 0x13B0;
     h.server.content = ContentPack {
         objects: vec![shrine],
+        ..ContentPack::default()
     };
     h.server.shrine_packages.insert(0x13B0);
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -1175,6 +1189,7 @@ fn a_faction_shrine_used_on_a_mount_is_canceled_after_the_rating() {
     shrine.description.package = 0x13B0;
     h.server.content = ContentPack {
         objects: vec![shrine],
+        ..ContentPack::default()
     };
     h.server.shrine_packages.insert(0x13B0);
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -1258,6 +1273,7 @@ fn a_walk_to_a_portal_the_player_moves_off_by_hand_is_refused_as_interrupted() {
     };
     h.server.content = ContentPack {
         objects: vec![object(PORTAL, 0x4700_1154, [61.0, 259.0, -44.6], Some(to))],
+        ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -1337,6 +1353,7 @@ fn a_forge_or_a_road_sign_is_refused_at_once_wherever_the_player_stands() {
     let other = object(OTHER, 0x4700_7777, [62.0, 240.2, -44.6], None);
     h.server.content = ContentPack {
         objects: vec![sign, other],
+        ..ContentPack::default()
     };
     h.server.cannot_use_packages.insert(0x13C0);
     let (a, ida) = h.player_in_world("one", "Elara");

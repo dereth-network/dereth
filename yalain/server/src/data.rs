@@ -105,12 +105,7 @@ pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
 /// # Errors
 /// The library or the data does not read.
 pub fn start_rules(p: &Portal) -> Result<StartRules, String> {
-    let lib = Library::from_record(
-        &p.dat
-            .read(RECORD)
-            .map_err(|e| format!("the script library: {e}"))?,
-    )
-    .map_err(|e| e.to_string())?;
+    let lib = library(p)?;
     let bytes = p
         .dat
         .read(MATRIX)
@@ -149,12 +144,7 @@ pub fn fact_ids(p: &Portal) -> yalain_content::FactIds {
 /// # Errors
 /// The library or the table does not read.
 pub fn level_table(p: &Portal) -> Result<yalain_world::levels::LevelTable, String> {
-    let lib = Library::from_record(
-        &p.dat
-            .read(RECORD)
-            .map_err(|e| format!("the script library: {e}"))?,
-    )
-    .map_err(|e| e.to_string())?;
+    let lib = library(p)?;
     let id = yalain_world::levels::LEVEL_TABLE;
     let bytes = p.dat.read(id).map_err(|e| format!("{id:08X}: {e}"))?;
     let st: ScriptState =
@@ -169,12 +159,7 @@ pub fn level_table(p: &Portal) -> Result<yalain_world::levels::LevelTable, Strin
 /// # Errors
 /// The library or the table does not read.
 pub fn vitae_costs(p: &Portal) -> Result<Vec<u64>, String> {
-    let lib = Library::from_record(
-        &p.dat
-            .read(RECORD)
-            .map_err(|e| format!("the script library: {e}"))?,
-    )
-    .map_err(|e| e.to_string())?;
+    let lib = library(p)?;
     let id = yalain_world::death::VITAE_COSTS;
     let bytes = p.dat.read(id).map_err(|e| format!("{id:08X}: {e}"))?;
     let st: ScriptState =
@@ -190,12 +175,7 @@ pub fn vitae_costs(p: &Portal) -> Result<Vec<u64>, String> {
 /// The library or the skills' names do not read.
 pub fn skill_table(p: &Portal) -> Result<yalain_world::skills::SkillTable, String> {
     use yalain_world::skills::{SkillTable, SKILL_NAMES};
-    let lib = Library::from_record(
-        &p.dat
-            .read(RECORD)
-            .map_err(|e| format!("the script library: {e}"))?,
-    )
-    .map_err(|e| e.to_string())?;
+    let lib = library(p)?;
     let bytes = p
         .dat
         .read(SKILL_NAMES)
@@ -351,14 +331,17 @@ pub fn creature_weapons(
 /// The kind of an entity made of a script package.
 const ENTITY_OF_PACKAGE: u32 = 0x4000_0002;
 
-/// The script library.
+/// The script library. A read or decode that fails is checked against the file and read once
+/// more; a second read that succeeds is warned of.
 fn library(p: &Portal) -> Result<Library, String> {
-    Library::from_record(
-        &p.dat
-            .read(RECORD)
-            .map_err(|e| format!("the script library: {e}"))?,
-    )
-    .map_err(|e| e.to_string())
+    let lib = p
+        .dat
+        .read_checked(RECORD, Library::from_record)
+        .map_err(|e| format!("the script library: {e}"))?;
+    if let Some(r) = lib.retried {
+        tracing::warn!("the script library: {r}");
+    }
+    Ok(lib.value)
 }
 
 /// A saved state's object graph.
@@ -643,6 +626,37 @@ pub fn catalog_packages_from(
         .map(|t| t.description.package)
         .filter(|pkg| bases.iter().any(|b| lib.derives_from(*pkg, *b)))
         .collect())
+}
+
+/// The packages of the catalog's treasure equipment (not its instruments) and treasure potions,
+/// and each treasure potion effect's name table and color.
+///
+/// # Errors
+/// The library does not read.
+pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure::Kinds, String> {
+    use yalain_world::treasure;
+    let lib = library(p)?;
+    let instruments = catalog_packages_from(p, catalog, &treasure::INSTRUMENTS)?;
+    let equipment = catalog_packages_from(p, catalog, &treasure::EQUIPMENT)?
+        .into_iter()
+        .filter(|pkg| !instruments.contains(pkg))
+        .collect();
+    let potion_looks = treasure::POTION_EFFECTS
+        .iter()
+        .flatten()
+        .filter_map(|&state| {
+            let g = state_graph(p, &lib, state)?;
+            let (_, table) = yalain_world::effect_defs::EffectDef::from_state(state, &lib, &g)
+                .ok()?
+                .name?;
+            Some((state, (table, treasure::potion_color(&lib, &g)?)))
+        })
+        .collect();
+    Ok(treasure::Kinds {
+        equipment,
+        potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
+        potion_looks,
+    })
 }
 
 /// The packages of the catalog's templates whose items are destroyed on use by their kind.

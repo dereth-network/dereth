@@ -22,6 +22,12 @@
 //! and its own (a crafted bonus), each a record held until the item comes off
 //! ([`crate::effects::put_on_worn`]). As it comes off, by its use, a directive, or to make room,
 //! its records are taken away just before that answer. They stay across logouts and deaths.
+//!
+//! **Who may put it on.** An item is refused, nothing done, when its template names a race the
+//! player is not of (10015), a skill the player does not hold (10013), a least level above the
+//! player's (10009), or a quest not where the item needs it (a hidden one's refusal is the
+//! mysterious one), checked in that order. A use is answered with the refusal alone; a directive
+//! with its equipping answer, the refusal for its status.
 
 use auberean_protocol::physics::{Attach, ObjectEvent, Slide};
 use auberean_protocol::quality::VisualQuality;
@@ -85,6 +91,20 @@ pub mod flags {
 
 /// The off hand.
 pub const OFF_HAND: u32 = 128;
+
+/// Why an item may not be put on, as its answer says (with the item uses' least level and quest
+/// refusals).
+pub mod refusal {
+    /// The player's race is not among those the item names.
+    pub const WRONG_RACE: u32 = 10_015;
+    /// The player does not hold a skill the item needs.
+    pub const MISSING_SKILL: u32 = 10_013;
+    /// The player's Arcane Lore is below the item's.
+    pub const ARCANE_LORE_TOO_LOW: u32 = 10_050;
+}
+
+/// The control flags of a use refused for the item's requirements.
+pub const REFUSED_FLAGS: u32 = 316;
 
 /// The status of a take-off refused because the pack has no room.
 pub const PACK_FULL: u32 = 1085;
@@ -330,20 +350,109 @@ fn iid_update<S: Store>(s: &mut Server<S>, item: u64, quality: u32, value: u64) 
     })
 }
 
-/// A player uses an item it holds: a weapon in its pack is wielded, a wielded one put away.
+/// Why a player may not put on an item of these properties, if it may not: its race is not among
+/// the item's, it does not hold a skill the item needs, it is below the item's least level, its
+/// Arcane Lore is below the item's, or the quest the item needs is not where it needs it. A
+/// treasure item's own least level and Arcane Lore stand in for its template's (2017: the item's own
+/// least level above the player's, 8 of 9 refusals 10009 whose player's level is known; its own
+/// Arcane Lore, 47 to 53, 5 of 5 refusals 10050 of players of level 51 to 54; the level first, 3
+/// of 3 items needing both refused 10009 to players below it).
+fn refused<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    props: &yalain_content::Props,
+    own: crate::treasure::Own,
+    clock: Clock,
+) -> Option<u32> {
+    let p = s.players.get(&world)?;
+    if props
+        .word("Usage_RequiredRace")
+        .is_some_and(|races| races != 0 && races & p.race == 0)
+    {
+        return Some(refusal::WRONG_RACE);
+    }
+    let missing = ["Usage_RequiredSkill1", "Usage_RequiredSkill2"]
+        .iter()
+        .filter_map(|n| props.word(n).filter(|k| *k != 0))
+        .any(|k| !p.play.skills.iter().any(|h| h.skill == k));
+    if missing {
+        return Some(refusal::MISSING_SKILL);
+    }
+    let least = own
+        .min_level
+        .map(i64::from)
+        .or_else(|| props.int("Usage_MinLevel"))
+        .unwrap_or(0);
+    if i64::from(crate::examine::level_of(&p.qualities)) < least {
+        return Some(crate::item_use::refusal::LEVEL_TOO_LOW);
+    }
+    let lore = own
+        .arcane_lore
+        .map(i64::from)
+        .or_else(|| props.int("Usage_RequiredArcaneLore"))
+        .unwrap_or(0);
+    if lore > 0 && i64::from(arcane_lore_of(s, p)) < lore {
+        return Some(refusal::ARCANE_LORE_TOO_LOW);
+    }
+    crate::item_use::quest_gate(s, world, props, clock)
+}
+
+/// A player's Arcane Lore: the rating of its trained skill of the Arcane Lore attribute, times the
+/// skill's measure of it (none without one).
+#[must_use]
+pub fn arcane_lore_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = crate::skills::held(&starting, &p.play.skills);
+    skills
+        .iter()
+        .filter(|h| h.mask & crate::skills::mask::TRAINED != 0)
+        .filter_map(|h| {
+            let d = s.skill_table.skills.get(&h.skill)?;
+            (d.category == crate::skills::ARCANE_LORE_CATEGORY).then(|| {
+                #[allow(clippy::cast_precision_loss)]
+                let rating = s.skill_table.rating(&skills, h.skill) as f32;
+                dereth_primitives::num::to_i32(rating * d.attribute_mod)
+            })
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Why a player may not put on this item of its pack, if it may not.
+fn refused_item<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    h: &crate::state::Held,
+    clock: Clock,
+) -> Option<u32> {
+    let t = s.catalog.get(h.template)?;
+    let own = s.things.get(h.id).map(|i| i.own).unwrap_or_default();
+    refused(s, world, &t.props, own, clock)
+}
+
+/// A player uses an item it holds: a weapon in its pack is wielded, a wielded one put away; one it
+/// may not put on is refused, its answer alone.
 pub fn use_held<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    item: u64,
+    u: &crate::places::Use,
     clock: Clock,
 ) {
+    let item = u.item;
     let Some(p) = s.players.get(&world) else {
         return;
     };
     let Some(h) = p.play.items.iter().find(|h| h.id == item).copied() else {
         return;
     };
+    if h.location == 0 {
+        if let Some(why) = refused_item(s, world, &h, clock) {
+            let no = crate::places::use_refused(u, 0, Some(REFUSED_FLAGS), 0.0, why);
+            progress::private(net, world, &no);
+            return;
+        }
+    }
     let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
@@ -985,7 +1094,37 @@ pub fn directive_equip<S: Store>(
     if h.location != 0 {
         return;
     }
-    match s.catalog.get(h.template).and_then(|t| fit_of(&t.props)) {
+    let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
+    if let Some(why) = refused_item(s, world, &h, clock) {
+        // Answered as the equipping it asked for, with the refusal for its status.
+        let player = s.players.get(&world).map_or(0, |p| p.character);
+        let hold = hold_of(h.template);
+        let fit = fit.unwrap_or(Fit {
+            valid: PRIMARY_HAND,
+            preferred: PRIMARY_HAND,
+            primary: hold.primary,
+            secondary: hold.secondary,
+            ..Fit::default()
+        });
+        let no = session::call(
+            function::EQUIP_DONE,
+            &[desc(&Answer {
+                item,
+                player,
+                fit,
+                taken: location,
+                location,
+                slot: h.slot,
+                flags: flags::DIRECTED,
+                status: why,
+                ..Answer::default()
+            })],
+        )
+        .expect("packs");
+        progress::private(net, world, &no);
+        return;
+    }
+    match fit {
         Some(fit) => wear(
             s,
             net,

@@ -207,6 +207,7 @@ pub fn player_seen(p: &Player) -> ServerMessage {
         crate::mounts::shown_look(p).clone(),
         player::placement(&p.position),
         p.instance,
+        &player::Marks::of(&crate::quals::read(&p.qualities)),
     );
     o.physics.visual_ordering_stamp = p.visual;
     o.physics.stamps = p.physics_stamps();
@@ -595,9 +596,54 @@ pub fn content_moves<S: Store>(
     }
 }
 
+/// A content object placed anew (the world database reloaded): made for every client whose view
+/// holds it. One placed again (`was`, the instance stamp its clients hold) is sent anew, with its
+/// newer instance stamp, to every client that holds it and still sees it, which replaces the one
+/// it holds; a client that holds it and no longer sees it forgets it.
+pub(crate) fn content_placed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    index: usize,
+    was: Option<u16>,
+) {
+    let Some(o) = s.content.objects.get(index) else {
+        return;
+    };
+    let id = content_id(&s.content.objects, index);
+    let (cell, origin) = (o.cell, o.origin);
+    let create = ServerMessage::CreateObject(crate::usable::doors::created(s, id, o));
+    let forget = was.map(|instance_stamp| {
+        ServerMessage::ForgetObject(auberean_protocol::physics::ObjectOnly(ObjectStamp {
+            id,
+            instance_stamp,
+            other_stamp: 0,
+        }))
+    });
+    let conns: Vec<ConnId> = s.players.keys().copied().collect();
+    for c in conns {
+        let Some(mut p) = s.players.remove(&c) else {
+            continue;
+        };
+        if p.known.contains_key(&id) {
+            if in_view(&p.position, cell, origin) {
+                send(net, c, BlobKind::UNORDERED, &create);
+            } else {
+                if let Some(m) = &forget {
+                    send(net, c, BlobKind::UNORDERED, m);
+                }
+                lose(&mut p, id);
+            }
+        } else if in_sight(s.ground.as_deref(), &p, cell, origin) {
+            learn(net, &mut p, c, id, &create);
+        }
+        s.players.insert(c, p);
+    }
+}
+
 /// A thing has moved: every client that knows it and still sees it gets its place on its stream
 /// of the thing's places; a client whose view it has entered is told of it; one whose view it has
-/// left stops being told of it.
+/// left stops being told of it. A pet come into another cell first takes the movement ethereality
+/// of where it now stands ([`crate::pets::settle_ethereality`]).
 pub fn thing_moves<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -605,6 +651,9 @@ pub fn thing_moves<S: Store>(
     m: &ObjectPosition,
     new_cell: bool,
 ) {
+    if new_cell && s.pets.is_pet(id) {
+        crate::pets::settle_ethereality(s, net, id);
+    }
     let Some(t) = s.things.get(id) else { return };
     let Some(at) = t.at else { return };
     let create = ServerMessage::CreateObject(crate::things::create(t));

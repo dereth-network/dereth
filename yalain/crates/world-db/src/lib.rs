@@ -30,6 +30,7 @@
 //! <pack>/server/story.toml        [[scene]], [[shard]]
 //! <pack>/server/weapons.toml      [[weapon]]
 //! <pack>/server/routes.toml       [[route]]
+//! <pack>/server/areas.toml        [[area]]
 //! ```
 //!
 //! Every row carries `prov`, where it came from: `capture` (measured from recorded sessions, with an

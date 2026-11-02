@@ -202,7 +202,14 @@ pub trait Drive {
 
 /// A step that did not come about in time, with what the client last sent.
 fn timed_out(d: &impl Drive, what: &str, seconds: f64) -> String {
-    let c = d.client_ref();
+    format!(
+        "{what}: not within {seconds} s ({})",
+        last_sent(d.client_ref())
+    )
+}
+
+/// What the client asked of its scripts, last sent, and how its calls went.
+fn last_sent(c: &Client) -> String {
     let last: Vec<String> = c
         .sent()
         .iter()
@@ -212,7 +219,7 @@ fn timed_out(d: &impl Drive, what: &str, seconds: f64) -> String {
         .map(|s| format!("{:.2} {:x?}", s.at, s.message.message_type()))
         .collect();
     format!(
-        "{what}: not within {seconds} s (asked {:x?}; last sent {last:?}; calls {:?})",
+        "asked {:x?}; last sent {last:?}; calls {:?}",
         c.asked, c.calls
     )
 }
@@ -432,21 +439,83 @@ pub fn wield(d: &mut impl Drive, template: u32) -> Result<u64, String> {
     Ok(item)
 }
 
-/// Attack the selection until it is dead.
+/// An object's health and greatest health as the client knows them (a creature's from its
+/// selection's vitals, the player's from its qualities).
+fn health(c: &Client, id: u64) -> (Option<i32>, Option<i32>) {
+    use auberean_client_sdk::runtime::description::int;
+    use yalain_world::player::quality::{HEALTH, HEALTH_MAX};
+    let Some(o) = c.model.object(id) else {
+        return (None, None);
+    };
+    let q = |k: u32| int(&o.weenie, k).or_else(|| o.qualities.ints.get(&k).copied());
+    (q(HEALTH), q(HEALTH_MAX))
+}
+
+/// Whether the client knows `target` dead. The client keeps the flag where its qualities answer it
+/// first: in the object's description, which holds it.
+fn dead(c: &Client, target: u64) -> bool {
+    c.model.object(target).is_some_and(|o| {
+        auberean_client_sdk::runtime::description::bool(&o.weenie, DEAD)
+            .or_else(|| o.qualities.bools.get(&DEAD).copied())
+            == Some(1)
+    })
+}
+
+/// How [`attack_until_dead`]'s error begins when the player died first.
+pub const LOST_THE_FIGHT: &str = "the player died before the creature";
+
+/// Attack the selection until it is dead. A fight the player loses ends its attack, so the player's
+/// death fails at once.
 ///
 /// # Errors
-/// It did not die.
+/// The player died first, or the target did not die.
 pub fn attack_until_dead(d: &mut impl Drive, target: u64) -> Result<(), String> {
     d.client().act(Action::Attack { start: true });
-    // The client keeps the flag where its qualities answer it first: in the object's description,
-    // which holds it.
-    until(d, HANG, "the creature dead", |c| {
-        c.model.object(target).is_some_and(|o| {
-            auberean_client_sdk::runtime::description::bool(&o.weenie, DEAD)
-                .or_else(|| o.qualities.bools.get(&DEAD).copied())
-                == Some(1)
-        })
-    })
+    let end = d.now() + HANG;
+    loop {
+        let c = d.client_ref();
+        if dead(c, target) {
+            return Ok(());
+        }
+        let me = c.model.player.unwrap_or(0);
+        if health(c, me).0 == Some(0) {
+            return Err(format!(
+                "{LOST_THE_FIGHT} ({}); {}",
+                last_sent(c),
+                standing(c, target)
+            ));
+        }
+        if d.now() >= end {
+            let e = timed_out(d, "the creature dead", HANG);
+            return Err(format!("{e}; {}", standing(d.client_ref(), target)));
+        }
+        d.step();
+    }
+}
+
+/// Where the player and `target` stand as the client knows them, how far apart, and their health.
+fn standing(c: &Client, target: u64) -> String {
+    let b = &c.body;
+    let me = c.model.player.unwrap_or(0);
+    let me = format!(
+        "the player at {:08x} {:?}, health {:?}",
+        b.cell,
+        b.origin,
+        health(c, me)
+    );
+    match c.model.object(target).and_then(|o| o.place.as_ref()) {
+        Some(p) => {
+            let (dx, dy) = (p.origin.x - b.origin.x, p.origin.y - b.origin.y);
+            format!(
+                "{me}; the target at {:08x} {:?}, {:.2} m away on the ground, health {:?}",
+                p.cell,
+                p.origin,
+                math::hypotf(dx, dy),
+                health(c, target)
+            )
+        }
+        None => format!("{me}; the target not placed"),
+    }
 }
 
 /// Select and use an object.

@@ -2,8 +2,9 @@
 //! the class's pets failing, the orders (a mode echoed, a name in the written form, death, attack
 //! and return, too many too quickly), the pet keeping near its owner and taking on what its owner
 //! attacks, a creature it strikes fighting it back, and its end with its owner (dying, leaving the
-//! world) and through a portal. Fixture: Nature's Aid, its pet effect and the Lasher as the data
-//! defines them, a player with a sword in hand who trained the skill, and the test world's beetles.
+//! world) and through a portal, and its owner's kingdom it carries. Fixture: Nature's Aid, its pet
+//! effect and the Lasher as the data defines them, a player with a sword in hand who trained the
+//! skill, and the test world's beetles.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -12,6 +13,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::{test_template, Harness};
 use yalain_world::calls::{Node, Value};
 use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+use yalain_world::kingdoms::{self, kingdom};
 use yalain_world::pets::{self, function};
 use yalain_world::player::quality;
 use yalain_world::quals;
@@ -30,6 +32,9 @@ const USE_SKILL: u32 = 0x8204_000B;
 const ATTACK_STATE: u32 = 0x8204_001B;
 const USE_ENDED: u32 = 0x8204_0019;
 const USE_REFUSED: u32 = 0x8204_001A;
+
+/// The Lasher's physics type, movement and placement ethereality (low and high words).
+const LASHER_NUMBERS: [i32; 6] = [0x80_0000 | 0x20, 0, 0x0220_0010, 0, 0x42A0_0090, 0];
 
 /// Nature's Aid, its pet effect and the Lasher, as the data defines them.
 fn with_natures_aid(h: &mut Harness) {
@@ -92,6 +97,7 @@ fn with_natures_aid(h: &mut Harness) {
         .set("AI_HomesickRadius", Prop::Float(60.0))
         .set("Physics_VelScale", Prop::Float(2.0));
     let mut lasher = test_template(LASHER, 0x1169, props);
+    lasher.description.numbers = LASHER_NUMBERS;
     lasher.description.name = Some(LASHER_NAME);
     lasher.description.scale = Some(0.7);
     h.server.catalog.insert(lasher);
@@ -799,6 +805,7 @@ fn a_pet_goes_with_its_owner_through_a_portal() {
             walks: None,
             gate: None,
         }],
+        ..yalain_content::ContentPack::default()
     };
     h.bots[b].send(
         true,
@@ -944,4 +951,160 @@ fn a_pet_going_into_a_fight_on_its_way_is_told_its_own_speed_after_its_mode() {
         told.is_some_and(|(m, v)| !m && (v - own).abs() < 1e-4),
         "its kind's own speed ({own}) right after: {seen:?}"
     );
+}
+
+/// The pet a client was told of since `from`.
+fn added_pet(h: &Harness, b: usize, from: usize) -> u64 {
+    h.calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added")
+}
+
+/// The weenie numbers of the pet's creation its owner's client was told of: its kingdom, its
+/// physics type and its movement ethereality, `None` for a number left out.
+fn kingdom_numbers(h: &Harness, b: usize, from: usize, pet: u64) -> [Option<i32>; 3] {
+    let w = h
+        .world_messages(b, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(c) if c.id == pet => Some(c.weenie),
+            _ => None,
+        })
+        .expect("the pet appears");
+    let bits = auberean_protocol::types::WeenieDesc::NUMBER_BITS;
+    [2, 5, 7].map(|i| (w.mask & bits[i] != 0).then_some(w.numbers[i]))
+}
+
+/// A summoned pet is of its owner's kingdom (an owner in none: the neutral one): its creation
+/// carries the kingdom, its physics type the kingdom's bit, and its movement ethereality its
+/// owner's for where it stands with the pet's own bit. An owner whom kingdoms may fight anywhere
+/// passes it on even while protected, which a pet never is.
+/// Behaviour: server.pets.of-the-owners-kingdom
+#[test]
+fn a_lasher_appears_of_its_owners_kingdom_and_passes_through_what_its_owner_would() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    kingdoms::set_kingdom(&mut player(&mut h, me).qualities, kingdom::ORDER);
+    let from = summon(&mut h, b, 1);
+    let pet = added_pet(&h, b, from);
+    assert_eq!(
+        kingdom_numbers(&h, b, from, pet),
+        [Some(2), Some(0x1080_0020), Some(0x7E20_0010)],
+        "the Order's, at peace"
+    );
+    let (c, wren) = ranger(&mut h, "two", "Wren");
+    let from = summon(&mut h, c, 1);
+    let pet = added_pet(&h, c, from);
+    assert_eq!(
+        kingdom_numbers(&h, c, from, pet),
+        [
+            Some(kingdom::NEUTRAL.cast_signed()),
+            Some(0x0480_0020),
+            Some(0x7E20_0010)
+        ],
+        "an owner in no kingdom: the neutral one"
+    );
+    let (d, tor) = ranger(&mut h, "three", "Tor");
+    {
+        let p = player(&mut h, tor);
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::DOMINION);
+        kingdoms::set_permissions(&mut p.qualities, kingdoms::permission::ANYWHERE, 0);
+    }
+    let from = summon(&mut h, d, 1);
+    let pet = added_pet(&h, d, from);
+    assert_eq!(
+        kingdom_numbers(&h, d, from, pet)[2],
+        Some(0x6220_0010),
+        "the Dominion's anywhere"
+    );
+    // Its owner protected (as after a recall): the pet passes through as before.
+    player(&mut h, tor).protected = Some(yalain_world::effects::Protected {
+        eid: 1,
+        until: f64::INFINITY,
+        ended: (0, 0),
+    });
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert_eq!(
+        pets::of_owners_kingdom(&h.server, tor, at.cell),
+        Some((kingdom::DOMINION, 0x6220_0010)),
+        "its owner's protection aside"
+    );
+    assert_ne!(wren, tor);
+}
+
+/// A pet that comes into a landblock of another conflict status takes its owner's movement
+/// ethereality for it, with its own bit, and every client that knows it is told; within the same
+/// landblock nothing is told.
+/// Behaviour: server.pets.ethereality-where-it-stands
+#[test]
+fn a_pet_put_beside_its_owner_in_a_controlled_landblock_passes_through_its_kingdoms_there() {
+    const NEXT_LANDBLOCK: u16 = 0x029A;
+    let mut h = Harness::new();
+    h.server
+        .content
+        .conflict
+        .insert(NEXT_LANDBLOCK, yalain_content::Conflict::Controlled);
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    kingdoms::set_kingdom(&mut player(&mut h, me).qualities, kingdom::ORDER);
+    let from = summon(&mut h, b, 1);
+    let pet = added_pet(&h, b, from);
+    let ethereality = |h: &Harness, from: usize| -> Vec<i32> {
+        h.world_messages(b, from)
+            .into_iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateIntVisual(q)
+                    if q.object.id == pet && q.quality == kingdoms::quality::ETHEREALITY =>
+                {
+                    Some(q.value)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    h.run(200);
+    assert!(ethereality(&h, from).is_empty(), "nothing at the start");
+    let conn = conn_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        // More than 100 m away: the pet is put beside it at its next plan.
+        p.position.cell = u32::from(NEXT_LANDBLOCK) << 16 | 0x0040;
+        p.position.origin = [150.0, 150.0, 0.0];
+    }
+    h.run(80);
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert_eq!(at.cell >> 16, u32::from(NEXT_LANDBLOCK), "beside its owner");
+    // The Order's in a controlled area passes through the Order and the neutral kingdom.
+    assert_eq!(ethereality(&h, from), [0x5620_0010]);
+}
+
+/// A pet's physics type as it dies is its own, its owner's kingdom's bit and all, with the dead
+/// bit.
+/// Behaviour: server.pets.dies-of-its-kingdom
+#[test]
+fn a_dead_lasher_keeps_its_kingdom_in_its_dead_physics_type() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    kingdoms::set_kingdom(&mut player(&mut h, me).qualities, kingdom::ORDER);
+    let from = summon(&mut h, b, 1);
+    let pet = added_pet(&h, b, from);
+    let from = order(&mut h, b, function::DIE, &[Arg::LongInt(0)]);
+    h.run(40);
+    let physics: Vec<i32> = h
+        .world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateIntVisual(q)
+                if q.object.id == pet && q.quality == kingdoms::quality::PHYSICS_TYPE =>
+            {
+                Some(q.value)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(physics, [0x1080_0030]);
 }

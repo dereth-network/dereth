@@ -64,6 +64,8 @@ pub mod line {
     pub const QUEST_RATING: u32 = 0x6DCD_9462;
     pub const PLAYER_NAME: u32 = 0xABA0_10CC;
     pub const CANNOT_RECALL_PORTAL: u32 = 0x0C68_13BE;
+    pub const RECALL_PORTAL: u32 = 0x0416_FB0D;
+    pub const RECALL_SUMMON_PORTAL: u32 = 0xD94A_AC63;
     pub const LIFESTONE_RECALL: u32 = 0x0453_EA93;
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
@@ -95,6 +97,8 @@ pub mod var {
     pub const CRAFT: u32 = 0x0926_A4C8;
     pub const PREFIX: u32 = 0xA14A_2800;
     pub const SUFFIX: u32 = 0xA13E_9D40;
+    /// The item's name inside an effect's suffix.
+    pub const SUFFIX_ITEM: u32 = 0x9B26_2000;
 }
 
 /// The race and sex line of a player (race 1 human, 2 Lugian, 4 Tumerok, 16 Empyrean, 8
@@ -520,10 +524,18 @@ fn kingdom_lines(p: &mut Profile, faction: u32) {
 }
 
 /// A player's profile as another player (or itself) sees it: its name, its first craft title,
-/// its race and sex, its level, its kingdom (neutral), its health and vigor, its kingdom points
-/// and quest rating.
+/// its race and sex, its level, its kingdom (the neutral one for a player in none), its health
+/// and vigor, its kingdom points and quest rating.
 #[must_use]
-pub fn player(asked: u32, world_name: &str, race: u32, sex: u32, level: i32, v: Vitals) -> Profile {
+pub fn player(
+    asked: u32,
+    world_name: &str,
+    race: u32,
+    sex: u32,
+    level: i32,
+    kingdom: Option<u32>,
+    v: Vitals,
+) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
     p.text(
@@ -560,7 +572,7 @@ pub fn player(asked: u32, world_name: &str, race: u32, sex: u32, level: i32, v: 
     p.text(GENERAL, look::LABEL, literal(""));
     p.brk(GENERAL);
     level_lines(&mut p, level);
-    kingdom_lines(&mut p, 0);
+    kingdom_lines(&mut p, kingdom.unwrap_or(0));
     p.brk(GENERAL);
     vitals_lines(&mut p, v);
     p.text(
@@ -658,6 +670,44 @@ pub fn item_name(f: &Facts) -> TextInfo {
             nested(var::NAME, name),
         ],
     )
+}
+
+/// A treasure potion's name: its template's name with its effect's suffix ("Potion of Revival"),
+/// the effect's name table holding the suffix.
+#[must_use]
+pub fn potion_name(f: &Facts, effect_table: u32) -> TextInfo {
+    let name = || f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
+    with_vars(
+        line::ITEM_NAMES,
+        line::ITEM_NAME,
+        vec![
+            nested(var::PREFIX, literal("")),
+            nested(
+                var::SUFFIX,
+                with_vars(
+                    effect_table,
+                    crate::inventory::treasure_name::EFFECT_SUFFIX,
+                    vec![nested(var::SUFFIX_ITEM, name())],
+                ),
+            ),
+            nested(var::NAME, name()),
+        ],
+    )
+}
+
+/// A portal's recall line, by its flags: "You can recall and summon this portal.", "You can recall
+/// this portal." or "You cannot recall or summon this portal." (2017: 500 portals examined, each
+/// with the one line throughout).
+#[must_use]
+pub fn portal_line(flags: u32) -> u32 {
+    use yalain_content::portal::{RECALL, SUMMON};
+    if flags & RECALL == 0 {
+        line::CANNOT_RECALL_PORTAL
+    } else if flags & SUMMON != 0 {
+        line::RECALL_SUMMON_PORTAL
+    } else {
+        line::RECALL_PORTAL
+    }
 }
 
 /// A portal's or a lifestone's profile: its name, what may be recalled to it, its description,

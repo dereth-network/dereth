@@ -21,6 +21,10 @@
 //! ([`Listed`]), kept as the service writes them. A store kept before the friends service gains
 //! the lists, empty, when it is opened.
 //!
+//! What the operator's moderation keeps: each account's access level and its ban ([`Ban`]), and
+//! the gagged characters with the seconds of their gags still to run. A store kept before them
+//! gains them when it is opened: every account a player's, none banned, nobody gagged.
+//!
 //! **Must never** read a character's world state: its qualities and options are the server's
 //! bytes, kept and handed back.
 
@@ -59,6 +63,23 @@ pub struct Account {
     pub secret: Option<Vec<u8>>,
     /// Seconds since 1970.
     pub created_at: i64,
+    /// Its access level, as the server numbers them (0, a player's, for a new account).
+    pub access: u32,
+    /// Its ban, while one is kept (it may have run out: the server lifts it at the next login).
+    pub ban: Option<Ban>,
+}
+
+/// An account's ban.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ban {
+    /// When it was made, in seconds since 1970.
+    pub at: i64,
+    /// When it ends, in seconds since 1970.
+    pub until: i64,
+    /// Who made it: the operator's console, or an account's name.
+    pub by: String,
+    /// The reason given, if one was.
+    pub reason: Option<String>,
 }
 
 /// A character.
@@ -175,11 +196,42 @@ pub trait Store {
         now: i64,
     ) -> StoreResult<Account>;
 
-    /// Give an account the secret its ticket is checked against, for one that has none.
+    /// Give an account the secret its ticket is checked against, in place of any it had.
     ///
     /// # Errors
     /// No account has this id, or the database failed.
     fn set_account_secret(&mut self, account: u64, secret: Vec<u8>) -> StoreResult<()>;
+
+    /// Every account, by name (without regard to case).
+    ///
+    /// # Errors
+    /// The database failed.
+    fn accounts(&mut self) -> StoreResult<Vec<Account>>;
+
+    /// Set an account's access level.
+    ///
+    /// # Errors
+    /// No account has this id, or the database failed.
+    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()>;
+
+    /// Keep an account's ban, or lift it (`None`).
+    ///
+    /// # Errors
+    /// No account has this id, or the database failed.
+    fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()>;
+
+    /// The seconds a character's gag has still to run; `None` when it is not gagged.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn gag(&mut self, character: u64) -> StoreResult<Option<f64>>;
+
+    /// Keep a character's gag with the seconds it has still to run, or lift it (`None`).
+    /// Forgetting the character lifts it.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn set_gag(&mut self, character: u64, seconds: Option<f64>) -> StoreResult<()>;
 
     /// An account's characters, deleted ones included, the longest unplayed first (ties in the
     /// order they were kept).
@@ -217,6 +269,14 @@ pub trait Store {
     /// # Errors
     /// Its id or name is taken, or the database failed.
     fn insert_character(&mut self, c: &Character) -> StoreResult<()>;
+
+    /// Keep a new character with what it is in the world, both or neither (a character the
+    /// operator makes with a build, or brings in from another world).
+    ///
+    /// # Errors
+    /// Its id or name is taken, or the database failed; nothing is kept then.
+    fn insert_character_with_state(&mut self, c: &Character, state: &WorldState)
+        -> StoreResult<()>;
 
     /// Mark a character deleted at a time, or restore it (`None`).
     ///
