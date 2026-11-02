@@ -222,6 +222,27 @@ pub fn archive_root(target: Target, version: &str) -> Option<String> {
 
 /// The files the release file's archive holds below its top-level folder: those it must hold, and
 /// those it may (what the bundler writes on some machines and not others). Empty for the AppImage.
+/// The launcher's macOS bundle configuration, which names the icon the bundler copies into the
+/// bundle.
+const LAUNCHER_MACOS_CONFIG: &str =
+    include_str!("../../../../dereth/launcher/tauri.macos.conf.json");
+
+/// The `.icns` icon in the launcher's macOS bundle, by the name the bundler gives it there: the
+/// file name of the one the launcher's configuration lists, so renaming the icon never leaves the
+/// deny scan refusing it.
+pub fn launcher_icns() -> String {
+    let config: serde_json::Value = serde_json::from_str(LAUNCHER_MACOS_CONFIG).unwrap_or_default();
+    config["bundle"]["icon"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find(|path| path.ends_with(".icns"))
+        .and_then(|path| path.rsplit('/').next())
+        .unwrap_or("icon.icns")
+        .to_owned()
+}
+
 pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     let exe = target.exe_suffix();
     let own = |names: &[&str]| -> Vec<String> { names.iter().map(|n| (*n).to_owned()).collect() };
@@ -248,14 +269,12 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(format!("Contents/Resources/{}", super::friends_dll::FILE));
             required.push(tool_in_release(target));
             required.extend(notices_in("Contents/Resources/"));
-            // The bundler names the icon after the product, or `icon`, by version.
             optional.extend(own(&[
                 "Contents/PkgInfo",
                 "Contents/Resources/Assets.car",
-                "Contents/Resources/Dereth.icns",
-                "Contents/Resources/icon.icns",
                 "Contents/_CodeSignature/CodeResources",
             ]));
+            optional.push(format!("Contents/Resources/{}", launcher_icns()));
         }
     }
     required.sort();

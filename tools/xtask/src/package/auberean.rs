@@ -125,10 +125,12 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             optional.extend(own(&[
                 "Contents/PkgInfo",
                 "Contents/Resources/Assets.car",
-                "Contents/Resources/Dereth.icns",
-                "Contents/Resources/icon.icns",
                 "Contents/_CodeSignature/CodeResources",
             ]));
+            optional.push(format!(
+                "Contents/Resources/{}",
+                super::dereth::launcher_icns()
+            ));
         }
     }
     required.sort();
