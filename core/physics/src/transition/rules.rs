@@ -9,7 +9,10 @@
 
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
-use crate::globals::{BLOCK_LENGTH, FLOOR_Z};
+use crate::geom::sphere::Sphere;
+use crate::globals::{BLOCK_LENGTH, EPSILON, FLOOR_Z};
+
+use super::{Transition, TransitionState};
 
 /// How a world tunes the transition.
 ///
@@ -59,6 +62,47 @@ pub struct TransitionRules {
     /// A placement that may slide, refused where it was asked, is tried once more 0.1 m above it
     /// before the scatter.
     pub placement_lifts_before_scatter: bool,
+    /// How near to lying in a polygon's plane a movement or the up vector may come (their dot
+    /// product with its normal, either way) before the polygon tests take it as lying in it: a
+    /// movement that near is not adjusted onto the polygon when stepping or brought against it
+    /// when meeting it, and an up vector that near finds no footprint and no crossed edge. At 0
+    /// only an exactly parallel movement is refused, and the up vector is not tested at all.
+    pub parallel_band: f32,
+    /// The world's own slide along what the mover meets ([`Slide`]), where it works the slide
+    /// otherwise than this client; when `None`, the shared slide
+    /// ([`super::collide::slide_sphere`]).
+    pub slide: Option<Slide>,
+}
+
+/// A world's own slide: how the mover's sphere slides along a surface it meets, and how a physics
+/// tree's polygon normal is turned into the world before the tree's step up and its slide take it.
+///
+/// It is what slides the mover wherever the transition slides it along a surface: along the face
+/// it could not step up onto (a tree's or a back face's), along the second sphere's face, along
+/// a back face, and along the edge of the ground it would walk off. The slides of the shared
+/// sphere and cylinder tests keep their own.
+#[derive(Clone, Copy)]
+pub struct Slide {
+    /// The mover's sphere `sphere` slides along the surface whose normal is `normal`, from its
+    /// center at the start of the step `curr`. The slide may turn `normal`; the transition keeps
+    /// the turned normal where it keeps the one it handed over (the step-up normal, a back face's
+    /// normal).
+    pub along: fn(&mut Transition, &Sphere, &mut Vec3, Vec3) -> TransitionState,
+    /// A physics tree's polygon normal turned from the tree's frame into the landblock's, for the
+    /// tree's step up and its second sphere's slide.
+    pub turn: fn(&Frame, Vec3) -> Vec3,
+}
+
+impl std::fmt::Debug for Slide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Slide { .. }")
+    }
+}
+
+impl PartialEq for Slide {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.along, other.along) && std::ptr::fn_addr_eq(self.turn, other.turn)
+    }
 }
 
 /// How a move's sub-steps turn from where it begins to where it ends, and how a rotation is set.
@@ -109,6 +153,8 @@ impl Default for TransitionRules {
             turning: Turning::Guarded,
             placement_ring_fraction: 1.0,
             placement_lifts_before_scatter: false,
+            parallel_band: EPSILON,
+            slide: None,
         }
     }
 }
@@ -174,6 +220,8 @@ mod tests {
         assert!(!r.step_down_guards_zero_drop);
         assert!(!r.placement_retries_other_cells);
         assert_eq!(r.turning, Turning::Guarded);
+        assert_eq!(r.parallel_band.to_bits(), EPSILON.to_bits());
+        assert!(r.slide.is_none());
     }
 
     #[test]

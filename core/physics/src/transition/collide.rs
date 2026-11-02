@@ -94,6 +94,32 @@ pub fn slide_sphere(
     }
 }
 
+/// The mover's sphere `sphere` slides along the surface whose normal is `normal`, from its center
+/// `curr`, by the world's own slide where its rules give one ([`super::TransitionRules::slide`]),
+/// else by [`slide_sphere`]. A world's slide may turn `normal`; the shared one leaves it. A mover
+/// that slides along what it meets ([`super::objectinfo::ObjectInfo::slides`]) always takes
+/// [`slide_sphere`], which is where its sliding is worked.
+pub fn slide(t: &mut Transition, sphere: Sphere, normal: &mut Vec3, curr: Vec3) -> TransitionState {
+    match t.rules.slide {
+        Some(world) if !t.object_info.slides => (world.along)(t, &sphere, normal, curr),
+        _ => slide_sphere(t, sphere, *normal, curr),
+    }
+}
+
+/// The sphere path's step-up slide: the contact plane forgotten, no longer stepping up, and the
+/// first sphere slid ([`slide`]) along the step-up normal, which keeps whatever the slide turned
+/// it to.
+pub fn step_up_slide(t: &mut Transition) -> TransitionState {
+    t.collision_info.clear_contact_plane();
+    t.sphere_path.step_up = false;
+    let sphere = t.sphere_path.global_sphere[0];
+    let curr = t.sphere_path.global_curr_center[0];
+    let mut normal = t.sphere_path.step_up_normal;
+    let r = slide(t, sphere, &mut normal, curr);
+    t.sphere_path.step_up_normal = normal;
+    r
+}
+
 /// The contact-plane variant used when a step is too high.
 ///
 /// Differs from [`slide_sphere`] in where the normal comes from (the centre delta rather than an
@@ -828,7 +854,12 @@ fn bsp_find_collisions_on(
 
     if t.sphere_path.check_walkable {
         let up = t.sphere_path.localspace_z;
-        return if tree.hits_walkable(&local, up, t.sphere_path.walkable_allowance) {
+        return if tree.hits_walkable_within(
+            &local,
+            up,
+            t.sphere_path.walkable_allowance,
+            t.rules.parallel_band,
+        ) {
             TransitionState::Collided
         } else {
             TransitionState::Ok
@@ -853,6 +884,7 @@ fn bsp_find_collisions_on(
             t.sphere_path.walkable_allowance,
             &mut interp,
             &mut changed,
+            t.rules.parallel_band,
         );
         if changed {
             let Some(poly_idx) = hit else {
@@ -902,6 +934,14 @@ fn bsp_find_collisions_on(
         let pos = t.sphere_path.localspace_pos;
         crate::math::localtoglobalvec(crate::math::l2g(pos.frame.rotation), n)
     };
+    // The step up's normal and the second sphere's slide's, turned by the world's own slide where
+    // it has one.
+    let to_world_for_slide = |n: Vec3, t: &Transition| -> Vec3 {
+        match t.rules.slide {
+            Some(world) => (world.turn)(&t.sphere_path.localspace_pos.frame, n),
+            None => to_world(n, t),
+        }
+    };
 
     let mut hit_poly = None;
     let mut contact_pt = Vec3::ZERO;
@@ -916,7 +956,7 @@ fn bsp_find_collisions_on(
             // path with `(transition, &N)`. The normal is rotated into world space here before
             // [`step_sphere_up_from_normal`] executes its failure tail. See that function's doc
             // comment for the four-way measurement.
-            return step_sphere_up_from_normal(ctx, t, to_world(n, t));
+            return step_sphere_up_from_normal(ctx, t, to_world_for_slide(n, t));
         }
         let poly0 = hit_poly;
         // the second-sphere operand order here follows ACE.
@@ -926,10 +966,10 @@ fn bsp_find_collisions_on(
             if tree.sphere_intersects_poly(&s2, movement, &mut poly1, &mut contact_pt) {
                 let n = poly1.map_or(Vec3::ZERO, |i| tree.polygons[i as usize].plane.normal);
                 // Rotated into world space here too.
-                let n = to_world(n, t);
+                let mut n = to_world_for_slide(n, t);
                 let sphere = t.sphere_path.global_sphere[0];
                 let curr = t.sphere_path.global_curr_center[0];
-                return slide_sphere(t, sphere, n, curr);
+                return slide(t, sphere, &mut n, curr);
             }
             // **The two back-facing arms record the first and second sphere separately.** Neither is reachable with one
             // sphere — the client leaves before both when the sphere count is 1 or less — so a
@@ -1059,7 +1099,8 @@ fn bsp_collide_with_pt(
     let mut walking = Some(poly_idx);
     let mut cp = contact_pt;
     let cur = t.sphere_path.localspace_curr_center[0];
-    if tree.adjust_to_plane(&mut adjusted, cur, &mut walking, &mut cp) {
+    let parallel = t.rules.parallel_band;
+    if tree.adjust_to_plane(&mut adjusted, cur, &mut walking, &mut cp, parallel) {
         t.collision_info
             .set_collision_normal(crate::math::localtoglobalvec(m, normal));
         let delta = adjusted.center.sub(local.center);
@@ -1152,11 +1193,7 @@ fn step_sphere_up_from_normal(
     t.sphere_path.step_up_normal = normal;
     // The sphere path's step-up slide, the same tail the sphere's own step-up takes when it
     // fails -- reached unconditionally here, see above.
-    t.collision_info.clear_contact_plane();
-    t.sphere_path.step_up = false;
-    let sphere = t.sphere_path.global_sphere[0];
-    let curr = t.sphere_path.global_curr_center[0];
-    slide_sphere(t, sphere, normal, curr)
+    step_up_slide(t)
 }
 
 /// Probe downward along `-localspace_z` scaled by
@@ -1188,6 +1225,7 @@ fn bsp_step_sphere_down(
         t.sphere_path.walkable_allowance,
         &mut interp,
         &mut changed,
+        t.rules.parallel_band,
     );
     if !changed {
         return TransitionState::Ok;
@@ -1247,6 +1285,7 @@ fn bsp_step_sphere_down_axes(
         t.sphere_path.walkable_allowance,
         &mut interp,
         &mut changed,
+        t.rules.parallel_band,
     );
     if !changed {
         return TransitionState::Ok;
@@ -1286,6 +1325,17 @@ fn bsp_step_sphere_down_axes(
 /// At most **20** iterations of "find the solid polygon,
 /// push the spheres off it".
 ///
+/// Each iteration asks the tree whether the first sphere is in solid
+/// ([`crate::geom::BspTree::sphere_intersects_solid_poly`], its reach set by a working radius that
+/// starts as the first sphere's), with the center check on unless the path is checking a building
+/// and the sphere already reaches an interior cell. In solid, with a polygon named, both spheres
+/// are pushed off that polygon and the working radius goes back to the sphere's; in solid with
+/// none named, the working radius doubles, so the next iteration searches farther for a polygon to
+/// push off. Clear of solid (a polygon named or not), a body of one sphere is done; with two, the
+/// second sphere is asked the same at the same working radius (the polygon slot and the center
+/// flag carried over from the first question), and pushed off what it is in with the first beside
+/// it. Twenty iterations without both clear is `COLLIDED_TS`.
+///
 /// # The two exits
 ///
 /// The loop counter is explicit, and the clear-sphere exit tests it before it decides anything.
@@ -1314,12 +1364,33 @@ pub fn bsp_placement_insert(t: &mut Transition, tree: &crate::geom::BspTree) -> 
     let mut a = start;
     let mut b = t.sphere_path.localspace_sphere[1];
     let two = t.sphere_path.num_sphere > 1;
+    let center_check = !t.sphere_path.bldg_check || !t.sphere_path.hits_interior_cell;
+    let mut radius = start.radius;
+    let mut hit = None;
     for iteration in 0..crate::globals::PLACEMENT_INSERT_ITERATIONS {
         let mut center_solid = false;
-        let mut hit = None;
-        let ra = a.radius;
-        let solid = tree.sphere_intersects_solid_poly(&a, ra, &mut center_solid, &mut hit, true);
-        if !solid && hit.is_none() {
+        let in_solid = if tree.sphere_intersects_solid_poly(
+            &a,
+            radius,
+            &mut center_solid,
+            &mut hit,
+            center_check,
+        ) {
+            Some(true)
+        } else if !two {
+            None
+        } else if tree.sphere_intersects_solid_poly(
+            &b,
+            radius,
+            &mut center_solid,
+            &mut hit,
+            center_check,
+        ) {
+            Some(false)
+        } else {
+            None
+        };
+        let Some(first) = in_solid else {
             if iteration == 0 {
                 // the sphere was already clear, so nothing was placed.
                 return TransitionState::Ok;
@@ -1331,16 +1402,36 @@ pub fn bsp_placement_insert(t: &mut Transition, tree: &crate::geom::BspTree) -> 
             let world = crate::math::localtoglobalvec(crate::math::l2g(pos.frame.rotation), delta);
             t.sphere_path.add_offset_to_check_pos(world);
             return TransitionState::Adjusted;
-        }
-        let Some(idx) = hit else {
-            return TransitionState::Collided;
+        };
+        let Some(idx) = hit.take() else {
+            radius += radius;
+            continue;
         };
         let poly = &tree.polygons[idx as usize];
-        if two {
-            poly.adjust_to_placement_poly(&mut a, Some(&mut b), ra, center_solid, true);
-        } else {
-            poly.adjust_to_placement_poly(&mut a, None, ra, center_solid, true);
+        match (first, two) {
+            (true, true) => {
+                poly.adjust_to_placement_poly(
+                    &mut a,
+                    Some(&mut b),
+                    radius,
+                    center_solid,
+                    center_check,
+                );
+            }
+            (true, false) => {
+                poly.adjust_to_placement_poly(&mut a, None, radius, center_solid, center_check);
+            }
+            (false, _) => {
+                poly.adjust_to_placement_poly(
+                    &mut b,
+                    Some(&mut a),
+                    radius,
+                    center_solid,
+                    center_check,
+                );
+            }
         }
+        radius = start.radius;
     }
     TransitionState::Collided
 }

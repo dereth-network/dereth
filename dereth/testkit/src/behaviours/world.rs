@@ -1073,6 +1073,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.polygons.a-sphere-reaching-exactly-to-an-edge-or-a-corner-touches-it",
+        says: "A sphere reaching exactly to the far end of a polygon's edge, or exactly to one of \
+               its corners, touches the polygon, in the overlap test and in the tests of the ground \
+               under a body's feet alike.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYS-EDGE-REACHED"),
+        station: "dereth-physics::cpu::geometry::polygons::a_sphere_reaching_exactly_to_an_edge_or_a_corner_touches_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.step-down.a-body-stepping-onto-a-sphere-rides-its-tangent-plane",
         says: "A body walking over a dome-shaped object rides its surface frame by frame, standing \
                on the dome's own slope where it touches, and stops where the dome becomes too \
@@ -1130,6 +1140,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.a-world-may-slide-by-its-own-slide",
+        says: "A world may slide a body by its own slide wherever the transition slides it along a \
+               surface: the step-up slide, the slide along the edge of the ground it would walk \
+               off, a back face's slide, and a physics tree's step-up slide and second sphere's \
+               slide, whose normals the world's own turn takes into the world; a normal the \
+               world's slide turns is kept as turned. This client slides by its own slide.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-WORLD-SLIDE"),
+        station: "dereth-physics::cpu::transition::rules::a_world_may_slide_by_its_own_slide",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.a-world-may-test-an-objects-trees-at-a-scale-along-each-axis",
         says: "A world whose objects take a scale along each axis may have their physics trees \
                tested at it: a square floor stretched three times along one axis meets a body \
@@ -1156,6 +1178,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-PHYS-RULES-PLACEMENT"),
         station: "dereth-physics::cpu::transition::rules::a_world_sets_the_placement_scatter_floor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-sets-the-polygon-tests-parallel-band",
+        says: "A world chooses how near to lying along a polygon's surface a movement may come \
+               before the polygon tests treat it as parallel: with this client's band a body \
+               sunk a hair into a floor and stepping down less than the band is left where it is, \
+               with a band of zero it is lifted onto the floor.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-PARALLEL-BAND"),
+        station: "dereth-physics::cpu::transition::rules::a_world_sets_the_polygon_tests_parallel_band",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1199,6 +1232,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.placement-pushes-the-spheres-out-of-what-they-are-in",
+        says: "Placing a body into a physics tree pushes its spheres off a polygon only when the \
+               tree says a sphere is in solid: a sphere whose center is on the open side of a \
+               plane it reaches across is taken where it is, though it overlaps a wall there; \
+               the second sphere is asked when the first is clear, and pushed out with the first \
+               beside it; the center counts only outside a building check that reaches an \
+               interior cell.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYS-PLACEMENT-PUSH"),
+        station: "dereth-physics::cpu::transition::placement_push::placement_pushes_the_spheres_out_of_what_they_are_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.the-default-rules-are-this-clients",
         says: "The transition's default settings are this client's own: its walkable limit, sub-steps \
                of a whole sphere radius, 192 m landblocks, a 0.48 m placement floor, cells retried \
@@ -1207,6 +1253,25 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-PHYS-RULES-DEFAULT"),
         station: "dereth-physics::lib::transition::rules::tests::the_default_rules_are_this_clients_constants",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.trees.a-point-on-a-splitting-plane-is-in-front-of-it",
+        says: "A point lying exactly on one of a physics tree's splitting planes is on the plane's \
+               front side: whether it is in solid is what the front half of the tree says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYS-POINT-ON-PLANE"),
+        station: "dereth-physics::cpu::geometry::trees::a_point_on_a_splitting_plane_is_in_front_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.trees.a-sphere-centered-on-a-splitting-plane-is-tested-in-front-first",
+        says: "A sphere whose center lies exactly on one of a physics tree's splitting planes, \
+               reaching polygons on both sides, is pushed off the one in front of the plane: the \
+               front half of the tree is asked first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYS-SOLID-POLY-FRONT"),
+        station: "dereth-physics::cpu::geometry::trees::a_sphere_centered_on_a_splitting_plane_is_tested_in_front_first",
         tier: Tier::Cpu,
     },
     behaviour! {

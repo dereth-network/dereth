@@ -57,11 +57,9 @@ impl<'w> KeyBody<'w> {
         at: &Position,
         heading: f32,
     ) -> Option<Self> {
-        let handle = world.create(ObjectId(0x5000_0002), setup, true);
+        let handle = world.create(ObjectId(0x5000_0002), Arc::clone(&setup), true);
         world.set_player(handle);
-        let mut pos = *at;
-        pos.frame.rotation = Quat::IDENTITY;
-        if !world.set_position(handle, &pos) {
+        if !dereth_navigation::stand(world, handle, &setup, at) {
             world.destroy(handle);
             return None;
         }

@@ -102,8 +102,8 @@ impl Stats {
     }
 }
 
-/// Descend by the splitting plane exactly the way
-/// and ACE's `BSPNode.point_intersects_solid` do, written independently of the implementation.
+/// Descend by the splitting plane exactly the way the client does (a point on the plane goes
+/// positive), written independently of the implementation.
 fn independent_leaf_walk(t: &BspTree, p: Vec3) -> Vec<u32> {
     let mut out = Vec::new();
     if t.nodes.is_empty() {
@@ -120,7 +120,7 @@ fn independent_leaf_walk(t: &BspTree, p: Vec3) -> Vec<u32> {
             + n.splitting_plane.normal.y * p.y
             + n.splitting_plane.normal.z * p.z
             + n.splitting_plane.d;
-        match if d > 0.0 { n.pos_child } else { n.neg_child } {
+        match if d >= 0.0 { n.pos_child } else { n.neg_child } {
             Some(c) => i = c,
             None => return out,
         }

@@ -88,7 +88,7 @@ pub fn check_walkable(ctx: &TransitionCtx<'_>, t: &mut Transition, allowance: f3
     if !t.object_info.has(ObjectInfoState::ON_WALKABLE) {
         return true; // nothing to check
     }
-    if t.sphere_path.check_walkables() {
+    if t.sphere_path.check_walkables(t.rules.parallel_band) {
         return true; // the recorded polygon still holds the sphere
     }
     let save = t.sphere_path.check_pos;
@@ -153,7 +153,7 @@ pub fn precipice_slide(t: &mut Transition) -> TransitionState {
     };
     let sphere = t.sphere_path.walkable_check_pos;
     let up = t.sphere_path.walkable_up;
-    let Some(edge) = poly.find_crossed_edge(&sphere, up) else {
+    let Some(edge) = poly.find_crossed_edge(&sphere, up, t.rules.parallel_band) else {
         t.sphere_path.walkable = None;
         return TransitionState::Collided;
     };
@@ -174,7 +174,7 @@ pub fn precipice_slide(t: &mut Transition) -> TransitionState {
     }
     let s = t.sphere_path.global_sphere[0];
     let curr = t.sphere_path.global_curr_center[0];
-    collide::slide_sphere(t, s, edge_world, curr)
+    collide::slide(t, s, &mut edge_world, curr)
 }
 
 /// Called when a step-down failed. Returns `true` when the
@@ -440,7 +440,7 @@ mod tests {
         // Radius 4 -> 2 -> 1 all still reach the polygon; 0.5 does not.
         let mut probes = 0;
         loop {
-            let held = t.sphere_path.check_walkables();
+            let held = t.sphere_path.check_walkables(crate::globals::EPSILON);
             probes += 1;
             if !held || probes > 10 {
                 break;

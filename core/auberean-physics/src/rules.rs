@@ -49,5 +49,8 @@ pub const fn rules() -> TransitionRules {
         placement_ring_fraction: PLACEMENT_RING_FRACTION,
         // A placement that may slide is tried 0.1 m up before the scatter.
         placement_lifts_before_scatter: true,
+        // The shared parallel band and slide.
+        parallel_band: dereth_physics::globals::EPSILON,
+        slide: None,
     }
 }

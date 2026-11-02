@@ -19,7 +19,8 @@ use dereth_physics::transition::place::{
     find_placement_pos, scatter_sequence, scatter_sequence_by, scatter_sequence_from,
 };
 use dereth_physics::transition::{
-    collide, ObjectInfoState, Transition, TransitionCtx, TransitionRules, TransitionState, Turning,
+    collide, walk, ObjectInfoState, Slide, Transition, TransitionCtx, TransitionRules,
+    TransitionState, Turning,
 };
 use dereth_physics::{LandblockCollision, PhysicsObj, PhysicsState, SetupGeometry, V3};
 use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
@@ -42,6 +43,8 @@ fn other_rules() -> TransitionRules {
         turning: Turning::Plain,
         placement_ring_fraction: 0.9,
         placement_lifts_before_scatter: true,
+        parallel_band: 0.0,
+        slide: None,
     }
 }
 
@@ -557,4 +560,247 @@ fn a_world_may_test_an_objects_trees_at_a_scale_along_each_axis() {
         placed(3.0, 3.0, 0.1, TreeScale::Uniform(2.0)),
         TransitionState::Ok
     );
+}
+
+/// A world sets how near to parallel the polygon tests take a movement to be: a body sunk a
+/// quarter of a millimeter into a floor and stepping down a little under 0.0002 m is lifted onto
+/// it in a world whose band is 0, and left where it is in this client's (whose band is 0.0002);
+/// a step down a little over the band lifts it in both.
+///
+/// Behaviour: physics.transition.a-world-sets-the-polygon-tests-parallel-band
+#[test]
+fn a_world_sets_the_polygon_tests_parallel_band() {
+    use dereth_physics::source::PhysicsPart;
+    use dereth_physics::transition::TreeScale;
+    let world = HostWorld::new(false);
+    let middle = Vec3::new(80.0, 80.0, 10.0);
+    let part = PhysicsPart {
+        pos: Position::new(CellId(0x1020_0001), Frame::new(middle, Quat::IDENTITY)),
+        physics_bsp: Some(Arc::new(square_floor())),
+        ..PhysicsPart::default()
+    };
+    let step_down = |rules: TransitionRules, amount: f32| {
+        let mut asked = at(0x1020_0001, middle.x, middle.y);
+        asked.frame.origin.z = middle.z - 0.000_25;
+        let (mut t, objects) = walk(rules, asked, asked);
+        t.sphere_path.set_check_pos(&asked, Some(asked.cell));
+        t.sphere_path.step_down = true;
+        t.sphere_path.step_down_amt = amount;
+        t.sphere_path.walk_interp = 1.0;
+        let cells = BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &world,
+            objects: &objects,
+            cells: &cells,
+            mover: t.object_info.object,
+            object_table: None,
+            entry_host: None,
+        };
+        let r = collide::object_part_find_obj_collisions_scaled(
+            &ctx,
+            &mut t,
+            &part,
+            TreeScale::Uniform(1.0),
+        );
+        (r, t.sphere_path.check_pos.frame.origin.z)
+    };
+    let exact = TransitionRules {
+        parallel_band: 0.0,
+        ..TransitionRules::default()
+    };
+    let (lifted, z) = step_down(exact, 0.000_18);
+    assert_eq!(lifted, TransitionState::Adjusted);
+    assert!((z - middle.z).abs() < 2e-6, "on the floor: {z}");
+    assert_eq!(
+        step_down(TransitionRules::default(), 0.000_18).0,
+        TransitionState::Ok
+    );
+    for rules in [exact, TransitionRules::default()] {
+        assert_eq!(step_down(rules, 0.000_21).0, TransitionState::Adjusted);
+    }
+}
+
+thread_local! {
+    /// The normals the recording slide below was handed, on this test's thread.
+    static HANDED: std::cell::RefCell<Vec<Vec3>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A world's own slide that records the normal it is handed, turns it straight down, and collides
+/// without moving the mover.
+fn recording_slide(
+    _t: &mut Transition,
+    _sphere: &Sphere,
+    normal: &mut Vec3,
+    _curr: Vec3,
+) -> TransitionState {
+    HANDED.with(|h| h.borrow_mut().push(*normal));
+    *normal = Vec3::new(0.0, 0.0, -1.0);
+    TransitionState::Collided
+}
+
+/// A world's own turn of a tree's normal into the world: always along y.
+fn turning_to_y(_frame: &Frame, _normal: Vec3) -> Vec3 {
+    Vec3::new(0.0, 1.0, 0.0)
+}
+
+/// The normals handed to the recording slide since the last asking.
+fn handed() -> Vec<Vec3> {
+    HANDED.with(|h| std::mem::take(&mut *h.borrow_mut()))
+}
+
+fn with_own_slide() -> TransitionRules {
+    TransitionRules {
+        slide: Some(Slide {
+            along: recording_slide,
+            turn: turning_to_y,
+        }),
+        ..TransitionRules::default()
+    }
+}
+
+/// A two-sphere body over the square floor's middle, sphere `low` (0 or 1) sunk 0.1 m into its top
+/// and moving down into it, the other 5 m above, in contact with the ground.
+fn over_the_floor(rules: TransitionRules, low: usize) -> Transition {
+    let mut t = Transition::default();
+    t.set_rules(rules);
+    let (a, b) = if low == 0 { (0.4, 5.4) } else { (5.4, 0.4) };
+    t.sphere_path.init_sphere(
+        &[
+            Sphere::new(Vec3::new(0.0, 0.0, a), 0.5),
+            Sphere::new(Vec3::new(0.0, 0.0, b), 0.5),
+        ],
+        1.0,
+    );
+    let cell = CellId(0x1020_0001);
+    let from = Position::new(cell, Frame::new(Vec3::new(0.0, 0.0, 0.2), Quat::IDENTITY));
+    let to = Position::new(cell, Frame::new(Vec3::ZERO, Quat::IDENTITY));
+    t.sphere_path.init_path(Some(cell), Some(from), &to);
+    t.sphere_path.set_check_pos(&to, Some(cell));
+    t.sphere_path.cache_localspace_sphere(&to, 1.0);
+    t.object_info.set(ObjectInfoState::CONTACT, true);
+    t
+}
+
+/// A world may slide the mover by its own slide wherever the transition slides it along a surface:
+/// the step-up slide (which keeps the step-up normal as the world's slide turned it), the slide
+/// along the edge of the ground a body would walk off, a back face's slide (keeping its normal as
+/// turned), and a physics tree's step-up slide and second sphere's slide, whose normals the
+/// world's own turn takes into the world. This client's slide leaves every normal as it was. A
+/// mover that slides along what it meets takes this client's slide in any world.
+///
+/// Behaviour: physics.transition.a-world-may-slide-by-its-own-slide
+#[test]
+fn a_world_may_slide_by_its_own_slide() {
+    let east = Vec3::new(1.0, 0.0, 0.0);
+    let down = Vec3::new(0.0, 0.0, -1.0);
+
+    // The step-up slide.
+    for (rules, own) in [
+        (TransitionRules::default(), false),
+        (with_own_slide(), true),
+    ] {
+        let mut t = over_the_floor(rules, 0);
+        t.sphere_path.step_up = true;
+        t.sphere_path.step_up_normal = east;
+        let r = collide::step_up_slide(&mut t);
+        assert!(!t.sphere_path.step_up && !t.collision_info.contact_plane_valid);
+        if own {
+            assert_eq!((r, handed()), (TransitionState::Collided, vec![east]));
+            assert_eq!(t.sphere_path.step_up_normal, down);
+        } else {
+            assert_eq!(handed(), vec![]);
+            assert_eq!(t.sphere_path.step_up_normal, east);
+        }
+
+        // A mover that slides along what it meets takes this client's slide.
+        let mut t = over_the_floor(rules, 0);
+        t.object_info.slides = true;
+        t.sphere_path.step_up_normal = east;
+        let _ = collide::step_up_slide(&mut t);
+        assert_eq!(handed(), vec![]);
+    }
+
+    // The slide along the edge of the ground the body would walk off: a floor 1 m across under the
+    // body's first sphere, which has moved east past its east edge.
+    let floor = dereth_physics::geom::Polygon::new(vec![
+        Vec3::new(-1.0, -0.5, 0.0),
+        Vec3::new(0.0, -0.5, 0.0),
+        Vec3::new(0.0, 0.5, 0.0),
+        Vec3::new(-1.0, 0.5, 0.0),
+    ]);
+    for (rules, own) in [
+        (TransitionRules::default(), false),
+        (with_own_slide(), true),
+    ] {
+        let mut t = over_the_floor(rules, 0);
+        t.sphere_path.walkable = Some(floor.clone());
+        t.sphere_path.walkable_check_pos = Sphere::new(Vec3::new(0.3, 0.0, 0.5), 0.5);
+        t.sphere_path.walkable_up = Vec3::new(0.0, 0.0, 1.0);
+        t.sphere_path.walkable_pos = t.sphere_path.check_pos;
+        t.sphere_path.global_sphere[0].center = Vec3::new(0.3, 0.0, 0.5);
+        t.sphere_path.global_curr_center[0] = Vec3::new(-0.2, 0.0, 0.5);
+        let _ = walk::precipice_slide(&mut t);
+        assert_eq!(handed().len(), usize::from(own));
+    }
+
+    // A back face's slide inside the insert.
+    for (rules, own) in [
+        (TransitionRules::default(), false),
+        (with_own_slide(), true),
+    ] {
+        let world = HostWorld::new(false);
+        let (mut t, objects) = walk(rules, at(0x1020_0001, 1.0, 1.0), at(0x1020_0001, 1.5, 1.0));
+        let cells = BTreeMap::new();
+        let ctx = TransitionCtx {
+            land: &world,
+            objects: &objects,
+            cells: &cells,
+            mover: t.object_info.object,
+            object_table: None,
+            entry_host: None,
+        };
+        let check = t.sphere_path.curr_pos;
+        t.sphere_path.set_check_pos(&check, Some(check.cell));
+        t.sphere_path.neg_poly_hit = true;
+        t.sphere_path.neg_step_up = false;
+        t.sphere_path.neg_collision_normal = east;
+        let _ = transitional_insert(&ctx, &mut t, 1);
+        if own {
+            assert_eq!(handed(), vec![east]);
+            assert_eq!(t.sphere_path.neg_collision_normal, down);
+        } else {
+            assert_eq!(handed(), vec![]);
+            assert_eq!(t.sphere_path.neg_collision_normal, east);
+        }
+    }
+
+    // A physics tree's step-up slide (the first sphere sunk into its top, with nowhere to step up
+    // to) and its second sphere's slide: the normal handed over is the world's own turn of the
+    // floor's.
+    let tree = square_floor();
+    let land = dereth_physics::StaticLandSource::linear();
+    let objects = Arena::new();
+    let cells = BTreeMap::new();
+    let ctx = TransitionCtx {
+        land: &land,
+        objects: &objects,
+        cells: &cells,
+        mover: None,
+        object_table: None,
+        entry_host: None,
+    };
+    for low in [0, 1] {
+        let mut t = over_the_floor(TransitionRules::default(), low);
+        assert_ne!(
+            collide::bsp_find_collisions(&ctx, &mut t, &tree, 1.0),
+            TransitionState::Ok
+        );
+        assert_eq!(handed(), vec![]);
+        let mut t = over_the_floor(with_own_slide(), low);
+        assert_eq!(
+            collide::bsp_find_collisions(&ctx, &mut t, &tree, 1.0),
+            TransitionState::Collided
+        );
+        assert_eq!(handed(), vec![Vec3::new(0.0, 1.0, 0.0)], "sphere {low}");
+    }
 }

@@ -173,7 +173,8 @@ impl Polygon {
     ///
     /// If the projected centre is inside every edge the answer is 1 immediately; otherwise it
     /// runs the full loop from the top. The difference from the fast version is that a `result`
-    /// that was set to 0 by an earlier edge cannot be rescued by a later one.
+    /// that was set to 0 by an earlier edge cannot be rescued by a later one. An edge's far end or
+    /// a corner reached exactly counts as a hit.
     pub fn polygon_hits_sphere_slow_but_sure(
         &self,
         sphere: &Sphere,
@@ -208,11 +209,11 @@ impl Polygon {
                     return false;
                 }
                 let along = disp.dot(e);
-                if along >= 0.0 && along < e.mag2() {
+                if along >= 0.0 && along <= e.mag2() {
                     return true;
                 }
             }
-            if disp.mag2() < diff {
+            if disp.mag2() <= diff {
                 return true;
             }
         }
@@ -289,21 +290,27 @@ impl Polygon {
     ///
     /// Two differences from ACE, both taken from the client: the up/normal guard is on the
     /// **absolute** value (`ABS(dot) < 2e-4`, not `dot < 2e-4`), and the radius term is the plain
-    /// `radius^2` rather than `radius^2 - d^2`.
+    /// `radius^2` rather than `radius^2 - d^2`. An edge's far end or a corner reached exactly
+    /// counts as under the sphere.
+    ///
+    /// `parallel` is the world's parallel band ([`crate::transition::TransitionRules`]): an up
+    /// vector whose dot product with the normal is smaller than it, either way, finds nothing
+    /// (this client's is `2e-4`). With a band of 0 nothing is refused and an up vector lying in
+    /// the plane divides through by zero, which no comparison below then holds for.
     #[must_use]
-    pub fn check_walkable(&self, sphere: &Sphere, up: Vec3) -> bool {
-        self.check_walkable_inner(sphere, up, false)
+    pub fn check_walkable(&self, sphere: &Sphere, up: Vec3, parallel: f32) -> bool {
+        self.check_walkable_inner(sphere, up, false, parallel)
     }
 
     /// The same with the radius term quartered.
     #[must_use]
-    pub fn check_small_walkable(&self, sphere: &Sphere, up: Vec3) -> bool {
-        self.check_walkable_inner(sphere, up, true)
+    pub fn check_small_walkable(&self, sphere: &Sphere, up: Vec3, parallel: f32) -> bool {
+        self.check_walkable_inner(sphere, up, true, parallel)
     }
 
-    fn check_walkable_inner(&self, sphere: &Sphere, up: Vec3, small: bool) -> bool {
+    fn check_walkable_inner(&self, sphere: &Sphere, up: Vec3, small: bool, parallel: f32) -> bool {
         let angle_up = up.dot(self.plane.normal);
-        if angle_up.abs() < EPSILON {
+        if angle_up.abs() < parallel {
             return false;
         }
         let t = self.plane.dot_point(sphere.center) / angle_up;
@@ -323,12 +330,12 @@ impl Polygon {
                     return false;
                 }
                 let along = disp.dot(e);
-                if along >= 0.0 && along < e.mag2() {
+                if along >= 0.0 && along <= e.mag2() {
                     return true;
                 }
                 result = false;
             }
-            if disp.mag2() < radsum {
+            if disp.mag2() <= radsum {
                 return true;
             }
         }
@@ -336,11 +343,13 @@ impl Polygon {
     }
 
     /// The first edge whose inward test fails,
-    /// returned as the normalised `cross(N, e)`. `None` when the up vector grazes the plane.
+    /// returned as the normalised `cross(N, e)`. `None` when the up vector grazes the plane: its
+    /// dot product with the normal is within the world's parallel band `parallel` of zero (with a
+    /// band of 0 there is no such test, as in [`Self::check_walkable`]).
     #[must_use]
-    pub fn find_crossed_edge(&self, sphere: &Sphere, up: Vec3) -> Option<Vec3> {
+    pub fn find_crossed_edge(&self, sphere: &Sphere, up: Vec3, parallel: f32) -> Option<Vec3> {
         let angle_up = self.plane.normal.dot(up);
-        if angle_up.abs() < EPSILON {
+        if angle_up.abs() < parallel {
             return None;
         }
         let t = self.plane.dot_point(sphere.center) / angle_up;
@@ -360,14 +369,22 @@ impl Polygon {
     ///
     /// ACE decides the sign of the radius term from `movement.LengthSquared()`; the client
     /// decides it from the sign of the current signed distance. This is the client's version.
+    /// A movement parallel to the plane never touches it: 0. It is parallel when its dot product
+    /// with the normal is zero or within the world's parallel band `parallel` of zero.
     #[must_use]
-    pub fn adjust_sphere_to_poly(&self, radius: f32, cur_pos: Vec3, movement: Vec3) -> f32 {
+    pub fn adjust_sphere_to_poly(
+        &self,
+        radius: f32,
+        cur_pos: Vec3,
+        movement: Vec3,
+        parallel: f32,
+    ) -> f32 {
         let d0 = self.plane.dot_point(cur_pos);
         if d0.abs() < radius {
             return 1.0;
         }
         let den = self.plane.normal.dot(movement);
-        if den.abs() < EPSILON {
+        if den == 0.0 || den.abs() < parallel {
             return 0.0;
         }
         let r = if d0 <= 0.0 { -radius } else { radius };
@@ -378,18 +395,21 @@ impl Polygon {
     /// consume `walk_interp`.
     ///
     /// The rejection floor here is **`-0.5`**, not the `-0.1` the step-down paths use. Returns
-    /// `Some` of the new `walk_interp` and moves `center` on success.
+    /// `Some` of the new `walk_interp` and moves `center` on success. A movement whose dot product
+    /// with the normal is within the world's parallel band `parallel` of zero, either way, is
+    /// refused (with a band of 0, only one exactly parallel).
     pub fn adjust_sphere_to_plane(
         &self,
         center: &mut Vec3,
         radius: f32,
         movement: Vec3,
         walk_interp: f32,
+        parallel: f32,
     ) -> Option<f32> {
         let dp_pos = self.plane.dot_point(*center);
         let dp_move = self.plane.normal.dot(movement);
-        let dist = if dp_move <= EPSILON {
-            if dp_move >= -EPSILON {
+        let dist = if dp_move <= parallel {
+            if dp_move >= -parallel {
                 return None;
             }
             dp_pos - radius
@@ -668,12 +688,12 @@ mod tests {
         let p = unit_square();
         let s = Sphere::new(Vec3::new(0.5, 0.5, 1.0), 0.5);
         assert!(
-            p.check_walkable(&s, Vec3::new(0.0, 0.0, -1.0)),
+            p.check_walkable(&s, Vec3::new(0.0, 0.0, -1.0), EPSILON),
             "up pointing down still probes"
         );
-        assert!(p.check_walkable(&s, Vec3::new(0.0, 0.0, 1.0)));
+        assert!(p.check_walkable(&s, Vec3::new(0.0, 0.0, 1.0), EPSILON));
         // truly grazing: rejected
-        assert!(!p.check_walkable(&s, Vec3::new(1.0, 0.0, 0.000_1)));
+        assert!(!p.check_walkable(&s, Vec3::new(1.0, 0.0, 0.000_1), EPSILON));
     }
 
     #[test]
@@ -683,8 +703,8 @@ mod tests {
         // (r = 0.5) reaches, the small one (effective r = 0.25) does not.
         let s = Sphere::new(Vec3::new(1.4, 0.5, 1.0), 0.5);
         let up = Vec3::new(0.0, 0.0, 1.0);
-        assert!(p.check_walkable(&s, up));
-        assert!(!p.check_small_walkable(&s, up));
+        assert!(p.check_walkable(&s, up, EPSILON));
+        assert!(!p.check_small_walkable(&s, up, EPSILON));
     }
 
     #[test]
@@ -693,32 +713,58 @@ mod tests {
         // A centre past the +X edge: the crossed edge is (1,0)->(1,1), whose cross(N, e) is -X.
         let s = Sphere::new(Vec3::new(1.5, 0.5, 1.0), 0.5);
         let n = p
-            .find_crossed_edge(&s, Vec3::new(0.0, 0.0, 1.0))
+            .find_crossed_edge(&s, Vec3::new(0.0, 0.0, 1.0), EPSILON)
             .expect("an edge was crossed");
         assert!(n.eq_eps(Vec3::new(-1.0, 0.0, 0.0)), "{n:?}");
         // A centre inside crosses nothing.
         let inside = Sphere::new(Vec3::new(0.5, 0.5, 1.0), 0.5);
-        assert_eq!(p.find_crossed_edge(&inside, Vec3::new(0.0, 0.0, 1.0)), None);
+        assert_eq!(
+            p.find_crossed_edge(&inside, Vec3::new(0.0, 0.0, 1.0), EPSILON),
+            None
+        );
         // A grazing up vector is rejected outright.
-        assert_eq!(p.find_crossed_edge(&s, Vec3::new(1.0, 0.0, 0.0)), None);
+        assert_eq!(
+            p.find_crossed_edge(&s, Vec3::new(1.0, 0.0, 0.0), EPSILON),
+            None
+        );
     }
 
     #[test]
     fn adjust_sphere_to_poly_returns_one_when_already_interpenetrating() {
         let p = unit_square();
         assert_eq!(
-            p.adjust_sphere_to_poly(1.0, Vec3::new(0.5, 0.5, 0.5), Vec3::new(0.0, 0.0, -1.0)),
+            p.adjust_sphere_to_poly(
+                1.0,
+                Vec3::new(0.5, 0.5, 0.5),
+                Vec3::new(0.0, 0.0, -1.0),
+                EPSILON
+            ),
             1.0
         );
         // approaching from above: touch happens when the centre reaches +radius
-        let t = p.adjust_sphere_to_poly(1.0, Vec3::new(0.5, 0.5, 5.0), Vec3::new(0.0, 0.0, -1.0));
+        let t = p.adjust_sphere_to_poly(
+            1.0,
+            Vec3::new(0.5, 0.5, 5.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            EPSILON,
+        );
         assert!((t - 4.0).abs() < 1e-5, "{t}");
         // approaching from below: the radius term flips sign
-        let t = p.adjust_sphere_to_poly(1.0, Vec3::new(0.5, 0.5, -5.0), Vec3::new(0.0, 0.0, 1.0));
+        let t = p.adjust_sphere_to_poly(
+            1.0,
+            Vec3::new(0.5, 0.5, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            EPSILON,
+        );
         assert!((t - 4.0).abs() < 1e-5, "{t}");
         // parallel movement: no time
         assert_eq!(
-            p.adjust_sphere_to_poly(1.0, Vec3::new(0.5, 0.5, 5.0), Vec3::new(1.0, 0.0, 0.0)),
+            p.adjust_sphere_to_poly(
+                1.0,
+                Vec3::new(0.5, 0.5, 5.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                EPSILON
+            ),
             0.0
         );
     }
@@ -731,12 +777,12 @@ mod tests {
         // A movement so slow that reaching the plane consumes five times the available interp:
         // i_dist = (0.5 - 1) / -0.1 = 5, so interp = -4, well below the -0.5 floor.
         assert_eq!(
-            p.adjust_sphere_to_plane(&mut c, 1.0, Vec3::new(0.0, 0.0, -0.1), 1.0),
+            p.adjust_sphere_to_plane(&mut c, 1.0, Vec3::new(0.0, 0.0, -0.1), 1.0, EPSILON),
             None
         );
         // A modest one succeeds and reduces walk_interp.
         let mut c = Vec3::new(0.5, 0.5, 0.9);
-        let got = p.adjust_sphere_to_plane(&mut c, 1.0, Vec3::new(0.0, 0.0, -1.0), 1.0);
+        let got = p.adjust_sphere_to_plane(&mut c, 1.0, Vec3::new(0.0, 0.0, -1.0), 1.0, EPSILON);
         assert!(got.is_some(), "expected an adjustment");
         assert!(got.unwrap() < 1.0);
     }

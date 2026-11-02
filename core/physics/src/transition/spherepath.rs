@@ -365,13 +365,14 @@ impl SpherePath {
     /// This **halves `walkable_check_pos.radius` in place** on every call,
     /// permanently. That is the mechanism by which a character eventually falls off a narrow
     /// ledge: repeated probes shrink geometrically until the polygon no longer holds the sphere.
-    /// A "clean" implementation that does not mutate never falls off.
-    pub fn check_walkables(&mut self) -> bool {
+    /// A "clean" implementation that does not mutate never falls off. `parallel` is the world's
+    /// parallel band for the footprint test.
+    pub fn check_walkables(&mut self, parallel: f32) -> bool {
         let Some(poly) = self.walkable.as_ref() else {
             return true;
         };
         self.walkable_check_pos.radius *= 0.5;
-        poly.check_walkable(&self.walkable_check_pos, self.walkable_up)
+        poly.check_walkable(&self.walkable_check_pos, self.walkable_up, parallel)
     }
 
     /// Whether a walkable is allowable.
@@ -578,7 +579,7 @@ mod tests {
         let mut probes = 0;
         let mut held = true;
         while held && probes < 10 {
-            held = p.check_walkables();
+            held = p.check_walkables(crate::globals::EPSILON);
             probes += 1;
         }
         assert!(!held, "the probe must eventually stop holding the sphere");
@@ -593,7 +594,7 @@ mod tests {
 
         // With no walkable polygon at all the answer is an unconditional 1.
         let mut q = path_with(0.5);
-        assert!(q.check_walkables());
+        assert!(q.check_walkables(crate::globals::EPSILON));
     }
 
     #[test]
@@ -614,7 +615,7 @@ mod tests {
             1.0,
         );
         for k in 1..=5 {
-            assert!(p.check_walkables());
+            assert!(p.check_walkables(crate::globals::EPSILON));
             let expect = 4.0_f32 / 2.0_f32.powi(k);
             assert!(
                 (p.walkable_check_pos.radius - expect).abs() < 1e-6,

@@ -78,5 +78,5 @@ pub use source::{
     Agent, LandNavSource, LandStatics, NavConfig, NavSource, NoLandStatics, StaticPlacement,
 };
 pub use task::{Done, Task, Want};
-pub use walk::{CheckReport, PhysicsWalker, SegmentCheck, WalkOutcome, WalkerConfig};
+pub use walk::{stand, CheckReport, PhysicsWalker, SegmentCheck, WalkOutcome, WalkerConfig};
 pub use world::{DoorState, NavWorld, Obstacle, ObstacleKind};

@@ -5,6 +5,7 @@ mod cells;
 mod collision;
 mod common;
 mod doors;
+mod geometry;
 mod host;
 mod instruments;
 mod motion;

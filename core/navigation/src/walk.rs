@@ -97,6 +97,8 @@ pub struct PhysicsWalker<'w> {
     pub trail: Vec<Position>,
     /// Whether to keep [`Self::trail`].
     pub keep_trail: bool,
+    /// How high above a place the body is put down ([`resting_lift`]).
+    lift: f32,
 }
 
 impl<'w> PhysicsWalker<'w> {
@@ -106,6 +108,7 @@ impl<'w> PhysicsWalker<'w> {
         setup: Arc<SetupGeometry>,
         config: WalkerConfig,
     ) -> Self {
+        let lift = resting_lift(&setup);
         let handle = world.create(ObjectId(0x5000_0001), setup, true);
         world.set_player(handle);
         Self {
@@ -115,6 +118,7 @@ impl<'w> PhysicsWalker<'w> {
             config,
             trail: Vec::new(),
             keep_trail: false,
+            lift,
         }
     }
 
@@ -157,10 +161,9 @@ impl Drop for PhysicsWalker<'_> {
 }
 
 impl SegmentCheck for PhysicsWalker<'_> {
+    /// The body is put down resting on the floor at `at` ([`stand`]).
     fn place(&mut self, at: &Position) -> bool {
-        let mut pos = *at;
-        pos.frame.rotation = Quat::IDENTITY;
-        if !self.world.set_position(self.handle, &pos) {
+        if !stand_lifted(self.world, self.handle, self.lift, at) {
             return false;
         }
         if let Some(o) = self.world.get_mut(self.handle) {
@@ -221,4 +224,38 @@ impl SegmentCheck for PhysicsWalker<'_> {
             last = now;
         }
     }
+}
+
+/// How high above a place on a floor a body of `setup` is put down to rest there: its feet raised
+/// as far as its spheres reach below them.
+fn resting_lift(setup: &SetupGeometry) -> f32 {
+    setup
+        .path_spheres()
+        .iter()
+        .map(|s| s.radius - s.center.z)
+        .fold(0.0_f32, f32::max)
+}
+
+/// Put the body `handle`, of `setup`, down to stand at `at`, a place on a floor, facing north:
+/// `false` when the world will not have it there.
+///
+/// A body rests on its lowest sphere, which can reach below its feet (a person's by 5 mm). Put
+/// with its feet on the floor, that sphere is in the floor, and the world lifts a body out of a
+/// floor only where the floor's tree says it is in solid: elsewhere it refuses the body. So the
+/// body is put down as a body standing on that floor is, its feet raised until no sphere reaches
+/// below them.
+pub fn stand(
+    world: &mut PhysicsWorld,
+    handle: PhysHandle,
+    setup: &SetupGeometry,
+    at: &Position,
+) -> bool {
+    stand_lifted(world, handle, resting_lift(setup), at)
+}
+
+fn stand_lifted(world: &mut PhysicsWorld, handle: PhysHandle, lift: f32, at: &Position) -> bool {
+    let mut pos = *at;
+    pos.frame.rotation = Quat::IDENTITY;
+    pos.frame.origin.z += lift;
+    world.set_position(handle, &pos)
 }

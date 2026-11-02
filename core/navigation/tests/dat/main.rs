@@ -12,4 +12,5 @@ mod outdoors;
 mod parts;
 mod patches;
 mod routes;
+mod standing;
 mod steering;

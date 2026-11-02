@@ -144,9 +144,10 @@ impl BspNode {
     }
 
     /// The single child a **point** descends into. The sign of the plane decides and there is no
-    /// epsilon: a point exactly on the plane goes negative, because the test is `> 0`.
+    /// epsilon: a point exactly on the plane goes positive, because only a negative distance
+    /// turns the walk to the negative child.
     fn child_towards(&self, point: Vec3) -> Option<u32> {
-        if self.splitting_plane.dot_point(point) > 0.0 {
+        if self.splitting_plane.dot_point(point) >= 0.0 {
             self.pos_child
         } else {
             self.neg_child
@@ -396,7 +397,8 @@ impl BspTree {
     /// plane prune's reach.
     ///
     /// Two things separate this from [`Self::sphere_intersects_solid`]. A straddling node walks
-    /// the **near** half first — the half holding the centre — and stops the moment a polygon has
+    /// the **near** half first — the half holding the centre, the front one for a centre on the
+    /// plane — and stops the moment a polygon has
     /// been named, answering `center_solid` rather than the polygon's own `true`; only if nothing
     /// was named does it fall through to the far half, with `center_check` cleared. And a solid
     /// leaf sets `center_solid` instead of returning: the caller wants the polygon to push off,
@@ -461,7 +463,7 @@ impl BspTree {
         let (near, far) = match halves {
             Halves::Positive => (n.pos_child, None),
             Halves::Negative => (n.neg_child, None),
-            Halves::Both if dist <= 0.0 => (n.neg_child, n.pos_child),
+            Halves::Both if dist < 0.0 => (n.neg_child, n.pos_child),
             Halves::Both => (n.pos_child, n.neg_child),
         };
         let near_answer = match near {
@@ -485,9 +487,23 @@ impl BspTree {
     ///
     /// A polygon qualifies only if it passes both gates: `walkable_hits_sphere` for the slope
     /// against `walkable_allowance`, and `check_small_walkable` for the quarter-radius footprint.
-    /// The first qualifying polygon ends the walk; nothing is recorded.
+    /// The first qualifying polygon ends the walk; nothing is recorded. The footprint test takes
+    /// this client's parallel band; [`Self::hits_walkable_within`] takes a world's.
     #[must_use]
     pub fn hits_walkable(&self, sphere: &Sphere, up: Vec3, walkable_allowance: f32) -> bool {
+        self.hits_walkable_within(sphere, up, walkable_allowance, EPSILON)
+    }
+
+    /// [`Self::hits_walkable`] with the world's parallel band `parallel` for the footprint test
+    /// ([`crate::transition::TransitionRules::parallel_band`]).
+    #[must_use]
+    pub fn hits_walkable_within(
+        &self,
+        sphere: &Sphere,
+        up: Vec3,
+        walkable_allowance: f32,
+        parallel: f32,
+    ) -> bool {
         let reach = sphere.radius - EPSILON;
         let mut work = self.work_stack();
         while let Some(idx) = work.pop() {
@@ -499,7 +515,7 @@ impl BspTree {
                 let found = n.in_polys.iter().any(|&p| {
                     let poly = &self.polygons[p as usize];
                     poly.walkable_hits_sphere(sphere, up, walkable_allowance)
-                        && poly.check_small_walkable(sphere, up)
+                        && poly.check_small_walkable(sphere, up, parallel)
                 });
                 if found {
                     return true;
@@ -519,7 +535,8 @@ impl BspTree {
     /// both walkable and adjustable overwrites `hit_poly`, so the last one wins. The walk is also
     /// the one place a sphere moves underneath it — each node re-reads `valid_pos`, so a leaf that
     /// has already lifted the sphere changes what the rest of the tree is tested against, and the
-    /// `walk_interp` ratchet is what keeps that converging.
+    /// `walk_interp` ratchet is what keeps that converging. A movement within the world's
+    /// parallel band `parallel` of a polygon's plane does not adjust onto it.
     #[allow(clippy::too_many_arguments)]
     pub fn find_walkable(
         &self,
@@ -530,6 +547,7 @@ impl BspTree {
         walkable_allowance: f32,
         walk_interp: &mut f32,
         changed: &mut bool,
+        parallel: f32,
     ) {
         let mut work = self.work_stack();
         while let Some(idx) = work.pop() {
@@ -548,6 +566,7 @@ impl BspTree {
                         valid_pos.radius,
                         movement,
                         *walk_interp,
+                        parallel,
                     ) {
                         *walk_interp = interp;
                         *changed = true;
@@ -585,13 +604,15 @@ impl BspTree {
     ///
     /// The brackets are `double` in the client, and each component of the current position plus
     /// `movement * t` is computed in extended precision and stored back as a float, which is what
-    /// the `f64` scalars and per-component multiply below reproduce.
+    /// the `f64` scalars and per-component multiply below reproduce. `parallel` is the world's
+    /// parallel band, within which a movement along the polygon's plane never meets it.
     pub fn adjust_to_plane(
         &self,
         sphere: &mut Sphere,
         cur_pos: Vec3,
         hit_poly: &mut Option<u32>,
         contact_point: &mut Vec3,
+        parallel: f32,
     ) -> bool {
         /// The current position plus `movement * t` with `t` a double, as the client computes it.
         fn at(cur_pos: Vec3, movement: Vec3, t: f64) -> Vec3 {
@@ -614,7 +635,7 @@ impl BspTree {
                 Some(p) => &self.polygons[p as usize],
                 None => return false,
             };
-            let t = poly.adjust_sphere_to_poly(sphere.radius, cur_pos, movement);
+            let t = poly.adjust_sphere_to_poly(sphere.radius, cur_pos, movement, parallel);
             if t == 1.0 {
                 // Already interpenetrating: bisect the whole bracket instead.
                 break;
@@ -778,8 +799,8 @@ mod tests {
         assert!(!t.point_intersects_solid(Vec3::new(0.0, 0.0, 5.0)));
         // Below: the leaf holding the floor polygon.
         assert!(t.point_intersects_solid(Vec3::new(0.0, 0.0, -5.0)));
-        // Exactly on the plane: `> 0.0` is false, so it goes negative.
-        assert!(t.point_intersects_solid(Vec3::ZERO));
+        // Exactly on the plane: only a negative distance goes negative, so it goes positive.
+        assert!(!t.point_intersects_solid(Vec3::ZERO));
     }
 
     #[test]
@@ -888,7 +909,7 @@ mod tests {
         let mut s = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 1.0);
         let mut hit = Some(0);
         let mut cp = Vec3::ZERO;
-        assert!(t.adjust_to_plane(&mut s, cur, &mut hit, &mut cp));
+        assert!(t.adjust_to_plane(&mut s, cur, &mut hit, &mut cp, EPSILON));
         assert!(
             (s.center.z - 1.0).abs() < 0.05,
             "the sphere should rest one radius above the floor, not at {}",
@@ -911,7 +932,7 @@ mod tests {
         let mut hit = Some(0);
         let mut cp = Vec3::ZERO;
         assert!(
-            t.adjust_to_plane(&mut s, cur, &mut hit, &mut cp),
+            t.adjust_to_plane(&mut s, cur, &mut hit, &mut cp, EPSILON),
             "the client adjusts, not collides"
         );
         assert!(
@@ -946,6 +967,7 @@ mod tests {
             crate::globals::LANDING_Z,
             &mut interp,
             &mut changed,
+            EPSILON,
         );
         assert!(changed, "the sphere must be reported as adjusted");
         assert_eq!(hit, Some(0));

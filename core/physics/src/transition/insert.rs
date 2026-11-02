@@ -310,18 +310,15 @@ pub fn transitional_insert(
             if t.sphere_path.neg_step_up {
                 let n = t.sphere_path.neg_collision_normal;
                 if !super::walk::step_up(ctx, t, n) {
-                    t.collision_info.clear_contact_plane();
-                    t.sphere_path.step_up = false;
-                    let sphere = t.sphere_path.global_sphere[0];
-                    let curr = t.sphere_path.global_curr_center[0];
-                    let up = t.sphere_path.step_up_normal;
-                    result = collide::slide_sphere(t, sphere, up, curr);
+                    result = collide::step_up_slide(t);
                 }
             } else {
                 let sphere = t.sphere_path.global_sphere[0];
                 let curr = t.sphere_path.global_curr_center[0];
-                let n = t.sphere_path.neg_collision_normal;
-                result = collide::slide_sphere(t, sphere, n, curr);
+                // The back face's normal keeps whatever the slide turned it to.
+                let mut n = t.sphere_path.neg_collision_normal;
+                result = collide::slide(t, sphere, &mut n, curr);
+                t.sphere_path.neg_collision_normal = n;
             }
             continue;
         }

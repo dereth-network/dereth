@@ -700,6 +700,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-body-checking-a-route-is-put-down-resting-on-the-floor",
+        says: "The body the planner walks a route with is put down at a place as a body standing \
+               on that floor is: its feet raised until none of its spheres reaches below them (a \
+               person's by 5 mm), since the world refuses a body sunk into its floor wherever it \
+               does not lift it out. In Holtburg's Training Academy every clear place is stood \
+               on, the hive's floor among them, where a person put with their feet on the floor \
+               is refused.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-STANDS"),
+        station: "dereth-navigation::dat::standing::a_body_is_put_down_resting_on_the_floor_where_one_with_its_feet_in_it_is_refused",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-body-steps-across-a-narrow-gap-between-floors-a-step-apart",
         says: "Where two floors a step apart in height lie a narrow gap apart (two sampling columns \
                or less, under 0.75 m: a crack between a dais and its steps, a riser between treads), \

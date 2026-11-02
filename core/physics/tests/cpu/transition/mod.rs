@@ -1,6 +1,7 @@
 mod failed_transition;
 mod glide;
 mod insert_attempts;
+mod placement_push;
 mod rules;
 mod slide_normal_rotation;
 mod step_up_budget;
