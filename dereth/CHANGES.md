@@ -14,6 +14,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.11 (2026-11-02)
+
+- Fix macOS packaging
+
 ## 0.4.10 (2026-11-02)
 
 - Launcher: Auberean's realm is open to everyone: play Asheron's Call 2 with Auberean or your retail client, host and update worlds with Yalain, and build, publish and export worlds with Athenaeum.
