@@ -201,6 +201,12 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
         };
         put(&mut t, "requires", Value::InlineTable(g));
     }
+    if o.recall {
+        put(&mut t, "recall", Value::from(true));
+    }
+    if o.summon {
+        put(&mut t, "summon", Value::from(true));
+    }
     put(&mut t, "prov", prov(p));
     t
 }

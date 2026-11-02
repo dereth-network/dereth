@@ -5,13 +5,13 @@
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
 //! sinks, the wheel changes its speed. A click on a marker selects its row; dragging it moves the
 //! row over the ground. R turns the selected row a step to the right (with Shift, to the left),
-//! Delete takes it away, F flies to it, Escape lets it go. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y
-//! redoes.
+//! Delete takes it away, F flies to it, Escape lets it go. T sends the character playing on the
+//! editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes.
 //!
 //! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
 //! or a place, and its template) and the button that places it at the next click on the ground;
 //! the moment of the day; and play ([`play`]: the playtest character, Characters, Live, Play,
-//! Restart). On the left, the
+//! To camera, Restart). On the left, the
 //! rows near the camera, each with the letter of where it came from (C recorded sessions, D the
 //! data files, R a rule, A a person), and the database's rows the world takes away. On the right,
 //! the selected row: where it came from and what it was, its fields, which are changed there.
@@ -179,10 +179,10 @@ pub struct Editor<'w> {
     new_name: String,
     /// The world's revision last published to the editor's own Yalain.
     published: u64,
-    /// Whether a change the server takes only when it starts again starts it again at once.
-    pub restart_changes: bool,
-    /// The changed tables that wait for Restart, when it does not start again at once.
-    waiting: Vec<String>,
+    /// The skills' names, by number, for the recipes' skills.
+    pub skill_names: Vec<(u32, String)>,
+    /// What the Characters window is adding to the chosen recipe, and importing.
+    adding: play::Adding,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -337,8 +337,8 @@ impl<'w> Editor<'w> {
             characters_open: false,
             new_name: String::new(),
             published: 0,
-            restart_changes: true,
-            waiting: Vec::new(),
+            skill_names: Vec::new(),
+            adding: play::Adding::default(),
         };
         e.read_characters();
         e
@@ -768,6 +768,7 @@ impl<'w> Editor<'w> {
                             self.fly_to(&item);
                         }
                     }
+                    KeyCode::KeyT if !input.ctrl => self.teleport_to_camera(),
                     KeyCode::Delete => self.delete_selected(),
                     KeyCode::Escape => {
                         self.tool = Tool::Select;

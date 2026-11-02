@@ -14,9 +14,14 @@
 //! find WORDS                         open the template finder on a name
 //! character NAME RACE SEX START [hero]  write a playtest character's recipe and choose it
 //!                                    (START: camera, selection, left, or place KEY)
-//! as NAME | reset NAME               choose the character Play plays as; make it anew next play
+//! recipe NAME KEY = VALUE            set a field of a recipe, the rest of the line a TOML line
+//!                                    (`recipe Scout level = 10`, `recipe Scout items = [...]`)
+//! as NAME | reset NAME               choose the character Play plays as; make it anew
+//! export NAME                        write a character to the world's build/characters
+//! import FILE [NAME]                 bring a character in from another world's file
 //! characters                         open or close the Characters window
 //! live | play | play-retail | stop   the editor's own Yalain, and a client in it (serve: live)
+//! teleport                           send the character in the world to the camera
 //! restart                            start Yalain again, the character where it stands
 //! shot FILE                          save the window's picture
 //! quit
@@ -52,8 +57,14 @@ pub enum Step {
     Stop,
     Restart,
     Character(Recipe),
+    /// A recipe's name, and a TOML line setting one of its fields.
+    Recipe(String, String),
     As(String),
     Reset(String),
+    Export(String),
+    /// A character file, and the name it comes in under (its own when empty).
+    Import(PathBuf, String),
+    Teleport,
     Characters,
     Shot(PathBuf),
     Quit,
@@ -156,9 +167,16 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ["play-retail"] => Step::Play(true),
             ["stop"] => Step::Stop,
             ["restart"] => Step::Restart,
+            ["teleport"] => Step::Teleport,
             ["character", rest @ ..] => Step::Character(recipe(rest).map_err(bad)?),
             ["as", n] => Step::As(name(n)),
             ["reset", n] => Step::Reset(name(n)),
+            ["recipe", n, rest @ ..] if rest.contains(&"=") => {
+                Step::Recipe(name(n), rest.join(" "))
+            }
+            ["export", n] => Step::Export(name(n)),
+            ["import", f] => Step::Import(PathBuf::from(f), String::new()),
+            ["import", f, n] => Step::Import(PathBuf::from(f), name(n)),
             ["characters"] => Step::Characters,
             ["shot", f] => Step::Shot(dir.join(f)),
             ["quit"] => Step::Quit,

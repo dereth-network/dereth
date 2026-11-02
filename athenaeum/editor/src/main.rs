@@ -57,6 +57,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use athenaeum_editor::app::{self, Editor, ViewInput};
+use athenaeum_editor::characters::Recipe;
 use athenaeum_editor::script::{Script, Step};
 use athenaeum_editor::{gui, icon, live, paint, scene, view};
 
@@ -90,8 +91,9 @@ athenaeum-editor <world> --dats <install> [options]
   --yalain EXE          the Yalain that plays the world (default: the one beside this program)
   --server-dats DIR     the install Yalain reads (default: --dats; give a copy no client runs
                         from when the retail client plays)
-  --port P              the first login port tried for Yalain, the first free one taken; the
-                        world's is two above (default 9300)
+  --port P              where the look for Yalain's login port begins, moved on by a step of
+                        this editor's own; the first free one is taken, and the world's is two
+                        above (default 9300)
   --client EXE          Auberean, to play the world with (default: the one beside this program)
   --client-dats DIR     the install Auberean reads (default: --server-dats)
   --retail EXE          the retail client, run from its own folder, to play the world with
@@ -277,8 +279,22 @@ impl App<'_> {
                         e.status = err;
                     }
                 }
+                Step::Recipe(name, line) => {
+                    let r = e
+                        .recipes
+                        .iter()
+                        .find(|r| r.name == name)
+                        .cloned()
+                        .unwrap_or_else(|| Recipe::new(&name));
+                    if let Err(err) = r.with_line(&line).and_then(|r| e.keep_character(&r)) {
+                        e.status = err;
+                    }
+                }
                 Step::As(name) => e.character = name,
                 Step::Reset(name) => e.reset_character(&name),
+                Step::Export(name) => e.export_character(&name),
+                Step::Import(file, name) => e.import_character(&file, &name),
+                Step::Teleport => e.teleport_to_camera(),
                 Step::Characters => e.characters_open = !e.characters_open,
                 Step::Shot(p) => self.shot_next = Some(p),
                 Step::Quit => self.quit = true,
@@ -467,6 +483,28 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+/// The skills' names enumeration in the portal file.
+const SKILL_NAMES: u32 = 0x2300_000F;
+
+/// The skills' names, by number, for the playtest characters' recipes (none when the install's
+/// enumeration does not read).
+fn skill_names(files: &build::InstallFiles) -> Vec<(u32, String)> {
+    files
+        .portal
+        .read(SKILL_NAMES)
+        .ok()
+        .and_then(|b| {
+            auberean_assets::decode::<auberean_assets::strings::EnumMap>(
+                SKILL_NAMES,
+                &b,
+                &files.ctx,
+            )
+            .ok()
+        })
+        .map(|m| m.names)
+        .unwrap_or_default()
+}
+
 /// Where the camera starts: `--at`, else where it was when the world was last closed, else over
 /// the target pack's first row, else over the
 /// outdoor landblock where the world places the most people and objects, looking north at them.
@@ -602,6 +640,7 @@ fn run() -> Result<(), String> {
             .map(|e| e.id)
             .collect(),
     );
+    editor.skill_names = skill_names(&files);
     editor.base = base_dir;
     editor.size = o.size;
     let shots = o

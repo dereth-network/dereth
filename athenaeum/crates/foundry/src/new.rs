@@ -4,6 +4,7 @@
 //! <world>/world.toml                  the world's key, its game and era, its packs, its base
 //! <world>/world.lock                  the ids its build gives, kept across builds
 //! <world>/fill-<key>/pack.toml        the pack its edits go into, empty
+//! <world>/.gitignore                  what playing and building it leaves beside it
 //! ```
 //!
 //! The world names the database by name only (`[base] db = "yalain-world"`), so it lies over
@@ -80,6 +81,12 @@ pub fn files(key: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// A new world's `.gitignore`: the playtest folder (the editor's server, its characters' stores
+/// and logs) and the build's output are made from the world, never part of it.
+pub const GITIGNORE: &str = "# Made from the world as it is played and built; never part of it.\n\
+                             .playtest/\n\
+                             build/\n";
+
 /// Make a new world in `dir`, which must not hold one already; its key is `key`, else made from
 /// the folder's name.
 ///
@@ -97,7 +104,10 @@ pub fn new_world(dir: &Path, key: Option<&str>) -> Result<NewWorld, String> {
                 .unwrap_or_default(),
         ),
     };
-    for (rel, text) in files(&key) {
+    for (rel, text) in files(&key)
+        .into_iter()
+        .chain([(".gitignore".to_string(), GITIGNORE.to_string())])
+    {
         let p = dir.join(&rel);
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;

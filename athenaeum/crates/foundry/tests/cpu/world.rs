@@ -44,6 +44,10 @@ fn a_new_world_lies_over_the_database_with_an_empty_pack_to_fill() {
         new_world(&dir, None).is_err(),
         "a world is never made over another"
     );
+    // Its repository keeps out what playing and building it leaves beside it.
+    let ignored = std::fs::read_to_string(dir.join(".gitignore")).unwrap();
+    let lines: Vec<&str> = ignored.lines().filter(|l| !l.starts_with('#')).collect();
+    assert_eq!(lines, [".playtest/", "build/"]);
     let opened = world::open(&dir, Some(&base_dir)).unwrap();
     assert_eq!(opened.base_dir.as_deref(), Some(base_dir.as_path()));
     assert!(opened.check().is_empty(), "{:?}", opened.check());

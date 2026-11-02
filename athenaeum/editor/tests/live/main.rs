@@ -1,4 +1,4 @@
-//! Behaviour: none (checks the world builder's playtest end to end: its own Yalain and our client as programs on loopback, a world over the world database played as a recipe's character)
+//! Behaviour: none (checks the world builder's playtest end to end: its own Yalain and our client as programs on loopback, a world over the world database played as recipes' characters made, built and placed at the server's console, the server moved past ports another program holds, two playtests at once each on ports of its own, and stopped by the end of its console)
 //!
 //! The editor's playtest with the real programs: Yalain and Auberean built in this profile (beside
 //! this binary's folder of dependencies, or named by `YALAIN_BIN` and `AUBEREAN_BIN`), the
@@ -9,17 +9,21 @@
 
 mod stop;
 
+use std::net::{Ipv4Addr, UdpSocket};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use athenaeum_editor::characters::{self, Recipe, Start};
-use athenaeum_editor::live::{self, Entry, Event, Live, Programs, Reloaded, Setup};
+use athenaeum_editor::characters::{self, Item, Making, Quest, QuestAt, Recipe, Skill, Start};
+use athenaeum_editor::live::{self, Ask, Entry, Event, Live, Programs, Reloaded, Said, Setup};
+use athenaeum_editor::stop::windowless;
 use athenaeum_foundry::edit::{NewKind, NewRow};
 use athenaeum_foundry::{new, world, Session};
 use auberean_dat::testing::require_target_install;
 use auberean_world::chargen;
 use yalain_world_db::compile::outdoor_cell;
 use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::Files;
 
 /// A guard against a hang, not the time a step is expected to take.
 const HANG: Duration = Duration::from_secs(600);
@@ -29,6 +33,15 @@ const WORLD_DB_VAR: &str = "YALAIN_TEST_WORLD_DB";
 
 /// A person of the database in Arwic, and where the world moves it.
 const PERSON: &str = "object n-334c@77B8";
+/// A hoard's vein (a craft node anyone may mine).
+const VEIN: u32 = 0x4700_12C0;
+/// A camp of the database in Arwic, which the world moves.
+const CAMP: &str = "camp c-4586@77B8";
+/// A recipe's build: a skill a tumerok trains at level 10, an item of the world's catalog (a
+/// race's starting pack) and a quest of the world's.
+const SKILL: u32 = 7;
+const ITEM: u32 = 0x4700_051C;
+const QUEST: u32 = 0x4000_01CA;
 
 fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
@@ -89,8 +102,8 @@ impl Drop for Scratch {
     }
 }
 
-/// Tick the playtest until `want` answers, keeping every event; panics past the guard, with the
-/// logs.
+/// Tick the playtest until `want` answers, keeping every event; panics once the server has
+/// stopped by itself, or past the guard, with the logs.
 fn until<T>(
     live: &mut Live,
     setup: &Setup,
@@ -107,6 +120,13 @@ fn until<T>(
         let client = std::fs::read_to_string(setup.folder.join("client.log")).unwrap_or_default();
         if let Some(t) = want(&seen, &client) {
             return t;
+        }
+        if let Some(Event::Stopped(tail)) = seen.iter().find(|e| matches!(e, Event::Stopped(_))) {
+            panic!(
+                "{what}: the server stopped: {tail}\n{}\n--- yalain-previous.log\n{}",
+                logs(setup),
+                std::fs::read_to_string(setup.previous_log()).unwrap_or_default()
+            );
         }
         assert!(
             began.elapsed() < HANG,
@@ -208,12 +228,50 @@ fn arwic_world(root: &Path, base: &Path) -> (Session, String, Entry) {
     (s, key, entry)
 }
 
-/// A recipe's character made by the editor's own Yalain and played by our client where its
-/// recipe starts it; a change the server takes without a restart published to it, and one to a
-/// placed person that needs one started again with the character where it stood; stopped as the
-/// operator stops it, which keeps the character; and played again, entering where it left.
+/// The answer to a command asked at the console among the events.
+fn answered(events: &[Event], ask: &Ask) -> Option<Result<String, String>> {
+    events.iter().find_map(|e| match e {
+        Event::Answered(a, r) if a == ask => Some(r.clone()),
+        _ => None,
+    })
+}
+
+/// Whether the answer to `ask` among the events is what was done, in words holding `words`.
+fn done_with(events: &[Event], ask: &Ask, words: &str) -> bool {
+    answered(events, ask).is_some_and(|r| r.is_ok_and(|s| s.contains(words)))
+}
+
+/// Tick until a client the editor waited to start has started, keeping every event; panics once
+/// a step it waited on was refused (a delete of a name the store does not hold aside).
+fn played(live: &mut Live, setup: &Setup, what: &str) -> Vec<Event> {
+    until(live, setup, what, |e, _| {
+        if let Some(refused) = e
+            .iter()
+            .find(|x| matches!(x, Event::Answered(a, Err(_)) if !matches!(a, Ask::Delete(_))))
+        {
+            panic!("{what}: {refused:?}\n{}", logs(setup));
+        }
+        e.contains(&Event::Playing).then(|| e.to_vec())
+    })
+}
+
+/// The server's log.
+fn log_of(setup: &Setup) -> String {
+    std::fs::read_to_string(setup.log()).unwrap_or_default()
+}
+
+/// Recipes' characters played on one server, each made, given its build and put at its start at
+/// the server's console: the first made with a build and played where its recipe starts it; a
+/// change no table holds, a placed person moved, a vein placed and a camp moved published, each
+/// taken without a restart; started again with the character where it stood; sent to its place
+/// through portal space; written to a file; its recipe's build changed, given what changed once
+/// it has left the world, keeping where it stood; put at another place before it enters; a second
+/// character made and played on the same server; that one made anew while it plays; the first no
+/// longer a hero; one brought in from the file with a recipe of what it holds; and the server
+/// stopped as its operator stops it, keeping them.
 #[test]
-fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
+#[allow(clippy::too_many_lines)] // one playtest, step by step
+fn recipes_characters_play_the_world_live_on_one_server_made_built_and_placed_at_its_console() {
     let install = require_target_install();
     let base = database();
     let scratch = Scratch::new("athenaeum-live");
@@ -225,7 +283,8 @@ fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
             client: Some(program("AUBEREAN_BIN", "auberean")),
             client_dats: Some(install),
             retail: None,
-            client_args: vec!["--no-window".into(), "1200".into()],
+            // The client runs without its window and its sound: a test makes no noise.
+            client_args: vec!["--no-window".into(), "1200".into(), "--no-sound".into()],
             port: 41_300,
         },
         folder: session.dir().join(live::FOLDER),
@@ -236,6 +295,20 @@ fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
     recipe.sex = chargen::FEMALE;
     recipe.start = Start::Place(place.clone());
     recipe.hero = true;
+    recipe.level = Some(10);
+    recipe.money = Some(500);
+    recipe.skills = vec![Skill {
+        skill: SKILL,
+        rating: 2,
+    }];
+    recipe.items = vec![Item {
+        template: ITEM,
+        quantity: 1,
+    }];
+    recipe.quests = vec![Quest {
+        quest: QUEST,
+        at: QuestAt::Done,
+    }];
     characters::save(session.dir(), &recipe).expect("the recipe");
     // Our client walks its character east of the place once it is in the world, the first time.
     let walk_to = [entry.at[0] + WALK, entry.at[1], entry.at[2]];
@@ -254,37 +327,46 @@ fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
         .client_args
         .extend(["--dev-script".into(), script.display().to_string()]);
     let mut live = Live::default();
+    let tester = || "Tester".to_string();
 
-    // Made from its recipe, a hero, and in the world at its place.
-    live.start(&setup, session.files(), &recipe, Some(entry))
-        .expect("Yalain starts");
+    // Made at the console from its recipe with its build, a hero, and in the world at its place.
+    live.start(&setup, session.files()).expect("Yalain starts");
     assert!(
         live::lock(&setup.folder).is_err(),
         "the playtest folder is held while it plays"
     );
-    live.play_when_ready(false);
-    until(&mut live, &walking, "the server up", |e, _| {
-        e.contains(&Event::Up).then_some(())
-    });
-    let log = std::fs::read_to_string(setup.log()).unwrap();
-    assert!(log.contains("character Tester made on builder"), "{log}");
-    assert!(log.contains("Tester placed at"), "{log}");
-    let made = characters::made(&setup.folder, "Tester").expect("written down as made");
+    live.prepare(&setup, &recipe, Some(entry)).expect("asked");
+    live.play_when_ready("Tester", false);
+    let seen = played(&mut live, &walking, "Tester made and played");
+    assert!(seen.contains(&Event::Up), "{seen:?}");
+    assert!(
+        answered(&seen, &Ask::Delete(tester())).is_some_and(|r| r.is_err()),
+        "no Tester to delete before it is made: {seen:?}"
+    );
+    assert!(
+        done_with(
+            &seen,
+            &Ask::Make(tester()),
+            "character Tester made on tester with its build"
+        ),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
     assert_eq!(
-        (made.race, made.sex, made.hero),
-        (chargen::TUMEROK, chargen::FEMALE, true)
+        characters::made(&setup.folder, "Tester"),
+        Some(recipe.clone()),
+        "written down as made as its recipe says"
     );
     let (cell, at) = until(&mut live, &setup, "our client in the world", |_, c| {
         entered(c)
     });
     assert_eq!(cell >> 16, 0x77B8, "{cell:08X}");
     assert!(near(at, entry.at, 2.0), "{at:?} against {:?}", entry.at);
-    let log = std::fs::read_to_string(setup.log()).unwrap();
-    assert!(log.contains("Tester is now a hero"), "{log}");
     let was = until(&mut live, &setup, "the character walked away", |_, c| {
         still(c).filter(|(_, at)| !near(*at, entry.at, WALKED))
     })
     .1;
+    assert!(live.in_world("Tester"), "the log says it entered");
 
     // A change no table the server plays holds: taken, nothing waiting.
     session
@@ -300,34 +382,80 @@ fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
         }
     );
 
-    // A person moved: it waits for a restart, which keeps the character where it stands.
+    // A person moved: taken at once, the person made again where it now stands.
     let pa = session.entry(PERSON).unwrap().at();
     session
         .move_to(PERSON, 0x77B8, [pa.x + 1.0, pa.y, pa.z.unwrap_or_default()])
         .expect("moved");
     assert!(live.publish(&setup, session.files()).expect("published"));
     let answer = until(&mut live, &setup, "the second reload", |e, _| reloaded(e));
-    let Reloaded::Taken { restart, .. } = answer else {
+    assert_eq!(
+        answer,
+        Reloaded::Taken {
+            applied: vec!["placed objects".into()],
+            restart: vec![]
+        },
+        "{}",
+        logs(&setup)
+    );
+    assert!(
+        log_of(&setup).contains("placed objects: 0 new, 1 moved, 0 changed, 0 taken away"),
+        "{}",
+        logs(&setup)
+    );
+
+    // A vein placed beside the person: it stands at once.
+    session
+        .place(&NewRow {
+            kind: NewKind::Static,
+            template: VEIN,
+            landblock: 0x77B8,
+            at: [pa.x - 3.0, pa.y, pa.z.unwrap_or_default()],
+            heading: 0.0,
+        })
+        .expect("a vein placed");
+    assert!(live.publish(&setup, session.files()).expect("published"));
+    let answer = until(&mut live, &setup, "the third reload", |e, _| reloaded(e));
+    let Reloaded::Taken { applied, restart } = answer else {
         panic!("refused: {answer:?}\n{}", logs(&setup));
     };
-    assert_eq!(restart, ["placed objects"]);
+    assert!(applied.contains(&"veins".to_string()), "{applied:?}");
+    assert!(restart.is_empty(), "{restart:?}");
+    assert!(
+        log_of(&setup).contains("veins: 1 new, 0 taken away"),
+        "{}",
+        logs(&setup)
+    );
+
+    // A camp of the database moved: taken at once, its creatures made again where it now is.
+    let ca = session.entry(CAMP).expect("the database's camp").at();
+    session
+        .move_to(CAMP, 0x77B8, [ca.x + 4.0, ca.y, ca.z.unwrap_or_default()])
+        .expect("the camp moved");
+    assert!(live.publish(&setup, session.files()).expect("published"));
+    let answer = until(&mut live, &setup, "the fourth reload", |e, _| reloaded(e));
+    let Reloaded::Taken { applied, restart } = answer else {
+        panic!("refused: {answer:?}\n{}", logs(&setup));
+    };
+    assert_eq!(applied, ["camps"], "{}", logs(&setup));
+    assert!(restart.is_empty(), "{restart:?}");
+    assert!(
+        log_of(&setup).contains("camps: 0 new, 1 changed, 0 taken away"),
+        "{}",
+        logs(&setup)
+    );
+
+    // Restart: the server starts again, keeping the character where it stands.
     live.restart(&setup, session.files())
         .expect("started again");
     let before = std::fs::read_to_string(setup.previous_log()).unwrap();
-    assert!(before.contains("stopping at the system's word"), "{before}");
+    assert!(before.contains("stopping now [ok stop-now]"), "{before}");
     assert!(
         before.contains("stopping: 1 characters in the world kept"),
         "{before}"
     );
-    until(&mut live, &setup, "the server up again", |e, _| {
-        e.contains(&Event::Up).then_some(())
-    });
-    let log = std::fs::read_to_string(setup.log()).unwrap();
-    assert!(
-        !log.contains("character Tester made"),
-        "not made again: {log}"
-    );
-    assert!(!log.contains("Tester placed at"), "not placed again: {log}");
+    let seen = played(&mut live, &setup, "the client again");
+    assert!(seen.contains(&Event::Up), "{seen:?}");
     let (cell, at) = until(
         &mut live,
         &setup,
@@ -340,20 +468,450 @@ fn a_recipes_character_plays_the_world_live_and_is_kept_where_it_stood() {
         !near(at, entry.at, WALKED - 0.5),
         "not back at its place: {at:?}"
     );
+    let log = log_of(&setup);
+    for asked in ["[ok make-character]", "[ok place]", "[ok apply-build]"] {
+        assert!(!log.contains(asked), "nothing asked of it again: {log}");
+    }
 
-    // Stopped as its operator stops it: it ends by itself, keeping the character.
+    // Sent back to its place through portal space, as To camera sends it.
+    live.teleport("Tester", entry);
+    let said = until(&mut live, &setup, "the teleport answered", |e, _| {
+        answered(e, &Ask::Teleport(tester()))
+    });
+    assert!(
+        said.as_ref()
+            .is_ok_and(|s| s.contains("Tester is on its way to 77B8")),
+        "{said:?}"
+    );
+    until(&mut live, &setup, "the character at its place", |_, c| {
+        still(c).filter(|(_, at)| near(*at, entry.at, 2.0))
+    });
+
+    // Written to a file for another world, with what it holds.
+    let file = characters::export_file(session.dir(), "Tester");
+    live.export("Tester", &file).expect("asked");
+    let said = until(&mut live, &setup, "the export answered", |e, _| {
+        answered(e, &Ask::Export(file.clone()))
+    });
+    assert!(said.is_ok(), "{said:?}");
+    let held = characters::exported(&file).expect("a character file");
+    assert_eq!(
+        (held.name.as_str(), held.race, held.sex),
+        ("Tester", chargen::TUMEROK, chargen::FEMALE)
+    );
+    // Its build as the file gives it, in a recipe's words: the skill at its rating, a hero,
+    // starting where it stood.
+    assert_eq!(
+        (held.level, held.money, held.hero),
+        (Some(10), Some(500), true),
+        "{held:?}"
+    );
+    assert!(
+        held.skills.contains(&Skill {
+            skill: SKILL,
+            rating: 2
+        }),
+        "{:?}",
+        held.skills
+    );
+    assert_eq!(held.start, Start::Left);
+    assert!(
+        held.items.iter().any(|i| i.template == ITEM),
+        "{:?}",
+        held.items
+    );
+    assert!(
+        held.quests.contains(&Quest {
+            quest: QUEST,
+            at: QuestAt::Done
+        }),
+        "{:?}",
+        held.quests
+    );
+
+    // Its build changed while it plays: its client goes, it is taken out of the world at once,
+    // and is given what changed, keeping where it stood; nothing is made anew.
+    let as_made = recipe.clone();
+    recipe.level = Some(12);
+    recipe.items[0].quantity = 2;
+    characters::save(session.dir(), &recipe).expect("the recipe");
+    assert_eq!(
+        characters::making(&setup.folder, &recipe),
+        Making::Build(as_made)
+    );
+    live.stop_client();
+    live.prepare(&setup, &recipe, None).expect("asked");
+    live.play_when_ready("Tester", false);
+    let seen = played(&mut live, &setup, "the build given and Tester played");
+    assert!(
+        done_with(
+            &seen,
+            &Ask::Logoff(tester()),
+            "Tester taken out of the world"
+        ),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    assert!(
+        done_with(
+            &seen,
+            &Ask::Build(tester()),
+            "Tester brought up to its build"
+        ),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    let log = log_of(&setup);
+    let left = log.find("[left \"Tester\"").expect("it left the world");
+    let given = log.find("[ok apply-build]").expect("given its build");
+    assert!(left < given, "given out of the world: {log}");
+    assert!(!log.contains("[ok make-character]"), "not made anew: {log}");
+    let changes = std::fs::read_to_string(characters::server_recipe(&setup.folder, "Tester"))
+        .expect("its server recipe");
+    let t: toml::Table = changes.parse().expect("TOML");
+    assert_eq!(t["level"].as_integer(), Some(12), "{changes}");
+    assert_eq!(t["items"][0]["quantity"].as_integer(), Some(2), "{changes}");
+    for k in ["money", "skills", "quests", "hero", "place"] {
+        assert!(
+            !t.contains_key(k),
+            "what did not change is not given: {changes}"
+        );
+    }
+    assert_eq!(
+        characters::made(&setup.folder, "Tester"),
+        Some(recipe.clone())
+    );
+    let (_, at) = until(&mut live, &setup, "Tester where it stood", |_, c| {
+        entered(c)
+    });
+    assert!(
+        near(at, entry.at, 2.0),
+        "{at:?} where it stood, {:?}",
+        entry.at
+    );
+
+    // Put elsewhere before it enters: placed at the console once it has left, never teleported.
+    let there = Entry {
+        cell: outdoor_cell(0x77B8, was[0], was[1]),
+        at: was,
+        heading: 90.0,
+    };
+    live.stop_client();
+    live.prepare(&setup, &recipe, Some(there)).expect("asked");
+    live.play_when_ready("Tester", false);
+    let seen = played(&mut live, &setup, "Tester placed and played");
+    assert!(
+        done_with(&seen, &Ask::Place(tester()), "Tester enters at"),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    assert!(answered(&seen, &Ask::Teleport(tester())).is_none());
+    let (_, at) = until(&mut live, &setup, "Tester where it was put", |_, c| {
+        entered(c)
+    });
+    assert!(near(at, was, 1.5), "{at:?} where it was put, {was:?}");
+
+    // A second character on the same server: made and played, no restart.
+    let port = live.port();
+    let mut two = Recipe::new("Tester Two");
+    two.start = Start::Place(place.clone());
+    characters::save(session.dir(), &two).expect("its recipe");
+    live.stop_client();
+    live.prepare(&setup, &two, Some(entry)).expect("asked");
+    live.play_when_ready("Tester Two", false);
+    let seen = played(&mut live, &setup, "Tester Two made and played");
+    assert!(
+        done_with(
+            &seen,
+            &Ask::Make("Tester Two".into()),
+            "character Tester Two made on tester_two"
+        ),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    assert_eq!(live.port(), port, "the same server");
+    assert!(
+        log_of(&setup).contains("[ok apply-build]"),
+        "the same log: no restart"
+    );
+    let (_, at) = until(&mut live, &setup, "Tester Two in the world", |_, c| {
+        entered(c)
+    });
+    assert!(near(at, entry.at, 2.0), "{at:?} against {:?}", entry.at);
+
+    // Made anew while it plays: deleted at once (taken out of the world), made again, played.
+    live.reset(&setup, &two, Some(entry)).expect("asked");
+    let seen = until(&mut live, &setup, "Tester Two made anew", |e, _| {
+        answered(e, &Ask::Make("Tester Two".into())).map(|_| e.to_vec())
+    });
+    assert!(
+        done_with(&seen, &Ask::Delete("Tester Two".into()), "deleted at once"),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    assert!(
+        done_with(&seen, &Ask::Make("Tester Two".into()), "made on tester_two"),
+        "{seen:?}"
+    );
+    live.play_when_ready("Tester Two", false);
+    played(&mut live, &setup, "Tester Two played again");
+    until(
+        &mut live,
+        &setup,
+        "Tester Two in the world again",
+        |_, c| entered(c),
+    );
+
+    // Its recipe no longer a hero: unmade at the console, out of the world, nothing made anew.
+    recipe.hero = false;
+    characters::save(session.dir(), &recipe).expect("the recipe");
+    live.stop_client();
+    live.prepare(&setup, &recipe, None).expect("asked");
+    let said = until(&mut live, &setup, "the hero unmade", |e, _| {
+        answered(e, &Ask::Hero(tester()))
+    });
+    assert!(
+        said.as_ref()
+            .is_ok_and(|s| s.contains("Tester is no longer a hero")),
+        "{said:?}"
+    );
+    assert!(!characters::made(&setup.folder, "Tester").unwrap().hero);
+
+    // Brought in from its file as another character, with a recipe of what it holds, and played.
+    let mut three = held;
+    three.name = "Tester Three".into();
+    characters::save(session.dir(), &three).expect("its recipe");
+    live.import(&three, &file);
+    live.play_when_ready("Tester Three", false);
+    let seen = played(&mut live, &setup, "Tester Three brought in and played");
+    assert!(
+        done_with(
+            &seen,
+            &Ask::Import("Tester Three".into()),
+            "character Tester Three brought from Athenaeum onto tester_three"
+        ),
+        "{seen:?}\n{}",
+        logs(&setup)
+    );
+    assert_eq!(
+        characters::made(&setup.folder, "Tester Three"),
+        Some(three.clone())
+    );
+    assert_eq!(
+        characters::making(&setup.folder, &three),
+        Making::Same(three.clone()),
+        "plays on as it came in"
+    );
+    until(
+        &mut live,
+        &setup,
+        "the one brought in, in the world",
+        |_, c| entered(c),
+    );
+
+    // Stopped as its operator stops it: it ends by itself, keeping its characters.
     live.stop_client();
     assert!(
         live.stop_server(),
         "the server ended by itself\n{}",
         logs(&setup)
     );
-    let log = std::fs::read_to_string(setup.log()).unwrap();
-    assert!(log.contains("stopping at the system's word"), "{log}");
-    assert!(
-        log.contains("stopping: 1 characters in the world kept"),
-        "{log}"
-    );
+    let log = log_of(&setup);
+    assert!(log.contains("stopping now [ok stop-now]"), "{log}");
+    assert!(log.contains("characters in the world kept"), "{log}");
     live.stop_all();
     assert!(live::lock(&setup.folder).is_ok(), "the folder let go");
+}
+
+/// A new world over the database, and the session holding it.
+fn plain_world(root: &Path, base: &Path, name: &str) -> Session {
+    let dir = root.join(name);
+    new::new_world(&dir, None).expect("a new world");
+    Session::open(world::open(&dir, Some(base)).expect("opens"), None).expect("session")
+}
+
+/// Started on ports another program holds (as a second editor or test may take them between the
+/// look and the start), the server says it cannot take them and ends, and is started again on the
+/// next free ones by itself.
+#[test]
+fn a_server_started_on_ports_another_program_holds_moves_on_to_free_ones() {
+    let install = require_target_install();
+    let base = database();
+    let scratch = Scratch::new("athenaeum-ports");
+    let session = plain_world(&scratch.0, &base, "ports");
+    let setup = Setup {
+        programs: Programs {
+            yalain: Some(program("YALAIN_BIN", "yalain")),
+            server_dats: Some(install),
+            port: 41_500,
+            ..Programs::default()
+        },
+        folder: session.dir().join(live::FOLDER),
+        base: Some(base),
+    };
+    let p = live::free_port(live::first_port(41_500, std::process::id())).expect("free ports");
+    let held: Vec<UdpSocket> = (0..4)
+        .map(|i| UdpSocket::bind((Ipv4Addr::LOCALHOST, p + i)).expect("a port held"))
+        .collect();
+    let mut live = Live::default();
+    live.start_at(&setup, session.files(), p)
+        .expect("Yalain starts");
+    let seen = until(&mut live, &setup, "the server up on other ports", |e, _| {
+        e.contains(&Event::Up).then(|| e.to_vec())
+    });
+    let moved = seen
+        .iter()
+        .find_map(|e| match e {
+            Event::Moved(q) => Some(*q),
+            _ => None,
+        })
+        .expect("moved on");
+    assert!(moved > p + 3 && moved.is_multiple_of(2), "{p} {moved}");
+    assert_eq!(live.port(), Some(moved));
+    let before = std::fs::read_to_string(setup.previous_log()).unwrap();
+    assert!(live::ports_taken(None, &before), "{before}");
+    assert!(
+        log_of(&setup).contains(&format!("127.0.0.1:{moved}/")),
+        "{}",
+        logs(&setup)
+    );
+    drop(held);
+    live.stop_all();
+}
+
+/// Two playtests started at once on one machine (two editors, or two test runs) whose looks for
+/// ports found the same free ones: the server that binds them second says they are taken and is
+/// started again on the next free ones, and both serve, each on ports of its own.
+#[test]
+fn two_playtests_started_at_once_on_the_same_free_ports_each_serve_on_their_own() {
+    let install = require_target_install();
+    let base = database();
+    let scratch = Scratch::new("athenaeum-two");
+    let sessions = [
+        plain_world(&scratch.0, &base, "one"),
+        plain_world(&scratch.0, &base, "two"),
+    ];
+    let setups: Vec<Setup> = sessions
+        .iter()
+        .map(|s| Setup {
+            programs: Programs {
+                yalain: Some(program("YALAIN_BIN", "yalain")),
+                server_dats: Some(install.clone()),
+                port: 41_900,
+                ..Programs::default()
+            },
+            folder: s.dir().join(live::FOLDER),
+            base: Some(base.clone()),
+        })
+        .collect();
+    let p = live::free_port(live::first_port(41_900, std::process::id())).expect("free ports");
+    let mut lives = [Live::default(), Live::default()];
+    for ((live, setup), session) in lives.iter_mut().zip(&setups).zip(&sessions) {
+        live.start_at(setup, session.files(), p)
+            .expect("Yalain starts");
+    }
+    let began = Instant::now();
+    let mut up = [false, false];
+    let mut moved = [None, None];
+    while !(up[0] && up[1]) {
+        for (i, (live, setup)) in lives.iter_mut().zip(&setups).enumerate() {
+            for e in live.tick(setup).expect("ticks") {
+                match e {
+                    Event::Up => up[i] = true,
+                    Event::Moved(q) => moved[i] = Some(q),
+                    Event::Stopped(tail) => panic!("server {i} stopped: {tail}\n{}", logs(setup)),
+                    _ => {}
+                }
+            }
+        }
+        assert!(
+            began.elapsed() < HANG,
+            "both up: {up:?}\n{}\n---\n{}",
+            logs(&setups[0]),
+            logs(&setups[1])
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let (a, b) = (lives[0].port().unwrap(), lives[1].port().unwrap());
+    assert!(a.abs_diff(b) >= 4, "ports of their own: {a} {b}");
+    assert!(moved.iter().any(Option::is_some), "one moved on: {moved:?}");
+    for (live, setup) in lives.iter_mut().zip(&setups) {
+        let port = live.port().unwrap();
+        assert!(
+            log_of(setup).contains(&format!("127.0.0.1:{port}/")),
+            "{}",
+            logs(setup)
+        );
+        live.stop_all();
+    }
+}
+
+/// The server the editor starts stops by itself, keeping everyone, once its console's input
+/// ends: an editor gone without stopping it (a crash, a kill) leaves nothing holding the ports.
+#[test]
+fn a_server_whose_console_ends_stops_by_itself_keeping_everyone() {
+    let install = require_target_install();
+    let base = database();
+    let scratch = Scratch::new("athenaeum-console-end");
+    let session = plain_world(&scratch.0, &base, "console-end");
+    let folder = session.dir().join(live::FOLDER);
+    let world = folder.join("world");
+    live::write_world(&world, session.files(), &mut Files::new()).expect("the world written");
+    let store = folder.join(live::STORE);
+    let port = live::free_port(live::first_port(41_700, std::process::id())).expect("free ports");
+    let args = live::server_args(
+        &install,
+        &live::Start {
+            world: &world,
+            base: Some(&base),
+            store: &store,
+            port,
+        },
+    );
+    let path = folder.join("yalain.log");
+    let log = std::fs::File::create(&path).expect("the log");
+    let err = log.try_clone().expect("the log");
+    let mut cmd = Command::new(program("YALAIN_BIN", "yalain"));
+    cmd.args(&args)
+        .current_dir(&folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(err));
+    windowless(&mut cmd);
+    let mut child = cmd.spawn().expect("Yalain starts");
+    let console = child.stdin.take().expect("its console");
+    let read = || std::fs::read_to_string(&path).unwrap_or_default();
+    let began = Instant::now();
+    while !read()
+        .lines()
+        .any(|l| live::said(l) == Some(Said::Listening))
+    {
+        assert!(
+            matches!(child.try_wait(), Ok(None)),
+            "it ended before it listened: {}",
+            read()
+        );
+        assert!(began.elapsed() < HANG, "never listened: {}", read());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // The editor goes: its end of the console closes.
+    drop(console);
+    let began = Instant::now();
+    let ended = loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            break status;
+        }
+        if began.elapsed() > HANG {
+            let _ = child.kill();
+            panic!("it went on without its console: {}", read());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(ended.success(), "{ended:?}: {}", read());
+    let log = read();
+    assert!(log.contains("stopping: the console's input ended"), "{log}");
+    assert!(
+        log.contains("stopping: 0 characters in the world kept"),
+        "{log}"
+    );
 }

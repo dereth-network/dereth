@@ -57,12 +57,13 @@ cargo run --profile test-release -p yalain -- --dats <install folder> --world-db
 ```
 
 `athenaeum new` makes a world over the database with one empty pack, `fill-<name>`, which the
-editor's changes go into. `validate` checks a world without writing anything (with `--dats`, it also
-compiles it against the install); `build` writes the server's tables as text into the world's
-`build` folder for reading; `facts` counts what a world changes. `--base <folder>` uses a checkout
-of the database in place of the cached release. The data commands (`info`, `ls`, `verify`, `show`,
-`census` and the rest) only read: an install is never written to. `athenaeum` with no arguments
-lists every command.
+editor's changes go into, and a `.gitignore` that keeps what playing and building it leave
+(`.playtest`, `build`) out of a repository. `validate` checks a world without writing anything
+(with `--dats`, it also compiles it against the install); `build` writes the server's tables as
+text into the world's `build` folder for reading; `facts` counts what a world changes.
+`--base <folder>` uses a checkout of the database in place of the cached release. The data
+commands (`info`, `ls`, `verify`, `show`, `census` and the rest) only read: an install is never
+written to. `athenaeum` with no arguments lists every command.
 
 ### The editor
 
@@ -82,38 +83,55 @@ to where it leads.
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes. The world's problems are listed along the bottom as
   the server's check finds them.
+- T sends the character playing on Live to the camera.
 
 The top of `editor/src/main.rs` lists every option, and `editor/src/script.rs` the steps a
 `--script` plays.
 
 ### Live and Play
 
-**Live** starts Yalain on this computer alone (127.0.0.1, on ports nothing else holds), serving
-the world as it is in the editor, saved or not. While it runs, each change is sent to it once you
-let go of what you changed, and Undo too. Yalain takes at once what can change with players in
-the world (what people say, stores, loot, quests and more); for people, objects and camps it
-starts again, the character staying where it stands. Turn that off in Characters to start it
-again only when you press **Restart**. Live keeps its files in `.playtest` in the world's folder,
-and a second editor can't play the same world while the first does.
+**Live** starts Yalain on this computer alone (127.0.0.1, on ports nothing else holds; taken by
+another program as it starts, it moves on to the next), serving the world as it is in the editor,
+saved or not. While it runs, each change is sent to it once you let go of what you changed, and
+Undo too. Yalain takes every change at once with players in the world: what people say, stores,
+loot, quests, people, objects, camps, veins and more. **Restart** starts it again, the character
+staying where it stands. Live keeps its files in `.playtest` in the world's folder, and a second
+editor can't play the same world while the first does. An editor that closes or crashes takes its
+Yalain with it, which keeps every character where it stands.
 
 **Play** starts our client logged in as the chosen character, where its recipe starts it
-(`--retail <client.exe>` adds **Play retail**). Stopping Live stops both; Yalain keeps the
-character where it stands, as it does when its operator stops it.
+(`--retail <client.exe>` adds **Play retail**), starting Live first when it is off. One Yalain
+plays every character: choosing another, or changing the one you play, never restarts it. When
+our client plays that character already, it is sent to its start through portal space; otherwise
+the character is made, given its build or put at its start before it enters (a character still in
+the world is taken out of it first, at once). **To camera** (or T) sends the character in
+the world to the camera. Stopping Live stops both; Yalain keeps the character where it stands, as
+it does when its operator stops it.
 
 ### Characters
 
 **Characters** lists the world's playtest characters, one recipe each in `characters/<Name>.toml`
 beside `world.toml`: its race, sex, where it starts (at the camera, in front of the selected row,
-where it left the world, or at one of the world's places), and whether it is a hero. Its first
-play makes it; after that it plays on as it was left, with what it found and learned, until its
-race or sex changes or **Reset** makes it from its recipe again. **Delete** takes the recipe and
-its character away. Each character is kept in a store of its own in the playtest folder.
+where it left the world, or at one of the world's places), whether it is a hero, and what it has
+reached: a level, money, skills raised to a rating, items in its pack, and quests done or under
+way. Its first play makes it as a player reaching that would be; Yalain refuses a build no player
+could hold, and says why. After that it plays on as it was left, with what it found and learned.
+A recipe whose build changes gives it what changed at its next play, keeping what it found and
+learned: its level and skills are raised (never lowered), items it lacks are added, and its money
+and quests are set as the recipe now says. A new race or sex makes it anew, and so does **Reset**,
+at once when Live runs. **Delete** takes the recipe and its character
+away. **Export** writes the character to `build/characters/<Name>.json` in the world's folder, and
+**Import** brings a character from such a file (another world's) in as a new playtest character,
+with a recipe of what it holds: its level, money and hero, the skills it trained with their
+ratings, its items and its quests, starting where it stood. Every character lives in one store in
+the playtest folder.
 
 ## Testing
 
 Its tests that need no data run with the workspace's (`cargo xtask check`, `cargo xtask ci tier0`).
 Its data test, a world over the database built against the end-of-retail install, is in
 Auberean's `auberean-dat` tier (`cargo xtask ci auberean`); it reads the database from
-`YALAIN_TEST_WORLD_DB`, else the pinned release in the cache. Its playtest test, a world played
-live as a character on Yalain with our client, both run as programs, is in the `auberean-live`
-tier, which builds them first.
+`YALAIN_TEST_WORLD_DB`, else the pinned release in the cache. Its playtest tests, a world played
+live as characters on Yalain with our client, both run as programs, a Yalain moved past ports
+another program holds, and one stopped by the end of its console, are in the `auberean-live` tier,
+which builds them first.
