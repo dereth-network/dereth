@@ -11,7 +11,7 @@ use super::yalain::{self, Asset};
 use super::yalain_declaration::{self as declaration, Facts};
 use crate::util::workspace_root;
 
-const V: &str = "0.1.0";
+const V: &str = "0.1.1";
 
 fn target(triple: &str) -> Target {
     targets::find(triple).expect("a server release target")
@@ -43,16 +43,16 @@ fn archives_are_named_for_version_and_target_and_read_back() {
     let w = target("x86_64-pc-windows-msvc");
     assert_eq!(
         yalain::archive_name(w, V),
-        "yalain-0.1.0-x86_64-pc-windows-msvc.zip"
+        "yalain-0.1.1-x86_64-pc-windows-msvc.zip"
     );
     assert_eq!(
         yalain::archive_root(w, V),
-        "yalain-0.1.0-x86_64-pc-windows-msvc"
+        "yalain-0.1.1-x86_64-pc-windows-msvc"
     );
     let arm = target("aarch64-unknown-linux-gnu");
     assert_eq!(
         yalain::archive_name(arm, V),
-        "yalain-0.1.0-aarch64-unknown-linux-gnu.tar.gz"
+        "yalain-0.1.1-aarch64-unknown-linux-gnu.tar.gz"
     );
     for t in targets::TARGETS {
         let name = yalain::archive_name(*t, V);
@@ -153,7 +153,7 @@ fn the_index_lists_every_archive_with_its_checksum() {
     write_archive(&scratch.0, t, &members(t));
     let facts = super::BuildFacts {
         commit: "c".repeat(40),
-        branch: "yalain-v0.1.0".to_owned(),
+        branch: "yalain-v0.1.1".to_owned(),
         number: "1".to_owned(),
         epoch: 1_700_000_000,
         source_url: super::DEFAULT_SOURCE_URL.to_owned(),
@@ -162,14 +162,14 @@ fn the_index_lists_every_archive_with_its_checksum() {
     let read = |name: &str| std::fs::read_to_string(scratch.0.join(name)).expect(name);
     let release: serde_json::Value = serde_json::from_str(&read("release.json")).expect("json");
     assert_eq!(release["product"], "yalain");
-    assert_eq!(release["tag"], "yalain-v0.1.0");
+    assert_eq!(release["tag"], "yalain-v0.1.1");
     assert_eq!(release["assets"].as_array().map(Vec::len), Some(1));
     assert_eq!(release["schema"], 2);
     assert_eq!(release["upgrade"]["kind"], "initial");
     assert_eq!(release["upgrade"]["upgrades_from"], V);
     let sums = read("SHA256SUMS");
     assert!(
-        sums.contains("  yalain-0.1.0-x86_64-unknown-linux-gnu.tar.gz\n"),
+        sums.contains("  yalain-0.1.1-x86_64-unknown-linux-gnu.tar.gz\n"),
         "{sums}"
     );
     std::fs::write(scratch.0.join("stray.zip"), "x").expect("stray");
