@@ -7,6 +7,10 @@ not how it was done.
 
 ## Unreleased
 
+## 0.1.2 (2026-11-02)
+
+- Fix macOS packaging
+
 ## 0.1.1 (2026-11-02)
 
 - Comes with the Dereth Network launcher, which opens in Auberean's realm, keeps it up to date, and starts your retail client too, with friends.
