@@ -8,6 +8,8 @@ see, not how it was done.
 
 ## Unreleased
 
+## 0.1.1 (2026-11-02)
+
 - New `athenaeum` command: reads, lists and checks Asheron's Call 2 data files.
 - New worlds over the world database: `athenaeum new`, `build`, `validate` and `facts`.
 - New editor: place, move, turn and remove people, objects, camps and places, then play them.

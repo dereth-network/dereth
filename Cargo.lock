@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "athenaeum-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "athenaeum-foundry",
  "auberean-assets",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "athenaeum-editor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "athenaeum-foundry",
  "auberean-animation",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "athenaeum-foundry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "auberean-assets",
  "auberean-dat",
