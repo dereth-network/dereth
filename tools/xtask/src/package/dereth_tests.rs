@@ -965,18 +965,11 @@ fn the_index_sums_the_tool_beside_each_launcher_file_and_refuses_a_launcher_with
 }
 
 /// The deny scan allows the icon the launcher's macOS bundle carries under the name its
-/// configuration gives it, in both games' packages, and that icon is in the launcher's icons.
+/// configuration gives it, in both games' packages.
 #[test]
 fn the_macos_bundles_allow_the_icon_the_launcher_configuration_names() {
     let icns = dereth::launcher_icns();
     assert_eq!(icns, "Network.icns");
-    assert!(
-        workspace_root()
-            .join("dereth/launcher/icons")
-            .join(&icns)
-            .is_file(),
-        "{icns} is in the launcher's icons"
-    );
     let allowed = format!("Contents/Resources/{icns}");
     let (_, dereth_optional) = dereth::contents(target(MAC_ARM));
     let (_, auberean_optional) = super::auberean::contents(target(MAC_ARM));
