@@ -240,7 +240,7 @@ pub(super) fn hub_with(tweak: impl FnOnce(&mut HubConfig)) -> Fixture {
         fetch_timeout: Duration::from_secs(2),
         http_per_minute: 100_000,
         challenge_every: Duration::from_millis(100),
-        challenge_wait: Duration::from_millis(1_000),
+        challenge_wait: ANSWER_WAIT,
         ..HubConfig::default()
     };
     tweak(&mut config);
@@ -255,6 +255,15 @@ pub(super) fn hub_with(tweak: impl FnOnce(&mut HubConfig)) -> Fixture {
 pub(super) fn hub() -> Fixture {
     hub_with(|_| {})
 }
+
+/// How long the hub waits for the stand-in world's answer. An answer ends the wait at once, so this
+/// only bounds how slowly a loaded machine may answer; a test in which nobody answers sets
+/// [`SILENT_WAIT`] instead.
+pub(super) const ANSWER_WAIT: Duration = Duration::from_secs(10);
+
+/// The hub's wait in a test in which nobody answers: its length changes only how long the test
+/// takes.
+pub(super) const SILENT_WAIT: Duration = Duration::from_millis(500);
 
 // ---- requests -----------------------------------------------------------------------------------
 
@@ -509,6 +518,27 @@ thread_local! {
 /// The port this test's worlds are registered at, on loopback.
 pub(super) fn game_port() -> u16 {
     GAME_PORT.with(|s| s.local_addr().expect("an address").port())
+}
+
+/// The next challenge for `slug` that reaches this test's game port, however long it takes to come;
+/// the deadline only guards against a hang.
+pub(super) fn next_challenge(slug: &str) -> Challenge {
+    // Polled without blocking, as the stand-in polls it.
+    let socket = GAME_PORT.with(|s| s.try_clone().expect("the game port"));
+    socket.set_nonblocking(true).expect("nonblocking");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let mut buf = [0u8; 2048];
+    while Instant::now() < deadline {
+        match socket.recv_from(&mut buf) {
+            Ok((n, _)) => {
+                if let Some(c) = Challenge::parse(&buf[..n]).filter(|c| c.slug == slug) {
+                    return c;
+                }
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(10)),
+        }
+    }
+    panic!("no challenge for {slug} came");
 }
 
 /// How the stand-in world answers the hub's challenges while a verification call waits.

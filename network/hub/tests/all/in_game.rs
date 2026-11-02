@@ -15,8 +15,8 @@ use dereth_network_protocol::challenge::nonce_hex;
 use serde_json::{json, Value};
 
 use super::operators::{
-    answer_challenge, call, federation, game_port, game_verify, hub, hub_with, op, register,
-    sign_in, verify_answering, world, Answering, Fixture,
+    answer_challenge, call, federation, game_port, game_verify, hub, hub_with, next_challenge, op,
+    register, sign_in, verify_answering, world, Answering, Fixture, SILENT_WAIT,
 };
 
 /// A stand-in for the system's resolver that knows `names` and nothing else.
@@ -98,7 +98,10 @@ fn the_challenge_reaches_the_endpoints_game_port_and_its_nonce_verifies_the_worl
 #[test]
 fn a_challenge_nobody_answers_is_no_answer_naming_the_host_its_addresses_and_the_port() {
     const NAMES: &[(&str, &str)] = &[("game.example", "127.0.0.1")];
-    let f = hub_with(|c| c.lookup = names(NAMES));
+    let f = hub_with(|c| {
+        c.lookup = names(NAMES);
+        c.challenge_wait = SILENT_WAIT;
+    });
     let ann = sign_in(&f, "3011");
     let port = game_port();
     let (key, token) = register(&f, &ann, "quiet", "game.example");
@@ -194,7 +197,10 @@ fn one_attempt_sends_at_most_its_copies_to_at_most_four_addresses() {
         ("many.example", "127.0.0.5"),
         ("many.example", "127.0.0.6"),
     ];
-    let f = hub_with(|c| c.lookup = names(NAMES));
+    let f = hub_with(|c| {
+        c.lookup = names(NAMES);
+        c.challenge_wait = SILENT_WAIT;
+    });
     let ann = sign_in(&f, "3031");
     let (key, token) = register(&f, &ann, "many", "many.example");
     let (a, heard) = verify_answering(&f, "many", &key, &token, &[], &silent());
@@ -282,13 +288,11 @@ fn an_address_off_the_public_internet_is_never_challenged() {
 /// refused.
 #[test]
 fn a_second_verification_while_one_waits_is_refused() {
-    let f = hub_with(|c| c.challenge_wait = Duration::from_millis(1_500));
+    let f = hub();
     let ann = sign_in(&f, "3061");
     let (key, token) = register(&f, &ann, "twice", "127.0.0.1");
-    std::thread::scope(|s| {
-        let first = s.spawn(|| verify_answering(&f, "twice", &key, &token, &[], &silent()).0);
-        std::thread::sleep(Duration::from_millis(400));
-        let second = call(
+    let verify = || {
+        call(
             f.addr(),
             "POST",
             "/v1/servers/twice/verify",
@@ -297,13 +301,26 @@ fn a_second_verification_while_one_waits_is_refused() {
                 ("Content-Type", "application/json"),
             ],
             &json!({ "token": token }).to_string(),
-        );
+        )
+    };
+    std::thread::scope(|s| {
+        let first = s.spawn(verify);
+        // The first challenge reaching the game port: the first call's challenge now waits, and
+        // keeps waiting (for the fixture's long wait) until it is answered below.
+        let challenge = next_challenge("twice");
+        let second = verify();
         assert_eq!(
             (second.status, second.reason()),
             (409, "in_progress".to_owned()),
             "{second:?}"
         );
-        assert_eq!(first.join().expect("the first").reason(), "no_answer");
+        let answered = answer_challenge(f.addr(), "twice", &key, &nonce_hex(&challenge.nonce), &[]);
+        assert_eq!(answered.status, 200, "{answered:?}");
+        assert_eq!(
+            first.join().expect("the first").status,
+            200,
+            "the first goes on"
+        );
     });
     f.running.shutdown();
 }

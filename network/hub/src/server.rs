@@ -70,7 +70,7 @@ pub const MAX_HEAD_BYTES: usize = 32 * 1024;
 pub const MAX_HEAD_LINES: usize = 128;
 
 /// How long a request's head may take to arrive.
-const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
+pub const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long it may take while many connections are still sending theirs ([`head_timeout`]).
 const HEAD_TIMEOUT_BUSY: Duration = Duration::from_secs(2);
 /// How long a request's whole body may take to arrive, however it trickles in.
@@ -176,6 +176,8 @@ pub struct HubConfig {
     pub link_queue_bytes: usize,
     /// How long a request's whole body may take ([`BODY_DEADLINE`]).
     pub body_deadline: Duration,
+    /// How long a request's head may take to arrive while few are unfinished ([`HEAD_TIMEOUT`]).
+    pub head_timeout: Duration,
 }
 
 impl Default for HubConfig {
@@ -214,6 +216,7 @@ impl Default for HubConfig {
             link_write_timeout: LINK_WRITE_TIMEOUT,
             link_queue_bytes: LINK_QUEUE_BYTES,
             body_deadline: BODY_DEADLINE,
+            head_timeout: HEAD_TIMEOUT,
         }
     }
 }
@@ -682,13 +685,14 @@ fn counted_as(ip: IpAddr) -> IpAddr {
 }
 
 /// How long a request's head may take while `heads` connections are still sending theirs: the
-/// full [`HEAD_TIMEOUT`], or [`HEAD_TIMEOUT_BUSY`] once half the connections are heads, so that
-/// heads that never finish cannot hold every slot for long.
-fn head_timeout(heads: usize) -> Duration {
+/// full time (`full`, [`HEAD_TIMEOUT`] unless configured), or no more than [`HEAD_TIMEOUT_BUSY`]
+/// once half the connections are heads, so that heads that never finish cannot hold every slot
+/// for long.
+fn head_timeout(full: Duration, heads: usize) -> Duration {
     if heads >= MAX_CONNECTIONS / 2 {
-        HEAD_TIMEOUT_BUSY
+        HEAD_TIMEOUT_BUSY.min(full)
     } else {
-        HEAD_TIMEOUT
+        full
     }
 }
 
@@ -1499,7 +1503,8 @@ fn peek_head(shared: &Shared, stream: &TcpStream) -> io::Result<Result<Head, Unr
                 return Ok(Err(Unread { why, peeked: buf }));
             }
         }
-        if started.elapsed() > head_timeout(shared.heads.load(Ordering::SeqCst)) {
+        let heads = shared.heads.load(Ordering::SeqCst);
+        if started.elapsed() > head_timeout(shared.config.head_timeout, heads) {
             return Err(io::ErrorKind::TimedOut.into());
         }
         std::thread::sleep(Duration::from_millis(5));
@@ -2478,9 +2483,15 @@ mod tests {
     /// heads.
     #[test]
     fn heads_get_less_time_while_many_are_unfinished() {
-        assert_eq!(head_timeout(0), HEAD_TIMEOUT);
-        assert_eq!(head_timeout(MAX_CONNECTIONS / 2 - 1), HEAD_TIMEOUT);
-        assert_eq!(head_timeout(MAX_CONNECTIONS / 2), HEAD_TIMEOUT_BUSY);
+        assert_eq!(head_timeout(HEAD_TIMEOUT, 0), HEAD_TIMEOUT);
+        assert_eq!(
+            head_timeout(HEAD_TIMEOUT, MAX_CONNECTIONS / 2 - 1),
+            HEAD_TIMEOUT
+        );
+        assert_eq!(
+            head_timeout(HEAD_TIMEOUT, MAX_CONNECTIONS / 2),
+            HEAD_TIMEOUT_BUSY
+        );
         assert!(HEAD_TIMEOUT_BUSY < HEAD_TIMEOUT);
     }
 

@@ -62,18 +62,43 @@ fn link_attempts_with_a_bad_key_are_limited_as_requests_are() {
 /// Spec: hub: one address cannot hold more than its share of the hub's connections.
 #[test]
 fn one_address_cannot_hold_every_connection() {
-    let (running, _, _) = super::conformance::hub();
+    // Heads given an hour, so that nothing but the limit closes a connection while the test runs.
+    let (running, _, _) = super::conformance::hub_with(HubConfig {
+        head_timeout: Duration::from_secs(3_600),
+        ..HubConfig::default()
+    });
+    const EXTRA: usize = 10;
     let mut held = Vec::new();
-    for _ in 0..(MAX_CONNECTIONS_PER_ADDRESS + 10) {
+    for _ in 0..(MAX_CONNECTIONS_PER_ADDRESS + EXTRA) {
         let mut s = TcpStream::connect(running.local_addr()).expect("connect");
         // A request head that never ends.
         let _ = s.write_all(b"GET /healthz HTTP/1.1\r\nHost: x\r\n");
+        s.set_nonblocking(true).expect("nonblocking");
         held.push(s);
     }
-    std::thread::sleep(Duration::from_millis(500));
+    // Until the hub has closed the connections past the limit, however long it takes to reach
+    // them; the deadline only guards against a hang.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let closed = loop {
+        let closed = held.iter().filter(|s| closed_by_the_hub(s)).count();
+        if closed >= EXTRA || Instant::now() > deadline {
+            break closed;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(closed, EXTRA, "the connections past the limit are closed");
     assert_eq!(running.open_connections(), MAX_CONNECTIONS_PER_ADDRESS);
     drop(held);
     running.shutdown();
+}
+
+/// Whether the hub has closed `s`, a nonblocking stream it sends nothing on.
+fn closed_by_the_hub(s: &TcpStream) -> bool {
+    match s.peek(&mut [0u8; 1]) {
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => false,
+        // The end of the stream, a reset, or anything else: the connection is gone.
+        Ok(_) | Err(_) => true,
+    }
 }
 
 /// Limits that hold back nothing these tests send.

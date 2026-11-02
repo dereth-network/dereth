@@ -940,8 +940,17 @@ fn a_host_name_that_resolves_to_a_private_address_is_refused() {
         .expect("the hub's operator registers what it likes");
     let first = call(f.addr(), "GET", "/v1/resolve/byhand", &[], "");
     assert_eq!(first.json()["resolution"]["source"], "unknown", "{first:?}");
-    std::thread::sleep(Duration::from_millis(300));
-    let again = call(f.addr(), "GET", "/v1/resolve/byhand", &[], "");
+    // Asked again until the lookup the first answer started is done, however long it takes; the
+    // deadline only guards against a hang.
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
+    let again = loop {
+        let again = call(f.addr(), "GET", "/v1/resolve/byhand", &[], "");
+        let looking = again.status == 200 && again.json()["resolution"]["source"] == "unknown";
+        if !looking || std::time::Instant::now() > deadline {
+            break again;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     assert_eq!(again.status, 503, "{again:?}");
     assert!(!again.body.contains("192.168.1.30"), "{again:?}");
     f.running.shutdown();

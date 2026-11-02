@@ -6,7 +6,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -82,8 +82,9 @@ fn an_import_beside_a_serving_hub_succeeds_and_shows_promptly() {
 
     // The hub's own writes, far more often than worlds send them.
     let stop = Arc::new(AtomicBool::new(false));
+    let written = Arc::new(AtomicUsize::new(0));
     let writer = {
-        let (stop, db) = (Arc::clone(&stop), db.clone());
+        let (stop, written, db) = (Arc::clone(&stop), Arc::clone(&written), db.clone());
         std::thread::spawn(move || {
             let r = open(&db);
             let beat: Heartbeat =
@@ -92,7 +93,10 @@ fn an_import_beside_a_serving_hub_succeeds_and_shows_promptly() {
             let (mut ok, mut failed) = (0usize, Vec::new());
             while !stop.load(Ordering::SeqCst) {
                 match r.heartbeat("coldeve", &beat, None) {
-                    Ok(_) => ok += 1,
+                    Ok(_) => {
+                        ok += 1;
+                        written.fetch_add(1, Ordering::SeqCst);
+                    }
                     Err(e) => failed.push(e.to_string()),
                 }
                 std::thread::sleep(Duration::from_millis(1));
@@ -101,6 +105,11 @@ fn an_import_beside_a_serving_hub_succeeds_and_shows_promptly() {
         })
     };
 
+    // The import starts once the hub's writes have, however long the writer takes to start.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while written.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
     let mut importer = open(&db);
     let options = ImportOptions {
         apply: true,
