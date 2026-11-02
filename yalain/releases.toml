@@ -20,6 +20,6 @@
 # removed.
 
 [[release]]
-version = "0.1.0"
-upgrades_from = "0.1.0"
+version = "0.1.1"
+upgrades_from = "0.1.1"
 notes = "The first release: its database schema is version 2."

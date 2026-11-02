@@ -7,6 +7,8 @@ what they see, not how it was done.
 
 ## Unreleased
 
+## 0.1.1 (2026-11-02)
+
 - First Asheron's Call 2 server: log in, make a character and play a starting area.
 - Serves the whole world from the official world database, fetched with `yalain world fetch`.
 - Serves worlds made in Athenaeum over the world database.
