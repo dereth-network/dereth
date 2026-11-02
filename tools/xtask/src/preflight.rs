@@ -565,8 +565,8 @@ pub fn run(
     Ok(())
 }
 
-/// The client and the launcher built from this checkout, and the launcher started on the dev
-/// hub's world list.
+/// The client and the launcher built from this checkout (on Windows with the retail AC2 client's
+/// friends library beside the launcher), and the launcher started on the dev hub's world list.
 fn play(cfg: &Config) -> Result<(), String> {
     let root = workspace_root();
     let target = crate::util::target_dir();
@@ -596,6 +596,15 @@ fn play(cfg: &Config) -> Result<(), String> {
         ],
         &[],
     )?;
+    // The retail AC2 client's friends library beside the launcher, as its packages carry it: built
+    // on Windows only, where the launcher starts the retail client.
+    if cfg!(windows) {
+        let built = crate::package::friends_dll::build_beside(&["--release".to_owned()])?;
+        let beside = launcher_target
+            .join("release")
+            .join(crate::package::friends_dll::FILE);
+        std::fs::copy(&built, &beside).map_err(|e| format!("{}: {e}", beside.display()))?;
+    }
     let client = target
         .join("release")
         .join(format!("dereth-client{}", std::env::consts::EXE_SUFFIX));
