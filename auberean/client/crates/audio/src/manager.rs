@@ -487,7 +487,7 @@ impl SoundPlayer {
             req.kind,
             PlayType::NonExclusiveBudgeted | PlayType::SelfExclusiveBudgeted | PlayType::Inherit
         );
-        !(s.flags & SOUND_LOOPS == 0 && counted && budget <= playing)
+        !(!s.test_bit_mask(SOUND_LOOPS) && counted && budget <= playing)
     }
 
     fn load(&mut self, files: &dyn SoundFiles, req: &PlayRequest) -> Result<Instance, Refusal> {
@@ -607,14 +607,14 @@ impl SoundPlayer {
             let p = &self.playing[i];
             let hit = match self.instances.get(&p.id) {
                 Some(Instance { sound: Some(s), .. }) => {
-                    if s.flags & settings::SOUND_PLACED != 0 {
+                    if s.test_bit_mask(settings::SOUND_PLACED) {
                         mask & stop::PLACED_SOUNDS != 0
                     } else {
                         mask & stop::FLAT_SOUNDS != 0
                     }
                 }
                 Some(Instance { music: Some(m), .. }) => {
-                    if m.flags & settings::MUSIC_PLACED != 0 {
+                    if m.test_bit_mask(settings::MUSIC_PLACED) {
                         mask & stop::PLACED_MUSIC != 0
                     } else {
                         mask & stop::FLAT_MUSIC != 0
@@ -1413,7 +1413,7 @@ pub fn effect_sound(
     req.channel = match records::setting_type(id) {
         Some(SettingType::Music) => {
             let music = records::music_info(files, id)
-                .is_some_and(|m| m.flags & settings::MUSIC_DEFAULT_CHANNEL_MUSIC != 0);
+                .is_some_and(|m| m.test_bit_mask(settings::MUSIC_DEFAULT_CHANNEL_MUSIC));
             if music {
                 Channel::Music
             } else {

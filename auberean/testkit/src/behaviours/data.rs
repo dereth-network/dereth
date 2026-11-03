@@ -1372,6 +1372,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.sound-info.new-settings-and-what-they-need",
+        says: "A new sound setting has no flags, no random pitch (each end -1) and fades from a \
+               distance of 1, a new music setting fades from 1 too; each tests any of a mask's flags \
+               and needs its wave or music.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SOUND-INFO-NEW"),
+        station: "auberean-assets::cpu::records::new_sound_and_music_settings_and_what_they_need",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.string-download.a-dropped-download-lets-its-batch-go",
         says: "A text element's string download dropped while it waits lets its batch go: it is \
                forgotten and told nothing, and the table, when it comes, is stored as any other.",

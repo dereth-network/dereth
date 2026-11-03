@@ -105,6 +105,10 @@ pub fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
         t.sub_ids(kind, out);
     } else if let Some(q) = record.downcast_ref::<crate::script::Qualities>() {
         q.sub_ids(out);
+    } else if let Some(s) = record.downcast_ref::<crate::sound::SoundInfo>() {
+        s.sub_ids(out);
+    } else if let Some(m) = record.downcast_ref::<crate::sound::MusicInfo>() {
+        m.sub_ids(out);
     } else if !cell_sub_ids(record, out) {
         region_sub_ids(record, out);
     }
