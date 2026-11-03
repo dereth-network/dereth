@@ -78,6 +78,7 @@ pub struct Gather {
     selection: u64,
     last_selection: u64,
     auto_target: bool,
+    should_auto_target: bool,
     ranges: Option<(f32, f32)>,
     options: Option<(bool, bool)>,
     /// The calls asked, for the next frame.
@@ -201,6 +202,7 @@ impl Gather {
         self.auto_target = client
             .interface(function::GET_AUTO_TARGET, &[])
             .is_some_and(|(_, v)| v != 0);
+        self.should_auto_target = client.should_auto_target().is_some_and(|v| v != 0);
         if self.ranges.is_none() {
             self.ranges = client.radar_ranges();
         }
@@ -396,6 +398,7 @@ impl Gather {
             selection: self.selection,
             last_selection: self.last_selection,
             auto_target: self.auto_target,
+            should_auto_target: self.should_auto_target,
             ranges: self.ranges.unwrap_or((50.0, 75.0)),
             show_coordinates: coords,
             show_names: names,

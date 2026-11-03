@@ -29,6 +29,7 @@ not how it was done.
 - No water reflections while under water.
 - Resurrect and Dismount now work.
 - Music now follows what's near you.
+- Attacking keeps your selected target with Auto Target on.
 
 ## 0.1.2 (2026-11-02)
 

@@ -179,6 +179,9 @@ pub struct World {
     pub selection: u64,
     pub last_selection: u64,
     pub auto_target: bool,
+    /// The player's scripts would pick a target of their own as it starts to attack: it targets
+    /// automatically, and what is selected is nothing it could attack.
+    pub should_auto_target: bool,
     /// The radar's ranges indoors and outdoors, meters.
     pub ranges: (f32, f32),
     /// The radar's map coordinates shown; names shown over heads (the player's options).

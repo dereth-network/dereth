@@ -346,12 +346,14 @@ fn attacking_with_auto_target_selects_the_nearest_foe_first() {
     let mut foe = thing(10, kind::CREATURE, 0.0, 3.0);
     foe.attackable = true;
     let other = thing(11, kind::CREATURE, 0.0, 2.0);
+    // The scripts say so only with nothing selected the player could attack.
     for auto_target in [true, false] {
         let mut ui = Ui::new(records(), 1024, 768);
         let mut p = play(&mut ui);
         let mut t = 0.0;
         let w = World {
-            auto_target,
+            auto_target: true,
+            should_auto_target: auto_target,
             ..world(vec![foe.clone(), other.clone()])
         };
         tick(&mut ui, &mut p, &mut t, &w, &[]);
