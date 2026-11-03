@@ -512,12 +512,16 @@ fn client_beside(here: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// The Dereth client: `DERETH_CLIENT` if set, else the one beside the launcher. A launcher built
-/// from the repository has none beside it, so it falls back to the workspace's own build,
-/// `target/release/dereth-client` (then the debug one), in the workspace that holds it.
-fn find_client(here: &Path) -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("DERETH_CLIENT").map(PathBuf::from) {
+/// The Dereth client: `named` by `DERETH_CLIENT` if set, else `installed`, the copy in the components
+/// folder, else the one beside the launcher. A launcher built from the repository has none beside it, so it
+/// falls back to the workspace's own build, `target/release/dereth-client` (then the debug one), in
+/// the workspace that holds it.
+fn find_client(named: Option<PathBuf>, here: &Path, installed: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(p) = named {
         return p.is_file().then_some(p);
+    }
+    if installed.is_some() {
+        return installed;
     }
     if let Some(p) = client_beside(here) {
         return Some(p);
@@ -722,14 +726,25 @@ fn main() {
     }
     let running = std::sync::Mutex::new(Some(join::Running::mark(&folders.data)));
     // What the package says: the realm a first run opens in, and the releases it updates from.
-    let defaults = dereth_launch::defaults::Defaults::read(&here);
-    // A release has its game's client beside it: Dereth's, or Auberean's.
-    let is_release =
+    let packaged_client =
         client_beside(&here).is_some() || !components::bundled_clients(&here).is_empty();
-    // A launcher from Auberean's package plays Dereth with the client it downloaded.
-    let client = find_client(&here).or_else(|| {
-        components::downloaded(&folders.data, dereth_launch::components::Product::Dereth)
-    });
+    let is_release = components::is_release(components::DEVELOPMENT, packaged_client);
+    let checkout = components::uses_checkout(components::DEVELOPMENT, &args);
+    if !checkout {
+        // Before anything looks for a client: an update would delete the one in the bundle.
+        components::adopt_packaged_client(&folders.data, &here);
+        dereth_launch::defaults::Defaults::keep(&here, &folders.data, packaged_client);
+    }
+    let defaults = dereth_launch::defaults::Defaults::read(&here, &folders.data);
+    let installed =
+        components::downloaded(&folders.data, dereth_launch::components::Product::Dereth);
+    // A checkout plays its own build first; a release, the copy in the components folder.
+    let named = std::env::var_os("DERETH_CLIENT").map(PathBuf::from);
+    let client = if checkout {
+        find_client(named, &here, None).or(installed)
+    } else {
+        find_client(named, &here, installed)
+    };
     let tool = find_tool(&here, client.as_deref());
     // The preferences file the Dereth client reads when it is started from its own folder, which
     // names the interface it starts in.
@@ -739,7 +754,6 @@ fn main() {
         client.as_deref().and_then(Path::parent),
     );
 
-    let checkout = components::uses_checkout(components::DEVELOPMENT, &args);
     // The retail client's friends library, which this launcher carries beside it.
     let friends_dll = auberean::friends_dll(&here, checkout);
 
@@ -991,6 +1005,29 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    /// A release plays the copy in the components folder over the client beside the launcher, which
+    /// an update would delete, and the one beside it while there is no copy; `DERETH_CLIENT` wins.
+    #[test]
+    fn a_release_plays_the_copy_ahead_of_the_client_beside_the_launcher() {
+        let temp = tempfile::tempdir().unwrap();
+        let here = temp.path();
+        let beside = here.join(super::CLIENT_NAMES[usize::from(!cfg!(windows))]);
+        std::fs::write(&beside, b"packaged").unwrap();
+        let copy = here.join("copy");
+        let named = here.join("named");
+        std::fs::write(&named, b"named").unwrap();
+
+        assert_eq!(
+            super::find_client(None, here, Some(copy.clone())),
+            Some(copy.clone())
+        );
+        assert_eq!(super::find_client(None, here, None), Some(beside));
+        assert_eq!(
+            super::find_client(Some(named.clone()), here, Some(copy)),
+            Some(named)
+        );
+    }
+
     /// Every launcher offers both realms: it opens in the one it last showed, and draws the
     /// portals that pick one.
     #[test]

@@ -73,12 +73,40 @@ impl Defaults {
         ]
     }
 
-    /// What the launcher in `launcher_dir` was packaged with: the first file of
-    /// [`Self::candidates`] there is; Dereth's when there is none.
+    /// The file a launcher keeps in its data folder `data`, since an update replaces the bundle the
+    /// packaged one is in.
     #[must_use]
-    pub fn read(launcher_dir: &Path) -> Self {
-        Self::candidates(launcher_dir)
+    pub fn kept_file(data: &Path) -> PathBuf {
+        data.join(FILE)
+    }
+
+    /// Keep what the launcher in `launcher_dir` was packaged with in its data folder `data`. A
+    /// package with a client (`packaged_client`) and no such file is Dereth's, so it takes away what
+    /// an earlier package of Auberean's kept; a launcher with neither has only what was kept.
+    pub fn keep(launcher_dir: &Path, data: &Path, packaged_client: bool) {
+        let kept = Self::kept_file(data);
+        match Self::candidates(launcher_dir)
             .iter()
+            .find_map(|p| std::fs::read(p).ok())
+        {
+            Some(bytes) => {
+                let _ = std::fs::create_dir_all(data);
+                let _ = std::fs::write(kept, bytes);
+            }
+            None if packaged_client => {
+                let _ = std::fs::remove_file(kept);
+            }
+            None => {}
+        }
+    }
+
+    /// What the launcher in `launcher_dir` was packaged with: the first file of
+    /// [`Self::candidates`] there is, else what it kept in `data`; Dereth's when there is neither.
+    #[must_use]
+    pub fn read(launcher_dir: &Path, data: &Path) -> Self {
+        Self::candidates(launcher_dir)
+            .into_iter()
+            .chain([Self::kept_file(data)])
             .find_map(|p| std::fs::read_to_string(p).ok())
             .map_or_else(Self::default, |text| Self::parse(&text))
     }
@@ -115,7 +143,7 @@ mod tests {
         assert_eq!(auberean.realm, Realm::Auberean);
         assert_eq!(auberean.updates, Game::Auberean);
         let dir = temp("none");
-        assert_eq!(Defaults::read(&dir), Defaults::default());
+        assert_eq!(Defaults::read(&dir, &dir.join("data")), Defaults::default());
         assert_eq!(Defaults::default().realm, Realm::Dereth);
         assert_eq!(Defaults::default().updates, Game::Dereth);
         let _ = std::fs::remove_dir_all(&dir);
@@ -143,7 +171,7 @@ mod tests {
             r#"{"realm":"auberean","updates":"auberean"}"#,
         )
         .unwrap();
-        assert_eq!(Defaults::read(&dir).updates, Game::Auberean);
+        assert_eq!(Defaults::read(&dir, &dir.join("data")).updates, Game::Auberean);
         let _ = std::fs::remove_dir_all(&dir);
 
         let app = temp("bundle");
@@ -156,7 +184,7 @@ mod tests {
             r#"{"realm":"auberean","updates":"auberean"}"#,
         )
         .unwrap();
-        assert_eq!(Defaults::read(&macos).realm, Realm::Auberean);
+        assert_eq!(Defaults::read(&macos, &macos.join("data")).realm, Realm::Auberean);
         let _ = std::fs::remove_dir_all(&app);
     }
 
@@ -178,5 +206,48 @@ mod tests {
             Defaults::default().opening_realm(false, Realm::Auberean),
             Realm::Auberean
         );
+    }
+
+    /// A launcher release has no file of its own, and on macOS and Linux its update replaces the
+    /// bundle that held it: the game the package named stays the player's game.
+    #[test]
+    fn what_a_package_named_outlasts_an_update_that_replaces_the_bundle() {
+        let dir = temp("kept");
+        let data = dir.join("data");
+        let package = dir.join("package");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join(FILE),
+            r#"{"realm":"auberean","updates":"auberean"}"#,
+        )
+        .unwrap();
+        Defaults::keep(&package, &data, true);
+
+        let updated = dir.join("updated");
+        std::fs::create_dir_all(&updated).unwrap();
+        Defaults::keep(&updated, &data, false);
+        let read = Defaults::read(&updated, &data);
+        assert_eq!(read.updates, Game::Auberean);
+        assert_eq!(read.realm, Realm::Auberean);
+    }
+
+    /// Dereth's package has no file, so one kept from an earlier Auberean package goes; a launcher
+    /// with no client either has nothing to say and takes nothing away.
+    #[test]
+    fn a_package_of_dereth_s_replaces_what_an_earlier_auberean_package_kept() {
+        let dir = temp("replaced");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(
+            Defaults::kept_file(&data),
+            r#"{"realm":"auberean","updates":"auberean"}"#,
+        )
+        .unwrap();
+        let dereth_s = dir.join("dereth");
+        std::fs::create_dir_all(&dereth_s).unwrap();
+        Defaults::keep(&dereth_s, &data, false);
+        assert_eq!(Defaults::read(&dereth_s, &data).updates, Game::Auberean);
+        Defaults::keep(&dereth_s, &data, true);
+        assert_eq!(Defaults::read(&dereth_s, &data), Defaults::default());
     }
 }

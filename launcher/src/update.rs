@@ -251,14 +251,19 @@ async fn check_and_download(
             let step = *step
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            // The release carries an older launcher than this one: its newer client comes alone.
-            if step == UpdateStep::ClientOnly {
-                if let Some(shared) = app.try_state::<crate::components::Shared>() {
-                    let _ = crate::components::start_get(
-                        app.clone(),
-                        shared.inner().clone(),
-                        channel_client(channel),
-                    );
+            // No newer launcher: the client keeps itself up to date from its game's own releases. A
+            // release with an older launcher than this one has its newer client taken alone.
+            if let Some(shared) = app.try_state::<crate::components::Shared>() {
+                let shared = shared.inner().clone();
+                let product = channel_client(channel);
+                if step == UpdateStep::ClientOnly {
+                    let _ = crate::components::start_get(app.clone(), shared, product);
+                } else {
+                    let app = app.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        crate::components::update_client(app, shared, product);
+                    })
+                    .await;
                 }
             }
             return Ok(());

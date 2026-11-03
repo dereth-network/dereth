@@ -31,8 +31,11 @@ The plugin author's tool, `dereth-plugin`, comes with each one beside the client
 
 ## Clients and data files
 
-- **The Dereth client** ships beside the launcher. A launcher built from the repository uses the
-  workspace's build instead, `target/release/dereth-client` (then `debug`); `DERETH_CLIENT` names
+- **The Dereth client** comes in Dereth's package, beside the launcher, and is copied to the
+  components folder at the first start (`components/dereth/<version>`, with the plugin tool, MoltenVK
+  and any `UserPreferences.ini` beside it). It runs from there: an update replaces the launcher's
+  whole bundle on macOS and Linux. It's updated from its game's own releases, apart from the
+  launcher. A launcher built from the repository uses the workspace's build instead, `target/release/dereth-client` (then `debug`); `DERETH_CLIENT` names
   another.
 - **The retail client** (Windows only): you can point the launcher at one retail install, the
   folder holding `acclient.exe`. Choosing another replaces it. On macOS and Linux the launcher
@@ -375,8 +378,9 @@ updated and removed as Empyrean and Lyceum are, each its own newest release (`au
 `yalain-v<version>`, `athenaeum-v<version>`), checked against the release's `SHA256SUMS`. The
 Auberean client comes out of its release, which is the launcher with the client beside it (on
 Linux the AppImage unpacks itself to give it up); Athenaeum's AppImage is kept as it is. A
-downloaded client newer than the one beside the launcher is used instead of it. In the same way a
-launcher from Auberean's release offers the Dereth client on Play when it is first wanted, from the
+client packaged beside the launcher is copied out as Dereth's is, and the package's own
+`launcher-defaults.json` is kept in the data folder, so the game it named outlasts an update. In the
+same way a launcher from Auberean's release offers the Dereth client on Play when it is first wanted, from the
 newest `dereth-v<version>` release. A development build uses its checkout's builds, as for
 Empyrean and Lyceum.
 

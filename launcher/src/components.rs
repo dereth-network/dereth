@@ -6,7 +6,12 @@
 //! game's client beside it, so the client already here is the packaged one ([`View::bundled`]).
 //! The other game's client is fetched from that game's release, which is its launcher package:
 //! the client is taken out of it (out of an AppImage, by having it unpack itself) and the rest
-//! left unused. A downloaded client newer than the packaged one is used instead of it.
+//! left unused.
+//!
+//! **The packaged client is copied out** at the first start ([`adopt_bundled`]) and run from the
+//! components folder like any other. An update replaces the launcher's whole bundle on macOS and
+//! Linux, and a launcher release holds no client, so a client left inside would be deleted by it.
+//! A packaged client is used only while its copy can't be made.
 //!
 //! Each is its own newest GitHub release ([`dereth_launch::components`]): the page shows that
 //! version before anything is downloaded, and the newer one when there is one. Getting it
@@ -257,7 +262,7 @@ pub fn bundled_clients(here: &Path) -> HashMap<Product, PathBuf> {
 }
 
 /// The client to use of the packaged one (`bundled`, at `bundled_version` once it has said) and
-/// the downloaded one (`installed`): the download when it is newer, else the packaged one.
+/// the copy in the components folder (`installed`): the copy, unless the packaged one is newer.
 fn in_use(
     installed: Option<&Installed>,
     bundled: Option<(&Path, Option<&str>)>,
@@ -270,15 +275,17 @@ fn in_use(
         executable: path.to_path_buf(),
         notes: String::new(),
     };
-    let newer = |i: &Installed| match (
+    // The packaged client is used only when it's newer than the copy, which it is for a moment
+    // when a newer package has just started, or when its copy couldn't be made.
+    let older = |i: &Installed| match (
         components::version(&i.version),
         version.and_then(components::version),
     ) {
-        (Some(theirs), Some(ours)) => theirs > ours,
+        (Some(theirs), Some(ours)) => theirs < ours,
         _ => false,
     };
     match installed {
-        Some(i) if newer(i) => Some((i.clone(), false)),
+        Some(i) if !older(i) => Some((i.clone(), false)),
         _ => Some((packaged, true)),
     }
 }
@@ -998,6 +1005,27 @@ fn install_archive(
     filename: &str,
     bytes: &[u8],
 ) -> Result<Installed, String> {
+    install_staged(root, product, version, notes, |stage| {
+        crate::component_archive::extract_program(
+            bytes,
+            filename,
+            &program_file(product.program()),
+            stage,
+            product.is_game_client(),
+        )
+    })
+}
+
+/// Install `version` of `product`: `fill` writes its files into a new staging folder, which is
+/// moved into `components/<product>/<version>` and named as the version in use. A failure leaves
+/// the version in use as it was.
+fn install_staged(
+    root: &Path,
+    product: Product,
+    version: &str,
+    notes: &str,
+    fill: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<Installed, String> {
     let dest = components::install_dir(root, product, version)?;
     let parent = dest.parent().ok_or("Invalid component folder")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1030,14 +1058,18 @@ fn install_archive(
     }
     std::fs::create_dir(&stage).map_err(|e| e.to_string())?;
     let prepared = (|| {
-        crate::component_archive::extract_program(
-            bytes,
-            filename,
-            &program_file(product.program()),
-            &stage,
-            product.is_game_client(),
-        )?;
+        fill(&stage)?;
         let executable = find_executable(&stage, product)?;
+        // A preferences file a player keeps beside the client stays beside it, version to version.
+        if product.is_game_client() {
+            let name = dereth_launch::interface::PREFERENCES_FILE;
+            if let Some(kept) = read_installed(root, product)
+                .map(|i| i.executable.with_file_name(name))
+                .filter(|f| f.is_file())
+            {
+                copy_plain(&kept, &executable.with_file_name(name))?;
+            }
+        }
         let relative = executable.strip_prefix(&stage).map_err(|e| e.to_string())?;
         let installed = Installed {
             version: version.to_owned(),
@@ -1059,6 +1091,157 @@ fn install_archive(
         let _ = std::fs::remove_dir_all(&stage);
     }
     prepared
+}
+
+/// Whether this launcher updates itself: any built for release, and any with a packaged client. A
+/// launcher that has been updated from the launcher's own releases has no client beside it, so
+/// what's beside it can't be all that says so.
+pub fn is_release(development: bool, packaged_client: bool) -> bool {
+    !development || packaged_client
+}
+
+/// Copy `from` to `to`: the bytes and the permissions, not the attributes. A packaged client's copy
+/// is then a file the launcher wrote, as a download is, whatever the bundle's own download left on
+/// the bundle.
+fn copy_plain(from: &Path, to: &Path) -> Result<(), String> {
+    let copy = || -> std::io::Result<()> {
+        let mut source = std::fs::File::open(from)?;
+        let mut target = std::fs::File::create(to)?;
+        std::io::copy(&mut source, &mut target)?;
+        target.set_permissions(source.metadata()?.permissions())?;
+        target.sync_all()
+    };
+    copy().map_err(|e| format!("{}: {e}", from.display()))
+}
+
+/// The files a packaged game client in the launcher's folder `here` needs, each with its path below
+/// the component's folder: the program; the plugin author's tool, which the launcher finds beside
+/// the client; a preferences file kept beside it; and on macOS the frameworks, which the program
+/// finds at `../Frameworks` from its own folder, so they keep that place.
+fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
+    let macos = here.ends_with("Contents/MacOS");
+    let below = if macos {
+        PathBuf::from("Contents/MacOS")
+    } else {
+        PathBuf::new()
+    };
+    let mut files = Vec::new();
+    for name in [
+        program_file(product.program()),
+        dereth_launch::plugins::TOOL_FILE.to_owned(),
+        dereth_launch::interface::PREFERENCES_FILE.to_owned(),
+    ] {
+        let from = here.join(&name);
+        if from.is_file() {
+            files.push((from, below.join(name)));
+        }
+    }
+    if macos {
+        let frameworks = here.join("../Frameworks");
+        for e in std::fs::read_dir(frameworks)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if e.file_type().is_ok_and(|t| t.is_file()) {
+                files.push((
+                    e.path(),
+                    Path::new("Contents/Frameworks").join(e.file_name()),
+                ));
+            }
+        }
+    }
+    files
+}
+
+/// Whether a packaged client at `bundled` should be copied over the installed copy at `installed`:
+/// there is none, or the packaged one is newer. Neither version reading means no copy.
+fn bundled_is_newer(installed: Option<&str>, bundled: &str) -> bool {
+    let Some(ours) = components::version(bundled) else {
+        return false;
+    };
+    match installed {
+        None => true,
+        Some(i) => components::version(i).is_none_or(|theirs| ours > theirs),
+    }
+}
+
+/// Copy the game client packaged beside the launcher in `here` into the components folder under
+/// `root`, when it isn't there already: the first start of a package, or of a newer one. `said`
+/// is the version the program says it is. A copy that fails leaves things as they were, and the
+/// packaged client is used.
+pub fn adopt_bundled(
+    root: &Path,
+    here: &Path,
+    said: &dyn Fn(Product, &Path) -> Option<String>,
+) -> Vec<Result<Installed, String>> {
+    let mut out = Vec::new();
+    for (product, program) in bundled_clients(here) {
+        let Some(version) = said(product, &program) else {
+            continue;
+        };
+        let installed = read_installed(root, product);
+        if !bundled_is_newer(installed.as_ref().map(|i| i.version.as_str()), &version) {
+            continue;
+        }
+        let files = bundled_files(here, product);
+        let adopted = install_staged(root, product, &version, "", |stage| {
+            for (from, below) in &files {
+                let to = stage.join(below);
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                copy_plain(from, &to)?;
+            }
+            Ok(())
+        });
+        if adopted.is_ok() {
+            remove_other_versions(root, product, &version);
+        }
+        out.push(adopted);
+    }
+    out
+}
+
+/// [`adopt_bundled`] for a starting launcher, asking each program its version.
+pub fn adopt_packaged_client(root: &Path, here: &Path) {
+    for failed in adopt_bundled(root, here, &program_version)
+        .into_iter()
+        .filter_map(Result::err)
+    {
+        eprintln!("dereth: the packaged client stays in the launcher's bundle: {failed}");
+    }
+}
+
+/// Whether the release at `latest` is newer than the client at `installed`. No copy of the client
+/// means none is wanted: the player has removed it, or never got it.
+fn client_is_behind(installed: Option<&str>, latest: &str) -> bool {
+    match (
+        installed.and_then(components::version),
+        components::version(latest),
+    ) {
+        (Some(ours), Some(theirs)) => theirs > ours,
+        _ => false,
+    }
+}
+
+/// Fetch `product`'s newer release when one is published, in the background: how a game's client is
+/// kept up to date, apart from the launcher. Asks GitHub, so this waits for it.
+pub fn update_client(app: tauri::AppHandle, shared: Shared, product: Product) {
+    let root = lock(&shared).root.clone();
+    let Ok(list) = release_list(false, &[product.newest_release()]) else {
+        return;
+    };
+    let Ok(Some(release)) = components::newest(&list, product) else {
+        return;
+    };
+    let installed = read_installed(&root, product);
+    if client_is_behind(
+        installed.as_ref().map(|i| i.version.as_str()),
+        &release.version,
+    ) {
+        let _ = start_get(app, shared, product);
+    }
 }
 
 /// The version of the program `product` runs as here ([`program_of`]), as it says it: asked of
@@ -2532,5 +2715,243 @@ mod tests {
         assert!(plain(&ureq::Error::HostNotFound).contains("Could not reach GitHub"));
         assert!(plain(&ureq::Error::ConnectionFailed).contains("internet connection"));
         assert!(plain(&ureq::Error::StatusCode(502)).contains("502"));
+    }
+
+    /// A folder laid out as a package has the launcher's folder, with a client beside the launcher
+    /// that says its version only through what the test passes as `said`.
+    fn packaged_at(here: &Path, product: Product) {
+        std::fs::create_dir_all(here).unwrap();
+        std::fs::write(
+            here.join(program_file(product.program())),
+            b"packaged client",
+        )
+        .unwrap();
+    }
+
+    fn says(version: &'static str) -> impl Fn(Product, &Path) -> Option<String> {
+        move |_, _| Some(version.to_owned())
+    }
+
+    /// The case the copy exists for. On macOS and Linux an update replaces the launcher's whole
+    /// bundle, and a launcher release holds no client: the client must already be elsewhere.
+    #[test]
+    fn a_client_copied_out_outlasts_an_update_that_replaces_the_bundle() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("Dereth.app/Contents/MacOS");
+        packaged_at(&here, Product::Dereth);
+        std::fs::write(here.join(dereth_launch::plugins::TOOL_FILE), b"tool").unwrap();
+        let frameworks = here.join("../Frameworks");
+        std::fs::create_dir_all(&frameworks).unwrap();
+        std::fs::write(frameworks.join("libMoltenVK.dylib"), b"library").unwrap();
+
+        let adopted = adopt_bundled(&root, &here, &says("0.4.9"));
+        assert_eq!(adopted.len(), 1);
+        adopted.into_iter().next().unwrap().unwrap();
+
+        // The updater swaps in a bundle with only the launcher in it.
+        std::fs::remove_dir_all(temp.path().join("Dereth.app")).unwrap();
+        std::fs::create_dir_all(&here).unwrap();
+        assert!(bundled_clients(&here).is_empty());
+        assert!(adopt_bundled(&root, &here, &says("0.4.9")).is_empty());
+
+        let client = downloaded(&root, Product::Dereth).expect("the copy is still the client");
+        assert!(client.starts_with(root.join("components/dereth/0.4.9")));
+        assert_eq!(std::fs::read(&client).unwrap(), b"packaged client");
+        // The tool and the library stay where the launcher and the program look for them.
+        assert_eq!(
+            std::fs::read(client.with_file_name(dereth_launch::plugins::TOOL_FILE)).unwrap(),
+            b"tool"
+        );
+        assert_eq!(
+            std::fs::read(client.with_file_name("../Frameworks/libMoltenVK.dylib")).unwrap(),
+            b"library"
+        );
+        // Nothing beside it says it's a release any more; it still updates.
+        assert!(is_release(false, false));
+        assert!(!is_release(true, false));
+    }
+
+    /// The copy lands where [`find_executable`] looks, at the same place in the version's folder as
+    /// a downloaded package's client, on a layout with no `Contents/MacOS`.
+    #[test]
+    fn a_client_packaged_beside_the_launcher_alone_is_copied_to_the_top_of_its_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+        adopt_bundled(&root, &here, &says("0.4.9"));
+        assert_eq!(
+            downloaded(&root, Product::Dereth).unwrap(),
+            root.join("components/dereth/0.4.9")
+                .join(program_file("dereth-client"))
+        );
+    }
+
+    /// Starting the same package again does nothing, a newer package takes over and removes the
+    /// older copy, and an older one (a player gone back to an old package, with a newer client
+    /// already fetched) leaves the newer copy alone.
+    #[test]
+    fn only_a_newer_packaged_client_replaces_the_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+
+        adopt_bundled(&root, &here, &says("0.4.9"));
+        let dest = root.join("components/dereth/0.4.9");
+        let marker = dest.join("marker");
+        std::fs::write(&marker, b"left alone").unwrap();
+        assert!(adopt_bundled(&root, &here, &says("0.4.9")).is_empty());
+        assert!(marker.is_file());
+        assert!(adopt_bundled(&root, &here, &says("0.4.8")).is_empty());
+        assert!(marker.is_file());
+
+        adopt_bundled(&root, &here, &says("0.4.10"));
+        assert_eq!(
+            read_installed(&root, Product::Dereth).unwrap().version,
+            "0.4.10"
+        );
+        assert!(!dest.exists());
+    }
+
+    /// A copy that can't be made says so and changes nothing: the packaged client is used, as
+    /// [`in_use`] picks it with no copy to prefer, and a client that won't say its version isn't
+    /// copied at all.
+    #[test]
+    fn a_failed_copy_leaves_the_packaged_client_in_use() {
+        let temp = tempfile::tempdir().unwrap();
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+
+        // The data folder is a file: nothing can be made under it.
+        let root = temp.path().join("not-a-folder");
+        std::fs::write(&root, b"").unwrap();
+        let adopted = adopt_bundled(&root, &here, &says("0.4.9"));
+        assert!(adopted[0].is_err());
+        assert!(read_installed(&root, Product::Dereth).is_none());
+        let program = here.join(program_file("dereth-client"));
+        let (used, bundled) = in_use(None, Some((&program, Some("0.4.9")))).unwrap();
+        assert!(bundled);
+        assert_eq!(used.executable, program);
+
+        let root = temp.path().join("data");
+        assert!(adopt_bundled(&root, &here, &|_, _| None).is_empty());
+        assert!(read_installed(&root, Product::Dereth).is_none());
+    }
+
+    /// The copy keeps the program runnable; a mutation of `copy_plain` that drops the permissions
+    /// would leave a client that can't start.
+    #[cfg(unix)]
+    #[test]
+    fn a_copied_client_can_still_be_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        std::fs::create_dir_all(&here).unwrap();
+        let program = here.join("dereth-client");
+        std::fs::write(&program, "#!/bin/sh\necho 'dereth-client 0.4.9'\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        adopt_bundled(&root, &here, &program_version);
+        std::fs::remove_file(&program).unwrap();
+        let copy = downloaded(&root, Product::Dereth).unwrap();
+        assert_eq!(
+            program_version(Product::Dereth, &copy).as_deref(),
+            Some("0.4.9")
+        );
+    }
+
+    /// A bundle carried off the internet has its download's mark on every file, which would hold a
+    /// client copied with it back from running. The copy is the launcher's own file, as a download
+    /// the launcher makes is.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_copied_client_does_not_carry_the_bundle_s_download_mark() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+        let program = here.join("dereth-client");
+        let mark = "com.apple.quarantine";
+        let set = std::process::Command::new("xattr")
+            .args(["-w", mark, "0081;00000000;Test;"])
+            .arg(&program)
+            .status()
+            .unwrap();
+        assert!(set.success());
+
+        adopt_bundled(&root, &here, &says("0.4.9"));
+        let copy = downloaded(&root, Product::Dereth).unwrap();
+        let listed = std::process::Command::new("xattr")
+            .arg(&copy)
+            .output()
+            .unwrap();
+        assert!(
+            !String::from_utf8_lossy(&listed.stdout).contains(mark),
+            "{}",
+            String::from_utf8_lossy(&listed.stdout)
+        );
+    }
+
+    /// A preferences file kept beside the client names how the player plays. It goes with the first
+    /// copy, and from version to version after that, whether a package or a download brings it.
+    #[test]
+    fn preferences_beside_the_client_follow_it_to_each_new_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+        let name = dereth_launch::interface::PREFERENCES_FILE;
+        std::fs::write(here.join(name), b"from the package").unwrap();
+
+        adopt_bundled(&root, &here, &says("0.4.9"));
+        let first = downloaded(&root, Product::Dereth).unwrap();
+        assert_eq!(
+            std::fs::read(first.with_file_name(name)).unwrap(),
+            b"from the package"
+        );
+
+        // Played since: what's beside the copy is the player's latest, over a stale one beside the
+        // package.
+        std::fs::write(first.with_file_name(name), b"played since").unwrap();
+        adopt_bundled(&root, &here, &says("0.4.10"));
+        let second = downloaded(&root, Product::Dereth).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            std::fs::read(second.with_file_name(name)).unwrap(),
+            b"played since"
+        );
+    }
+
+    /// The copy is preferred from the moment it's as new as the packaged client; a newer package
+    /// whose copy has not been made yet is used directly.
+    #[test]
+    fn the_copy_is_used_unless_the_packaged_client_is_newer() {
+        let copy = Installed {
+            version: "0.4.9".to_owned(),
+            executable: PathBuf::from("copy"),
+            notes: String::new(),
+        };
+        let packaged = Path::new("packaged");
+        let pick = |v| {
+            let (used, bundled) = in_use(Some(&copy), Some((packaged, Some(v)))).unwrap();
+            (used.executable, bundled)
+        };
+        assert_eq!(pick("0.4.9"), (PathBuf::from("copy"), false));
+        assert_eq!(pick("0.4.8"), (PathBuf::from("copy"), false));
+        assert_eq!(pick("0.4.10"), (PathBuf::from("packaged"), true));
+    }
+
+    /// A client is fetched only to replace one that's there and older: no copy means the player
+    /// removed it or never got it, and that isn't this update's to undo.
+    #[test]
+    fn a_client_is_fetched_only_when_one_is_here_and_older() {
+        assert!(client_is_behind(Some("0.4.9"), "0.4.10"));
+        assert!(!client_is_behind(Some("0.4.9"), "0.4.9"));
+        assert!(!client_is_behind(Some("0.4.10"), "0.4.9"));
+        assert!(!client_is_behind(None, "0.4.10"));
+        assert!(!client_is_behind(Some("what"), "0.4.10"));
     }
 }
