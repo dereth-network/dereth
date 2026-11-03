@@ -174,13 +174,8 @@ pub fn web_addresses(
 /// # Errors
 /// A name that is not one of the four rooms.
 fn global_room(named: Option<&str>) -> Result<Option<RoomSlot>, String> {
-    match named.map(str::trim) {
-        None => Ok(Some(RoomSlot::Roleplay)),
-        Some("") => Ok(None),
-        Some(name) => RoomSlot::parse(name).map(Some).ok_or_else(|| {
-            format!("federation.global_room {name:?}: general, trade, lfg, roleplay or empty")
-        }),
-    }
+    let word = dereth_network_protocol::rooms::read_setting(named, "roleplay")?;
+    Ok(word.and_then(RoomSlot::parse))
 }
 
 /// The saved records; none yet is an empty store.

@@ -26,14 +26,14 @@
 //! talking: the world takes it exactly as the client's own room line, so every rule of the room
 //! applies to it.
 
-use dereth_network_protocol::rooms::{OFF, OWN_ROOMS};
+use dereth_network_protocol::rooms::{held_back_line, too_new_line, too_quickly_line, OFF};
+pub use dereth_network_protocol::rooms::{KeptRooms, NOT_CARRIED, UNCARRIED_SECS};
 use dereth_network_protocol::text::{sanitize_line, sanitize_name};
 use dereth_network_protocol::wire::GLOBAL_ROOM;
 use dereth_network_protocol::{Address, Message, Outcome, RoomsMessage};
 use dereth_protocol::turbine::{ExtraBlob, SendToRoomById};
 use empyrean_entity::enums::{ChatNetworkBlobDispatchType, ChatNetworkBlobType};
 use empyrean_entity::ObjectGuid;
-use serde::{Deserialize, Serialize};
 
 use super::{
     blocked, enabled, fresh_id, is_on, may_receive, may_send, now, own_address, remote_stand_in,
@@ -47,23 +47,6 @@ use crate::network::managers::inbound_message_manager::Payload;
 use crate::world_objects::player_character;
 use crate::world_objects::world_object_networking::shims;
 use crate::World;
-
-/// How long the lines of one of the world's own rooms stay here, unsent, after the hub says it
-/// does not mirror the room into Discord, in seconds. The next line after it goes to the hub again,
-/// so a room its operator has mirrored since is carried within the minute.
-pub const UNCARRIED_SECS: f64 = 60.0;
-
-/// The world's rooms as its hub last told them (`rooms`), kept with the network's records.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeptRooms {
-    /// The room that carries the Global room (one of the world's own rooms, or `off`); none while
-    /// the hub held none for the world.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub global: Option<String>,
-    /// The world's own rooms the hub mirrors into Discord for it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mirrored: Vec<String>,
-}
 
 /// The TurbineChat room that carries the Global room here now: where the hub last said, else where
 /// the world's settings say; none carries no room.
@@ -101,41 +84,6 @@ fn link_word(slot: Option<RoomSlot>) -> &'static str {
 /// A room as players know it, or "no room".
 fn shown(slot: Option<RoomSlot>) -> &'static str {
     slot.map_or("no room", RoomSlot::name)
-}
-
-/// Where a line said in `room` goes past this world, as its speaker is told.
-fn reach(room: &str) -> &'static str {
-    if room == GLOBAL_ROOM {
-        "the other worlds"
-    } else {
-        "Discord"
-    }
-}
-
-/// What a speaker is told when its line stayed on this world because it sent too quickly.
-fn too_quickly(room: &str) -> String {
-    format!(
-        "Your line did not reach {}: you are sending too quickly.",
-        reach(room)
-    )
-}
-
-/// What a speaker is told when its line stayed on this world because the hub refused it: the
-/// speaker's own pace was kept here, so it is the world's share of the room that is spent.
-fn held_back(room: &str) -> String {
-    format!(
-        "Your line did not reach {}: the Dereth Network is holding back this world's lines for now.",
-        reach(room)
-    )
-}
-
-/// What a speaker is told when its line stayed on this world because the character is younger
-/// than the operator's minimum age.
-fn too_new_here(room: &str) -> String {
-    format!(
-        "Your line did not reach {}: this character is too new to send to the Dereth Network yet.",
-        reach(room)
-    )
 }
 
 /// Whether the operator has turned the room off for this world.
@@ -216,16 +164,7 @@ fn on_rooms(w: &mut World, id: Option<&str>, global: Option<&str>, mirrored: &[S
     let (global_before, mirrored_before) = (global_slot(w), mirrored_slots(w));
     let f = &mut w.federation;
     f.rooms_told = true;
-    let kept = KeptRooms {
-        global: global
-            .map(str::to_owned)
-            .or_else(|| f.store.rooms.as_ref().and_then(|r| r.global.clone())),
-        mirrored: mirrored
-            .iter()
-            .filter(|r| OWN_ROOMS.contains(&r.as_str()))
-            .cloned()
-            .collect(),
-    };
+    let kept = KeptRooms::told(f.store.rooms.as_ref(), global, mirrored);
     if f.store.rooms.as_ref() != Some(&kept) {
         f.store.rooms = Some(kept);
         f.dirty = true;
@@ -402,14 +341,14 @@ pub fn room_said(w: &mut World, player: ObjectGuid, channel: u32, text: &str) {
         return;
     }
     if too_new(w, player) {
-        tell_player(w, player, &too_new_here(room));
+        tell_player(w, player, &too_new_line(room));
         return;
     }
     let Some(from) = own_address(w, player) else {
         return;
     };
     if !may_send(w, player, Sends::RoomLines) {
-        tell_player(w, player, &too_quickly(room));
+        tell_player(w, player, &too_quickly_line(room));
         return;
     }
     let id = fresh_id(w, 'r');
@@ -433,9 +372,6 @@ pub fn room_said(w: &mut World, player: ObjectGuid, channel: u32, text: &str) {
         },
     );
 }
-
-/// What `/dng` says on a world that carries no Global room.
-pub const NOT_CARRIED: &str = "This world does not carry the Global room.";
 
 /// `/dng <text>`: `player` says `text` in the room that carries the Global room, as if the client
 /// had sent it there. The world's own room handling shows it to the local listeners and, through
@@ -486,7 +422,7 @@ pub(super) fn on_result(w: &mut World, id: &str, outcome: Outcome) {
     match outcome {
         Outcome::RateLimited => {
             if !p.quiet && player_manager::get_online_player(w, p.player.full()).is_some() {
-                tell_player(w, p.player, &held_back(&p.room));
+                tell_player(w, p.player, &held_back_line(&p.room));
             }
         }
         Outcome::NotMember if own => {
