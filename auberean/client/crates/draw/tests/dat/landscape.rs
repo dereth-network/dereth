@@ -339,6 +339,11 @@ fn the_camps_pond_has_a_shore_where_its_water_meets_the_ground() {
 ///
 /// Behaviour: draw.world.what-stands-on-the-land-takes-the-lands-shadow
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn what_stands_on_the_land_takes_the_lands_shadow() {
     let r = &crate::common::install().records;
     let region = r.region().expect("the region");

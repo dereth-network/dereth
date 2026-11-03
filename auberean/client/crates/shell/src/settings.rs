@@ -54,7 +54,7 @@ const AVATAR: (&str, &str) = ("Avatar", "AvatarVisibleInFirstPerson");
 const LOOK_AROUND: (&str, &str) = ("Avatar", "AvatarLookAround");
 const LOOK_AT_CAMERA: (&str, &str) = ("Avatar", "AvatarLookAtCamera");
 const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
-const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarMouseHoverTransparency");
+const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarHoverTransparency");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");

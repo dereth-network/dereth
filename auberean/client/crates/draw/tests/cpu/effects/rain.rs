@@ -261,7 +261,7 @@ fn a_streak_falls_from_80_m_at_150_m_a_second() {
         rain.update(1.0, &world(now), &rng, &mut flat(30.0), &mut |_, _| {});
     }
     let before = rain.drawn().0;
-    now += 0.01;
+    now += 0.02;
     rain.update(1.0, &world(now), &rng, &mut flat(30.0), &mut |_, _| {});
     let after = rain.drawn().0;
     let top = before
@@ -273,8 +273,8 @@ fn a_streak_falls_from_80_m_at_150_m_a_second() {
     for (a, b) in before.chunks(4).zip(after.chunks(4)) {
         let d = a[0].position[2] - b[0].position[2];
         if d > 0.0 {
-            // a fall of 1.5 m along a slant all but straight down
-            assert!((1.3..=1.6).contains(&d), "{d}");
+            // a fall of 3 m along a slant all but straight down
+            assert!((2.8..=3.1).contains(&d), "{d}");
             fell += 1;
         }
     }

@@ -2016,7 +2016,7 @@ fn rain_falls_on_a_rainy_day() {
     let script = script_at(0xC156_0035, at, Quat::IDENTITY);
     let server =
         ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
-    let mut s = shell_with(
+    let mut s = shell_with_sound(
         script,
         Box::new(DevLogin::new(
             server,
@@ -2076,11 +2076,27 @@ fn rain_falls_on_a_rainy_day() {
         .expect("a dry moment");
     assert_eq!(run(&mut s, dry, 6.0), 0);
     assert_eq!(s.scene.rain_heard(), 0.0);
+    const STEADY: u32 = 0x2A00_039E;
+    let plays = |s: &Shell<'_, DoubleHost>| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, id, _)| id == STEADY)
+    };
+    assert!(!plays(&s), "no rain, no sound");
     let wet = times
         .find(|t| rain_at(*t) == 1.0 && rain_at(*t + 300.0) == 1.0)
         .expect("a wet moment");
     assert!(run(&mut s, wet, 8.0) >= 1, "it rains");
     assert_eq!(s.scene.rain_heard(), 1.0);
+    assert!(plays(&s), "the rain is heard");
+    let dry_again = (0..4000)
+        .map(|k| s.scene.game_time + 1000.0 + f64::from(k) * 300.0)
+        .find(|t| rain_at(*t) == 0.0 && rain_at(*t + 300.0) == 0.0)
+        .expect("a dry moment");
+    assert_eq!(run(&mut s, dry_again, 10.0), 0);
+    assert!(!plays(&s), "the sound stops with the rain");
 }
 
 /// The objects placed on a landblock taken up fade in with it: at the camp, entered from nowhere,

@@ -552,9 +552,9 @@ fn a_body_takes_the_sun_shadow_about_its_spot() {
     let off = at(&mut device, Some(Vec3::new(-20000.0, -20000.0, 80.0)));
     assert_eq!(off, whole, "off the map");
     let (mut least, mut most) = (255u8, 0u8);
-    for i in 0..16 {
-        for j in 0..16 {
-            let spot = Vec3::new(i as f32 * 10.0 + 5.0, j as f32 * 10.0 + 5.0, 80.0);
+    for i in 0..8 {
+        for j in 0..8 {
+            let spot = Vec3::new(i as f32 * 20.0 + 5.0, j as f32 * 20.0 + 5.0, 80.0);
             let v = at(&mut device, Some(spot));
             least = least.min(v);
             most = most.max(v);

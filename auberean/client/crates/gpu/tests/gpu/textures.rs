@@ -223,6 +223,7 @@ fn trilinear_filtering_blends_between_a_textures_levels() {
     let mut started_off = renderer();
     let off = between(&mut started_off, false);
     let later = between(&mut started_off, true);
+    drop(started_off);
     let on = between(&mut renderer(), true);
     assert!(off < 0.01, "nearest level only: {off}");
     assert!(later < 0.01, "kept from the first frame: {later}");
