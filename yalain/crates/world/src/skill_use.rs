@@ -572,11 +572,8 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
         return Aim::Me;
     }
     if helpful(u) {
-        return s
-            .players
-            .iter()
-            .find(|(_, p)| p.character == r.target)
-            .map_or(Aim::Me, |(c, _)| Aim::Player(*c, r.target));
+        return crate::presence::player_for(s, world, r.target)
+            .map_or(Aim::Me, |c| Aim::Player(c, r.target));
     }
     match combat::player_target(s, world, r.target) {
         Some(c) => Aim::Player(c, r.target),

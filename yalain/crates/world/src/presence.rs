@@ -308,6 +308,28 @@ fn sees(viewer: &Player, other: &Player) -> bool {
     !other.admin.cloaked || viewer.admin.sees_hidden
 }
 
+/// The player a client names by its id, when that client may be told of it: to a client that may
+/// not, a cloaked admin is as much not there as an id nobody has. A client knows its own player.
+/// Every id a client sends about a player goes through this, not [`crate::social::world_of`].
+#[must_use]
+pub fn player_for<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<ConnId> {
+    let me = s.players.get(&viewer)?;
+    s.players
+        .iter()
+        .find(|(w, q)| q.character == id && (**w == viewer || sees(me, q)))
+        .map(|(w, _)| *w)
+}
+
+/// The player a client names by its lowercase name, as [`player_for`] does by its id.
+#[must_use]
+pub fn player_named_for<S: Store>(s: &Server<S>, viewer: ConnId, name: &str) -> Option<ConnId> {
+    let me = s.players.get(&viewer)?;
+    s.players
+        .iter()
+        .find(|(w, q)| q.name.to_lowercase() == name && (**w == viewer || sees(me, q)))
+        .map(|(w, _)| *w)
+}
+
 /// An admin was cloaked, or no longer is: the clients that may no longer see it see it leave, and
 /// those that may now are told of it.
 pub fn cloak_changed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {

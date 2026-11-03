@@ -746,7 +746,8 @@ pub fn use_object<S: Store>(
     }
     // Another player cannot be used: refused at once where the user stands, with the distance
     // between them, and the other told nothing.
-    if let Some(other) = s.players.values().find(|o| o.character == u.item) {
+    let other = presence::player_for(s, world, u.item).and_then(|w| s.players.get(&w));
+    if let Some(other) = other {
         let distance = presence::distance(&p.position, &other.position).unwrap_or(0.0);
         let no = use_refused(&u, 0, Some(USE_FLAGS_A_PLAYER), distance, USE_STATUS_IN_USE);
         send(net, world, BlobKind::PRIVATE, &no);

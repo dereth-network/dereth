@@ -496,7 +496,8 @@ pub fn facts<S: Store>(s: &mut Server<S>, id: u64) -> Facts {
             level: crate::examine::level_of(&p.qualities)
                 .max(1)
                 .cast_unsigned(),
-            online: true,
+            // A cloaked admin is told to nobody as in the world.
+            online: !p.admin.cloaked,
         };
     }
     let Some(c) = s.store.character(id).ok().flatten() else {
@@ -986,7 +987,7 @@ pub fn swear<S: Store>(
     clock: Clock,
 ) {
     let target = id_of(v);
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         s.unhandled.note("an oath to someone not in the world");
         return;
     };

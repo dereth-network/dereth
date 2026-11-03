@@ -156,7 +156,7 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
     let Some((target, what)) = s.players.get(&world).and_then(|p| p.approaching) else {
         return;
     };
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         if let Some(p) = s.players.get_mut(&world) {
             p.approaching = None;
         }

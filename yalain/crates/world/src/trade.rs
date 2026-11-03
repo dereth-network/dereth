@@ -237,7 +237,7 @@ pub fn open<S: Store>(
         );
         return;
     }
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         s.unhandled
             .note("a trade asked of someone not in the world");
         return;

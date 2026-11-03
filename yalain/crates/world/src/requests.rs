@@ -204,10 +204,11 @@ fn fight_ends_trade<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
 }
 
 /// The vitals of an object the world knows, by id: a player's from its qualities, a creature a
-/// camp keeps alive from its own, a placed creature's or a person's from its template.
+/// camp keeps alive from its own, a placed creature's or a person's from its template. As a client
+/// may be told of it.
 #[must_use]
-pub fn vitals_of<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
-    if let Some(p) = s.players.values().find(|p| p.character == id) {
+pub fn vitals_of<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<Vitals> {
+    if let Some(p) = crate::presence::player_for(s, viewer, id).and_then(|w| s.players.get(&w)) {
         return Vitals::of_qualities(&p.qualities);
     }
     if let Some(t) = s.things.get(id) {
@@ -403,7 +404,8 @@ fn profile_bytes<S: Store>(
 ) -> Option<Vec<u8>> {
     let me = s.players.get(&world)?;
     let my_level = examine::level_of(&me.qualities);
-    let profile = if let Some(q) = s.players.values().find(|q| q.character == req.object) {
+    let seen = crate::presence::player_for(s, world, req.object).and_then(|w| s.players.get(&w));
+    let profile = if let Some(q) = seen {
         let v = Vitals::of_qualities(&q.qualities).unwrap_or_default();
         profile::player(
             req.asked,
@@ -487,7 +489,7 @@ fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[
             _ => None,
         })
         .unwrap_or(0);
-    let vitals = vitals_of(s, id);
+    let vitals = vitals_of(s, world, id);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };

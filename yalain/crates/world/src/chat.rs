@@ -369,12 +369,7 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
     let wanted = bare_name(&String::from_utf16_lossy(
         tellee.literal.as_deref().unwrap_or_default(),
     ));
-    let target = s
-        .players
-        .iter()
-        .find(|(_, q)| q.name.to_lowercase() == wanted)
-        .map(|(c, _)| *c);
-    let Some(target) = target else {
+    let Some(target) = crate::presence::player_named_for(s, world, &wanted) else {
         unavailable(net, world, tellee);
         return;
     };

@@ -178,6 +178,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.cloak-hides-from-ids-and-names",
+        says: "A client may name anyone by an id or a name it guesses: selecting, examining, attacking, \
+               using a skill on, using, recruiting, swearing to, trading with or telling a cloaked \
+               admin is answered as if nobody had that id or name, and its allegiance shows it out of \
+               the world. Only it and an admin who sees what is hidden find it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CLOAK-LOOKUPS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_cloaked_admin_is_answered_for_as_if_nobody_had_its_id_or_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.commands-do-nothing-for-anyone-else",
         says: "Real commands with harmful values do nothing from a player's account or from an ordinary \
                character of an admin's: no boot, ban, smite, extermination, money, made object, teleport, \

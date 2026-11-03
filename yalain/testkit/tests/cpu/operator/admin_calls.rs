@@ -12,9 +12,10 @@ use yalain_testkit::{Harness, TEST_CREATURE, TEST_ITEM};
 use yalain_world::admin::{self, Issuer};
 use yalain_world::admin_calls::{self, ethereal_value, other, LOG_EVENT};
 use yalain_world::calls::{Node, Value};
-use yalain_world::graph::Builder;
+use yalain_world::graph::{Builder, Slot};
 use yalain_world::player::quality;
-use yalain_world::quals;
+use yalain_world::requests::function;
+use yalain_world::{allegiance, combat, fellowship, quals, skill_use, trade};
 
 /// The natives that send an event encrypted and in the clear.
 const SEND_ENCRYPTED: u32 = 0x7F << 16 | 0x37;
@@ -966,4 +967,244 @@ fn the_admin_table_shows_the_groups_as_set() {
     let said = answers(&h, me, from);
     assert!(said.contains(&"ban: leads".to_owned()), "{said:?}");
     assert!(said.contains(&"boot: every admin".to_owned()), "{said:?}");
+}
+
+/// Who a lookup is asked about: an admin in the world, the same admin cloaked, or an id and a name
+/// nobody has.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Asked {
+    Shown,
+    Cloaked,
+    Nobody,
+}
+
+/// What a player's client and the admin's are sent for one call naming "Elara" and an id, with the
+/// id written out of it, so that two answers compare whoever they were about. For nobody the admin
+/// has another name and the id is not its own.
+fn answer_to(asked: Asked, call: impl Fn(&mut Harness, usize, u64, &str)) -> String {
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    send(
+        &mut h,
+        viewer,
+        fellowship::function::CREATE,
+        &[text("Band"), Arg::Int(0), Arg::Int(1)],
+    );
+    let its_name = if asked == Asked::Nobody {
+        "Cara"
+    } else {
+        "Elara"
+    };
+    let (me, id) = admin_in_world(&mut h, "one", its_name);
+    h.run(10);
+    if asked != Asked::Shown {
+        send(&mut h, me, 0x8201_0017, &[]);
+    }
+    let id = if asked == Asked::Nobody {
+        id + 1000
+    } else {
+        id
+    };
+    let (from, its_from) = (h.bots[viewer].inbox.len(), h.bots[me].inbox.len());
+    call(&mut h, viewer, id, "Elara");
+    format!(
+        "{:?} {:?}",
+        h.world_messages(viewer, from),
+        h.world_messages(me, its_from)
+    )
+    .replace(&id.to_string(), "ID")
+}
+
+/// A use of an object as the client asks for it.
+fn use_arg(item: u64, player: u64) -> Arg {
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(player),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    Arg::Object(b.graph())
+}
+
+/// An examination request about an object.
+fn examining(object: u64) -> Arg {
+    let mut bytes = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        bytes.extend(w.to_le_bytes());
+    }
+    bytes.extend(object.to_le_bytes());
+    bytes.extend(0x203u32.to_le_bytes());
+    let mut b = Builder::new();
+    b.native(154, NativeObject::Packed { ty: 154, bytes });
+    Arg::Object(b.graph())
+}
+
+/// A modified client can name anyone by an id or a name it guesses. Everything that answers one
+/// answers about a cloaked admin exactly as about nobody at all, and differently about an admin
+/// who is not cloaked (so each of these does look).
+/// Behaviour: server.admin.cloak-hides-from-ids-and-names
+#[test]
+fn a_cloaked_admin_is_answered_for_as_if_nobody_had_its_id_or_name() {
+    type Call = fn(&mut Harness, usize, u64, &str);
+    let calls: [(&str, Call); 8] = [
+        ("selecting", |h, b, id, _| {
+            send(h, b, function::SET_SELECTION, &[Arg::LongInt(id)]);
+        }),
+        ("examining", |h, b, id, _| {
+            send(h, b, function::EXAMINE, &[examining(id)]);
+        }),
+        ("attacking", |h, b, id, _| {
+            send(h, b, combat::function::START_ATTACK, &[Arg::LongInt(id)]);
+        }),
+        ("recruiting", |h, b, id, _| {
+            send(h, b, fellowship::function::RECRUIT, &[Arg::LongInt(id)]);
+        }),
+        ("swearing", |h, b, id, _| {
+            send(h, b, allegiance::function::SWEAR, &[Arg::LongInt(id)]);
+        }),
+        ("trading", |h, b, id, _| {
+            send(h, b, trade::function::OPEN, &[Arg::LongInt(id)]);
+        }),
+        ("using", |h, b, id, _| {
+            let me = h
+                .server
+                .players
+                .values()
+                .find(|p| p.name == "Viewer")
+                .expect("in the world")
+                .character;
+            send(h, b, function::USE, &[use_arg(id, me)]);
+        }),
+        ("telling", |h, b, _, name| {
+            send(
+                h,
+                b,
+                function::TELL,
+                &[info(name), info("Psst."), Arg::Int(0)],
+            );
+        }),
+    ];
+    for (what, call) in calls {
+        let cloaked = answer_to(Asked::Cloaked, call);
+        assert_eq!(cloaked, answer_to(Asked::Nobody, call), "{what}: as nobody");
+        assert_ne!(cloaked, answer_to(Asked::Shown, call), "{what}: it looks");
+    }
+}
+
+/// A cloaked admin still knows its own player, and one who sees what is hidden still finds it.
+/// Behaviour: server.admin.cloak-hides-from-ids-and-names
+#[test]
+fn a_cloaked_admin_is_found_only_by_itself_and_those_who_see_what_is_hidden() {
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let (second, _) = admin_in_world(&mut h, "two", "Cara");
+    send(&mut h, second, 0x8201_0088, &[Arg::Int(1)]);
+    send(&mut h, me, 0x8201_0017, &[]);
+    let selected = |h: &mut Harness, b: usize| {
+        let from = h.bots[b].inbox.len();
+        send(h, b, function::SET_SELECTION, &[Arg::LongInt(id)]);
+        !h.functions(b, from).is_empty()
+    };
+    assert!(!selected(&mut h, viewer), "a player does not");
+    assert!(selected(&mut h, me), "itself");
+    assert!(selected(&mut h, second), "one who sees what is hidden");
+}
+
+/// A cloaked admin's allegiance is not told that it is in the world, as it is once the cloak is
+/// lifted.
+/// Behaviour: server.admin.cloak-hides-from-ids-and-names
+#[test]
+fn a_cloaked_admin_shows_as_out_of_the_world_to_its_allegiance() {
+    let mut h = Harness::new();
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    assert!(allegiance::facts(&mut h.server, id).online);
+    send(&mut h, me, 0x8201_0017, &[]);
+    assert!(!allegiance::facts(&mut h.server, id).online);
+    send(&mut h, me, 0x8201_0061, &[]);
+    assert!(allegiance::facts(&mut h.server, id).online);
+}
+
+/// A helpful skill aimed at a cloaked admin falls back on its user, as one aimed at nobody does.
+/// Behaviour: server.admin.cloak-hides-from-ids-and-names
+#[test]
+fn a_helpful_skill_aimed_at_a_cloaked_admin_goes_to_its_user() {
+    let mut h = Harness::new();
+    h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let viewer = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.name == "Viewer")
+        .expect("in the world")
+        .0;
+    let u = yalain_world::skills::Usage {
+        ui_flags: skill_use::ui_flag::NON_DAMAGING,
+        valid_targets: 3,
+        ..Default::default()
+    };
+    let r = skill_use::Request {
+        target: id,
+        skill: 1,
+        id: 1,
+    };
+    assert!(matches!(
+        skill_use::aim_of(&h.server, viewer, r, &u),
+        skill_use::Aim::Player(_, _)
+    ));
+    send(&mut h, me, 0x8201_0017, &[]);
+    assert_eq!(
+        skill_use::aim_of(&h.server, viewer, r, &u),
+        skill_use::Aim::Me
+    );
+}
+
+/// A player walking up to another for a trade when the other cloaks gives up the walk on its next
+/// report, and nothing comes of it.
+/// Behaviour: server.admin.cloak-hides-from-ids-and-names
+#[test]
+fn a_walk_to_someone_who_cloaks_on_the_way_comes_to_nothing() {
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.name == "Viewer")
+        .expect("in the world")
+        .0;
+    let stand = |h: &mut Harness, off: f32| {
+        let at = h.server.players[&world].position;
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.origin[1] = at.origin[1] + off;
+    };
+    stand(&mut h, 4.0);
+    send(&mut h, viewer, trade::function::OPEN, &[Arg::LongInt(id)]);
+    assert!(h.server.players[&world].approaching.is_some(), "walking");
+    send(&mut h, me, 0x8201_0017, &[]);
+    stand(&mut h, -4.0);
+    let from = h.bots[me].inbox.len();
+    let clock = h.clock();
+    yalain_world::social::moved(&mut h.server, &mut h.net, world, clock);
+    assert!(h.server.players[&world].approaching.is_none(), "given up");
+    h.run(10);
+    assert!(h.functions(me, from).is_empty(), "the admin hears nothing");
 }

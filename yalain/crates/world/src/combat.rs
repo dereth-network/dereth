@@ -336,11 +336,11 @@ fn body<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> crate::reach::Bo
     }
 }
 
-/// The client of another player a player's attack is aimed at (none: a thing, or the player
-/// itself).
+/// The client of another player a player's attack is aimed at (none: a thing, the player itself,
+/// or one it may not be told of).
 #[must_use]
 pub fn player_target<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> Option<ConnId> {
-    crate::social::world_of(s, target).filter(|c| *c != world)
+    crate::presence::player_for(s, world, target).filter(|c| *c != world)
 }
 
 /// May a player harm another ([`crate::kingdoms::may_harm`])?
