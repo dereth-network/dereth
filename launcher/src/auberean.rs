@@ -458,6 +458,7 @@ fn start_client(
             });
             let plan = ac2::retail_plan(&program, to.server, account, friends.as_ref());
             let mut cmd = std::process::Command::new(&plan.exe);
+            components::leave_the_mount(&mut cmd, &plan.exe);
             cmd.current_dir(&plan.working_dir);
             if friends.is_some() {
                 // The library writes its log where it is told, in a folder that must be there.

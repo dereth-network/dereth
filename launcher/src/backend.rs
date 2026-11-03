@@ -1414,7 +1414,9 @@ impl Backend {
         let shown = plan.redacted();
         eprintln!("dereth-launcher: starting {shown}");
 
-        let child = match Command::new(&plan.exe)
+        let mut command = Command::new(&plan.exe);
+        crate::components::leave_the_mount(&mut command, &plan.exe);
+        let child = match command
             .current_dir(&plan.working_dir)
             .args(plan.argv(&password))
             .spawn()

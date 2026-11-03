@@ -116,6 +116,29 @@ pub fn icon_path(data_home: &Path, app_id: &str) -> PathBuf {
         .join(format!("{app_id}.png"))
 }
 
+/// How to change an inherited environment for a program that runs outside the launcher's AppImage,
+/// mounted at `appdir`: each variable with a path in the mount, as (name, what is left of its list,
+/// or nothing to unset it). A library from the mount would load ahead of the system's, and the mount
+/// is gone when the launcher closes.
+pub fn outside_mount(
+    appdir: &Path,
+    vars: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Vec<(std::ffi::OsString, Option<std::ffi::OsString>)> {
+    let mut changes = Vec::new();
+    for (name, value) in vars {
+        let all: Vec<PathBuf> = std::env::split_paths(&value).collect();
+        let kept: Vec<&PathBuf> = all.iter().filter(|p| !p.starts_with(appdir)).collect();
+        if kept.len() == all.len() {
+            continue;
+        }
+        let rest = (!kept.is_empty())
+            .then(|| std::env::join_paths(kept).ok())
+            .flatten();
+        changes.push((name, rest));
+    }
+    changes
+}
+
 /// What an entry starts: the AppImage this process runs from (`$APPIMAGE`, which a program the
 /// launcher starts inherits), else `this_program`. The program inside an AppImage is at a
 /// different path on every start, so the AppImage is the only path worth writing down.
@@ -298,6 +321,42 @@ mod tests {
             Some(PathBuf::from(&home).join(".local/share"))
         );
         assert_eq!(data_home(&lookup(Vec::new())), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_program_outside_the_appimage_keeps_no_path_into_its_mount() {
+        let var = |n: &str, v: &str| (std::ffi::OsString::from(n), std::ffi::OsString::from(v));
+        let changes = outside_mount(
+            Path::new("/tmp/.mount_Dereth"),
+            [
+                var("LD_LIBRARY_PATH", "/tmp/.mount_Dereth/usr/lib"),
+                var(
+                    "XDG_DATA_DIRS",
+                    "/tmp/.mount_Dereth/usr/share:/usr/local/share:/usr/share",
+                ),
+                var("APPDIR", "/tmp/.mount_Dereth"),
+                var("APPIMAGE", "/apps/Dereth.AppImage"),
+                var("HOME", "/home/player"),
+                var("OTHER", "/tmp/.mount_Dereth2/usr/lib"),
+            ],
+        );
+        let of = |n: &str| {
+            changes
+                .iter()
+                .find(|(name, _)| name == n)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(of("LD_LIBRARY_PATH"), Some(None), "unset");
+        assert_eq!(of("APPDIR"), Some(None), "unset");
+        assert_eq!(
+            of("XDG_DATA_DIRS"),
+            Some(Some("/usr/local/share:/usr/share".into())),
+            "what is outside stays"
+        );
+        assert_eq!(of("APPIMAGE"), None, "the file itself is outside the mount");
+        assert_eq!(of("HOME"), None);
+        assert_eq!(of("OTHER"), None, "another folder with a like name");
     }
 
     #[test]

@@ -1387,7 +1387,27 @@ pub fn command(program: &Path) -> Command {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
+    leave_the_mount(&mut command, program);
     command
+}
+
+/// A program that runs outside this launcher's AppImage (a copy in the components folder) starts
+/// with none of the AppImage's paths: it uses this system's libraries, and outlives the mount. One
+/// still inside the mount keeps them.
+pub fn leave_the_mount(command: &mut Command, program: &Path) {
+    let Some(appdir) = std::env::var_os("APPDIR").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let appdir = Path::new(&appdir);
+    if program.starts_with(appdir) {
+        return;
+    }
+    for (name, value) in dereth_launch::desktop::outside_mount(appdir, std::env::vars_os()) {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
 }
 
 /// The program `product` runs as here: this checkout's build in a development build that has
