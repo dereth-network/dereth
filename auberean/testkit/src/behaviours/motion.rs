@@ -77,6 +77,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.collision.a-body-knows-the-ground-and-water-it-touches",
+        says: "What a body stands on names a physics material of the world's: the ground's \
+               by the vertex nearest it, a road's on a road, and a lake's block names its \
+               water's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-GROUND-MATERIAL"),
+        station: "auberean-physics::dat::walk::a_body_knows_the_ground_and_water_it_touches",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.collision.a-body-stops-at-the-edge-of-a-block-it-may-not-walk-on",
         says: "A body running at a block the world's map shuts is turned back at the edge of the \
                land cell it would enter, told it collided along that axis, and never reaches the \

@@ -557,6 +557,69 @@ pub fn square_layers(
     layers
 }
 
+/// A block's physics materials, x major over its vertices: the ground's by its slope there, and the
+/// road's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VertexMaterials {
+    pub ground: Vec<u32>,
+    pub road: Vec<u32>,
+}
+
+/// The physics material of `surface` at slope `pitch` (the squared length of the normal's level
+/// part): that of its first group the slope falls in, else none.
+// D2-12466
+#[must_use]
+pub fn surface_material(surface: &SurfaceType, pitch: f32) -> u32 {
+    surface
+        .groups
+        .iter()
+        .find(|g| g.min_pitch * g.min_pitch <= pitch && pitch <= g.max_pitch * g.max_pitch)
+        .map_or(0, |g| g.physics_material.0)
+}
+
+/// Block `(x, y)`'s physics materials, or `None` when the world has no landblock there.
+// D2-07550, D2-07551
+#[must_use]
+pub fn vertex_materials(
+    land: &LandConstants,
+    surfaces: Surfaces<'_>,
+    source: &dyn LandSource,
+    x: i32,
+    y: i32,
+) -> Option<VertexMaterials> {
+    let lb = source.landblock(x, y)?;
+    let hood = Neighborhood {
+        land,
+        source,
+        bx: x,
+        by: y,
+    };
+    let n = hood.side();
+    let mut out = VertexMaterials::default();
+    for i in 0..n {
+        for j in 0..n {
+            let normal = hood.normal(i, j);
+            let pitch = normal.x * normal.x + normal.y * normal.y;
+            let word = lb.vertices[usize::try_from(n * i + j).unwrap_or(0)];
+            out.ground.push(
+                surfaces
+                    .terrain_surface(land.word.terrain.of(word))
+                    .map_or(0, |s| surface_material(s, pitch)),
+            );
+            let road = land.word.road.of(word);
+            out.road.push(
+                surfaces
+                    .surface
+                    .roads
+                    .iter()
+                    .find(|s| s.index == road)
+                    .map_or(0, |s| surface_material(s, pitch)),
+            );
+        }
+    }
+    Some(out)
+}
+
 /// Build block `(x, y)`'s terrain, or `None` when the world has no landblock there.
 // D2-03759, D2-03763, D2-10985
 #[must_use]

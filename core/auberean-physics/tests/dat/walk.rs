@@ -88,3 +88,37 @@ fn a_running_body_keeps_to_the_ground_and_stops_at_a_wall() {
     );
     assert!(body.contact, "standing");
 }
+
+/// What a body stands on names a physics material of the world's: the ground's by the vertex nearest
+/// it, a road's on a road, and a lake's block names its water's. (Block `0x75B9`, Arwic's roads and
+/// fields; block `0x9889`, a lake.)
+///
+/// Behaviour: motion.collision.a-body-knows-the-ground-and-water-it-touches
+#[test]
+fn a_body_knows_the_ground_and_water_it_touches() {
+    use auberean_assets::property::PhysicsMaterial;
+    let w = crate::common::need_world!();
+    let land = auberean_physics::land::Land::new();
+    let mut trees = auberean_physics::mesh::Trees::default();
+    assert!(land.add_block(&w.records, &w.region, &mut trees, 0x75, 0xB9));
+    let block = land.block(0x75, 0xB9).expect("the block");
+    let mut seen = std::collections::BTreeMap::<u32, u32>::new();
+    for i in 0..160 {
+        for j in 0..160 {
+            #[allow(clippy::cast_precision_loss)]
+            let at = dereth_primitives::Vec3::new(i as f32 + 0.5, j as f32 + 0.5, 0.0);
+            *seen.entry(block.physics_material(at)).or_insert(0) += 1;
+        }
+    }
+    let named = |id: u32| w.records.get::<PhysicsMaterial>(id).is_some();
+    assert!(seen.keys().all(|&id| id == 0 || named(id)), "{seen:x?}");
+    assert!(seen.len() >= 3, "ground and road: {seen:x?}");
+    assert!(seen.get(&0).copied().unwrap_or(0) < 400, "{seen:x?}");
+    assert!(land.add_block(&w.records, &w.region, &mut trees, 0x98, 0x89));
+    let water = land.water_material(dereth_primitives::CellId(0x9889_000B));
+    assert!(named(water), "{water:#x}");
+    assert_eq!(
+        land.water_material(dereth_primitives::CellId(0x75B9_0001)),
+        0
+    );
+}

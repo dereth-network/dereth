@@ -10,9 +10,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use auberean_assets::property::{PropertyCollection, PropertyList};
+use auberean_world::land::LandConstants;
 use auberean_world::math::over_polygon;
 use auberean_world::property::BlockProperties;
 use auberean_world::records::{RegionSet, WorldRecords};
+use auberean_world::scenery::on_road;
+use auberean_world::terrain::{vertex_materials, VertexMaterials};
 use dereth_physics::cell::{Cell, CellArray, CellInfo, HostCell};
 use dereth_physics::geom::{Plane, Polygon, Sphere};
 use dereth_physics::globals::LAND_HEIGHT_TABLE_LEN;
@@ -87,6 +90,51 @@ pub struct Block {
     pub objects: Placed,
     /// Whether a body may walk on it: the world's passability map.
     pub passable: bool,
+    /// The ground's and the road's physics materials at its vertices, and whether each vertex is
+    /// road.
+    pub materials: Option<GroundMaterials>,
+    /// What a body in its water touches.
+    pub water_material: u32,
+}
+
+/// A block's ground for what a body stands on.
+#[derive(Clone, Debug)]
+pub struct GroundMaterials {
+    pub vertices: VertexMaterials,
+    /// Its landscape words, and the constants that read them.
+    pub words: Vec<u32>,
+    pub land: Arc<LandConstants>,
+}
+
+impl Block {
+    /// The physics material under point `at` of the block: of the vertex nearest the point, the
+    /// road's when the point is on the road, else the ground's.
+    // D2-03662, D2-03636, D2-13217, D2-03829
+    #[must_use]
+    pub fn physics_material(&self, at: Vec3) -> u32 {
+        let Some(m) = &self.materials else {
+            return 0;
+        };
+        let step = m.land.grid().vertex_spacing();
+        let side = self.geometry.vertices_per_side;
+        let nearest = |v: f32| -> Option<usize> {
+            #[allow(clippy::cast_possible_truncation)]
+            let k = (f64::from(v) / f64::from(step)).floor() as i64;
+            #[allow(clippy::cast_precision_loss)]
+            let past = v - k as f32 * step;
+            usize::try_from(if past <= step * 0.5 { k } else { k + 1 }).ok()
+        };
+        let (Some(i), Some(j)) = (nearest(at.x), nearest(at.y)) else {
+            return 0;
+        };
+        let k = side * i + j;
+        let list = if on_road(&m.land, side, &m.words, at.x, at.y) {
+            &m.vertices.road
+        } else {
+            &m.vertices.ground
+        };
+        list.get(k).copied().unwrap_or(0)
+    }
 }
 
 impl Block {
@@ -140,6 +188,8 @@ impl Block {
             water: None,
             objects: Vec::new(),
             passable: true,
+            materials: None,
+            water_material: 0,
         }
     }
 
@@ -336,6 +386,26 @@ impl Land {
         read: impl FnOnce() -> Option<Arc<BlockProperties>>,
     ) -> Option<&Arc<BlockProperties>> {
         self.properties.get_or_init(read).as_ref()
+    }
+
+    /// What a body in cell `id`'s water touches: of the landblock, when it is here.
+    // D2-03663
+    #[must_use]
+    pub fn water_material(&self, id: CellId) -> u32 {
+        let lb = id.landblock();
+        self.block(lb.x(), lb.y()).map_or(0, |b| b.water_material)
+    }
+
+    /// What a body standing at `at` in cell `id` touches: a land cell's ground; an interior's floors
+    /// name no material.
+    #[must_use]
+    pub fn ground_material(&self, id: CellId, at: Vec3) -> u32 {
+        if crate::interior::is_interior(id) {
+            return 0;
+        }
+        let lb = id.landblock();
+        self.block(lb.x(), lb.y())
+            .map_or(0, |b| b.physics_material(at))
     }
 
     /// Add what an interior cell adds to the material of a body in it.
@@ -666,11 +736,27 @@ pub fn build(
         .iter()
         .map(|v| v.z)
         .fold(f32::INFINITY, f32::min);
-    let water = region
+    let water_block = region
         .water
         .as_ref()
-        .and_then(|w| w.block(land, bx, by, lowest))
-        .map(|w| w.height);
+        .and_then(|w| w.block(land, bx, by, lowest));
+    let water_material = water_block.as_ref().map_or(0, |w| w.physics_material.0);
+    let water = water_block.map(|w| w.height);
+    let mut around = HashMap::new();
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            if let Some(n) = records.landblock(bx + dx, by + dy) {
+                around.insert((bx + dx, by + dy), n);
+            }
+        }
+    }
+    let materials = vertex_materials(land, region.surfaces(), &around, bx, by).map(|vertices| {
+        GroundMaterials {
+            vertices,
+            words: lb.vertices.clone(),
+            land: Arc::new(land.clone()),
+        }
+    });
     Some(Block {
         x,
         y,
@@ -680,6 +766,8 @@ pub fn build(
         water,
         objects,
         passable: region.passable(u32::from(x), u32::from(y)),
+        materials,
+        water_material,
     })
 }
 

@@ -550,36 +550,13 @@ impl Placer<'_> {
     }
 
     /// Whether `(x, y)` is on the road.
-    // D2-03618
     fn on_road(&self, x: f32, y: f32) -> bool {
-        let land = self.input.land;
-        let step = land.grid().vertex_spacing();
-        let side = self.input.block.geometry.vertices_per_side;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (sx, sy) = (
-            (x * (1.0 / step)).floor() as i64,
-            (y * (1.0 / step)).floor() as i64,
-        );
-        let road = |i: i64, j: i64| {
-            let (Ok(i), Ok(j)) = (usize::try_from(i), usize::try_from(j)) else {
-                return false;
-            };
-            if i >= side || j >= side {
-                return false;
-            }
-            land.word.road.of(self.input.vertices[i * side + j]) != 0
-        };
-        #[allow(clippy::cast_precision_loss)]
-        let (dx, dy) = (x - sx as f32 * step, y - sy as f32 * step);
-        dereth_terrain::road::on_road_cell_with(
-            road(sx, sy),
-            road(sx, sy + 1),
-            road(sx + 1, sy),
-            road(sx + 1, sy + 1),
-            dx,
-            dy,
-            step,
-            land.road_width,
+        on_road(
+            self.input.land,
+            self.input.block.geometry.vertices_per_side,
+            self.input.vertices,
+            x,
+            y,
         )
     }
 
@@ -1254,4 +1231,38 @@ pub fn block_scenery(input: &SceneryInput<'_>, source: &dyn SceneSource) -> Vec<
         }
     }
     p.out
+}
+
+/// Whether point `(x, y)` of a block is on the road: its `side` by `side` landscape `words` say
+/// which vertices are, and a road reaches out from them by its width.
+// D2-03618
+#[must_use]
+pub fn on_road(land: &LandConstants, side: usize, words: &[u32], x: f32, y: f32) -> bool {
+    let step = land.grid().vertex_spacing();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (sx, sy) = (
+        (x * (1.0 / step)).floor() as i64,
+        (y * (1.0 / step)).floor() as i64,
+    );
+    let road = |i: i64, j: i64| {
+        let (Ok(i), Ok(j)) = (usize::try_from(i), usize::try_from(j)) else {
+            return false;
+        };
+        if i >= side || j >= side {
+            return false;
+        }
+        land.word.road.of(words[i * side + j]) != 0
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let (dx, dy) = (x - sx as f32 * step, y - sy as f32 * step);
+    dereth_terrain::road::on_road_cell_with(
+        road(sx, sy),
+        road(sx, sy + 1),
+        road(sx + 1, sy),
+        road(sx + 1, sy + 1),
+        dx,
+        dy,
+        step,
+        land.road_width,
+    )
 }
