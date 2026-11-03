@@ -9,41 +9,42 @@
 //!   service wrapper that stops the service with Ctrl-C reaches the child through the shared
 //!   console, and one that ends the process tree ends both; the waiting process ignores Ctrl-C
 //!   itself and holds no files, listeners or databases. Console input reaches the new server: on
-//!   a terminal the old process's line editor has ended and the child reads the terminal; from a
-//!   pipe or a file, the old process's reader (which cannot be interrupted) forwards each line to
-//!   the child, those typed while the update ran first.
+//!   a terminal whose reader has ended the child reads the terminal; a reader that cannot be
+//!   interrupted forwards each line to the child, those typed while the update ran first.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
+/// Takes the new server's standard input, when this process's console reader goes on reading: what
+/// it reads from now on is the new server's.
+pub type ForwardConsole = Box<dyn FnOnce(Box<dyn Write + Send>) + Send>;
+
 /// Runs `exe` with `args` in place of this process, as the module documentation describes. On
-/// Linux and macOS it returns only when the binary cannot be started.
+/// Linux and macOS it returns only when the binary cannot be started; `forward` applies on
+/// Windows.
 #[must_use]
-pub fn relaunch(exe: &Path, args: &[OsString]) -> ExitCode {
-    log::info!("Starting {} again", exe.display());
+pub fn relaunch(exe: &Path, args: &[OsString], forward: Option<ForwardConsole>) -> ExitCode {
+    tracing::info!("Starting {} again", exe.display());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        let _ = forward;
         let error = std::process::Command::new(exe).args(args).exec();
-        log::error!("{} could not be started: {error}", exe.display());
+        tracing::error!("{} could not be started: {error}", exe.display());
         ExitCode::FAILURE
     }
     #[cfg(not(unix))]
     {
-        use empyrean_command::command_manager;
-        // A console reading a pipe or a file cannot stop reading, so it forwards what it reads to
-        // the new process (holding what came in since the world stopped); a terminal's line editor
-        // has already ended and the new process reads the terminal itself.
-        let forward = command_manager::line_reader_running();
         let mut command = std::process::Command::new(exe);
         command.args(args);
-        if forward {
+        if forward.is_some() {
             command.stdin(std::process::Stdio::piped());
         }
         let waited = command.spawn().and_then(|mut child| {
-            if let Some(stdin) = child.stdin.take() {
-                command_manager::forward_console_input(Box::new(stdin));
+            if let (Some(stdin), Some(forward)) = (child.stdin.take(), forward) {
+                forward(Box::new(stdin));
             }
             child.wait()
         });
@@ -53,7 +54,7 @@ pub fn relaunch(exe: &Path, args: &[OsString]) -> ExitCode {
                 ExitCode::from(u8::try_from(code).unwrap_or(1))
             }
             Err(e) => {
-                log::error!("{} could not be started: {e}", exe.display());
+                tracing::error!("{} could not be started: {e}", exe.display());
                 ExitCode::FAILURE
             }
         }

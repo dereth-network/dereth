@@ -39,12 +39,9 @@ ctrlc = { workspace = true, features = ["termination"] }
 dereth-transport.workspace = true
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# The updater (`src/update/`): the releases API and the downloads over HTTPS (the same client and
-# TLS stack `empyrean-import fetch` builds), the archives (.zip on Windows, .tar.gz elsewhere),
-# their checksums, and the JSON of `release.json`, the releases API and the updater's record.
+# The updater (`src/update/`): its HTTP client's type (the same client and TLS stack
+# `empyrean-import fetch` builds), and the checksums of a launcher's prepared updates.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-flate2.workspace = true
 sha2.workspace = true
 # The status ping's secrets: the OS random source.
 getrandom.workspace = true
@@ -54,6 +51,8 @@ serde_json.workspace = true
 # link to the hub.
 dereth-network-protocol.workspace = true
 dereth-network-link.workspace = true
+# The updater's machinery, shared with Yalain (`src/update/` is what is Empyrean's).
+dereth-server-update.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }
@@ -61,8 +60,10 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 empyrean-net = { workspace = true, features = ["testing"] }
 # A self-signed certificate made at test time for the wss:// test, so no key is kept in the tree.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
-# The updater tests build synthetic databases for an installation.
+# The updater tests build synthetic databases for an installation, and synthetic release archives.
 rusqlite.workspace = true
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2.workspace = true
 # `/dn verify` is checked against a real hub on loopback.
 dereth-network-hub.workspace = true
 

@@ -2117,6 +2117,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-server-update"
+version = "0.0.0"
+dependencies = [
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "ureq",
+ "zip",
+]
+
+[[package]]
 name = "dereth-terrain"
 version = "0.0.0"
 dependencies = [
@@ -2616,6 +2629,7 @@ dependencies = [
  "dereth-network-hub",
  "dereth-network-link",
  "dereth-network-protocol",
+ "dereth-server-update",
  "dereth-transport",
  "embed-resource",
  "empyrean-command",
