@@ -467,7 +467,7 @@ static STUBS: &[(u32, Binding)] = &[
     (0x1ace << 16 | 0x0002, not_ported!("D2-09540")),
 ];
 
-/// 329 natives a host binds from its own model, by id.
+/// 350 natives a host binds from its own model, by id.
 static HOST: &[(u32, Binding)] = &[
     (0x000f << 16 | 0x0001, host_bound!("D2-09203")),
     (0x0010 << 16 | 0x0001, host_bound!("D2-18959")),
