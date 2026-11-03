@@ -26,6 +26,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - Better Lighting: no more white line across things standing in water.
+- Fixed a right-drag begun away from the window's middle throwing the camera across.
 
 ## 0.4.12 (2026-11-03)
 
