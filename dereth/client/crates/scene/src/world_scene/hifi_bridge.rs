@@ -1335,7 +1335,7 @@ fn snapshot(
 mod tests {
     use super::*;
 
-    use dereth_client_contract::options::fidelity::{blocked, OPTIONS};
+    use dereth_client_contract::options::fidelity::{blocked_with, OPTIONS};
     use dereth_render_hifi::composite::CompositeMode;
 
     /// The preferences with the boxes `ticked` (one bit each, in the page's order) under the
@@ -1489,7 +1489,8 @@ mod tests {
                 };
                 for o in &OPTIONS {
                     let drawn = drawn(&s, o.name);
-                    let greyed = blocked(o.name, is, Some(rays)).is_some();
+                    // With an art pack open, which draws what every box asks for.
+                    let greyed = blocked_with(o.name, is, Some(rays), true).is_some();
                     assert_eq!(
                         drawn,
                         is(o.name) && !greyed,

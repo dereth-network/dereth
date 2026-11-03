@@ -1738,6 +1738,10 @@ async function openWorld(slug, notice, preset) {
   const set = [preset?.dat_set_id, p.dat_set_id].find(validSet) ?? fallback?.id ?? null;
   const classicDefault = view.classic_sets.find((s) => s.origin.kind === "shared");
   const classic = [preset?.classic_set_id, p.classic_set_id].find(validClassic) ?? classicDefault?.id ?? null;
+  // The art pack starts on what was played here last, which may be none, else the Library's default.
+  const lastPack = preset?.art_pack_id ?? p.art_pack_id;
+  const packDefault = view.art_packs.find((a) => a.is_default)?.id ?? null;
+  const artPack = lastPack === "" ? null : view.art_packs.some((a) => a.id === lastPack) ? lastPack : packDefault;
   const acct = view.accounts.find((a) => a.username === account);
   ui.world = {
     view,
@@ -1750,6 +1754,7 @@ async function openWorld(slug, notice, preset) {
       client,
       dat_set_id: set,
       classic_set_id: classic,
+      art_pack_id: artPack,
     },
     notice: notice ?? null,
   };
@@ -1786,6 +1791,7 @@ function formChoice() {
     client: f.client,
     dat_set_id: ["dereth", "auberean"].includes(f.client) ? f.dat_set_id : null,
     classic_set_id: f.client === "dereth" ? f.classic_set_id : null,
+    art_pack_id: f.client === "dereth" ? (f.art_pack_id ?? "") : null,
   };
 }
 
@@ -1871,18 +1877,20 @@ function worldPage() {
   const needs = requiredKind(world);
   const option = (s, chosen) => `<option value="${esc(s.id)}" ${s.id === chosen ? "selected" : ""}>${esc(setName(s))}${s.origin.kind === "shared" ? "  (default)" : ""}</option>`;
   const none = (chosen) => `<option value="" ${chosen ? "" : "selected"}>None</option>`;
+  const noPack = (chosen) => `<option value="" ${chosen ? "" : "selected"}>None (the game's own models)</option>`;
   const setOpts = none(f.dat_set_id) + w.view.dat_sets.map((s) => option(s, f.dat_set_id)).join("")
     + (w.view.offers_private_copy ? `<option value="__private">Create a private copy (1.4 GB)</option>` : "")
     + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
+  const packOpts = noPack(f.art_pack_id) + w.view.art_packs.map((a) => `<option value="${esc(a.id)}" ${a.id === f.art_pack_id ? "selected" : ""}>${esc(a.name)}${a.is_default ? " (default)" : ""}</option>`).join("");
   const eraName = eraText(world);
   const dataNote = world.era_state === "checking" || world.era_state === "unknown"
     ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
     : world.world_base === "modern" && world.dats.custom
-    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
+    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic looks.`
     : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
-    : `${eraName} needs Modern data files. Classic ones are optional, for the classic interface and looks.`;
+    : `${eraName} needs Modern data files. Classic ones are optional, for the classic looks.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
   // from, and the way to point at them.
@@ -1894,6 +1902,7 @@ function worldPage() {
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
     : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
        <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
+       <label class="lab" for="art-pack">ART PACK</label><select id="art-pack" class="field">${packOpts}</select>
        <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
@@ -2014,6 +2023,11 @@ function library() {
     sets = `<h2>MODERN DATA SETS</h2><p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>
           <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>`;
   }
+  const packRow = (a) => `<div class="row static"><div class="grow"><div class="name">${esc(a.name)}</div>
+        <div class="sub">${esc(a.path)}</div></div>
+        <div class="btns">${a.is_default ? `<span class="tag">DEFAULT</span>` : `<button class="btn" data-default-pack="${esc(a.id)}">Set default</button>`}<button class="btn" data-remove-pack="${esc(a.id)}">Remove</button></div></div>`;
+  const packs = (s.art_packs ?? []).map(packRow).join("")
+    || `<p class="muted">No art packs yet. Add a packed art pack's .dat file.</p>`;
 
   let pending = "";
   // A folder read for the other realm's Library waits for that one.
@@ -2028,10 +2042,11 @@ function library() {
   }
   return `<div class="column wide" style="height:100%">
       ${pending}
-      <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button></header>
+      <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button><button class="btn" data-act="add-art-pack">+ Add art pack</button></header>
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           ${client}
           ${sets}
+          ${ac2Realm ? "" : `<h2>ART PACKS</h2><p class="muted small">Optional. Models and materials the Dereth client draws with Better Lighting. A world's page chooses which, or none, and without one it draws the game's own.</p><div class="list">${packs}</div>`}
           <h2>DISCORD</h2><div class="list">${discordRow()}</div></div>
       </section>
     </div>`;
@@ -2484,7 +2499,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-default-pack],[data-remove-pack],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2607,6 +2622,8 @@ document.addEventListener("click", async (ev) => {
   if (d.filter) { ui.filter = ui.filter === d.filter ? null : d.filter; render(); return; }
   if (d.client && ui.world) { ui.world.form.client = d.client; render(); return; }
   if (d.defaultSet) { await act("set_default_set", { id: d.defaultSet }); return; }
+  if (d.defaultPack) { await act("set_default_art_pack", { id: d.defaultPack }); return; }
+  if (d.removePack) { await act("remove_art_pack", { id: d.removePack }); return; }
   if (d.resetSet) { await act("reset_set", { id: d.resetSet }); return; }
   if (d.deleteSet) { await act("delete_set", { id: d.deleteSet }); return; }
   if (d.pluginInstall) { await pluginFetch("install_plugin", { source: d.pluginInstall, id: d.pluginId }); return; }
@@ -2722,6 +2739,7 @@ document.addEventListener("click", async (ev) => {
       if (f) { ui.addFind = { purpose: "dats", find: f }; render(); }
       break;
     }
+    case "add-art-pack": await act("add_art_pack"); break;
     case "add-cancel": ui.addFind = null; render(); break;
     case "add-confirm": {
       const { purpose, find } = ui.addFind;
@@ -2895,6 +2913,9 @@ document.addEventListener("change", async (ev) => {
       if (t.value === "__private") { await act("create_private_copy", { slug: ui.world.view.world.slug }); ui.world.notice = "Copying data files for this world. PLAY when it is done."; }
       else if (t.value === "__custom") { if (await act("add_custom_dats", { slug: ui.world.view.world.slug })) await openWorld(ui.world.view.world.slug, null, formChoice() ?? undefined); return; }
       else f.dat_set_id = t.value || null;
+      break;
+    case "art-pack":
+      f.art_pack_id = t.value || null;
       break;
     case "classic":
       f.classic_set_id = t.value || null;

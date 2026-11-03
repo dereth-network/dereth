@@ -93,6 +93,7 @@
 
   const state = {
     schema: 1,
+    art_packs: [{ id: "pack1", name: "enhanced-environment", path: "C:\\Art\\enhanced-environment.dat", is_default: true }],
     retail: inst("retail", "retail", "acclient-6096", "00.00.11.6096", "2015-06-12", "C:\\Turbine\\Asheron's Call", { modifications: ["single-instance check removed"] }),
     dat_sets: [
       { id: "eor", kind: "modern", path: "C:\\Turbine\\Asheron's Call", origin: { kind: "shared" }, files: files(EOR, true), created_by_launcher: false },
@@ -648,6 +649,7 @@
       return {
         world: w, clients, dat_sets: setsFor(w),
         classic_sets: state.dat_sets.filter((s) => s.kind === "classic"),
+        art_packs: state.art_packs,
         requires: eras.find((e) => e.name === w.era)?.needs ?? "modern",
         default_client: (last && clients.some((c) => c.kind === last) ? last : (clients.find((c) => c.accepted) ?? clients[0])?.kind) ?? null,
         offers_private_copy: needsPrivate(w) && !w.dats.custom && !state.dat_sets.some((s) => s.origin.kind === "world" && s.origin.slug === slug),
@@ -702,6 +704,9 @@
       }, 300);
     },
     reset_set: () => {},
+    add_art_pack: () => false,
+    set_default_art_pack: ({ id }) => { for (const a of state.art_packs) a.is_default = a.id === id; },
+    remove_art_pack: ({ id }) => { state.art_packs = state.art_packs.filter((a) => a.id !== id); },
     delete_set: ({ id }) => {
       state.dat_sets = state.dat_sets.filter((s) => s.id !== id);
       if (state.auberean) state.auberean.dat_sets = (state.auberean.dat_sets ?? []).filter((s) => s.id !== id);

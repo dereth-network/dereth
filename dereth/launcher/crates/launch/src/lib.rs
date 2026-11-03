@@ -65,6 +65,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod artpack;
 pub mod auberean;
 pub mod check;
 pub mod choices;

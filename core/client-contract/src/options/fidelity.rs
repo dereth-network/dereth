@@ -29,6 +29,8 @@ pub enum Needs {
     Lighting,
     /// The better lighting, and a graphics device that traces rays.
     LightingAndRays,
+    /// The better lighting and an art pack.
+    ArtPack,
 }
 
 /// One box as the page shows it.
@@ -101,7 +103,7 @@ pub const OPTIONS: [FidelityOption; 10] = [
         caption: "Retail Look (Original Models)",
         note: "Draws the original models where an art pack has replacements for them. An art \
                pack's models are drawn inside the better lighting.",
-        needs: Needs::Lighting,
+        needs: Needs::ArtPack,
     },
     FidelityOption {
         name: fidelity::NO_ANTI_ALIASING,
@@ -115,7 +117,7 @@ pub const OPTIONS: [FidelityOption; 10] = [
         caption: "No Slope Materials",
         note: "Lays an art pack's ground without the scree and rock it lays on steep slopes, \
                to compare the two. It changes at once.",
-        needs: Needs::Lighting,
+        needs: Needs::ArtPack,
     },
 ];
 
@@ -133,6 +135,8 @@ pub enum Blocked {
     NeedsLighting,
     /// The graphics device does not trace rays.
     NeedsRays,
+    /// No art pack is open.
+    NeedsArtPack,
 }
 
 impl Blocked {
@@ -144,6 +148,7 @@ impl Blocked {
             Self::NeedsRays => {
                 "Needs ray tracing, which this graphics card, driver or backend lacks"
             }
+            Self::NeedsArtPack => "Needs an art pack",
         }
     }
 }
@@ -154,16 +159,45 @@ pub fn find(name: &str) -> Option<&'static FidelityOption> {
     OPTIONS.iter().find(|o| o.name.eq_ignore_ascii_case(name))
 }
 
+/// Whether this run opened an art pack.
+static ART_PACK_GIVEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Note that this run opened an art pack, as the client starts.
+pub fn note_art_pack() {
+    ART_PACK_GIVEN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether this run opened an art pack: without one, the boxes of what a pack draws have nothing
+/// to do.
+#[must_use]
+pub fn art_pack_given() -> bool {
+    ART_PACK_GIVEN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Why the box `name` draws nothing however it is ticked, with `ticked` saying which boxes are
 /// ticked and `rays` whether the graphics device traces rays (`None` while that is not known yet,
 /// which blocks nothing). `None` when it draws when ticked.
 #[must_use]
 pub fn blocked(name: &str, ticked: impl Fn(&str) -> bool, rays: Option<bool>) -> Option<Blocked> {
+    blocked_with(name, ticked, rays, art_pack_given())
+}
+
+/// [`blocked`], with `pack` saying whether an art pack is open.
+#[must_use]
+pub fn blocked_with(
+    name: &str,
+    ticked: impl Fn(&str) -> bool,
+    rays: Option<bool>,
+    pack: bool,
+) -> Option<Blocked> {
     let o = find(name)?;
     let lighting = ticked(fidelity::LIGHTING);
     match o.needs {
-        Needs::Lighting | Needs::LightingAndRays if !lighting => Some(Blocked::NeedsLighting),
+        Needs::Lighting | Needs::LightingAndRays | Needs::ArtPack if !lighting => {
+            Some(Blocked::NeedsLighting)
+        }
         Needs::LightingAndRays if rays == Some(false) => Some(Blocked::NeedsRays),
+        Needs::ArtPack if !pack => Some(Blocked::NeedsArtPack),
         _ => None,
     }
 }
@@ -413,6 +447,21 @@ mod tests {
             None
         );
         assert_eq!(blocked(SKY, with(&[]), Some(false)), None);
+        for name in [fidelity::RETAIL_LOOK, fidelity::NO_SLOPE_MATERIALS] {
+            assert_eq!(
+                blocked_with(name, with(&[]), Some(true), true),
+                Some(Blocked::NeedsLighting)
+            );
+            assert_eq!(
+                blocked_with(name, with(&[LIGHTING]), Some(true), false),
+                Some(Blocked::NeedsArtPack),
+                "{name}"
+            );
+            assert_eq!(
+                blocked_with(name, with(&[LIGHTING]), Some(true), true),
+                None
+            );
+        }
         // The weather needs the better lighting alone: neither the sky nor ray tracing.
         assert_eq!(
             blocked(WEATHER, with(&[SKY]), Some(false)),

@@ -406,6 +406,8 @@ pub struct WorldView {
     pub dat_sets: Vec<DatSet>,
     /// The Classic sets the Dereth client may be given here.
     pub classic_sets: Vec<DatSet>,
+    /// The art packs the Dereth client may draw here.
+    pub art_packs: Vec<dereth_launch::artpack::ArtPack>,
     /// Which kind of set the world is drawn from. A Modern set is always needed besides; a
     /// Classic one is optional when this is Modern.
     pub requires: SetKind,
@@ -438,6 +440,10 @@ pub struct Choice {
     /// The Dereth client's Classic set, if one is chosen.
     #[serde(default)]
     pub classic_set_id: Option<String>,
+    /// The art pack the Dereth client draws: empty for none; `None` for what the world played
+    /// with last, else the Library's default.
+    #[serde(default)]
+    pub art_pack_id: Option<String>,
 }
 
 /// The Add server form, as the player filled it in.
@@ -1246,6 +1252,7 @@ impl Backend {
                 default_client: prefs.client,
                 dat_sets: Vec::new(),
                 classic_sets: Vec::new(),
+                art_packs: Vec::new(),
                 requires: choices::required_set_for(&world),
                 offers_private_copy: false,
                 accounts: self.state.accounts_for(slug).cloned().collect(),
@@ -1268,6 +1275,7 @@ impl Backend {
             default_client,
             dat_sets: choices::dat_sets_for(&self.state, &world),
             classic_sets: choices::classic_sets_for(&self.state),
+            art_packs: self.state.art_packs.clone(),
             requires: choices::required_set_for(&world),
             offers_private_copy: choices::offers_private_copy(&self.state, &world),
             accounts: self.state.accounts_for(slug).cloned().collect(),
@@ -1392,12 +1400,32 @@ impl Backend {
                     std::env::temp_dir().join(format!("dereth-plugin-policy-{}.toml", world.slug));
                 std::fs::write(&f, doc).ok().map(|()| f)
             });
+        // The art pack this game draws. One whose file has gone is played without.
+        let pack = dereth
+            .then(|| {
+                self.state
+                    .art_pack_for(&choice.world_slug, choice.art_pack_id.as_deref())
+            })
+            .flatten()
+            .cloned();
+        let art_pack_id = dereth.then(|| pack.as_ref().map_or_else(String::new, |p| p.id.clone()));
+        let art_pack = pack.map(|p| p.path).filter(|p| {
+            let there = p.exists();
+            if !there {
+                self.say(
+                    format!("The art pack at {} is not there.", p.display()),
+                    true,
+                );
+            }
+            there
+        });
         let req = LaunchRequest {
             world: &world,
             install: &install,
             account: &choice.account,
             dat_dir,
             classic_dat_dir,
+            art_pack,
             extra_args: &extra_args,
             plugin_policy_file,
             plugins: self.offered_plugins(),
@@ -1428,6 +1456,7 @@ impl Backend {
         let choice = Choice {
             dat_set_id,
             classic_set_id,
+            art_pack_id,
             ..choice
         };
         self.launched(&world, &choice, child, install.multi_instance, None)
@@ -1463,6 +1492,7 @@ impl Backend {
                 client: Some(choice.client),
                 dat_set_id: choice.dat_set_id.clone(),
                 classic_set_id: choice.classic_set_id.clone(),
+                art_pack_id: choice.art_pack_id.clone(),
                 account: Some(choice.account.clone()),
                 last_played: Some(now()),
             },
@@ -1532,6 +1562,28 @@ impl Backend {
         }
         self.save();
         Ok(())
+    }
+
+    /// Add the art pack at `path` to the Library.
+    pub fn add_art_pack(&mut self, path: &Path) -> Result<(), String> {
+        self.state.add_art_pack(path)?;
+        self.save();
+        Ok(())
+    }
+
+    /// Make the art pack `id` the default.
+    pub fn set_default_art_pack(&mut self, id: &str) -> Result<(), String> {
+        if !self.state.set_default_art_pack(id) {
+            return Err("No such art pack.".into());
+        }
+        self.save();
+        Ok(())
+    }
+
+    /// Take the art pack `id` out of the Library. Its file stays where it is.
+    pub fn remove_art_pack(&mut self, id: &str) {
+        self.state.remove_art_pack(id);
+        self.save();
     }
 
     /// A downloaded custom set, checked against what its world published before it is kept.
@@ -2132,6 +2184,7 @@ mod tests {
 
     fn choice(password: Option<&str>) -> Choice {
         Choice {
+            art_pack_id: None,
             world_slug: "eulmore".into(),
             account: "player".into(),
             password: password.map(Into::into),
@@ -2497,6 +2550,7 @@ mod tests {
             client: ClientKind::Retail,
             dat_set_id: None,
             classic_set_id: None,
+            art_pack_id: None,
         };
         let out = b.launched(&world, &choice, a_process(), true, None);
         assert!(matches!(out, LaunchOutcome::Launched { .. }));
@@ -3245,6 +3299,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The art pack a world's page chose goes to the client, and is what the world plays with
+    /// next; none, once chosen, stays none; with nothing chosen, the default.
+    #[test]
+    fn play_gives_the_client_the_art_pack_chosen_for_the_world() {
+        let (mut b, dir) = backend("pack");
+        let pack = dir.join("woods.dat");
+        std::fs::write(&pack, b"....Pack....").unwrap();
+        b.state.add_art_pack(&pack).unwrap();
+        let id = b.state.art_packs[0].id.clone();
+        let args = |b: &mut Backend, chosen: Option<String>| {
+            let mut c = choice(Some("hunter2"));
+            c.art_pack_id = chosen;
+            let out = b.launch(c);
+            assert!(matches!(out, LaunchOutcome::Launched { .. }), "{out:?}");
+            b.running.remove(0).child.wait().unwrap();
+            std::fs::read_to_string(dir.join("client/args.txt")).unwrap()
+        };
+        let shown = pack.display().to_string();
+        assert!(
+            args(&mut b, None).contains(&format!("--art-pack {shown}")),
+            "the default"
+        );
+        assert!(
+            !args(&mut b, Some(String::new())).contains("--art-pack"),
+            "none"
+        );
+        assert!(
+            !args(&mut b, None).contains("--art-pack"),
+            "none stays chosen"
+        );
+        assert!(
+            args(&mut b, Some(id)).contains("--art-pack"),
+            "chosen again"
+        );
+        assert!(b.state.add_art_pack(&dir.join("missing.dat")).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn no_password_anywhere_asks_for_one() {
         let (mut b, dir) = backend("nopw");
@@ -3336,6 +3428,7 @@ mod tests {
             assert!(b.state.retail.is_none());
             assert_eq!(b.world_view("eulmore").unwrap().clients.len(), 1);
             let out = b.launch(Choice {
+                art_pack_id: None,
                 client: ClientKind::Retail,
                 ..choice(Some("pw"))
             });
@@ -3673,6 +3766,7 @@ mod tests {
         b.add_folder(find);
         b.list.worlds_mut()[0].era = None;
         let out = b.launch(Choice {
+            art_pack_id: None,
             dat_set_id: Some(id),
             ..choice(Some("pw"))
         });
@@ -3706,6 +3800,7 @@ mod tests {
             .era_features
             .expect("the systems it says");
         let out = b.launch(Choice {
+            art_pack_id: None,
             classic_set_id: Some(id.clone()),
             ..choice(Some("pw"))
         });

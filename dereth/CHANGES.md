@@ -14,6 +14,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Launcher: the Library holds art packs as it holds data files, and a world's page chooses which the Dereth client draws, or none.
+- Better Lighting: Retail Look and No Slope Materials say so when no art pack is open.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.

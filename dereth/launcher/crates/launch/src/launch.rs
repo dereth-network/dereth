@@ -82,6 +82,8 @@ pub struct LaunchRequest<'a> {
     /// The Classic set (`portal.dat`, `cell.dat`) for the Dereth client, when it is not in
     /// `dat_dir`. Ignored for a retail client.
     pub classic_dat_dir: Option<PathBuf>,
+    /// The art pack the Dereth client draws, when one is chosen. Ignored for a retail client.
+    pub art_pack: Option<PathBuf>,
     /// Operator-supplied arguments, placed first.
     pub extra_args: &'a [String],
     /// Where the caller wrote the world's plugin policy document, when the entry carries it
@@ -199,6 +201,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                     plain("--classic-dat-dir"),
                     plain(classic.display().to_string()),
                 ]);
+            }
+            if let Some(pack) = &req.art_pack {
+                args.extend([plain("--art-pack"), plain(pack.display().to_string())]);
             }
             args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
             // The world's plugin policy, for the client's plugin host to honour and show.
@@ -334,6 +339,7 @@ mod tests {
             account: "player",
             dat_dir: Some(PathBuf::from("/lib/eor")),
             classic_dat_dir: None,
+            art_pack: None,
             extra_args: &[],
             plugin_policy_file: None,
             plugins: Vec::new(),
