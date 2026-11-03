@@ -1482,7 +1482,7 @@ function foot() {
   const shortcut = s.shortcut
     ? `<span class="sep">|</span><button class="iconbtn" data-act="shortcut" title="Create desktop shortcut" aria-label="Create desktop shortcut">${SHORTCUT_ICON}</button>`
     : "";
-  return `<span>Dereth ${esc(s.version)}</span><span class="sep">|</span><a href="#" data-url="https://dereth.network">dereth.network</a>${shortcut}`;
+  return `<span>${esc(say("foot.version", `Dereth Network ${s.version}`, s.version))}</span><span class="sep">|</span><a href="#" data-url="https://dereth.network">dereth.network</a>${shortcut}`;
 }
 
 // The notice: a job's progress and the last message, floating over the top right corner rather than
@@ -1501,9 +1501,9 @@ function statusArea() {
   if (up.kind === "downloading") {
     const frac = up.total ? Math.min(1, up.done / up.total) : null;
     html += `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>`;
-    html += `<div class="line"><span>Downloading Dereth ${esc(up.version)}${frac == null ? "..." : `  ${Math.round(frac * 100)}%`}</span></div>`;
+    html += `<div class="line"><span>Downloading Dereth Network ${esc(up.version)}${frac == null ? "..." : `  ${Math.round(frac * 100)}%`}</span></div>`;
   } else if (up.kind === "ready") {
-    html += `<div class="line"><span>Dereth ${esc(up.version)} is ready.</span><button class="btn" data-act="restart-update">Restart to update</button></div>`;
+    html += `<div class="line"><span>Dereth Network ${esc(up.version)} is ready.</span><button class="btn" data-act="restart-update">Restart to update</button></div>`;
   }
   if (job) {
     const frac = job.total ? Math.min(1, job.done / job.total) : null;

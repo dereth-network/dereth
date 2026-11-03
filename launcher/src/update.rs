@@ -99,7 +99,8 @@ pub fn check(app: &AppHandle, is_release: bool, channel: Game) {
         if let Err(reason) = check_and_download(&app, &url).await {
             eprintln!("dereth: the update failed: {reason}");
             if let Some(b) = app.try_state::<crate::backend::Shared>() {
-                crate::backend::lock(&b).notify_error(format!("Dereth could not update: {reason}"));
+                crate::backend::lock(&b)
+                    .notify_error(format!("The launcher could not update: {reason}"));
             }
             set(&app, UpdateView::Failed { reason });
         }

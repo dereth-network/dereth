@@ -131,6 +131,7 @@ export function startHost({ call, start, params, log, scale }) {
 
     // Where the browser's words are not the desktop's.
     words: {
+      'foot.version': (version) => `Dereth ${version}`,
       'worlds.unavailable': (error) => `${error} Add a world by its address.`,
       'worlds.stale': (error, from) => `${error} Showing the list from ${from}.`,
       'library.no-modern': 'No Modern data files yet. Add the client_*.dat files.',
