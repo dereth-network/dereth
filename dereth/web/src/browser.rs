@@ -1109,13 +1109,6 @@ pub fn front_record_launch(slug: &str, prefs: &str) -> Result<(), JsError> {
         .map_err(js_err)
 }
 
-/// What Home offers now, as JSON: [`Front::home`].
-#[wasm_bindgen(js_name = frontHome)]
-#[must_use]
-pub fn front_home() -> String {
-    FRONT.with(|f| f.borrow().home(now_secs()).to_string())
-}
-
 /// Pin a combination to Home (JSON, a favourite); answers its id.
 ///
 /// # Errors

@@ -1035,7 +1035,7 @@ mod tests {
     fn every_launcher_opens_in_the_realm_it_last_showed_and_draws_the_portals() {
         let open = page_function("openRealm");
         assert!(
-            open.contains(r#"ui.realm = REALMS[saved] ? saved : "dereth";"#),
+            open.contains(r#"ui.realm = realms.includes(saved) ? saved : realms[0];"#),
             "{open}"
         );
         assert!(open.contains("data-realm-pick"), "{open}");
@@ -1443,6 +1443,30 @@ mod tests {
         );
     }
 
+    /// The desktop's snapshot names nothing as not offered, and the page offers whatever the
+    /// snapshot does not name: hosting, building, the retail client, downloads and both realms
+    /// stay, and the page's host is what a page that loads this one brings, which the app's does not.
+    #[test]
+    fn the_desktop_offers_everything_the_page_would_hide() {
+        let page = include_str!("../ui/app.js");
+        assert!(page.contains(r#"const offered = (what) => ui.snap?.offers?.[what] !== false;"#));
+        assert!(page.contains(
+            r#"const realmsOffered = (snap) => Object.keys(REALMS).filter((r) => snap.offers?.realms?.includes(r) ?? true);"#
+        ));
+        let backend = include_str!("backend.rs");
+        let snapshot = &backend[backend.find("pub struct Snapshot").expect("the snapshot")..];
+        let snapshot = &snapshot[..snapshot.find("\n}").expect("its end")];
+        assert!(!snapshot.contains("pub offers"), "{snapshot}");
+        let shell = include_str!("../ui/index.html");
+        assert!(!shell.contains("launcherHost"), "{shell}");
+        for command in ["pick_folder", "start_host", "get_component", "open_lyceum"] {
+            assert!(
+                include_str!("main.rs").contains(command),
+                "the app still answers {command}"
+            );
+        }
+    }
+
     /// The Plugins page ends with Make Your Own: a name and an optional GitHub repository, and
     /// Create, which the launcher answers by checking them, asking for an empty folder or a plugin
     /// repository and writing the template there; the line under it says what was made, in the
@@ -1556,7 +1580,7 @@ mod tests {
         ));
         assert!(
             page.contains(
-                r#"const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button></div>`;"#
+                r#"const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button>${host.pluginAddButtons?.(v, busy) ?? ""}</div>`;"#
             ),
             "{page}"
         );

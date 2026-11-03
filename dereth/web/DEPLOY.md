@@ -14,8 +14,9 @@ cargo xtask web --build-only
 This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
 the bindings into `www/pkg/`, copies the Horizon interface's art into `www/pkg/horizon/`, and
 copies the launcher's art the front page wears (Dereth's paintings and emblem, and the Cinzel and
-EB Garamond typefaces with their licences) from `launcher/assets/` into `www/assets/`,
-which git ignores. It needs:
+EB Garamond typefaces with their licences) from `launcher/assets/` into `www/assets/`, and copies
+the launcher's own page from `launcher/ui/` into `www/` (`app.js`, `style.css`, and its `index.html`
+as `launcher.html`), all of which git ignores. It needs:
 
 - the target, installed once: `rustup target add wasm32-unknown-unknown`;
 - **zig 0.15 or later** on the path (or named by the `ZIG` environment variable). The plugin
@@ -35,7 +36,7 @@ Publish the whole `www/` folder, `pkg/` and `assets/` included:
 | `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
 | `assets/background/dereth/*.webp` (ten paintings), `assets/backgrounds.json` | about 4.1 MB | the same (WebP is compressed) |
 | `assets/fonts/Cinzel-var.ttf`, `EBGaramond-var.ttf`, `OFL-Cinzel.txt`, `OFL-EBGaramond.txt`; `assets/emblem/dereth.webp` | about 1.0 MB and 30 kB | about 0.5 MB |
-| `index.html`, `play.js`, `front.js`, `backend.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `launcher.css`, `web.css` | about 200 kB | about 57 kB |
+| `index.html`, `play.js`, `host.js`, `backend.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `app.js`, `style.css`, `launcher.html`, `web.css` | about 380 kB | about 110 kB |
 
 No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
 a bundle with a larger one.
@@ -249,9 +250,10 @@ Chrome shares Edge's engine but has not been run itself.
 
 ## The front page
 
-The page opens on the launcher: the desktop launcher's Dereth realm, in its look (its stylesheet,
-copied as `launcher.css`, its paintings, emblem and typefaces) and with its own logic run in the
-browser (the module carries it). Pick a world or type an address, choose or add the data files, and
+The page opens on the launcher: the desktop launcher's own page in its Dereth realm, with its script,
+stylesheet, shell, paintings, emblem and typefaces, and with its own logic run in the browser (the
+module carries it). What a browser cannot do, the page leaves out because the browser's backend says
+it does not offer it. Pick a world or type an address, choose or add the data files, and
 play. Its screens are the desktop's, by the same names:
 
 - **Play** (Home): the favourites, then the combinations played recently, each a world and an

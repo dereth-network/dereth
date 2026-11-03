@@ -18,8 +18,9 @@
 //!   with `--dev`, which keeps function names for stack traces), runs the bindgen step into `www/pkg/`,
 //!   copies the Horizon interface's art beside the module into `www/pkg/horizon/` (the module does
 //!   not carry it; the page fetches it), copies the launcher's art the front page wears (Dereth's
-//!   paintings and emblem, and the two typefaces with their licences) into `www/assets/`, and
-//!   serves `www/` at `http://127.0.0.1:<port>/`.
+//!   paintings and emblem, and the two typefaces with their licences) into `www/assets/`, copies
+//!   the launcher's own page into `www/` beside the web page's files, and serves `www/` at
+//!   `http://127.0.0.1:<port>/`.
 //!   `--build-only` stops after the build, for a deployment.
 //! - With `--dat-dir`, it also serves the retail data files from that folder at `/dats/<name>`,
 //!   with byte ranges, for the worker's development reader: the four of the later set, and
@@ -69,6 +70,18 @@ const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
 /// The desktop launcher's art, relative to the workspace: the front page wears the part of it that
 /// is Dereth's (its paintings, its emblem and the typefaces), copied into `www/assets/`.
 const LAUNCHER_ART: &str = "launcher/assets";
+
+/// The desktop launcher's page, relative to the workspace: the front page runs it.
+const LAUNCHER_PAGE: &str = "launcher/ui";
+
+/// The files of the launcher's page the front page runs, each with its name in `www/`. Its stylesheet
+/// names the typefaces relative to itself, so it goes beside `assets/`. The shell keeps a name of its
+/// own: `www/index.html` is the web page's.
+const LAUNCHER_PAGE_FILES: &[(&str, &str)] = &[
+    ("app.js", "app.js"),
+    ("style.css", "style.css"),
+    ("index.html", "launcher.html"),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Server {
@@ -356,10 +369,22 @@ fn build(ws: &Path, dev: bool) -> Result<(), String> {
         .generate(&out)
         .map_err(|e| format!("bindgen {}: {e}", wasm.display()))?;
     copy_horizon_art(&ws.join(HORIZON_ART), &out.join("horizon"))?;
-    copy_launcher_art(
-        &ws.join(LAUNCHER_ART),
-        &ws.join("dereth").join("web").join("www").join("assets"),
-    )
+    let www = ws.join("dereth").join("web").join("www");
+    copy_launcher_art(&ws.join(LAUNCHER_ART), &www.join("assets"))?;
+    copy_launcher_page(&ws.join(LAUNCHER_PAGE), &www)
+}
+
+/// Copies the launcher's page from `from` (the launcher's `ui/`) into `to` (`www/`), which gets a
+/// `.gitignore` that ignores those copies and itself: the page's home is the launcher's folder.
+fn copy_launcher_page(from: &Path, to: &Path) -> Result<(), String> {
+    let mut ignored = String::from("/.gitignore\n");
+    for (source, name) in LAUNCHER_PAGE_FILES {
+        let (src, dst) = (from.join(source), to.join(name));
+        std::fs::copy(&src, &dst).map_err(|e| format!("{}: {e}", src.display()))?;
+        ignored.push_str(&format!("/{name}\n"));
+    }
+    let target = to.join(".gitignore");
+    std::fs::write(&target, ignored).map_err(|e| format!("{}: {e}", target.display()))
 }
 
 /// Copies the launcher's art the front page wears from `from` (the launcher's `assets/`) into `to`
@@ -1115,6 +1140,42 @@ mod tests {
             "*\n"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_launchers_page_is_copied_beside_the_web_pages_files_and_ignored_where_it_lands() {
+        let root = std::env::temp_dir().join(format!("web-launcher-page-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (from, to) = (root.join("ui"), root.join("www"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        for file in ["app.js", "style.css", "index.html", "demo.js"] {
+            std::fs::write(from.join(file), file).unwrap();
+        }
+        // The web page's own shell stays: the launcher's lands under a name of its own.
+        std::fs::write(to.join("index.html"), "the web page's").unwrap();
+        copy_launcher_page(&from, &to).unwrap();
+        let read = |name: &str| std::fs::read_to_string(to.join(name)).unwrap();
+        assert_eq!(read("app.js"), "app.js");
+        assert_eq!(read("style.css"), "style.css");
+        assert_eq!(read("launcher.html"), "index.html");
+        assert_eq!(read("index.html"), "the web page's");
+        assert!(
+            !to.join("demo.js").exists(),
+            "the demo stays the launcher's"
+        );
+        assert_eq!(
+            read(".gitignore"),
+            "/.gitignore\n/app.js\n/style.css\n/launcher.html\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_launchers_page_the_runner_copies_is_there() {
+        for (source, _) in LAUNCHER_PAGE_FILES {
+            assert!(workspace().join(LAUNCHER_PAGE).join(source).is_file());
+        }
     }
 
     #[test]

@@ -585,7 +585,6 @@ const calls = {
   addedBy: (slug, url) => dereth.frontAddedBy(slug, url),
   removeWorld: (slug) => dereth.frontRemoveWorld(slug),
   recordLaunch: (slug, prefs) => dereth.frontRecordLaunch(slug, JSON.stringify(prefs)),
-  home: () => JSON.parse(dereth.frontHome()),
   saveFavourite: (favourite) => dereth.frontSaveFavourite(JSON.stringify(favourite)),
   removeFavourite: (id) => dereth.frontRemoveFavourite(id),
   setWorldFavorite: (slug, favorite) => dereth.frontSetWorldFavorite(slug, favorite),

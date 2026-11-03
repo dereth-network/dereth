@@ -10,9 +10,10 @@
 //! and writes three release files into `<target dir>/package/dereth-web-<version>/` (or `--out`):
 //!
 //! - `dereth-web-<version>.zip`: the files under one folder, `dereth-web-<version>/`, ready to be
-//!   served as they are ([`FILES`]: the page, the module, the Horizon interface's art beside
-//!   the module, which the module does not carry, and the launcher's art the front page wears in
-//!   `assets/`), with the notices the module needs beside them ([`NOTICES`]:
+//!   served as they are ([`FILES`]: the page, the launcher's own page the front page runs, the
+//!   module, the Horizon interface's art beside the module, which the module does not carry, and
+//!   the launcher's art the front page wears in `assets/`), with the notices the module needs
+//!   beside them ([`NOTICES`]:
 //!   the licence, what the module is built from and the typefaces it carries, and every
 //!   third-party crate's licence text);
 //! - `web.json`: the release's manifest, which a host or the launcher reads to find out what the
@@ -64,6 +65,7 @@ pub const WWW: &str = "dereth/web/www";
 /// Every file the bundle holds, relative to `www/`, and nothing else.
 pub const FILES: &[&str] = &[
     "_headers",
+    "app.js",
     "assets/background/dereth/blacksmith.webp",
     "assets/background/dereth/diamond-golem.webp",
     "assets/background/dereth/iconic.webp",
@@ -83,9 +85,9 @@ pub const FILES: &[&str] = &[
     "audio-worklet.js",
     "backend.js",
     "datfiles.js",
-    "front.js",
+    "host.js",
     "index.html",
-    "launcher.css",
+    "launcher.html",
     "pkg/dereth_web.js",
     "pkg/dereth_web_bg.wasm",
     "pkg/horizon/atlas-1-0.png",
@@ -102,6 +104,7 @@ pub const FILES: &[&str] = &[
     "play-worker.js",
     "play.js",
     "plugin-io.js",
+    "style.css",
     "web.css",
 ];
 
@@ -115,8 +118,8 @@ const WASM: super::targets::Target = super::targets::Target {
     arch: super::targets::Arch::X86_64,
 };
 
-/// Files under `www/` that are never released: the folder's own ignore file, and the one the build
-/// writes beside the launcher's art it copies into `assets/`.
+/// Files under `www/` that are never released: the ignore files the build writes beside the
+/// launcher's page it copies into `www/` and the launcher's art it copies into `assets/`.
 const NOT_RELEASED: &[&str] = &[".gitignore", "assets/.gitignore"];
 
 /// No file is larger than this: 25 MiB, the most Cloudflare Pages serves as one file. The module
@@ -183,8 +186,8 @@ pub fn stage(listing: &[(String, Vec<u8>)]) -> Result<Vec<Member>, Vec<String>> 
                 executable: false,
             }),
             None => findings.push(format!(
-                "{WWW}/{name}: missing (`cargo xtask web --build-only` writes pkg/ and \
-                 pkg/horizon/)"
+                "{WWW}/{name}: missing (`cargo xtask web --build-only` writes pkg/, pkg/horizon/, \
+                 assets/ and the launcher's page)"
             )),
         }
     }
@@ -969,7 +972,7 @@ mod tests {
                 paths.push(format!("/{name}"));
             }
         }
-        for name in ["play.js", "front.js", "play-worker.js", "index.html"] {
+        for name in ["play.js", "host.js", "play-worker.js", "index.html"] {
             assert!(paths.contains(&format!("/{name}")), "{name} is checked");
         }
         for path in &paths {
@@ -991,7 +994,7 @@ mod tests {
         assert!(!pattern_matches("/pkg/*", "/play.js"));
         assert!(pattern_matches("/*.js", "/play-worker.js"));
         assert!(!pattern_matches("/*.js", "/index.html"));
-        assert!(pattern_matches("/:page", "/front.js"));
+        assert!(pattern_matches("/:page", "/host.js"));
         assert!(!pattern_matches("/:page", "/pkg/dereth_web.js"));
         assert!(!pattern_matches("/:page", "/"));
         assert!(revalidates("no-cache"));

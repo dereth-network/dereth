@@ -79,6 +79,10 @@
 //!     ([`SHIPPED_CLIENTS`]), hold none of the presentation (the desktop client carries it, drawn
 //!     only under its Horizon interface). The scans are textual: a write made inside a method the
 //!     seam calls, or through a name the bridge gave a value of its own, is outside what they see.
+//! 12. **The web page runs the launcher's page and keeps no copy of it.** No file git tracks under
+//!     [`WEB_PAGE`] has the name of a file of [`LAUNCHER_UI`] (the web page's own `index.html`
+//!     aside, and [`LAUNCHER_SHELL_IN_WEB`] included) or the bytes of one, under any name
+//!     ([`launcher_copy_violations`]): the build brings those files in, and two copies drift.
 //!
 //! The dependency half reads `cargo tree`, so a rule broken two crates down is still caught. The
 //! code half is a text scan with comments stripped: the crates' docs are allowed to talk about the
@@ -914,6 +918,76 @@ fn listed_texts(repo: &Path, listing: &[u8]) -> Vec<(PathBuf, String)> {
 /// As [`git_ls_files`].
 fn tracked_texts(repo: &Path, dirs: &[&Path]) -> Result<Vec<(PathBuf, String)>, String> {
     Ok(listed_texts(repo, &git_ls_files(repo, dirs)?))
+}
+
+/// Rule 12: the launcher's page, relative to the workspace.
+pub const LAUNCHER_UI: &str = "launcher/ui";
+
+/// Rule 12: the web page's folder, relative to the workspace.
+pub const WEB_PAGE: &str = "dereth/web/www";
+
+/// Rule 12: the name the launcher's shell has in the web page's folder, where the build brings it.
+pub const LAUNCHER_SHELL_IN_WEB: &str = "launcher.html";
+
+/// Rule 12 over the files git tracks in the web page's folder (`www`) and in the launcher's page
+/// (`ui`), each with its bytes: any file of `www` named as one of `ui` is, or that holds the same
+/// bytes as one. Both are `index.html` by design, so that name alone does not count.
+#[must_use]
+pub fn launcher_copy_violations(
+    www: &[(PathBuf, Vec<u8>)],
+    ui: &[(PathBuf, Vec<u8>)],
+) -> Vec<String> {
+    let name = |p: &Path| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    for (path, bytes) in www {
+        let file = name(path);
+        if file == LAUNCHER_SHELL_IN_WEB
+            || (file != "index.html" && ui.iter().any(|(p, _)| name(p) == file))
+        {
+            out.push(format!(
+                "{}: named as a file of the launcher's page; the build brings that file in",
+                path.display()
+            ));
+        } else if let Some((p, _)) = ui.iter().find(|(_, b)| b == bytes) {
+            out.push(format!(
+                "{}: a copy of {}; the build brings that file in",
+                path.display(),
+                p.display()
+            ));
+        }
+    }
+    dedup(out)
+}
+
+/// The bytes of every file git tracks under `dir` (relative to `repo`); a listed file that is not
+/// there (deleted in the work tree) is skipped.
+fn tracked_bytes(repo: &Path, dir: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let listing = git_ls_files(repo, &[dir])?;
+    Ok(listing
+        .split(|b| *b == 0)
+        .filter(|n| !n.is_empty())
+        .filter_map(|n| {
+            let rel = PathBuf::from(String::from_utf8_lossy(n).into_owned());
+            let bytes = std::fs::read(repo.join(&rel)).ok()?;
+            Some((rel, bytes))
+        })
+        .collect())
+}
+
+/// Rule 12 over the work tree at `repo`.
+fn launcher_copies(repo: &Path) -> Result<Vec<String>, String> {
+    let ui = tracked_bytes(repo, Path::new(LAUNCHER_UI))?;
+    if ui.is_empty() {
+        return Err(format!("git tracks no file under {LAUNCHER_UI}"));
+    }
+    Ok(launcher_copy_violations(
+        &tracked_bytes(repo, Path::new(WEB_PAGE))?,
+        &ui,
+    ))
 }
 
 /// Rule 11: the optional high-fidelity presentation.
@@ -1954,6 +2028,8 @@ pub fn reports() -> Vec<Report> {
     // Tracked files only: what the tree says, not what a working copy happens to hold (a local,
     // untracked configuration file may name anything).
     let env_names = tracked_texts(&ws, &[Path::new(".")]).map(|t| env_name_violations(&t));
+    // Rule 12: the web page runs the launcher's page and keeps no copy of it.
+    let launcher_page = launcher_copies(&ws);
     // Rule 11: the high-fidelity presentation changes only pixels.
     let hifi_manifest = workspace_manifest(&ws, HIFI);
     let members = hifi_manifest
@@ -2039,6 +2115,11 @@ pub fn reports() -> Vec<Report> {
             "seam: primitives code",
             primitives_code,
             format!("no std I/O; unsafe only in {PRIMITIVES_UNSAFE_FILE}, behind host-nls"),
+        ),
+        row(
+            "seam: the web page keeps no copy of the launcher's",
+            launcher_page,
+            format!("no tracked file of {WEB_PAGE} named as or the same as one of {LAUNCHER_UI}"),
         ),
         row(
             "seam: dereth-client-contract deps",
@@ -2845,6 +2926,71 @@ mod tests {
             (PathBuf::from("docs/local.toml"), untracked),
         ];
         assert_eq!(env_name_violations(&both).len(), 2);
+    }
+
+    /// A copy of the launcher's page under the web page's folder fails, by its name or by its
+    /// bytes; the web page's own files, its own `index.html` among them, do not.
+    #[test]
+    fn a_copy_of_the_launchers_page_in_the_web_pages_folder_is_found_by_name_or_bytes() {
+        let file = |path: &str, bytes: &str| (PathBuf::from(path), bytes.as_bytes().to_vec());
+        let ui = vec![
+            file("launcher/ui/app.js", "the page's script"),
+            file("launcher/ui/index.html", "the launcher's shell"),
+            file("launcher/ui/style.css", "the page's look"),
+        ];
+        let own = vec![
+            file("dereth/web/www/index.html", "the web page's own shell"),
+            file("dereth/web/www/host.js", "what a browser does its own way"),
+        ];
+        assert!(launcher_copy_violations(&own, &ui).is_empty());
+        for (planted, why) in [
+            (file("dereth/web/www/app.js", "edited since"), "named as"),
+            (file("dereth/web/www/launcher.html", "edited"), "named as"),
+            (
+                file("dereth/web/www/launcher.css", "the page's look"),
+                "a copy of",
+            ),
+            (
+                file("dereth/web/www/old/shell.html", "the launcher's shell"),
+                "a copy of",
+            ),
+        ] {
+            let mut tree = own.clone();
+            tree.push(planted);
+            let hits = launcher_copy_violations(&tree, &ui);
+            assert_eq!(hits.len(), 1, "{hits:?}");
+            assert!(hits[0].contains(why), "{hits:?}");
+        }
+    }
+
+    /// The check reads what git tracks: the copies the build leaves in the web page's folder, which
+    /// git ignores, are not the tree's.
+    #[test]
+    fn the_copies_the_build_leaves_in_the_web_pages_folder_are_not_found() {
+        let repo = std::env::temp_dir().join(format!("seams-web-page-{}", std::process::id()));
+        std::fs::remove_dir_all(&repo).ok();
+        std::fs::create_dir_all(repo.join(WEB_PAGE)).expect("a folder");
+        std::fs::create_dir_all(repo.join(LAUNCHER_UI)).expect("a folder");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(args)
+                .status()
+                .expect("git runs")
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(repo.join(LAUNCHER_UI).join("app.js"), "script").expect("write");
+        std::fs::write(repo.join(WEB_PAGE).join("app.js"), "script").expect("write");
+        git(&["add", "launcher/ui/app.js"]);
+        let built = launcher_copies(&repo);
+        git(&["add", "dereth/web/www/app.js"]);
+        let tracked = launcher_copies(&repo);
+        std::fs::remove_dir_all(&repo).ok();
+        assert_eq!(built, Ok(Vec::new()));
+        assert_eq!(tracked.expect("a work tree").len(), 1);
     }
 
     #[test]

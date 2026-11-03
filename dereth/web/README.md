@@ -27,9 +27,10 @@ address parameters, and how each of the above works. `cargo xtask web` builds it
 
 | File | What |
 |---|---|
-| `www/index.html`, `www/front.js` | the front page: the desktop launcher's screens, drawn from its backend's snapshot |
+| `www/index.html`, `www/host.js` | the front page: the desktop launcher's own page, run over the browser's backend, and what a browser does its own way |
+| `www/app.js`, `www/style.css`, `www/launcher.html` | the desktop launcher's script, stylesheet and shell, copied there by the build and not kept in git |
 | `www/backend.js` | the front page's backend: the desktop launcher's commands, answered by the launcher logic in the module and by the browser's storage |
-| `www/launcher.css`, `www/web.css` | the desktop launcher's stylesheet, copied as it is, and the page's own rules beside it |
+| `www/web.css` | the page's own rules, beside the launcher's stylesheet |
 | `www/assets/` | the launcher's art the page wears (Dereth's paintings and emblem, the two typefaces), copied there by the build and not kept in git |
 | `www/play.js` | the canvas, and the page's input forwarded to the worker |
 | `www/play-worker.js` | the worker: loads the module, opens the data files, carries the WebSocket, runs a frame per animation frame |

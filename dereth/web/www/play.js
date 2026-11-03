@@ -1,4 +1,4 @@
-// The playable client's page: the front page (the launcher, `front.js`), the canvas the worker
+// The playable client's page: the front page (the launcher's own, `host.js`), the canvas the worker
 // draws into, and the page's input events forwarded to the worker in the client's terms.
 //
 // Each start hands the worker a canvas of its own: a canvas's drawing can be handed to a worker only
@@ -17,7 +17,7 @@
 // `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for
 // reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a browser's WebGPU misbehaves.
 
-import { startFront } from './front.js';
+import { startHost } from './host.js';
 
 const $ = (id) => document.getElementById(id);
 const t0 = performance.now();
@@ -200,7 +200,7 @@ function launch(choice) {
   view.focus();
 }
 
-front = startFront({
+front = startHost({
   call,
   start: launch,
   params,
@@ -324,6 +324,8 @@ function typed(ev) {
 const KEPT = new Set(['F5', 'F11', 'F12']);
 
 function key(ev, pressed) {
+  // The keys of a game in play are not the launcher's page's, under it.
+  ev.stopPropagation();
   if (ev.metaKey || KEPT.has(ev.code)) return;
   if (ev.code === 'AltLeft' || ev.code === 'AltRight') send({ kind: 'alt', held: pressed });
   // Ctrl+V lets the paste event through, which carries the text; the key follows it.

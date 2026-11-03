@@ -7,9 +7,19 @@
 
 "use strict";
 
+// What a page that loads this one brings: its backend, its own words, and the parts of screens that
+// are its alone. The desktop app and the demo bring none.
+const host = window.launcherHost ?? {};
+
 const api = window.__TAURI__
   ? (cmd, args) => window.__TAURI__.core.invoke(cmd, args)
-  : window.demoBackend;
+  : host.api ?? window.demoBackend;
+
+// A line in the host's own words, where it has them for `key`.
+function say(key, text, ...args) {
+  const own = host.words?.[key];
+  return typeof own === "function" ? own(...args) : own ?? text;
+}
 
 const GUIDE = "https://www.accpp.net/manual-installation";
 
@@ -67,6 +77,9 @@ const ui = {
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const worldBy = (slug) => ui.snap?.worlds.find((w) => w.slug === slug);
+// Whether the backend offers `what`: its snapshot's `offers` names what it does not, and a snapshot
+// that names nothing offers everything.
+const offered = (what) => ui.snap?.offers?.[what] !== false;
 // The two clients: the Dereth client the launcher found beside itself, and the player's retail one.
 // The client of `kind` for a world of `game`: Asheron's Call's retail client or the Dereth client,
 // or for Asheron's Call 2 the retail client in the player's install or Auberean.
@@ -81,7 +94,7 @@ const realmGame = () => REALMS[ui.realm].game;
 const clients = () => [ui.snap?.dereth, ui.snap?.state.retail].filter(Boolean);
 // The retail client is a Windows program. Elsewhere the page offers the Dereth client alone and
 // never mentions retail.
-const retailHere = () => ui.snap?.platform === "windows";
+const retailHere = () => offered("retail") && ui.snap?.platform === "windows";
 const ROLES = ["portal", "cell", "local", "highres"];
 
 function iterLabel(it) {
@@ -107,6 +120,7 @@ function longDate(iso) {
 }
 function installName(i) {
   if (!i) return "No client";
+  if (i.shown_name) return i.shown_name;
   // A retail client goes by its program's own name: acclient, or Asheron's Call 2's AC2client.
   const family = i.kind === "dereth" ? "Dereth client" : i.kind === "auberean" ? "Auberean" : String(i.exe ?? "acclient.exe").replace(/\.exe$/i, "");
   if (i.version && i.build_date) return `${family} ${i.version} (${longDate(i.build_date)})`;
@@ -349,10 +363,15 @@ function tellWorldsShown() {
   api("worlds_shown", { shown }).catch(() => {});
 }
 
+// What the screens that do not only play need the backend to offer.
+const SCREEN_NEEDS = { server: "hosting", "server-page": "hosting", "server-settings": "hosting", "local-page": "hosting", make: "building" };
+
 // Re-rendering replaces the page, so the element being typed into is found again afterwards and the
 // caret put back where it was.
 function render() {
   if (!ui.snap) return;
+  // A screen the backend does not offer is never drawn, however it was reached.
+  if (SCREEN_NEEDS[ui.screen] && !offered(SCREEN_NEEDS[ui.screen])) ui.screen = "home";
   tellWorldsShown();
   const active = document.activeElement;
   const keep = active && active.id ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
@@ -419,7 +438,7 @@ function render() {
 // the worlds the player hosts, each with a page of its own, and the other servers running on this
 // computer; Build a world makes Lyceum worlds and opens them in the editor.
 
-const comp = (product) => (ui.snap.components ?? []).find((c) => c.product === product);
+const comp = (product) => (offered("downloads") ? (ui.snap.components ?? []).find((c) => c.product === product) : undefined);
 // Each realm's server and world builder, by the product the backend names: Dereth's Empyrean
 // and Lyceum, and Auberean's Yalain and Athenaeum. Each title, with its emblem.
 const TOOLS = {
@@ -1441,11 +1460,11 @@ function rail() {
     item("accounts", "ACCOUNTS"),
     item("plugins", "PLUGINS", "dereth"),
     divider,
-    tool("server", "empyrean"),
-    tool("make", "lyceum"),
-    divider,
+    offered("hosting") && tool("server", "empyrean"),
+    offered("building") && tool("make", "lyceum"),
+    (offered("hosting") || offered("building")) && divider,
     item("library", "LIBRARY"),
-  ].join("");
+  ].filter(Boolean).join("");
 }
 
 // A shortcut: a curved arrow leaving a box, drawn on the same pixel grid as the rest of the chrome.
@@ -1591,6 +1610,8 @@ const sectionOf = (w) => (w.favorite ? "favorites" : isCustom(w) ? "custom" : w.
 function visibleWorlds() {
   const q = ui.search.trim().toLowerCase();
   const rank = { online: 0, high: 0, starting: 1, unknown: 2, offline: 3 };
+  // A world this backend cannot reach goes after those it can.
+  const reached = (w) => (w.reach?.direct === false ? 0 : 1);
   return ui.snap.worlds
     .filter(inRealm)
     .filter((w) => !q || w.name.toLowerCase().includes(q) || (w.description ?? "").toLowerCase().includes(q))
@@ -1600,7 +1621,7 @@ function visibleWorlds() {
       if (ui.filter === "pvp") return rs.includes("pvp") || rs.includes("pk");
       return true;
     })
-    .sort((a, b) => (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
+    .sort((a, b) => (reached(b) - reached(a)) || (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
 }
 
 // A chevron on the same pixel grid as the rest of the chrome: "<" goes back.
@@ -1624,6 +1645,7 @@ function worldDetail(w) {
     ["STATUS", w.development_status ?? "unknown"],
     ["RULES", w.ruleset ?? "unknown"],
     ["PLAYERS", playersLabel(w)],
+    ...(w.reach?.text ? [["REACHED", w.reach.text]] : []),
   ];
   return `<tr class="detail" data-stop><td></td><td colspan="6">
       <div class="detail-body">
@@ -1660,7 +1682,7 @@ function worlds() {
   let body;
   if (rows.length === 0) {
     const msg = s.list_state === "loading" ? "Fetching the world list..."
-      : s.list_state === "unavailable" && s.worlds.length === 0 ? `The world list is unavailable: ${s.list_error ?? ""}`
+      : s.list_state === "unavailable" && s.worlds.length === 0 ? say("worlds.unavailable", `The world list is unavailable: ${s.list_error ?? ""}`, s.list_error ?? "")
       : s.worlds.length === 0 ? "No worlds are listed." : "No world matches these filters.";
     body = `<p class="muted">${esc(msg)}</p>`;
   } else {
@@ -1677,8 +1699,9 @@ function worlds() {
       }).join("") + `</tbody></table>`;
   }
   const fetched = s.list_fetched_at ? new Date(s.list_fetched_at * 1000) : null;
+  const from = fetched ? fetched.toLocaleString() : "before";
   const stale = s.list_state === "unavailable" && s.worlds.length
-    ? `<p class="small warn">${esc(s.list_error ?? "")} — showing the list from ${esc(fetched ? fetched.toLocaleString() : "before")}</p>` : "";
+    ? `<p class="small warn">${esc(say("worlds.stale", `${s.list_error ?? ""} — showing the list from ${from}`, s.list_error ?? "", from))}</p>` : "";
   const a = ui.addServer;
   const emulatorOpts = (EMULATORS[a?.game ?? REALMS[ui.realm].game] ?? EMULATORS.dereth).map(([v, l]) => `<option value="${v}" ${a?.emulator === v ? "selected" : ""}>${l}</option>`).join("");
   const rulesOpts = [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]].map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
@@ -1687,8 +1710,8 @@ function worlds() {
         ${a.fromLink ? `<p class="small muted">From a link a friend sent. Check it, then Add.</p>` : ""}
         <div class="form">
           <label class="lab" for="srv-name">NAME</label><input id="srv-name" class="field" autocomplete="off" placeholder="optional" value="${esc(a.name)}">
-          <label class="lab" for="srv-host">HOST</label><input id="srv-host" class="field" autocomplete="off" placeholder="play.example.org or 203.0.113.7" value="${esc(a.host)}">
-          <label class="lab" for="srv-port">PORT</label><input id="srv-port" class="field" autocomplete="off" inputmode="numeric" style="max-width:140px" value="${esc(a.port)}">
+          ${host.addWorldWhere?.(a) ?? `<label class="lab" for="srv-host">HOST</label><input id="srv-host" class="field" autocomplete="off" placeholder="play.example.org or 203.0.113.7" value="${esc(a.host)}">
+          <label class="lab" for="srv-port">PORT</label><input id="srv-port" class="field" autocomplete="off" inputmode="numeric" style="max-width:140px" value="${esc(a.port)}">`}
           <label class="lab" for="srv-emulator">EMULATOR</label><select id="srv-emulator" class="field" style="max-width:220px">${emulatorOpts}</select>
           <label class="lab" for="srv-ruleset">RULES</label><select id="srv-ruleset" class="field" style="max-width:220px">${rulesOpts}</select>
           ${a.error ? `<p class="note bad">${esc(a.error)}</p>` : ""}
@@ -1727,17 +1750,18 @@ async function openWorld(slug, notice, preset) {
   }
   const p = view.prefs;
   const known = view.accounts.map((a) => a.username);
-  const account = preset?.account ?? (known.find((a) => a.toLowerCase() === (p.account ?? "").toLowerCase()) || known[0] || "");
+  const account = preset?.account ?? (known.find((a) => a.toLowerCase() === (p.account ?? "").toLowerCase()) || known[0] || view.account_hint || "");
   const offered = (k) => (game === "auberean" ? ["auberean", "retail"].includes(k) && !!clientOf(k, game) : view.clients.some((c) => c.kind === k));
   // Auberean plays one of its realm's own sets.
   const sets = game === "auberean" ? librarySets("auberean") : view.dat_sets;
-  const validSet = (id) => sets.some((s) => s.id === id);
+  const more = host.moreSets?.(view.world) ?? [];
+  const validSet = (id) => sets.some((s) => s.id === id) || more.some((s) => s.id === id);
   const validClassic = (id) => view.classic_sets.some((s) => s.id === id);
   const client = [preset?.client, p.client, view.default_client].find((k) => k && offered(k)) ?? (game === "auberean" ? "auberean" : view.clients[0]?.kind ?? null);
   // Each kind starts on what was played here last, else its own default, else (for the Modern
   // kind, where a world's own copy may be the only one) the first there is.
   const fallback = sets.find((s) => s.origin.kind === "shared") ?? sets[0];
-  const set = [preset?.dat_set_id, p.dat_set_id].find(validSet) ?? fallback?.id ?? null;
+  const set = [preset?.dat_set_id, p.dat_set_id].find(validSet) ?? fallback?.id ?? more.find((s) => s.fallback)?.id ?? null;
   const classicDefault = view.classic_sets.find((s) => s.origin.kind === "shared");
   const classic = [preset?.classic_set_id, p.classic_set_id].find(validClassic) ?? classicDefault?.id ?? null;
   const acct = view.accounts.find((a) => a.username === account);
@@ -1745,7 +1769,7 @@ async function openWorld(slug, notice, preset) {
     view,
     form: {
       account,
-      adding: known.length === 0,
+      adding: known.length === 0 && !view.account_hint,
       password: preset?.password ?? "",
       remembered: false,
       remember: acct ? acct.remember : true,
@@ -1759,6 +1783,11 @@ async function openWorld(slug, notice, preset) {
   await recallPassword();
   render();
   focusSoon(ui.world.form.adding ? "acct-name" : "password");
+}
+
+// The world's page read again, with what is on it kept.
+async function reopenWorld() {
+  if (ui.screen === "world" && ui.world) await openWorld(ui.world.view.world.slug, null, formChoice() ?? undefined);
 }
 
 function focusSoon(id) {
@@ -1805,7 +1834,8 @@ function hasRequiredSet() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   if (w.form.client !== "dereth") return true;
-  return !!w.form.dat_set_id && (requiredKind(world) !== "classic" || !!w.form.classic_set_id);
+  const bothKinds = host.moreSets?.(world).find((s) => s.id === w.form.dat_set_id)?.both_kinds;
+  return !!w.form.dat_set_id && (requiredKind(world) !== "classic" || bothKinds || !!w.form.classic_set_id);
 }
 
 // Whether PLAY can go, and what the account field warns about: redrawn in place while typing, so
@@ -1814,7 +1844,7 @@ function worldCanPlay() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   if (ac2World(w)) return !!formChoice() && !!world.endpoint && !!clientOf(w.form.client, "auberean") && (w.form.client === "retail" || !!w.form.dat_set_id);
-  return !!formChoice() && !!world.endpoint && hasRequiredSet();
+  return !!formChoice() && !!world.endpoint && w.view.reach?.direct !== false && hasRequiredSet();
 }
 function worldNotice() {
   const w = ui.world;
@@ -1873,9 +1903,11 @@ function worldPage() {
   const needs = requiredKind(world);
   const option = (s, chosen) => `<option value="${esc(s.id)}" ${s.id === chosen ? "selected" : ""}>${esc(setName(s))}${s.origin.kind === "shared" ? "  (default)" : ""}</option>`;
   const none = (chosen) => `<option value="" ${chosen ? "" : "selected"}>None</option>`;
+  const more = host.moreSets?.(world);
   const setOpts = none(f.dat_set_id) + w.view.dat_sets.map((s) => option(s, f.dat_set_id)).join("")
+    + (more ?? []).map((s) => `<option value="${esc(s.id)}" ${s.id === f.dat_set_id ? "selected" : ""}>${esc(s.label)}</option>`).join("")
     + (w.view.offers_private_copy ? `<option value="__private">Create a private copy (1.4 GB)</option>` : "")
-    + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
+    + (world.dats.custom && !more ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
   const eraName = eraText(world);
   const dataNote = world.era_state === "checking" || world.era_state === "unknown"
@@ -1889,8 +1921,8 @@ function worldPage() {
   // A world that plays with its own files, and none of the player's sets is them: where they come
   // from, and the way to point at them.
   const ownFiles = world.dats.custom && w.view.dat_sets.length === 0 && f.client === "dereth"
-    ? `<p class="note warn">${esc(world.dats.custom.license_note ?? "This world plays with data files of its own.")}
-         <button class="btn" data-url="${esc(world.dats.custom.url)}">Where to get them</button></p>`
+    ? `<p class="note warn">${esc(w.view.refused_sets?.[0]?.why ?? world.dats.custom.license_note ?? "This world plays with data files of its own.")}
+         ${world.dats.custom.url ? `<button type="button" class="btn" data-url="${esc(world.dats.custom.url)}">Where to get them</button>` : ""}</p>`
     : "";
   const dataRow = f.client === "retail"
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
@@ -1909,33 +1941,40 @@ function worldPage() {
       ${f.client === "auberean" && !ready("auberean") ? `<span></span>${programLine("auberean")}` : ""}
       ${ac2Data}`;
 
-  return `<div class="column wide">
-      <section class="panel"><header><button class="btn icon-btn back" data-go="worlds" title="Back to worlds">${CHEVRON_LEFT}</button><h1>${esc(world.name.toUpperCase())}</h1>
-          ${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
-          ${custom ? `<button class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
+  // A host whose own keeper of passwords takes the sign-in draws it, and the page is a form that
+  // keeper can watch; a form's buttons other than PLAY say that they do not submit it.
+  const login = host.worldLogin?.(world, f);
+  const page = login ? 'form id="world-form" autocomplete="on"' : "div";
+  return `<${page} class="column wide">
+      <section class="panel"><header><button type="button" class="btn icon-btn back" data-go="worlds" title="Back to worlds">${CHEVRON_LEFT}</button><h1>${esc(world.name.toUpperCase())}</h1>
+          ${links.map(([l, u]) => `<button type="button" class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
+          ${custom ? `<button type="button" class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
         <div class="scroll">
           <div class="facts">${bead(world.state)}<span>${facts.map((f) => f === eraFact(world) ? esc(f) + eraNote(world) : esc(f)).join("  ·  ")}</span></div>
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
           <div class="form" style="margin-top:14px">
-            <label class="lab" for="${f.adding ? "acct-name" : "account"}">ACCOUNT</label>${accountField}
+            ${login ?? `<label class="lab" for="${f.adding ? "acct-name" : "account"}">ACCOUNT</label>${accountField}
             <label class="lab" for="password">PASSWORD</label>
             <div class="pair"><input id="password" class="field" type="password" autocomplete="off"
                 placeholder="${f.remembered && !f.password ? "saved" : ""}" value="${esc(f.password)}">
-              <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>
+              <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>`}
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
-            ${isAc2 ? ac2Client : `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}
+            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
+            ${host.worldRows?.(w.view) ?? ""}
           </div>
         </div>
       </section>
       <button class="play" data-act="world-play" ${worldCanPlay() ? "" : "disabled"}>PLAY</button>
-    </div>`;
+    </${login ? "form" : "div"}>`;
 }
 
 async function play(choice) {
   const out = await act("launch", { choice });
   if (!out) return;
   if (out.kind === "launched") {
+    // The client takes this page, which waits as it is for its return.
+    if (out.stays) { ui.homeSel = 0; return; }
     toast(`Launching ${out.world} | ${out.account}...`, false);
     ui.screen = "home";
     const at = homeEntries().findIndex((e) => sameCombo(e, choice));
@@ -1991,16 +2030,16 @@ function library() {
       ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
       : comp("dereth") ? programRow("dereth")
       : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
-      + interfaceRow()}</div>`;
+      + interfaceRow() + (host.libraryClientRows?.(ui.snap) ?? "")}</div>`;
   const setRow = (d) => {
-    const size = d.files.reduce((n, f) => n + f.size, 0);
+    const size = d.files.reduce((n, f) => n + (f.size ?? 0), 0);
     const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
     const facts = [d.created_by_launcher ? gb(size) : d.files.every((f) => f.read_only) ? "read-only" : null, d.last_patched_by_server && "patched by its world", d.files.some((f) => f.error) && "some files unreadable", pairBroken && "portal.dat or cell.dat is missing"].filter(Boolean);
     const isDefault = d.origin.kind === "shared";
     const defaultBtn = isDefault ? `<span class="tag">DEFAULT</span>`
       : d.origin.kind === "unassigned" ? `<button class="btn" data-default-set="${esc(d.id)}">Set default</button>` : "";
     return `<div class="row static"><div class="grow"><div class="name">${esc(setName(d))} <span class="muted small">${esc(facts.join("; "))}</span></div>
-        <div class="sub">${esc(d.path)}</div></div>
+        <div class="sub">${esc(d.shown_path ?? d.path)}</div></div>
         <div class="btns">${defaultBtn}${d.origin.kind === "world" ? `<button class="btn" data-reset-set="${esc(d.id)}">Reset</button>` : ""}<button class="btn" data-delete-set="${esc(d.id)}">${d.created_by_launcher ? "Delete" : "Remove"}</button></div></div>`;
   };
   let sets;
@@ -2010,9 +2049,9 @@ function library() {
     sets = `<h2>DATA SETS</h2><p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`;
   } else {
     const modern = s.dat_sets.filter((d) => d.kind !== "classic").map(setRow).join("")
-      || `<p class="muted">No Modern data files yet. Add a folder that holds the client_*.dat files.</p>`;
+      || `<p class="muted">${say("library.no-modern", "No Modern data files yet. Add a folder that holds the client_*.dat files.")}</p>`;
     const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
-      || `<p class="muted">No Classic data files yet. Add a folder that holds portal.dat and cell.dat.</p>`;
+      || `<p class="muted">${say("library.no-classic", "No Classic data files yet. Add a folder that holds portal.dat and cell.dat.")}</p>`;
     sets = `<h2>MODERN DATA SETS</h2><p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>
           <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>`;
   }
@@ -2034,7 +2073,8 @@ function library() {
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           ${client}
           ${sets}
-          <h2>DISCORD</h2><div class="list">${discordRow()}</div></div>
+          ${host.librarySections?.(ui.snap) ?? ""}
+          ${offered("discord") ? `<h2>DISCORD</h2><div class="list">${discordRow()}</div>` : ""}</div>
       </section>
     </div>`;
 }
@@ -2069,7 +2109,7 @@ function findSummary(f, purpose) {
     lines.push(`<p><span class="good">CLASSIC</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
   }
   if (!f.dats && !f.classic && !f.error) {
-    lines.push(`<p class="warn">No data files in this folder.</p>`);
+    lines.push(`<p class="warn">${say("find.none", "No data files in this folder.")}</p>`);
   }
   return lines.join("");
 }
@@ -2095,6 +2135,7 @@ function accounts() {
   return `<div class="column wide" style="height:100%">
       <section class="panel grow"><header><h1>ACCOUNTS</h1></header>
         <div class="scroll"><div class="list">${rows}</div></div>
+        ${host.words?.["accounts.note"] ? `<p class="small muted">${esc(host.words["accounts.note"])}</p>` : ""}
         <div class="btns end" style="margin-top:12px"><button class="btn" data-act="forget-all-accounts" ${mine.length ? "" : "disabled"}>Forget all accounts</button></div>
       </section>
     </div>`;
@@ -2146,7 +2187,7 @@ function pluginRow(key, p, buttons, extra, detail) {
 // Everything known of a release, for an open row: what it does in full, its facts, what it uses
 // and what changed in it, and its homepage.
 function pluginDetail(p) {
-  const facts = [["ID", p.id], ["VERSION", p.version], ["SOURCE", p.source_name], ["AUTHORS", p.authors.join(", ")],
+  const facts = [["ID", p.id], ["VERSION", p.version], ["SOURCE", p.source_name], ["AUTHORS", (p.authors ?? []).join(", ")],
     ["RELEASED", p.released ? longDate(p.released) : ""], ["SIZE", p.size != null ? kb(p.size) : ""]].filter(([, x]) => x);
   return `<p class="desc ${p.description ? "" : "muted"}">${esc(p.description || "No description.")}</p>
     <div class="strip">${facts.map(([k, x]) => `<span><b>${k}</b>${esc(x)}</span>`).join("")}</div>
@@ -2166,7 +2207,8 @@ function updateLine(u) {
 function installedRow(x, busy) {
   const u = x.update;
   const local = x.local_in_its_place ? `<div class="sub">The local one is loaded in its place.</div>` : "";
-  const buttons = `${u && !u.needs_newer_dereth ? `<button class="btn" data-plugin-update="${esc(x.id)}" ${busy ? "disabled" : ""}>Update</button>` : ""}
+  // A plugin only the desktop launcher can fetch says so in place of its button.
+  const buttons = `${u && !u.needs_newer_dereth ? (x.desktop_only && host.desktopOnly) || `<button class="btn" data-plugin-update="${esc(x.id)}" ${busy ? "disabled" : ""}>Update</button>` : ""}
     <button class="btn" data-plugin-remove="${esc(x.id)}">Remove</button>`;
   let detail = pluginDetail(x);
   if (x.source_removed) detail += `<p class="small warn">You removed its source, so it gets no updates.</p>`;
@@ -2184,6 +2226,8 @@ function installedRow(x, busy) {
 // saying so. Its row has no buttons. Open, its location's line ends with Open, which shows the
 // folder, and Remove, which takes it off the list and deletes nothing.
 function localPluginRow(x) {
+  const own = host.localPluginRow?.(x);
+  if (own) return own;
   const p = { ...x, source_name: "Local" };
   const line = x.problem ? `<div class="sub warn">${esc(x.problem)}</div>`
     : x.id_taken ? `<div class="sub warn">Not loaded: a plugin above has the same id.</div>`
@@ -2198,7 +2242,7 @@ function localPluginRow(x) {
 }
 
 function availableRow(a, busy) {
-  const button = a.state === "install" ? `<button class="btn" data-plugin-install="${esc(a.source)}" data-plugin-id="${esc(a.id)}" ${busy ? "disabled" : ""}>Install</button>`
+  const button = a.state === "install" ? (a.desktop_only && host.desktopOnly) || `<button class="btn" data-plugin-install="${esc(a.source)}" data-plugin-id="${esc(a.id)}" ${busy ? "disabled" : ""}>Install</button>`
     : a.state === "needs_newer_dereth" ? `<span class="muted small">Needs a newer Dereth</span>`
     : `<span class="muted small">Only from Dereth</span>`;
   return pluginRow(`a:${a.source} ${a.id}`, a, button, "", pluginDetail(a));
@@ -2211,14 +2255,14 @@ function plugins() {
   const installed = v.installed.map((x) => installedRow(x, busy)).join("") + v.local.map(localPluginRow).join("")
     || `<p class="muted empty">No plugins installed. Install one from the list below.</p>`;
   // A folder on this computer, chosen with the system's picker and added at once.
-  const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button></div>`;
+  const addFolder = `<div class="plugin-line add"><button class="btn" data-act="plugin-folder-add" ${busy ? "disabled" : ""}>Add Plugin Folder</button>${host.pluginAddButtons?.(v, busy) ?? ""}</div>`;
   const updateOpts = PLUGIN_UPDATES.map(([val, l]) => `<option value="${val}" ${v.auto_update === val ? "selected" : ""}>${l}</option>`).join("");
   const setting = `<div class="row static plugin-setting"><div class="grow"><div class="name">Automatically update plugins</div>
       <div class="sub">Plugin updates that ask for additional permissions will never automatically install.</div></div>
       <div class="btns"><select id="plugin-updates" class="field mini" aria-label="Automatically update plugins">${updateOpts}</select></div></div>`;
 
   const q = p.search.trim().toLowerCase();
-  const shown = v.available.filter((a) => !q || [a.name, a.id, a.description, a.source_name].some((t) => t.toLowerCase().includes(q)));
+  const shown = v.available.filter((a) => !q || [a.name, a.id, a.description, a.source_name].some((t) => String(t ?? "").toLowerCase().includes(q)));
   const listed = v.sources.some((s) => s.plugins > 0);
   const available = shown.map((a) => availableRow(a, busy)).join("")
     || `<p class="muted empty">${q ? "No plugin matches." : listed ? "Every plugin the sources list is installed." : "No plugins listed yet. Refresh to read the sources."}</p>`;
@@ -2226,10 +2270,11 @@ function plugins() {
 
   // A source on one line: its name, how many plugins it lists and its address; Dereth's own stays.
   const sources = v.sources.map((s) => {
-    const skipped = s.skipped.length ? ` · <span class="warn" title="${esc(s.skipped.join("\n"))}">${s.skipped.length} could not be read</span>` : "";
+    const skipped = s.skipped?.length ? ` · <span class="warn" title="${esc(s.skipped.join("\n"))}">${s.skipped.length} could not be read</span>` : "";
+    const problem = s.problem ?? (s.error ? `Could not be read: ${s.error}` : null);
     return `<div class="row static source-row"><div class="grow">
         <div class="line"><span class="name">${esc(s.name)}</span><span class="muted small">${s.plugins} plugin${s.plugins === 1 ? "" : "s"}${skipped}</span><span class="muted small addr" title="${esc(s.url)}">${esc(s.url)}</span></div>
-        ${s.error ? `<div class="sub warn" title="${esc(s.error)}">Could not be read: ${esc(s.error)}</div>` : ""}</div>
+        ${problem ? `<div class="sub warn" title="${esc(s.problem ?? s.error)}">${esc(problem)}</div>` : ""}</div>
         ${s.first_party ? "" : `<div class="btns"><button class="btn" data-plugin-source-remove="${esc(s.url)}">Remove</button></div>`}</div>`;
   }).join("");
   const add = `<div class="plugin-line add"><input id="plugin-source" class="field mini-field" type="text" placeholder="https://…/plugins.json" spellcheck="false" autocomplete="off" aria-label="A source's address" value="${esc(p.add)}">
@@ -2253,7 +2298,7 @@ function plugins() {
           ${pluginSection("installed", "INSTALLED", v.installed.length + v.local.length, `<div class="list">${installed}</div>${addFolder}${setting}`)}
           ${pluginSection("available", "AVAILABLE", shown.length, `${search}<div class="list">${available}</div>`)}
           ${pluginSection("sources", "SOURCES", v.sources.length, `<div class="list">${sources}</div>${add}`)}
-          ${pluginSection("build", "MAKE YOUR OWN", "", build)}
+          ${offered("make_plugin") ? `${pluginSection("build", "MAKE YOUR OWN", "", build)}` : ""}
         </div>
       </section>
     </div>`;
@@ -2334,20 +2379,20 @@ function firstRun() {
     body = `<header><h1>GETTING THE GAME FILES</h1></header>
       <p>The community guide explains how to install Asheron's Call and get the final data files.</p>
       <div class="btns" style="margin:10px 0 16px"><button class="btn" data-url="${GUIDE}">Open community guide</button></div>
-      <div class="btns" style="justify-content:space-between"><span>Then come back and point us at the folder.</span><button class="btn" data-act="fr-choose">Choose folder</button></div>
-      <p class="muted" style="margin-top:16px">We never download or host these files. We only check them.</p>
+      <div class="btns" style="justify-content:space-between"><span>${say("first-run.then", "Then come back and point us at the folder.")}</span><button class="btn" data-act="fr-choose">${say("first-run.choose", "Choose folder")}</button></div>
+      <p class="muted" style="margin-top:16px">${say("first-run.never", "We never download or host these files. We only check them.")}</p>
       <div class="btns"><button class="btn" data-act="fr-skip">Skip for now</button></div>`;
   } else if (fr.step === "found") {
     const f = fr.find;
     body = `<header><h1>${esc(f.folder)}</h1></header>${findSummary(f, "both")}
       <div class="btns" style="margin-top:10px"><button class="btn" data-act="fr-continue" ${f.retail || f.dats || f.classic ? "" : "disabled"}>Continue</button>
-        <button class="btn" data-act="fr-choose">Choose another folder</button>
+        <button class="btn" data-act="fr-choose">${say("first-run.other", "Choose another folder")}</button>
         ${f.dats && !isEndOfRetail(setIterations(f.dats)) ? `<button class="btn" data-url="${GUIDE}">Open community guide</button>` : ""}</div>`;
   } else {
     body = `<header><h1>WELCOME TO DERETH</h1></header>
       <p style="font-size:21px">${retailHere() ? "Do you already have Asheron's Call installed?" : "Do you already have Asheron's Call's data files?"}</p>
-      <div class="btns" style="margin:12px 0"><button class="btn" data-act="fr-choose">Yes - show me the folder</button><button class="btn" data-act="fr-guide">No - how do I get it?</button></div>
-      <p class="muted">The Dereth client needs the game's data (.dat) files, which we cannot ship. Either way, we will check what you have.</p>
+      <div class="btns" style="margin:12px 0"><button class="btn" data-act="fr-choose">${say("first-run.yes", "Yes - show me the folder")}</button><button class="btn" data-act="fr-guide">${say("first-run.no", "No - how do I get it?")}</button></div>
+      <p class="muted">${say("first-run.why", "The Dereth client needs the game's data (.dat) files, which we cannot ship. Either way, we will check what you have.")}</p>
       <div class="btns"><button class="btn" data-act="fr-skip">Skip for now</button></div>`;
   }
   return `<div class="column wide"><section class="panel">${body}</section></div>`;
@@ -2489,6 +2534,8 @@ document.addEventListener("click", async (ev) => {
   const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
+  // A form's own submit button submits it (below).
+  if (t.type === "submit" && t.form) return;
   const d = t.dataset;
   if (d.realmPick) {
     const portal = t.querySelector(".portal")?.getBoundingClientRect();
@@ -2721,7 +2768,8 @@ document.addEventListener("click", async (ev) => {
     case "add-dats": {
       const game = realmGame();
       const f = await act("pick_folder", { title: game === "auberean" ? "Choose a folder of Asheron's Call 2 data files: portal.dat, cell_1.dat and local_English.dat" : "Choose a folder of data files: the client_*.dat files, or portal.dat and cell.dat", game });
-      if (f) { ui.addFind = { purpose: "dats", find: f }; render(); }
+      // Files a backend kept as they were chosen leave nothing to confirm.
+      if (f && !f.kept) { ui.addFind = { purpose: "dats", find: f }; render(); }
       break;
     }
     case "add-cancel": ui.addFind = null; render(); break;
@@ -2761,7 +2809,7 @@ document.addEventListener("click", async (ev) => {
     case "iface-save": await saveInterface(); break;
     case "fr-skip": ui.firstRun.dismissed = true; ui.screen = "home"; render(); break;
     case "fr-choose": { const f = await act("pick_folder", { title: retailHere() ? "Choose your Asheron's Call folder" : "Choose the folder that holds the four .dat files" }); if (f) { ui.firstRun.find = f; ui.firstRun.step = "found"; render(); } break; }
-    case "fr-continue": { const f = ui.firstRun.find; ui.firstRun = { ...ui.firstRun, step: "ask", find: null, dismissed: true }; ui.screen = "home"; await act("add_folder", { find: f }); break; }
+    case "fr-continue": { const f = ui.firstRun.find; ui.firstRun = { ...ui.firstRun, step: "ask", find: null, dismissed: true }; ui.screen = "home"; await act("add_folder", { find: f }); render(); break; }
   }
 });
 
@@ -2825,6 +2873,14 @@ async function addServer() {
   }
 }
 
+// PLAY on a world's page that is a form submits it, so what watches the form sees the sign-in go.
+document.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (ev.target.id !== "world-form" || !ui.world) return;
+  const c = formChoice();
+  if (c && worldCanPlay()) await play(c);
+});
+
 document.addEventListener("dblclick", async (ev) => {
   const row = ev.target.closest("[data-dbl-home]");
   const e = row && homeEntries()[Number(row.dataset.dblHome)];
@@ -2855,7 +2911,8 @@ document.addEventListener("input", (ev) => {
   }
   if (!ui.world) return;
   const f = ui.world.form;
-  if (t.id === "acct-name") { f.account = t.value; f.remembered = false; syncWorld(); }
+  // Where the backend keeps no passwords, what keeps them is asked at the launch, whatever the name.
+  if (t.id === "acct-name") { f.account = t.value; f.remembered = !offered("kept_passwords"); syncWorld(); }
   if (t.id === "password") { f.password = t.value; syncWorld(); }
 });
 
@@ -2894,6 +2951,7 @@ document.addEventListener("change", async (ev) => {
     case "remember": f.remember = t.checked; return;
     default: return;
     case "dats":
+      if (host.datsChosen?.(t, f)) return;
       if (t.value === "__private") { await act("create_private_copy", { slug: ui.world.view.world.slug }); ui.world.notice = "Copying data files for this world. PLAY when it is done."; }
       else if (t.value === "__custom") { if (await act("add_custom_dats", { slug: ui.world.view.world.slug })) await openWorld(ui.world.view.world.slug, null, formChoice() ?? undefined); return; }
       else f.dat_set_id = t.value || null;
@@ -2941,7 +2999,9 @@ document.addEventListener("keydown", async (ev) => {
   if (ev.key === "Enter" && ev.target.dataset?.cmd) { await submitCommand(ev.target.dataset.cmd); return; }
   if (ev.key === "Enter" && ev.target.dataset?.keyField !== undefined) { await saveKey(); return; }
   if (ev.key === "Enter" && ui.screen === "world" && (ev.target.id === "password" || ev.target.id === "acct-name")) {
-    if (ev.target.id === "acct-name" && !ui.world.form.password) { focusSoon("password"); return; }
+    if (ev.target.id === "acct-name" && !ui.world.form.password) { ev.preventDefault(); focusSoon("password"); return; }
+    // In a form, Enter submits it.
+    if (ev.target.form) return;
     const c = formChoice();
     if (c && ui.world.view.world.endpoint) await play(c);
   }
@@ -3116,7 +3176,8 @@ async function watchLibrary() {
     const view = await api("world_view", { slug: ui.world.view.world.slug }).catch(() => null);
     if (view) {
       ui.world.view = view;
-      if (!view.dat_sets.some((s) => s.id === ui.world.form.dat_set_id)) ui.world.form.dat_set_id = view.dat_sets[0]?.id ?? null;
+      const more = host.moreSets?.(view.world) ?? [];
+      if (![...view.dat_sets, ...more].some((s) => s.id === ui.world.form.dat_set_id)) ui.world.form.dat_set_id = view.dat_sets[0]?.id ?? null;
       if (!view.classic_sets.some((s) => s.id === ui.world.form.classic_set_id)) ui.world.form.classic_set_id = view.classic_sets.find((s) => s.origin.kind === "shared")?.id ?? null;
       render();
     }
@@ -3273,29 +3334,35 @@ const REALMS = {
 // A world of the realm's game, as the hub's list names it; a world that names no game is Asheron's
 // Call's (`dereth`).
 const inRealm = (w) => (w?.game ?? "dereth") === REALMS[ui.realm].game;
+// The realms the backend offers, in the page's order.
+const realmsOffered = (snap) => Object.keys(REALMS).filter((r) => snap.offers?.realms?.includes(r) ?? true);
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // The first snapshot: the page opens in the realm it last showed, without easing into it, wearing
-// the network's crest, of both games, with the portals and both sets of paintings.
+// the network's crest, of both games, with the portals and both sets of paintings. A backend that
+// offers one realm opens in it, wearing that game's own emblem, with no portals.
 function openRealm(snap) {
+  const realms = realmsOffered(snap);
   const saved = snap.state.settings.realm;
-  ui.realm = REALMS[saved] ? saved : "dereth";
+  ui.realm = realms.includes(saved) ? saved : realms[0];
   const root = document.documentElement;
   root.dataset.realm = ui.realm;
-  document.querySelector(".lockup .emblem").src = "assets/emblem/network.webp";
-  root.dataset.realms = "";
-  document.getElementById("realm").innerHTML = Object.entries(REALMS).map(([id, r]) =>
-    `<button class="pick" role="radio" aria-checked="${ui.realm === id}" data-realm-pick="${id}" data-realm-of="${id}">
-      <span class="portal"><img class="vortex" src="assets/portal/${id}-vortex.webp" alt=""><img src="assets/portal/${id}-ring.webp" alt=""></span><span>${r.name}</span></button>`).join("");
+  document.querySelector(".lockup .emblem").src = `assets/emblem/${realms.length > 1 ? "network" : ui.realm}.webp`;
+  if (realms.length > 1) {
+    root.dataset.realms = "";
+    document.getElementById("realm").innerHTML = realms.map((id) =>
+      `<button class="pick" role="radio" aria-checked="${ui.realm === id}" data-realm-pick="${id}" data-realm-of="${id}">
+        <span class="portal"><img class="vortex" src="assets/portal/${id}-vortex.webp" alt=""><img src="assets/portal/${id}-ring.webp" alt=""></span><span>${REALMS[id].name}</span></button>`).join("");
+  }
   requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("still")));
-  vista(Object.keys(REALMS));
+  vista(realms);
 }
 
 // Changing realm: the accent eases over, the rail's tools pass to the other game's and Plugins,
 // Dereth's alone, folds away or comes back, the new realm's first painting opens out from the
 // portal picked, and the screen fades to the new realm's worlds. The launcher keeps the realm.
 async function setRealm(realm, from) {
-  if (realm === ui.realm || !REALMS[realm]) return;
+  if (realm === ui.realm || !realmsOffered(ui.snap).includes(realm)) return;
   ui.realm = realm;
   api("set_realm", { realm }).catch((e) => console.error(e));
   document.documentElement.dataset.realm = realm;
@@ -3550,10 +3617,12 @@ async function demoJump() {
   render();
 }
 
-if (!window.__TAURI__) {
+if (window.demoBackend) {
   document.body.insertAdjacentHTML("beforeend", `<div class="demo-flag">DEMO DATA — NOT CONNECTED</div>`);
   demoJump();
 }
+// What the host may do with the page, before its first look at the backend.
+host.attach?.({ ui, render, pull, toast, openWorld, reopenWorld });
 let drawnMinute = 0;
 (async function loop() {
   await pull();

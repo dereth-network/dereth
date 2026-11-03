@@ -433,40 +433,6 @@ impl Front {
         }
     }
 
-    /// What Home offers, as the desktop launcher's Home lists it: every favourite, then the
-    /// combinations played recently that are not one, newest first. While the page shows any world,
-    /// a combination whose world it does not show at `now` is left out.
-    #[must_use]
-    pub fn home(&self, now: u64) -> Value {
-        let shown: Vec<String> = self.shown(now).map(|w| w.slug).collect();
-        let listed = |slug: &str| shown.is_empty() || shown.iter().any(|s| s == slug);
-        let s = &self.state;
-        let favourites = s.favourites.iter().map(|f| {
-            json!({"world_slug": f.world_slug, "account": f.account, "client": f.client,
-                   "dat_set_id": f.dat_set_id, "classic_set_id": f.classic_set_id,
-                   "favourite": f.id})
-        });
-        let recent = s
-            .recent
-            .iter()
-            .filter(|r| {
-                !s.favourites.iter().any(|f| {
-                    r.same_as(&f.world_slug, &f.account, f.client, f.dat_set_id.as_deref())
-                })
-            })
-            .map(|r| {
-                json!({"world_slug": r.world_slug, "account": r.account, "client": r.client,
-                       "dat_set_id": r.dat_set_id, "classic_set_id": r.classic_set_id,
-                       "favourite": null})
-            });
-        Value::Array(
-            favourites
-                .chain(recent)
-                .filter(|e| listed(e["world_slug"].as_str().unwrap_or("")))
-                .collect(),
-        )
-    }
-
     /// The files kept in the browser's folder `folder`, read: the later set they hold and the
     /// older pair, each a data set of its own as the desktop library lists a folder holding both.
     /// A folder read before is read again in place. Answers the ids of its sets.
@@ -827,7 +793,7 @@ mod tests {
         f.set_world_favorite("seedsow", false);
         assert!(favorites(&f).is_empty());
         assert!(
-            home_of(&f).iter().any(|(w, _, fav)| w == "achard" && *fav),
+            kept_of(&f).iter().any(|(w, _, fav)| w == "achard" && *fav),
             "the Play favorite is left alone"
         );
     }
@@ -1195,28 +1161,21 @@ mod tests {
         );
     }
 
-    /// The (world, account, favourite) of each entry Home offers.
-    fn home_of(f: &Front) -> Vec<(String, String, bool)> {
-        f.home(NOW)
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|e| {
-                (
-                    e["world_slug"].as_str().unwrap().to_owned(),
-                    e["account"].as_str().unwrap().to_owned(),
-                    !e["favourite"].is_null(),
-                )
-            })
+    /// The (world, account, favourite) of each favourite, then of each recent combination, as kept.
+    fn kept_of(f: &Front) -> Vec<(String, String, bool)> {
+        let favourites = f.state.favourites.iter();
+        let recent = f.state.recent.iter();
+        favourites
+            .map(|e| (e.world_slug.clone(), e.account.clone(), true))
+            .chain(recent.map(|e| (e.world_slug.clone(), e.account.clone(), false)))
             .collect()
     }
 
     /// A start is recorded as the desktop launcher records one (the account, the world's choices,
     /// the combination as the most recent, each once whatever the account name's case), with no
-    /// password kept; Home lists the favourites, then the recent combinations that are not one,
-    /// and none whose world the page does not show.
+    /// password kept; and pinning and forgetting change what's kept as the desktop's do.
     #[test]
-    fn a_start_is_recorded_as_the_desktop_launcher_records_one_and_home_lists_it() {
+    fn a_start_is_recorded_as_the_desktop_launcher_records_one_and_pins_and_forgets_as_it_does() {
         let mut f = Front::default();
         f.set_copy(&copy_of(LIST), None, None).unwrap();
         assert!(f.record_launch("achard", "not prefs", NOW).is_err());
@@ -1244,40 +1203,34 @@ mod tests {
         );
         f.record_launch("seedsow", r#"{"account":"alt"}"#, NOW + 2)
             .unwrap();
-        // A start on a world the list no longer shows is recorded, and not offered.
+        // A start on a world the list no longer shows is recorded too; the page decides what it offers.
         f.record_launch("nowhere", r#"{"account":"ghost"}"#, NOW + 3)
             .unwrap();
-        assert_eq!(
-            home_of(&f),
-            [
-                ("seedsow".into(), "alt".into(), false),
-                ("achard".into(), "Player".into(), false)
-            ]
-        );
+        let recent = [
+            ("nowhere".into(), "ghost".into(), false),
+            ("seedsow".into(), "alt".into(), false),
+            ("achard".into(), "Player".into(), false),
+        ];
+        assert_eq!(kept_of(&f), recent);
 
-        // Pinned, the combination is a favourite, first, and not offered again as a recent one.
+        // Pinned, the combination is a favourite, kept apart from the recent ones.
         let pinned = json!({"id": "", "world_slug": "achard", "account": "player",
                             "client": "dereth", "dat_set_id": "web-1"})
         .to_string();
         let id = f.save_favourite(&pinned).unwrap();
         assert!(!id.is_empty());
-        assert_eq!(
-            home_of(&f),
-            [
-                ("achard".into(), "player".into(), true),
-                ("seedsow".into(), "alt".into(), false)
-            ]
-        );
+        assert_eq!(kept_of(&f)[0], ("achard".into(), "player".into(), true));
+        assert_eq!(kept_of(&f)[1..], recent);
         f.remove_favourite(&id);
-        assert_eq!(home_of(&f).len(), 2);
+        assert_eq!(kept_of(&f), recent);
 
         // Forgetting an account forgets its combinations; forgetting all forgets every one.
         f.save_favourite(&pinned).unwrap();
         f.forget_account("achard", "PLAYER");
-        assert_eq!(home_of(&f), [("seedsow".into(), "alt".into(), false)]);
+        assert_eq!(kept_of(&f), recent[..2]);
         assert!(f.world("achard", NOW).unwrap()["prefs"]["account"].is_null());
         f.forget_all_accounts();
-        assert!(home_of(&f).is_empty());
+        assert!(kept_of(&f).is_empty());
         assert!(f.state.accounts.is_empty());
     }
 

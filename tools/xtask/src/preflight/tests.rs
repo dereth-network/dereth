@@ -1261,21 +1261,18 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     assert_eq!(plan::lyceum_bump().0, Bump::Patch);
     // The web client carries Dereth's version: a change to it alone is a Dereth release, and the
     // plan says so.
-    assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    assert_eq!(of(&["dereth/web/www/play.js"]), [Product::Dereth]);
     assert_eq!(of(&["dereth\\web\\src\\front.rs"]), [Product::Dereth]);
     let web_alone = |paths: &[&str]| {
         let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
         plan::web_alone(&changed, &packages, &depends, &BTreeMap::new())
     };
-    assert!(web_alone(&["dereth/web/www/front.js", "docs/x.md"]));
+    assert!(web_alone(&["dereth/web/www/play.js", "docs/x.md"]));
     let client_moved: BTreeMap<Product, Vec<String>> =
         [(Product::Dereth, vec!["wgpu 27.0.0 -> 27.0.1".to_owned()])].into();
     assert!(
         !plan::web_alone(
-            &[
-                "dereth/web/www/front.js".to_owned(),
-                "Cargo.lock".to_owned()
-            ],
+            &["dereth/web/www/play.js".to_owned(), "Cargo.lock".to_owned()],
             &packages,
             &depends,
             &client_moved
@@ -1283,7 +1280,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         "the client's crates moved too"
     );
     assert!(!web_alone(&[
-        "dereth/web/www/front.js",
+        "dereth/web/www/play.js",
         "dereth/client/src/main.rs"
     ]));
     assert!(!web_alone(&["core/primitives/src/lib.rs"]), "the client's");

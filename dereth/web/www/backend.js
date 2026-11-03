@@ -1,6 +1,6 @@
-// The launcher's backend in the browser. The front page (`front.js`) draws every screen from one
-// snapshot and sends every action as one command, by the desktop launcher's own command names and in
-// the shape of its snapshot, so the two pages can share their screens. The answers come from the
+// The launcher's backend in the browser. The launcher's own page (`host.js` loads it) draws every
+// screen from one snapshot and sends every action as one command, so this answers by the desktop
+// launcher's command names and in the shape of its snapshot. The answers come from the
 // launcher's logic in the module (the worker runs it: the world list, the worlds, the accounts,
 // favourites and recent combinations, the data sets and which of them a world takes, plugins) and
 // from this browser's storage.
@@ -56,6 +56,10 @@ export function webBackend({ call, start, params, log, scale }) {
     kept: { sets: [], overlays: [], storage: {}, added: [] },
     // Files picked for one visit.
     picked: null,
+    // A client is running: it has the launcher in the worker, so nothing is asked of it.
+    playing: false,
+    // The last snapshot, the answer while a client runs.
+    snapshot: null,
   };
 
   const save = async () => keep(STATE_KEY, await call('state'));
@@ -137,19 +141,51 @@ export function webBackend({ call, start, params, log, scale }) {
 
   // ---- the snapshot ---------------------------------------------------------------------------
 
+  // What a browser cannot do, for the page to leave out. Only Dereth's realm plays here so far.
+  const OFFERS = {
+    hosting: false,
+    building: false,
+    retail: false,
+    downloads: false,
+    discord: false,
+    client_choice: false,
+    make_plugin: false,
+    kept_passwords: false,
+    realms: ['dereth'],
+  };
+
+  // The client here, as the page shows one it found.
+  const client = () => ({ kind: 'dereth', version: web.version, shown_name: `Dereth ${web.version}`, path: 'Runs in this browser.' });
+
   async function snapshot() {
+    if (web.playing && web.snapshot) return web.snapshot;
+    try {
+      web.snapshot = await read();
+    } catch (e) {
+      // A client that started meanwhile refuses the rest; that is no error.
+      if (!web.playing || !web.snapshot) throw e;
+    }
+    return web.snapshot;
+  }
+
+  async function read() {
     const all = await call('worlds');
     const st = await state();
+    for (const set of st.dat_sets) set.shown_path = `Kept in this browser as ${String(set.path).split('/').pop()}`;
     return {
-      worlds: all.worlds,
+      offers: OFFERS,
+      dereth: client(),
+      worlds: all.worlds.map((w) => {
+        const reach = reachOf(w);
+        return { ...w, reach: { ...reach, text: reach.direct ? 'Directly' : 'Not in a browser yet' } };
+      }),
       eras: all.eras,
       features: all.features,
       state: st,
-      home: await call('home'),
       list_state: web.list.state,
       list_error: web.list.error,
       list_fetched_at: web.list.fetched,
-      plugins: await call('plugins'),
+      plugins: { ...(await call('plugins')), local: web.kept.added },
       interface: await call('interface'),
       running: [],
       job: web.job,
@@ -159,7 +195,6 @@ export function webBackend({ call, start, params, log, scale }) {
       platform: 'web',
       // What only the browser has.
       web: {
-        reach: Object.fromEntries(all.worlds.map((w) => [w.slug, reachOf(w)])),
         kept: web.kept,
         scale: scale.get(),
         picked: web.picked ? web.picked.map((f) => f.name) : null,
@@ -187,12 +222,19 @@ export function webBackend({ call, start, params, log, scale }) {
       return {
         ...page,
         prefs: page.prefs ?? {},
-        requires: page.launch.set,
+        clients: [{ kind: 'dereth', install: client(), runnable: true }],
+        default_client: 'dereth',
+        // `?account=<name>`: the account to start from where the world knows none.
+        account_hint: params.get('account'),
         reach: reachOf(page.world),
         overlay: await overlayOf(page),
       };
     },
-    has_password: () => false,
+    // The browser's password manager may have it; the launch asks, and says when it has none.
+    has_password: () => true,
+    // Nothing is asked of a world here beyond what the hub says of it.
+    worlds_shown: () => {},
+    probe_world: () => {},
     launch: ({ choice }) => launch(choice),
     save_favourite: async ({ favourite }) => {
       await call('saveFavourite', favourite);
@@ -243,17 +285,20 @@ export function webBackend({ call, start, params, log, scale }) {
     remove_plugin_source: ({ url }) => call('pluginRemoveSource', url),
     install_plugin: ({ source, id }) => call('installPlugin', source, id),
     update_plugin: ({ id }) => call('updatePlugin', id),
-    remove_plugin: ({ id }) => call('removePlugin', id),
+    remove_plugin: async ({ id }) => {
+      await call('removePlugin', id);
+      await readKept();
+    },
     set_plugin_updates: ({ setting }) => call('pluginUpdates', setting),
     open_url: ({ url }) => {
       window.open(url, '_blank', 'noopener');
     },
   };
 
-  // Start the client on `choice`: `{ world_slug, account, password, dat_set_id, classic_set_id,
-  // dats, server }`, `dats` being 'http' for the dev runner's files or 'visit' for files picked
-  // for this visit, and `server` the address to connect through when the player changed it.
-  // Answers as the desktop's launch does: launched, or the password it needs, or why not.
+  // Start the client on `choice`: `{ world_slug, account, password, dat_set_id, classic_set_id }`,
+  // `dat_set_id` being '__http' for the dev runner's files or '__visit' for files picked for this
+  // visit. Answers as the desktop's launch does: launched, or the password it needs, or why not.
+  // The client takes this page, which stays as it is for its return.
   async function launch(choice) {
     const page = await call('world', choice.world_slug);
     if (!page) return { kind: 'failed', message: 'That world is no longer listed.' };
@@ -282,9 +327,9 @@ export function webBackend({ call, start, params, log, scale }) {
     const st = await state();
     const pathOf = (id) => st.dat_sets.find((s) => s.id === id)?.path ?? null;
     let dats;
-    if (choice.dats === 'http') {
+    if (choice.dat_set_id === '__http') {
       dats = { mode: 'http' };
-    } else if (choice.dats === 'visit') {
+    } else if (choice.dat_set_id === '__visit') {
       if (!web.picked) return { kind: 'failed', message: 'Pick the files for this visit first.' };
       dats = { mode: 'files', files: web.picked };
     } else {
@@ -304,6 +349,7 @@ export function webBackend({ call, start, params, log, scale }) {
     await save();
     await persist();
     await storePassword(login, password);
+    web.playing = true;
     start({
       dats,
       server,
@@ -312,7 +358,7 @@ export function webBackend({ call, start, params, log, scale }) {
       args: page.args,
       overlay: page.overlay_folder ? `overlays/${page.overlay_folder}` : '',
     });
-    return { kind: 'launched', world: page.world.name, account };
+    return { kind: 'launched', stays: true, world: page.world.name, account };
   }
 
   // ---- passwords --------------------------------------------------------------------------------
@@ -374,10 +420,11 @@ export function webBackend({ call, start, params, log, scale }) {
     }
   }
 
-  // Add a server from what the player typed: `{ name, address, emulator, ruleset }`.
-  async function addServer({ name = '', address, emulator = 'unknown', ruleset = '' }) {
+  // Add a server from what the player typed: `{ name, host, port, emulator, ruleset }`, `host` being
+  // a bare host, `host:port`, a `wss://` URL or a status address.
+  async function addServer({ name = '', host: address, port: typed, emulator = 'unknown', ruleset = '' }) {
     let host = String(address ?? '').trim();
-    let port = '9000';
+    let port = typed || '9000';
     let url = null;
     if (/^(wss?|https?):\/\//i.test(host)) {
       const u = new URL(host);
@@ -489,7 +536,7 @@ export function webBackend({ call, start, params, log, scale }) {
     if (named) {
       const found = Object.entries(web.connect).find(([k, v]) => !k.includes('#') && v === named);
       try {
-        linked = found ? found[0] : await addServer({ address: named });
+        linked = found ? found[0] : await addServer({ host: named });
       } catch (e) {
         say(`?server=${named}: ${e?.message ?? e}`, true);
       }
@@ -506,13 +553,23 @@ export function webBackend({ call, start, params, log, scale }) {
   }
 
   return {
-    // A command by the desktop launcher's name: its answer, or an error with what to say.
+    // A command by the desktop launcher's name: its answer, or what to say, as the desktop's answers
+    // are. It runs at once up to its first wait, inside the click that asked.
     async api(cmd, args = {}) {
       const h = handlers[cmd];
-      if (!h) throw new Error(`no ${cmd} here`);
-      return h(args);
+      if (!h) throw `no ${cmd} here`;
+      try {
+        return await h(args);
+      } catch (e) {
+        throw String(e?.message ?? e);
+      }
     },
     begin,
+    playing: () => web.playing,
+    // The client ended: the launcher in the worker is the page's again.
+    ended() {
+      web.playing = false;
+    },
     readHub,
     readKept,
     storeFiles,
