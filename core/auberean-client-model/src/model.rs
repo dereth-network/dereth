@@ -552,6 +552,7 @@ impl Model {
         match &item.message {
             // The world's name, kept for the panels.
             // D2-03961, D2-03996
+            // D2-00094
             S::WorldName(t) => self.world_name = Some(t.0.clone()),
             // The account's characters, kept for the character list, which is told.
             // D2-03953, D2-03993

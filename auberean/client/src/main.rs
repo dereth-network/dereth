@@ -349,6 +349,7 @@ fn settings_dir() -> PathBuf {
 /// strings of the language to run in, in the order the client opens them, with the script library
 /// linked). The language is the command line's, else the preferences', else English (English too
 /// when the install has no strings for it); its name comes back with the data.
+// D2-00120
 fn open(
     dir: &Path,
     language: Option<&str>,
@@ -696,6 +697,7 @@ impl App<'_> {
         self.shell.event(e);
     }
 
+    // D2-00029
     fn redraw(&mut self, el: &ActiveEventLoop) {
         if let Some(s) = &mut self.script {
             let asked = s.step(
@@ -861,6 +863,7 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+// D2-00130, D2-01703
 fn run() -> Result<(), String> {
     let o = options()?;
     tracing_subscriber::fmt()

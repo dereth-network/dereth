@@ -175,6 +175,7 @@ struct Shared {
     atlas: Option<std::sync::Arc<auberean_ui_game::map::Atlas>>,
     clock: Option<auberean_ui_game::map::Clock>,
     /// The program is ending.
+    // D2-01656
     shutting_down: bool,
     /// What the play screen asked.
     out: Vec<gameplay::Request>,

@@ -167,6 +167,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.logon.no-ticket-is-an-account-login",
+        says: "With no ticket the login is an account login: the account and the session-key blob, \
+               nothing in the ticket's place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOGON-ACCOUNT"),
+        station: "auberean-client-net::cpu::logon::a_login_with_no_ticket_is_an_account_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.logon.the-login-carries-version-ticket-account-and-key-blob",
         says: "The game login carries the version 1802, a ticket login with flags 1, the time, the \
                account as typed, a session-key blob (its twelve-byte header, then 64 bytes) and the \

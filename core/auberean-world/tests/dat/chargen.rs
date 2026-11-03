@@ -305,7 +305,11 @@ fn the_native_creation_answers_as_the_character_generators_scripts_do() {
     let a = m.call(PLAYER_AVATAR, 1, &[]);
     assert_eq!(a.outs[0].0, avatar_entity(false), "the player's avatar");
     let a = m.call(ADMIN_AVATAR, 1, &[]);
-    assert_eq!(a.outs[0].0, avatar_entity(true), "the administrator's avatar");
+    assert_eq!(
+        a.outs[0].0,
+        avatar_entity(true),
+        "the administrator's avatar"
+    );
 
     // The races and sexes.
     let a = m.call(RACE_SEX_DATA, 1, &[]);

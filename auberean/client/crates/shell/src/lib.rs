@@ -209,7 +209,9 @@ pub const HEARD_CALLS: [u32; 3] = [0x8205_0016, 0x8205_0017, 0x8205_0011];
 
 impl<'w, H: Host> Shell<'w, H> {
     /// The application over `host`, showing `world`, with the client's `data`, and `interface`
-    /// over the world. Reads the settings the host kept.
+    /// over the world. Reads the settings the host kept; the sound starts, then the world and the
+    /// interface, and the key maps and the action interpreter are ready.
+    // D2-00141, D2-00027
     pub fn new(
         mut host: H,
         world: &'w WorldData,
@@ -347,12 +349,7 @@ impl<'w, H: Host> Shell<'w, H> {
                     c.act(a);
                 }
             }
-            Request::Disconnect => {
-                if self.client.take().is_some_and(|c| c.friends().is_some()) {
-                    self.host.friends_close();
-                }
-                self.entering = false;
-            }
+            Request::Disconnect => self.disconnect(),
             Request::Quit => self.quit = true,
             Request::ShowWorld(on) => self.scene.show_world(on),
             Request::Camera(c) => self.camera(c),
@@ -442,6 +439,7 @@ impl<'w, H: Host> Shell<'w, H> {
         self.entering = false;
     }
 
+    // D2-00098
     fn connect(&mut self, server: SocketAddr, account: &str, password: &str) {
         self.stopped = None;
         self.ended = None;
@@ -476,6 +474,21 @@ impl<'w, H: Host> Shell<'w, H> {
             ));
         }
         self.client = Some(client);
+        self.entering = false;
+    }
+
+    /// The player leaves the server: a goodbye on every connection, and the session goes.
+    // D2-00099
+    fn disconnect(&mut self) {
+        if let Some(c) = &mut self.client {
+            c.disconnect();
+            while let Some((to, bytes)) = c.poll_transmit() {
+                self.host.send(to, &bytes);
+            }
+        }
+        if self.client.take().is_some_and(|c| c.friends().is_some()) {
+            self.host.friends_close();
+        }
         self.entering = false;
     }
 

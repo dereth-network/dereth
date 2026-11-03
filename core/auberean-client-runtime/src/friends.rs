@@ -501,7 +501,7 @@ impl Friends {
 
     /// Listen for connect events (the login's own handler), for the service's chat events (tells),
     /// and for its friends events.
-    // D2-12110, D2-01689
+    // D2-12110, D2-01689, D2-01670
     pub fn register_for_connect_events(&mut self) -> bool {
         self.connect_handler = Some(0);
         true

@@ -1198,6 +1198,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.session.leaving-the-server-says-goodbye",
+        says: "Leaving the server says goodbye on the login and the world connections, and the session \
+               goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESSION-LEAVE"),
+        station: "auberean-shell::dat::session::leaving_the_server_says_goodbye_on_every_connection",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.settings.a-fresh-install-starts-at-the-quality-the-configuration-offers",
         says: "With no preferences kept the client starts at overall quality 4, as the \
                configuration program the original runs first offers on any machine that draws \

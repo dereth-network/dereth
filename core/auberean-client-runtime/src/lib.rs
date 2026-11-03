@@ -174,6 +174,7 @@ pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
 /// # Errors
 /// The library is not there, or does not load or link.
 // D2-00741, D2-07978, D2-08022, D2-07998, D2-07997, D2-07992, D2-07993, D2-00748, D2-00749
+// D2-01657
 pub fn link_scripts_noting(
     portal: &DatFile,
     note: impl FnOnce(&auberean_dat::checked::Retried),
@@ -1166,6 +1167,7 @@ impl Client {
         self.download.set_time(now.0);
         // The friends service's news first; while its part of the login runs, the game login
         // waits.
+        // D2-01660
         self.friends_frame();
         if self.friends_hold_login() {
             return;

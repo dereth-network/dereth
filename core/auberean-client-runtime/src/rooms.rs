@@ -54,7 +54,7 @@ struct Waiting {
 
 /// The chat service's client: the count its marks come from, the lines waiting for their
 /// answers, and the packets to send. It lives as long as the client does.
-// D2-03931, D2-01665
+// D2-03931, D2-01665, D2-01655
 #[derive(Clone, Debug, Default)]
 struct Service {
     context: u32,

@@ -566,6 +566,37 @@ fn the_body_runs_with_the_default_keys_and_is_reported() {
     );
 }
 
+/// An interface that asks to leave the server from the world, once.
+struct LeavesAtOnce(DevLogin, bool);
+
+impl Interface for LeavesAtOnce {
+    fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        self.0.update(game, requests);
+        if !self.1 && game.phase == Phase::World {
+            self.1 = true;
+            requests.push(Request::Disconnect);
+        }
+    }
+}
+
+/// Leaving the server says goodbye on the login and the world connections, and the session goes.
+///
+/// Behaviour: desktop.session.leaving-the-server-says-goodbye
+#[test]
+fn leaving_the_server_says_goodbye_on_every_connection() {
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(LeavesAtOnce(
+        DevLogin::new(server, "tester".into(), "t".into(), None),
+        false,
+    )));
+    while s.client.is_some() || s.host.time < 1.0 {
+        assert!(s.host.time < 20.0, "left the server");
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::Disconnected);
+    assert_eq!(s.host.double.report().client_goodbyes, vec![true, true]);
+}
+
 /// Entering the world, the client is in portal space from the moment it asks to enter, before
 /// the player is placed, and goes out over two seconds (the tunnel widening into white, then the
 /// world out of the white) once the server has the player in the world and the client its body.

@@ -527,6 +527,7 @@ const GAME_OPTIONS: [Row; 10] = [
 ];
 
 /// What the September 2013 client keeps from its command line.
+// D2-00086, D2-00087, D2-00089, D2-00090
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientLine {
     /// The account, in small letters.
@@ -621,7 +622,7 @@ impl ClientLine {
     }
 
     /// The account named, in small letters.
-    // D2-00108
+    // D2-00108, D2-00081
     pub fn set_account(&mut self, account: &str) {
         self.account = account.to_ascii_lowercase();
     }

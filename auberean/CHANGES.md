@@ -8,6 +8,8 @@ not how it was done.
 ## Unreleased
 
 - The client now updates on its own, apart from the launcher.
+- Your keys now wait while a story scene or emote holds your character.
+- Leaving a server now says goodbye to it.
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - Fixed the quest journal being empty after logging back in.
