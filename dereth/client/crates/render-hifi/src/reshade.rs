@@ -425,9 +425,20 @@ pub struct ReshadeFilter<'c> {
     /// The last draw's key and pipeline: draws come in runs of one pipeline, and a draw may be
     /// asked about twice.
     last: Option<(DerivedKey, Option<&'c wgpu::RenderPipeline>)>,
+    /// The last building stamp that looks before it cuts, and what it draws with.
+    stamps: Option<(u32, (&'c wgpu::RenderPipeline, &'c wgpu::BindGroup))>,
 }
 
 impl<'c> ReshadeFilter<'c> {
+    /// Have the building stamps up to the command `last` look before they cut.
+    pub fn test_stamps_until(
+        &mut self,
+        last: u32,
+        test: (&'c wgpu::RenderPipeline, &'c wgpu::BindGroup),
+    ) {
+        self.stamps = Some((last, test));
+    }
+
     /// The filter drawing with `cache`'s pipelines.
     #[must_use]
     pub fn new(cache: &'c PipelineCache) -> Self {
@@ -435,6 +446,7 @@ impl<'c> ReshadeFilter<'c> {
             cache,
             materials: None,
             last: None,
+            stamps: None,
         }
     }
 
@@ -445,6 +457,7 @@ impl<'c> ReshadeFilter<'c> {
             cache,
             materials: Some(materials),
             last: None,
+            stamps: None,
         }
     }
 }
@@ -454,6 +467,15 @@ impl ReplayFilter for ReshadeFilter<'_> {
         let Some(note) = note else {
             return DrawAction::Legacy;
         };
+        if let Some((last, (pipeline, extra))) = self.stamps {
+            if cmd <= last && crate::composite::is_stamp(note) {
+                return DrawAction::Retextured {
+                    pipeline,
+                    texture: None,
+                    extra,
+                };
+            }
+        }
         if let Some(action) = self.materials.and_then(|m| m.action(cmd, note, self.cache)) {
             return action;
         }

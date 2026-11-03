@@ -303,7 +303,7 @@ impl Materials {
         let pipeline = pipelines.get(&material_key(note))?;
         Some(DrawAction::Retextured {
             pipeline,
-            texture: &material.albedo,
+            texture: Some(&material.albedo),
             extra: &material.maps,
         })
     }

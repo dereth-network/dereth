@@ -39,6 +39,7 @@ pub mod reshade;
 pub mod resources;
 pub mod shared;
 pub mod snapshot;
+pub mod stamp;
 pub mod timing;
 
 pub use dereth_render::hifi_mark::Mark;
@@ -309,6 +310,7 @@ pub struct HifiRenderer {
     /// How many translucent draws of the opaque span this frame's plan draws over the lit world.
     translucent_draws: u64,
     reshader: Reshader,
+    stamp_test: Option<stamp::StampTest>,
     /// How many frames have been prepared with the anti-aliasing asked for: the next one's place
     /// in its jitter.
     jitter_count: u32,
@@ -354,6 +356,7 @@ impl HifiRenderer {
             recorded_draws: (0, 0),
             translucent_draws: 0,
             reshader: Reshader::default(),
+            stamp_test: None,
             jitter_count: 0,
             jittered_frames: HashMap::new(),
             materials: materials::Materials::default(),
@@ -494,6 +497,15 @@ impl HifiRenderer {
         if ready.all_ready() && ready.ready > 0 {
             self.reshader
                 .prepare_field(cx, frame, &mut self.resources)?;
+            let kept = Compositor::unstamped_target(cx, &mut self.resources)?;
+            self.stamp_test
+                .get_or_insert_with(|| stamp::StampTest::new(cx))
+                .prepare(
+                    cx,
+                    &kept,
+                    (frame.camera.near, frame.camera.far),
+                    frame.camera.projection.y_axis.y.abs() * cx.surface_size().1 as f32 * 0.5,
+                );
             let count = |r: std::ops::Range<u32>| {
                 cx.tables()
                     .draws
@@ -691,6 +703,17 @@ impl HifiRenderer {
                         }
                         let mut reshade =
                             ReshadeFilter::with_materials(&self.pipelines, &self.materials);
+                        // The stamps look at the depth kept before the first of them, once it is.
+                        if slot == Slot::WorldReplay
+                            && composite::stamp_split(cx.tables(), plan.opaque.clone()).is_some()
+                        {
+                            if let (Some(last), Some(test)) = (
+                                last_stamp,
+                                self.stamp_test.as_ref().and_then(stamp::StampTest::draw),
+                            ) {
+                                reshade.test_stamps_until(last, test);
+                            }
+                        }
                         filters.push(&mut reshade);
                         let mut chain = Chain(filters);
                         if slot == Slot::WorldReplay {

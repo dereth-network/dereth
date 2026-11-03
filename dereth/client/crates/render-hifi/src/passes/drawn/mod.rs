@@ -68,12 +68,8 @@ const MORPH_FROM: f32 = 0.8;
 const BODIES: usize = 32;
 /// The most near-texture slots: 13 blocks a side.
 const SLOTS: usize = 256;
-/// The most landscape cells whose buildings stamped their openings the ground is drawn again
-/// round, nearest the eye first.
-const STAMPED: usize = 64;
 /// The bytes of the frame constants, as the shader's `Frame` lays them out.
-const FRAME_BYTES: usize =
-    64 * 2 + 16 * 6 + 16 * BODIES + 16 * (SLOTS / 4) + 16 + 16 * STAMPED + 16;
+const FRAME_BYTES: usize = 64 * 2 + 16 * 6 + 16 * BODIES + 16 * (SLOTS / 4) + 16 + 16;
 /// The stride of the shadow cascades' constant blocks.
 const CASTER_STRIDE: u64 = 256;
 /// The same, as an index into their bytes.
@@ -307,35 +303,31 @@ pub fn cell_square(block: u16, cell: u8, side: u8) -> [f32; 3] {
     ]
 }
 
-/// From the frame's `marks`, the landscape cells whose buildings stamp their openings, nearest
-/// the eye at world `eye` first and at most [`STAMPED`] of them; and where the ground is drawn
-/// again over the stamps: at the end of the block that draws the last of those buildings, the
-/// `n`th end of a block's cells in the frame (from 1), at command `at`.
+/// How near the eye a building's door stamps are held to be the last of the walk, meters.
+pub const NEAR_STAMP: f32 = 48.0;
+
+/// The mark of the first building with only buildings near the eye at world `eye` after it, with
+/// the command it stands at, and how far from the eye the middle of the nearest of them lies. A
+/// stamp takes the depth of all it covers and keeps its colour, so what lies past that middle is
+/// drawn before these: drawn after them, it would show through a wall a stamp crossed.
 #[must_use]
-pub fn stamped(marks: &[(u32, Mark)], eye: Vec2) -> (Vec<[f32; 3]>, Option<(u32, u32)>) {
-    let mut cells = Vec::new();
-    let mut ends: Vec<u32> = Vec::new();
-    let mut last_building = None;
+pub fn near_stamps_begin(marks: &[(u32, Mark)], eye: Vec2) -> Option<(u32, Mark, f32)> {
+    let mut first: Option<(u32, Mark, f32)> = None;
     for (at, mark) in marks {
-        match mark {
-            Mark::BuildingCell { block, cell, side } => {
-                cells.push(cell_square(*block, *cell, *side));
-                last_building = Some(*at);
+        if let Mark::BuildingCell { block, cell, side } = mark {
+            let c = cell_square(*block, *cell, *side);
+            let middle = (Vec2::new(c[0], c[1]) + Vec2::splat(c[2] * 0.5) - eye).length();
+            if middle - c[2] * 0.71 >= NEAR_STAMP {
+                first = None;
+                continue;
             }
-            Mark::TerrainEnd => ends.push(*at),
-            _ => {}
+            first = Some(match first {
+                None => (*at, *mark, middle),
+                Some((a, m, nearest)) => (a, m, nearest.min(middle)),
+            });
         }
     }
-    let over = last_building.and_then(|last| {
-        ends.iter()
-            .enumerate()
-            .find(|(_, at)| **at > last)
-            .and_then(|(k, at)| Some((u32::try_from(k + 1).ok()?, *at)))
-    });
-    let distance = |c: &[f32; 3]| (Vec2::new(c[0], c[1]) + Vec2::splat(c[2] * 0.5) - eye).length();
-    cells.sort_by(|a, b| distance(a).total_cmp(&distance(b)));
-    cells.truncate(STAMPED);
-    (cells, over)
+    first
 }
 
 /// The frame's constants, as the shader's `Frame` lays them out.
@@ -345,7 +337,6 @@ fn frame_constants(
     clip_from_render: Mat4,
     n: u32,
     slots: &[i32],
-    stamped: &[[f32; 3]],
 ) -> Vec<u8> {
     let k: &HifiGroundKnobs = &drawn.knobs;
     let cam = &frame.camera;
@@ -384,17 +375,10 @@ fn frame_constants(
     for i in 0..SLOTS {
         out.extend(slots.get(i).copied().unwrap_or(-1).to_le_bytes());
     }
-    let count = stamped.len().min(STAMPED);
     // The forest cover's canopy: meters at its whole, and where it rises in, from where the far
     // trees thin out to their reach.
     let (canopy, from, to) = canopy_constants(frame, drawn);
-    // LINT-OK: a cell count, at most 64.
-    #[allow(clippy::cast_precision_loss)]
-    out.extend(floats(&[count as f32, canopy, from, to]));
-    for i in 0..STAMPED {
-        let [x, y, side] = stamped.get(i).copied().unwrap_or([0.0; 3]);
-        out.extend(floats(&[x, y, side, 0.0]));
-    }
+    out.extend(floats(&[0.0, canopy, from, to]));
     // The bed lowered under the water, while it is drawn as water.
     out.extend(floats(&match k.water {
         Some(w) => [1.0, w.depth, w.shelf, 0.0],
@@ -578,15 +562,11 @@ struct NearTexture {
 struct Gpu {
     frame_layout: wgpu::BindGroupLayout,
     view_pipeline: wgpu::RenderPipeline,
-    /// The ground drawn again over the buildings' stamps (see the shader's `fs_ground_over`).
-    over_pipeline: wgpu::RenderPipeline,
     caster_pipeline: wgpu::RenderPipeline,
     frame_uniform: wgpu::Buffer,
     caster_uniform: wgpu::Buffer,
     caster_bind: wgpu::BindGroup,
     instances: Option<(wgpu::Buffer, u64)>,
-    /// The patches drawn again over the stamps: those no farther than the farthest stamping cell.
-    over_instances: Option<(wgpu::Buffer, u64)>,
     caster_instances: Option<(wgpu::Buffer, u64)>,
 }
 
@@ -685,11 +665,6 @@ impl Gpu {
             "fs_ground",
             wgpu::CompareFunction::LessEqual,
         );
-        let over_pipeline = ground(
-            "drawn ground over the stamps",
-            "fs_ground_over",
-            wgpu::CompareFunction::Less,
-        );
         let unclipped = device
             .features()
             .contains(wgpu::Features::DEPTH_CLIP_CONTROL);
@@ -751,13 +726,11 @@ impl Gpu {
         Self {
             frame_layout,
             view_pipeline,
-            over_pipeline,
             caster_pipeline,
             frame_uniform,
             caster_uniform,
             caster_bind,
             instances: None,
-            over_instances: None,
             caster_instances: None,
         }
     }
@@ -1102,7 +1075,6 @@ fn probe_main(@builtin(global_invocation_id) id: vec3<u32>) {{
         cam.projection * cam.view * HEIGHT_UP,
         n,
         &slots,
-        &[],
     );
     let constants = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("drawn ground probe constants"),
@@ -1215,10 +1187,8 @@ struct State {
     cover: Option<CoverTextures>,
     near: Option<NearTexture>,
     bind: Option<wgpu::BindGroup>,
-    /// The patches drawn this frame, those drawn again over the stamps, and those the shadows
-    /// draw.
+    /// The patches drawn this frame, and those the shadows draw.
     patches: Vec<Patch>,
-    over_patches: Vec<Patch>,
     caster_patches: Vec<Patch>,
     /// The commands of the landscape's own cells.
     landscape: crate::shared::runs::Runs,
@@ -1226,18 +1196,6 @@ struct State {
     /// Whether the ground is drawn this frame, in place of the landscape's cells.
     active: bool,
     drawn: bool,
-    /// The landscape cells whose buildings stamp their openings this frame, nearest first.
-    stamped: Vec<[f32; 3]>,
-    /// Where the ground is drawn again over the stamps: at the end of the block that draws the
-    /// last building, the `n`th end of a block's cells this frame (from 1), at command `at`.
-    over_at: Option<(u32, u32)>,
-    /// The ends of blocks' cells the replay has reached this frame.
-    ends_seen: u32,
-    /// How many landscape cells' buildings stamped their openings this frame.
-    stamps_seen: usize,
-    /// Whether the ground is drawn again over the stamps this frame, and whether it has been.
-    over_active: bool,
-    over_drawn: bool,
 }
 
 /// The drawn ground pass.
@@ -1301,35 +1259,20 @@ impl DrawnCasters {
 }
 
 impl State {
-    /// Draw the ground into `pass`, the re-shaded world's: whole, or `over` the stamps.
-    fn draw_view(&self, pass: &mut wgpu::RenderPass<'_>, over: bool) -> bool {
+    /// Draw the ground into `pass`, the re-shaded world's.
+    fn draw_view(&self, pass: &mut wgpu::RenderPass<'_>) -> bool {
         let (Some(gpu), Some(bind), Some((instances, _))) = (
             self.gpu.as_ref(),
             self.bind.as_ref(),
-            self.gpu.as_ref().and_then(|g| {
-                if over {
-                    g.over_instances.as_ref()
-                } else {
-                    g.instances.as_ref()
-                }
-            }),
+            self.gpu.as_ref().and_then(|g| g.instances.as_ref()),
         ) else {
             return false;
         };
-        let patches = if over {
-            &self.over_patches
-        } else {
-            &self.patches
-        };
-        let count = u32::try_from(patches.len()).unwrap_or(0);
+        let count = u32::try_from(self.patches.len()).unwrap_or(0);
         if count == 0 {
             return false;
         }
-        pass.set_pipeline(if over {
-            &gpu.over_pipeline
-        } else {
-            &gpu.view_pipeline
-        });
+        pass.set_pipeline(&gpu.view_pipeline);
         pass.set_bind_group(0, bind, &[]);
         pass.set_vertex_buffer(0, instances.slice(..));
         pass.draw(0..PATCH_VERTICES, 0..count);
@@ -1346,7 +1289,6 @@ impl HifiPass for Drawn {
         let s = self.0.borrow();
         notes.push(("drawn ground", u64::from(s.drawn)));
         notes.push(("drawn ground patches", s.patches.len() as u64));
-        notes.push(("drawn ground stamped cells", s.stamps_seen as u64));
         notes.push(("drawn ground runs looked at", s.landscape.looked()));
         notes.push((
             "drawn ground tiles",
@@ -1388,9 +1330,6 @@ impl HifiPass for Drawn {
         let s = &mut *guard;
         s.drawn = false;
         s.active = false;
-        s.over_active = false;
-        s.over_drawn = false;
-        s.ends_seen = 0;
         let Some(drawn) = cx.frame.drawn.as_ref() else {
             return Ok(());
         };
@@ -1502,17 +1441,6 @@ impl HifiPass for Drawn {
             crate::resources::Resource::Texture(world.water.clone(), world.water_view.clone()),
             0,
         )?;
-        // The cells whose buildings stamp their openings, nearest the eye first, and the end of
-        // the block that draws the last of them, where the ground is drawn again over them.
-        let eye_at = cx.frame.camera.eye.truncate() + drawn.global;
-        (s.stamped, s.over_at) = stamped(&cx.seam.tables().marks, eye_at);
-        s.stamps_seen = cx
-            .seam
-            .tables()
-            .marks
-            .iter()
-            .filter(|(_, m)| matches!(m, Mark::BuildingCell { .. }))
-            .count();
         let cam = &cx.frame.camera;
         let clip_from_render = cam.projection * cam.view * HEIGHT_UP;
         let eye = cam.eye + drawn.global.extend(0.0);
@@ -1530,32 +1458,6 @@ impl HifiPass for Drawn {
             )
         };
         s.patches = select(eye, drawn.knobs.detail, horizon, &seen);
-        // Drawn again over the stamps only out to the farthest stamping cell: no ground past it
-        // can lie in front of a stamp.
-        let stamps_reach = s
-            .stamped
-            .iter()
-            .map(|c| {
-                let far = Vec2::new(
-                    (eye.x - c[0]).abs().max((eye.x - c[0] - c[2]).abs()),
-                    (eye.y - c[1]).abs().max((eye.y - c[1] - c[2]).abs()),
-                );
-                far.length()
-            })
-            .fold(0.0f32, f32::max);
-        s.over_patches = s
-            .patches
-            .iter()
-            .filter(|p| {
-                let side = p.spacing * CELLS as f32;
-                let d = Vec2::new(
-                    (p.at.x - eye.x).max(0.0).max(eye.x - (p.at.x + side)),
-                    (p.at.y - eye.y).max(0.0).max(eye.y - (p.at.y + side)),
-                );
-                d.length() <= stamps_reach
-            })
-            .copied()
-            .collect();
         s.caster_patches = select(
             eye,
             drawn.knobs.detail * 0.5,
@@ -1565,19 +1467,11 @@ impl HifiPass for Drawn {
         let mut gpu_mut = s.gpu.take();
         if let Some(g) = gpu_mut.as_mut() {
             write_instances(&device, &queue, &mut g.instances, &s.patches);
-            write_instances(&device, &queue, &mut g.over_instances, &s.over_patches);
             write_instances(&device, &queue, &mut g.caster_instances, &s.caster_patches);
             queue.write_buffer(
                 &g.frame_uniform,
                 0,
-                &frame_constants(
-                    cx.frame,
-                    drawn,
-                    cam.jittered(clip_from_render),
-                    n,
-                    &slots,
-                    &s.stamped,
-                ),
+                &frame_constants(cx.frame, drawn, cam.jittered(clip_from_render), n, &slots),
             );
         }
         s.gpu = gpu_mut;
@@ -1614,8 +1508,6 @@ impl HifiPass for Drawn {
             && s.bind.is_some()
             && !s.patches.is_empty()
             && plan.is_some_and(|p| s.first_mark.is_some_and(|m| p.opaque.contains(&m)));
-        s.over_active = s.active
-            && plan.is_some_and(|p| s.over_at.is_some_and(|(_, at)| p.opaque.contains(&at)));
     }
 
     fn encode(&mut self, _cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
@@ -1641,16 +1533,7 @@ impl ReplayFilter for Drawn {
                     return false;
                 }
                 s.drawn = true;
-                s.draw_view(pass, false)
-            }
-            Mark::TerrainEnd => {
-                s.ends_seen += 1;
-                let here = s.over_at.is_some_and(|(n, _)| n == s.ends_seen);
-                if !here || !s.over_active || !s.drawn || s.over_drawn {
-                    return false;
-                }
-                s.over_drawn = true;
-                s.draw_view(pass, true)
+                s.draw_view(pass)
             }
             _ => false,
         }
@@ -1678,10 +1561,7 @@ mod tests {
             .iter()
             .map(|e| e.name.as_str())
             .collect();
-        assert_eq!(
-            entries,
-            ["vs_ground", "fs_ground", "fs_ground_over", "vs_caster"]
-        );
+        assert_eq!(entries, ["vs_ground", "fs_ground", "vs_caster"]);
     }
 
     #[test]
@@ -1835,49 +1715,27 @@ mod tests {
     }
 
     #[test]
-    fn the_ground_is_drawn_again_over_the_stamps_after_the_last_building_but_not_in_its_cells() {
-        // A block of full-detail cells, a building in its cell (2, 3); then a farther block's end;
-        // a nearer block with a building in its coarse cell 1 of two a side.
-        let marks = [
-            (
-                10,
-                Mark::TerrainCell {
-                    block: 0xA9B4,
-                    cell: 19,
-                },
-            ),
-            (11, Mark::TerrainCellEnd),
-            (
-                12,
-                Mark::BuildingCell {
-                    block: 0xA9B4,
-                    cell: 19,
-                    side: 8,
-                },
-            ),
-            (13, Mark::Interiors),
-            (20, Mark::InteriorsEnd),
-            (21, Mark::TerrainEnd),
-            (
-                30,
-                Mark::BuildingCell {
-                    block: 0xAAB4,
-                    cell: 1,
-                    side: 2,
-                },
-            ),
-            (40, Mark::TerrainEnd),
-            (50, Mark::TerrainEnd),
-        ];
-        let eye = Vec2::new(169.0 * 192.0 + 60.0, 180.0 * 192.0 + 80.0);
-        let (cells, over) = stamped(&marks, eye);
-        // After the block that draws the last building: the second end of a block's cells.
-        assert_eq!(over, Some((2, 40)));
-        // Its own cells, nearest first, as world squares.
-        assert_eq!(cells[0], [169.0 * 192.0 + 48.0, 180.0 * 192.0 + 72.0, 24.0]);
-        assert_eq!(cells[1], [170.0 * 192.0, 180.0 * 192.0 + 96.0, 96.0]);
-        // No building, nothing drawn again.
-        assert_eq!(stamped(&marks[..2], eye), (Vec::new(), None));
+    fn what_lies_far_off_is_drawn_before_the_stamps_of_the_buildings_near_the_eye() {
+        let building = |cell| Mark::BuildingCell {
+            block: 0xA9B4,
+            cell,
+            side: 8,
+        };
+        // Cell 19's middle, and a cell at the block's far corner.
+        let near = cell_square(0xA9B4, 19, 8);
+        let eye = Vec2::new(near[0] + 12.0, near[1] + 12.0);
+        let (far, close) = (building(63), building(19));
+        assert_eq!(
+            near_stamps_begin(&[(10, far), (20, close), (30, building(27))], eye)
+                .map(|(at, m, _)| (at, m)),
+            Some((20, close))
+        );
+        // The nearest of them: the eye stands at cell 19's middle.
+        let (.., nearest) = near_stamps_begin(&[(20, building(27)), (30, close)], eye).unwrap();
+        assert!(nearest < 0.01, "{nearest}");
+        // A far building after a near one: nothing yet stands past all of the far ones.
+        assert_eq!(near_stamps_begin(&[(20, close), (30, far)], eye), None);
+        assert_eq!(near_stamps_begin(&[(10, far)], eye), None);
     }
 
     #[test]
@@ -1902,14 +1760,7 @@ mod tests {
             cover: None,
         };
         frame.camera.view = Mat4::IDENTITY;
-        let bytes = frame_constants(
-            &frame,
-            &drawn,
-            Mat4::IDENTITY,
-            7,
-            &[1, 2, 3],
-            &[[1.0; 3]; 70],
-        );
+        let bytes = frame_constants(&frame, &drawn, Mat4::IDENTITY, 7, &[1, 2, 3]);
         assert_eq!(bytes.len(), FRAME_BYTES);
     }
 }

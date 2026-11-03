@@ -1564,7 +1564,7 @@ impl Gpu {
         #[allow(clippy::cast_precision_loss)] // a back-buffer extent
         let (fw, fh) = (w as f32, h as f32);
         let diffuse = portal_stamp_diffuse(mask, 0x00FF_FFFF);
-        let screen: Vec<[f32; 4]> = clip
+        let screen: Vec<([f32; 4], f32)> = clip
             .iter()
             .map(|p| {
                 let iw = if p[3] == 0.0 { 0.0 } else { 1.0 / p[3] };
@@ -1575,16 +1575,18 @@ impl Gpu {
                 } else {
                     p[2] * iw
                 };
-                [x, y, z, iw]
+                ([x, y, z, iw], p[2] * iw)
             })
             .collect();
         let mut vertices: Vec<u8> = Vec::with_capacity((screen.len() - 2) * 3 * 28);
-        let push = |v: &[f32; 4], out: &mut Vec<u8>| {
+        // The first picture coordinate holds the door's true depth, for a presentation that looks
+        // before it stamps; the stage's picture is one texel and reads the same anywhere.
+        let push = |(v, depth): &([f32; 4], f32), out: &mut Vec<u8>| {
             for f in v {
                 out.extend_from_slice(&f.to_le_bytes());
             }
             out.extend_from_slice(&diffuse.to_le_bytes());
-            out.extend_from_slice(&0.0f32.to_le_bytes());
+            out.extend_from_slice(&depth.to_le_bytes());
             out.extend_from_slice(&0.0f32.to_le_bytes());
         };
         for i in 1..screen.len() - 1 {

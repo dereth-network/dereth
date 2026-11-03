@@ -1162,6 +1162,7 @@ impl SceneDraw {
         cells: &TraversalCells,
         placed: &PlacedCells<'_>,
         drawn: &mut std::collections::HashSet<u32>,
+        stage: BuildingStage,
     ) -> Result<(), RenderError> {
         use dereth_render::pso::portal_stamp_mask;
         use dereth_world_render::cells::clip::{copy_view, get_clip, ScreenPoint};
@@ -1180,8 +1181,11 @@ impl SceneDraw {
         {
             return Ok(());
         }
-        self.frame_building_cells
-            .set(self.frame_building_cells.get().saturating_add(1));
+        // A cell's buildings are counted once, at the first of their two stages.
+        if stage == BuildingStage::Stamps {
+            self.frame_building_cells
+                .set(self.frame_building_cells.get().saturating_add(1));
+        }
         let (vw, vh) = gpu.size();
         let view = self.view_params(ws, vw, vh);
         let view_proj = dereth_render::camera::projection(&view) * view.view;
@@ -1294,12 +1298,16 @@ impl SceneDraw {
 
                 // Unless the mode is 2, the portal polygon is drawn, with its flag set when the mode is 1 —
                 // the depth stamp.
-                if step.stamp.is_some()
-                    && self.cfg.portal_depth_stamp
-                    && !is_dummy_portal(&p.vertices)
-                {
-                    let quad: Vec<[f32; 4]> = clipped.iter().map(|s| s.to_clip(fw, fh)).collect();
-                    gpu.draw_portal_poly(per_frame, &quad, portal_stamp_mask::BUILDING)?;
+                if stage == BuildingStage::Stamps {
+                    if step.stamp.is_some()
+                        && self.cfg.portal_depth_stamp
+                        && !is_dummy_portal(&p.vertices)
+                    {
+                        let quad: Vec<[f32; 4]> =
+                            clipped.iter().map(|s| s.to_clip(fw, fh)).collect();
+                        gpu.draw_portal_poly(per_frame, &quad, portal_stamp_mask::BUILDING)?;
+                    }
+                    continue;
                 }
 
                 let (Some(interior), Some(view0)) = (step.interior, opened) else {
@@ -1412,6 +1420,16 @@ impl SceneDraw {
         }
         Ok(())
     }
+}
+
+/// Which half of a building's outdoor drawing to do. A stamp takes the depth of all it covers, and
+/// what a stamp crosses after it is drawn lets later draws through it, so the stamps come first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BuildingStage {
+    /// The depth stamps of its openings.
+    Stamps,
+    /// The rooms seen through them.
+    Rooms,
 }
 
 #[cfg(test)]

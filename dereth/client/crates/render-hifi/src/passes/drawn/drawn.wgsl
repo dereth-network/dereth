@@ -44,12 +44,9 @@ struct Frame {
     bodies: array<vec4<f32>, 32>,
     // The block each slot of the near texture holds, `x * 256 + y`, or -1: four slots a vector.
     slots: array<vec4<i32>, 64>,
-    // x how many of `stamped` hold a cell; y how many meters the forest cover's whole canopy
-    // raises the far ground (nought for none); z and w where it rises in, meters from the eye.
+    // x unused; y how many meters the forest cover's whole canopy raises the far ground (nought
+    // for none); z and w where it rises in, meters from the eye.
     k4: vec4<f32>,
-    // The landscape cells whose buildings stamped their openings this frame, world meters: xy the
-    // south-west corner, z the side.
-    stamped: array<vec4<f32>, 64>,
     // The water: x 1 while it is drawn as water, over a bed lowered under it; y the deepest the
     // bed lies, z how far from the shore it reaches that depth, meters; w unused.
     water: vec4<f32>,
@@ -471,34 +468,6 @@ fn footprint(p: vec2<f32>) -> f32 {
 @fragment
 fn fs_ground(in: VsOut) -> Out {
     return shade(in, footprint(in.world.xy));
-}
-
-// How much of the offset the pins may leave for the ground to count as a building's own, kept
-// at retail's height round it.
-const PINNED: f32 = 0.05;
-
-// The ground drawn again once the buildings have stamped their openings into the depth, over
-// whatever lies behind it: a stamp shows a building's rooms through the ground drawn before it,
-// which the drawn ground, drawn whole at the first cell, would otherwise be everywhere. Inside a
-// cell whose building stamped, the ground kept at retail's height round its buildings is not
-// drawn again: there, as retail draws it, the building's stamp erases its own ground over the
-// doorway. The rest of such a cell (a hill the viewer stands on beside a house) is drawn again,
-// so no other building's doorway shows through it. Far off, where no near offset is held to tell
-// the buildings' ground apart, the whole cell is left as the stamp left it.
-@fragment
-fn fs_ground_over(in: VsOut) -> Out {
-    let foot = footprint(in.world.xy);
-    let count = i32(frame.k4.x);
-    for (var k = 0; k < count; k = k + 1) {
-        let r = frame.stamped[k];
-        if (all(in.world.xy >= r.xy) && all(in.world.xy < r.xy + r.zz)) {
-            let near = near_at(in.world.xy);
-            if (near.z < 0.5 || near.y < PINNED) {
-                discard;
-            }
-        }
-    }
-    return shade(in, foot);
 }
 
 // How far from the eye the finest level of the mesh holds before its vertices start sliding

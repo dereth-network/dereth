@@ -1,6 +1,10 @@
 //! Landblock construction and terrain submission.
 
+use super::cells::BuildingStage;
 use super::*;
+
+/// How far from the eye a land cell's middle lies for its buildings to draw as one, meters.
+const NEAR_BUILDINGS: f32 = 36.0;
 
 /// One block's mesh, before its vertex lighting, from its record `lb` alone: the land surface of
 /// `ground` with the height table `table`, at `spec`'s detail. A terrain type `drawn` has no
@@ -1609,6 +1613,7 @@ impl SceneDraw {
                 (u16::from(ws.streamer.viewer_cell.0) / step).min(u16::from(n) - 1) as u8,
                 (u16::from(ws.streamer.viewer_cell.1) / step).min(u16::from(n) - 1) as u8,
             );
+            let mut near_buildings: Vec<u16> = Vec::new();
             for cell in cell_draw_order(n, dir, viewer_cell) {
                 let (i, j) = (
                     usize::from(cell) / usize::from(n),
@@ -1722,6 +1727,18 @@ impl SceneDraw {
                         )?;
                         alpha_pending.clear();
                     }
+                    // The buildings round the eye wait for the rest of the block: drawn one
+                    // after another, the stamps of each would cross the rooms and walls of those
+                    // before it, and what is drawn after shows through them.
+                    let middle = |index: u16| (f32::from(index) + 0.5) * 192.0 / f32::from(n);
+                    let (e, w) = (
+                        block.origin.0 + middle(draw_cell / u16::from(n)) - ws.camera.position.x,
+                        block.origin.1 + middle(draw_cell % u16::from(n)) - ws.camera.position.y,
+                    );
+                    if has_building && n == 8 && (e * e + w * w).sqrt() < NEAR_BUILDINGS {
+                        near_buildings.push(draw_cell);
+                        continue;
+                    }
                     #[cfg(feature = "hifi")]
                     if has_building {
                         // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
@@ -1735,17 +1752,20 @@ impl SceneDraw {
                     }
                     #[cfg(feature = "hifi")]
                     gpu.hifi_mark(Mark::Interiors);
-                    self.draw_building_interiors(
-                        ws,
-                        gpu,
-                        per_frame,
-                        block,
-                        draw_cell,
-                        n,
-                        cells,
-                        placed,
-                        &mut drawn_cells,
-                    )?;
+                    for stage in [BuildingStage::Stamps, BuildingStage::Rooms] {
+                        self.draw_building_interiors(
+                            ws,
+                            gpu,
+                            per_frame,
+                            block,
+                            draw_cell,
+                            n,
+                            cells,
+                            placed,
+                            &mut drawn_cells,
+                            stage,
+                        )?;
+                    }
                     #[cfg(feature = "hifi")]
                     gpu.hifi_mark(Mark::InteriorsEnd);
                 }
@@ -1759,6 +1779,67 @@ impl SceneDraw {
                         | (u32::from(cell) + 1);
                     if let Some(parts) = land_statics.get(&land) {
                         self.draw_land_cell_statics(ws, gpu, per_frame, placed, land, parts, full)?;
+                    }
+                }
+            }
+            // The buildings round the eye: all their stamps, then all their rooms, far to near.
+            if let Some((cells, placed)) = interiors.as_ref() {
+                for &draw_cell in &near_buildings {
+                    #[cfg(feature = "hifi")]
+                    {
+                        // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
+                        // conversion.
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        gpu.hifi_mark(Mark::BuildingCell {
+                            block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
+                            cell: draw_cell as u8,
+                            side: n,
+                        });
+                        gpu.hifi_mark(Mark::Interiors);
+                    }
+                    self.draw_building_interiors(
+                        ws,
+                        gpu,
+                        per_frame,
+                        block,
+                        draw_cell,
+                        n,
+                        cells,
+                        placed,
+                        &mut drawn_cells,
+                        BuildingStage::Stamps,
+                    )?;
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::InteriorsEnd);
+                }
+                for &draw_cell in &near_buildings {
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::Interiors);
+                    self.draw_building_interiors(
+                        ws,
+                        gpu,
+                        per_frame,
+                        block,
+                        draw_cell,
+                        n,
+                        cells,
+                        placed,
+                        &mut drawn_cells,
+                        BuildingStage::Rooms,
+                    )?;
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::InteriorsEnd);
+                    if let (Some(placed), Some(full)) = (land_placed, full_view.as_ref()) {
+                        #[allow(clippy::cast_sign_loss)]
+                        // LINT-OK: block coordinates are 0..=0xFE. Not a float conversion.
+                        let land = ((slot.block_x as u32) << 24)
+                            | ((slot.block_y as u32) << 16)
+                            | (u32::from(draw_cell) + 1);
+                        if let Some(parts) = land_statics.get(&land) {
+                            self.draw_land_cell_statics(
+                                ws, gpu, per_frame, placed, land, parts, full,
+                            )?;
+                        }
                     }
                 }
             }

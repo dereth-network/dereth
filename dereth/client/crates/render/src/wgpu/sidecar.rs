@@ -141,13 +141,14 @@ pub enum DrawAction<'p> {
     /// Replay it with its recorded pipeline and another per-frame constant block offset.
     Frame(u32),
     /// Replay it with another pipeline, whose layout is the recorded one with a fifth group of
-    /// its own, `texture` bound in place of the first stage's texture and `extra` as the fifth
-    /// group, for this draw alone: the next draw finds the groups as the recording has them.
+    /// its own, `texture`, if any, bound in place of the first stage's texture and `extra` as the
+    /// fifth group, for this draw alone: the next draw finds the groups as the recording has them.
     Retextured {
         /// The pipeline.
         pipeline: &'p wgpu::RenderPipeline,
-        /// The first stage's texture, in the recorded texture group's layout.
-        texture: &'p wgpu::BindGroup,
+        /// The first stage's texture, in the recorded texture group's layout; the recorded one
+        /// with none.
+        texture: Option<&'p wgpu::BindGroup>,
         /// The fifth group.
         extra: &'p wgpu::BindGroup,
     },
@@ -765,7 +766,10 @@ impl Replayer<'_> {
                                 pass.set_pipeline(p);
                                 current = Some(Bound::other(p));
                             }
-                            for (group, b) in [(1usize, texture), (4, extra)] {
+                            for (group, b) in [(1usize, texture), (4, Some(extra))] {
+                                let Some(b) = b else {
+                                    continue;
+                                };
                                 if bound[group] != Some(std::ptr::from_ref(b)) {
                                     #[allow(clippy::cast_possible_truncation)] // 1 or 4
                                     pass.set_bind_group(group as u32, b, &[]);

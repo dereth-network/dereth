@@ -14,6 +14,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: a building's doors and windows no longer show through the ground in front of them, near or far, and a door no longer sticks out below a rise of ground that hides the rest of its house.
+- Better Lighting: objects behind a nearby building's walls no longer show through them when the camera stands just outside it.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.

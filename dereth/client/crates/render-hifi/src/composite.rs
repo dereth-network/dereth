@@ -228,7 +228,7 @@ pub struct Compositor {
 
 /// Whether `note` is a stamp of an opening: a building's, drawn before its rooms from outdoors,
 /// or a room's, drawn after an indoor step. The two share their pipeline.
-fn is_stamp(note: &DrawNote) -> bool {
+pub(crate) fn is_stamp(note: &DrawNote) -> bool {
     !note.splat && note.key == PipelineKey::portal_stamp(portal_stamp_mask::BUILDING)
 }
 
@@ -492,7 +492,7 @@ impl Compositor {
     }
 
     /// The unstamped depth's texture.
-    fn unstamped_target(
+    pub(crate) fn unstamped_target(
         cx: &SidecarContext<'_>,
         resources: &mut Resources,
     ) -> Result<wgpu::TextureView, HifiError> {
