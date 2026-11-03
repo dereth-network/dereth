@@ -153,7 +153,7 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
         archive::zip_bytes(&root, &members, 1_700_000_000).expect("zip"),
     )
     .expect("written");
-    auberean::check_archive(&path, t, V).expect("clean");
+    auberean::check_archive(&auberean::AUBEREAN, &path, t, V).expect("clean");
     let mut with_dereth = members.clone();
     with_dereth.push(member("dereth-client.exe"));
     std::fs::write(
@@ -161,7 +161,8 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
         archive::zip_bytes(&root, &with_dereth, 1_700_000_000).expect("zip"),
     )
     .expect("written");
-    let refused = auberean::check_archive(&path, t, V).expect_err("Dereth's client");
+    let refused =
+        auberean::check_archive(&auberean::AUBEREAN, &path, t, V).expect_err("Dereth's client");
     assert!(refused.contains("dereth-client.exe"), "{refused}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -320,7 +321,7 @@ fn the_index_sums_the_release_files_and_names_the_launcher_s_version() {
         source_url: "https://github.com/dereth-network/dereth".to_owned(),
     };
     let ws = workspace_root();
-    auberean::write_index(&ws, &dir, V, "0.4.9", &facts).expect("indexed");
+    auberean::write_index(&auberean::AUBEREAN, &ws, &dir, V, "0.4.9", &facts).expect("indexed");
     let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).expect("sums");
     assert!(
         sums.contains("  auberean-0.1.0-windows-x86_64.zip\n"),
@@ -334,7 +335,7 @@ fn the_index_sums_the_release_files_and_names_the_launcher_s_version() {
     assert_eq!(release["launcher_version"], "0.4.9");
     assert_eq!(release["tag"], "auberean-v0.1.0");
     std::fs::write(dir.join("dereth-0.1.0-windows-x86_64.zip"), b"x").expect("written");
-    assert!(auberean::write_index(&ws, &dir, V, "0.4.9", &facts).is_err());
+    assert!(auberean::write_index(&auberean::AUBEREAN, &ws, &dir, V, "0.4.9", &facts).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

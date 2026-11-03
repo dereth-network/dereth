@@ -55,6 +55,9 @@ pub const YALAIN_CHANGES: &str = "yalain/CHANGES.md";
 /// Athenaeum's curated highlights, relative to the workspace root.
 pub const ATHENAEUM_CHANGES: &str = "athenaeum/CHANGES.md";
 
+/// The launcher's curated highlights, relative to the workspace root.
+pub const LAUNCHER_CHANGES: &str = "launcher/CHANGES.md";
+
 /// `product`'s curated highlights, relative to the workspace root.
 pub fn changes_file(product: Product) -> &'static str {
     match product {
@@ -64,6 +67,7 @@ pub fn changes_file(product: Product) -> &'static str {
         Product::Auberean => AUBEREAN_CHANGES,
         Product::Yalain => YALAIN_CHANGES,
         Product::Athenaeum => ATHENAEUM_CHANGES,
+        Product::Launcher => LAUNCHER_CHANGES,
     }
 }
 
@@ -228,6 +232,12 @@ pub fn athenaeum_ships(path: &str) -> bool {
     path.starts_with("athenaeum/") && !test_or_document(path)
 }
 
+/// Whether `path` is part of the shipped launcher: under `launcher/`, and neither a test, a fixture
+/// nor a document.
+pub fn launcher_ships(path: &str) -> bool {
+    path.starts_with("launcher/") && !test_or_document(path)
+}
+
 /// Whether `path` is part of what `product` ships.
 fn product_ships(product: Product, path: &str) -> bool {
     match product {
@@ -237,6 +247,7 @@ fn product_ships(product: Product, path: &str) -> bool {
         Product::Auberean => auberean_ships(path),
         Product::Yalain => yalain_ships(path),
         Product::Athenaeum => athenaeum_ships(path),
+        Product::Launcher => launcher_ships(path),
     }
 }
 
@@ -277,6 +288,7 @@ fn path_group(product: Product, path: &str) -> Option<Group> {
         Product::Auberean => auberean_path_group(path),
         Product::Yalain => yalain_path_group(path),
         Product::Athenaeum => athenaeum_path_group(path),
+        Product::Launcher => Some(Group::Launcher),
     }
 }
 
@@ -615,7 +627,7 @@ fn stem_matches(stem: &str, word: &str) -> bool {
 fn word_groups(product: Product, subject: &str) -> Vec<Group> {
     let words = words(subject);
     let table = match product {
-        Product::Dereth | Product::Auberean => WORDS,
+        Product::Dereth | Product::Auberean | Product::Launcher => WORDS,
         Product::Empyrean | Product::Yalain => SERVER_WORDS,
         Product::Lyceum | Product::Athenaeum => LYCEUM_WORDS,
     };
@@ -918,6 +930,7 @@ pub fn render(
             Product::Lyceum => "the editor or the lyceum command",
             Product::Auberean => "the client",
             Product::Athenaeum => "the editor or the athenaeum command",
+            Product::Launcher => "the launcher",
         };
         out.push_str(&format!("No change to {what} since {since}.\n\n"));
     }
@@ -1145,7 +1158,7 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
     };
     let commits = commits(ws, product, &format!("{since}..{end}"))?;
     let source_env = match product {
-        Product::Dereth => package::dereth::SOURCE_URL_ENV,
+        Product::Dereth | Product::Launcher => package::dereth::SOURCE_URL_ENV,
         Product::Empyrean => "EMPYREAN_BUILD_SOURCE_URL",
         Product::Lyceum => package::lyceum::SOURCE_URL_ENV,
         Product::Auberean => package::auberean::SOURCE_URL_ENV,

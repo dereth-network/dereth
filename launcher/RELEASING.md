@@ -317,3 +317,13 @@ Anyone can verify a download with `sha256sum -c SHA256SUMS --ignore-missing`.
 `cargo xtask package dereth` run on a Windows, a macOS and a Linux machine, each signing its own
 launcher files with the key above, then finishes and publishes it:
 [CONTRIBUTING.md, "Releasing without GitHub Actions"](../CONTRIBUTING.md#releasing-without-github-actions).
+
+## The launcher's own release
+
+The launcher also has releases of its own, `launcher-v<version>`, from
+`.github/workflows/release-launcher.yml`: `cargo xtask package launcher` builds it as Dereth's package
+does and takes the client out, so each file holds the launcher alone. Its highlights are in
+[`CHANGES.md`](CHANGES.md), and `cargo xtask publish drafts` publishes its draft before any game's.
+
+Nothing updates from these releases yet, and its version is still Dereth's: every install reads its
+game's releases, as above, until the updater moves to this stream.

@@ -20,6 +20,7 @@ use crate::package::version;
 
 /// The tags of our products, in the order they are published.
 const TAG_PREFIXES: &[&str] = &[
+    "launcher-v",
     "dereth-v",
     "dereth-web-v",
     "empyrean-v",

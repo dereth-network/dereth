@@ -281,6 +281,7 @@ fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
         | Product::Yalain
         | Product::Athenaeum => &[("", "Cargo.lock")],
         Product::Dereth => version::DERETH_LOCKS,
+        Product::Launcher => &[("launcher", "launcher/Cargo.lock")],
     }
 }
 
@@ -525,6 +526,17 @@ fn run(
             package::auberean::build_packages(&ws, &[host], None, false, None, None)
         }
         Product::Yalain => package::yalain::build_packages(&ws, &[host], None, false),
+        Product::Launcher => package::auberean::build_flavor(
+            &package::launcher::FLAVOR,
+            &ws,
+            requested,
+            requested,
+            &[host],
+            None,
+            false,
+            None,
+            None,
+        ),
         Product::Athenaeum => {
             package::desktop::build_packages(&package::athenaeum::SPEC, &ws, &[host], None, false)
         }

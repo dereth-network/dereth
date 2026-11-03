@@ -280,7 +280,17 @@ pub enum Product {
     Yalain,
     /// Asheron's Call 2's world builder.
     Athenaeum,
+    /// The launcher, a product of its own: both games' launcher, released from `launcher-v*` tags.
+    /// [`Self::ALL`] names the products the release commands cut together, which it isn't one of
+    /// until the games' packages take a named launcher.
+    Launcher,
 }
+
+/// The prefix of a launcher release tag: `launcher-v<version>`.
+pub const LAUNCHER_TAG_PREFIX: &str = "launcher-v";
+
+/// The manifest that carries the launcher's version.
+pub const LAUNCHER_MANIFEST: &str = "launcher/Cargo.toml";
 
 impl Product {
     /// Every product, in the order the commands list them.
@@ -296,7 +306,10 @@ impl Product {
     /// The product named on a command line: `empyrean`, `dereth`, `lyceum`, `auberean`, `yalain`
     /// or `athenaeum`.
     pub fn from_command_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|p| p.command_name() == name)
+        Self::ALL
+            .into_iter()
+            .chain([Self::Launcher])
+            .find(|p| p.command_name() == name)
     }
 
     /// The name the commands take.
@@ -308,6 +321,7 @@ impl Product {
             Self::Auberean => "auberean",
             Self::Yalain => "yalain",
             Self::Athenaeum => "athenaeum",
+            Self::Launcher => "launcher",
         }
     }
 
@@ -320,6 +334,7 @@ impl Product {
             Self::Auberean => "Auberean",
             Self::Yalain => "Yalain",
             Self::Athenaeum => "Athenaeum",
+            Self::Launcher => "Launcher",
         }
     }
 
@@ -337,6 +352,7 @@ impl Product {
             Self::Auberean => AUBEREAN_TAG_PREFIX,
             Self::Yalain => YALAIN_TAG_PREFIX,
             Self::Athenaeum => ATHENAEUM_TAG_PREFIX,
+            Self::Launcher => LAUNCHER_TAG_PREFIX,
         }
     }
 
@@ -356,6 +372,7 @@ impl Product {
             Self::Auberean => "the client and the headless client carry",
             Self::Yalain => "the yalain-* crates carry",
             Self::Athenaeum => "the editor, the athenaeum command and the Foundry carry",
+            Self::Launcher => "the launcher carries",
         }
     }
 
@@ -369,6 +386,7 @@ impl Product {
             Self::Auberean => Ok(listed(AUBEREAN_MANIFESTS)),
             Self::Yalain => yalain_manifests(ws),
             Self::Athenaeum => Ok(listed(ATHENAEUM_MANIFESTS)),
+            Self::Launcher => Ok(listed(&[LAUNCHER_MANIFEST])),
         }
     }
 
@@ -384,6 +402,7 @@ impl Product {
                 "Auberean crate (the client and the headless client)",
             ),
             Self::Yalain => manifests_version(ws, &self.manifests(ws)?, "yalain-* crate"),
+            Self::Launcher => manifests_version(ws, &self.manifests(ws)?, "launcher crate"),
             Self::Athenaeum => manifests_version(
                 ws,
                 &self.manifests(ws)?,

@@ -528,6 +528,12 @@ kept in the world's own folder. The world database is fetched into your user cac
 (`yalain world fetch`). Yalain keeps its accounts and characters in SQLite, compiled into the
 program; SQLite is in the public domain (https://sqlite.org/copyright.html).",
         ),
+        Product::Launcher => (
+            "This package is the Dereth Network launcher, which finds and starts both games' clients,
+servers and world builders, and keeps them up to date.",
+            "This package contains no game files. A client reads the game's data files from an install
+of your own.",
+        ),
         _ => (
             "This package is Auberean, an Asheron's Call 2 client, with the Dereth Network launcher
 beside it: the same launcher Dereth's package carries, which opens here in Auberean's realm and

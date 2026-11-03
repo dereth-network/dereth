@@ -120,6 +120,7 @@ fn the_release_workflows_build_the_library_once_and_every_package_carries_it() {
     for (file, product) in [
         (".github/workflows/release-dereth.yml", "dereth"),
         (".github/workflows/release-auberean.yml", "auberean"),
+        (".github/workflows/release-launcher.yml", "launcher"),
     ] {
         let workflow = std::fs::read_to_string(ws.join(file)).expect(file);
         for needed in [

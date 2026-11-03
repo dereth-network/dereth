@@ -38,6 +38,7 @@ pub mod desktop;
 pub mod friends_dll;
 mod guard;
 mod headers;
+pub mod launcher;
 pub mod lyceum;
 mod notice;
 pub mod plugins;
@@ -56,6 +57,8 @@ mod dereth_tests;
 mod desktop_tests;
 #[cfg(test)]
 mod friends_dll_tests;
+#[cfg(test)]
+mod launcher_tests;
 #[cfg(test)]
 mod lyceum_tests;
 #[cfg(test)]
@@ -391,12 +394,13 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         Some("empyrean") => {}
         _ => {
             return Err(format!(
-                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 dereth::USAGE,
                 lyceum::USAGE,
                 web::USAGE,
                 plugins::USAGE,
                 auberean::USAGE,
+                launcher::USAGE,
                 yalain::USAGE,
                 desktop::usage("athenaeum"),
                 friends_dll::USAGE,
@@ -445,6 +449,7 @@ pub fn package(args: &[String]) -> i32 {
     }
     match args.first().map(String::as_str) {
         Some("auberean") => return auberean::package(&args[1..]),
+        Some("launcher") => return launcher::package(&args[1..]),
         Some("yalain") => return yalain::package(&args[1..]),
         Some("athenaeum") => return athenaeum::package(&args[1..]),
         _ => {}
@@ -928,11 +933,11 @@ pub(crate) fn write_index(
     Ok(())
 }
 
-/// `cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]`: print the
+/// `cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]`: print the
 /// product's version; with `--tag`, fail unless the tag names exactly that version.
 pub fn version_command(args: &[String]) -> i32 {
     let usage =
-        "usage: cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]";
+        "usage: cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]";
     let Some(product) = args
         .first()
         .and_then(|a| version::Product::from_command_name(a))

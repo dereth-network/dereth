@@ -142,6 +142,9 @@ Release and packaging:
                             (Windows zip, macOS Lyceum.app, Linux tarball with a desktop entry),
                             checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
                             (lyceum/RELEASING.md)
+  package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+          [--friends-dll <file>] | --gather <dir>
+                            the launcher's own release files, with no game client beside it
   package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
                  [--friends-dll <file>] | --gather <dir>
                             Auberean's release files: the launcher built exactly as `package
@@ -225,13 +228,13 @@ Release and packaging:
                             process, and the web client tagged with Dereth; --skip-checks does not
                             ask CI, --allow-failing ships despite failed checks, --local-tier0 runs
                             tier 0 here first
-  release-notes dereth|empyrean|lyceum|auberean|yalain|athenaeum [--since <tag>] [--version <v>]
+  release-notes dereth|empyrean|lyceum|auberean|yalain|athenaeum|launcher [--since <tag>] [--version <v>]
                 [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final
                             <product>-v tag, grouped (the release workflow writes them the same
                             way); a first release has its highlights alone
-  version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]
+  version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)
