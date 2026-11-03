@@ -69,9 +69,54 @@ fn line(k: u32, tabs: u32, value: u64, text: Option<&str>) -> Line {
         value,
         time: -1.0,
         text: text.map(StringInfo::literal),
-        icon: 0,
+        icon: Vec::new(),
         effect: Vec::new(),
     }
+}
+
+/// A profile's icon is drawn from its layers on the line, as wide as its picture, and what follows
+/// goes after it.
+///
+/// Behaviour: ui.examination.the-window-lays-out-a-profile-line-by-line
+#[test]
+fn the_examination_window_draws_an_icon_from_its_layers_and_goes_on_after_it() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    key(&mut ui, &mut p, &mut t, tb::EXAMINATION_PANEL);
+    let list = el(&ui, "ExaminationListBox");
+    let profile = Profile {
+        request: ExamRequest::default(),
+        tabs: 0x3FF,
+        lines: vec![
+            Line {
+                icon: vec![(super::stage::ICON, 0xFFFF_FFFF)],
+                ..line(kind::ICON, 0x3FF, 0, None)
+            },
+            line(kind::STRING, 0x3FF, 0, Some("Iron Sword")),
+        ],
+    };
+    let shown = note(
+        notice::UPDATE_EXAMINATION_PROFILE,
+        vec![0],
+        vec![Some(Record::Profile(profile))],
+    );
+    tick(&mut ui, &mut p, &mut t, &[shown]);
+    let rows = ui.list_items(list);
+    let children = ui.node(rows[0]).expect("row").children.clone();
+    let icon = children
+        .iter()
+        .copied()
+        .find(|c| ui.image_size(*c).is_some())
+        .expect("a picture on the line");
+    let (w, _) = ui.image_size(icon).expect("its size");
+    let name = children
+        .iter()
+        .find(|c| ui.text(**c).as_deref() == Some("Iron Sword"))
+        .and_then(|c| ui.node(*c))
+        .expect("the name");
+    assert!(w > 0, "as wide as its picture");
+    assert_eq!(name.rect.x0, i32::try_from(w).expect("small"), "after it");
 }
 
 /// The examination window, shown, comes to the front of the toolbar's windows (another shown

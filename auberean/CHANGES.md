@@ -41,6 +41,7 @@ not how it was done.
 - The options now list the avatar's first-person and see-through settings.
 - Water reflections now show the sea floor.
 - Clicking between a figure's parts in a viewport now selects it.
+- The examine panel now shows an item's icon.
 
 ## 0.1.2 (2026-11-02)
 
