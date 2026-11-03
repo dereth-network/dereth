@@ -950,3 +950,72 @@ fn a_script_library_read_wrong_once_is_read_again_and_links() {
     link_scripts_noting(&portal, |_| told = true).expect("the second read links");
     assert!(told, "the host is told it took a second read");
 }
+
+/// A collision handed to the scripts of what is in a recorded world runs to its end: in the
+/// script library the interface's collision function is answered by a function that only says
+/// it was handled, so nothing reads a collision's environment properties, and nothing stops.
+///
+/// Behaviour: script.model.a-collision-ends-in-the-scripts-without-reading-the-profile
+#[test]
+fn a_collision_handed_to_recorded_objects_scripts_runs_to_its_end() {
+    use auberean_physics::collision::CollisionReport;
+    use auberean_physics::pack::{Pack, Writer};
+
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut ids = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ran = 0u32;
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+            seen.clear();
+        }
+        if ran >= 400 {
+            return;
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        c.take_message(m.blob_id, msg);
+        c.model
+            .player
+            .filter(|_| ran < 400)
+            .into_iter()
+            .for_each(|_| {
+                ids.clear();
+                ids.extend(c.model.objects().map(|o| o.id).filter(|i| seen.insert(*i)));
+            });
+        for id in ids.drain(..) {
+            let report = CollisionReport {
+                impact_speed: 3.0,
+                ..CollisionReport::default()
+            };
+            let mut w = Writer::new();
+            report.pack(&mut w);
+            let r = c.handle_collision(id, w.finish());
+            assert!(
+                matches!(r, Some(CallResult::Completed | CallResult::NoReceiver)),
+                "object {id:#x}: {r:?}"
+            );
+            ran += u32::from(matches!(r, Some(CallResult::Completed)));
+        }
+    })
+    .expect("the index reads");
+    assert!(ran >= 100, "only {ran} collisions ran to their end");
+}

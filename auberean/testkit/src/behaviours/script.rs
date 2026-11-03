@@ -920,6 +920,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.a-collision-ends-in-the-scripts-without-reading-the-profile",
+        says: "A collision handed to the scripts of an object in a recorded world runs to its                end: the library's answer to the interface's collision function only says it was                handled, and no function that reads a collision profile has a caller.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-COLLISION-ANSWER"),
+        station: "auberean-client-runtime::corpus::calls::a_collision_handed_to_recorded_objects_scripts_runs_to_its_end",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.a-data-id-loaded-by-a-files-name-finds-nothing-on-the-relaunched-game",
         says: "Setting an object's data id from a file's name asks the client's table of file \
                names for the record, typed by its extension; a name the table does not hold sets \
