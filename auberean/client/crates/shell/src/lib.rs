@@ -194,6 +194,9 @@ const FRIENDS_PORT: u16 = 2310;
 /// How the client names itself to the friends service.
 const FRIENDS_SOFTWARE: &str = concat!("auberean/", env!("CARGO_PKG_VERSION"));
 
+/// The web page where players ask for help.
+pub const ASSISTANCE_PAGE: &str = "https://github.com/dereth-network/dereth/issues";
+
 impl<H: Host> std::fmt::Debug for Shell<'_, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Shell")
@@ -350,6 +353,16 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
             Request::Disconnect => self.disconnect(),
+            Request::OpenAssistancePage => {
+                if let Err(code) = self.host.open_page(ASSISTANCE_PAGE) {
+                    let text = format!(
+                        "An error occurred while trying to launch your web browser. (Error code \
+                         {code})\nThe web site to submit an urgent assistance request is listed \
+                         below. Please go there to complete your request.\n{ASSISTANCE_PAGE}\n"
+                    );
+                    self.host.error_box("Auberean Error", &text);
+                }
+            }
             Request::Quit => self.quit = true,
             Request::ShowWorld(on) => self.scene.show_world(on),
             Request::Camera(c) => self.camera(c),

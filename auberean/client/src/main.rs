@@ -6,7 +6,7 @@
 //! `auberean-ui`) and the world it shows (`auberean-scene`), the
 //! world's device (`auberean-gpu`) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
-//! (`dereth-primitives`), the window system (`winit`), the device (`wgpu`) and the sound device
+//! (`dereth-primitives`), the console (`dereth-console`), the window system (`winit`), the device (`wgpu`) and the sound device
 //! (`dereth-audio-out`, through the sound engine's output seam in `dereth-audio`). **Used by** nothing:
 //! it is the `auberean` program.
 //!
@@ -487,6 +487,16 @@ impl Host for Desktop {
             Ok((n, from)) => Some((from, self.buf[..n].to_vec())),
             Err(_) => None,
         }
+    }
+
+    fn open_page(&mut self, url: &str) -> Result<(), i32> {
+        open::that(url).map_err(|e| e.raw_os_error().unwrap_or(0))
+    }
+
+    fn error_box(&mut self, title: &str, text: &str) {
+        // The box needs the pointer: one held for mouse look is let go of first.
+        self.hold_pointer(false);
+        dereth_console::error_box(title, text, 0);
     }
 
     fn hold_pointer(&mut self, held: bool) {

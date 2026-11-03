@@ -131,9 +131,9 @@ pub const DEVICE_NAMES: &[&str] = &[
     "dereth_input",
 ];
 
-/// The first game's client crates the second's client may use: the picture codecs, and the sound
-/// device.
-pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out"];
+/// The first game's client crates the second's client may use: the picture codecs, the sound
+/// device, and the operating system's error box.
+pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out", "dereth-console"];
 
 /// The crates outside the four parts the server may use: the Dereth Network's protocol and a
 /// world's end of its link, which name no game (the network is self-contained), so that the server

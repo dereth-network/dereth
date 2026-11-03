@@ -1135,8 +1135,10 @@ impl Retail {
                                 requests.push(Request::KeepPreferences(kept));
                             }
                         }
-                        o @ (auberean_ui_game::options::Request::AssistanceSite
-                        | auberean_ui_game::options::Request::Assistance { .. }) => {
+                        auberean_ui_game::options::Request::AssistanceSite => {
+                            requests.push(Request::OpenAssistancePage);
+                        }
+                        o @ auberean_ui_game::options::Request::Assistance { .. } => {
                             tracing::debug!(?o, "no assistance service yet");
                         }
                         auberean_ui_game::options::Request::Set { .. } => {}

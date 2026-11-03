@@ -27,6 +27,18 @@ pub trait Host {
     fn hold_pointer(&mut self, held: bool);
     /// Show a line of text where the platform shows the window's name.
     fn set_title(&mut self, title: &str);
+    /// Open a web page in the player's browser.
+    ///
+    /// # Errors
+    /// The platform's error code when it could not (a host with no browser answers 0).
+    fn open_page(&mut self, url: &str) -> Result<(), i32> {
+        let _ = url;
+        Err(0)
+    }
+    /// Show a box of text the player closes, outside the game's own screens.
+    fn error_box(&mut self, title: &str, text: &str) {
+        let _ = (title, text);
+    }
     /// The saved settings' text, if any.
     fn load_settings(&self) -> Option<String>;
     /// Save the settings' text.
@@ -180,6 +192,12 @@ pub struct TestHost {
     pub sound: Option<TestSound>,
     /// Where the input method writes, as last told.
     pub input_method: Option<InputArea>,
+    /// The web pages asked for.
+    pub pages: Vec<String>,
+    /// The error code opening a page fails with; none opens it.
+    pub page_error: Option<i32>,
+    /// The boxes of text shown: the title and the text.
+    pub boxes: Vec<(String, String)>,
 }
 
 impl Host for TestHost {
@@ -233,5 +251,12 @@ impl Host for TestHost {
     }
     fn set_input_method(&mut self, area: Option<InputArea>) {
         self.input_method = area;
+    }
+    fn open_page(&mut self, url: &str) -> Result<(), i32> {
+        self.pages.push(url.to_owned());
+        self.page_error.map_or(Ok(()), Err)
+    }
+    fn error_box(&mut self, title: &str, text: &str) {
+        self.boxes.push((title.to_owned(), text.to_owned()));
     }
 }

@@ -58,6 +58,8 @@ pub enum Request {
     Act(Action),
     /// End the session.
     Disconnect,
+    /// Open the web page where players ask for help.
+    OpenAssistancePage,
     /// Close the program.
     Quit,
     /// Set the camera: the interface's camera panel decides mouse look and first person, and

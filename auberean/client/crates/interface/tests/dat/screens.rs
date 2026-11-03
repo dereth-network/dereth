@@ -293,6 +293,12 @@ struct DoubleHost {
     inbox: VecDeque<(SocketAddr, Vec<u8>)>,
     /// Where the input method writes, as the shell last told.
     input_method: Option<InputArea>,
+    /// The web pages asked for.
+    pages: Vec<String>,
+    /// The error code opening a page fails with; none opens it.
+    page_error: Option<i32>,
+    /// The boxes of text shown: the title and the text.
+    boxes: Vec<(String, String)>,
 }
 
 fn me() -> SocketAddr {
@@ -327,6 +333,13 @@ impl Host for DoubleHost {
     fn save_settings(&mut self, _text: &str) {}
     fn set_input_method(&mut self, area: Option<InputArea>) {
         self.input_method = area;
+    }
+    fn open_page(&mut self, url: &str) -> Result<(), i32> {
+        self.pages.push(url.to_owned());
+        self.page_error.map_or(Ok(()), Err)
+    }
+    fn error_box(&mut self, title: &str, text: &str) {
+        self.boxes.push((title.to_owned(), text.to_owned()));
     }
 }
 
@@ -478,6 +491,9 @@ fn into_the_world_running(
         double,
         inbox: VecDeque::new(),
         input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -731,6 +747,39 @@ fn the_radars_coordinates_button_sends_the_options_to_keep() {
     assert!(shown < kept, "the change is what is kept: {shown} {kept}");
 }
 
+/// The options window's Request Assistance button opens the project's issues page in the browser and
+/// shows no box; when the browser cannot be started, a box says so with the error code and the page's
+/// address.
+///
+/// Behaviour: desktop.interface.request-assistance-opens-the-issues-page
+#[test]
+fn request_assistance_opens_the_issues_page_or_says_it_could_not() {
+    const PAGE: &str = "https://github.com/dereth-network/dereth/issues";
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let window = middle(&retail, "OptionButton");
+    click(&mut s, window);
+    step(&mut s);
+    let button = middle(&retail, "AssistanceButton");
+    click(&mut s, button);
+    step(&mut s);
+    assert_eq!(s.host.pages, [PAGE]);
+    assert!(s.host.boxes.is_empty(), "{:?}", s.host.boxes);
+    s.host.page_error = Some(5);
+    click(&mut s, button);
+    step(&mut s);
+    assert_eq!(s.host.pages, [PAGE, PAGE]);
+    let [(title, text)] = s.host.boxes.as_slice() else {
+        panic!("one box: {:?}", s.host.boxes);
+    };
+    assert_eq!(title, "Auberean Error");
+    assert!(text.contains("(Error code 5)"), "{text}");
+    assert!(text.contains(PAGE), "{text}");
+}
+
 /// W held runs forward; Enter starts a chat line, and the run stops at once with the key still held;
 /// letting W go and ending the line leaves the player standing, and W pressed again runs.
 ///
@@ -917,6 +966,9 @@ fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
         double,
         inbox: VecDeque::new(),
         input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -996,6 +1048,9 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
         double,
         inbox: VecDeque::new(),
         input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1051,6 +1106,9 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         double,
         inbox: VecDeque::new(),
         input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
     };
     let mut s = Shell::new(
         host,

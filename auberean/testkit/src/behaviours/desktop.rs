@@ -765,6 +765,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.request-assistance-opens-the-issues-page",
+        says: "The options window's Request Assistance button opens the project's issues page in the \
+               player's browser; when the browser cannot be started, a box gives the error code and \
+               the page's address.",
+        since: THIS_CLIENT,
+        divergence: "CD2-assistance-opens-issues-page",
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-ASSISTANCE-PAGE"),
+        station: "auberean-interface::dat::screens::request_assistance_opens_the_issues_page_or_says_it_could_not",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-body-holds-its-place-before-the-camera-in-mouse-look",
         says: "Running while mouse look turns it, the player's body holds its place before the \
                camera from frame to frame, as far from it and facing the way it faces, though its \

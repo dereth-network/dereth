@@ -13,6 +13,12 @@ pub struct Divergence {
 /// Every divergence, in id order.
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
+        id: "CD2-assistance-opens-issues-page",
+        says: "Request Assistance opens this project's issues page; the original client opened the \
+               publisher's support site, which is gone. The box shown when the browser cannot be \
+               started is titled Auberean Error, where the original's named Asheron's Call.",
+    },
+    Divergence {
         id: "CD2-checked-script-machine",
         says: "Where the retail script machine would run past the end of a stack, a table or the \
                code (a native nothing is bound to, a stack overflow, a reference to nothing, an \
