@@ -518,6 +518,12 @@ impl ObjectEffects {
         });
     }
 
+    /// The terrain kind its entries are played for.
+    #[must_use]
+    pub const fn terrain(&self) -> u32 {
+        self.terrain
+    }
+
     /// The object's table.
     #[must_use]
     pub fn table(&self) -> &ObjectFxTable {

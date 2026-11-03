@@ -643,7 +643,9 @@ impl Scene<'_> {
                         );
                     }
                 }
-                ServerMessage::DoTargetedFx(e) => self.do_fx(id, e.action.fx, e.action.scalar),
+                ServerMessage::DoTargetedFx(e) => {
+                    self.do_targeted_fx(id, e.action.fx, e.action.scalar, e.action.target);
+                }
                 ServerMessage::MotionInterpChange(e) => {
                     let record = self
                         .world

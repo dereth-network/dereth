@@ -49,6 +49,7 @@ pub mod others;
 pub mod profile;
 pub mod seen;
 pub mod story;
+mod targeted;
 mod temporaries;
 pub mod view;
 mod weather;
@@ -387,6 +388,10 @@ pub struct Scene<'w> {
     /// Effects asked of objects or stopped since the last frame, in order, for their bodies: the
     /// object, the effect, and its strength (none to stop it).
     body_fx: Vec<(u64, u32, Option<f32>)>,
+    /// The effects playing that are aimed at another object.
+    aimed: Vec<targeted::Aimed>,
+    /// The aims of the effects asked this frame: object, effect, target.
+    fx_aims: Vec<(u64, u32, u64)>,
     /// What the stories did on the bodies, counted.
     pub combat: story::StoryTally,
     /// The story player of each body a story was told on.
@@ -679,7 +684,8 @@ pub(crate) fn body_config(
 /// its making with it, the scale its look gives it and the scale its look gives what it holds; and
 /// the whole of the motion description its look names, every element's and mode's values: water's,
 /// the sea floor's and each kind of ground's as well as the earth's and the air's.
-// D2-06230, D2-06411
+// D2-06230, D2-06411, D2-06354, D2-06355, D2-06367, D2-06370, D2-06177, D2-05837, D2-06553, D2-06554
+// D2-06555
 pub(crate) fn give_parts(
     body: &mut Body,
     records: &WorldRecords,
@@ -1217,6 +1223,8 @@ impl<'w> Scene<'w> {
             stand_ins: [false; 2],
             asked_fx: Vec::new(),
             body_fx: Vec::new(),
+            aimed: Vec::new(),
+            fx_aims: Vec::new(),
             combat: story::StoryTally::default(),
             stories: BTreeMap::new(),
             temporaries: temporaries::Temporaries::default(),
@@ -2675,7 +2683,10 @@ impl<'w> Scene<'w> {
             self.body_fx.push((id, effect, Some(intensity)));
         }
         self.play_camera_effects(client, &played, now);
+        let night = self.is_night();
+        self.aim_fx(client, &played, night);
         self.ask_body_fx();
+        self.end_aimed_fx(now);
         self.status.others = self.others.len();
         self.status.nearest = self.others.nearest(
             figures::global(self.status.cell, self.status.origin),

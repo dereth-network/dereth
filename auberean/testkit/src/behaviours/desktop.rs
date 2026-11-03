@@ -87,6 +87,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.bodies.an-aimed-effect-acts-on-its-target",
+        says: "An effect aimed at another object acts on it: an entry that hides its target hides \n               it until the effect is over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-AIMED"),
+        station: "auberean-shell::dat::session::an_aimed_effect_acts_on_its_target",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.an-object-is-in-the-world-while-its-body-stands-there",
         says: "With the scene placing the bodies, an object's scripts are told it entered the \
                world when its body did (an object with no body, when its place's cell is \

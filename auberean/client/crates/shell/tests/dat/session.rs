@@ -2969,6 +2969,90 @@ fn an_object_takes_up_its_description() {
     assert!((value - 0.25).abs() < 1e-3, "its slider: {value}");
 }
 
+/// An effect aimed at another object acts on it: the entry that hides its target hides it, and it
+/// shows again when the effect is over. Fixture: the human figure created in the hall's cell, a
+/// server double asking the player's body for the effect at a set time.
+///
+/// Behaviour: desktop.bodies.an-aimed-effect-acts-on-its-target
+#[test]
+fn an_aimed_effect_acts_on_its_target() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, TargetedFx};
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const HIDES_ITS_TARGET: u32 = 0x8100_02AD;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let later = [(
+        9.0,
+        ServerMessage::DoTargetedFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: TargetedFx {
+                fx: HIDES_ITS_TARGET,
+                scalar: 1.0,
+                target: CREATURE,
+            },
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut hid = false;
+    while s.host.time < 14.0 {
+        step(&mut s);
+        hid |= s.scene.body(CREATURE).is_some_and(|b| b.is_no_draw());
+    }
+    assert!(hid, "the effect hid what it aims at");
+    while s.host.time < 34.0 && s.scene.body(CREATURE).is_some_and(|b| b.is_no_draw()) {
+        step(&mut s);
+    }
+    assert!(
+        !s.scene.body(CREATURE).expect("its body").is_no_draw(),
+        "it shows again when the effect is over"
+    );
+}
+
 /// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
 /// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
 /// at the water's speed, its description's, not the ground's or none.

@@ -372,6 +372,7 @@ pub fn heading_rotation(heading: f32) -> Quat {
 
 impl Body {
     /// A body standing at `position`, facing `heading`, at rest on the ground.
+    // D2-06352
     #[must_use]
     pub fn new(config: BodyConfig, position: Position, heading: f32) -> Self {
         let mut minterp = MotionInterp::with_description(0, Arc::new(config.description()));
