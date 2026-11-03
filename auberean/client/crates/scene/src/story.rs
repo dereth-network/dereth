@@ -661,6 +661,98 @@ impl Scene<'_> {
         waiting
     }
 
+    /// Object `id`'s body is brought up to what the server describes of it: its velocity, rate of
+    /// turn and scales; where it looks; the behaviors it plays (those of the network's it plays that
+    /// are not described stop, those described it does not play start); its sliders, those the
+    /// network moves and those described, each going to its described value (0 when not described)
+    /// over the time its described speed takes; and the effects it plays (those it plays stop, its
+    /// look's own apart, and those described start).
+    // D2-06366, D2-13868, D2-13869, D2-13870, D2-13871, D2-15186
+    pub(crate) fn take_description(&mut self, client: &Client, id: u64) {
+        use auberean_client_sdk::protocol::types::PhysicsDesc as Pd;
+        let Some(c) = client.model.object(id).map(|o| o.physics.clone()) else {
+            return;
+        };
+        if let Some(b) = self.body_mut(id) {
+            auberean_physics::motion::Owner::set_velocity(b, crate::pv(c.velocity));
+            b.set_misc_active(true);
+            b.set_omega_velocity(crate::pv(c.omega));
+            if c.bits & Pd::VELOCITY_SCALE != 0 {
+                b.set_velocity_scale(c.velocity_scale);
+            }
+            if c.bits & Pd::JUMP_SCALE != 0 {
+                b.set_jump_scale(c.jump_scale);
+            }
+        }
+        if c.look_at != 0 {
+            self.look_at(id, c.look_at);
+        }
+        let anims = &self.anims;
+        let Some(f) = crate::figure_in(
+            &mut self.player,
+            &mut self.others,
+            &mut self.held,
+            &mut self.temporaries,
+            id,
+        ) else {
+            return;
+        };
+        let running = f.modes.network_params();
+        for r in &running {
+            if !c.behaviors.iter().any(|d| d.behavior == r.behavior) {
+                f.stop_behavior(anims, r.behavior);
+            }
+        }
+        let records = &self.world.records;
+        let network = records
+            .get::<auberean_assets::animation::CharacterTemplate>(
+                records.data_id_by_enum(0x4000_0001, 0x4000_0008),
+            )
+            .map(|t| t.sliders.clone())
+            .unwrap_or_default();
+        let mut sliders: std::collections::BTreeSet<u32> = network
+            .iter()
+            .filter(|(s, controller)| *controller == 1 && f.sliders.infos.get(*s).is_some())
+            .map(|(s, _)| *s)
+            .collect();
+        sliders.extend(c.sliders.iter().map(|s| s.slider));
+        for slider in sliders {
+            let (value, speed) = c
+                .sliders
+                .iter()
+                .find(|s| s.slider == slider)
+                .map_or((0.0, 0.0), |s| (s.value, s.time));
+            let (desired, moving) = (f.sliders.desired(slider), f.sliders.velocity(slider));
+            #[allow(clippy::float_cmp)]
+            if desired != value || moving != speed {
+                let time = if speed.abs() >= 0.0002 {
+                    ((desired - value) / speed).abs()
+                } else {
+                    0.0
+                };
+                f.sliders.do_slider(0, slider, value, time);
+            }
+        }
+        for d in c
+            .behaviors
+            .iter()
+            .filter(|d| !running.iter().any(|r| r.behavior == d.behavior))
+        {
+            self.play_behavior(id, &params_of_wire(d));
+        }
+        let playing = self
+            .others
+            .effects_mut(id)
+            .map(|e| e.current_fx())
+            .unwrap_or_default();
+        for (fx, _) in playing {
+            self.stop_fx(id, fx);
+        }
+        for fx in &c.fx {
+            self.do_fx(id, fx.fx, fx.scalar);
+        }
+    }
+
     /// The server moves a slider of object `object`: the player's own body keeps the sliders the
     /// character template leaves to the client. The body's animation wakes.
     // D2-05852, D2-15073, D2-05885

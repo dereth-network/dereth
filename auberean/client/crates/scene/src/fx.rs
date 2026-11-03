@@ -51,6 +51,11 @@ pub(crate) struct BodyFx {
 }
 
 impl BodyFx {
+    /// The effects playing that did not begin with the object.
+    pub(crate) fn current_fx(&self) -> Vec<(u32, f32)> {
+        self.fx.current_fx()
+    }
+
     /// The effects of a body of look `look`, or none when its look carries no effects; their
     /// random choices roll the client's one generator.
     pub(crate) fn of_look(look: &Look) -> Option<Self> {

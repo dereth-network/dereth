@@ -124,6 +124,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.an-object-takes-up-its-description",
+        says: "An object the server creates goes to the slider values and velocity its description \
+               gives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
+        station: "auberean-shell::dat::session::an_object_takes_up_its_description",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.the-player-moves-while-its-body-does-falling-too",
         says: "The player moves while its body does, falling as much as running: dropped from high \
                up, it moves as it falls straight down with no speed along the ground, and stops \

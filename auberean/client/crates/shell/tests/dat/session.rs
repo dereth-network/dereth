@@ -2901,6 +2901,74 @@ fn the_players_body_does_what_the_server_asks() {
     assert!(highest > before + 1.0, "up: {before} to {highest}");
 }
 
+/// An object the server creates takes up what its description says: a slider goes to its value at
+/// once when no speed is given.
+/// Fixture: the human figure created in the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-takes-up-its-description
+#[test]
+fn an_object_takes_up_its_description() {
+    use auberean_client_sdk::protocol::types::SliderSetting;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const SLIDER: u32 = 0x4000_0016;
+    let start = Vec3 {
+        x: -3.9,
+        y: 337.5,
+        z: -44.7,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::SLIDERS,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: start,
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            sliders: vec![SliderSetting {
+                slider: SLIDER,
+                value: 0.25,
+                time: 0.0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    let figure = s.scene.figure(CREATURE).expect("its figure");
+    let value = figure.sliders.desired(SLIDER);
+    assert!((value - 0.25).abs() < 1e-3, "its slider: {value}");
+}
+
 /// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
 /// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
 /// at the water's speed, its description's, not the ground's or none.

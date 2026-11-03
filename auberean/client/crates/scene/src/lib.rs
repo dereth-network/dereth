@@ -2530,6 +2530,9 @@ impl<'w> Scene<'w> {
             anim,
             &mut look,
         );
+        for id in self.others.take_described() {
+            self.take_description(client, id);
+        }
         // The player stopped looking at what had been behind it or far too long.
         if stop_looking {
             if let Some(id) = self.player.as_ref().map(|p| p.id) {

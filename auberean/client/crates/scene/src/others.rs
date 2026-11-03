@@ -469,6 +469,8 @@ struct Other {
 #[derive(Default)]
 pub struct Others {
     bodies: BTreeMap<u64, Other>,
+    /// The objects the server described since last asked.
+    described: Vec<u64>,
     lost: LostCells,
     /// The bodies that left the world (`false`) or entered it again (`true`) since last taken.
     world_changes: Vec<(u64, bool)>,
@@ -535,6 +537,12 @@ impl Others {
     }
 
     /// What each figure finished and the hooks it fired since last taken, by body.
+    /// The objects the server described since last asked (their creations): the scene brings each
+    /// body up to its description.
+    pub(crate) fn take_described(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.described)
+    }
+
     pub(crate) fn take_heard(&mut self) -> Vec<(u64, Vec<Completion>, Vec<u32>)> {
         std::mem::take(&mut self.heard)
     }
@@ -844,12 +852,8 @@ impl Others {
                     if c.bits & Pd::MODE != 0 && c.mode != 0 {
                         f.set_mode(anims, c.mode);
                     }
-                    if c.bits & Pd::SLIDERS != 0 {
-                        for sl in &c.sliders {
-                            f.sliders.do_slider(0, sl.slider, sl.value, sl.time);
-                        }
-                    }
                 }
+                self.described.push(id);
             }
             b.standing = b.body.is_none() && is_loaded(place.cell, around, land);
             let Some(ob) = b.body.as_mut() else { continue };
