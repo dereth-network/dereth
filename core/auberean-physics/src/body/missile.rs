@@ -311,13 +311,6 @@ fn with_guidance<R>(
 }
 
 impl Body {
-    /// Whether the body flies as a missile.
-    // D2-06188
-    #[must_use]
-    pub const fn has_missile_manager(&self) -> bool {
-        self.missile.is_some()
-    }
-
     /// The body's guidance, taken out to run; made when it has none, which wakes its movement.
     fn take_guidance(&mut self) -> Box<Guidance> {
         if let Some(g) = self.missile.take() {
@@ -489,6 +482,32 @@ impl Body {
             g.client_activate(h, v, target);
         });
         true
+    }
+
+    /// What a description says of a body flying as a missile (the guidance made first when it has
+    /// none, which wakes its movement): where it aims, whether it is lit and in flight, the object
+    /// it aims at when there is one, and the velocity it flies at.
+    #[allow(clippy::too_many_arguments)]
+    pub fn take_missile_description(
+        &mut self,
+        land: &Land,
+        world: &mut World,
+        objects: &mut dyn Objects,
+        target_position: Position,
+        activated: bool,
+        moving: bool,
+        target: Option<(u64, bool, Vec3)>,
+        velocity: Vec3,
+    ) {
+        with_guidance(self, land, world, objects, |g, h| {
+            g.targeting.set_target_position(target_position);
+            g.set_activated(activated);
+            g.set_moving(h, moving);
+            if let Some((object, scaled, offset)) = target {
+                g.targeting.set_target_object(object, 0.0, scaled, offset);
+            }
+        });
+        self.set_missile_velocity(velocity, false);
     }
 
     /// The server aimed the missile again: new settings and where its target is.

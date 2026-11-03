@@ -262,7 +262,7 @@ impl World {
 
     /// Entry `key` now stands in `cell` (0: none): out of the cell it stood in when that is
     /// another, into the new one.
-    // D2-05970, D2-05971
+    // D2-05970, D2-05971, D2-05968
     pub(super) fn refile(&mut self, key: BodyKey, cell: CellId) {
         let old = self.watching.cell_of.get(&key).copied();
         if old == Some(cell.0) {

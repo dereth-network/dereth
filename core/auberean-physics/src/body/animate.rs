@@ -78,13 +78,6 @@ impl Body {
         true
     }
 
-    /// The motion the body was last asked for.
-    // D2-05903
-    #[must_use]
-    pub const fn last_do_motion_values(&self) -> dereth_primitives::Vec3 {
-        self.minterp.asked
-    }
-
     /// The server plays an effect script on the body.
     // D2-05845
     pub fn receive_do_fx_script(&mut self, script: u32) -> bool {
@@ -125,18 +118,6 @@ impl Body {
         self.stop_all_server_behaviors();
     }
 
-    /// The server stops a behavior on the body.
-    // D2-05848
-    pub fn receive_stop_behavior(&mut self, behavior: u32) {
-        crate::motion::Owner::stop_behavior(self, behavior);
-    }
-
-    /// Goes to a mode with no one waiting to hear it is there.
-    // D2-05884
-    pub fn do_mode_no_blocking(&mut self, mode: u32) {
-        crate::motion::Owner::do_mode(self, 0, mode);
-    }
-
     /// Whether the body shows a behavior.
     // D2-05896
     #[must_use]
@@ -145,7 +126,6 @@ impl Body {
     }
 
     /// The stamp kept for update kind `kind` (0 to 3).
-    // D2-06332
     #[must_use]
     pub fn update_time(&self, kind: usize) -> u16 {
         self.update_times[kind]
@@ -157,7 +137,7 @@ impl Body {
     }
 
     /// Whether `stamp` is newer than the one kept for update kind `kind`; a newer one is kept.
-    // D2-06190
+    // D2-06190, D2-06332
     pub fn is_newer_than_update(&mut self, kind: usize, stamp: u16) -> bool {
         let kept = self.update_times[kind];
         if stamp == kept {
@@ -204,20 +184,6 @@ impl Body {
 }
 
 impl Body {
-    /// The server plays an effect on the body.
-    // D2-05860
-    pub fn receive_do_fx(&mut self, fx: u32, intensity: f32) {
-        crate::motion::Owner::do_fx(self, fx, intensity);
-    }
-
-    /// The server plays a list of effects on the body, each at full intensity.
-    // D2-06167
-    pub fn receive_do_fx_list(&mut self, effects: &[u32]) {
-        for fx in effects {
-            crate::motion::Owner::do_fx(self, *fx, 1.0);
-        }
-    }
-
     /// The object the body's targeted effects aim at.
     // D2-06099
     pub fn set_fx_target(&mut self, object: u64) {

@@ -33,6 +33,7 @@ not how it was done.
 - The camera stays off the ground.
 - An admin character's commands now work: the game's admin commands, with their own dumps and answers.
 - Fixed objects vanishing on an out-of-date message.
+- Fixed things that should push you, such as currents, not pushing you.
 
 ## 0.1.2 (2026-11-02)
 

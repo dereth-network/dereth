@@ -453,11 +453,6 @@ impl Body {
     pub const fn has_contact(&self) -> bool {
         self.contact
     }
-    // D2-06306
-    #[must_use]
-    pub const fn is_on_walkable(&self) -> bool {
-        self.on_walkable
-    }
     // D2-06315
     #[must_use]
     pub const fn contact_is_water(&self) -> bool {

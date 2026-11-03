@@ -74,7 +74,6 @@ impl Body {
 
     /// The server says the body left the world: when its position stamp is newer, a body that is
     /// not the player's lets go of its holder and leaves.
-    // D2-06191
     pub fn receive_leave_world(
         &mut self,
         land: &Land,

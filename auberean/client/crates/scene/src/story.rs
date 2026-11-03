@@ -553,6 +553,7 @@ impl Scene<'_> {
     ) -> Vec<ServerMessage> {
         let mut waiting = Vec::new();
         for m in events {
+            // D2-06167
             if let ServerMessage::PrivateFx(f) = &m {
                 if let Some(id) = self.player.as_ref().map(|p| p.id) {
                     for fx in &f.0 {
@@ -573,6 +574,7 @@ impl Scene<'_> {
                 ServerMessage::PlayBehavior(e) => {
                     self.recv_do_behavior(client, id, params_of_wire(&e.action));
                 }
+                // D2-05848
                 ServerMessage::StopBehavior(e) => {
                     let anims = &self.anims;
                     if let Some(f) = crate::figure_in(
@@ -585,6 +587,7 @@ impl Scene<'_> {
                         f.stop_behavior(anims, e.action.0);
                     }
                 }
+                // D2-05884
                 ServerMessage::DoMode(e) => {
                     self.do_mode(id, e.action.0);
                 }
@@ -600,6 +603,7 @@ impl Scene<'_> {
                         f.set_mode(anims, e.action.0);
                     }
                 }
+                // D2-05860
                 ServerMessage::DoFx(e) => self.do_fx(id, e.action.fx, e.action.scalar),
                 ServerMessage::StopFx(e) => self.stop_fx(id, e.action.0),
                 ServerMessage::MoveTo(e) => self.recv_move_to(id, &e.action),
@@ -667,7 +671,7 @@ impl Scene<'_> {
     /// network moves and those described, each going to its described value (0 when not described)
     /// over the time its described speed takes; and the effects it plays (those it plays stop, its
     /// look's own apart, and those described start).
-    // D2-06366, D2-13868, D2-13869, D2-13870, D2-13871, D2-15186
+    // D2-06366, D2-13868, D2-13869, D2-13870, D2-13871
     pub(crate) fn take_description(&mut self, client: &Client, id: u64) {
         use auberean_client_sdk::protocol::types::PhysicsDesc as Pd;
         let Some(c) = client.model.object(id).map(|o| o.physics.clone()) else {
@@ -683,9 +687,16 @@ impl Scene<'_> {
             if c.bits & Pd::JUMP_SCALE != 0 {
                 b.set_jump_scale(c.jump_scale);
             }
+            b.acceleration_field_velocity = crate::pv(c.external_acceleration);
+            b.update_times = c.stamps;
         }
         if c.look_at != 0 {
             self.look_at(id, c.look_at);
+        }
+        if c.bits & (Pd::HEAD_X | Pd::HEAD_Z) != 0
+            && !self.player.as_ref().is_some_and(|p| p.id == id)
+        {
+            self.looks.entry(id).or_default().dir = (c.head_x, c.head_z);
         }
         let anims = &self.anims;
         let Some(f) = crate::figure_in(
@@ -710,10 +721,10 @@ impl Scene<'_> {
             )
             .map(|t| t.sliders.clone())
             .unwrap_or_default();
-        let mut sliders: std::collections::BTreeSet<u32> = network
-            .iter()
-            .filter(|(s, controller)| *controller == 1 && f.sliders.infos.get(*s).is_some())
-            .map(|(s, _)| *s)
+        let mut sliders: std::collections::BTreeSet<u32> = f
+            .sliders
+            .network_sliders(|s| network.iter().find(|(n, _)| *n == s).map(|(_, c)| *c))
+            .into_iter()
             .collect();
         sliders.extend(c.sliders.iter().map(|s| s.slider));
         for slider in sliders {
@@ -750,6 +761,34 @@ impl Scene<'_> {
         }
         for fx in &c.fx {
             self.do_fx(id, fx.fx, fx.scalar);
+        }
+        if c.bits & (Pd::TARGET | Pd::TARGET_POSITION) != 0 {
+            let target_position = crate::position_of_placement(&c.target_position);
+            let target = (c.bits & Pd::TARGET != 0).then(|| {
+                (
+                    c.target,
+                    c.bits & Pd::TARGET_SCALED != 0,
+                    crate::pv(c.target_offset),
+                )
+            });
+            let (land, table) = (&self.land, &mut self.table);
+            let body = if self.player.as_ref().is_some_and(|p| p.id == id) {
+                self.player.as_mut().map(|p| &mut p.body)
+            } else {
+                self.others.body_mut(id)
+            };
+            if let Some(b) = body {
+                b.take_missile_description(
+                    land,
+                    table,
+                    &mut auberean_physics::body::missile::NoObjects,
+                    target_position,
+                    c.bits & Pd::MISSILE_ACTIVATED != 0,
+                    c.bits & Pd::MISSILE_MOVING != 0,
+                    target,
+                    crate::pv(c.velocity),
+                );
+            }
         }
     }
 

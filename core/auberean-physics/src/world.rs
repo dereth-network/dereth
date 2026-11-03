@@ -826,7 +826,7 @@ impl World {
         }
     }
 
-    fn collisions_mut(&mut self, key: BodyKey) -> Option<&mut Collisions> {
+    pub(crate) fn collisions_mut(&mut self, key: BodyKey) -> Option<&mut Collisions> {
         self.entries.get_mut(&key)?.collisions.as_deref_mut()
     }
 

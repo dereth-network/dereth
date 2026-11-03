@@ -421,6 +421,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.a-bodys-collisions-take-its-slowest-impact",
+        says: "The slowest impact a body's collisions report is the one its speed and jump scales \n               set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MIN-IMPACT"),
+        station: "auberean-physics::cpu::contact::solid::a_bodys_collisions_take_its_slowest_impact",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.solid.a-creature-blocks-a-player-and-another-player-does-not",
         says: "Objects take the physics type and the movement mask their descriptions give; a player passes through another player (whose type carries a bit of the player's mask) and stops against a creature (whose type carries none).",
         since: RETAIL,
@@ -484,6 +492,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATIC-PROPERTIES"),
         station: "auberean-physics::cpu::contact::solid::scenery_takes_its_entitys_properties",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.what-a-body-touches-pushes-it",
+        says: "An object whose description pushes moves what touches it, by the push for where the \n               body is, each tick it touches.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TOUCH-PUSHERS"),
+        station: "auberean-physics::cpu::contact::solid::what_a_body_touches_pushes_it",
         tier: Tier::Cpu,
     },
 ];

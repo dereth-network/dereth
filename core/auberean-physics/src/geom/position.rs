@@ -32,7 +32,6 @@ pub fn nowhere() -> Position {
 }
 
 /// The heading the position faces.
-// D2-02015
 #[must_use]
 pub fn position_heading(p: &Position) -> Heading {
     frame_heading(&p.frame)

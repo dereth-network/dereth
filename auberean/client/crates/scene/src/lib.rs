@@ -955,6 +955,7 @@ fn place_camera(
 /// the server sends.
 // D2-05894, D2-05895, D2-06391
 #[must_use]
+// D2-05903
 pub fn reading_of(b: &Body, f: Option<&Figure>) -> auberean_client_sdk::runtime::body::BodyReading {
     let m = b.minterp.asked;
     let mode = f.map_or(0, |f| f.modes.desired_mode);
@@ -3179,6 +3180,7 @@ impl<'w> Scene<'w> {
     /// body at its holding location (taken up again when its holder or location changes, or the
     /// holder was put together again), let go of once the server no longer calls it held, and
     /// fades as its holder's element changes; their figures are animated over `dt` seconds.
+    // D2-05999
     fn update_held(&mut self, client: &Client, anim: Option<f32>) {
         use auberean_client_sdk::model::ids::is_temporary;
         use auberean_physics::body::parent::{set_parent, TakeUp, FADE_SLIDER, FADE_TIME};

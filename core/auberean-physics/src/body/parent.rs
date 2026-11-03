@@ -153,7 +153,6 @@ pub fn frame_from_matrix(m: &[[f32; 4]; 4]) -> Frame {
 
 impl Body {
     /// How many children it holds.
-    // D2-06340
     #[must_use]
     pub fn num_children(&self) -> usize {
         self.children.as_ref().map_or(0, |c| c.children.len())
@@ -272,7 +271,7 @@ impl Body {
 
     /// Lets go of its holder, if it has one: the holder takes it off its list, and it goes back
     /// to the game's default mode.
-    // D2-06223
+    // D2-06223, D2-06340
     pub fn unset_parent(&mut self) {
         if self.parent == 0 {
             return;
@@ -366,19 +365,10 @@ impl Body {
         }
     }
 
-    /// The server says the body is held by `parent` at `location`, its position stamp `stamp`:
-    /// when the stamp is newer the host takes it up ([`set_parent`]) and, once taken up, it takes
-    /// placement `placement`. Whether the stamp was newer.
-    // D2-06192
-    pub fn receive_parent(&mut self, stamp: u16) -> bool {
-        self.is_newer_than_update(super::POSITION_STAMP, stamp)
-    }
-
     /// The server says the body is let go of (or put in a container, which only the player
     /// hears), with its position stamp `stamp`; the host has checked the instance stamp is the
     /// body's. When the stamp is newer it lets go of its holder and leaves the world. Whether the
     /// stamp was newer.
-    // D2-06193, D2-06194
     pub fn receive_deparent(
         &mut self,
         land: &Land,
@@ -464,20 +454,6 @@ pub fn set_parent(
     child.parent = parent.id;
     child.has_parent = true;
     true
-}
-
-/// Body `child` is taken up by the object the host finds by `holder`'s id ([`set_parent`]); not
-/// taken up when the host finds none.
-// D2-05999
-pub fn set_parent_by_id(
-    child: &mut Body,
-    holder: Option<&mut Body>,
-    how: TakeUp,
-    land: &Land,
-    world: &mut World,
-    objects: &mut dyn Objects,
-) -> bool {
-    holder.is_some_and(|h| set_parent(child, h, how, land, world, objects))
 }
 
 /// Body `child` is taken up by `parent` as a part group of its own asks: only when the child has

@@ -523,7 +523,7 @@ impl Body {
 
     /// One physics tick of `dt` seconds. A body out of the world, frozen, not mobile or carried by
     /// a parent does not move (its movement updates stop), unless it flies as a missile.
-    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137
+    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137, D2-05990
     pub fn tick(&mut self, land: &Land, dt: f32) {
         let mut world = std::mem::take(&mut self.world);
         let key = match self.own_key.filter(|k| world.handle(*k).is_some()) {
@@ -616,6 +616,7 @@ impl Body {
         self.update_motion(now, dt);
         self.calc_acceleration();
         self.turn_acceleration = self.minterp.omega_acceleration.z;
+        self.take_pushers(world, key);
         self.calc_external_forces(dt);
         let values = self.minterp.motion_values(&*self);
         let mut d = Vec3::ZERO;
@@ -693,6 +694,12 @@ impl Body {
             world.set_undetectable(key, on);
         }
         world.set_ignore_collisions(key, self.has(flags::IGNORE_COLLISIONS));
+        if self.min_impact != (0.0, 0.0) {
+            if let Some(c) = world.collisions_mut(key) {
+                c.set_min_reported_impact_xy(self.min_impact.0);
+                c.set_min_reported_impact_z(self.min_impact.1);
+            }
+        }
     }
 
     /// Drag, where the motion values have it: the velocity decays by `(1 - drag)` a second, all of

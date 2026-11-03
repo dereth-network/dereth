@@ -615,7 +615,7 @@ impl MotionInterp {
     /// The turning acceleration toward the rate asked for, or the slowdown toward none; a turn-to
     /// sets the rate toward its heading, and ends within a thousandth of a degree when the body has
     /// stopped turning. The rate asked for is then spent.
-    // D2-07020
+    // D2-07020, D2-05993, D2-06435
     pub fn calculate_omega_acceleration(&mut self, owner: &mut dyn Owner) {
         let w = owner.omega();
         let m = self.motion_values(&*owner);
@@ -754,7 +754,7 @@ impl MotionInterp {
     /// One tick: the asked motion from interpolation or from a move under way, the behaviors that
     /// show the body's motion, then the accelerations toward the asked velocity and the turning
     /// acceleration.
-    // D2-07025
+    // D2-07025, D2-06327, D2-06430
     #[allow(clippy::too_many_lines)]
     pub fn update_movement(&mut self, owner: &mut dyn Owner, now: f64, dt: f32) {
         self.time_since_jump += f64::from(dt);
@@ -1086,12 +1086,6 @@ impl MotionInterp {
     #[must_use]
     pub const fn get_acceleration(&self) -> Vec3 {
         self.acceleration
-    }
-
-    // D2-07039
-    #[must_use]
-    pub const fn get_omega_acceleration(&self) -> Vec3 {
-        self.omega_acceleration
     }
 
     // D2-07040

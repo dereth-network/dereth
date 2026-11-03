@@ -41,8 +41,8 @@ const STILL_SQ: f32 = 0.0002;
 const JUMP_LEAD_IN_SPEED: f32 = 2.0;
 
 /// What the pushers a body is in or touches do to it this tick: whether it walks on air, and the
-/// velocity and acceleration they give it. Filled before each tick by whatever tracks the pushers;
-/// none by default.
+/// velocity and acceleration they give it. Added to before each tick from the objects its
+/// collisions touch ([`Body::take_pushers`]); none by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Pushers {
     pub walk_on_air: bool,
@@ -310,7 +310,7 @@ impl Body {
 
     /// This tick's acceleration in the landblock's frame: gravity, lift, and the motion
     /// interpreter's acceleration turned by the body's heading.
-    // D2-05953
+    // D2-05953, D2-06306, D2-06512
     pub fn calc_acceleration(&mut self) {
         let mut a = Vec3::ZERO;
         let values = self.desired_motion_values();
@@ -352,6 +352,25 @@ impl Body {
             }
         }
         self.acceleration = a.add(self.to_world(self.minterp.get_acceleration()));
+    }
+
+    /// What the objects the body touches push it with this tick, for where it is now.
+    pub(crate) fn take_pushers(
+        &mut self,
+        world: &crate::world::World,
+        key: crate::collision::manager::BodyKey,
+    ) {
+        let element = self.desired_element();
+        if let Some(c) = world.collisions(key) {
+            let mut p = self.pushers;
+            c.update_pusher_values(
+                element,
+                &mut p.walk_on_air,
+                &mut p.velocity,
+                &mut p.acceleration,
+            );
+            self.pushers = p;
+        }
     }
 
     /// The pushers' share of this tick's motion: their velocity and acceleration, and the speed
@@ -580,31 +599,14 @@ impl Body {
         self.minterp.local_desired_velocity
     }
 
-    /// The motion interpreter's acceleration this tick, in the body's frame.
-    // D2-06512
-    #[must_use]
-    pub const fn local_acceleration(&self) -> Vec3 {
-        self.minterp.acceleration
-    }
-
     /// The rate of turn's acceleration this tick.
-    // D2-06514, D2-06328
+    // D2-06514, D2-06328, D2-07039
     #[must_use]
     pub const fn omega_acceleration(&self) -> Vec3 {
         Vec3 {
             x: 0.0,
             y: 0.0,
             z: self.turn_acceleration,
-        }
-    }
-
-    // D2-06327, D2-06430
-    #[must_use]
-    pub const fn omega_velocity(&self) -> Vec3 {
-        Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: self.turn_rate,
         }
     }
 

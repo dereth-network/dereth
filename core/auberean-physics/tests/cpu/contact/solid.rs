@@ -188,6 +188,78 @@ fn a_body_and_what_it_runs_into_both_keep_the_touch() {
     );
 }
 
+/// An object whose description pushes moves what touches it: a body run into a post that pushes
+/// east is carried east for as long as it touches, and one that touches the same post with no
+/// push is not.
+///
+/// Behaviour: collision.solid.what-a-body-touches-pushes-it
+#[test]
+fn what_a_body_touches_pushes_it() {
+    use auberean_assets::property::{Property, PropertyCollection, PropertyGroup, PropertyValue};
+    use auberean_physics::collision::manager::push;
+    let list = PropertyList::from_descriptors(vec![(
+        push::VELOCITY,
+        PropertyDescriptor {
+            value_kind: 0x4000_0004,
+            group: 0x4000_000D,
+            data: 0,
+            report: 0,
+            required: false,
+        },
+    )]);
+    let run = |pushes: bool| {
+        let land = crate::contact::objects::land();
+        let mut world = World::new();
+        world.set_property_list(list.clone());
+        let at_post = world.insert(
+            &land,
+            0x77,
+            &WorldObject {
+                shape: post(),
+                position: at(70.0, 75.0),
+                is_static: true,
+                passable: false,
+            },
+        );
+        if pushes {
+            let mut p = Property::named(&list, push::VELOCITY).expect("in the list");
+            p.value = PropertyValue::Vector(auberean_primitives::Vec3::new(4.0, 0.0, 0.0));
+            let mut g = PropertyGroup::new(p.group);
+            g.properties.push(p);
+            let groups = vec![g];
+            assert!(world.apply_property_collection(at_post, &PropertyCollection { groups }));
+        }
+        let mut runner = body(70.0, 70.0);
+        world.insert_body(&land, 0x50, &mut runner);
+        run_north(&mut runner, &land, &mut world, 40);
+        runner.position.frame.origin.x
+    };
+    assert!(
+        (run(false) - 70.0).abs() < 0.5,
+        "no push, it stays on its line"
+    );
+    assert!(run(true) > 71.0, "pushed east: {}", run(true));
+}
+
+/// The slowest impact a body reports is the one its speed and jump scales set, once it has moved:
+/// its collisions hear it from the body.
+///
+/// Behaviour: collision.solid.a-bodys-collisions-take-its-slowest-impact
+#[test]
+fn a_bodys_collisions_take_its_slowest_impact() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut runner = body(70.0, 70.0);
+    let key = world.insert_body(&land, 0x50, &mut runner);
+    runner.set_velocity_scale(2.0);
+    runner.set_jump_scale(3.0);
+    let (xy, z) = runner.min_reported_impact();
+    assert!(xy >= 0.1 && z >= 0.1);
+    run_north(&mut runner, &land, &mut world, 1);
+    let current = &world.collisions(key).expect("kept").current;
+    assert_eq!((current.min_impact_xy, current.min_impact_z), (xy, z));
+}
+
 /// Two bodies agree whether a touch between them is passed through, whichever keeps it: either
 /// finding the other not solid is enough, asked from both sides. A creature that passes through
 /// players, run into by a player that does not pass through creatures, is a touch both keep as
