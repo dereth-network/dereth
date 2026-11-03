@@ -3928,12 +3928,19 @@ impl<'w> Scene<'w> {
                 .unwrap_or(&built.frame.light)
                 .light_direction;
             for (id, range, at, _) in &noted {
-                let cell = if *id == p.id {
-                    Some(pos.cell.0)
+                let body = if *id == p.id {
+                    Some(&p.body)
                 } else {
-                    self.others.body(*id).map(|b| b.position.cell.0)
+                    self.others.body(*id)
                 };
-                if cell.is_some_and(is_interior) {
+                if body.is_some_and(|b| is_interior(b.position.cell.0)) {
+                    continue;
+                }
+                let takes = body.and_then(Body::key).is_none_or(|k| {
+                    self.table
+                        .graphics_state(k, auberean_physics::world::graphics::TAKES_LAND_SHADOW)
+                });
+                if !takes {
                     continue;
                 }
                 let s = self.builder.land_shadow_at(*at, (bx, by), sun);

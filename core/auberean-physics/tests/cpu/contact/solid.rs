@@ -664,6 +664,7 @@ fn an_objects_drawing_properties_say_how_it_is_drawn() {
         PropertyCollection { groups: vec![g] }
     };
     assert!(!world.graphics_state(key, graphics::VOLUME_SHADOW));
+    assert!(world.graphics_state(key, graphics::TAKES_LAND_SHADOW));
     assert_eq!(world.game_draw(key), None);
     assert!(world.apply_property_collection(
         key,
@@ -690,6 +691,7 @@ fn an_objects_drawing_properties_say_how_it_is_drawn() {
     ));
     assert!(!world.graphics_state(key, graphics::VOLUME_SHADOW));
     assert!(world.graphics_state(key, graphics::TRANSLUCENT | graphics::LANDSCAPE_SHADOW));
+    assert!(world.graphics_state(key, graphics::TAKES_LAND_SHADOW));
     assert!(!world.apply_property_collection(key, &drawn(&[(INDOOR_SHADOW_CAST, true)])));
 }
 
@@ -966,7 +968,7 @@ fn a_placed_object_takes_its_drawing_properties_from_its_entities() {
     // made from the outer entity: the inner one's volume stands, its landscape shadow is cleared
     assert_eq!(
         entity_graphics_state(&placed(OUTER, &[]), &lookup),
-        graphics::VOLUME_SHADOW
+        graphics::NEW | graphics::VOLUME_SHADOW
     );
     // its own word last
     assert_eq!(
@@ -974,12 +976,15 @@ fn a_placed_object_takes_its_drawing_properties_from_its_entities() {
             &placed(OUTER, &[(render::VOLUME_SHADOW_CAST, false)]),
             &lookup
         ),
-        0
+        graphics::NEW
     );
     assert_eq!(
         entity_graphics_state(&placed(INNER, &[]), &lookup),
-        graphics::VOLUME_SHADOW | graphics::LANDSCAPE_SHADOW
+        graphics::NEW | graphics::VOLUME_SHADOW | graphics::LANDSCAPE_SHADOW
     );
     // made from a visual description alone, nothing said
-    assert_eq!(entity_graphics_state(&placed(0x1F00_0010, &[]), &lookup), 0);
+    assert_eq!(
+        entity_graphics_state(&placed(0x1F00_0010, &[]), &lookup),
+        graphics::NEW
+    );
 }
