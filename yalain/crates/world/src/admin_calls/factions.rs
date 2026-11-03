@@ -31,7 +31,8 @@ pub enum Ethereality {
 }
 
 /// The values of the enumeration of `/ethereality`, which no install holds: a client names them as
-/// this server does ([`Ethereality`]).
+/// this server does ([`Ethereality`]), and a retail client is served their record
+/// ([`crate::admin_library`]).
 pub mod ethereal_value {
     pub const NORMAL: u32 = 1;
     pub const ADMIN: u32 = 2;

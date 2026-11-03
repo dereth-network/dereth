@@ -744,6 +744,75 @@ fn only_an_admins_login_is_served_the_library() {
     assert!(listed(&h, c));
 }
 
+/// With the library goes the record of the `/ethereality` words, which no install holds: the client's
+/// own lookup reads each word as the value this server takes for it, a retail client is told to expect
+/// the record, and the record is sent with it.
+/// Behaviour: server.admin.library-carries-the-ethereality-words
+#[test]
+fn the_library_carries_the_words_of_the_ethereality_command() {
+    use auberean_assets::strings::EnumMap;
+    use auberean_dat::Reader;
+    use yalain_world::admin_calls::Ethereality;
+    use yalain_world::admin_library::{
+        ethereality_record, AdminLibrary, ENUM_KIND, ETHEREALITY_RECORD,
+    };
+    let bytes = ethereality_record();
+    let map = EnumMap::read(&mut Reader::new(&bytes)).expect("reads");
+    assert_eq!(map.id, ETHEREALITY_RECORD);
+    assert_eq!(map.base, 0);
+    for (word, value, over) in [
+        ("super", ethereal_value::SUPER, Ethereality::Super),
+        ("ADMIN", ethereal_value::ADMIN, Ethereality::Admin),
+        ("normal", ethereal_value::NORMAL, Ethereality::Normal),
+    ] {
+        assert_eq!(map.enum_of(word), Some(value), "{word}");
+        let mut h = Harness::new();
+        let (me, id) = admin_in_world(&mut h, "one", "Elara");
+        send(&mut h, me, other::ETHEREALITY, &[Arg::Int(value)]);
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        assert_eq!(p.admin.ethereality, over, "{word} does what it says");
+    }
+
+    let mut record = Vec::new();
+    for _ in 0..200 {
+        record.extend(0x0C_u32.to_le_bytes());
+        record.extend(SEND_ENCRYPTED.to_le_bytes());
+    }
+    let lib = AdminLibrary::of(&record).expect("made");
+    let ServerMessage::DownloadBegins(begins) = &lib.begins else {
+        panic!("it begins the download");
+    };
+    assert!(begins.files[0].download.contains(&ETHEREALITY_RECORD));
+    let sent: Vec<_> = lib
+        .records
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DataRecord(r) => Some(r),
+            _ => None,
+        })
+        .collect();
+    let words = sent
+        .iter()
+        .find(|r| r.id == ETHEREALITY_RECORD)
+        .expect("sent");
+    assert_eq!(words.kind, ENUM_KIND);
+    assert_eq!(
+        sent.iter().map(|r| r.id).collect::<Vec<_>>(),
+        begins.files[0].download,
+        "every record it lists, and no other"
+    );
+    assert_eq!(
+        begins.bytes as usize,
+        sent.iter().map(|r| r.bytes.len()).sum::<usize>(),
+        "the bytes it says"
+    );
+}
+
 /// What makes an admin is the operator's alone: said in game by an admin, raising an account, making
 /// an admin character, changing groups or a new admin's account are refused and change nothing, as is
 /// another admin's password; a player's password may be set, as before.

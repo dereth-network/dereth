@@ -916,7 +916,9 @@ pub(crate) fn message<S: Store>(
             {
                 tracing::info!(?conn, "serving an admin's account the script library");
                 send(net, conn, queue::DATABASE, BlobKind::LOGIN, &lib.begins);
-                send(net, conn, queue::DATABASE, BlobKind::LOGIN, &lib.record);
+                for record in &lib.records {
+                    send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
+                }
                 s.storing_library.insert(conn);
                 return;
             }

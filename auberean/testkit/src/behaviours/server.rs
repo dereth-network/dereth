@@ -260,6 +260,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.library-carries-the-ethereality-words",
+        says: "With the admin library goes the record of the ethereality command's words, which no \
+               install holds, so a retail client finds a value for each and sends the command. The \
+               values are this server's own; what the original numbered them is not held.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ETHEREALITY-WORDS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_library_carries_the_words_of_the_ethereality_command",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.library-sends-admin-calls-in-the-clear",
         says: "The library an admin's retail client is served is the install's own with every encrypted \
                send made a plain one, in the same bytes otherwise, 175 in the final client's library; a \

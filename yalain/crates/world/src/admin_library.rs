@@ -5,15 +5,23 @@
 //! from the data download and runs it. So this library differs from the install's in one operand of
 //! each encrypted send: the same send in the clear. Nothing checks a library record's bytes.
 //!
+//! With it goes a record no install holds: the names of the `/ethereality` command's words. The
+//! client's master map names that record, and without it finds no value for a word and never sends
+//! the command. Its values are this server's own ([`crate::admin_calls::ethereal_value`]): what the
+//! original numbered them isn't held.
+//!
 //! It goes to an admin's account alone, once: the client lists the iterations its portal file has
 //! had, and one holding the library's iteration is not sent it again. It must run with its data
 //! files writable (`-rodat off`, as the original launcher started it), and on a copy of the install
 //! kept for this world: the library stays in the copy it was stored in.
 
+use auberean_assets::strings::EnumMap;
+use auberean_dat::Writer;
 use auberean_protocol::login::{DataFileIterations, DownloadBegins, MissingIterations};
 use auberean_protocol::types::IterationRun;
 use auberean_protocol::ServerMessage;
 
+use crate::admin_calls::ethereal_value;
 use crate::download;
 
 /// The library's record, and its kind.
@@ -27,8 +35,13 @@ const SENDS: u32 = 0x7F;
 const SEND_ENCRYPTED: u32 = SENDS << 16 | 0x37;
 const SEND_PLAIN: u32 = SENDS << 16 | 0x36;
 
-/// The iteration it goes out as: above any the original data files had.
-pub const ITERATION: u32 = 9_000;
+/// The `/ethereality` words' record, and its kind.
+pub const ETHEREALITY_RECORD: u32 = 0x2300_00AE;
+pub const ENUM_KIND: u32 = 0x4000_0028;
+
+/// The iteration it goes out as: above any the original data files had, and above the one that
+/// carried the library without the words, so a client that holds only that is sent them.
+pub const ITERATION: u32 = 9_001;
 
 /// How many sends the library this server serves changes, at the least: fewer means it is not the
 /// library this was made for.
@@ -38,7 +51,24 @@ pub const LEAST_SENDS: usize = 170;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminLibrary {
     pub begins: ServerMessage,
-    pub record: ServerMessage,
+    pub records: Vec<ServerMessage>,
+}
+
+/// The record of the `/ethereality` command's words.
+#[must_use]
+pub fn ethereality_record() -> Vec<u8> {
+    let mut w = Writer::new();
+    EnumMap {
+        id: ETHEREALITY_RECORD,
+        base: 0,
+        names: vec![
+            (ethereal_value::NORMAL, "normal".to_owned()),
+            (ethereal_value::ADMIN, "admin".to_owned()),
+            (ethereal_value::SUPER, "super".to_owned()),
+        ],
+    }
+    .write(&mut w);
+    w.finish()
 }
 
 /// A library record with every encrypted send made a plain one: the new bytes and how many it
@@ -76,17 +106,26 @@ impl AdminLibrary {
             ));
         }
         let packed = download::packed(download::PORTAL_FILE, KIND, RECORD, &changed);
+        let words = download::packed(
+            download::PORTAL_FILE,
+            ENUM_KIND,
+            ETHEREALITY_RECORD,
+            &ethereality_record(),
+        );
         Ok(Self {
             begins: ServerMessage::DownloadBegins(DownloadBegins {
-                bytes: u32::try_from(packed.bytes.len()).unwrap_or(u32::MAX),
+                bytes: u32::try_from(packed.bytes.len() + words.bytes.len()).unwrap_or(u32::MAX),
                 files: vec![MissingIterations {
                     dat_file: download::PORTAL_FILE,
                     iteration: ITERATION,
-                    download: vec![RECORD],
+                    download: vec![RECORD, ETHEREALITY_RECORD],
                     purge: vec![],
                 }],
             }),
-            record: ServerMessage::DataRecord(packed),
+            records: vec![
+                ServerMessage::DataRecord(packed),
+                ServerMessage::DataRecord(words),
+            ],
         })
     }
 
