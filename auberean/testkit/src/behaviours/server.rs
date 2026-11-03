@@ -4973,6 +4973,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.version-names-its-source",
+        says: "The server's version text names the program and its version, its commit, its target and \
+               the repository its releases come from, as Empyrean's does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VERSION-SOURCE"),
+        station: "yalain::bin.yalain::version_text_tests::version_names_the_program_its_version_its_commit_its_target_and_its_source",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.websocket-allowed-origins",
         says: "Only a browser page from an origin in allowed_origins connects to the WebSocket endpoint; \
                none listed refuses every page, and a client naming no origin is no page and connects, \

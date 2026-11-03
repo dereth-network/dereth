@@ -1971,10 +1971,11 @@ fn main() -> std::process::ExitCode {
 /// was made from (`unknown` in a build that did not say).
 fn version_text() -> String {
     format!(
-        "yalain {}\ncommit: {}\ntarget: {}\n",
+        "yalain {}\ncommit: {}\ntarget: {}\nsource: {}\n",
         env!("CARGO_PKG_VERSION"),
         option_env!("YALAIN_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("YALAIN_BUILD_TARGET").unwrap_or("unknown"),
+        update::SOURCE_URL,
     )
 }
 
@@ -2054,8 +2055,7 @@ mod admin_tests {
 
 #[cfg(test)]
 mod version_tests {
-    //! Behaviour: none (tooling: what `--version` and `--release-facts` print for releases)
-    use super::version_text;
+    //! Behaviour: none (tooling: what `--release-facts` prints for releases)
     use crate::update::Facts;
 
     #[test]
@@ -2067,14 +2067,24 @@ mod version_tests {
         assert_eq!(v["world_database"], yalain_world_db::release::PINNED_TAG);
         assert!(v["target"].as_str().is_some_and(|t| !t.is_empty()));
     }
+}
 
+#[cfg(test)]
+mod version_text_tests {
+    use super::version_text;
+    use crate::update::SOURCE_URL;
+
+    /// `--version` says what Empyrean's says, its build time aside: the program and its version,
+    /// its commit, its target, and where its releases come from.
+    /// Behaviour: server.operator.version-names-its-source
     #[test]
-    fn version_names_the_program_its_version_its_commit_and_its_target() {
+    fn version_names_the_program_its_version_its_commit_its_target_and_its_source() {
         let text = version_text();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines.len(), 4, "{text}");
         assert_eq!(lines[0], concat!("yalain ", env!("CARGO_PKG_VERSION")));
         assert!(lines[1].starts_with("commit: "), "{text}");
         assert!(lines[2].starts_with("target: "), "{text}");
+        assert_eq!(lines[3], format!("source: {SOURCE_URL}"));
     }
 }
