@@ -142,3 +142,78 @@ fn a_line_of_sight_from_the_land_goes_into_a_cave_by_its_mouth() {
         "ends in the cave: {los:?}"
     );
 }
+
+/// A player put on the bed of deep water rises and floats with its water line at the surface, and
+/// the camera looking up from under it stands where it wants, far above the land: no line of sight
+/// reaches the bed. Fixture: block 0x0298's land, flat at height 0 under 70.95 m of water, and the
+/// player's own motion values.
+///
+/// Behaviour: motion.element.a-player-on-a-deep-bed-floats-up-and-the-camera-with-it
+#[test]
+fn a_player_on_a_deep_bed_floats_up_and_the_camera_looks_up_from_under_it() {
+    use auberean_assets::animation::{MotionDesc, MotionParams};
+    use auberean_physics::body::{Body, BodyConfig};
+    use auberean_physics::camera::{sight_lines, Lines};
+    use auberean_physics::motion::{EARTH, PEACE, WATER};
+    use dereth_physics::geom::Sphere;
+    use dereth_primitives::Vec3;
+    const SURFACE: f32 = 70.95;
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    land.add_block(&w.records, &w.region, &mut trees, 0x02, 0x98);
+    let md: MotionDesc = w.records.get(0x3200_0000).expect("the player's motion");
+    let values = |element: u32| -> MotionParams {
+        let (_, set) = md
+            .set_of
+            .iter()
+            .find(|(k, _)| k.element == element && k.mode == PEACE)
+            .expect("in the everyday mode");
+        md.sets[*set as usize].default
+    };
+    let config = BodyConfig {
+        spheres: vec![Sphere::new(Vec3::new(0.0, 0.0, 0.48), 0.48)],
+        step_up: 0.6,
+        step_down: 0.6,
+        scale: 1.0,
+        ground: values(EARTH),
+        air: values(EARTH),
+    };
+    let cell = CellId(0x0298_0001);
+    let at = Position::new(cell, Frame::new(Vec3::new(12.0, 12.0, 0.5), Quat::IDENTITY));
+    let mut b = Body::new(config, at, 0.0);
+    b.minterp.set_description(1, std::sync::Arc::new(md));
+    let dt = auberean_physics::body::tick_seconds();
+    b.tick(&land, dt);
+    b.tick(&land, dt);
+    assert_eq!(b.element(), WATER, "in the water");
+    assert!(!b.contact, "off the bed");
+    for _ in 0..40 * 30 {
+        b.tick(&land, dt);
+    }
+    let o = b.position.frame.origin;
+    assert!(
+        o.z > SURFACE - 3.0 && o.z < SURFACE && b.depth().abs() < 0.1,
+        "floats at the surface: {o:?}, depth {}",
+        b.depth()
+    );
+    let wanted = Vec3::new(o.x, o.y - 0.9, o.z - 4.4);
+    let world = auberean_physics::world::World::default();
+    let seen = sight_lines(
+        &world,
+        &Lines {
+            land: &land,
+            cell,
+            origin: o,
+            target_offset: Vec3::new(0.0, 0.0, 1.2),
+            wanted,
+            env_only: false,
+        },
+    )
+    .expect("the lines start in a loaded cell");
+    assert!(
+        (seen.eye.frame.origin.z - wanted.z).abs() < 0.01,
+        "where it wants: {:?}",
+        seen.eye
+    );
+}

@@ -201,6 +201,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.element.a-player-on-a-deep-bed-floats-up-and-the-camera-with-it",
+        says: "A player put on the bed of deep water rises and floats with its water line at the \
+               surface, and the camera looking up from under it stands where it wants.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CLIENT-FLOATS-IN-DEEP-WATER"),
+        station: "auberean-physics::dat::camera::a_player_on_a_deep_bed_floats_up_and_the_camera_looks_up_from_under_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.element.a-sent-hover-height-is-ignored",
         says: "A hover height set through the body changes nothing: the motion interpreter's \
                setter does nothing.",
