@@ -594,6 +594,7 @@ pub fn build_packages(
             target,
             facts: &facts,
             version: &version,
+            launcher_version: &launcher_version,
             out_dir: &out_dir,
             stage: &stage,
             signer: signer.as_ref(),
@@ -790,6 +791,7 @@ pub(crate) fn build_launcher_as_dereth(
         target,
         facts,
         version,
+        launcher_version: version,
         out_dir: stage,
         stage,
         signer: None,
@@ -820,6 +822,8 @@ struct Job<'a> {
     target: Target,
     facts: &'a BuildFacts,
     version: &'a str,
+    /// The version of the launcher in the package, which its update signature is made for.
+    launcher_version: &'a str,
     out_dir: &'a Path,
     /// This target's staging folder, made anew.
     stage: &'a Path,
@@ -1429,9 +1433,9 @@ impl Job<'_> {
             let _ = std::fs::remove_file(&piece_path);
             return Ok(());
         };
-        let signature = signer.sign(bytes, file, self.version, self.facts.epoch)?;
+        let signature = signer.sign(bytes, file, self.launcher_version, self.facts.epoch)?;
         let public_key = launcher_public_key(self.ws)?;
-        sign::verify(bytes, &signature, &public_key, self.version).map_err(|e| {
+        sign::verify(bytes, &signature, &public_key, self.launcher_version).map_err(|e| {
             format!(
                 "the update signature of {file} does not verify against the launcher's public key \
                  (plugins.updater.pubkey): {e}; is {} the launcher's key?",
@@ -1588,6 +1592,7 @@ pub(crate) fn write_index(
     version: &str,
     facts: &BuildFacts,
 ) -> Result<(), String> {
+    let launcher_version = Product::Launcher.version(ws)?;
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)
@@ -1661,8 +1666,13 @@ pub(crate) fn write_index(
                 download_url(&facts.source_url, version, name)
             ));
         }
-        sign::verify(&read(&dir.join(name))?, signature, &public_key, version)
-            .map_err(|e| format!("{name}: {e}"))?;
+        sign::verify(
+            &read(&dir.join(name))?,
+            signature,
+            &public_key,
+            &launcher_version,
+        )
+        .map_err(|e| format!("{name}: {e}"))?;
         piece_values.push(value);
     }
     for (piece_file, t) in &pieces {
@@ -1673,8 +1683,10 @@ pub(crate) fn write_index(
     let latest_path = dir.join("latest.json");
     let signed = unsigned.is_empty();
     if signed {
+        // By the launcher's version: it's read only by installs from before the launcher had
+        // releases of its own, which install this package to move to them.
         let latest = sign::merge_latest(
-            version,
+            &launcher_version,
             &format!("Dereth {version}"),
             &facts.iso_time(),
             &piece_values,

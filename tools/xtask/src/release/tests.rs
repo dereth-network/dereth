@@ -289,4 +289,7 @@ fn a_games_release_is_refused_until_the_launcher_it_holds_is_released() {
     assert!(why.contains("launcher/src/main.rs"), "{why}");
     assert!(why.contains("cargo xtask release launcher"), "{why}");
     assert_eq!(launcher_refusal(tag, true, &[]), None);
+    // The tree's version before its first release, which `ship` makes 0.5.0.
+    let why = launcher_refusal("launcher-v0.5.0-rc.0", false, &[]).expect("no tag");
+    assert!(why.contains("cargo xtask release launcher 0.5.0`"), "{why}");
 }

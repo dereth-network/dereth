@@ -13,9 +13,9 @@
 //! was. A file that does not read, or a word this launcher does not know, is Dereth too.
 //!
 //! The realm counts on a first run only, before the launcher has a state file: after that, the
-//! realm the player last showed wins. The update channel counts on every start: the launcher takes
-//! its updates from its channel's game's newest published release (`dereth-v*` or `auberean-v*`),
-//! each of which carries the launcher and that game's client ([`crate::releases`]).
+//! realm the player last showed wins. The game counts on every start: the launcher keeps that game's
+//! client up to date from its releases (`dereth-v*` or `auberean-v*`). The launcher itself updates
+//! from its own releases whichever the game ([`crate::releases`]).
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ pub const FILE: &str = "launcher-defaults.json";
 pub struct Defaults {
     /// The realm a first run opens in.
     pub realm: Realm,
-    /// The game whose releases the launcher updates from.
+    /// The game whose client the launcher keeps up to date.
     pub updates: Game,
 }
 

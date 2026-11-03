@@ -1244,14 +1244,6 @@ pub fn update_client(app: tauri::AppHandle, shared: Shared, product: Product) {
     }
 }
 
-/// The version of the program `product` runs as here ([`program_of`]), as it says it: asked of
-/// the program itself, so this waits for it.
-pub fn version_of(shared: &Shared, product: Product) -> Option<dereth_launch::releases::Version> {
-    let program = program_of(shared, product)?;
-    let said = program_version(product, &program)?;
-    components::version(&said)
-}
-
 /// The downloaded copy of `product` in the launcher's data folder `root`, when there is one.
 pub fn downloaded(root: &Path, product: Product) -> Option<PathBuf> {
     read_installed(root, product).map(|i| i.executable)

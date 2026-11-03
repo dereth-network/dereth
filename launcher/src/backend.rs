@@ -323,27 +323,60 @@ pub struct MadePlugin {
 }
 
 /// What the template is filled in from for a plugin the Plugins page makes: its name, the GitHub
-/// repository when one is given, and this launcher's Dereth release, as the author's tool of the
-/// same release fills it from its own.
-fn new_plugin<'a>(name: &'a str, github: Option<&'a str>) -> dereth_plugin_template::Options<'a> {
+/// repository when one is given, and the Dereth release `dereth`, as the author's tool of that
+/// release fills it from its own.
+fn new_plugin<'a>(
+    name: &'a str,
+    github: Option<&'a str>,
+    dereth: &'a str,
+) -> dereth_plugin_template::Options<'a> {
     dereth_plugin_template::Options {
         id: None,
         name: Some(name),
         github: github.map(str::trim).filter(|g| !g.is_empty()),
-        dereth: env!("CARGO_PKG_VERSION"),
+        dereth,
     }
 }
 
+/// The Dereth release in the tree this launcher was built from: the newest it can name with no
+/// author's tool here to ask. The launcher has its own version, so its own says nothing of Dereth's.
+fn dereth_at_build() -> &'static str {
+    include_str!("../../tools/plugin/Cargo.toml")
+        .lines()
+        .find_map(|l| l.strip_prefix("version = \"")?.strip_suffix('"'))
+        .unwrap_or_default()
+}
+
+/// The version in what the author's tool says of itself: its first line, `dereth-plugin 0.4.9`.
+fn tool_says(text: &str) -> Option<&str> {
+    let version = text.lines().next()?.strip_prefix("dereth-plugin ")?.trim();
+    (!version.is_empty()).then_some(version)
+}
+
+/// The Dereth release whose author's tool a new plugin's workflows install: that of the tool that
+/// came with the client, which is what the player has; else the one this launcher was built with.
+fn dereth_release(tool: Option<&Path>) -> String {
+    tool.and_then(|t| crate::components::command(t).arg("--version").output().ok())
+        .filter(|o| o.status.success())
+        .and_then(|o| tool_says(&String::from_utf8_lossy(&o.stdout)).map(str::to_owned))
+        .unwrap_or_else(|| dereth_at_build().to_owned())
+}
+
 /// Make a plugin called `name` in the folder `dir`, as the author's tool's `dereth-plugin new`
-/// does, for this launcher's Dereth release, with links and workflows for the GitHub repository
+/// does, for the Dereth release `dereth`, with links and workflows for the GitHub repository
 /// `github` (`<username>/<repo>`) when there is one: a new plugin repository in a missing or empty
 /// folder, or the plugin's own folder added to a folder that is a plugin repository already.
 ///
 /// # Errors
 /// Why not, in words for the page.
-pub fn create_plugin(dir: &Path, name: &str, github: Option<&str>) -> Result<MadePlugin, String> {
-    let made =
-        dereth_plugin_template::new(dir, &new_plugin(name, github)).map_err(new_plugin_error)?;
+pub fn create_plugin(
+    dir: &Path,
+    name: &str,
+    github: Option<&str>,
+    dereth: &str,
+) -> Result<MadePlugin, String> {
+    let made = dereth_plugin_template::new(dir, &new_plugin(name, github, dereth))
+        .map_err(new_plugin_error)?;
     Ok(MadePlugin {
         folder: dir.to_owned(),
         said: made.said(dir),
@@ -357,7 +390,7 @@ pub fn create_plugin(dir: &Path, name: &str, github: Option<&str>) -> Result<Mad
 /// # Errors
 /// Why not, in words for the page.
 pub fn check_new_plugin(name: &str, github: Option<&str>) -> Result<(), String> {
-    dereth_plugin_template::values(Path::new(""), &new_plugin(name, github))
+    dereth_plugin_template::values(Path::new(""), &new_plugin(name, github, dereth_at_build()))
         .map(drop)
         .map_err(new_plugin_error)
 }
@@ -768,9 +801,10 @@ impl Backend {
     /// for a launcher whose package carries another game's client. Its tool beside it comes too.
     pub fn use_dereth_client(&mut self, exe: &Path) {
         self.dereth = library::dereth_client(exe);
-        if self.tool.is_none() {
-            let tool = exe.with_file_name(dereth_launch::plugins::TOOL_FILE);
-            self.tool = tool.is_file().then_some(tool);
+        // The tool it replaces may be gone with the version it was beside.
+        let tool = exe.with_file_name(dereth_launch::plugins::TOOL_FILE);
+        if tool.is_file() {
+            self.tool = Some(tool);
         }
     }
 
@@ -2008,7 +2042,8 @@ impl Backend {
         name: &str,
         github: Option<&str>,
     ) -> Result<MadePlugin, String> {
-        let made = create_plugin(dir, name, github)?;
+        let dereth = dereth_release(self.tool.as_deref());
+        let made = create_plugin(dir, name, github, &dereth)?;
         self.plugins.add_own(dir).map_err(|e| e.to_string())?;
         if let Some(bytes) = self.tool.as_deref().and_then(|t| std::fs::read(t).ok()) {
             let kept = keep_tool(dir, TOOL_FILE, &bytes).is_ok();
@@ -2660,13 +2695,13 @@ mod tests {
     }
 
     /// The Plugins page's Make Your Own writes what `dereth-plugin new <folder> --name <name> --github
-    /// <username>/<repo>` of the same Dereth release writes, byte for byte, and says what it says:
-    /// the tool's release and this launcher's are one version, and the workflows install that
-    /// release's tool. It writes a whole repository only into an empty folder.
+    /// <username>/<repo>` of the same Dereth release writes, byte for byte, and says what it says, and
+    /// the workflows install that release's tool. It writes a whole repository only into an empty
+    /// folder.
     #[test]
     fn creating_a_plugin_writes_what_the_authors_tool_writes_and_only_into_an_empty_folder() {
         let (_b, dir) = backend("plugin-create");
-        let version = env!("CARGO_PKG_VERSION");
+        let version = dereth_at_build();
 
         let made = dir.join("made");
         let said = format!(
@@ -2674,20 +2709,15 @@ mod tests {
             made.display()
         );
         assert_eq!(
-            create_plugin(&made, "XP Tracker", Some(" Someone/xp-tracker ")),
+            create_plugin(&made, "XP Tracker", Some(" Someone/xp-tracker "), version),
             Ok(MadePlugin {
                 folder: made.clone(),
                 plugin: "xp-tracker".into(),
                 said,
             })
         );
-        // The author's tool carries Dereth's version, as the launcher does, and fills the
-        // template with it; its `new` with these words is this.
-        let tool = include_str!("../../tools/plugin/Cargo.toml");
-        assert!(
-            tool.contains(&format!("\nversion = \"{version}\"\n")),
-            "the tool is of this launcher's release"
-        );
+        // The author's tool fills the template with its own version; its `new` with these words is
+        // this.
         let by_tool = dir.join("by-tool");
         dereth_plugin_template::new(
             &by_tool,
@@ -2718,7 +2748,7 @@ mod tests {
 
         // Without a repository it is the template's placeholders for one.
         let bare = dir.join("bare");
-        create_plugin(&bare, "XP Tracker", Some("")).unwrap();
+        create_plugin(&bare, "XP Tracker", Some(""), version).unwrap();
         let manifest = std::fs::read_to_string(bare.join("xp-tracker/plugin.toml")).unwrap();
         assert!(
             manifest.contains("id = \"example.xp-tracker\""),
@@ -2730,7 +2760,7 @@ mod tests {
         std::fs::create_dir_all(&held).unwrap();
         std::fs::write(held.join("notes.txt"), "mine").unwrap();
         assert_eq!(
-            create_plugin(&held, "XP Tracker", None),
+            create_plugin(&held, "XP Tracker", None, version),
             Err("Choose an empty folder or a plugin repository.".to_owned())
         );
         assert_eq!(files_under(&held).len(), 1);
@@ -2752,13 +2782,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A new plugin's workflows install the tool the player has, whose Dereth release isn't the
+    /// launcher's; with no tool that answers, the Dereth release the launcher was built with.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_plugin_names_the_dereth_release_of_the_tool_that_came_with_the_client() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_b, dir) = backend("plugin-release");
+        let tool = dir.join("dereth-plugin");
+        let script = |text: &str| {
+            std::fs::write(&tool, text).unwrap();
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        script("#!/bin/sh\necho 'dereth-plugin 9.8.7'\necho 'commit: x'\n");
+        assert_eq!(dereth_release(Some(&tool)), "9.8.7");
+        script("#!/bin/sh\nexit 1\n");
+        assert_eq!(dereth_release(Some(&tool)), dereth_at_build());
+        assert_eq!(dereth_release(None), dereth_at_build());
+        assert_ne!(dereth_at_build(), "");
+        assert_eq!(tool_says("dereth-plugin 0.4.9\ncommit: x"), Some("0.4.9"));
+        assert_eq!(tool_says("something else 0.4.9"), None);
+    }
+
+    /// A client's update removes the version it replaces, and the tool beside it: the launcher
+    /// moves to the tool beside the new one.
+    #[test]
+    fn a_new_client_brings_its_tool_in_place_of_the_one_it_replaced() {
+        let (mut b, dir) = backend("plugin-tool-moves");
+        let new = dir.join("new");
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join(dereth_launch::plugins::TOOL_FILE), b"tool").unwrap();
+        let exe = new.join(if cfg!(windows) {
+            "dereth-client.exe"
+        } else {
+            "dereth-client"
+        });
+        std::fs::write(&exe, b"client").unwrap();
+        b.tool = Some(dir.join("old").join(dereth_launch::plugins::TOOL_FILE));
+        b.use_dereth_client(&exe);
+        assert_eq!(b.tool, Some(new.join(dereth_launch::plugins::TOOL_FILE)));
+    }
+
     /// Make Your Own in a folder that is a plugin repository already adds only the new plugin's folder,
     /// as the author's tool's `new` does there, byte for byte, and says what it says. A folder
     /// name or an id the repository has is refused in the page's words, and nothing is written.
     #[test]
     fn building_into_a_plugin_repository_adds_only_the_plugins_folder_as_the_tool_does() {
         let (_b, dir) = backend("plugin-add");
-        let version = env!("CARGO_PKG_VERSION");
+        let version = dereth_at_build();
         let options = |name| dereth_plugin_template::Options {
             id: None,
             name: Some(name),
@@ -2766,11 +2837,11 @@ mod tests {
             dereth: version,
         };
         let (here, by_tool) = (dir.join("here"), dir.join("by-tool"));
-        create_plugin(&here, "XP Tracker", Some("Someone/plugins")).unwrap();
+        create_plugin(&here, "XP Tracker", Some("Someone/plugins"), version).unwrap();
         dereth_plugin_template::new(&by_tool, &options("XP Tracker")).unwrap();
         let before = files_under(&here);
 
-        let added = create_plugin(&here, "Loot Helper", Some("Someone/plugins")).unwrap();
+        let added = create_plugin(&here, "Loot Helper", Some("Someone/plugins"), version).unwrap();
         let tool = dereth_plugin_template::new(&by_tool, &options("Loot Helper")).unwrap();
         assert_eq!(files_under(&here), files_under(&by_tool));
         let mut new_files: Vec<String> = files_under(&here)
@@ -2802,7 +2873,7 @@ mod tests {
 
         let now = files_under(&here);
         assert_eq!(
-            create_plugin(&here, "Loot Helper", None),
+            create_plugin(&here, "Loot Helper", None, version),
             Err(
                 "The repository has a loot-helper folder already. Give the plugin another name."
                     .to_owned()
@@ -2810,12 +2881,12 @@ mod tests {
         );
         std::fs::rename(here.join("loot-helper"), here.join("loot")).unwrap();
         assert_eq!(
-            create_plugin(&here, "Loot Helper", Some("Someone/plugins")),
+            create_plugin(&here, "Loot Helper", Some("Someone/plugins"), version),
             Err("A plugin in the repository is io.github.someone.loot-helper already.".to_owned())
         );
         std::fs::rename(here.join("loot"), here.join("loot-helper")).unwrap();
         assert_eq!(
-            create_plugin(&here.join("xp-tracker"), "Nested", None),
+            create_plugin(&here.join("xp-tracker"), "Nested", None, version),
             Err("That is a plugin's own folder. Choose its repository.".to_owned())
         );
         assert_eq!(files_under(&here), now, "nothing is written when refused");

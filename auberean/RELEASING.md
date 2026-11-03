@@ -66,8 +66,7 @@ from.
 
 Beside them: `MANIFEST.txt` (every file in every package, with its size, SHA-256 and what the
 header checks read from each program), `release.json` and `SHA256SUMS`; and for Auberean, as for
-Dereth, `latest.json`, the launcher's update manifest, whose version names the launcher and the
-client (`<launcher>+auberean.<client>`).
+Dereth, `latest.json`, the launcher's update manifest, whose version is the launcher's.
 
 | Product | Target | Built on | Runs on |
 |---|---|---|---|

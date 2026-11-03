@@ -24,9 +24,9 @@
 //! bundle is signed again; the Linux AppImage is unpacked and packed again with `appimagetool`.
 //!
 //! **Updates.** Each release file is signed with the launcher's update key, like Dereth's, and its
-//! piece of `latest.json` names both versions it carries: `<launcher>+auberean.<client>`
-//! ([`latest_version`]). A launcher from this package updates from the newest `auberean-v*`
-//! release's `latest.json`, and never to an older launcher than itself.
+//! piece of `latest.json` names the launcher it holds by that launcher's version, for the installs
+//! that read this release's `latest.json` before the launcher had releases of its own. They move to
+//! the launcher's stream by installing it. Nothing else reads it.
 //!
 //! The dat guard, the header checks, the manifest lines and the index are those of Dereth's
 //! package.
@@ -54,8 +54,6 @@ pub(crate) struct Flavor {
     pub archive_root: fn(Target, &str) -> Option<String>,
     pub contents: fn(Target) -> (Vec<String>, Vec<String>),
     pub classify: fn(&str, &str) -> Result<Asset, String>,
-    /// The version `latest.json` names, from the launcher's version and the release's.
-    pub signed_as: fn(&str, &str) -> String,
     /// What `latest.json`'s notes say of the release, from its version and the launcher's.
     pub notes: fn(&str, &str) -> String,
 }
@@ -68,7 +66,6 @@ pub(crate) const AUBEREAN: Flavor = Flavor {
     archive_root,
     contents,
     classify,
-    signed_as: latest_version,
     notes: |version, launcher| format!("Auberean {version}, with the launcher {launcher}"),
 };
 
@@ -115,12 +112,6 @@ pub fn archive_root(target: Target, version: &str) -> Option<String> {
         Os::Mac => Some(APP.to_owned()),
         Os::Linux => None,
     }
-}
-
-/// The version a release's `latest.json` names: the launcher's, with the client's after it as
-/// build metadata, which the launcher reads back to tell a newer client from a newer launcher.
-pub fn latest_version(launcher: &str, client: &str) -> String {
-    format!("{launcher}+auberean.{client}")
 }
 
 /// The files the release file's archive holds below its top-level folder: those it must hold, and
@@ -967,7 +958,7 @@ impl Job<'_> {
 
     /// With a key: the release file's signature for the launcher's updater, verified as the
     /// updater verifies it, in this platform's piece of `latest.json`, under the version that names
-    /// the launcher and the client ([`latest_version`]). Without one, no piece.
+    /// the launcher it holds. Without one, no piece.
     fn sign(&self, file: &str, bytes: &[u8]) -> Result<(), String> {
         let t = self.target;
         let piece_path = self.out_dir.join(dereth::piece_name(t));
@@ -975,10 +966,10 @@ impl Job<'_> {
             let _ = std::fs::remove_file(&piece_path);
             return Ok(());
         };
-        let signed_as = (self.flavor.signed_as)(self.launcher_version, self.version);
-        let signature = signer.sign(bytes, file, &signed_as, self.facts.epoch)?;
+        let signed_as = self.launcher_version;
+        let signature = signer.sign(bytes, file, signed_as, self.facts.epoch)?;
         let public_key = dereth::launcher_public_key(self.ws)?;
-        sign::verify(bytes, &signature, &public_key, &signed_as).map_err(|e| {
+        sign::verify(bytes, &signature, &public_key, signed_as).map_err(|e| {
             format!(
                 "the update signature of {file} does not verify against the launcher's public key \
                  (plugins.updater.pubkey): {e}; is {} the launcher's key?",
@@ -1263,7 +1254,7 @@ pub(crate) fn write_index(
     }
 
     // latest.json: every release file signed, each signature good, one piece per platform.
-    let signed_as = (flavor.signed_as)(launcher_version, version);
+    let signed_as = launcher_version;
     let public_key = dereth::launcher_public_key(ws)?;
     let mut piece_values = Vec::new();
     let mut unsigned = Vec::new();
@@ -1283,7 +1274,7 @@ pub(crate) fn write_index(
         if url != want {
             return Err(format!("{piece_file} points at {url}, not at {want}"));
         }
-        sign::verify(&read(&dir.join(name))?, signature, &public_key, &signed_as)
+        sign::verify(&read(&dir.join(name))?, signature, &public_key, signed_as)
             .map_err(|e| format!("{name}: {e}"))?;
         piece_values.push(value);
     }
@@ -1296,7 +1287,7 @@ pub(crate) fn write_index(
     let signed = unsigned.is_empty();
     if signed {
         let latest = sign::merge_latest(
-            &signed_as,
+            signed_as,
             &(flavor.notes)(version, launcher_version),
             &facts.iso_time(),
             &piece_values,

@@ -9,11 +9,9 @@ name: Release Auberean
 # The launcher isn't built here. A package holds the launcher version in the tree, from that
 # launcher-v release's files: the job named launcher waits for exactly that release and fails if it
 # isn't there in time, never taking another. Every job runs `cargo xtask package auberean`, which
-# puts the Auberean client and launcher-defaults.json beside it. The defaults file opens a first run in Auberean's
-# realm and takes the launcher's updates from the newest published `auberean-v<version>` release's
-# latest.json, whose version names the launcher and the client it carries
-# (`<launcher>+auberean.<client>`). A launcher never updates to an older launcher than itself
-# (auberean/RELEASING.md).
+# puts the Auberean client and launcher-defaults.json beside it. The defaults file opens a first run
+# in Auberean's realm and names the client the launcher keeps up to date. The latest.json names the
+# launcher it holds, for installs from before the launcher had releases of its own.
 #
 # The release's description starts with its notes, which `cargo xtask release-notes auberean`
 # writes from the tagged tree: the release's section of auberean/CHANGES.md, then the client's

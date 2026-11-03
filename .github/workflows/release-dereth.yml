@@ -2,9 +2,9 @@ name: Release Dereth
 
 # Builds, checks and drafts a Dereth release: the launcher, with the client inside it, and the
 # plugin author's tool, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
-# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. The
-# launcher updates itself from the latest.json of the repository's newest published
-# `dereth-v<version>` release (a pre-release excepted), which it finds by listing the releases.
+# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. Its
+# latest.json names the launcher it holds, for installs from before the launcher had releases of its
+# own; every other launcher updates from those.
 # Running it by hand (workflow_dispatch) is a dry run: the same builds and checks,
 # the release files kept as a workflow artifact for 7 days, nothing published.
 #

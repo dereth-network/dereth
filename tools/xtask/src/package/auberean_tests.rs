@@ -184,10 +184,7 @@ fn the_defaults_file_opens_auberean_s_realm_and_names_auberean_s_updates() {
         Realm::Auberean,
         "a first run"
     );
-    assert_eq!(
-        dereth_launch::releases::channel_prefix(read.updates),
-        Product::Auberean.tag_for("")
-    );
+    assert_eq!(read.updates, dereth_launch::world::Game::Auberean);
     let (dereth, _) = dereth::contents(target(WINDOWS));
     assert!(
         !dereth.iter().any(|n| n == FILE),
@@ -195,20 +192,12 @@ fn the_defaults_file_opens_auberean_s_realm_and_names_auberean_s_updates() {
     );
 }
 
-/// The version a release's `latest.json` names carries the launcher's and the client's, and the
-/// launcher reads both back; a signature made for it verifies for it and for no other version.
+/// A game's `latest.json` names the launcher it holds, by that launcher's version alone: what an
+/// install from before the launcher's own releases compares against its own. A signature made for
+/// it verifies for it and for no other version.
 #[test]
-fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for_it() {
-    use dereth_launch::releases::{Bundled, Version};
-    let written = auberean::latest_version("0.4.9", V);
-    assert_eq!(written, "0.4.9+auberean.0.1.0");
-    assert_eq!(
-        Bundled::parse(&written),
-        Some(Bundled {
-            launcher: Version::parse("0.4.9").expect("a version"),
-            client: Version::parse(V),
-        })
-    );
+fn a_games_update_version_is_the_launchers_and_the_signature_is_for_it() {
+    let written = "0.5.0";
     let kp = minisign::KeyPair::generate_unencrypted_keypair().expect("a key pair");
     let b64 = |t: String| base64::engine::general_purpose::STANDARD.encode(t);
     let secret = b64(kp.sk.to_box(None).expect("secret box").to_string());
@@ -220,11 +209,11 @@ fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for
         .sign(
             data,
             "auberean-0.1.0-windows-x86_64.zip",
-            &written,
+            written,
             1_700_000_000,
         )
         .expect("signs");
-    sign::verify(data, &sig, &public, &written).expect("verifies for its version");
+    sign::verify(data, &sig, &public, written).expect("verifies for its version");
     assert!(sign::verify(data, &sig, &public, "0.4.9").is_err());
     assert!(sign::verify(data, &sig, &public, V).is_err());
     assert_eq!(
@@ -233,13 +222,16 @@ fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for
     );
 }
 
-/// The package's launcher is built at the launcher's own version, Dereth's, and by the same
-/// function as Dereth's package, from the same build facts: one launcher, whichever package.
+/// The package's launcher is the one its tree names, at the launcher's own version, and only the
+/// launcher's own package builds one, by the function that builds it for that.
 #[test]
 fn the_launcher_is_built_at_its_own_version_as_dereth_s_package_builds_it() {
     let ws = workspace_root();
     let (client, launcher) = auberean::versions(&ws).expect("versions");
-    assert_eq!(launcher, Product::Dereth.version(&ws).expect("Dereth's"));
+    assert_eq!(
+        launcher,
+        Product::Launcher.version(&ws).expect("the launcher's")
+    );
     assert_eq!(client, Product::Auberean.version(&ws).expect("Auberean's"));
     let source = std::fs::read_to_string(ws.join("tools/xtask/src/package/auberean.rs"))
         .expect("the module");

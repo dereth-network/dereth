@@ -43,7 +43,6 @@ pub(crate) const FLAVOR: Flavor = Flavor {
     archive_root,
     contents,
     classify,
-    signed_as: |_, version| version.to_owned(),
     notes: |version, _| format!("The Dereth Network launcher {version}"),
 };
 

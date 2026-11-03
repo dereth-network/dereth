@@ -149,29 +149,21 @@ same way from its own commit, with the Auberean client beside it and a small fil
 
 It sits beside the launcher (in `Dereth.app`, in `Contents/Resources`; in the AppImage, in
 `usr/bin`). It names the realm a first run opens in, before the launcher has a state file (after
-that the realm the player last showed wins), and the channel the launcher updates from: the newest
-published `auberean-v*` release's `latest.json` instead of `dereth-v*`'s. Dereth's package has no
-such file, and a Dereth install updates from `dereth-v*` exactly as before.
+that the realm the player last showed wins), and the game whose client the launcher keeps up to
+date. Dereth's package has no such file, which reads as Dereth. The launcher keeps a copy in its data
+folder, since an update replaces the bundle it's in.
 
-Each release's `latest.json` names what it carries by its version. Dereth's is Dereth's version,
-which the launcher and the Dereth client share. Auberean's is the launcher's version with the
-client's after it as build metadata, `0.4.9+auberean.0.1.0`, and that whole string is what its
-signatures are made for. A launcher on Auberean's channel installs the release when it carries a
-newer launcher, or the same launcher with a newer client.
+**The client is a component.** At its first start a package's launcher copies its client to the
+components folder and runs it from there. It's then updated from its game's own newest release (the
+release file for this system, checked against that release's `SHA256SUMS`, with the client taken out
+of it; an AppImage unpacks itself to give it up), apart from the launcher: its own game's as soon as
+one is published, the other game's when first wanted and then from the page, as Yalain, Athenaeum,
+Empyrean and Lyceum are.
 
-**The launcher never downgrades itself.** The two channels can briefly carry different launcher
-builds: Dereth's release can ship launcher 0.5.0 while Auberean's newest still carries 0.4.9. A
-launcher on a channel whose newest release carries an older launcher than its own installs nothing
-of the launcher: when that release carries a newer client than the one it has, it fetches the
-client alone, as it fetches the other game's client, and otherwise it does nothing until the
-channel catches up.
-
-**The other game's client is a component.** A launcher from Dereth's package fetches the Auberean
-client when it is first wanted, and one from Auberean's fetches the Dereth client, from that game's
-own newest release: the release file for this system, checked against that release's
-`SHA256SUMS`, with the client taken out of it (an AppImage unpacks itself to give it up). It is
-updated as Yalain, Athenaeum, Empyrean and Lyceum are, from the page. The client that came with the
-launcher is used until a downloaded one is newer.
+**Every launcher updates from the launcher's own releases** (below), whichever package it came in.
+A game's release still has a `latest.json`, whose version is the launcher it holds, signed for that
+version. Installs from before those releases read it, install that package, and from then on read the
+launcher's. Nothing else does.
 
 ### The signing key
 
@@ -346,6 +338,5 @@ games whenever it changed, and `cargo xtask release dereth` or `auberean` refuse
 has no tag or the launcher has changed since it. `cargo xtask publish drafts` publishes its draft
 before any game's. Its highlights are in [`CHANGES.md`](CHANGES.md).
 
-Nothing updates from these releases yet: every install reads its game's releases, as above, until the
-updater moves to this stream.
+Every launcher updates from the newest published one.
 

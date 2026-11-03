@@ -444,9 +444,11 @@ pub(crate) fn launcher_refusal(tag: &str, exists: bool, changed: &[String]) -> O
         .strip_prefix(version::LAUNCHER_TAG_PREFIX)
         .unwrap_or(tag);
     if !exists {
+        // A tree carrying a pre-release hasn't had the release itself yet.
+        let release = version.split('-').next().unwrap_or(version);
         return Some(format!(
             "this release holds the launcher {version}, which has no tag {tag}: release it first, \
-             with `cargo xtask release launcher {version}`"
+             with `cargo xtask release launcher {release}`"
         ));
     }
     if changed.is_empty() {

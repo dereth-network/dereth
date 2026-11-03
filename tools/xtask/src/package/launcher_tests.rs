@@ -78,11 +78,9 @@ fn the_launchers_package_holds_no_client() {
     );
 }
 
-/// A launcher release is signed under its own version, with no client's after it, so a launcher
-/// reads it as a newer launcher and nothing else.
+/// A launcher release is downloaded from its own tag.
 #[test]
-fn a_launcher_release_is_signed_under_its_own_version() {
-    assert_eq!((launcher::FLAVOR.signed_as)("0.4.12", V), V);
+fn a_launcher_release_downloads_from_its_own_tag() {
     assert_eq!(
         auberean::download_url_of(Product::Launcher, "https://github.com/a/b/", V, "x.zip"),
         "https://github.com/a/b/releases/download/launcher-v0.5.0/x.zip"

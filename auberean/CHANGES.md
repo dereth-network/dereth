@@ -7,6 +7,8 @@ not how it was done.
 
 ## Unreleased
 
+- The client now updates on its own, apart from the launcher.
+
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - Fixed the quest journal being empty after logging back in.
 - Fixed available experience showing a huge number in the skills panel.

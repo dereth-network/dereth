@@ -9,9 +9,8 @@ Athenaeum, its world builder.
 
 One launcher serves both games. Dereth's release carries it with the Dereth client, and Auberean's
 with the Auberean client and a small `launcher-defaults.json` that opens a first run in Auberean's
-realm and takes the launcher's updates from Auberean's releases ([RELEASING.md](RELEASING.md),
-"Two channels"). The other game's client is downloaded the first time it is wanted. The window is
-titled Dereth Network, and its icon is the network's emblem; the game clients keep their own.
+realm and keeps Auberean's client up to date ([RELEASING.md](RELEASING.md)). The other game's client
+is downloaded the first time it is wanted. The window is titled Dereth Network, and its icon is the network's emblem; the game clients keep their own.
 
 | Folder | What |
 |---|---|
@@ -198,10 +197,11 @@ tool in, `installed.json`, a folder per plugin).
 
 ## Updates
 
-At start a release asks GitHub's API for the repository's releases and picks the newest Dereth
-release: tagged `dereth-v<MAJOR>.<MINOR>.<PATCH>`, not a draft or pre-release, newest by version,
-never by date. Empyrean's and Lyceum's releases are passed over, and GitHub's "latest" mark doesn't
-matter. The repository is the one the build names (`DERETH_BUILD_SOURCE_URL` at compile time; a
+At start a release asks GitHub's API for the repository's releases and picks the newest launcher
+release: tagged `launcher-v<MAJOR>.<MINOR>.<PATCH>`, not a draft or pre-release, newest by version,
+never by date. Every other product's releases are passed over, and GitHub's "latest" mark doesn't
+matter. It also fetches its game's newer client from that game's own newest release, when it has a
+client to replace. The repository is the one the build names (`DERETH_BUILD_SOURCE_URL` at compile time; a
 fork's build names its own), else `https://github.com/dereth-network/dereth`. `DERETH_UPDATE_URL`
 names a `latest.json` directly instead. If the check fails, the launcher logs it, says nothing and
 tries again next start. A launcher built from the repository never checks.

@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- The client now updates on its own, apart from the launcher.
+
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 
 ## 0.4.12 (2026-11-03)

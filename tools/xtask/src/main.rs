@@ -150,7 +150,7 @@ Release and packaging:
                             Auberean's release files: the launcher release the tree names, with the
                             Auberean client and launcher-defaults.json beside it (Windows zip,
                             macOS Dereth.app, Linux AppImage), checked and scanned, and signed for the launcher's
-                            updater (latest.json, version <launcher>+auberean.<client>) when
+                            updater (latest.json, by the launcher's version) when
                             TAURI_SIGNING_PRIVATE_KEY is set (auberean/RELEASING.md)
   package friends-dll [--out <dir>] [--allow-dirty]
                             the retail AC2 client's friends library (auberean_friends.dll), which
