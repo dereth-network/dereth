@@ -1291,6 +1291,12 @@ impl NativeObject {
                 ty,
                 bytes: vec![0; 16],
             },
+            // A new icon description has no layers: its count, zero, is all it packs.
+            // D2-13884, D2-13895, D2-13896
+            Format::Record(native_type::ICON_DESC) => Self::Packed {
+                ty,
+                bytes: vec![0; 4],
+            },
             // A new one has the defaults.
             Format::Record(native_type::BEHAVIOR_PARAMS) => Self::Behavior(Box::default()),
             // D2-12177, D2-12175
@@ -1441,6 +1447,7 @@ impl NativeObject {
                     q.write(w);
                 }
             }
+            // D2-13895, D2-13896
             Self::Packed { bytes, .. } => w.bytes(bytes),
             // A packed iterator's place is a count of steps (the table writes it so).
             // D2-04364, D2-04365, D2-04398, D2-04406, D2-04474, D2-04477

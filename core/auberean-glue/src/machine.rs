@@ -170,7 +170,7 @@ fn package_name(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A deep copy of the object a reference names: its graph packed and read back under new ids.
-// D2-09552, D2-16499
+// D2-09552, D2-16499, D2-13895, D2-13896
 fn copy_object(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.arg(0)?;
     let id = if r == NULL || c.vm.heap.entry(r).is_none() {

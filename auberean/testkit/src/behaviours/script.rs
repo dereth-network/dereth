@@ -540,6 +540,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.graph.an-object-copied-keeps-its-icons-layers",
+        says: "An object holding an icon description, copied whole as a script's copy does it, \
+               holds the same layers in the same order: the count, then each layer's number, \
+               picture and color (the products of the sales recorded in January 2017, read from \
+               the calls that list them).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ICON-COPY"),
+        station: "auberean-script::corpus::icons::a_recorded_sale_copied_keeps_the_layers_of_its_products_icon",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.graph.behavior-params-pack-what-differs",
         says: "A behavior's parameters pack a word of bits naming the fields that differ from a new one's (a time scale of 1, one hold cycle, an event sent when done, the rest zero; the impulse within 0.0002), then those fields in a fixed order; read over a new one they come back.",
         since: RETAIL,
@@ -1297,6 +1308,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-LOG-STAMP"),
         station: "auberean-client-runtime::cpu::scripts::files::a_log_line_is_stamped_with_the_local_time_and_nothing_opens_without_a_disk",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.a-new-icon-packs-a-count-of-nothing",
+        says: "A new icon description has no layers and packs as a count of zero, so an object \
+               holding one can be copied and sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ICON-NEW"),
+        station: "auberean-script::cpu::codec::a_new_icon_description_packs_a_count_of_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
