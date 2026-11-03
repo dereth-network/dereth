@@ -102,7 +102,7 @@ pub(super) fn flags(tag: &str) -> (bool, &'static str) {
 }
 
 /// Why the draft `release` isn't ready to publish; `None` when it is whole.
-fn unfinished(gh: &mut GitHub<'_>, release: &Release) -> Result<Option<String>, String> {
+pub(super) fn unfinished(gh: &mut GitHub<'_>, release: &Release) -> Result<Option<String>, String> {
     let assets = gh.assets(release.id)?;
     if let Some(a) = assets.iter().find(|a| !a.complete()) {
         return Ok(Some(format!("{} is still uploading", a.name)));

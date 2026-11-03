@@ -1,10 +1,12 @@
 //! `cargo xtask package launcher`: the launcher's own release files: the launcher with no game
 //! client beside it. Every install updates from these once the updater reads the launcher's
-//! releases; until then nothing does.
+//! releases; until then nothing does. A game's package is built around them: it names the
+//! launcher version in the tree, and takes that release ([`fetch`], [`take`]) or fails.
 //!
 //! ```text
 //! cargo xtask package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
 //! cargo xtask package launcher --gather <dir>
+//! cargo xtask package launcher --fetch <dir> [--wait] [--repo <owner/name>]
 //! ```
 //!
 //! | system | the release file |
@@ -17,13 +19,21 @@
 //! in. The dat guard, the header checks, the manifest lines, the update signatures and the index
 //! are the same too.
 
+use std::path::{Path, PathBuf};
+
 use super::auberean::{self, Asset, Flavor};
-use super::dereth;
+use super::dereth::{self, BuiltLauncher};
 use super::targets::{self, Os, Target};
 use super::version::Product;
+use crate::publish::{self, fetch_release};
+use crate::util::workspace_root;
 
 pub const USAGE: &str = "usage: cargo xtask package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
-       cargo xtask package launcher --gather <dir>";
+       cargo xtask package launcher --gather <dir>
+       cargo xtask package launcher --fetch <dir> [--wait] [--repo <owner/name>]";
+
+/// The checksums file in a folder of a release's files.
+const SUMS: &str = "SHA256SUMS";
 
 /// The launcher's release files.
 pub(crate) const FLAVOR: Flavor = Flavor {
@@ -122,7 +132,119 @@ fn versions(ws: &std::path::Path) -> Result<(String, String), String> {
     Ok((version.clone(), version))
 }
 
+/// `--fetch <dir> [--wait] [--repo <owner/name>]`'s options.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct FetchOptions {
+    pub dir: PathBuf,
+    pub wait: bool,
+    pub repo: Option<String>,
+}
+
+/// What follows `package launcher --fetch`, starting at the folder.
+pub(super) fn parse_fetch(args: &[String]) -> Result<FetchOptions, String> {
+    let mut it = args.iter();
+    let dir = it
+        .next()
+        .filter(|d| !d.starts_with("--"))
+        .ok_or_else(|| format!("--fetch needs a folder\n{USAGE}"))?;
+    let mut o = FetchOptions {
+        dir: PathBuf::from(dir),
+        wait: false,
+        repo: None,
+    };
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--wait" => o.wait = true,
+            "--repo" => {
+                o.repo = Some(
+                    it.next()
+                        .cloned()
+                        .ok_or_else(|| format!("--repo needs a value\n{USAGE}"))?,
+                );
+            }
+            other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
+        }
+    }
+    Ok(o)
+}
+
+/// `--fetch`: the release of the launcher version in the tree, its files written to the folder.
+fn fetch(o: &FetchOptions) -> Result<(), String> {
+    let version = Product::Launcher.version(&workspace_root())?;
+    let tag = Product::Launcher.tag_for(&version);
+    publish::fetch_tagged_release(&tag, &o.dir, o.wait, o.repo.as_deref())
+}
+
 /// `cargo xtask package launcher ...` (the arguments after `launcher`).
 pub fn package(args: &[String]) -> i32 {
+    if args.first().is_some_and(|a| a == "--fetch") {
+        let done = parse_fetch(&args[1..]).map(|o| fetch(&o));
+        return match done {
+            Ok(Ok(())) => 0,
+            Ok(Err(e)) => {
+                eprintln!("\npackage: FAILED\n{e}");
+                1
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                2
+            }
+        };
+    }
     auberean::package_flavor(&FLAVOR, USAGE, versions, args)
+}
+
+/// The launcher release file for `target` in the folder `dir`, unpacked under `stage` and checked
+/// against the folder's checksums. Anything but exactly that version's file is refused: a package
+/// never holds some other launcher.
+pub(crate) fn take(
+    dir: &Path,
+    target: Target,
+    version: &str,
+    stage: &Path,
+) -> Result<BuiltLauncher, String> {
+    let file = release_file_name(target, version);
+    let path = dir.join(&file);
+    let bytes = std::fs::read(&path).map_err(|e| {
+        format!(
+            "the launcher {version}, which this tree names, has no {file} in {}: {e}\n\
+             Get its release with `cargo xtask package launcher --fetch <dir>`, or build one with \
+             `cargo xtask package launcher --out <dir>`, and pass --launcher <dir>",
+            dir.display()
+        )
+    })?;
+    let sums = std::fs::read_to_string(dir.join(SUMS))
+        .map_err(|e| format!("{} has no {SUMS}: {e}", dir.display()))?;
+    fetch_release::check_sum(&sums, &file, &bytes)?;
+    dereth::fresh_dir(stage)?;
+    let library = super::friends_dll::FILE;
+    match target.os {
+        Os::Windows => {
+            let root = archive_root(target, version).ok_or("not an archive")?;
+            super::archive::unpack_zip(&bytes, &root, stage)?;
+            Ok(BuiltLauncher {
+                bundle: stage.join("dereth.exe"),
+                library: stage.join(library),
+            })
+        }
+        Os::Mac => {
+            let root = archive_root(target, version).ok_or("not an archive")?;
+            let app = stage.join(&root);
+            super::archive::unpack_tar_gz(&bytes, &root, &app)?;
+            let library = app.join("Contents/Resources").join(library);
+            Ok(BuiltLauncher {
+                bundle: app,
+                library,
+            })
+        }
+        Os::Linux => {
+            let appimage = stage.join(&file);
+            dereth::copy(&path, &appimage)?;
+            Ok(BuiltLauncher {
+                bundle: appimage,
+                // Inside the AppImage, where the package finds it when it unpacks that.
+                library: PathBuf::from(library),
+            })
+        }
+    }
 }

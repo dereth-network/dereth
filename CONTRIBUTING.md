@@ -262,9 +262,11 @@ Before starting, on every machine: a checkout of the tag with its whole history 
 
 | machine | builds | command |
 |---|---|---|
-| Windows | `x86_64-pc-windows-msvc` | `cargo xtask package dereth --out dist` |
-| macOS | `aarch64-apple-darwin` | `cargo xtask package dereth --target aarch64-apple-darwin --moltenvk <dir> --out dist` |
-| Linux (Ubuntu 22.04) | `x86_64-unknown-linux-gnu` | `cargo xtask package dereth --out dist` |
+| Windows | `x86_64-pc-windows-msvc` | `cargo xtask package dereth --launcher <dir> --out dist` |
+| macOS | `aarch64-apple-darwin` | `cargo xtask package dereth --launcher <dir> --target aarch64-apple-darwin --moltenvk <dir> --out dist` |
+| Linux (Ubuntu 22.04) | `x86_64-unknown-linux-gnu` | `cargo xtask package dereth --launcher <dir> --out dist` |
+
+`--launcher` names a folder holding the launcher's release files: `cargo xtask package launcher --fetch <dir>` gets them.
 
 On each machine in turn, `cargo xtask publish dereth <version> --upload dist`, then the same with
 `--yes`. Then on one of them, `cargo xtask publish dereth <version> --finish`, and with `--yes`;

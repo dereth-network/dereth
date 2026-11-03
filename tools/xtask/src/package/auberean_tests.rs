@@ -352,12 +352,10 @@ fn the_release_workflow_builds_the_launcher_package_and_labels_every_target() {
     for needed in [
         "tags: ['auberean-v*']",
         "cargo xtask version auberean --tag \"$GITHUB_REF_NAME\"",
-        "launcher=$(cargo xtask version dereth)",
+        "launcher=$(cargo xtask version launcher)",
         "cargo xtask release-notes auberean --version \"$VERSION\"",
         "cargo xtask package auberean --target ${{ matrix.target }} --out dist",
         "cargo xtask package auberean --gather dist",
-        "TAURI_CLI_VERSION: ",
-        "MOLTENVK_SHA256: ",
         "APPIMAGETOOL_SHA256: ",
         "APPIMAGE_RUNTIME_SHA256: ",
         "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
@@ -390,14 +388,10 @@ fn the_release_workflow_builds_the_launcher_package_and_labels_every_target() {
             "{file}: {suffix}"
         );
     }
-    // The same tools as Dereth's release, so the launcher is built the same way.
+    // The same tools as Dereth's release.
     let dereth = std::fs::read_to_string(ws.join(".github/workflows/release-dereth.yml"))
         .expect("Dereth's workflow");
-    for pin in [
-        "TAURI_CLI_VERSION",
-        "CARGO_ABOUT_VERSION",
-        "MOLTENVK_SHA256",
-    ] {
+    for pin in ["CARGO_ABOUT_VERSION", "APPIMAGETOOL_SHA256"] {
         let line = |w: &str| {
             w.lines()
                 .find(|l| l.trim_start().starts_with(&format!("{pin}:")))

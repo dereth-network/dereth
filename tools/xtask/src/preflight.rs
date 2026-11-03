@@ -211,6 +211,10 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         crate::package::version::Product::Empyrean.version(root)?,
     );
     versions.insert(
+        Product::Launcher,
+        crate::package::version::Product::Launcher.version(root)?,
+    );
+    versions.insert(
         Product::Dereth,
         crate::package::version::Product::Dereth.version(root)?,
     );
@@ -243,6 +247,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     let refusal = crate::package::declaration::for_release(root, &patch).err();
     bumps.insert(Product::Empyrean, plan::empyrean_bump(refusal.as_deref()));
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
+    bumps.insert(Product::Launcher, plan::launcher_bump());
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     bumps.insert(Product::Lyceum, plan::lyceum_bump());
     for product in [Product::Auberean, Product::Yalain, Product::Athenaeum] {

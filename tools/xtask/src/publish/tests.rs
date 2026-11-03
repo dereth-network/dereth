@@ -1288,3 +1288,151 @@ fn drafts_wait_finds_the_tags_on_mains_head() {
     let mut gh = GitHub::new(&mut fake, REPO, false);
     assert!(drafts::tags_to_wait_for(&mut gh, &[]).is_err());
 }
+
+// ---------------------------------------------------------------- fetching a named release
+
+/// A draft for `tag` whose checksums are true of its files.
+fn checked_draft(fake: &mut FakeGitHub, tag: &str, files: &[(&str, &[u8])]) {
+    let names: Vec<&str> = files.iter().map(|(n, _)| *n).collect();
+    add_draft(fake, tag, &names, &[]);
+    let id = fake.id();
+    let release = fake
+        .releases
+        .iter_mut()
+        .find(|r| r.tag == tag)
+        .expect("the draft");
+    for (name, bytes) in files {
+        release
+            .assets
+            .iter_mut()
+            .find(|a| a.name == *name)
+            .expect("the asset")
+            .bytes = bytes.to_vec();
+    }
+    let sums: String = files
+        .iter()
+        .map(|(n, b)| format!("{}  {n}\n", sha256_hex(b)))
+        .collect();
+    release.assets.push(FakeAsset {
+        id,
+        name: "SHA256SUMS".to_owned(),
+        label: String::new(),
+        state: "uploaded".to_owned(),
+        bytes: sums.into_bytes(),
+    });
+}
+
+/// A draft's files are readable: a game's package runs before anything is published, since the
+/// launcher goes first only at the publishing step.
+#[test]
+fn a_named_release_is_fetched_while_still_a_draft_with_its_checksums() {
+    let temp = temp("fetch-1");
+    let mut fake = FakeGitHub::default();
+    checked_draft(
+        &mut fake,
+        "launcher-v0.5.0",
+        &[("a.tar.gz", b"the launcher")],
+    );
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).expect("fetched");
+    assert_eq!(
+        std::fs::read(temp.as_path().join("a.tar.gz")).unwrap(),
+        b"the launcher"
+    );
+    assert!(temp.as_path().join("SHA256SUMS").is_file());
+    assert!(fake.writes.is_empty(), "{:?}", fake.writes);
+}
+
+/// With a newer and an older release there, a tree that names one that isn't made gets neither.
+#[test]
+fn another_release_is_never_taken_in_place_of_the_one_named() {
+    let temp = temp("fetch-2");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.4.9", &[("old.tar.gz", b"older")]);
+    checked_draft(&mut fake, "launcher-v0.6.0", &[("new.tar.gz", b"newer")]);
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("launcher-v0.5.0"), "{why}");
+    assert!(why.contains("no other is used"), "{why}");
+    assert_eq!(std::fs::read_dir(temp.as_path()).unwrap().count(), 0);
+}
+
+/// Waiting looks again until the workflow has uploaded the whole release, not just part of it.
+#[test]
+fn waiting_stays_until_the_named_release_is_whole() {
+    let temp = temp("fetch-3");
+    let fake = std::cell::RefCell::new(FakeGitHub::default());
+    // Asked once a look, through a transport that adds the release at the third.
+    struct Late<'a>(&'a std::cell::RefCell<FakeGitHub>);
+    impl Transport for Late<'_> {
+        fn send(&mut self, r: &HttpRequest<'_>) -> Result<HttpResponse, String> {
+            self.0.borrow_mut().send(r)
+        }
+    }
+    let mut transport = Late(&fake);
+    let mut gh = GitHub::new(&mut transport, REPO, false);
+    let mut looks = 0;
+    let mut pause = || {
+        looks += 1;
+        let mut fake = fake.borrow_mut();
+        match looks {
+            // A draft with one file up, and no checksums yet.
+            1 => add_draft(&mut fake, "launcher-v0.5.0", &["a.tar.gz"], &[]),
+            2 => {
+                fake.releases.clear();
+                checked_draft(&mut fake, "launcher-v0.5.0", &[("a.tar.gz", b"whole")]);
+            }
+            _ => panic!("kept looking"),
+        }
+    };
+    let pause: &mut dyn FnMut() = &mut pause;
+    fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), Some(pause)).expect("fetched");
+    assert_eq!(
+        std::fs::read(temp.as_path().join("a.tar.gz")).unwrap(),
+        b"whole"
+    );
+}
+
+/// Waiting has an end, and failing there names the release; nothing is left to be mistaken for it.
+#[test]
+fn waiting_for_a_release_that_never_comes_fails_naming_it() {
+    let temp = temp("fetch-4");
+    let mut fake = FakeGitHub::default();
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let mut pauses = 0u32;
+    let mut pause = || pauses += 1;
+    let pause: &mut dyn FnMut() = &mut pause;
+    let why =
+        fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), Some(pause)).unwrap_err();
+    assert!(why.contains("launcher-v0.5.0"), "{why}");
+    assert_eq!(pauses, fetch_release::MAX_POLLS - 1);
+}
+
+/// A file changed after its checksums were written isn't written to the folder as if it were good.
+#[test]
+fn a_fetched_file_that_does_not_match_its_checksums_fails_the_fetch() {
+    let temp = temp("fetch-5");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.5.0", &[("a.tar.gz", b"as listed")]);
+    fake.releases[0]
+        .assets
+        .iter_mut()
+        .find(|a| a.name == "a.tar.gz")
+        .expect("the file")
+        .bytes = b"something else".to_vec();
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("a.tar.gz"), "{why}");
+    assert!(!temp.as_path().join("a.tar.gz").exists());
+}
+
+/// A name in the checksums with a folder in it can't write outside the folder it's fetched to.
+#[test]
+fn a_checksums_line_with_a_folder_in_its_name_is_refused() {
+    let temp = temp("fetch-6");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.5.0", &[("../a.tar.gz", b"bytes")]);
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("isn't a file name"), "{why}");
+}

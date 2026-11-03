@@ -15,7 +15,9 @@ pub enum Product {
     Ace,
     /// Empyrean, the server.
     Empyrean,
-    /// Dereth: the client and the launcher.
+    /// The launcher: released before the games, whose packages hold it.
+    Launcher,
+    /// Dereth: the client.
     Dereth,
     /// Lyceum, the world builder: its editor and its command.
     Lyceum,
@@ -29,10 +31,11 @@ pub enum Product {
 
 impl Product {
     /// Every product, in the order the preflight builds them and `ship` releases them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Hub,
         Self::Ace,
         Self::Empyrean,
+        Self::Launcher,
         Self::Dereth,
         Self::Lyceum,
         Self::Auberean,
@@ -46,6 +49,7 @@ impl Product {
             Self::Hub => "network-hub",
             Self::Ace => "network-ace",
             Self::Empyrean => "empyrean",
+            Self::Launcher => "launcher",
             Self::Dereth => "dereth",
             Self::Lyceum => "lyceum",
             Self::Auberean => "auberean",
@@ -56,7 +60,7 @@ impl Product {
 
     /// The packages its release ships, each with the lock file of the workspace it is built in
     /// ([`LOCKS`]): what a change must reach for the product to be released. Dereth's are the
-    /// client, the web client (it carries Dereth's version) and the launcher; Auberean's is its
+    /// client and the web client (it carries Dereth's version); Auberean's is its
     /// client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
     /// released for their own folders' changes ([`products_of`]), and the client's drawing each is
     /// built on (and, for Athenaeum, the server and client it carries) reaches it with its next
@@ -68,10 +72,10 @@ impl Product {
                 ("Cargo.lock", "empyrean-server"),
                 ("Cargo.lock", "empyrean-import"),
             ],
+            Self::Launcher => &[("launcher/Cargo.lock", "dereth-launcher")],
             Self::Dereth => &[
                 ("Cargo.lock", "dereth-client"),
                 ("Cargo.lock", "dereth-web"),
-                ("launcher/Cargo.lock", "dereth-launcher"),
             ],
             Self::Auberean => &[("Cargo.lock", "auberean-client")],
             Self::Yalain => &[("Cargo.lock", "yalain")],
@@ -206,7 +210,7 @@ pub fn is_web(path: &str) -> bool {
 /// (`depends`, [`Built::depends`]); the
 /// ACE mod's folder is the mod's, Lyceum's folder is Lyceum's and Athenaeum's Athenaeum's, a
 /// change to the launcher's own app
-/// belongs to Dereth, the web client is released as Dereth (it carries Dereth's version), and
+/// belongs to the launcher, the web client is released as Dereth (it carries Dereth's version), and
 /// nothing else (the docs, the research notes) is a product. A lock file ([`LOCKS`]) belongs to no
 /// product by itself: a product is in when the crates it is built from moved in one (`moved`, from
 /// [`lock_moves`]).
@@ -238,9 +242,11 @@ pub fn products_of(
             out.insert(Product::Athenaeum);
             continue;
         }
-        if (path.starts_with("launcher/") && !path.starts_with("launcher/crates/"))
-            || path.starts_with(WEB)
-        {
+        if path.starts_with("launcher/") && !path.starts_with("launcher/crates/") {
+            out.insert(Product::Launcher);
+            continue;
+        }
+        if path.starts_with(WEB) {
             out.insert(Product::Dereth);
             continue;
         }
@@ -263,7 +269,7 @@ pub fn products_of(
 }
 
 /// The lock files a preflight weighs crate by crate: the main workspace's, and the launcher's own
-/// workspace's, which is Dereth's.
+/// workspace's.
 pub const LOCKS: [&str; 2] = ["Cargo.lock", "launcher/Cargo.lock"];
 
 /// A crate as a lock file pins it.
@@ -527,9 +533,18 @@ pub fn dereth_bump(web_alone: bool) -> (Bump, String) {
         "the web client's changes alone: it carries Dereth's version, so it is released with a \
          Dereth release, its own tag on Dereth's"
     } else {
-        "the client's, the launcher's or the web client's changes"
+        "the client's or the web client's changes"
     };
     (Bump::Patch, why.to_owned())
+}
+
+/// The launcher's release and why: a patch, for what it's built from. It goes first, since a
+/// game's package holds it.
+pub fn launcher_bump() -> (Bump, String) {
+    (
+        Bump::Patch,
+        "the launcher's changes; released before the games, whose packages hold it".to_owned(),
+    )
 }
 
 /// Lyceum's release and why: a patch, for its own folder's changes.

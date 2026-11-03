@@ -38,6 +38,7 @@
 //! `--upload` checks the folder alone, and the other steps refuse.
 
 mod drafts;
+pub(crate) mod fetch_release;
 mod files;
 pub(crate) mod github;
 
@@ -162,6 +163,29 @@ fn repository(kind: Kind, given: Option<&str>) -> Result<String, String> {
         .to_owned();
     check_repo_name(&repo)?;
     Ok(repo)
+}
+
+/// Write the files of the release `tag` to `dir`; with `wait`, staying until it's whole. A token
+/// (read as for publishing) also sees a draft; without one, only what's published.
+pub fn fetch_tagged_release(
+    tag: &str,
+    dir: &Path,
+    wait: bool,
+    repo: Option<&str>,
+) -> Result<(), String> {
+    let repo = repository(Kind::Dereth, repo)?;
+    let mut https = match Token::from_env() {
+        Some((token, _)) => Https::new(token),
+        None => Https::anonymous(),
+    };
+    let mut gh = GitHub::new(&mut https, &repo, false);
+    println!(
+        "{tag} on {repo}{}",
+        if wait { ", waiting for it" } else { "" }
+    );
+    let mut sleep = || std::thread::sleep(fetch_release::POLL);
+    let pause: Option<&mut dyn FnMut()> = if wait { Some(&mut sleep) } else { None };
+    fetch_release::fetch(&mut gh, tag, dir, pause)
 }
 
 /// The address the release files name as their source, and download from.

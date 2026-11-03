@@ -10,8 +10,8 @@ name: Release Launcher
 # `cargo xtask package dereth` does (the same configuration and environment, from this commit, with
 # Dereth's client and tool as that build's inputs and MoltenVK on macOS), then takes the client out.
 #
-# The launcher carries the retail client's friends library (auberean_friends.dll) beside it, as
-# every package with the launcher does: one Windows job builds it (`cargo xtask package friends-dll`)
+# Dereth's and Auberean's packages hold this release's files. The launcher carries the retail
+# client's friends library (auberean_friends.dll) beside it: one Windows job builds it (`cargo xtask package friends-dll`)
 # and every system's job takes that same file.
 #
 # The release's description starts with its notes, which `cargo xtask release-notes launcher` writes

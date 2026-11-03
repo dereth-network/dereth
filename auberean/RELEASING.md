@@ -97,7 +97,7 @@ code signature.
 ## `cargo xtask package`
 
 ```
-cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
+cargo xtask package auberean --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package yalain [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package <product> --gather <dir>
@@ -110,10 +110,9 @@ lays out, scans, checks and archives each release file, and writes the index in
 uncommitted changes unless `--allow-dirty`, and a shallow clone. `--gather <dir>` builds nothing:
 it scans the release files already in `<dir>` and writes the index over them.
 
-Auberean's builds the launcher exactly as `cargo xtask package dereth` does (the Tauri CLI, the
-same configuration and environment, Dereth's client and tool as that build's inputs, MoltenVK on
-macOS), so both releases' launchers are the same program; then it builds the Auberean client, takes
-Dereth's client and tool out of the launcher's bundle, and puts the client,
+Auberean's takes the launcher's release file for the launcher version in the tree, from the folder
+`--launcher` names (`cargo xtask package launcher --fetch <dir>`, launcher/RELEASING.md), so its
+launcher is exactly that release; it never takes another. It builds the Auberean client and puts it,
 `launcher-defaults.json` and Auberean's notices in. On macOS the bundle is signed again; on Linux
 the AppImage is unpacked (`--appimage-extract`) and packed again with `appimagetool`. With
 `TAURI_SIGNING_PRIVATE_KEY` set it signs each release file for the launcher's updater and writes
@@ -122,11 +121,7 @@ its piece of `latest.json`, as Dereth's package does.
 What it needs, and says when missing, before building anything:
 
 - **cargo-about**: `cargo install --locked cargo-about --features cli`.
-- **Auberean:** what Dereth's package needs (launcher/RELEASING.md): the Tauri CLI
-  (`cargo install --locked tauri-cli --version ^2`), on macOS MoltenVK (`--moltenvk <dir>` or
-  `DERETH_MOLTENVK_DIR`), and the retail client's friends library, which the launcher carries:
-  built on a Windows host (`rustup target add i686-pc-windows-msvc`), else the file
-  `cargo xtask package friends-dll` wrote on Windows, with `--friends-dll <file>`.
+- **Auberean:** the launcher's release files, and on Linux `appimagetool`.
 - **Windows:** the MSVC build tools.
 - **macOS:** Xcode's command-line tools; with Xcode itself, the layered icon is compiled too.
 - **Linux, Auberean and Athenaeum:** `appimagetool` (`APPIMAGETOOL`, or on `PATH`), and the AppImage
@@ -171,12 +166,11 @@ target (Yalain's in AlmaLinux 8 and Ubuntu 24.04 too, on Linux); every runner's 
 and scanned again; and, for a tag, a draft release is created with the notes, the downloads and
 every file labelled, never the repository's "Latest". Running a workflow by hand is a dry run.
 
-Auberean's workflow installs what Dereth's does (the same pinned Tauri CLI, cargo-about and
-MoltenVK, the launcher's update-signing key) and builds with the same source URL, so the launcher
-it packages is the one Dereth's release of the same commit would; its smoke run checks that the
-launcher answers `dereth <launcher version>`, the client `auberean <version>`, that the defaults
-file names Auberean, that no Dereth client is in the package, and that the package holds the
-retail client's friends library one Windows job built for the whole release. A tag's run refuses
+Auberean's workflow waits for the launcher release the tree names, as Dereth's does, and builds with
+the same source URL and the launcher's update-signing key; its smoke run checks that the launcher
+answers `dereth <launcher version>`, the client `auberean <version>`, that the defaults file names
+Auberean, that no Dereth client is in the package, and that the retail client's friends library came
+with the launcher. A tag's run refuses
 unsigned files and a missing `latest.json`.
 
 ## Publishing

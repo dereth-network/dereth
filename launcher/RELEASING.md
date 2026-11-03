@@ -187,15 +187,16 @@ and put the printed public key in `plugins.updater.pubkey`.
 ## `cargo xtask package dereth`
 
 ```
-cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
+cargo xtask package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
 cargo xtask package dereth --gather <dir>
-cargo xtask package friends-dll [--out <dir>] [--allow-dirty]
 ```
 
-Builds the client (`cargo build --release -p dereth-client`) and the launcher (`cargo tauri build`
-in `launcher`, with the client, the notices and on macOS MoltenVK added to the bundle)
-for each `--target` (default: this host's), stages, scans, checks, archives and signs the
-launcher's file, and writes the index (`MANIFEST.txt`, `release.json`, `latest.json` when
+Builds the client (`cargo build --release -p dereth-client`) and puts it, the tool, the notices and
+on macOS MoltenVK into the launcher's release file for each `--target` (default: this host's), then
+stages, scans, checks, archives and signs the result (on macOS the bundle is signed again; on Linux
+the AppImage is unpacked and packed again). `--launcher <dir>` names the folder of the launcher's
+release files, and only the launcher version in the tree is taken from it, checked against its
+`SHA256SUMS`. It writes the index (`MANIFEST.txt`, `release.json`, `latest.json` when
 signed, `SHA256SUMS`) in `target/package/dereth-<version>/` unless `--out` names another folder. It refuses a tree with
 uncommitted changes (the programs would not be the commit they name) unless `--allow-dirty`, and a
 shallow clone. `--gather <dir>` builds nothing: it scans the files already in `<dir>`, verifies
@@ -205,19 +206,14 @@ runner's files.
 What it needs, and says when missing, before building anything:
 
 - **cargo-about**, for `THIRD-PARTY-LICENSES.html`: `cargo install --locked cargo-about --features cli`.
-- **The Tauri CLI**: `cargo install --locked tauri-cli --version ^2`.
+- **The launcher's release files**: `cargo xtask package launcher --fetch <dir>` gets the release of
+  the version in the tree, or `cargo xtask package launcher --out <dir>` builds one to try locally.
 - **Windows:** the MSVC build tools.
-- **The retail Asheron's Call 2 client's friends library** (`auberean_friends.dll`), which every
-  package carries beside the launcher (on macOS in `Contents/Resources`): a 32-bit Windows DLL,
-  which only Windows links. A Windows host builds it itself, with
-  `rustup target add i686-pc-windows-msvc`; another host is given the file
-  `cargo xtask package friends-dll` wrote on Windows, with `--friends-dll <file>` or
-  `DERETH_FRIENDS_DLL`. The workflow builds it once and gives every job the same file.
 - **macOS:** Xcode's command-line tools (Xcode itself for the layered icon), and **MoltenVK**:
   its macOS release, `MoltenVK-macos.tar` from
   <https://github.com/KhronosGroup/MoltenVK/releases>, unpacked, named with `--moltenvk <dir>` or
   `DERETH_MOLTENVK_DIR`. The workflow pins the version and its SHA-256.
-- **Linux:** Tauri's build dependencies and ALSA's headers, on Debian and Ubuntu
+- **Linux:** `appimagetool`, Tauri's build dependencies and ALSA's headers, on Debian and Ubuntu
   `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
   libasound2-dev build-essential pkg-config curl wget file patchelf`. The glibc of the build host
   is the oldest a release runs on, so a release is built on Ubuntu 22.04.
@@ -259,17 +255,21 @@ tier-2 modules the release touches on a hardware GPU.
 
 `.github/workflows/release-dereth.yml` runs when a `dereth-v*` tag reaches GitHub. Its jobs:
 
-1. **version and tag:** the tag names the version the client and the launcher carry, and the
-   tagged commit is on `main`. It then writes the release notes from the tagged tree
+1. **version and tag:** the tag names the version the client carries, and the tagged commit is on
+   `main`. It then writes the release notes from the tagged tree
    (`cargo xtask release-notes dereth --version <version>`; on a dry run, the notes the next
    release would get) and keeps them as the `release-notes-dereth` artifact; they are on the run's
    summary page too.
-2. **the friends library**, on Windows: `cargo xtask package friends-dll`, kept as an artifact.
+2. **the launcher release this tree names:** `cargo xtask package launcher --fetch <dir>`, kept as an
+   artifact. A tag's run passes `--wait`: it stays until the `launcher-v<version>` release of the
+   version in the tree is whole, draft or published, and fails naming it if that doesn't happen in
+   time. No other launcher is ever used, and this workflow has nothing to build one with. A dry run
+   looks once, so the release must already be there.
    **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS):
-   installs the build dependencies, cargo-about and the Tauri CLI
-   (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
-   `cargo xtask package dereth --target <target> --friends-dll <the library>` with the signing
-   secrets, checks the package holds that same library, and smoke-runs the
+   installs the build dependencies and cargo-about (pinned), fetches MoltenVK on macOS (pinned by
+   SHA-256, never from Homebrew) and `appimagetool` on Linux, runs
+   `cargo xtask package dereth --target <target> --launcher <the release>` with the signing
+   secrets, and smoke-runs the
    packaged programs' `--version`, the plugin author's tool's too (the AppImage unpacked; the
    macOS bundle's signature verified). The launcher has no headless mode, so its
    window is not opened there. A tag's run fails if the launcher file is not signed.
@@ -320,10 +320,32 @@ launcher files with the key above, then finishes and publishes it:
 
 ## The launcher's own release
 
-The launcher also has releases of its own, `launcher-v<version>`, from
-`.github/workflows/release-launcher.yml`: `cargo xtask package launcher` builds it as Dereth's package
-does and takes the client out, so each file holds the launcher alone. Its highlights are in
-[`CHANGES.md`](CHANGES.md), and `cargo xtask publish drafts` publishes its draft before any game's.
+The launcher has releases of its own, `launcher-v<version>`, from
+`.github/workflows/release-launcher.yml`, and a version of its own, in `launcher/Cargo.toml`.
+`cargo xtask package launcher` builds it (the Tauri CLI, with the friends library and on macOS
+MoltenVK as that build's inputs) and takes the client out, so each file holds the launcher alone:
 
-Nothing updates from these releases yet, and its version is still Dereth's: every install reads its
-game's releases, as above, until the updater moves to this stream.
+```
+cargo xtask package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
+cargo xtask package launcher --gather <dir>
+cargo xtask package launcher --fetch <dir> [--wait] [--repo <owner/name>]
+cargo xtask package friends-dll [--out <dir>] [--allow-dirty]
+```
+
+It needs what Dereth's package does, and **the Tauri CLI** (`cargo install --locked tauri-cli
+--version ^2`) and **the retail Asheron's Call 2 client's friends library** (`auberean_friends.dll`),
+which it carries beside the launcher (on macOS in `Contents/Resources`): a 32-bit Windows DLL, which
+only Windows links. A Windows host builds it itself, with `rustup target add i686-pc-windows-msvc`;
+another host is given the file `cargo xtask package friends-dll` wrote on Windows, with
+`--friends-dll <file>` or `DERETH_FRIENDS_DLL`. The workflow builds it once and gives every job the
+same file.
+
+**Dereth's and Auberean's packages hold it.** Each takes the launcher version in the tree at its own
+commit, never "the newest". So the launcher is cut first: `cargo xtask ship` releases it ahead of the
+games whenever it changed, and `cargo xtask release dereth` or `auberean` refuses while that version
+has no tag or the launcher has changed since it. `cargo xtask publish drafts` publishes its draft
+before any game's. Its highlights are in [`CHANGES.md`](CHANGES.md).
+
+Nothing updates from these releases yet: every install reads its game's releases, as above, until the
+updater moves to this stream.
+

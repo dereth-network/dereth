@@ -127,12 +127,11 @@ Release and packaging:
                             the allowlist, runs the deny scan and the header checks, and writes
                             the archives, MANIFEST.txt, release.json and SHA256SUMS
                             (empyrean/RELEASING.md)
-  package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 [--friends-dll <file>] | --gather <dir>
-                            Dereth's release files: builds the client and the launcher (Tauri) for
-                            this host, and writes the launcher (Windows zip, macOS Dereth.app,
-                            Linux AppImage), with the client and the retail AC2 client's friends
-                            library inside it, checked and scanned, and signed for the launcher's
+  package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
+                 [--moltenvk <dir>] | --gather <dir>
+                            Dereth's release files: builds the client for this host, and puts it in
+                            the launcher release the tree names (Windows zip, macOS Dereth.app,
+                            Linux AppImage), checked and scanned, and signed for the launcher's
                             updater (latest.json) when TAURI_SIGNING_PRIVATE_KEY is set
                             (launcher/RELEASING.md)
   package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
@@ -143,19 +142,19 @@ Release and packaging:
                             checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
                             (lyceum/RELEASING.md)
   package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-          [--friends-dll <file>] | --gather <dir>
-                            the launcher's own release files, with no game client beside it
-  package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 [--friends-dll <file>] | --gather <dir>
-                            Auberean's release files: the launcher built exactly as `package
-                            dereth` builds it, with the Auberean client and launcher-defaults.json
-                            beside it in place of Dereth's client (Windows zip, macOS Dereth.app,
-                            Linux AppImage), checked and scanned, and signed for the launcher's
+          [--friends-dll <file>] | --gather <dir> | --fetch <dir> [--wait] [--repo <owner/name>]
+                            the launcher's own release files, with no game client beside it;
+                            --fetch gets the release of the version in the tree
+  package auberean --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
+                 | --gather <dir>
+                            Auberean's release files: the launcher release the tree names, with the
+                            Auberean client and launcher-defaults.json beside it (Windows zip,
+                            macOS Dereth.app, Linux AppImage), checked and scanned, and signed for the launcher's
                             updater (latest.json, version <launcher>+auberean.<client>) when
                             TAURI_SIGNING_PRIVATE_KEY is set (auberean/RELEASING.md)
   package friends-dll [--out <dir>] [--allow-dirty]
                             the retail AC2 client's friends library (auberean_friends.dll), which
-                            both launcher packages carry: built on Windows for
+                            the launcher's package carries: built on Windows for
                             i686-pc-windows-msvc with the C runtime linked in, and checked; a
                             launcher package on another host takes it with --friends-dll
   package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>

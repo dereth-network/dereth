@@ -1221,7 +1221,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     );
     assert_eq!(
         of(&["launcher/ui/app.js", "launcher/crates/launch/src/pad.rs"]),
-        [Product::Dereth]
+        [Product::Launcher, Product::Dereth]
     );
     assert_eq!(
         of(&["docs/network/03-world-behaviour.md", "README.md"]),
@@ -1510,7 +1510,7 @@ fn a_lock_change_counts_only_for_the_products_whose_crates_moved() {
 }
 
 #[test]
-fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
+fn the_launchers_own_lock_is_weighed_for_the_launcher_alone() {
     let launcher = |tauri: &str| {
         lock_text(&[
             (
@@ -1533,8 +1533,11 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
         &BTreeMap::new(),
     )
     .expect("both locks read");
-    assert_eq!(found.keys().copied().collect::<Vec<_>>(), [Product::Dereth]);
-    assert_eq!(found[&Product::Dereth], ["tauri 2.8.0 -> 2.9.1"]);
+    assert_eq!(
+        found.keys().copied().collect::<Vec<_>>(),
+        [Product::Launcher]
+    );
+    assert_eq!(found[&Product::Launcher], ["tauri 2.8.0 -> 2.9.1"]);
     // A launcher lock that is new on the branch is all added.
     let found = plan::lock_moves(
         &["launcher/Cargo.lock".to_owned()],
@@ -1543,7 +1546,7 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
     )
     .expect("both locks read");
     assert_eq!(
-        found[&Product::Dereth],
+        found[&Product::Launcher],
         ["serde 1.0.210 (added)", "tauri 2.9.1 (added)"]
     );
     // A crate taken from a git commit instead names where it is from.
@@ -1558,7 +1561,7 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
     )
     .expect("both locks read");
     assert_eq!(
-        found[&Product::Dereth],
+        found[&Product::Launcher],
         ["tauri 2.9.1 -> 2.9.1 (git+https://example.org/tauri#0123abc)"]
     );
 
@@ -1808,13 +1811,16 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                 ])
             ),
             (
+                Product::Launcher,
+                set(&["dereth-launcher", "dereth-launch", "dereth-primitives"])
+            ),
+            (
                 Product::Dereth,
                 set(&[
                     "dereth-client",
                     "dereth-client-runtime",
                     "dereth-web",
                     "dereth-launch",
-                    "dereth-launcher",
                     "dereth-primitives",
                     "mlua"
                 ])
@@ -1882,10 +1888,18 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
     assert_eq!(of("core/client-runtime/src/audio.rs"), [Product::Dereth]);
     // A vendored crate outside the workspace is its users'.
     assert_eq!(of("vendor/mlua/src/lua.rs"), [Product::Dereth]);
-    assert_eq!(of("launcher/crates/launch/src/pad.rs"), [Product::Dereth]);
+    assert_eq!(
+        of("launcher/crates/launch/src/pad.rs"),
+        [Product::Launcher, Product::Dereth]
+    );
     assert_eq!(
         of("core/primitives/src/lib.rs"),
-        [Product::Hub, Product::Empyrean, Product::Dereth]
+        [
+            Product::Hub,
+            Product::Empyrean,
+            Product::Launcher,
+            Product::Dereth
+        ]
     );
     // Asheron's Call 2's core is its client's and its server's; the world builder is released for
     // its own folder, as Lyceum is.
@@ -5591,4 +5605,27 @@ fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_rel
         }
     }
     assert!(releases >= 6, "{releases} release workflows");
+}
+
+/// A change to the launcher's own app is the launcher's alone, and `ship` cuts the launcher before
+/// the games, whose packages hold it.
+#[test]
+fn the_launcher_is_its_own_product_and_ships_before_the_games() {
+    let of = |paths: &[&str]| {
+        let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+        plan::products_of(&changed, &[], &BTreeMap::new(), &BTreeMap::new())
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(of(&["launcher/ui/app.js"]), [Product::Launcher]);
+    assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    let at = |p: Product| {
+        Product::ALL
+            .iter()
+            .position(|x| *x == p)
+            .expect("a product")
+    };
+    assert!(at(Product::Launcher) < at(Product::Dereth));
+    assert!(at(Product::Launcher) < at(Product::Auberean));
+    assert_eq!(Product::Launcher.command_name(), "launcher");
 }

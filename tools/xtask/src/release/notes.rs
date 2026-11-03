@@ -5,7 +5,7 @@
 //! does, so the subjects are the changelog. A commit counts when it changes something the release
 //! ships, and is neither a test nor a document:
 //!
-//! - **Dereth** (the client and the launcher): a file under `dereth/`, `launcher/` or `core/`, or the web
+//! - **Dereth** (the client): a file under `dereth/` or `core/`, or the web
 //!   client's relay.
 //! - **Empyrean** (the server): a file under `empyrean/`, or under one of the shared `core/`
 //!   crates the server is built from when the commit changes nothing that only the client ships
@@ -141,7 +141,7 @@ impl Group {
 }
 
 /// Paths outside these are not part of what a Dereth release ships.
-const SHIPPED: &[&str] = &["dereth/", "launcher/", "core/", "tools/web-relay/"];
+const SHIPPED: &[&str] = &["dereth/", "core/", "tools/web-relay/"];
 
 /// The core crates that are Asheron's Call 2's, not Dereth's, though they are under `core/`.
 const AUBEREAN_CORE: &str = "core/auberean-";
@@ -189,7 +189,7 @@ fn test_or_document(path: &str) -> bool {
         || path.ends_with(".md")
 }
 
-/// Whether `path` is part of the shipped client or launcher: under a shipped folder, and neither a
+/// Whether `path` is part of the shipped client: under a shipped folder, and neither a
 /// test, a fixture, the test kit nor a document.
 pub fn ships(path: &str) -> bool {
     SHIPPED.iter().any(|p| path.starts_with(p))
@@ -925,7 +925,7 @@ pub fn render(
     out.push_str("## All changes\n\n");
     if groups.is_empty() {
         let what = match product {
-            Product::Dereth => "the client or the launcher",
+            Product::Dereth => "the client",
             Product::Empyrean | Product::Yalain => "the server",
             Product::Lyceum => "the editor or the lyceum command",
             Product::Auberean => "the client",

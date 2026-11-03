@@ -104,34 +104,31 @@ fn manifests_version(ws: &Path, manifests: &[PathBuf], what: &str) -> Result<Str
 /// The prefix of a Dereth release tag: `dereth-v<version>`.
 pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 
-/// The crates that carry Dereth's version: the client and the launcher, released together, the
-/// web client, the same client in a browser, released under its own tag from the same version, the
+/// The crates that carry Dereth's version: the client, the web client, the same client in a browser, released under its own tag from the same version, the
 /// headless client, which names itself by it, and the plugin author's tool, whose rules are those
 /// of the client released with it.
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
-    "launcher/Cargo.toml",
     "dereth/web/Cargo.toml",
     "dereth/headless/Cargo.toml",
     "tools/plugin/Cargo.toml",
 ];
 
-/// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
-/// as (the folder cargo runs in, the lock file), relative to the workspace root.
-pub const DERETH_LOCKS: &[(&str, &str)] =
-    &[("", "Cargo.lock"), ("launcher", "launcher/Cargo.lock")];
+/// The lock files a Dereth version change touches, as (the folder cargo runs in, the lock file),
+/// relative to the workspace root.
+pub const DERETH_LOCKS: &[(&str, &str)] = &[("", "Cargo.lock")];
 
 /// The manifests of the crates that carry Dereth's version.
 pub fn dereth_manifests(ws: &Path) -> Vec<PathBuf> {
     DERETH_MANIFESTS.iter().map(|m| ws.join(m)).collect()
 }
 
-/// Dereth's version, read from the client's and the launcher's manifests and required to agree.
+/// Dereth's version, read from its crates' manifests and required to agree.
 pub fn dereth_version(ws: &Path) -> Result<String, String> {
     manifests_version(
         ws,
         &dereth_manifests(ws),
-        "Dereth crate (the client, the launcher, the web client, the headless client and the          plugin author's tool)",
+        "Dereth crate (the client, the web client, the headless client and the plugin author's tool)",
     )
 }
 
@@ -341,6 +338,11 @@ impl Product {
     /// Whether the product is one of Asheron's Call 2's: Auberean, Yalain or Athenaeum.
     pub fn is_auberean_game(self) -> bool {
         matches!(self, Self::Auberean | Self::Yalain | Self::Athenaeum)
+    }
+
+    /// Whether its package holds the launcher, so that its release needs the launcher's first.
+    pub fn holds_launcher(self) -> bool {
+        matches!(self, Self::Dereth | Self::Auberean)
     }
 
     /// The prefix of the product's release tags.

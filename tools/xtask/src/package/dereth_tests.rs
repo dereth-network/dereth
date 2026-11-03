@@ -677,10 +677,10 @@ fn a_linux_host_with_a_newer_glibc_is_refused_before_anything_is_built() {
 
 // ---------------------------------------------------------------- version and tag
 
-/// The client, the launcher, the web client, the headless client and the plugin author's tool
-/// carry one version, which the tag must name exactly.
+/// The client, the web client, the headless client and the plugin author's tool carry one version,
+/// which the tag must name exactly.
 #[test]
-fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
+fn dereths_crates_carry_one_version_which_the_tag_names() {
     let ws = workspace_root();
     let v = Product::Dereth.version(&ws).expect("the two agree");
     version::parse_release_version(&v).expect("a release version");
@@ -692,7 +692,7 @@ fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
         .expect_err("another product's tag");
     assert!(e.contains("Dereth"), "{e}");
     assert!(version::check_product_tag(Product::Dereth, "dereth-v9.9.9", &v).is_err());
-    assert_eq!(version::dereth_manifests(&ws).len(), 5);
+    assert_eq!(version::dereth_manifests(&ws).len(), 4);
 }
 
 /// Every file the Dereth package reads from the tree is there.
