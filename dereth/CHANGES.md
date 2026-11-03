@@ -14,6 +14,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Launcher: you can add a world by its address in Auberean's realm too.
+- Launcher: a hosted world can keep its status page open to your local network.
+
 ## 0.4.11 (2026-11-02)
 
 - Fix macOS packaging
