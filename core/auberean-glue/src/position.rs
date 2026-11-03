@@ -49,7 +49,6 @@ const BLOCK_LENGTH: f32 = 160.0;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
-    (PLACES_TABLE, 0x03, places_dump),
     (POSITION, 0x01, get_offset),
     (POSITION, 0x02, get_origin),
     (POSITION, 0x03, get_cell),
@@ -62,9 +61,11 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (POSITION, 0x0A, distance),
     (POSITION, 0x0B, distance_squared),
     (POSITION, 0x0E, set_cell),
+    (POSITION, 0x0F, from_string),
     (POSITION, 0x10, to_string),
     (POSITION, 0x13, to_real_map_coords),
     (POSITION, 0x14, to_real_map_coords_info),
+    (POSITION, 0x15, from_real_map_coords),
     (POSITION, 0x16, is_outside),
     (POSITION, 0x17, position_equals),
     (POSITION, 0x18, null_position),
@@ -99,29 +100,6 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (VECTOR, 0x0E, vector_part::<2>),
     (VECTOR, 0x0F, vector_string),
 ];
-
-/// The named places' table's package and record.
-const PLACES_TABLE: u32 = 0x58;
-const PLACES_RECORD: u32 = 0x0E00_0004;
-
-/// The named places as text, a line for each, as a new string at `fp[-2]`: nothing when the install
-/// holds no table of them, which no player's does.
-// D2-08848
-fn places_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let mut text = String::new();
-    if let Some(table) = c
-        .host
-        .database()
-        .and_then(|db| db.get::<auberean_assets::tables::Places>(PLACES_RECORD))
-    {
-        for (name, at) in &table.places {
-            text.push_str(&format!("{name}: {at:?}.\n"));
-        }
-    }
-    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
-    c.write(-2, id, tag::REFERENCE)?;
-    Ok(Status::Success)
-}
 
 /// Bind this module's natives.
 pub fn bind(t: &mut NativeTable) {
@@ -640,6 +618,162 @@ pub fn position_text(cell: u32, frame: &[u32; 7]) -> String {
     )
 }
 
+/// A position written out as [`position_text`] writes it, with its rotation either a heading in
+/// degrees or four parts, scalar first; the cell and the origin's frame bits and the rotation.
+// D2-13195
+#[must_use]
+pub fn read_position_text(text: &[u16]) -> Option<(u32, [u32; 7])> {
+    let s = auberean_text::crt::cstr(text);
+    let mut at = 0;
+    let literal = |at: &mut usize, want: &str| {
+        for c in want.encode_utf16() {
+            if s.get(*at) != Some(&c) {
+                return false;
+            }
+            *at += 1;
+        }
+        true
+    };
+    if !literal(&mut at, "0x") {
+        return None;
+    }
+    let start = at;
+    while at < s.len()
+        && at - start < 8
+        && char::from_u32(u32::from(s[at])).is_some_and(|c| c.is_ascii_hexdigit())
+    {
+        at += 1;
+    }
+    let cell = u32::from_str_radix(&String::from_utf16_lossy(&s[start..at]), 16).ok()?;
+    while s.get(at).is_some_and(|c| auberean_text::crt::is_space(*c)) {
+        at += 1;
+    }
+    if !literal(&mut at, "[") {
+        return None;
+    }
+    let x = auberean_text::crt::scan_float(s, &mut at)?;
+    let y = auberean_text::crt::scan_float(s, &mut at)?;
+    let z = auberean_text::crt::scan_float(s, &mut at)?;
+    if !literal(&mut at, "]") {
+        return None;
+    }
+    let first = auberean_text::crt::scan_float(s, &mut at)?;
+    let mut frame = dereth_primitives::Frame::new(
+        dereth_primitives::Vec3::new(x, y, z),
+        dereth_primitives::Quat::IDENTITY,
+    );
+    match auberean_text::crt::scan_float(s, &mut at) {
+        Some(b) => {
+            let c = auberean_text::crt::scan_float(s, &mut at)?;
+            let d = auberean_text::crt::scan_float(s, &mut at)?;
+            auberean_physics::geom::set_rotate(
+                &mut frame,
+                dereth_primitives::Quat::new(first, b, c, d),
+            );
+        }
+        None => auberean_physics::geom::set_heading(
+            &mut frame,
+            auberean_physics::geom::Heading::new(first),
+        ),
+    }
+    let (o, q) = (frame.origin, frame.rotation);
+    Some((cell, [o.x, o.y, o.z, q.w, q.x, q.y, q.z].map(f32::to_bits)))
+}
+
+/// Map coordinates as a player writes them (`12.3N 45.6E`, a comma between them if liked, the last
+/// letter left out meaning east): east and north, south and west being negative. Any other letters
+/// are `None`.
+// D2-13201
+#[must_use]
+pub fn read_map_coords(text: &[u16]) -> Option<(f32, f32)> {
+    let s = auberean_text::crt::cstr(text);
+    let mut at = 0;
+    let north = auberean_text::crt::scan_float(s, &mut at)?;
+    let north_letter = *s.get(at)?;
+    at += 1;
+    if s.get(at) == Some(&u16::from(b',')) {
+        at += 1;
+    }
+    let east = auberean_text::crt::scan_float(s, &mut at)?;
+    let east_letter = match s.get(at) {
+        Some(c) => auberean_text::crt::to_upper(*c),
+        None => u16::from(b'E'),
+    };
+    let east = if east_letter == u16::from(b'W') {
+        -east
+    } else if east_letter == u16::from(b'E') {
+        east
+    } else {
+        return None;
+    };
+    let north_letter = auberean_text::crt::to_upper(north_letter);
+    let north = if north_letter == u16::from(b'S') {
+        -north
+    } else if north_letter == u16::from(b'N') {
+        north
+    } else {
+        return None;
+    };
+    Some((east, north))
+}
+
+/// The receiver set from the string below it as [`read_position_text`] reads it; answers whether it
+/// could be read.
+// D2-08866
+fn from_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let s = c.cx.at(-2)?;
+    if s == NULL {
+        return Err(Stop::NullReference);
+    }
+    let text = text_of(c, s)?;
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let read = read_position_text(&text);
+    if let Some((new_cell, new_frame)) = read {
+        let (cell, frame) = whole_mut(c, r)?;
+        *cell = new_cell;
+        *frame = new_frame;
+    }
+    c.write(-3, u32::from(read.is_some()), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The receiver moved to the middle of the land cell at the map coordinates the string below it
+/// gives, its height and rotation kept; answers whether they could be read and are on the map.
+// D2-08865
+fn from_real_map_coords(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let s = c.cx.at(-2)?;
+    if s == NULL {
+        return Err(Stop::NullReference);
+    }
+    let text = text_of(c, s)?;
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let read = read_map_coords(&text);
+    let (cell, frame) = whole_mut(c, r)?;
+    let ok = read.is_some_and(|(east, north)| {
+        let f = |k: usize| f32::from_bits(frame[k]);
+        let mut p = dereth_primitives::Position::new(
+            dereth_primitives::CellId(*cell),
+            dereth_primitives::Frame::new(
+                dereth_primitives::Vec3::new(f(0), f(1), f(2)),
+                dereth_primitives::Quat::IDENTITY,
+            ),
+        );
+        let ok = auberean_physics::geom::position::set_from_map_coords(&mut p, east, north);
+        *cell = p.cell.0;
+        frame[0] = p.frame.origin.x.to_bits();
+        frame[1] = p.frame.origin.y.to_bits();
+        ok
+    });
+    c.write(-3, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 /// The receiver written out.
 // D2-08888
 fn to_string(c: &mut Call<'_>) -> Result<Status, Stop> {
@@ -1094,5 +1228,34 @@ mod tests {
         assert_eq!(scan_two_ints(&wide("12,7")), None);
         assert_eq!(scan_two_ints(&wide("+3\t4")), Some((3, 4)));
         assert_eq!(scan_two_ints(&wide("")), None);
+    }
+
+    /// A position reads back as it is written, its rotation as four parts or a heading.
+    #[test]
+    fn a_position_reads_back_as_it_is_written() {
+        let wide = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        let frame = [1.5f32, -2.25, 3.0, 1.0, 0.0, 0.0, 0.0].map(f32::to_bits);
+        let text = position_text(0xC156_0035, &frame);
+        assert_eq!(read_position_text(&wide(&text)), Some((0xC156_0035, frame)));
+        let (cell, f) =
+            read_position_text(&wide("0x00000102 [1 2 3] 90")).expect("a heading in degrees");
+        assert_eq!(cell, 0x102);
+        assert_eq!(f[..3], [1.0f32, 2.0, 3.0].map(f32::to_bits));
+        assert_ne!(f[3..], frame[3..], "turned");
+        assert_eq!(read_position_text(&wide("0x102 1 2 3")), None);
+        assert_eq!(read_position_text(&wide("0x102 [1 2 3] 1 2")), None);
+    }
+
+    /// Map coordinates read as a player writes them: south and west negative, a comma if liked, the
+    /// last letter left out meaning east, any other letter refused.
+    #[test]
+    fn map_coordinates_read_as_a_player_writes_them() {
+        let wide = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(read_map_coords(&wide("12.5N 40W")), Some((-40.0, 12.5)));
+        assert_eq!(read_map_coords(&wide("12.5s, 40e")), Some((40.0, -12.5)));
+        assert_eq!(read_map_coords(&wide("3N 7")), Some((7.0, 3.0)));
+        assert_eq!(read_map_coords(&wide("3Q 7E")), None);
+        assert_eq!(read_map_coords(&wide("3N 7Q")), None);
+        assert_eq!(read_map_coords(&wide("")), None);
     }
 }

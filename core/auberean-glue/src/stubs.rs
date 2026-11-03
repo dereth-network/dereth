@@ -36,7 +36,7 @@ pub fn host_bound() -> impl Iterator<Item = NativeId> {
     HOST.iter().map(|(id, _)| NativeId(*id))
 }
 
-/// 393 natives, by id.
+/// 390 natives, by id.
 static STUBS: &[(u32, Binding)] = &[
     (0x000a << 16 | 0x0001, not_ported!("D2-09192")),
     (0x000e << 16 | 0x0001, not_ported!("D2-08365")),
@@ -286,8 +286,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x0059 << 16 | 0x0004, not_ported!("D2-08855")),
     (0x005a << 16 | 0x000c, not_ported!("D2-08892")),
     (0x005a << 16 | 0x000d, not_ported!("D2-08880")),
-    (0x005a << 16 | 0x000f, not_ported!("D2-08866")),
-    (0x005a << 16 | 0x0015, not_ported!("D2-08865")),
     (0x005a << 16 | 0x001b, not_ported!("D2-08883")),
     (0x005a << 16 | 0x001f, not_ported!("D2-08874")),
     (0x005a << 16 | 0x0020, not_ported!("D2-08860")),

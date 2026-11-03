@@ -674,6 +674,35 @@ pub fn set_heading(frame: &mut Frame, h: Heading) {
     set_vector_heading(frame, Vec3::new(math::sinf(r), math::cosf(r), m[5]));
 }
 
+/// Turns a frame by the rotation vector `v` (its direction the axis, its length the angle in
+/// radians) after its rotation, kept unit length. A vector shorter than 0.0002 leaves it.
+// D2-13168
+pub fn grotate(frame: &mut Frame, v: Vec3) {
+    let wide = f64::from;
+    #[allow(clippy::cast_possible_truncation)]
+    let narrow = |x: f64| x as f32;
+    let (x, y, z) = (wide(v.x), wide(v.y), wide(v.z));
+    let len2 = x * x + y * y + z * z;
+    let least = wide(0.0002_f32);
+    if len2 < least * least {
+        return;
+    }
+    let len = len2.sqrt();
+    let (sin, cos) = (math::sin(len * 0.5) / len, math::cos(len * 0.5));
+    let (ax, ay, az) = (x * sin, y * sin, z * sin);
+    let b = frame.rotation;
+    let (bw, bx, by, bz) = (wide(b.w), wide(b.x), wide(b.y), wide(b.z));
+    set_rotate(
+        frame,
+        Quat::new(
+            narrow(cos * bw - ax * bx - ay * by - az * bz),
+            narrow(ax * bw + cos * bx + ay * bz - az * by),
+            narrow(ay * bw + cos * by + az * bx - ax * bz),
+            narrow(az * bw + cos * bz + ax * by - ay * bx),
+        ),
+    );
+}
+
 /// Sets a frame's rotation, made unit length.
 // D2-05771
 pub fn set_rotate(frame: &mut Frame, q: Quat) {
@@ -826,5 +855,18 @@ mod tests {
         let b = at(0x1010_0001, 4.0, 0.0, 6.0);
         assert_eq!(cylinder_distance(0.5, 2.0, &a, 0.5, 2.0, &b), 5.0);
         assert_eq!(cylinder_distance(3.0, 7.0, &a, 3.0, 2.0, &b), 0.0);
+    }
+
+    /// A frame turned by a rotation vector stays a unit, and a tiny one leaves it be.
+    #[test]
+    fn a_frame_turns_by_a_rotation_vector() {
+        let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        grotate(&mut f, Vec3::new(0.0, 0.0, std::f32::consts::FRAC_PI_2));
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((f.rotation.w - half).abs() < 1e-5, "{:?}", f.rotation);
+        assert!((f.rotation.z - half).abs() < 1e-5, "{:?}", f.rotation);
+        let before = f.rotation;
+        grotate(&mut f, Vec3::new(0.0, 0.0001, 0.0));
+        assert_eq!(f.rotation, before);
     }
 }
