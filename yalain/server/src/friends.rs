@@ -905,7 +905,7 @@ mod tests {
         fed.link_person(&mut h.server.store, h.now.0, elara, "Elara");
         let _ = fed.take_frames(h.now.0);
         h.server.cfg.min_character_age_seconds = 3_600;
-        let mut attempt = |h: &mut Harness, f: &mut Friends, fed: &mut Federation| {
+        let attempt = |h: &mut Harness, f: &mut Friends, fed: &mut Federation| {
             f.pump(at(h), &mut h.server, &mut h.net, Some(fed));
             let t = h.now.0;
             fed.room_said(&mut f.service, t, elara, "Elara", Room::General, "hi");

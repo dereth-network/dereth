@@ -814,6 +814,7 @@ fn the_update_keys_are_read_with_empyreans_defaults() {
             check_hours: 6,
             warning_seconds: 300,
             source: String::new(),
+            own_world: false,
         }
     );
     let text = "[server]\nupdate = \"patch\"\nupdate_check_hours = 2\nupdate_warning_seconds = 60\nupdate_source = \"https://github.com/someone/fork\"\n";
@@ -827,6 +828,7 @@ fn the_update_keys_are_read_with_empyreans_defaults() {
             check_hours: 2,
             warning_seconds: 60,
             source: "https://github.com/someone/fork".to_owned(),
+            own_world: false,
         }
     );
 }
@@ -903,4 +905,49 @@ fn the_release_json_the_packaging_writes_and_the_facts_the_program_prints_are_re
             ["store"],
         yalain_store::SCHEMA_VERSION
     );
+}
+
+/// A world serving its own folder does not use the release a build pins, so an update needs no fetch
+/// of it, and one that cannot be fetched refuses nothing: the new program is not even run for it. A
+/// world that lies over a base naming no version does use it, as `pinned` does.
+/// Behaviour: server.update.own-world-needs-no-fetch
+#[test]
+fn a_world_serving_its_own_folder_needs_no_fetch_of_the_pinned_world_database() {
+    let run = |own_world: bool| {
+        super::Processes {
+            args: Vec::new(),
+            current_dir: std::env::temp_dir(),
+            timeout: std::time::Duration::from_secs(1),
+            work_dir: std::env::temp_dir(),
+            own_world,
+        }
+        .fetch_world_database(Path::new("/no/such/program"))
+    };
+    assert!(run(false).is_err(), "the fetch runs the new program");
+    assert_eq!(run(true), Ok(()));
+
+    let world = |dir: &Path, base: &str| {
+        std::fs::write(
+            dir.join("world.toml"),
+            format!(
+                "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n{base}"
+            ),
+        )
+        .expect("written");
+    };
+    let dir = scratch("own-world");
+    let (text, base) = (dir.to_string_lossy().into_owned(), Path::new("/some/base"));
+    let uses = crate::world::uses_the_pin;
+    assert!(uses("pinned", None));
+    assert!(uses(&format!("{text}/nothing-here"), None), "does not read");
+    world(&dir, "");
+    assert!(!uses(&text, None), "a folder alone");
+    let o = crate::parse_from(vec!["--world-db".into(), text.clone()]).expect("the options");
+    assert!(o.update.own_world, "as the options say");
+    world(&dir, "[base]\ndb = \"db\"\n");
+    assert!(uses(&text, None), "over the pinned release");
+    assert!(!uses(&text, Some(base)), "over a folder of its own");
+    world(&dir, "[base]\ndb = \"db\"\nversion = \"v0.1.0\"\n");
+    assert!(!uses(&text, None), "over a release it names");
+    std::fs::remove_dir_all(&dir).ok();
 }

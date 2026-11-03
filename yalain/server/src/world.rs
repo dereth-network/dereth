@@ -116,6 +116,26 @@ pub fn database_dir(arg: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// Does a world served from this argument use the release this build pins? `pinned` does; a folder
+/// does when it lies over a base with no version of its own and no `--world-base` in its place. One
+/// that does not read counts as using it: the server will refuse it anyway.
+#[must_use]
+pub fn uses_the_pin(world_db: &str, world_base: Option<&Path>) -> bool {
+    if world_db == "pinned" {
+        return true;
+    }
+    if world_base.is_some() {
+        return false;
+    }
+    let Ok(files) = load(Path::new(world_db)) else {
+        return true;
+    };
+    let Some(db) = rows::read_partly(&files).0 else {
+        return true;
+    };
+    db.world.base.is_some_and(|b| b.version.is_none())
+}
+
 /// A release's folder in the cache.
 ///
 /// # Errors

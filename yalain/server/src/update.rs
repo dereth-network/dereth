@@ -201,6 +201,8 @@ pub struct Processes {
     pub timeout: Duration,
     /// Where the ready report is written.
     pub work_dir: PathBuf,
+    /// The world served is a folder of its own, which the release this build pins is no part of.
+    pub own_world: bool,
 }
 
 impl Programs for Processes {
@@ -219,6 +221,10 @@ impl Programs for Processes {
     }
 
     fn fetch_world_database(&self, exe: &Path) -> Result<(), String> {
+        if self.own_world {
+            tracing::info!("Update: this world serves its own folder: no world database to fetch");
+            return Ok(());
+        }
         let status = process(exe)
             .args(["world", "fetch"])
             .current_dir(&self.current_dir)
@@ -306,6 +312,8 @@ pub struct Settings {
     pub warning_seconds: u32,
     /// `server.update_source`: empty means the repository the build came from.
     pub source: String,
+    /// The world served does not use the release this build pins ([`crate::world::uses_the_pin`]).
+    pub own_world: bool,
 }
 
 impl Default for Settings {
@@ -315,6 +323,7 @@ impl Default for Settings {
             check_hours: 6,
             warning_seconds: 300,
             source: String::new(),
+            own_world: false,
         }
     }
 }
@@ -346,6 +355,7 @@ pub fn for_this_installation(
         current_dir: std::env::current_dir().unwrap_or_else(|_| install_dir.clone()),
         timeout: HEALTH_CHECK_TIMEOUT,
         work_dir: layout.work_dir.clone(),
+        own_world: settings.own_world,
     };
     Ok(Updater {
         source: Source::configured(&settings.source, SOURCE_URL)?,

@@ -622,6 +622,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
     if !o.login_port.is_multiple_of(2) || !o.world_port.is_multiple_of(2) {
         return Err("the ports are even: each service uses its port and the one above".into());
     }
+    o.update.own_world = !world::uses_the_pin(&o.world_db, o.world_base.as_deref());
     o.hub = match (hub_url, hub_slug, hub_key_file) {
         (None, None, None) => None,
         (Some(url), Some(slug), Some(key)) => Some(hub::HubSettings::new(&url, &slug, &key)?),

@@ -7254,6 +7254,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.update.own-world-needs-no-fetch",
+        says: "A world serving a folder of its own does not use the world database a release pins, so \
+               its update fetches none and is not refused when none can be fetched; one lying over a \
+               base of no named version does use it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-OWN-WORLD"),
+        station: "yalain::bin.yalain::update::tests::a_world_serving_its_own_folder_needs_no_fetch_of_the_pinned_world_database",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.update.players-warned-by-the-shutdown-countdown",
         says: "The countdown an update warns players with shows every player in the world its  \
                own length at once, then the shutdown's lines, and the server is done twenty  \
