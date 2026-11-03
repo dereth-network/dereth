@@ -2545,13 +2545,16 @@ impl<'a> SceneBuilder<'a> {
         // each pair of its squares fills what its coarser edge leaves open, going round this block.
         // Its index runs along x, then y; a neighbor's stride comes of its own ring.
         let coarser = |x: i32, y: i32| {
-            far_stride(ring(x, y) - NEAR_RADIUS, squares_here) == stride * 2 && stride < squares_here
+            far_stride(ring(x, y) - NEAR_RADIUS, squares_here) == stride * 2
+                && stride < squares_here
         };
         let last = side - 1;
         let (bx, by) = (tb.x, tb.y);
         for k in (0..last.saturating_sub(1)).step_by(2) {
             if coarser(bx + 1, by) {
-                batch.indices.extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
+                batch
+                    .indices
+                    .extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
             }
             if coarser(bx, by - 1) {
                 batch.indices.extend([v(k, 0), v(k + 2, 0), v(k + 1, 0)]);

@@ -89,6 +89,7 @@ struct DrawUniforms {
 @group(2) @binding(4) var tex2: texture_2d<f32>;
 @group(2) @binding(5) var samp2: sampler;
 // The sun's shadow map (white with none): what a body standing on the land takes about its spot.
+// The sun's shadow map while the frame's spots are worked out, then the picture of those spots.
 @group(3) @binding(0) var shadow_map: texture_2d<f32>;
 
 // What the draw's light and specular are multiplied by for the shadow about its spot.
@@ -479,8 +480,8 @@ fn frill_shade(at: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
-// A body's share of the sun: the shadow map about its spot on the ground, as a frill reads it.
-fn body_shade(at: vec3<f32>) -> vec3<f32> {
+// A spot's share of the sun: the shadow map about it on the ground, as a frill reads it.
+fn spot_shade(at: vec3<f32>) -> vec3<f32> {
     let uv = (frame.shadow_uv * vec4<f32>(at, 1.0)).xy;
     let size = vec2<i32>(textureDimensions(shadow_map));
     let p = vec2<i32>(uv * vec2<f32>(size));
@@ -501,6 +502,32 @@ fn body_shade(at: vec3<f32>) -> vec3<f32> {
     return clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Each spot of the frame's bodies, worked out once a frame into one texel of a picture of its own.
+struct SpotOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) @interpolate(flat) shade: vec3<f32>,
+};
+
+@vertex
+fn vs_spot(@builtin(vertex_index) k: u32, @location(0) at: vec3<f32>) -> SpotOut {
+    var o: SpotOut;
+    let col = f32(k % 256u);
+    let row = f32(k / 256u);
+    o.clip = vec4<f32>((col + 0.5) / 128.0 - 1.0, 1.0 - (row + 0.5) / 8.0, 0.0, 1.0);
+    o.shade = spot_shade(at);
+    return o;
+}
+
+@fragment
+fn fs_spot(v: SpotOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(v.shade, 1.0);
+}
+
+// A body's share of the sun: its spot's texel of the frame's spots.
+fn body_shade(k: i32) -> vec3<f32> {
+    return textureLoad(shadow_map, vec2<i32>(k % 256, k / 256), 0).rgb;
+}
+
 @vertex
 fn vs_mesh(v: MeshIn) -> MeshOut {
     var o: MeshOut;
@@ -509,7 +536,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
     // light takes it.
     var vd = v.diffuse;
     if (draw.shade.w > 1.5) {
-        ground_tint = body_shade(draw.shade.xyz);
+        ground_tint = body_shade(i32(draw.shade.x));
     } else if (draw.shade.w > 0.5) {
         vd = frill_shade(draw.shade.xyz);
     }

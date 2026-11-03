@@ -207,6 +207,8 @@ pub struct Renderer {
     shadow_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
     /// The water's surface laid with its rippled reflection, and the ripples' bump picture.
     water_pipelines: HashMap<PassKey, wgpu::RenderPipeline>,
+    /// The sun's share at each spot of the frame's bodies, a texel each.
+    spot_pipeline: Option<wgpu::RenderPipeline>,
     /// The ripples laid over the water's surfaces, in their own picture.
     ripple_pipeline: Option<wgpu::RenderPipeline>,
     bump: Option<Arc<wgpu::TextureView>>,
@@ -536,6 +538,7 @@ impl Renderer {
             shadow_pipelines: None,
             volume_pipelines: None,
             water_pipelines: HashMap::new(),
+            spot_pipeline: None,
             ripple_pipeline: None,
             bump: None,
             mesh_pipelines: HashMap::new(),
@@ -1613,6 +1616,123 @@ impl Renderer {
         }
     }
 
+    /// The picture of the sun's share at each of `spots`, a texel each, made through the shadow
+    /// map's group `map`: the group the bodies read it through.
+    fn draw_body_spots(
+        &mut self,
+        spots: &HashMap<[u32; 3], usize>,
+        map: &wgpu::BindGroup,
+        identity: &wgpu::BindGroup,
+        outdoors_u: &FrameUniforms,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::BindGroup {
+        if self.spot_pipeline.is_none() {
+            const ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
+            self.spot_pipeline = Some(self.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("fs_spot"),
+                    layout: Some(&self.pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &self.module,
+                        entry_point: Some("vs_spot"),
+                        compilation_options: Default::default(),
+                        buffers: &[Some(wgpu::VertexBufferLayout {
+                            array_stride: 12,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &ATTRS,
+                        })],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &self.module,
+                        entry_point: Some("fs_spot"),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: COLOR_FORMAT,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::PointList,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                },
+            ));
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("the bodies' spots"),
+            size: wgpu::Extent3d {
+                width: u32::try_from(BODY_SPOTS.0).unwrap_or(1),
+                height: u32::try_from(BODY_SPOTS.1).unwrap_or(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let count = spots.len().min(BODY_SPOTS.0 * BODY_SPOTS.1);
+        let mut at = vec![[0.0f32; 3]; count];
+        for (bits, &k) in spots {
+            if let Some(slot) = at.get_mut(k) {
+                *slot = bits.map(f32::from_bits);
+            }
+        }
+        let vertices = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("the bodies' spots"),
+                contents: bytemuck::cast_slice(&at),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("the bodies' spots"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let Some(pipeline) = &self.spot_pipeline {
+                pass.set_pipeline(pipeline);
+                let outdoors =
+                    self.uniform_group(&self.frame_layout, bytemuck::bytes_of(outdoors_u));
+                pass.set_bind_group(0, &outdoors, &[]);
+                pass.set_bind_group(1, identity, &[]);
+                pass.set_bind_group(2, &self.spot_textures(), &[]);
+                pass.set_bind_group(3, map, &[]);
+                pass.set_vertex_buffer(0, vertices.slice(..));
+                pass.draw(0..u32::try_from(count).unwrap_or(0), 0..1);
+            }
+        }
+        self.shadow_group(&view)
+    }
+
+    /// The textures of a draw that reads none.
+    fn spot_textures(&self) -> wgpu::BindGroup {
+        self.bind_three(&[
+            (&self.white, &self.wrap),
+            (&self.white, &self.wrap),
+            (&self.white, &self.wrap),
+        ])
+    }
+
     /// The group the shadow map `view` is read through.
     fn shadow_group(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1779,6 +1899,8 @@ impl Renderer {
             Some(view) => self.shadow_group(view),
             None => self.shadow_group(&self.white),
         };
+        let body_spots: std::cell::RefCell<HashMap<[u32; 3], usize>> =
+            std::cell::RefCell::new(HashMap::new());
         let cloud_view = frame.clouds.map(|c| self.texture(c.picture, load));
 
         // The frame is drawn multisampled and resolved into the picture read back.
@@ -1967,8 +2089,16 @@ impl Renderer {
                 let mut uniforms =
                     Self::draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 uniforms.params[1] = faded.alpha_ref.unwrap_or(-1.0);
-                if let Some(at) = b.ground {
-                    uniforms.shade = [at.x, at.y, at.z, 2.0];
+                if let (Some(at), Some(_)) = (b.ground, &shadow_view) {
+                    let mut spots = body_spots.borrow_mut();
+                    let next = spots.len();
+                    let k = *spots
+                        .entry([at.x.to_bits(), at.y.to_bits(), at.z.to_bits()])
+                        .or_insert(next);
+                    #[allow(clippy::cast_precision_loss)]
+                    if k < BODY_SPOTS.0 * BODY_SPOTS.1 {
+                        uniforms.shade = [k as f32, 0.0, 0.0, 2.0];
+                    }
                 }
                 // Only a layer that reads its vertices' color shows it (none of the frills'
                 // materials in the data does). The shadow map's texels are read where they lie
@@ -2424,6 +2554,20 @@ impl Renderer {
                 }
             }
         };
+        // Each body reads the sun's share at its spot from one texel: the 25 of the shadow map
+        // about it are read once a frame, where each of its vertices would read them.
+        // D2-10925
+        let shadow_group = if body_spots.borrow().is_empty() {
+            shadow_group
+        } else {
+            self.draw_body_spots(
+                &body_spots.borrow(),
+                &shadow_group,
+                &identity,
+                &out_u,
+                &mut encoder,
+            )
+        };
         // The reflection: the same scene from the camera mirrored about the water plane (its
         // height mirrored, its pitch turned over): all the land it can see, what lies under the
         // water too, the objects standing above the plane, the sky round the mirrored camera.
@@ -2860,6 +3004,10 @@ const REFLECTION_SIZE: u32 = 512;
 /// How far the ripples push the reflection's coordinates: the bump stage's matrix, this much times
 /// the identity.
 const RIPPLE_PUSH: f32 = 0.04;
+
+/// The picture of the frame's bodies' spots, in texels: as many as a frame can hold, and more bodies
+/// than that are drawn in the full sun.
+const BODY_SPOTS: (usize, usize) = (256, 16);
 
 /// How deep the marker looking for a flare's object stands: just short of the farthest, so
 /// anything drawn over the object hides it.
