@@ -4901,6 +4901,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.start-reads-the-saved-states-once",
+        says: "The tables a start reads from every saved state read them from the file once between \
+               them; the second table to ask reads almost nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-START-STATES-ONCE"),
+        station: "yalain::bin.yalain::data::tests::the_mounts_and_the_item_uses_read_the_saved_states_once_between_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.status-endpoint",
         says: "With a status address, the server answers GET /health with ok and GET /status with \
                the world's state as JSON (its name, the server's version and game, uptime, open \

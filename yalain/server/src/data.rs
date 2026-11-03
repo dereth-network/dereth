@@ -47,6 +47,18 @@ pub struct Portal {
     /// Read at its first use and shared by everything the start reads with it after that: it is a
     /// large record, and every table of the start needs its field names.
     library: OnceCell<Library>,
+    /// Read at its first use and shared likewise: reading them all takes most of what a start reads
+    /// after the library.
+    saved_states: OnceCell<Vec<SavedState>>,
+}
+
+/// What the tables the start reads need of a saved state: its record, its package, and the value of
+/// the enumeration it fills, when it fills one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SavedState {
+    pub id: u32,
+    pub package: u32,
+    pub value: Option<u32>,
 }
 
 impl Portal {
@@ -66,6 +78,7 @@ impl Portal {
             dat,
             ctx,
             library: OnceCell::new(),
+            saved_states: OnceCell::new(),
         })
     }
 
@@ -360,6 +373,37 @@ pub fn library(p: &Portal) -> Result<&Library, String> {
     Ok(p.library.get_or_init(|| lib.value))
 }
 
+/// The install's saved states, read once.
+///
+/// # Errors
+/// The library does not read.
+pub fn saved_states(p: &Portal) -> Result<&[SavedState], String> {
+    if let Some(states) = p.saved_states.get() {
+        return Ok(states);
+    }
+    let lib = library(p)?;
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter_map(|id| {
+            let st: ScriptState =
+                auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()?;
+            let value = Graph::decode(&st.graph, lib)
+                .ok()
+                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(lib, &g));
+            Some(SavedState {
+                id,
+                package: st.package,
+                value,
+            })
+        })
+        .collect();
+    Ok(p.saved_states.get_or_init(|| states))
+}
+
 /// A saved state's object graph.
 fn state_graph(p: &Portal, lib: &Library, id: u32) -> Option<Graph> {
     let bytes = p.dat.read(id).ok()?;
@@ -421,18 +465,7 @@ pub fn item_effects(
 /// The library does not read.
 pub fn mounts(p: &Portal, bodies: &[u32]) -> Result<yalain_world::mounts::Mounts, String> {
     let lib = library(p)?;
-    let states: Vec<(u32, u32)> = p
-        .dat
-        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
-        .map(|e| e.id)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .filter_map(|id| {
-            let st: ScriptState =
-                auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()?;
-            Some((id, st.package))
-        })
-        .collect();
+    let states: Vec<(u32, u32)> = saved_states(p)?.iter().map(|s| (s.id, s.package)).collect();
     Ok(yalain_world::mounts::Mounts::read(
         lib,
         &states,
@@ -490,21 +523,9 @@ pub fn item_uses(
 > {
     use yalain_world::item_use::{read_named, USED, WORN};
     let lib = library(p)?;
-    let ids: Vec<u32> = p
-        .dat
-        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
-        .map(|e| e.id)
-        .collect();
-    let states: Vec<(u32, u32, Option<u32>)> = ids
-        .into_iter()
-        .filter_map(|id| {
-            let st: ScriptState =
-                auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()?;
-            let value = Graph::decode(&st.graph, lib)
-                .ok()
-                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(lib, &g));
-            Some((id, st.package, value))
-        })
+    let states: Vec<(u32, u32, Option<u32>)> = saved_states(p)?
+        .iter()
+        .map(|s| (s.id, s.package, s.value))
         .collect();
     let templates = || catalog.templates.iter().map(|(id, t)| (*id, &t.props));
     Ok((
@@ -956,5 +977,60 @@ impl yalain_world::walls::Blocks for TimedBlocks {
             );
         }
         had
+    }
+}
+
+#[cfg(all(test, feature = "live"))]
+mod tests {
+    use super::*;
+    use auberean_dat::checked::{Exact, ReadAt};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    /// A data file that counts its reads.
+    #[derive(Debug)]
+    struct Counted(std::fs::File, Arc<AtomicU64>);
+
+    impl ReadAt for Counted {
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.1.fetch_add(1, Ordering::Relaxed);
+            self.0.read_at(offset, buf)
+        }
+    }
+
+    /// The tables that need every saved state read them from the file once between them: the second
+    /// to ask reads almost nothing.
+    /// Behaviour: server.operator.start-reads-the-saved-states-once
+    #[test]
+    fn the_mounts_and_the_item_uses_read_the_saved_states_once_between_them() {
+        let found = install_dats(&auberean_dat::testing::require_target_install()).expect("files");
+        let (_, path) = found
+            .into_iter()
+            .find(|(n, _)| *n == DatName::Portal)
+            .expect("a portal");
+        let reads = Arc::new(AtomicU64::new(0));
+        let file = std::fs::File::open(&path).expect("the file");
+        let dat = DatFile::from_storage(
+            path.clone(),
+            Box::new(Exact(Counted(file, Arc::clone(&reads)))),
+        )
+        .expect("opens");
+        let ctx = Context::from_portal(&dat).expect("a context");
+        let p = Portal {
+            dat,
+            ctx,
+            library: OnceCell::new(),
+            saved_states: OnceCell::new(),
+        };
+        library(&p).expect("the library");
+        let at = |n: &Arc<AtomicU64>| n.load(Ordering::Relaxed);
+        let before = at(&reads);
+        mounts(&p, &[]).expect("mounts");
+        let first = at(&reads) - before;
+        let before = at(&reads);
+        item_uses(&p, &Catalog::default()).expect("item uses");
+        let second = at(&reads) - before;
+        assert!(first > 10_000, "the first reads them all: {first}");
+        assert!(second < first / 10, "{second} after {first}");
     }
 }
