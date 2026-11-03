@@ -505,7 +505,16 @@ fn a_body_falls_by_the_gravity_where_it_is() {
         b.contact = false;
         b.on_walkable = false;
         let before = b.velocity.z;
+        assert!(
+            b.current_properties().is_none(),
+            "nothing before the first cell"
+        );
         b.tick_in(&land, &mut world, dt);
+        let named = b
+            .current_property(&list, auberean_physics::material::GRAVITY)
+            .and_then(|p| p.value.inq_vector())
+            .expect("the gravity is among what the cell made of it");
+        assert_eq!(named.z, b.current_gravity().z);
         (b.current_gravity(), b.velocity.z - before)
     };
     let room = |cell: u32| {

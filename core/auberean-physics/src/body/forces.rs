@@ -18,6 +18,7 @@ use dereth_physics::V3;
 use dereth_primitives::{Position, Vec3};
 
 use auberean_assets::animation::{ModeKey, MotionParams};
+use auberean_assets::property::{Property, PropertyCollection, PropertyList};
 
 use super::{Animate, Body, Notice};
 use crate::collision::manager::BodyKey;
@@ -212,7 +213,7 @@ impl Body {
 
     /// The cell `at` is in updates the body's material with what holds there: its gravity is the
     /// body's, its properties are the surroundings' to the body's collisions.
-    // D2-06156, D2-06044, D2-06045
+    // D2-06156, D2-13693
     pub(crate) fn update_cell_material(
         &mut self,
         land: &Land,
@@ -230,6 +231,20 @@ impl Body {
             .map(|v| Vec3::new(v.x, v.y, v.z));
         world.add_environmental_properties(key, material);
         self.update_gravity(gravity);
+    }
+
+    /// What the cells the body has been in made of it; none before the first.
+    // D2-06044
+    #[must_use]
+    pub fn current_properties(&self) -> Option<&PropertyCollection> {
+        self.material.as_ref().map(|m| &m.properties)
+    }
+
+    /// One property of what the cells the body has been in made of it.
+    // D2-06045
+    #[must_use]
+    pub fn current_property(&self, list: &PropertyList, id: u32) -> Option<&Property> {
+        self.current_properties()?.get(list, id)
     }
 
     /// The element from the water around the body (see the module's description).
