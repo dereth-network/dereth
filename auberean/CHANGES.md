@@ -15,6 +15,8 @@ not how it was done.
 - Fixed falling through the floor in the training ground's second area.
 - The world's closed-off regions now stop you at their edge.
 - Some dungeon rooms now have their own gravity, as in retail.
+- Far objects and new landblocks fade in instead of popping.
+- Far-off characters draw at lower detail.
 
 ## 0.1.2 (2026-11-02)
 

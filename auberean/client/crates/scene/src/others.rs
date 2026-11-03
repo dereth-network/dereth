@@ -1067,6 +1067,7 @@ impl Others {
             );
             let poses = f.pose(anims);
             let start = out.len();
+            drawer.next_body(ob.body.is_mobile());
             out.extend(drawer.batches(records, f, &poses, &place));
             noted.push((*id, start..out.len(), rel, heading));
         }

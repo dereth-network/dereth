@@ -607,6 +607,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.a-body-degrades-with-its-distance-from-the-camera",
+        says: "A body's detail, materials and opacity fall with its distance from the camera \n               as a placed object's do, its setup's distances scaled; in a scene of the \n               interface it never degrades.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-BODY-DEGRADE"),
+        station: "auberean-draw::dat::volumes::a_body_degrades_with_its_distance_from_the_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.mesh.a-faded-draw-stops-marking-depth-and-testing-its-alpha",
+        says: "A draw not wholly opaque of a layer that tests or blends by alpha marks no \n               depth and passes every texel with some alpha: a blending layer under 0.8, any \n               such layer past 40 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FADED-STATE"),
+        station: "auberean-draw::cpu::objects::degrade::a_faded_draw_stops_marking_depth_and_testing_its_alpha",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.a-far-object-draws-its-materials-at-a-lower-detail",
         says: "A placed object draws its materials a step lower than the material detail asks \
                past three times its high-detail distance, and at the lowest past three times its \
@@ -636,6 +652,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.an-objects-opacity-follows-the-camera-and-its-landblock",
+        says: "An object's opacity is worked out each frame from the camera, times the \n               opacity of the landblock it stands on while that fades in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FADE-EACH-FRAME"),
+        station: "auberean-draw::cpu::objects::degrade::an_objects_opacity_follows_the_camera_and_its_landblock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.detail-falls-from-near-to-far",
         says: "An object is drawn at full detail inside its near distance, at half at its ideal \
                distance, at the least past its far distance, and not at all beyond its visible \
@@ -646,6 +670,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.the-adaptive-degrade-draws-moving-bodies-in-as-frames-slow",
+        says: "With the adaptive degrade on, a body both mobile and dynamic has its distances \n               scaled by the frame rate, whole at 41 frames a second (bias 0), a tenth at \n               none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-ADAPTIVE-DEGRADE"),
+        station: "auberean-draw::cpu::objects::degrade::the_adaptive_degrade_draws_moving_bodies_in_as_frames_slow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.the-device-draws-a-faded-object-through",
+        says: "The device blends a faded object over what is behind it, marks no depth once \n               faded enough, draws an opaque layer whole, and draws nothing of an object \n               faded out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FADED-DEVICE"),
+        station: "auberean-gpu::gpu::fade::the_device_draws_a_faded_object_through",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.mesh.the-frame-rate-is-the-mean-of-the-last-forty-frames",
+        says: "The frame rate the degrade reads is the mean of the last forty frames' times.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FRAME-RATE"),
+        station: "auberean-draw::cpu::objects::degrade::the_frame_rate_is_the_mean_of_the_last_forty_frames",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.the-scenery-draw-distance-draws-placed-objects-in",
         says: "At the scenery draw distance's low and medium settings a placed object's distances \
                are drawn in to 0.4 and 0.7 of themselves (its visible distance never under 20 m); \
@@ -653,6 +701,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-SCENERY-DISTANCE"),
         station: "auberean-draw::cpu::objects::degrade::the_scenery_draw_distance_draws_placed_objects_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.the-waters-reflection-reaches-40-percent-of-an-objects-distance",
+        says: "The water's reflection shows an object out to 40% of its visible distance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-REFLECTION-REACH"),
+        station: "auberean-draw::cpu::objects::degrade::the_waters_reflection_reaches_40_percent_of_an_objects_distance",
         tier: Tier::Cpu,
     },
     behaviour! {

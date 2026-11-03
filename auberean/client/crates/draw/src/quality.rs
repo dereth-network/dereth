@@ -37,6 +37,44 @@ pub mod key {
     pub const SCREEN_BRIGHTNESS: u32 = 0x4000_004B;
 }
 
+/// How fast frames are being drawn: the mean of the last forty frames' times.
+#[derive(Clone, Debug)]
+pub struct FrameRate {
+    times: [f32; 40],
+    last: f64,
+    per_second: f32,
+}
+
+impl Default for FrameRate {
+    fn default() -> Self {
+        Self {
+            times: [0.0; 40],
+            last: 0.0,
+            per_second: 0.0,
+        }
+    }
+}
+
+impl FrameRate {
+    /// A frame ended at `now`, seconds.
+    // D2-10624
+    pub fn end_frame(&mut self, now: f64) {
+        #[allow(clippy::cast_possible_truncation)]
+        let spent = (now - self.last) as f32;
+        self.times[0] = spent;
+        let total: f32 = self.times.iter().sum();
+        self.per_second = if total > 0.0002 { 40.0 / total } else { 0.0 };
+        self.times.copy_within(0..39, 1);
+        self.last = now;
+    }
+
+    /// The frames a second, 0 before any frame has taken any time.
+    #[must_use]
+    pub fn frames_per_second(&self) -> f32 {
+        self.per_second
+    }
+}
+
 /// What a preference holds, and its default.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
@@ -404,6 +442,14 @@ impl Graphics {
     /// Whether a yes-or-no preference is on.
     fn on(&self, key: u32) -> bool {
         self.get(key).is_some_and(|v| v != 0.0)
+    }
+
+    /// The adaptive degrade's bias, with the adaptive degrade on.
+    #[must_use]
+    pub fn adaptive_degrade(&self) -> Option<f32> {
+        self.get(key::ADAPTIVE_DEGRADE)
+            .is_some_and(|v| v != 0.0)
+            .then(|| self.get(key::ADAPTIVE_DEGRADE_BIAS).unwrap_or(0.0))
     }
 
     /// The material detail: 0 (low), 1 (medium) or 2 (high), which of each material's layers are

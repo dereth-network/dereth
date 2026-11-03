@@ -42,6 +42,26 @@ pub struct BodyDrawer {
     /// The material detail preference, 0 (low) to 2 (high): which of each material's layers are
     /// drawn.
     pub material_detail: u32,
+    /// Where the camera stands in the frame bodies are placed in, when they degrade with distance
+    /// (not in a viewport of the interface).
+    pub eye: Option<Vec3>,
+    /// What the distances of a body both mobile and dynamic are scaled by: 1, or
+    /// [`adaptive_scale`] with the adaptive degrade on.
+    pub moving_scale: f32,
+    /// What the distances of any other body are scaled by: the scenery draw distance's
+    /// ([`crate::mesh::scenery_scale`]).
+    pub still_scale: f32,
+    scale: f32,
+}
+
+/// What the distances of a body both mobile and dynamic are scaled by, with the adaptive degrade
+/// on, at `fps` frames a second: 1 at 41 frames a second and up (at a `bias` of 0), falling to
+/// 0.1 at none.
+// D2-06658
+#[must_use]
+pub fn adaptive_scale(fps: f32, bias: f32) -> f32 {
+    let f = (fps / (bias.clamp(-1.0, 1.0) * 40.0 + 41.0)) * 1.05;
+    f.min(1.0) * 0.9 + 0.100_000_024
 }
 
 impl Default for BodyDrawer {
@@ -54,6 +74,10 @@ impl Default for BodyDrawer {
             present: HashMap::new(),
             model_detail: 2,
             material_detail: 2,
+            eye: None,
+            moving_scale: 1.0,
+            still_scale: 1.0,
+            scale: 1.0,
         }
     }
 }
@@ -71,6 +95,15 @@ fn v3(p: [f32; 3]) -> Vec3 {
 }
 
 impl BodyDrawer {
+    /// The next body drawn is (or is not) both mobile and dynamic.
+    pub fn next_body(&mut self, moving: bool) {
+        self.scale = if moving {
+            self.moving_scale
+        } else {
+            self.still_scale
+        };
+    }
+
     fn mesh(&mut self, records: &WorldRecords, id: u32) -> Option<Arc<Loaded>> {
         self.meshes
             .entry(id)
@@ -120,8 +153,8 @@ impl BodyDrawer {
         look: &PartLook,
         mesh_kind: u32,
         id: u32,
+        detail: u32,
     ) -> Vec<DrawLayer> {
-        let detail = self.material_detail;
         if look.materials.is_empty() {
             return self.material(records, (id, None, Vec::new(), detail));
         }
@@ -147,7 +180,8 @@ impl BodyDrawer {
 
     /// The batches of `body` in `poses`, placed by `place`, leaving out every mesh whose kind is
     /// in `hidden` (as the player's own head is left out with the camera at its eyes); each mesh
-    /// at its nearest level for the model detail set, each material at the material detail set.
+    /// at the level its distance gives for the model detail set, each material at the material
+    /// detail set, lowered far off; the body fades out at the edge of its setup's visible distance.
     // D2-09879, D2-06604, D2-06577, D2-06589, D2-06658
     pub fn batches_without(
         &mut self,
@@ -158,14 +192,36 @@ impl BodyDrawer {
         hidden: &[u32],
     ) -> Vec<ObjectBatch> {
         let mut out = Vec::new();
+        let model = usize::try_from(self.model_detail).unwrap_or(2).min(2);
+        let distance = self.eye.map(|eye| {
+            auberean_world::math::length(auberean_world::math::sub(place.point(Vec3::ZERO), eye))
+        });
         for (part, pose) in body.parts.iter().zip(poses) {
-            let tint = match part.look.opacity {
+            let mut tint = match part.look.opacity {
                 Some(o) => Color {
                     a: o,
                     ..Color::WHITE
                 },
                 None => Color::WHITE,
             };
+            let degrade = match distance {
+                Some(d) => {
+                    let Some(g) = crate::mesh::degrade(
+                        &part.setup.detail[model],
+                        d,
+                        self.scale,
+                        self.material_detail,
+                    ) else {
+                        continue;
+                    };
+                    tint.a *= g.opacity;
+                    Some(g)
+                }
+                None => None,
+            };
+            let (t, material_detail) = degrade.map_or((1.0, self.material_detail), |g| {
+                (g.detail, g.material_detail)
+            });
             for (i, setup_mesh) in part.setup.meshes.iter().enumerate() {
                 let mesh_id = part.look.mesh(*setup_mesh, &mut |id| {
                     self.mesh(records, id.0).map(|m| m.mesh.kind)
@@ -176,7 +232,7 @@ impl BodyDrawer {
                 if hidden.contains(&m.mesh.kind) {
                     continue;
                 }
-                let Some(level) = level_at(&m.mesh, 1.0, self.model_detail) else {
+                let Some(level) = level_at(&m.mesh, t, self.model_detail) else {
                     continue;
                 };
                 let verts: Vec<MeshVertex> = match &m.influences {
@@ -228,7 +284,9 @@ impl BodyDrawer {
                         continue;
                     };
                     let indices = Arc::new(frag.indices.clone());
-                    for layer in self.part_material(records, &part.look, m.mesh.kind, mat.0) {
+                    for layer in
+                        self.part_material(records, &part.look, m.mesh.kind, mat.0, material_detail)
+                    {
                         out.push(ObjectBatch {
                             vertices: verts.clone(),
                             indices: indices.clone(),
@@ -247,6 +305,9 @@ impl BodyDrawer {
                             kept_by: None,
                             anchor: None,
                             step: None,
+                            visible: degrade.map(|g| g.visible),
+                            block: None,
+                            far: distance.is_some_and(|d| d > 40.0),
                         });
                     }
                 }

@@ -282,6 +282,10 @@ pub struct Scene<'w> {
     anims: CachedRecords<'w>,
     builder: SceneBuilder<'w>,
     drawer: BodyDrawer,
+    /// The adaptive degrade's bias, with it on.
+    adaptive_degrade: Option<f32>,
+    /// How fast frames are being drawn.
+    frame_rate: auberean_draw::quality::FrameRate,
     /// The meshes' connectivity the dynamic objects' volumes of shadow are made from.
     volumes: auberean_draw::volume::VolumeMaker,
     /// The dynamic object shadows preference (`auberean_draw::volume::setting`).
@@ -1103,6 +1107,8 @@ impl<'w> Scene<'w> {
             anims: CachedRecords::new(&world.records),
             builder: SceneBuilder::new(&world.records, &world.region),
             drawer: BodyDrawer::default(),
+            adaptive_degrade: None,
+            frame_rate: auberean_draw::quality::FrameRate::default(),
             volumes: auberean_draw::volume::VolumeMaker::default(),
             object_shadows: auberean_draw::volume::setting::VOLUMETRIC,
             decals: auberean_draw::decal::DecalManager::default(),
@@ -1217,6 +1223,7 @@ impl<'w> Scene<'w> {
     /// portal space leaves it in sight) and portal space's. The world's camera and the bodies
     /// drawn are then in [`Scene::seen`].
     pub fn build_frames(&mut self, now: f64, world: bool) {
+        self.frame_rate.end_frame(now);
         let look = self.portal_look.clone();
         let world_drawn = world && look.draw_world && self.build_world(now, look.world_fov);
         self.portal_frame = self
@@ -1295,6 +1302,9 @@ impl<'w> Scene<'w> {
         self.builder.textures = graphics.textures();
         self.drawer.model_detail = self.builder.model_detail;
         self.drawer.material_detail = self.builder.material_detail;
+        self.drawer.still_scale =
+            auberean_draw::mesh::scenery_scale(self.builder.scenery_draw_distance);
+        self.adaptive_degrade = graphics.adaptive_degrade();
         self.systems.set_volumetric_fog(graphics.volumetric_fog());
         let on = |k: u32| graphics.get(k).is_some_and(|v| v != 0.0);
         self.builder.water_reflections = on(key::WATER_REFLECTIONS);
@@ -3176,6 +3186,8 @@ impl<'w> Scene<'w> {
     /// The frames of the interface's viewport scenes, their figures animated over `dt` seconds;
     /// the picks asked are answered in `views.picked`.
     pub fn view_frames(&mut self, scenes: &[view::ViewScene], dt: f32) -> Vec<view::ViewFrame> {
+        // Nothing degrades with distance in the interface's scenes.
+        self.drawer.eye = None;
         self.views.frames(
             &self.world.records,
             &self.anims,
@@ -3344,6 +3356,13 @@ impl<'w> Scene<'w> {
             return false;
         };
         built.frame.objects.truncate(built.world_objects);
+        // How opaque the world's objects are from here, as their blocks fade in.
+        // D2-03691
+        auberean_draw::scene::fade_objects(&mut built.frame.objects, dv(eye), &self.near.fade(now));
+        self.drawer.eye = Some(dv(eye));
+        self.drawer.moving_scale = self.adaptive_degrade.map_or(1.0, |bias| {
+            auberean_draw::body::adaptive_scale(self.frame_rate.frames_per_second(), bias)
+        });
         built.frame.camera.position = dv(eye);
         built.frame.camera.heading = heading;
         built.frame.camera.pitch = pitch;
@@ -3386,6 +3405,7 @@ impl<'w> Scene<'w> {
                 dv(p.body.total_scale(None)),
             );
             let start = built.frame.objects.len();
+            self.drawer.next_body(p.body.is_mobile());
             let hidden: &[u32] = if at_the_eyes {
                 &self.first_person_hidden
             } else {

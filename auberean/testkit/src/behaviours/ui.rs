@@ -1378,6 +1378,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.pointer.a-turned-element-is-found-by-its-unturned-rectangle",
+        says: "A turned top-level element is drawn turned but found by the pointer in its \n               unturned rectangle.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TURNED-POINTER"),
+        station: "auberean-ui::cpu::pointer::a_turned_element_is_found_by_its_unturned_rectangle",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.pointer.mouse-invisible-elements-let-the-pointer-through",
         says: "An element marked invisible to the mouse lets the pointer through to what is beneath \
                it.",

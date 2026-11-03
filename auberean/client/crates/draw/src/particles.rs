@@ -1728,6 +1728,9 @@ impl ParticleSet {
                     kept_by: None,
                     anchor: None,
                     step: Some(crate::scene::Pass::Particles),
+                    visible: None,
+                    block: None,
+                    far: false,
                 });
             }
         };

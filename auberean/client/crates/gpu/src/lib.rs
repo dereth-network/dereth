@@ -1366,6 +1366,12 @@ impl Renderer {
             for target in [Target::FrameAlpha, Target::Coverage] {
                 self.mesh_pipeline(Self::object_key(layer, false, target));
             }
+            // Faded, a layer that tests or blends by alpha marks no depth.
+            if layer.alpha_test && layer.depth_write {
+                let mut faded = Self::object_key(layer, false, Target::Frame);
+                faded.depth_write = false;
+                self.mesh_pipeline(faded);
+            }
         }
         self.pipeline_count()
     }
@@ -1802,6 +1808,8 @@ impl Renderer {
             draw_group: wgpu::BindGroup,
             texture_group: wgpu::BindGroup,
             env: Env,
+            /// Its object is seen in the water's reflection.
+            reflected: bool,
         }
         enum Pipe {
             Terrain(&'static str),
@@ -1905,7 +1913,12 @@ impl Renderer {
                 };
                 let sky = env == Env::Sky;
                 let sun = if env == Env::Own { sun } else { out_sun };
-                let key = Self::object_key(&b.layer, sky, writes);
+                if !b.drawn() {
+                    continue;
+                }
+                let faded = b.layer.faded(b.tint.a, b.far);
+                let mut key = Self::object_key(&b.layer, sky, writes);
+                key.depth_write = key.depth_write && faded.depth_write;
                 this.mesh_pipeline(key);
                 let bound = Self::bound_stages(&b.layer);
                 let textures = bound.map(|s| {
@@ -1916,6 +1929,7 @@ impl Renderer {
                 });
                 let mut uniforms =
                     Self::draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
+                uniforms.params[1] = faded.alpha_ref.unwrap_or(-1.0);
                 // Only a layer that reads its vertices' color shows it (none of the frills'
                 // materials in the data does). The shadow map's texels are read where they lie
                 // on it, a texel off the map read as none.
@@ -1963,6 +1977,7 @@ impl Renderer {
                     draw_group,
                     texture_group,
                     env,
+                    reflected: b.reflected(frame.camera.position),
                 });
             }
         };
@@ -2031,6 +2046,7 @@ impl Renderer {
                 draw_group,
                 texture_group,
                 env: Env::Outside,
+                reflected: true,
             });
         };
         let (near, far): (Vec<&TerrainBatch>, Vec<&TerrainBatch>) =
@@ -2277,7 +2293,8 @@ impl Renderer {
                       this: &Self,
                       groups: [&wgpu::BindGroup; 3],
                       water: &[Draw],
-                      shadows: bool| {
+                      shadows: bool,
+                      reflecting: bool| {
             let run = |pass: &mut wgpu::RenderPass<'_>, d: &Draw| {
                 let pipeline = match &d.pipeline {
                     Pipe::Terrain(n) => &this.terrain_pipelines[n],
@@ -2345,7 +2362,9 @@ impl Renderer {
                     Pass::LateSky => &late,
                 };
                 for d in draws {
-                    run(pass, d);
+                    if d.reflected || !reflecting {
+                        run(pass, d);
+                    }
                 }
             }
         };
@@ -2451,6 +2470,7 @@ impl Renderer {
                     [&m_frame_group, &m_out_group, &m_sky_group],
                     &[],
                     false,
+                    true,
                 );
             }
             // Over each water surface (its own material already drawn), the reflection where it
@@ -2498,6 +2518,7 @@ impl Renderer {
                     draw_group,
                     texture_group,
                     env: Env::Outside,
+                    reflected: true,
                 });
             }
         }
@@ -2539,6 +2560,7 @@ impl Renderer {
                 [&frame_group, &out_group, &sky_group],
                 &water_draws,
                 true,
+                false,
             );
             // The sky objects' lens flares over everything, then the markers that look for the
             // objects (nothing drawn, only counted where they pass the depth test).
@@ -2855,6 +2877,7 @@ fn dummy_layer() -> DrawLayer {
         cull: d3d::CULL_NONE,
         alpha_test: false,
         alpha_ref: 0.0,
+        tests_alpha: false,
         switches: 0,
         ambient: auberean_world::color::Color::WHITE,
         diffuse: auberean_world::color::Color::WHITE,

@@ -298,6 +298,9 @@ impl Trail {
                 kept_by: None,
                 anchor: None,
                 step: Some(Pass::Streaks),
+                visible: None,
+                block: None,
+                far: false,
             })
             .collect()
     }

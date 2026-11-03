@@ -165,6 +165,8 @@ pub struct Degrade {
     pub material_detail: u32,
     /// How opaque it is: it fades out over the last 7.5% of its visible distance.
     pub opacity: f32,
+    /// Its visible distance, with its scale.
+    pub visible: f32,
 }
 
 /// How an object at `distance` is drawn, from its setup's distances each scaled by `scale` (a
@@ -205,17 +207,26 @@ pub fn degrade(
             materials = 1;
         }
     }
-    let edge = visible - visible * 0.075;
-    let opacity = if distance >= edge {
-        1.0 - (distance - edge) / (visible * 0.075)
-    } else {
-        1.0
-    };
+    let opacity = edge_opacity(visible, distance);
     (opacity > 0.0).then_some(Degrade {
         detail: t.clamp(0.0, 1.0),
         material_detail: materials,
         opacity,
+        visible,
     })
+}
+
+/// How opaque an object seen to `visible` is at `distance`: fading from 1 to 0 over the last 7.5%
+/// of it.
+// D2-06658
+#[must_use]
+pub fn edge_opacity(visible: f32, distance: f32) -> f32 {
+    let edge = visible - visible * 0.075;
+    if distance >= edge {
+        1.0 - (distance - edge) / (visible * 0.075)
+    } else {
+        1.0
+    }
 }
 
 /// How far a placed object's distances reach at the scenery draw distance preference (low,

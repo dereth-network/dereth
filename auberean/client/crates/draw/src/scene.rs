@@ -137,6 +137,15 @@ pub struct ObjectBatch {
     /// The step it is drawn in whatever its object: a frill's, a particle's, or one of the
     /// draws that are not the world's objects (portal space's).
     pub step: Option<Pass>,
+    /// How far off its object is seen, when it degrades with distance: past this it is gone, and
+    /// it fades over the last 7.5% of it ([`fade_objects`]).
+    pub visible: Option<f32>,
+    /// The landblock its object stands on, for an object standing on the land: it fades in with
+    /// the block ([`fade_objects`]).
+    pub block: Option<(i32, i32)>,
+    /// Its object stands more than 40 m from the camera: a draw of it not wholly opaque is not
+    /// tested against its alpha reference ([`crate::material::DrawLayer::faded`]).
+    pub far: bool,
 }
 
 /// A placed object that casts a volume of shadow, as each of its draws carries it.
@@ -314,7 +323,47 @@ impl Pass {
     }
 }
 
+/// How far past which a faded draw is no longer tested against its layer's alpha reference.
+const FAR_FADE: f32 = 40.0;
+
+/// How opaque each object of the world is drawn from `eye` this frame: at the edge of its visible
+/// distance it fades out, and on a landblock of `blocks` (each with its opacity) it fades in with
+/// the block. Its visible distance past, it is wholly transparent, and not drawn.
+// D2-03680, D2-03691, D2-03784, D2-03789, D2-06658
+pub fn fade_objects(objects: &mut [ObjectBatch], eye: Vec3, blocks: &[((u8, u8), f32)]) {
+    for b in objects {
+        let d = b.distance_from(eye);
+        let mut opacity = b.visible.map_or(1.0, |v| crate::mesh::edge_opacity(v, d));
+        if let Some((x, y)) = b.block {
+            if let Some((_, o)) = blocks
+                .iter()
+                .find(|((bx, by), _)| i32::from(*bx) == x && i32::from(*by) == y)
+            {
+                opacity *= o;
+            }
+        }
+        b.tint.a = opacity.clamp(0.0, 1.0);
+        b.far = d > FAR_FADE;
+    }
+}
+
 impl ObjectBatch {
+    /// Whether the draw shows at all: an object fades out to nothing, an opaque layer included.
+    // D2-06658
+    #[must_use]
+    pub fn drawn(&self) -> bool {
+        (self.visible.is_none() && self.block.is_none()) || self.tint.a > 0.0
+    }
+
+    /// Whether the object is seen in the water's reflection, which reaches 40% of its visible
+    /// distance.
+    // D2-06658
+    #[must_use]
+    pub fn reflected(&self, eye: Vec3) -> bool {
+        self.visible
+            .is_none_or(|v| self.distance_from(eye) <= v * 0.4)
+    }
+
     /// The step an object's draw belongs to, by its object, never its layer: the step it is
     /// given ([`Self::step`]); an interior cell's own mesh, every layer of it in turn, before the
     /// decals; an object seen through, every layer of it with those seen through; another, every
@@ -1005,6 +1054,9 @@ impl<'a> SceneBuilder<'a> {
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
             });
         }
     }
@@ -1068,7 +1120,7 @@ impl<'a> SceneBuilder<'a> {
         // A placed object degrades with distance (its distances drawn in by the scenery draw
         // distance, its materials lowered); a frill keeps the material detail as set.
         let model_detail = usize::try_from(self.model_detail).unwrap_or(2).min(2);
-        let (t, material_detail) = match &part.detail {
+        let (t, material_detail, visible) = match &part.detail {
             Some(d) => {
                 let scale = if frill {
                     1.0
@@ -1077,12 +1129,12 @@ impl<'a> SceneBuilder<'a> {
                 };
                 match crate::mesh::degrade(&d[model_detail], distance, scale, self.material_detail)
                 {
-                    Some(g) if frill => (g.detail, self.material_detail),
-                    Some(g) => (g.detail, g.material_detail),
+                    Some(g) if frill => (g.detail, self.material_detail, None),
+                    Some(g) => (g.detail, g.material_detail, Some(g.visible)),
                     None => return Vec::new(),
                 }
             }
-            None => (1.0, self.material_detail),
+            None => (1.0, self.material_detail, None),
         };
         let Some(level) = level_at(&mesh, t, self.model_detail) else {
             return Vec::new();
@@ -1135,6 +1187,9 @@ impl<'a> SceneBuilder<'a> {
                     kept_by: None,
                     anchor: None,
                     step: None,
+                    visible,
+                    block: None,
+                    far: distance > FAR_FADE,
                 });
             }
         }
@@ -1378,6 +1433,7 @@ impl<'a> SceneBuilder<'a> {
                     for b in &mut objects[first..] {
                         b.kept_by = Some(kept_by);
                         b.anchor = Some(place.point(*anchor));
+                        b.block = Some((bx, by));
                     }
                 }
                 continue;
@@ -1508,6 +1564,7 @@ impl<'a> SceneBuilder<'a> {
                     let kept_by = self.outdoor_kept_by((bx, by), part);
                     for b in &mut objects[first..] {
                         b.kept_by = Some(kept_by);
+                        b.block = Some((bx, by));
                     }
                 } else if let Some(&(id, reach)) = in_cells.get(k - outdoors) {
                     self.light_seen_from_outside(
@@ -1865,6 +1922,9 @@ impl<'a> SceneBuilder<'a> {
                     kept_by: None,
                     anchor: None,
                     step: None,
+                    visible: None,
+                    block: None,
+                    far: false,
                 })
                 .collect::<Vec<_>>()
         };
@@ -1974,6 +2034,9 @@ impl<'a> SceneBuilder<'a> {
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
             })
             .collect()
     }

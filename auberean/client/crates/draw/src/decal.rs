@@ -598,6 +598,9 @@ pub fn decal_batches(
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
             });
         }
     }

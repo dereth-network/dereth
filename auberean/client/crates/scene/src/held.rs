@@ -399,6 +399,7 @@ impl HeldObjects {
             let place = place_in_block(at, *scale, block);
             let poses = f.pose(anims);
             let start = out.len();
+            drawer.next_body(false);
             out.extend(drawer.batches(records, f, &poses, &place));
             let heading = auberean_physics::geom::frame_heading(&at.frame).degrees();
             noted.push((*id, start..out.len(), rel, heading));
