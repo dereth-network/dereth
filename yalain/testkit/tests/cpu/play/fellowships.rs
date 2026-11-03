@@ -704,6 +704,8 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         });
         h.server.quests.steps.push(Step {
             quest: QUEST,

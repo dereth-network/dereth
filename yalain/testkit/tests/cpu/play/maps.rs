@@ -346,6 +346,8 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     });
     h.server.quests.steps.push(Step {
         quest,

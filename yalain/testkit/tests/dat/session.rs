@@ -291,6 +291,8 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: Vec::new(),
     };

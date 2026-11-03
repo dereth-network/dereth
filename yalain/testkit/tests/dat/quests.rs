@@ -200,10 +200,11 @@ fn every_quest_effect_a_creature_names_names_a_quest_of_the_install() {
     assert_eq!(resolved, named, "not resolved: {lost:?}");
 }
 
-/// A quest's least level is its setup's.
+/// Who a quest is for is its setup's: its least level, heroes alone, the quest it requires and the
+/// status that quest is to be in. A setup with none of these says nothing.
 /// Behaviour: server.quests.least-level-from-the-setup
 #[test]
-fn a_quests_setup_says_its_least_level() {
+fn a_quests_setup_says_who_it_is_for() {
     let p = Portal::open();
     let states = p
         .dat
@@ -218,8 +219,31 @@ fn a_quests_setup_says_its_least_level() {
         states,
     )
     .expect("install");
-    let read = |q: u32| install.quest_definition(None, q).map(|d| d.min_level);
-    assert_eq!(read(0x4000_0028), Some(15), "Sanguine Fang");
-    assert_eq!(read(0x4000_006E), Some(30), "Dillo Rustlers");
-    assert_eq!(read(0x4000_02CC), Some(32), "the Brood Mother");
+    let read = |q: u32| {
+        install
+            .quest_definition(None, q)
+            .map(|d| (d.min_level, d.hero_only, d.required))
+    };
+    assert_eq!(read(0x4000_0028), Some((15, false, None)), "Sanguine Fang");
+    assert_eq!(read(0x4000_006E), Some((30, false, None)), "Dillo Rustlers");
+    assert_eq!(
+        read(0x4000_02CC),
+        Some((32, false, None)),
+        "the Brood Mother"
+    );
+    assert_eq!(
+        read(0x4000_0211),
+        Some((0, true, None)),
+        "a hero's kill quest"
+    );
+    assert_eq!(
+        read(0x4000_018A),
+        Some((1, false, Some((0x4000_0189, 0x1000_0000)))),
+        "a boss needing its portal's quest under way"
+    );
+    assert_eq!(
+        read(0x4000_026C),
+        Some((37, false, Some((0x4000_026B, 0x3000_0000)))),
+        "the second step of a chain needing the first done"
+    );
 }

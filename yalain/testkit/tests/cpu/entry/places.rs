@@ -681,6 +681,8 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     }
 }
 

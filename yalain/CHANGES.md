@@ -28,6 +28,7 @@ what they see, not how it was done.
 - Items named only in their qualities now show their name when examined.
 - Admins can now log in to a full world.
 - Quests now hold to the least levels the game sets for them.
+- Quests for heroes, or that need another quest first, are no longer given to anyone.
 
 ## 0.1.2 (2026-11-03)
 

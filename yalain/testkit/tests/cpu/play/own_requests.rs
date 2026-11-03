@@ -329,6 +329,8 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     });
     let (a, _, world) = player(&mut h, "one");
     h.server

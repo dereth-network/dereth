@@ -275,6 +275,8 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: vec![Step {
             quest: QUEST,

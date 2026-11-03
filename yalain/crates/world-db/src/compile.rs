@@ -66,6 +66,10 @@ pub struct QuestDefinition {
     pub last_waits: bool,
     /// The least level a player is given it at (0: any), as its package's setup says.
     pub min_level: i32,
+    /// Given only to heroes, as its package's setup says.
+    pub hero_only: bool,
+    /// A quest a player is to have at a status to be given it, as its package's setup says.
+    pub required: Option<(u32, u32)>,
 }
 
 /// What a compile reads from the user's install.
@@ -403,6 +407,8 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             once: def.once,
             fellows: def.fellows,
             last_waits: def.last_waits,
+            hero_only: def.hero_only,
+            required: def.required,
         });
     }
 }
@@ -782,6 +788,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         },
                     },
                     last_waits: def.last_waits,
+                    hero_only: def.hero_only,
+                    required: def.required,
                 });
             }
             Row::Step(s) => {

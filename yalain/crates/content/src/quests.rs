@@ -65,7 +65,15 @@ pub struct QuestDef {
     /// Its last phase waits for something other than a kill to end it (a phase that reads "return
     /// to" someone).
     pub last_waits: bool,
+    /// Given only to heroes.
+    pub hero_only: bool,
+    /// A quest a player is to have at a status to be given it: the status as its update names it (a
+    /// status, or under way at a phase).
+    pub required: Option<(u32, u32)>,
 }
+
+/// A status a required quest is to be in when its setup names none: completed.
+pub const COMPLETED: u32 = 0x3000_0000;
 
 /// How a kill's move on a quest reaches the killer's fellows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -282,7 +290,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -300,6 +308,9 @@ impl QuestTable {
                 u8::from(q.once),
                 q.fellows.word(),
                 u8::from(q.last_waits),
+                u8::from(q.hero_only),
+                q.required
+                    .map_or_else(String::new, |(q, st)| format!("{q:08X}:{st:08X}")),
             );
         }
         for s in &self.steps {
@@ -382,7 +393,7 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "quest" if (13..=21).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=23).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -430,6 +441,11 @@ impl QuestTable {
                         _ => Fellows::default(),
                     },
                     last_waits: c.get(20) == Some(&"1"),
+                    hero_only: c.get(21) == Some(&"1"),
+                    required: match c.get(22) {
+                        Some(v) if !v.is_empty() => Some(pair(v).map_err(at)?),
+                        _ => None,
+                    },
                 }),
                 "step" if (9..=15).contains(&c.len()) => {
                     let (kind, tpl) = c[3]

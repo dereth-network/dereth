@@ -6115,6 +6115,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-heros-quest-only-for-a-hero",
+        says: "A quest whose setup says heroes alone is given only to a hero, by a kill or a step, and \
+               to anyone else nothing is given or said. Heroes were given such quests in all 14 known \
+               cases in 2017; no one else's giving was recorded either way, so the rest follows the \
+               setup.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-HERO-ONLY"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_or_a_step_gives_a_heros_quest_only_to_a_hero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-kill-advances-from-the-phase-before",
         says: "An effect that advances a quest to a phase moves it there only from the phase \
                before, and one that completes it only from its last phase; from any other phase \
@@ -6232,6 +6243,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-GIVERS"),
         station: "yalain-testkit::corpus::world_db::a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.a-required-quest-holds-back-a-giving",
+        says: "A quest whose setup names a required quest and status is given, by a kill or a step, \
+               only to a player with that quest at that status; otherwise nothing is given or said. In \
+               January 2017 all 16 kills naming such a quest whose required quest was never had gave \
+               nothing and said nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-REQUIRED"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.quests.a-strangers-kill-moves-nothing",
@@ -6393,10 +6415,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.least-level-from-the-setup",
-        says: "A quest's least level is the one its setup names unless its row names another.",
+        says: "A quest's least level is the one its setup names unless its row names another, and its \
+               setup also says whether it is for heroes alone and which quest it requires at which \
+               status.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-SETUP-GATES"),
-        station: "yalain-testkit::dat::quests::a_quests_setup_says_its_least_level",
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_who_it_is_for",
         tier: Tier::Dat,
     },
     behaviour! {

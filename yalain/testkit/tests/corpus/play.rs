@@ -266,6 +266,8 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         });
     let step = Step {
         quest,
@@ -627,6 +629,8 @@ fn a_visit() -> Vec<ServerMessage> {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: vec![Step {
             quest: 0x4000_0088,

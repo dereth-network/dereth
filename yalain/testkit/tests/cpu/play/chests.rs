@@ -591,6 +591,8 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     };
     h.server.quests = QuestTable {
         quests: vec![def(false)],

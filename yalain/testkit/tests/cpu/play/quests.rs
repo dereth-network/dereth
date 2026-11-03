@@ -77,6 +77,8 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     }
 }
 

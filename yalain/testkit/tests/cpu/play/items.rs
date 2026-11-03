@@ -131,6 +131,8 @@ fn world() -> Harness {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: Vec::new(),
     };

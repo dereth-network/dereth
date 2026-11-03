@@ -673,6 +673,8 @@ fn quests() -> QuestTable {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: vec![
             step(0, GUARD_TEMPLATE, Update::Bestow),

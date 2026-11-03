@@ -413,6 +413,8 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         });
     let (barium, ruby) = with_quest_mines(&mut h, quest);
     let (b, me, world) = in_world(&mut h, "Elara");
@@ -715,6 +717,8 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
+            hero_only: false,
+            required: None,
         }],
         steps: Vec::new(),
     };

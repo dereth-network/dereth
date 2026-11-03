@@ -47,8 +47,9 @@
 //! does not have under way, nor does anything for a stranger to the killer. A fellow of the killer
 //! is moved alike, a quest that is limited so only within ten levels of the killer and in range of
 //! it, and is told nothing when nothing moved. The killer is told when a giving was refused: its
-//! update of the giving kind names why, in a record that holds nothing, a giving under the quest's
-//! least level among them. Steps a kill triggers run
+//! update of the giving kind names why, in a record that holds nothing. A quest's setup says who it
+//! is for: under its least level the giving is refused so; for someone it is not for (heroes alone,
+//! or a required quest not at the status named) nothing is given or said. Steps a kill triggers run
 //! first, and a quest one of them moved is not moved again.
 //!
 //! 2017, of the 4,068 corpses players saw of such creatures: a killer's quest under way moved on
@@ -515,6 +516,9 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         if !given_again(def, held, now_unix) {
             return false;
         }
+        if st.update == Update::Bestow && !setup_allows(&s.quests, def, p, now_unix) {
+            return false;
+        }
     }
     let requires = st.requires.iter().all(|(q, need)| match need {
         Need::Phase(n) => phase_of(held, *q) == *n,
@@ -525,6 +529,24 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
             .takes
             .iter()
             .all(|t| crate::inventory::holds(s, world, *t))
+}
+
+/// May a quest be given to a player, by who its setup says it is for, the least level aside: a hero
+/// for a quest for heroes alone, a player with the quest it requires at the status it names. In 2017
+/// every giving of a hero's quest whose character's quests are known went to a hero (14 of 14) and
+/// no one else's kill named one to refuse, so what heroes alone means for others is read from the setup. A kill naming a quest whose
+/// required quest was never had gave nothing and said nothing (16 of 16, 7 of them the killer's).
+fn setup_allows(
+    table: &QuestTable,
+    def: &QuestDef,
+    p: &crate::world::Player,
+    now_unix: i64,
+) -> bool {
+    !(def.hero_only && !crate::focus::is_hero(&p.qualities))
+        && def.required.is_none_or(|(quest, needed)| {
+            let retry = table.quest(quest).map_or(0.0, |q| q.retry);
+            crate::item_use::quest_refusal(&p.play.quests, quest, needed, retry, now_unix).is_none()
+        })
 }
 
 /// May a quest a player does not have under way be given it again: never had, or its wait over
@@ -849,9 +871,13 @@ pub fn moves<S: Store>(
             let held = &p.play.quests;
             if given_again(&def, held, clock.unix) {
                 // Under its least level it is refused as the other reasons are (2017: 2 of 2, the
-                // givings at or above it 83 of 83, 9 more of unknown level).
+                // givings at or above it 83 of 83, 9 more of unknown level); by who it is for,
+                // nothing is said.
                 if crate::examine::level_of(&p.qualities) < def.min_level {
                     refuse(s, net, world, &def, refused::LEVEL_TOO_LOW, told, clock);
+                    return;
+                }
+                if !setup_allows(&s.quests, &def, p, clock.unix) {
                     return;
                 }
                 Update::Bestow

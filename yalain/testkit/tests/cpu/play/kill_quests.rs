@@ -49,6 +49,8 @@ fn quest(phases: u32) -> QuestDef {
         once: false,
         fellows: Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     }
 }
 
@@ -252,6 +254,8 @@ fn a_kill_moves_on_no_quest_its_killer_does_not_have_under_way() {
 fn a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill() {
     let (mut h, b, me) = world(QuestDef {
         last_waits: true,
+        hero_only: false,
+        required: None,
         ..quest(3)
     });
     holds(&mut h, me, status::UNDERWAY, 2);
@@ -513,6 +517,109 @@ fn a_killer_under_a_quests_least_level_is_refused_it_and_told() {
     kill(&mut h, me, &["Eff_BestowQuestHunt"]);
     assert_eq!(state(&h, me), Some((status::UNDERWAY, 1)));
     assert_eq!(updates(&h, b, from), vec![(0, update::BESTOW)]);
+}
+
+/// **A quest for heroes alone is given to a hero**, and to anyone else nothing is given or said; a
+/// step giving it holds back the same.
+/// Behaviour: server.quests.a-heros-quest-only-for-a-hero
+#[test]
+fn a_kill_or_a_step_gives_a_heros_quest_only_to_a_hero() {
+    let (mut h, b, me) = world(QuestDef {
+        hero_only: true,
+        ..quest(3)
+    });
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert_eq!(state(&h, me), None);
+    assert!(updates(&h, b, from).is_empty(), "nothing said");
+    let step = giving_step();
+    assert!(!may_be_given(&h, me, &step), "nor by a step");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    assert!(may_be_given(&h, me, &step));
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert_eq!(state(&h, me), Some((status::UNDERWAY, 1)));
+}
+
+/// **A quest that requires another is given only with that quest at the status named**: never had,
+/// or at another status, nothing is given or said; a step giving it holds back the same.
+/// Behaviour: server.quests.a-required-quest-holds-back-a-giving
+#[test]
+fn a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status() {
+    const OTHER: u32 = 0x4000_0124;
+    let (mut h, b, me) = world(QuestDef {
+        required: Some((OTHER, status::UNDERWAY)),
+        ..quest(3)
+    });
+    let hold = |h: &mut Harness, st: u32| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == me)
+            .expect("in the world");
+        p.play.quests.retain(|q| q.quest != OTHER);
+        p.play.quests.push(QuestState {
+            quest: OTHER,
+            status: st,
+            phase: 1,
+            started: SEEN,
+            updated: SEEN,
+        });
+    };
+    let step = giving_step();
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert!(!may_be_given(&h, me, &step), "never had");
+    hold(&mut h, status::COMPLETED);
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert!(!may_be_given(&h, me, &step), "at another status");
+    assert_eq!(state(&h, me), None);
+    assert!(updates(&h, b, from).is_empty(), "nothing said");
+    hold(&mut h, status::UNDERWAY);
+    assert!(may_be_given(&h, me, &step));
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert_eq!(state(&h, me), Some((status::UNDERWAY, 1)));
+}
+
+/// A step that gives the quest.
+fn giving_step() -> Step {
+    Step {
+        quest: QUEST,
+        needs: 0,
+        trigger: Trigger::Use(0x4700_0001),
+        tell: None,
+        update: Update::Bestow,
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        to: None,
+    }
+}
+
+/// May a step run for this character now?
+fn may_be_given(h: &Harness, who: u64, st: &Step) -> bool {
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == who)
+        .expect("in the world")
+        .0;
+    yalain_world::quests::may_run_now(&h.server, world, st, h.clock().unix)
 }
 
 /// **An effect's name says what it does to which quest**: the kind, the quest by the enumeration's

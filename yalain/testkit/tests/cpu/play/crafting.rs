@@ -602,6 +602,8 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
                 once: false,
                 fellows: yalain_content::quests::Fellows::default(),
                 last_waits: false,
+                hero_only: false,
+                required: None,
             }],
             steps: Vec::new(),
         };

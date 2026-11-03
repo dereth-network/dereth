@@ -194,6 +194,8 @@ impl Install for Fake {
             fellows: self.fellows,
             last_waits: false,
             min_level: self.min_level,
+            hero_only: false,
+            required: None,
         })
     }
 

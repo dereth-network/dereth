@@ -83,6 +83,8 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
+        hero_only: false,
+        required: None,
     }
 }
 
