@@ -26,6 +26,7 @@ not how it was done.
 - Fixed players getting stuck in deep water; they float and swim now.
 - Knockbacks and other server pushes now move your character.
 - Clicking just beside a creature now selects it.
+- No water reflections while under water.
 
 ## 0.1.2 (2026-11-02)
 

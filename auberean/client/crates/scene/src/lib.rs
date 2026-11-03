@@ -266,7 +266,7 @@ struct Built {
     frame: Frame,
     /// The block, the cell the camera stood in (or the player's interior cell), and the light's
     /// moment.
-    key: (LandblockId, (i32, i32), u32),
+    key: (LandblockId, (i32, i32), u32, bool),
     at: f64,
     /// How many object batches are the world's; the rest are the bodies of this frame.
     world_objects: usize,
@@ -3355,9 +3355,12 @@ impl<'w> Scene<'w> {
             )
         };
         // The frame is worked out again when the camera moves to another cell or block (its blocks'
-        // order, the light and fog where it stands, the water it reflects about) or the light ticks.
-        // D2-10933
-        let key = (block, viewer_cell, lightings);
+        // order, the light and fog where it stands, the water it reflects about), goes under water
+        // or comes up, or the light ticks.
+        // D2-10933, D2-10921
+        let in_water = !is_interior(view) && camera_in_water(&self.land, &at).is_some();
+        self.builder.camera_in_water = in_water;
+        let key = (block, viewer_cell, lightings, in_water);
         let stale = self.built.as_ref().is_none_or(|b| b.key != key);
         if stale {
             let started = now;

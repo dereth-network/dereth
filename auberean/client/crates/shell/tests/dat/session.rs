@@ -3089,7 +3089,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
         let Some(f) = out.world.filter(|f| !f.terrain.is_empty()) else {
             continue;
         };
-        let (l, camera_z) = (f.light, f.camera.position.z);
+        let (l, camera_z, reflection) = (f.light, f.camera.position.z, f.reflection);
         // The block of the cell the camera stands in, before and after the frame's moment.
         let stands = s
             .scene
@@ -3102,6 +3102,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
         if block == lake >> 16 {
             let depth = SURFACE - camera_z;
             assert!(depth > 5.0 && depth < 25.0, "the camera {depth} m down");
+            assert!(reflection.is_none(), "no reflection under water");
             // Between the table's depths 0 and 30: the shallower's share (30 - depth) / 30.
             let k = (30.0 - depth) / 30.0;
             let max = 100.0 * k + 48.0 * (1.0 - k);

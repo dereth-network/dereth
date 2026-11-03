@@ -728,6 +728,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.water.a-sky-object-shows-by-its-water-effect",
+        says: "A sky object's water effect word says when it shows: 0 always, 1 only with the camera \
+               under water, anything else never.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SKY-WATER-EFFECT"),
+        station: "auberean-world::cpu::water::a_sky_object_shows_by_its_water_effect",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.wave.a-frame-loop-steps-through-its-frames",
         says: "A frame-loop waveform shows its amplitude's frames at its frequency's rate, round                and round, each frame stepping its base on by its phase; with no frames it is its                base.",
         since: RETAIL,

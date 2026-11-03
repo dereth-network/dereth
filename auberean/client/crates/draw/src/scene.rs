@@ -684,6 +684,9 @@ pub struct SceneBuilder<'a> {
     /// reflection ripples (only at its highest setting).
     pub water_reflections: bool,
     pub water_ripples: bool,
+    /// The camera stands under water: the water reflects nothing, and the sky shows only what
+    /// shows from there.
+    pub camera_in_water: bool,
     /// The landscape shore effects preference: 0 none, 1 the shores' alpha, 2 that and their foam.
     pub shore_effects: u32,
     /// The light coronas preference: the sky objects' lens flares.
@@ -834,6 +837,7 @@ impl<'a> SceneBuilder<'a> {
             static_shadows: true,
             cloud_shadows: true,
             water_reflections: true,
+            camera_in_water: false,
             water_ripples: true,
             shore_effects: 2,
             light_coronas: true,
@@ -1708,7 +1712,7 @@ impl<'a> SceneBuilder<'a> {
         } else {
             None
         };
-        let reflection = if self.water_reflections {
+        let reflection = if self.water_reflections && !self.camera_in_water {
             self.reflection_plane(&near_blocks, spot)
         } else {
             None
@@ -1857,6 +1861,9 @@ impl<'a> SceneBuilder<'a> {
             return (before, after);
         };
         for piece in sky_pieces(day, t) {
+            if !piece.shows(self.camera_in_water) {
+                continue;
+            }
             counts.sky_objects += 1;
             let world = Mat4::from_parts(viewer, piece.rotation, Vec3::new(1.0, 1.0, 1.0));
             let records = self.records;
@@ -1942,7 +1949,7 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// The plane the water reflects about: the viewer's own block's water when it lies below the
-    /// camera, else the first detailed block's that does.
+    /// camera, else the first detailed block's that does; none with the camera under water.
     // D2-10921
     fn reflection_plane(
         &self,
