@@ -723,6 +723,7 @@ fn walled_cell(land: &Land) -> CellId {
         cell_bsp: None,
         stab_list: Vec::new(),
         seen_outside: false,
+        holds_without_portals: true,
         static_objects: Vec::new(),
     });
     id
@@ -1166,6 +1167,7 @@ mod rooms {
             cell_bsp: None,
             stab_list: Vec::new(),
             seen_outside: false,
+            holds_without_portals: true,
             static_objects: Vec::new(),
         });
     }

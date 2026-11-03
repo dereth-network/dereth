@@ -45,18 +45,27 @@ fn polygon(p: &MeshPolygon, at: &[Vec3]) -> Option<Polygon> {
     (vertices.len() >= 3).then(|| Polygon::new(vertices))
 }
 
+/// A mesh's physics polygons in the shared core's form, or `None` when its vertices store no
+/// positions. A polygon that cannot be built takes the place it holds in the list as a degenerate
+/// one.
+#[must_use]
+pub fn physics_polygons(mesh: &Mesh) -> Option<Vec<Polygon>> {
+    let at = positions(&mesh.vertices)?;
+    Some(
+        mesh.physics_polygons
+            .iter()
+            .map(|p| polygon(p, &at).unwrap_or_else(|| Polygon::new(vec![Vec3::ZERO; 3])))
+            .collect(),
+    )
+}
+
 /// A mesh's physics tree in the shared core's form, or `None` when the mesh has none. A leaf names
 /// its polygons by id; an id the mesh does not have is taken as an index.
 // D2-04121, D2-04134, D2-04146, D2-04160
 #[must_use]
 pub fn physics_tree(mesh: &Mesh) -> Option<BspTree> {
     let tree = mesh.physics_tree.as_ref()?;
-    let at = positions(&mesh.vertices)?;
-    let polygons: Vec<Polygon> = mesh
-        .physics_polygons
-        .iter()
-        .map(|p| polygon(p, &at).unwrap_or_else(|| Polygon::new(vec![Vec3::ZERO; 3])))
-        .collect();
+    let polygons = physics_polygons(mesh)?;
     let by_id: HashMap<u16, u32> = mesh
         .physics_polygons
         .iter()

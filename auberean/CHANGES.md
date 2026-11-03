@@ -12,6 +12,7 @@ not how it was done.
 - Fixed available experience showing a huge number in the skills panel.
 - The screens before the world now stay 4:3 in any window.
 - Fixed your character wobbling while running in mouse look.
+- Fixed falling through the floor in the training ground's second area.
 
 ## 0.1.2 (2026-11-02)
 

@@ -804,3 +804,40 @@ fn a_world_may_slide_by_its_own_slide() {
         assert_eq!(handed(), vec![Vec3::new(0.0, 1.0, 0.0)], "sphere {low}");
     }
 }
+
+/// A cell with no portals holds no point at all in this client, whatever its cell tree says; a
+/// world whose closed rooms are stood in takes its cell tree's word for it.
+///
+/// Behaviour: physics.cells.a-world-chooses-whether-a-cell-with-no-portals-holds-points
+#[test]
+fn a_world_chooses_whether_a_cell_with_no_portals_holds_points() {
+    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree};
+    let above_the_floor = BspTree {
+        nodes: vec![BspNode {
+            sphere: Sphere::default(),
+            splitting_plane: Plane {
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            pos_child: None,
+            neg_child: None,
+            kind: BspNodeKind::Node,
+            in_polys: Vec::new(),
+        }],
+        polygons: Vec::new(),
+    };
+    let id = CellId(0x1020_0100);
+    let room = |holds_without_portals| Cell::Env {
+        id,
+        geom: Arc::new(EnvCellGeometry {
+            id,
+            cell_bsp: Some(Arc::new(above_the_floor.clone())),
+            holds_without_portals,
+            ..EnvCellGeometry::default()
+        }),
+    };
+    let (inside, outside) = (Vec3::new(1.0, 1.0, 1.0), Vec3::new(1.0, 1.0, -1.0));
+    assert!(!room(false).point_in_cell(inside));
+    assert!(room(true).point_in_cell(inside));
+    assert!(!room(true).point_in_cell(outside));
+}

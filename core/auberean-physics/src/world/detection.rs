@@ -161,9 +161,6 @@ fn find_interior_cell(land: &Land, block: u32, p: Vec3) -> Option<u32> {
         .into_iter()
         .find(|id| {
             land.cell(*id).is_some_and(|g| {
-                if g.portals.is_empty() {
-                    return false;
-                }
                 let local = dereth_physics::math::globaltolocal(&g.frame, p);
                 g.cell_bsp
                     .as_ref()

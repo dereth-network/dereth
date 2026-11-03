@@ -2585,6 +2585,82 @@ fn the_player_moves_while_its_body_does_falling_too() {
     assert!(!s.scene.status.moving, "standing");
 }
 
+/// Taken from the hall through the menhir portal to the training ground's second area, a closed
+/// room with no doorways (cell `0x0298014D`), the player stands where it is put and runs on the
+/// room's floor when the key is held, never leaving the cell or sinking through the floor.
+///
+/// Behaviour: desktop.world.the-player-arrives-and-runs-in-a-room-with-no-doorways
+#[test]
+fn the_player_arrives_and_runs_in_a_room_with_no_doorways() {
+    const ROOM: u32 = 0x0298_014D;
+    let arrival = Vec3::new(1.147_527_9, -7.586_839_7, 1.304_330_3);
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: ROOM,
+        origin: arrival,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let later = [(8.0, put)];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut settled = None;
+    while s.host.time < 30.0 && settled.is_none() {
+        step(&mut s);
+        let st = &s.scene.status;
+        if st.cell == ROOM && st.contact && !s.scene.cells_pending() {
+            settled = Some(s.host.time);
+        }
+    }
+    let settled = settled.expect("it arrived and stands");
+    while s.host.time < settled + 1.0 {
+        step(&mut s);
+    }
+    let stood = s.scene.status.origin;
+    assert!(
+        (stood.y - arrival.y).abs() < 0.05,
+        "where it was put: {stood:?}"
+    );
+    assert!(
+        (stood.z - arrival.z).abs() < 0.05,
+        "on the floor: {stood:?}"
+    );
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 3.0;
+    while s.host.time < until {
+        step(&mut s);
+        let st = &s.scene.status;
+        assert_eq!(st.cell, ROOM, "still in the room");
+        assert!(st.origin.z > 0.95, "above the floor: {:?}", st.origin);
+    }
+    let ran = s.scene.status.origin.y - stood.y;
+    assert!(ran > 10.0, "it ran: {ran} m");
+    assert!(s.scene.status.contact, "on the floor");
+}
+
 /// With the camera under water the fog is the water's at the camera's depth, the light the same:
 /// on the bottom of a lake 20 m deep (block `0x9889`, its surface at 139.45 m), the fog reaches as
 /// far as the water's table says between its depths 0 (100 m, 0.8 of the sky) and 30 (48 m, half

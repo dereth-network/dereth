@@ -312,6 +312,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.interior.a-body-stands-and-runs-in-a-room-with-no-doorways",
+        says: "A body stands in a cell with no doorways and runs on its floor as retail's players \
+               did: the training ground's second area, from where the menhir portal puts a player \
+               up the room's length, on the heights a 2017 session reported.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-CLOSED-ROOM"),
+        station: "auberean-physics::dat::interior::a_body_stands_and_runs_in_a_room_with_no_doorways",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.a-body-stands-and-runs-on-an-interior-floor",
         says: "Dropped in a cell of the human training hall, the player's body lands on its floor; \
                running, it passes from cell to cell through the doorways, never falls through a \
@@ -329,6 +339,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-INTERIOR-SOLIDS"),
         station: "auberean-physics::dat::interior::a_body_steps_onto_what_stands_in_the_cells",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.a-cell-with-no-collision-tree-is-open-air",
+        says: "A cell whose mesh has no collision tree is open air, not a missing cell: the great \
+               caverns' 13 cells are all built with their doorways, and a body in one falls \
+               through the air and on through the doorway in its floor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-OPEN-AIR-CELL"),
+        station: "auberean-physics::dat::interior::a_cell_with_no_collision_tree_is_open_air",
         tier: Tier::Dat,
     },
     behaviour! {

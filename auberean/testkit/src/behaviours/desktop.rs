@@ -1342,6 +1342,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.world.the-player-arrives-and-runs-in-a-room-with-no-doorways",
+        says: "Put in the training ground's second area, a closed room with no doorways, the \
+               player stands where it is put and runs on the floor, never leaving the cell or \
+               sinking through the floor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHELL-CLOSED-ROOM"),
+        station: "auberean-shell::dat::session::the_player_arrives_and_runs_in_a_room_with_no_doorways",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.the-players-arrival-preloads-its-scripts-singletons",
         says: "The player's arrival has its scripts preload what they keep about the player: by the \
                first frame the scene has the player, the master skill list is made.",
