@@ -44,6 +44,8 @@ not how it was done.
 - Water reflections now show the sea floor.
 - Clicking between a figure's parts in a viewport now selects it.
 - The examine panel now shows an item's icon.
+- Request Assistance opens the project's issues page.
+- `/saveui` and `/loadui` now save and restore your window layout.
 
 ## 0.1.2 (2026-11-02)
 

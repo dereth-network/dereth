@@ -58,7 +58,7 @@ pub(crate) fn new_text_in(c: &mut Call<'_>, units: Vec<u16>) -> u32 {
 }
 
 /// The process an object runs in (at `fp[-2]`): the one whose instance it is, or none.
-// D2-04656
+// D2-04656, D2-08033
 fn process_id(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.receiver()?;
     let id =

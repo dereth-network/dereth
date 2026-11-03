@@ -1430,6 +1430,7 @@ impl Scripts {
 
     /// The player's options as the options panel reads them: the player's current options
     /// profile, held as the engine holds it. `None` when there is no player here or it has none.
+    // D2-00577, D2-01120
     pub fn options(&mut self) -> Option<GameplayOptions> {
         let (_, r) = self.call_interface(crate::interface::function::CURRENT_OPTIONS, &[]);
         let o = self.vm.heap.native(r).ok()?.unpacked();

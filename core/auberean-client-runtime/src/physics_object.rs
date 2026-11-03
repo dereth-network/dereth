@@ -422,7 +422,7 @@ const BODY: u32 = 1;
 /// then its template's, each with those it descends from), into the collection at `fp[-2]`; whether it has a
 /// physics object (`fp[-3]`). This is what the data files give: what running animations have since
 /// changed is not kept apart.
-// D2-04770
+// D2-04770, D2-08196
 fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
     let id = receiver_object(c)?;
     let collection = {

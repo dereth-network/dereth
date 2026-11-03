@@ -301,7 +301,7 @@ impl Encode for PropertyList {
 impl Decode for PropertyList {
     /// The id, the names (an enum map with its own id), then a hash table of descriptors keyed by
     /// property id.
-    // D2-16188, D2-16246, D2-16245, D2-05057, D2-16248
+    // D2-16188, D2-16246, D2-16245, D2-05057, D2-16248, D2-16250
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let names = EnumMap::read(r)?;

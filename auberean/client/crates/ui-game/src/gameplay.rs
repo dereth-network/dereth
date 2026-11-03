@@ -1302,7 +1302,7 @@ impl GamePlay {
 
     /// The panels' places changed: kept with the player's options and sent to the server to
     /// keep.
-    // D2-01962
+    // D2-01962, D2-00323
     pub fn save_locations_changed(out: &mut Vec<Request>) {
         out.push(Request::SaveLocations);
     }
