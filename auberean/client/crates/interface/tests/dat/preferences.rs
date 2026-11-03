@@ -51,7 +51,7 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
             section::AVATARS
         ]
         .map(count),
-        [0, 8, 3, 3]
+        [0, 8, 3, 4]
     );
     let find = |k: u32| {
         l.sections
@@ -107,5 +107,5 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert_eq!(sound.len(), 8, "{sound:?}");
     assert!(has("Sound", &music, "1.000000"), "{sound:?}");
     assert!(has("Sound", &features, "Hardware"), "{sound:?}");
-    assert_eq!(kept.len(), 21 + 14 + 8 + 3);
+    assert_eq!(kept.len(), 21 + 15 + 8 + 3);
 }
