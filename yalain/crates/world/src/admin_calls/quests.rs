@@ -51,18 +51,13 @@ fn remove<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>, retry: bool) -> Vec<String
         Err(why) => return vec![why],
     };
     let quest = a.int(1).unwrap_or(0);
-    let Some(p) = cx.s.players.get_mut(&w) else {
-        return Vec::new();
-    };
-    let before = p.play.quests.len();
-    p.play.quests.retain(|st| st.quest != quest);
-    if p.play.quests.len() == before {
-        return vec![format!("{} does not hold quest {quest:08X}.", p.name)];
+    let name = cx.name_of(w);
+    if !crate::quests::remove(cx.s, cx.net, w, quest, cx.clock) {
+        return vec![format!("{name} does not hold quest {quest:08X}.")];
     }
-    let name = p.name.clone();
     crate::world::keep_player(cx.s, w);
     vec![format!(
-        "{name} no longer holds quest {quest:08X}{}; its client's list follows at its next entry.",
+        "{name} no longer holds quest {quest:08X}{}.",
         if retry { ", and may take it again" } else { "" }
     )]
 }

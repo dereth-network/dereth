@@ -8,11 +8,13 @@
 use auberean_primitives::{Frame, Quat, Vec3};
 use auberean_protocol::login::{PlayerObject, PlayerQualities};
 use auberean_protocol::physics::CreateObject;
+use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::StringInfo;
 use auberean_protocol::types::{
     PhysicsDesc, Placement, Qualities, SliderSetting, VisualDesc, WeenieDesc,
 };
+use auberean_protocol::ServerMessage;
 use yalain_store::StoredPosition;
 
 /// The player template: its entity, its qualities record and its script package.
@@ -91,6 +93,33 @@ pub fn world_name(name: &str, sex: u32) -> String {
         .next()
         .is_some_and(|c| "AEIOUaeiou".contains(c));
     format!("{name} [{s}{}]", if vowel { "v" } else { "" })
+}
+
+/// The quality a player's name is, as an object's name is.
+pub const NAME_QUALITY: u32 = 256;
+
+/// A player's name changed: its qualities hold the new one, and its client and every client that
+/// knows it are told, as they are of a pet's new name.
+pub fn show_name<S: yalain_store::Store>(
+    s: &mut crate::Server<S>,
+    net: &mut yalain_net::ServerNet,
+    world: yalain_net::ConnId,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let shown = StringInfo::literal(&world_name(&p.name, p.sex));
+    let mut q = crate::quals::read(&p.qualities);
+    q.weenie.name = shown.clone();
+    p.qualities = crate::quals::write(&q);
+    let m = ServerMessage::UpdateStringInfoVisual(VisualQuality {
+        object: crate::places::player_event(p, ()).sender,
+        quality: NAME_QUALITY,
+        value: shown,
+    });
+    let me = p.character;
+    crate::progress::private(net, world, &m);
+    crate::places::to_knowers(s, net, me, &m);
 }
 
 /// Make a player's encoded qualities name the admin template's record, or the player's.

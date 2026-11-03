@@ -1253,3 +1253,220 @@ fn an_answer_of_many_lines_comes_as_one_message_in_its_order() {
     let said = answers(&h, me, from);
     assert!(said.len() > 3, "{said:?}");
 }
+
+/// The update kinds of a client's quest calls since `from`, each with the quest's id.
+fn quest_updates(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::quests::UPDATE_QUEST)
+        .filter_map(|(_, v)| {
+            let Some(Value::Int(kind)) = v.last() else {
+                return None;
+            };
+            // A quest's record starts with its id.
+            let Some(Node::Native { bytes, .. }) = v.get(1).and_then(Value::root) else {
+                return None;
+            };
+            Some((*kind, u32::from_le_bytes(bytes[..4].try_into().ok()?)))
+        })
+        .collect()
+}
+
+/// `/qst remove` and `/qst retry` tell the player's client at once, as the update its own handling
+/// takes off the list; a quest its client never knew (a hidden one) goes without a word.
+/// Behaviour: server.admin.quest-removal-told-at-once
+#[test]
+fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
+    use yalain_world::quests::update;
+    use yalain_world::state::QuestState;
+    const SHOWN: u32 = 0x8000_0101;
+    const OTHER: u32 = 0x8000_0102;
+    const HIDDEN: u32 = 0x8000_0103;
+    for (call, shown) in [(0x8201_0019, SHOWN), (0x8201_0116, OTHER)] {
+        let mut h = Harness::new();
+        let (victim, victim_id) = h.player_in_world("one", "Elara");
+        let (me, _) = admin_in_world(&mut h, "two", "Cara");
+        let def = |id, hidden| yalain_content::quests::QuestDef {
+            id,
+            name: (1, 0x2500_0001),
+            description: (2, 0x2500_0001),
+            icon: 0,
+            play_fx: false,
+            journals: Vec::new(),
+            challenge: 0,
+            duration: 0.0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            required: None,
+        };
+        h.server.quests = yalain_content::QuestTable {
+            quests: vec![def(SHOWN, false), def(OTHER, false), def(HIDDEN, true)],
+            steps: Vec::new(),
+        };
+        for p in h.server.players.values_mut() {
+            for quest in [SHOWN, OTHER, HIDDEN] {
+                p.play.quests.push(QuestState {
+                    quest,
+                    status: yalain_world::quests::status::UNDERWAY,
+                    phase: 1,
+                    started: 0,
+                    updated: 0,
+                });
+            }
+        }
+        let holds = |h: &Harness, q: u32| {
+            h.server
+                .players
+                .values()
+                .find(|p| p.character == victim_id)
+                .expect("in the world")
+                .play
+                .quests
+                .iter()
+                .any(|st| st.quest == q)
+        };
+        let from = h.bots[victim].inbox.len();
+        send(
+            &mut h,
+            me,
+            call,
+            &[Arg::LongInt(victim_id), Arg::Int(shown)],
+        );
+        assert_eq!(quest_updates(&h, victim, from), [(update::REMOVE, shown)]);
+        assert!(!holds(&h, shown), "gone");
+        assert!(holds(&h, HIDDEN), "the other stays");
+
+        let from = h.bots[victim].inbox.len();
+        let said = h.bots[me].inbox.len();
+        send(
+            &mut h,
+            me,
+            0x8201_0019,
+            &[Arg::LongInt(victim_id), Arg::Int(HIDDEN)],
+        );
+        assert_eq!(quest_updates(&h, victim, from), [], "never told of it");
+        assert!(!holds(&h, HIDDEN), "gone");
+        assert!(answers(&h, me, said)[0].contains("no longer holds"));
+
+        let from = h.bots[victim].inbox.len();
+        let said = h.bots[me].inbox.len();
+        send(
+            &mut h,
+            me,
+            0x8201_0019,
+            &[Arg::LongInt(victim_id), Arg::Int(HIDDEN)],
+        );
+        assert_eq!(quest_updates(&h, victim, from), [], "held no longer");
+        assert!(answers(&h, me, said)[0].contains("does not hold"));
+    }
+}
+
+/// An admin teaching a player a recipe or taking one away tells its client at once, as the world's
+/// own learning and forgetting do; a change that changes nothing tells it nothing.
+/// Behaviour: server.admin.recipes-told-at-once
+#[test]
+fn a_recipe_an_admin_adds_or_removes_reaches_the_players_client_at_once() {
+    use yalain_world::craft::function::{ADD_RECIPE, REMOVE_RECIPE};
+    const RECIPE: u32 = 0x4700_0123;
+    let mut h = Harness::new();
+    let (victim, victim_id) = h.player_in_world("one", "Elara");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    let told = |h: &Harness, from: usize, f: u32| {
+        h.calls(victim, from)
+            .into_iter()
+            .filter(|(c, v)| *c == f && matches!(v.first(), Some(Value::Int(RECIPE))))
+            .count()
+    };
+    for (call, f, known) in [
+        (0x8201_004D, ADD_RECIPE, true),
+        (0x8201_0078, REMOVE_RECIPE, false),
+    ] {
+        let args = [Arg::LongInt(victim_id), Arg::Int(RECIPE)];
+        let from = h.bots[victim].inbox.len();
+        send(&mut h, me, call, &args);
+        assert_eq!(told(&h, from, f), 1, "{call:#x}");
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == victim_id)
+            .expect("in the world");
+        assert_eq!(p.play.recipes.iter().any(|r| r.recipe == RECIPE), known);
+        let from = h.bots[victim].inbox.len();
+        send(&mut h, me, call, &args);
+        assert_eq!(told(&h, from, f), 0, "{call:#x} again changes nothing");
+    }
+}
+
+/// `/rename` reaches the renamed client and every client that knows it at once, as a change of its
+/// name's quality; its own description holds the new name when it next enters, as another client's
+/// new sight of it does.
+/// Behaviour: server.admin.rename-told-at-once
+#[test]
+fn a_rename_reaches_every_client_at_once_and_lasts() {
+    use auberean_protocol::text::StringInfo;
+    let mut h = Harness::new();
+    let (victim, victim_id) = h.player_in_world("one", "Elara");
+    let (viewer, _) = h.player_in_world("three", "Babyfare");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    h.run(20);
+    let name_told = |h: &Harness, b: usize, from: usize| {
+        h.world_messages(b, from)
+            .into_iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateStringInfoVisual(u)
+                    if u.object.id == victim_id
+                        && u.quality == yalain_world::player::NAME_QUALITY =>
+                {
+                    Some(u.value)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (seen, own) = (h.bots[viewer].inbox.len(), h.bots[victim].inbox.len());
+    send(
+        &mut h,
+        me,
+        0x8201_0130,
+        &[Arg::LongInt(victim_id), text("Renamed")],
+    );
+    h.run(20);
+    let new = StringInfo::literal("Renamed [M]");
+    assert_eq!(
+        name_told(&h, viewer, seen),
+        [new.clone()],
+        "one who knows it"
+    );
+    assert_eq!(name_told(&h, victim, own), [new.clone()], "its own client");
+
+    h.bots[victim].leave_world();
+    assert!(h.run_until(400, |h| !h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == victim_id)));
+    h.run(20);
+    let from = h.bots[victim].inbox.len();
+    h.enter_world(victim, "one", victim_id);
+    let described = h
+        .world_messages(victim, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerQualities(q) => Some(q.0.weenie.name),
+            _ => None,
+        })
+        .expect("described");
+    assert_eq!(described, new, "its own description, at its next entry");
+}

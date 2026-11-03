@@ -274,18 +274,18 @@ fn rename<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     let Some(p) = cx.s.players.get_mut(&w) else {
         return vec!["That is not a player in the world.".to_owned()];
     };
-    let old = std::mem::replace(&mut p.name, name.clone());
     let id = p.character;
     if let Err(e) = cx.s.store.rename_character(id, &name) {
-        if let Some(p) = cx.s.players.get_mut(&w) {
-            p.name = old;
-        }
         return vec![format!("{name} was not kept: {e}")];
     }
+    let Some(p) = cx.s.players.get_mut(&w) else {
+        return Vec::new();
+    };
+    let old = std::mem::replace(&mut p.name, name.clone());
+    crate::player::show_name(cx.s, cx.net, w);
+    crate::world::keep_player(cx.s, w);
     answer(cx.net, w, &format!("You are now named {name}."));
-    vec![format!(
-        "{old} is now {name}; others see it as they next meet."
-    )]
+    vec![format!("{old} is now {name}.")]
 }
 
 fn cloak<S: Store>(cx: &mut Cx<'_, S>, on: bool) -> Vec<String> {

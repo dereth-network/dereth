@@ -612,24 +612,15 @@ fn recipe_add<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         Err(why) => return vec![why],
     };
     let recipe = a.int(1).unwrap_or(0);
-    let Some(p) = cx.s.players.get_mut(&w) else {
+    let Some(p) = cx.s.players.get(&w) else {
         return Vec::new();
     };
-    if p.play.recipes.iter().any(|r| r.recipe == recipe) {
-        return vec![format!("{} knows that recipe.", p.name)];
-    }
-    p.play.recipes.push(crate::state::RecipeState {
-        recipe,
-        use_again: -1.0,
-        successes: 0,
-        charges: -1,
-        last_spinner: 0,
-    });
     let name = p.name.clone();
-    crate::world::keep_player(cx.s, w);
-    vec![format!(
-        "{name} knows recipe {recipe:08X}; its client's list follows at its next entry."
-    )]
+    if p.play.recipes.iter().any(|r| r.recipe == recipe) {
+        return vec![format!("{name} knows that recipe.")];
+    }
+    crate::craft::learn(cx.s, cx.net, w, recipe);
+    vec![format!("{name} knows recipe {recipe:08X}.")]
 }
 
 fn recipe_remove<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
@@ -638,12 +629,14 @@ fn recipe_remove<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         Err(why) => return vec![why],
     };
     let recipe = a.int(1).unwrap_or(0);
-    let Some(p) = cx.s.players.get_mut(&w) else {
+    let Some(p) = cx.s.players.get(&w) else {
         return Vec::new();
     };
-    p.play.recipes.retain(|r| r.recipe != recipe);
     let name = p.name.clone();
-    crate::world::keep_player(cx.s, w);
+    if !p.play.recipes.iter().any(|r| r.recipe == recipe) {
+        return vec![format!("{name} does not know recipe {recipe:08X}.")];
+    }
+    crate::craft::forget(cx.s, cx.net, w, recipe);
     vec![format!("{name} no longer knows recipe {recipe:08X}.")]
 }
 

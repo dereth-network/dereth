@@ -316,12 +316,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.quest-removal-told-at-once",
+        says: "An admin's taking a quest off a player tells its client at once with the update of the \
+               removing kind, which the client's own handling takes off its list; a hidden quest goes \
+               without a word. No recording holds such an update, so the kind is read from the client.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-QUEST-REMOVED"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.recipes-told-at-once",
+        says: "An admin's teaching a player a recipe or taking one away tells its client at once, by \
+               the calls the world's own learning and forgetting use; one that changes nothing tells \
+               nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-RECIPES-TOLD"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_recipe_an_admin_adds_or_removes_reaches_the_players_client_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.refused-calls-log-one-line",
         says: "A refused admin call is counted every time, but logged only the first time from a \
                character in each stay in the world, so that a client cannot fill the log.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-REFUSED-LOG"),
         station: "yalain-testkit::cpu::operator::admin_calls::refused_admin_calls_log_one_line_a_stay_however_many_come",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.rename-told-at-once",
+        says: "A rename reaches the renamed client and every client that knows it at once as a change \
+               of its name's quality, and its own description holds the new name at its next entry. Our \
+               choice: the client's help says the character was relogged, and no recording holds a \
+               player's rename.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-RENAME-TOLD"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_rename_reaches_every_client_at_once_and_lasts",
         tier: Tier::Cpu,
     },
     behaviour! {

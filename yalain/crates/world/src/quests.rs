@@ -103,6 +103,9 @@ pub mod update {
     /// The kind of effect that moves a quest on a phase; no update is told of this kind.
     pub const INCREMENT: u32 = 0x6000_0000;
     pub const CANCEL: u32 = 0x8000_0000;
+    /// Takes the quest off the client's list, whose journal then says so. No recording holds one:
+    /// the client's own handling says what it does.
+    pub const REMOVE: u32 = 0x5000_0000;
 }
 
 /// The player's request to cancel a quest.
@@ -1288,6 +1291,27 @@ fn tell_record<S: Store>(
     let game_epoch = game_now - clock.unix as f64;
     let rec = record_in(&s.quests, &p.play.quests, def, st, game_now, game_epoch);
     progress::private(net, world, &update_call(rec, kind));
+}
+
+/// A quest is taken off a player, its client told as it goes: whether the player held it. A quest
+/// its client was never told of (a hidden one, or one the world no longer defines) is taken off
+/// without a word.
+pub fn remove<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    quest: u32,
+    clock: Clock,
+) -> bool {
+    if let Some(def) = s.quests.quest(quest).filter(|d| !is_hidden(&s.quests, d)) {
+        tell_record(s, net, world, def, update::REMOVE, clock);
+    }
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let before = p.play.quests.len();
+    p.play.quests.retain(|st| st.quest != quest);
+    p.play.quests.len() != before
 }
 
 /// The quest, and its phase, that a quest is a subquest of for a player: one the player has under
