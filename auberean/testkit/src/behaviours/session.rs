@@ -273,6 +273,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say",
+        says: "An item whose template keeps its places only in its qualities record, used from the \
+               pack, goes on the body where they say and leaves what is in hand there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SERVER-PLACES-IN-QUALITIES"),
+        station: "yalain-testkit::dat::session::looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
         says: "Our client wields its starting sword on our server, logs off and enters again: its \
                model has the sword hanging from the player and wielded by it, and the server \

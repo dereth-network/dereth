@@ -276,3 +276,60 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
         "the notice carries the quest the player holds"
     );
 }
+
+/// Moccasins looted from a corpse and used from the pack go on the feet, the weapon staying in the
+/// hand. These moccasins' template keeps its places only in its qualities record, and an item
+/// without places is wielded as a sword is.
+///
+/// Behaviour: session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say
+#[test]
+fn looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand() {
+    use yalain_testkit::authored::Portal;
+    /// Initiate Moccasins.
+    const MOCCASINS: u32 = 0x4700_0E0C;
+    /// The inventory's notice of an item's change, how it says an item was put on, and the feet.
+    const CHANGED: u32 = 0x008B << 16 | 0x0001;
+    const PUT_ON: u32 = 0x4000_0002;
+    const FEET: u32 = 0x10;
+    let mut s = InProcess::new();
+    s.h.server
+        .catalog
+        .insert(Portal::open().template(MOCCASINS));
+    for profile in &mut s.h.server.loot.profiles {
+        profile.items = vec![(MOCCASINS, 1)];
+    }
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::SENTINEL]));
+    let held = ok(play::wield(&mut s, authored::SWORD));
+    s.client()
+        .act(auberean_client_sdk::Action::Select { target: 0 });
+    s.client().act(auberean_client_sdk::Action::Examination {
+        tabs: Some(play::TABS),
+    });
+    let sentinel = play::find(s.client_ref(), authored::SENTINEL).expect("a sentinel");
+    let at = sentinel.place.expect("placed").origin;
+    ok(play::walk_to(&mut s, [at.x, at.y, at.z], 1.5));
+    ok(play::select_and_examine(&mut s, sentinel.id).map(|_| ()));
+    ok(play::attack_until_dead(&mut s, sentinel.id));
+    let (_, item) = ok(play::open_corpse(&mut s));
+    ok(play::take(&mut s, item));
+    s.client().notices.clear();
+    play::use_object(&mut s, item);
+    play::wait(&mut s, 4.0);
+    let put_on: Vec<Vec<u32>> = s
+        .client_ref()
+        .notices
+        .iter()
+        .filter(|n| n.native == CHANGED && n.words.first() == Some(&PUT_ON))
+        .map(|n| n.words.clone())
+        .collect();
+    let at = |w: &Vec<u32>| w.last().copied();
+    assert!(
+        put_on.len() == 1 && at(&put_on[0]) == Some(FEET),
+        "on the feet: {put_on:x?}"
+    );
+    let weapon = s.client_ref().model.object(held).expect("the sword");
+    assert!(weapon.wielder.is_some(), "the sword still in hand");
+}

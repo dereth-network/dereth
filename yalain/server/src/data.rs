@@ -255,7 +255,8 @@ pub fn catalog(
         if c.templates.contains_key(&t) {
             continue;
         }
-        let props = Props::of(t, &|id| p.entity(id), &prop_name);
+        let props = Props::of(t, &|id| p.entity(id), &prop_name)
+            .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref());
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
             Ok(d) => d,
             Err(e) => {

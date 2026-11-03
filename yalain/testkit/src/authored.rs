@@ -182,7 +182,8 @@ impl Portal {
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
                 .expect("the template is described"),
             facts: facts(id, &|e| self.entity(e), &self.fact_ids()),
-            props: Props::of(id, &|e| self.entity(e), &name),
+            props: Props::of(id, &|e| self.entity(e), &name)
+                .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref()),
         }
     }
 

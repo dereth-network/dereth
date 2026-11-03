@@ -16,6 +16,7 @@ what they see, not how it was done.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - An open corpse now closes when you walk away from it.
 - Worlds can take WebSocket connections.
+- Fixed Initiate Moccasins and similar loot going in the weapon slot.
 
 ## 0.1.2 (2026-11-03)
 
