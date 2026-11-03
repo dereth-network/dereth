@@ -120,15 +120,22 @@ fn a_quests_setup_says_how_a_kill_reaches_fellows_and_its_definition_whether_its
         Some((true, false, false, false)),
         "no limit"
     );
+    // Its last phase has no range, so that waits too, though only advances move this one.
     assert_eq!(
         read(0x4000_0010),
-        Some((false, false, false, false)),
+        Some((false, false, false, true)),
         "not shared"
     );
     assert_eq!(
         read(0x8000_00B7),
         Some((false, false, false, true)),
         "no setup"
+    );
+    // A last phase of no range waits too: the journal of the rabbits' quest says to report to Lupe.
+    assert_eq!(
+        read(0x4000_028D).map(|d| d.3),
+        Some(true),
+        "a last phase of no range"
     );
 }
 

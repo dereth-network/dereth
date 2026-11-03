@@ -300,10 +300,12 @@ impl Install for DatInstall<'_> {
             }
         }
         effects.sort_by_key(|(k, _)| *k);
+        // A last phase of one kill's range ends the quest as it is moved on; one of any other range
+        // waits for a use to end it (its journal says so: "Return to ...", "Report ...").
         let last_waits = ranges
             .iter()
             .max_by_key(|(p, _)| *p)
-            .is_some_and(|(_, r)| *r > 1);
+            .is_some_and(|(_, r)| *r != 1);
         let setup = setup_of(self.lib, root.package_id());
         Some(QuestDefinition {
             state,
