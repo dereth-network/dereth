@@ -1157,6 +1157,8 @@ impl Retail {
                     }
                 }
                 R::PutBackLocations { reloaded } => self.places.put_back(reloaded),
+                R::SaveLayout { name } => self.places.save_layout(name),
+                R::LoadLayout { name } => self.places.load_layout(name),
                 R::Dialog(d) => {
                     let parent = self.play().map(GamePlay::frame);
                     self.dialogs

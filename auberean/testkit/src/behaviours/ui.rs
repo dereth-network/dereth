@@ -680,6 +680,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.gameplay.the-layout-commands-name-their-file",
+        says: "The scripts' commands to write and read the panels' places ask for the file they \
+               name; with no name, the file of this character, world and screen: \
+               UI-character-world-width-height.txt.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LAYOUT-COMMANDS"),
+        station: "auberean-ui-game::dat::play::standing::the_layout_commands_name_their_file",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.gameplay.the-layout-file-keeps-the-windows-places",
         says: "The windows' and chat windows' places are written a line each as a tag, X, Y, W and H, \
                and a line read back gives its window that size, then that place; a line naming no \

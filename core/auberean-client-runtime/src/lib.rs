@@ -2086,6 +2086,20 @@ impl Client {
         self.with_scripts(Scripts::options).flatten()
     }
 
+    /// Write one of the player's files by a bare name; whether it was written.
+    pub fn write_player_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        use auberean_script::Host as _;
+        self.scripts
+            .as_mut()
+            .is_some_and(|s| s.host.write_file(file, bytes))
+    }
+
+    /// One of the player's files by a bare name; none when there is no such file.
+    pub fn read_player_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        use auberean_script::Host as _;
+        self.scripts.as_mut()?.host.read_file(file)
+    }
+
     /// The windows' saved places the player's scripts keep (a table's packed form); `None` when
     /// no scripts run, there is no player, or the scripts keep none.
     pub fn ui_save_locations(&mut self) -> Option<Vec<u8>> {

@@ -132,6 +132,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.the-layout-commands-reach-the-panels-with-their-file",
+        says: "The player's commands to save and load the panels' places reach the play screen as \
+               notices naming the file, and the player's files are written and read back by a bare \
+               name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LAYOUT-COMMANDS"),
+        station: "auberean-client-runtime::corpus::chat::the_layout_commands_reach_the_panels_with_their_file",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.the-loc-alias-says-the-players-map-coordinates",
         says: "The predefined alias ;loc is said as the player's map coordinates, north or south \
                to a tenth then east or west, and /loc shows the place line with the same \

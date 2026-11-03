@@ -64,6 +64,10 @@ pub mod notice {
     pub const UPDATE_DEATH_STATE: u32 = 0x0085 << 16 | 0x0008;
     /// The player's options changed: the panels' kept places among them.
     pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
+    /// The panels' places to be written to a file: its name, as a string reference.
+    pub const SAVE_UI: u32 = 0x0085 << 16 | 0x001C;
+    /// The panels' places to be read back from a file: its name, as a string reference.
+    pub const LOAD_UI: u32 = 0x0085 << 16 | 0x001D;
     /// A message for a dialog of its own.
     pub const DISPLAY_MESSAGE: u32 = 0x0085 << 16 | 0x000C;
     /// Someone offers to bring the player back to life.
@@ -338,6 +342,15 @@ pub enum Request {
     /// that came again (`reloaded`), else asked of the player's interface.
     PutBackLocations {
         reloaded: bool,
+    },
+    /// The panels' places written to the file of this name (empty: the file of this character,
+    /// world and screen).
+    SaveLayout {
+        name: String,
+    },
+    /// The panels' places read back from the file of this name (empty as for saving).
+    LoadLayout {
+        name: String,
     },
     /// A line for the chat windows, as one of the client's own errors.
     ErrorLine(String),
@@ -920,6 +933,7 @@ impl GamePlay {
         match n.native {
             notice::UPDATE_DEATH_STATE => self.update_death_state(ui, n.word() != 0, out),
             notice::RELOAD_OPTIONS => self.reload_options(out),
+            notice::SAVE_UI | notice::LOAD_UI => Self::layout_notice(ui, n, out),
             notice::PLAY_SEQUENCE => self.play_sequence(ui, &scenes_of(n), out),
             // The message's string reference goes to the dialog's text element as it is; its
             // second word says whether it goes up at once, in place of the dialog up.
@@ -1293,6 +1307,25 @@ impl GamePlay {
         out.push(Request::SaveLocations);
     }
 
+    /// The scripts' command to write or read the panels' places: its file's name goes with it.
+    // D2-01946, D2-01947
+    fn layout_notice(ui: &Ui, n: &Notice, out: &mut Vec<Request>) {
+        let name = n
+            .records
+            .iter()
+            .flatten()
+            .find_map(|r| match r {
+                Record::Text(t) => ui.assets().write(t),
+                _ => None,
+            })
+            .unwrap_or_default();
+        out.push(if n.native == notice::SAVE_UI {
+            Request::SaveLayout { name }
+        } else {
+            Request::LoadLayout { name }
+        });
+    }
+
     /// The player's options came again: the panels' places put back from them.
     // D2-01964
     pub fn reload_options(&mut self, out: &mut Vec<Request>) {
@@ -1362,10 +1395,16 @@ pub mod layout_file {
         ("<CHAT4>", "ChatWindow4"),
     ];
 
-    /// The file's name: the folder, the character, the world, the screen's width and height.
+    /// The file's name: the name the player gave, or with none the character's, the world's and
+    /// the screen's width and height.
+    // D2-01929
     #[must_use]
-    pub fn path(folder: &str, character: &str, world: &str, width: i32, height: i32) -> String {
-        format!("{folder}UI-{character}-{world}-{width}-{height}.txt")
+    pub fn file_name(name: &str, character: &str, world: &str, width: i32, height: i32) -> String {
+        if name.is_empty() {
+            format!("UI-{character}-{world}-{width}-{height}.txt")
+        } else {
+            format!("{name}.txt")
+        }
     }
 
     /// The file written: each panel's line, its place on the screen and its size.

@@ -8,12 +8,15 @@
 //! - **Put back**: when the player's options come again (each entry into the world brings them),
 //!   the table is read from them; when the display is set up again, it is asked of the player's
 //!   interface. Either way the panels are put where it keeps them.
+//! - **A layout file**: the player's commands write the panels' places to one of the player's files
+//!   and read them back.
 
 use auberean_client_sdk::script::ui_locations::UiLocations;
 use auberean_client_sdk::Client;
 use auberean_ui::framework::{FrameId, Locations};
 use auberean_ui::location::Location;
 use auberean_ui::{Token, Ui};
+use auberean_ui_game::gameplay::layout_file;
 
 /// What the play screen asked of the kept places, waiting for the client.
 #[derive(Debug, Default)]
@@ -23,6 +26,10 @@ pub struct Places {
     /// Put the panels back: from the options that came again (`true`), or as the interface
     /// answers (`false`).
     put_back: Option<bool>,
+    /// A layout file to write, by the name the player gave.
+    save_layout: Option<String>,
+    /// A layout file to read back, by the name the player gave.
+    load_layout: Option<String>,
 }
 
 /// The play screen's kept places, in the order its panels were made, as a table of saved places.
@@ -70,9 +77,44 @@ impl Places {
         self.put_back = Some(reloaded);
     }
 
+    /// The panels' places to be written to a layout file at the next frame.
+    pub fn save_layout(&mut self, name: String) {
+        self.save_layout = Some(name);
+    }
+
+    /// The panels' places to be read back from a layout file at the next frame.
+    pub fn load_layout(&mut self, name: String) {
+        self.load_layout = Some(name);
+    }
+
+    /// A layout file's name, for this character, world and screen when the player gave none.
+    fn layout_name(client: &mut Client, ui: &Ui, name: &str) -> String {
+        let character = client
+            .model
+            .player
+            .and_then(|p| client.object_name(p, 1))
+            .unwrap_or_default();
+        let world = client
+            .friends()
+            .map_or_else(String::new, |f| String::from_utf16_lossy(f.world_name()));
+        let (width, height) = ui.display();
+        layout_file::file_name(name, &character, &world, width, height)
+    }
+
     /// What was asked, through the client: the table kept with the player's options and sent;
-    /// the panels of the play screen (when it is up) put back where the options keep them.
+    /// the panels of the play screen (when it is up) put back where the options keep them; a
+    /// layout file written or read.
     pub fn prepare(&mut self, client: &mut Client, ui: &mut Ui, frame: Option<FrameId>) {
+        if let Some(name) = self.save_layout.take() {
+            let file = Self::layout_name(client, ui, &name);
+            client.write_player_file(&file, layout_file::write(ui).as_bytes());
+        }
+        if let Some(name) = self.load_layout.take() {
+            let file = Self::layout_name(client, ui, &name);
+            if let Some(bytes) = client.read_player_file(&file) {
+                layout_file::read(ui, &String::from_utf8_lossy(&bytes));
+            }
+        }
         if let Some(t) = self.keep.take() {
             client.set_ui_save_locations(t);
             client.upload_ui_settings();
