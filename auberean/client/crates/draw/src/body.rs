@@ -343,6 +343,7 @@ impl BodyDrawer {
                             block: None,
                             far: distance.is_some_and(|d| d > 40.0),
                             ground: None,
+                            lod: None,
                         });
                     }
                 }

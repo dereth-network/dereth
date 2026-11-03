@@ -720,6 +720,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.an-objects-detail-follows-the-camera-every-frame",
+        says: "A placed object's level of detail and materials follow its distance from the camera every frame, not \
+               only when the frame is built again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETAIL-EVERY-FRAME"),
+        station: "auberean-draw::dat::landscape::an_objects_detail_follows_the_camera_every_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.mesh.the-reflection-takes-an-objects-detail-distances-at-40-percent",
+        says: "The water's reflection takes a placed object's detail distances at 40%: its detail falls that much \
+               sooner there than in the frame.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-REFLECTION-DETAIL"),
+        station: "auberean-draw::dat::landscape::the_reflection_takes_an_objects_detail_distances_at_40_percent",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.mesh.the-waters-reflection-reaches-40-percent-of-an-objects-distance",
         says: "The water's reflection shows an object out to 40% of its visible distance.",
         since: RETAIL,

@@ -1236,6 +1236,7 @@ impl<'w> Scene<'w> {
             clock: 0.0,
             told_modes: Vec::new(),
         };
+        scene.builder.camera_moves = true;
         scene.init_preferences(graphics);
         scene
     }

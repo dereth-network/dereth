@@ -4289,7 +4289,12 @@ fn the_applied_graphics_preferences_reach_the_next_frame() {
         s.host.time += 1.0 / 60.0;
         let out = s.frame();
         let f = out.world.expect("the hall drawn");
-        let layers: Vec<_> = f.objects.iter().map(|b| b.layer.clone()).collect();
+        let layers: Vec<_> = f
+            .objects
+            .iter()
+            .filter(|b| b.shown())
+            .map(|b| b.layer.clone())
+            .collect();
         (f.textures, layers)
     };
     let (textures, high) = layers(&mut s);

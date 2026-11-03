@@ -26,7 +26,7 @@ use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
     material_kind, shadow_layer, DrawLayer,
 };
-use crate::mesh::{level_at, vertices, MeshVertex};
+use crate::mesh::{level_at, marked_levels, vertices, MeshVertex};
 use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
@@ -149,7 +149,61 @@ pub struct ObjectBatch {
     /// Where a body stands on the land: its light and specular take the sun's shadow map about
     /// that spot, as they take the shadow the land throws in the tint's color.
     pub ground: Option<Vec3>,
+    /// Which of its object's levels of detail and material it is, for an object that degrades with
+    /// distance; its object has a draw for each it may need before the frame is built again.
+    pub lod: Option<Lod>,
 }
+
+/// One choice of a part's detail and materials among those its distance may give, shown or not
+/// from where the camera stands this frame ([`fade_objects`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lod {
+    distances: auberean_assets::setup::DetailDistances,
+    /// What the distances are scaled by.
+    scale: f32,
+    /// The material detail preference.
+    material_detail: u32,
+    /// The last of the levels the model detail marks.
+    last: usize,
+    /// This draw's place among those levels.
+    level: usize,
+    /// This draw's materials.
+    materials: u32,
+    /// It is what the camera sees of the object this frame.
+    pub shown: bool,
+    /// It is what the water's reflection shows of the object this frame.
+    pub reflected: bool,
+}
+
+impl Lod {
+    /// Whether this draw is the choice for an object at `distance`, in a picture taking its
+    /// distances at `share`.
+    fn is_choice(&self, distance: f32, share: f32) -> bool {
+        crate::mesh::degrade_in(
+            &self.distances,
+            distance,
+            self.scale,
+            share,
+            self.material_detail,
+        )
+        .is_some_and(|g| {
+            crate::mesh::level_place(g.detail, self.last) == self.level
+                && g.material_detail == self.materials
+        })
+    }
+
+    fn update(&mut self, distance: f32) {
+        self.shown = self.is_choice(distance, 1.0);
+        self.reflected = self.is_choice(distance, REFLECTED_DISTANCE);
+    }
+}
+
+/// How much of an object's distances the water's reflection sees it by.
+const REFLECTED_DISTANCE: f32 = 0.4;
+
+/// How much farther or nearer the camera may stand from a part before the frame is built again: the
+/// diagonal of the land cell the frame is built for, and a little.
+const CELL_REACH: f32 = 36.0;
 
 /// A placed object that casts a volume of shadow, as each of its draws carries it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -331,11 +385,15 @@ const FAR_FADE: f32 = 40.0;
 
 /// How opaque each object of the world is drawn from `eye` this frame: at the edge of its visible
 /// distance it fades out, and on a landblock of `blocks` (each with its opacity) it fades in with
-/// the block. Its visible distance past, it is wholly transparent, and not drawn.
+/// the block. Its visible distance past, it is wholly transparent, and not drawn. Each object's
+/// level of detail and materials are chosen here too, from among its draws.
 // D2-03680, D2-03691, D2-03784, D2-03789, D2-06658
 pub fn fade_objects(objects: &mut [ObjectBatch], eye: Vec3, blocks: &[((u8, u8), f32)]) {
     for b in objects {
         let d = b.distance_from(eye);
+        if let Some(lod) = &mut b.lod {
+            lod.update(d);
+        }
         let mut opacity = b.visible.map_or(1.0, |v| crate::mesh::edge_opacity(v, d));
         if let Some((x, y)) = b.block {
             if let Some((_, o)) = blocks
@@ -395,16 +453,29 @@ impl ObjectBatch {
     // D2-06658
     #[must_use]
     pub fn drawn(&self) -> bool {
-        (self.visible.is_none() && self.block.is_none()) || self.tint.a > 0.0
+        let seen = self.lod.is_none_or(|l| l.shown || l.reflected);
+        seen && ((self.visible.is_none() && self.block.is_none()) || self.tint.a > 0.0)
     }
 
-    /// Whether the object is seen in the water's reflection, which reaches 40% of its visible
-    /// distance.
+    /// Whether the draw is what the camera sees of its object from where it stands this frame, as
+    /// against a level of detail only the reflection shows.
+    #[must_use]
+    pub fn shown(&self) -> bool {
+        self.lod.is_none_or(|l| l.shown)
+    }
+
+    /// Whether the draw is seen in the water's reflection, which takes its object's distances at
+    /// 40%: it reaches 40% of its visible distance, and its detail falls that much sooner.
     // D2-06658
     #[must_use]
     pub fn reflected(&self, eye: Vec3) -> bool {
-        self.visible
-            .is_none_or(|v| self.distance_from(eye) <= v * 0.4)
+        self.lod.map_or_else(
+            || {
+                self.visible
+                    .is_none_or(|v| self.distance_from(eye) <= v * REFLECTED_DISTANCE)
+            },
+            |l| l.reflected,
+        )
     }
 
     /// The step an object's draw belongs to, by its object, never its layer: the step it is
@@ -663,6 +734,9 @@ pub struct SceneBuilder<'a> {
     shadow_layers: HashMap<u32, Option<DrawLayer>>,
     /// The model detail preference, 0 to 2.
     pub model_detail: u32,
+    /// Whether a frame is drawn from a camera moving on until the next is built: an object that
+    /// degrades with distance then has a draw for each level it may come to meanwhile.
+    pub camera_moves: bool,
     /// The material detail preference, 0 (low) to 2 (high): which of each material's layers are
     /// drawn.
     pub material_detail: u32,
@@ -830,6 +904,7 @@ impl<'a> SceneBuilder<'a> {
             frill_vertices: HashMap::new(),
             shadow_layers: HashMap::new(),
             model_detail: 2,
+            camera_moves: false,
             material_detail: 2,
             scenery_draw_distance: 2,
             textures: Textures::default(),
@@ -1105,6 +1180,7 @@ impl<'a> SceneBuilder<'a> {
                 block: None,
                 far: false,
                 ground: None,
+                lod: None,
             });
         }
     }
@@ -1168,25 +1244,78 @@ impl<'a> SceneBuilder<'a> {
         // A placed object degrades with distance (its distances drawn in by the scenery draw
         // distance, its materials lowered); a frill keeps the material detail as set.
         let model_detail = usize::try_from(self.model_detail).unwrap_or(2).min(2);
-        let (t, material_detail, visible) = match &part.detail {
-            Some(d) => {
-                let scale = if frill {
-                    1.0
-                } else {
-                    crate::mesh::scenery_scale(self.scenery_draw_distance)
-                };
-                match crate::mesh::degrade(&d[model_detail], distance, scale, self.material_detail)
-                {
-                    Some(g) if frill => (g.detail, self.material_detail, None),
-                    Some(g) => (g.detail, g.material_detail, Some(g.visible)),
+        let scale = if frill {
+            1.0
+        } else {
+            crate::mesh::scenery_scale(self.scenery_draw_distance)
+        };
+        let marked = marked_levels(&mesh, self.model_detail);
+        let Some(last) = marked.len().checked_sub(1) else {
+            return Vec::new();
+        };
+        // One choice unless the object degrades with distance: then each it may come to before the
+        // frame is built again, in the frame and in the water's reflection.
+        let mut choices: Vec<(usize, u32)> = Vec::new();
+        let mut visible = None;
+        let mut lod = None;
+        match &part.detail {
+            Some(d) if frill => {
+                match crate::mesh::degrade(&d[model_detail], distance, 1.0, self.material_detail) {
+                    Some(g) => choices.push((
+                        crate::mesh::level_place(g.detail, last),
+                        self.material_detail,
+                    )),
                     None => return Vec::new(),
                 }
             }
-            None => (1.0, self.material_detail, None),
-        };
-        let Some(level) = level_at(&mesh, t, self.model_detail) else {
-            return Vec::new();
-        };
+            Some(d) => {
+                let d = &d[model_detail];
+                let reach = if self.camera_moves { CELL_REACH } else { 0.0 };
+                let (mut high, mut low): (Option<(usize, u32)>, Option<(usize, u32)>) =
+                    (None, None);
+                for share in [1.0, REFLECTED_DISTANCE] {
+                    let near_end = (distance - reach).max(0.0);
+                    // just short of where it is gone
+                    let far_end =
+                        (distance + reach).min((scale * d.visible).max(20.0) * share * 0.999);
+                    if near_end > far_end {
+                        continue;
+                    }
+                    let ends = [near_end, far_end].map(|at| {
+                        crate::mesh::degrade_in(d, at, scale, share, self.material_detail)
+                    });
+                    for g in ends.into_iter().flatten() {
+                        let at = crate::mesh::level_place(g.detail, last);
+                        high = Some(high.map_or((at, g.material_detail), |(p, m)| {
+                            (p.min(at), m.max(g.material_detail))
+                        }));
+                        low = Some(low.map_or((at, g.material_detail), |(p, m)| {
+                            (p.max(at), m.min(g.material_detail))
+                        }));
+                    }
+                }
+                let (Some((first, top)), Some((end, bottom))) = (high, low) else {
+                    return Vec::new();
+                };
+                for at in first..=end {
+                    for materials in bottom..=top {
+                        choices.push((at, materials));
+                    }
+                }
+                visible = Some((scale * d.visible).max(20.0));
+                lod = Some(Lod {
+                    distances: *d,
+                    scale,
+                    material_detail: self.material_detail,
+                    last,
+                    level: 0,
+                    materials: 0,
+                    shown: false,
+                    reflected: false,
+                });
+            }
+            None => choices.push((crate::mesh::level_place(1.0, last), self.material_detail)),
+        }
         counts.parts += 1;
         let transform = part.transform.then(place);
         // Frills are never culled; anything else standing outdoors by its box: its mesh's box
@@ -1204,42 +1333,54 @@ impl<'a> SceneBuilder<'a> {
             Cull::Box { lo, hi }
         };
         let mut out = Vec::new();
-        for frag in &mesh.levels[level].fragments {
-            let Some(mat) = usize::try_from(frag.material)
-                .ok()
-                .and_then(|k| mesh.materials.get(k))
-            else {
-                continue;
-            };
-            let layers = match &part.look {
-                Some(look) => self.looked_material(look, mesh.kind, mat.0, material_detail),
-                None => self.material_at(mat.0, material_detail),
-            };
-            let indices = Arc::new(frag.indices.clone());
-            for layer in layers {
-                out.push(ObjectBatch {
-                    vertices: verts.clone(),
-                    indices: indices.clone(),
-                    transform,
-                    layer,
-                    tint,
-                    points: PointLights::NONE,
-                    mesh_type: mesh.kind,
-                    shade: None,
-                    outside: false,
-                    cull,
-                    mesh: part.mesh.0,
-                    casts_volume: false,
-                    caster: None,
-                    seen_through: false,
-                    kept_by: None,
-                    anchor: None,
-                    step: None,
-                    visible,
-                    block: None,
-                    far: distance > FAR_FADE,
-                    ground: None,
-                });
+        for (at, materials) in choices {
+            let lod = lod.map(|l: Lod| {
+                let mut l = Lod {
+                    level: at,
+                    materials,
+                    ..l
+                };
+                l.update(distance);
+                l
+            });
+            for frag in &mesh.levels[marked[at]].fragments {
+                let Some(mat) = usize::try_from(frag.material)
+                    .ok()
+                    .and_then(|k| mesh.materials.get(k))
+                else {
+                    continue;
+                };
+                let layers = match &part.look {
+                    Some(look) => self.looked_material(look, mesh.kind, mat.0, materials),
+                    None => self.material_at(mat.0, materials),
+                };
+                let indices = Arc::new(frag.indices.clone());
+                for layer in layers {
+                    out.push(ObjectBatch {
+                        vertices: verts.clone(),
+                        indices: indices.clone(),
+                        transform,
+                        layer,
+                        tint,
+                        points: PointLights::NONE,
+                        mesh_type: mesh.kind,
+                        shade: None,
+                        outside: false,
+                        cull,
+                        mesh: part.mesh.0,
+                        casts_volume: false,
+                        caster: None,
+                        seen_through: false,
+                        kept_by: None,
+                        anchor: None,
+                        step: None,
+                        visible,
+                        block: None,
+                        far: distance > FAR_FADE,
+                        ground: None,
+                        lod,
+                    });
+                }
             }
         }
         out
@@ -1281,6 +1422,7 @@ impl<'a> SceneBuilder<'a> {
                 block: None,
                 far: false,
                 ground: None,
+                lod: None,
             })
             .collect()
     }
@@ -2064,6 +2206,7 @@ impl<'a> SceneBuilder<'a> {
                     block: None,
                     far: false,
                     ground: None,
+                    lod: None,
                 })
                 .collect::<Vec<_>>()
         };
@@ -2169,6 +2312,7 @@ impl<'a> SceneBuilder<'a> {
                 block: None,
                 far: false,
                 ground: None,
+                lod: None,
             })
             .collect()
     }

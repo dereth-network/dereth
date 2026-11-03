@@ -36,6 +36,7 @@ not how it was done.
 - Fixed things that should push you, such as currents, not pushing you.
 - Effects aimed at someone now act on them, and effects make their objects.
 - Fixed walking through solids that hang over a block edge.
+- Objects change detail as you move, not in steps.
 
 ## 0.1.2 (2026-11-02)
 

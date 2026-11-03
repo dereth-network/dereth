@@ -1843,7 +1843,9 @@ impl Renderer {
             draw_group: wgpu::BindGroup,
             texture_group: wgpu::BindGroup,
             env: Env,
-            /// Its object is seen in the water's reflection.
+            /// It is seen in the frame's own picture.
+            shown: bool,
+            /// It is seen in the water's reflection.
             reflected: bool,
         }
         enum Pipe {
@@ -2015,6 +2017,7 @@ impl Renderer {
                     draw_group,
                     texture_group,
                     env,
+                    shown: b.shown(),
                     reflected: b.reflected(frame.camera.position),
                 });
             }
@@ -2084,6 +2087,7 @@ impl Renderer {
                 draw_group,
                 texture_group,
                 env: Env::Outside,
+                shown: true,
                 reflected: true,
             });
         };
@@ -2403,7 +2407,7 @@ impl Renderer {
                     Pass::LateSky => &late,
                 };
                 for d in draws {
-                    if d.reflected || !reflecting {
+                    if if reflecting { d.reflected } else { d.shown } {
                         run(pass, d);
                     }
                 }
@@ -2560,6 +2564,7 @@ impl Renderer {
                     draw_group,
                     texture_group,
                     env: Env::Outside,
+                    shown: true,
                     reflected: true,
                 });
             }

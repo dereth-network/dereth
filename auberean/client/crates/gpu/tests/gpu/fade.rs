@@ -85,6 +85,7 @@ pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
         block: None,
         far: false,
         ground: None,
+        lod: None,
     }
 }
 

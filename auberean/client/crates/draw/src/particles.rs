@@ -1750,6 +1750,7 @@ impl ParticleSet {
                     block: None,
                     far: false,
                     ground: None,
+                    lod: None,
                 });
             }
         };

@@ -525,6 +525,7 @@ impl Passage {
                     block: None,
                     far: false,
                     ground: None,
+                    lod: None,
                 });
             }
         }

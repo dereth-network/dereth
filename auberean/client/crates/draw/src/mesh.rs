@@ -184,7 +184,22 @@ pub fn degrade(
     scale: f32,
     material_detail: u32,
 ) -> Option<Degrade> {
-    let visible = (scale * d.visible).max(20.0);
+    degrade_in(d, distance, scale, 1.0, material_detail)
+}
+
+/// [`degrade`] in a picture that takes the distances at `share` of what they are: the water's
+/// reflection, whose reach comes to that share of the object's visible distance, floor included.
+// D2-06658
+#[must_use]
+pub fn degrade_in(
+    d: &DetailDistances,
+    distance: f32,
+    scale: f32,
+    share: f32,
+    material_detail: u32,
+) -> Option<Degrade> {
+    let visible = (scale * d.visible).max(20.0) * share;
+    let scale = scale * share;
     if distance > visible {
         return None;
     }
@@ -241,24 +256,39 @@ pub fn scenery_scale(scenery_draw_distance: u32) -> f32 {
     }
 }
 
-/// The detail level drawn at detail `t` with model detail `model_detail` (0 to 2): of the levels
-/// marked for that model detail (all of them when none is), the one `(1 - t)` of the way down.
-// D2-05510
+/// The levels of `mesh` marked for model detail `model_detail` (0 to 2), all of them when none is.
 #[must_use]
-pub fn level_at(mesh: &Mesh, t: f32, model_detail: u32) -> Option<usize> {
+pub fn marked_levels(mesh: &Mesh, model_detail: u32) -> Vec<usize> {
     let bit = 1u32 << model_detail;
-    let mut marked: Vec<usize> = (0..mesh.levels.len())
+    let marked: Vec<usize> = (0..mesh.levels.len())
         .filter(|&k| mesh.levels[k].detail & bit != 0)
         .collect();
     if marked.is_empty() {
-        marked = (0..mesh.levels.len()).collect();
+        (0..mesh.levels.len()).collect()
+    } else {
+        marked
     }
-    let last = marked.len().checked_sub(1)?;
+}
+
+/// Which of the levels up to `last` detail `t` draws: the one `(1 - t)` of the way down.
+// D2-05510
+#[must_use]
+pub fn level_place(t: f32, last: usize) -> usize {
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
     let k = ((1.0 - t) * last as f32) as usize;
-    marked.get(k.min(last)).copied()
+    k.min(last)
+}
+
+/// The detail level drawn at detail `t` with model detail `model_detail` (0 to 2): of the levels
+/// marked for that model detail (all of them when none is), the one `(1 - t)` of the way down.
+// D2-05510
+#[must_use]
+pub fn level_at(mesh: &Mesh, t: f32, model_detail: u32) -> Option<usize> {
+    let marked = marked_levels(mesh, model_detail);
+    let last = marked.len().checked_sub(1)?;
+    marked.get(level_place(t, last)).copied()
 }

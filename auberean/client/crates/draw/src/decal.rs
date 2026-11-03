@@ -602,6 +602,7 @@ pub fn decal_batches(
                 block: None,
                 far: false,
                 ground: None,
+                lod: None,
             });
         }
     }

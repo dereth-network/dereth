@@ -133,6 +133,7 @@ fn fade_batch(anchor: Vec3) -> ObjectBatch {
         block: None,
         far: false,
         ground: None,
+        lod: None,
     }
 }
 

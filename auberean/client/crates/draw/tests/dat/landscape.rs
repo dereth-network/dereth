@@ -1,6 +1,6 @@
 //! How far the landscape reaches and where frills are drawn, at the camp of block `0xC156`.
 
-use auberean_draw::scene::{SceneBuilder, Spot};
+use auberean_draw::scene::{fade_objects, SceneBuilder, Spot};
 use auberean_primitives::Vec3;
 
 use crate::common::install;
@@ -426,4 +426,112 @@ fn what_stands_on_the_land_takes_the_lands_shadow() {
         placed += 1;
     }
     assert!(placed > 0, "{placed}");
+}
+
+/// What a frame draws of each placed object, by the object's mesh and place: the draws it has.
+fn placed(f: &auberean_draw::scene::Frame) -> std::collections::HashMap<String, Vec<usize>> {
+    let mut objects: std::collections::HashMap<String, Vec<usize>> = Default::default();
+    for (k, b) in f.objects.iter().enumerate() {
+        if b.lod.is_some() {
+            objects
+                .entry(format!("{:x} {:?}", b.mesh, b.transform))
+                .or_default()
+                .push(k);
+        }
+    }
+    objects
+}
+
+/// How many indices of the draws `of` pass `which`, read from the frame `f`.
+fn indices_of(
+    f: &auberean_draw::scene::Frame,
+    of: &[usize],
+    which: impl Fn(&auberean_draw::scene::ObjectBatch) -> bool,
+) -> usize {
+    of.iter()
+        .map(|&k| &f.objects[k])
+        .filter(|b| which(b))
+        .map(|b| b.indices.len())
+        .sum()
+}
+
+/// With the frame built once, the camera moving on within its land cell still finds each placed
+/// object's draw for the distance it has come to: some objects step to another level of detail, and
+/// none in sight is left with nothing to draw.
+///
+/// Behaviour: draw.mesh.an-objects-detail-follows-the-camera-every-frame
+#[test]
+fn an_objects_detail_follows_the_camera_every_frame() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.camera_moves = true;
+    b.set_far_radius(0);
+    let s = spot();
+    let mut f = b.frame(&s, 60.0);
+    let objects = placed(&f);
+    assert!(!objects.is_empty(), "the camp's objects");
+    let (from, to) = (
+        s.position,
+        Vec3::new(s.position.x + 20.0, s.position.y + 20.0, s.position.z),
+    );
+    fade_objects(&mut f.objects, from, &[]);
+    let before: Vec<(&String, usize)> = objects
+        .iter()
+        .map(|(o, of)| (o, indices_of(&f, of, |b| b.shown())))
+        .collect();
+    fade_objects(&mut f.objects, to, &[]);
+    let mut stepped = 0;
+    for (o, was) in before {
+        let of = &objects[o];
+        let first = &f.objects[of[0]];
+        let distance = first.distance_from(to);
+        let now = indices_of(&f, of, |b| b.shown());
+        if first.visible.is_some_and(|v| distance < v * 0.99) {
+            assert!(now > 0, "{o} at {distance} has a draw");
+        }
+        if now != was && now > 0 && was > 0 {
+            stepped += 1;
+        }
+    }
+    assert!(stepped > 0, "some object steps to another level");
+}
+
+/// The water's reflection takes an object's distances at 40%, its detail falling that much sooner:
+/// an object it still shows may stand at a lower level there than in the frame.
+///
+/// Behaviour: draw.mesh.the-reflection-takes-an-objects-detail-distances-at-40-percent
+#[test]
+fn the_reflection_takes_an_objects_detail_distances_at_40_percent() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.camera_moves = true;
+    b.set_far_radius(0);
+    let s = spot();
+    let mut f = b.frame(&s, 60.0);
+    let objects = placed(&f);
+    fade_objects(&mut f.objects, s.position, &[]);
+    let mut lower = 0;
+    for of in objects.values() {
+        let shown = indices_of(&f, of, |b| b.shown());
+        let reflected = indices_of(&f, of, |b| b.reflected(s.position));
+        assert!(
+            of.iter().all(|&k| {
+                let b = &f.objects[k];
+                let d = b.distance_from(s.position);
+                !b.reflected(s.position) || b.visible.is_none_or(|v| d <= v * 0.4)
+            }),
+            "none past 40% of its visible distance"
+        );
+        if reflected > 0 && reflected < shown {
+            lower += 1;
+        }
+    }
+    assert!(
+        lower > 0,
+        "some object shows fewer triangles in the reflection"
+    );
 }
