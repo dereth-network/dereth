@@ -120,6 +120,8 @@ pub fn is_admin_call(function: u32) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AdminCalls {
     pub refused: BTreeMap<u32, u64>,
+    /// How many refusals were logged: one a character in each stay in the world.
+    pub logged: u64,
 }
 
 /// What an admin's commands have set on it: nothing is kept past its stay in the world.
@@ -188,19 +190,29 @@ pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
     crate::kingdoms::settle_ethereality(s, net, world);
 }
 
-/// Refuse a call: counted and logged, and nothing is answered.
+/// Refuse a call: counted, and nothing is answered. The first from a character in each stay in the
+/// world is logged, and those after it only counted: a client can send them as fast as it can send.
 fn refuse<S: Store>(s: &mut Server<S>, world: ConnId, function: u32) {
     *s.admin_calls.refused.entry(function).or_default() += 1;
-    let p = s.players.get(&world);
-    let account = p
-        .and_then(|p| s.sessions.get(&p.login))
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if std::mem::replace(&mut p.refused_admin_call, true) {
+        return;
+    }
+    s.admin_calls.logged += 1;
+    let p = &s.players[&world];
+    let account = s
+        .sessions
+        .get(&p.login)
         .map_or("", |x| x.account.name.as_str());
-    let character = p.map_or("", |p| p.name.as_str());
+    let character = p.name.as_str();
     tracing::warn!(
         account,
         character,
         function = format_args!("{function:#010x}"),
-        "refused: an admin call from anyone but an admin character of an admin's account"
+        "refused: an admin call from anyone but an admin character of an admin's account (any more \
+         from it this stay are only counted)"
     );
 }
 

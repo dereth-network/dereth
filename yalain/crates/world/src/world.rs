@@ -94,6 +94,8 @@ pub struct Player {
     pub scene_drawn: bool,
     /// The object it has selected (0 for none).
     pub selection: u64,
+    /// An admin call of its was refused and logged this stay.
+    pub refused_admin_call: bool,
     /// The stamp of its last movement order.
     pub move_to_stamp: u16,
     /// A use it is being walked toward: the use and the reach it needs.
@@ -359,6 +361,7 @@ pub fn enter<S: Store>(
         qualities: st.qualities.clone(),
         scene_drawn: false,
         selection: 0,
+        refused_admin_call: false,
         move_to_stamp: 0,
         walking_to: None,
         giving: None,

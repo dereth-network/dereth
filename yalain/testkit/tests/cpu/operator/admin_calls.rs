@@ -1208,3 +1208,28 @@ fn a_walk_to_someone_who_cloaks_on_the_way_comes_to_nothing() {
     h.run(10);
     assert!(h.functions(me, from).is_empty(), "the admin hears nothing");
 }
+
+/// A client sending refused admin calls as fast as it can fills no log: the first from a character
+/// in each stay is logged, every one is counted.
+/// Behaviour: server.admin.refused-calls-log-one-line
+#[test]
+fn refused_admin_calls_log_one_line_a_stay_however_many_come() {
+    let mut h = Harness::new();
+    let (player, _) = h.player_in_world("one", "Elara");
+    let (other, _) = h.player_in_world("two", "Babyfare");
+    for f in [
+        0x8201_0017u32,
+        0x8201_0061,
+        0x8201_0017,
+        0x8201_0088,
+        0x8201_0017,
+    ] {
+        h.bots[player].send(true, queue::WEENIE, &server_call(f, &[]));
+    }
+    h.run(10);
+    assert_eq!(h.server.admin_calls.refused[&0x8201_0017], 3, "all counted");
+    assert_eq!(h.server.admin_calls.logged, 1, "one line");
+    h.bots[other].send(true, queue::WEENIE, &server_call(0x8201_0017, &[]));
+    h.run(10);
+    assert_eq!(h.server.admin_calls.logged, 2, "one for another character");
+}
