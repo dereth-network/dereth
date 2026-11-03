@@ -451,6 +451,47 @@ fn the_networks_command_said_aloud_is_heard_by_nobody_and_kept_for_the_friends_s
     assert_eq!(chat::network_words("hello @dn"), None);
 }
 
+/// `@derethnetwork` is `@dn` spelled out, and `@dng <text>` is `@dn global <text>` made short: each
+/// is heard by nobody and kept with its words. A word that only begins with the letters is said.
+/// Behaviour: server.friends.dn-spelled-out-and-dng
+#[test]
+fn derethnetwork_and_dng_are_the_networks_command_under_other_names() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let fb = h.bots[b].inbox.len();
+    for line in [
+        "@DerethNetwork on",
+        "@derethnetwork",
+        "@dng hello all",
+        "@DNG",
+    ] {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal(line)]),
+        );
+    }
+    h.run(30);
+    assert_eq!(heard(&h, b, fb, ida), 0);
+    let kept: Vec<String> = h
+        .server
+        .network_commands
+        .drain(..)
+        .map(|c| c.words)
+        .collect();
+    assert_eq!(kept, ["on", "", "global hello all", "global"]);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SAY, &[Arg::Int(0), literal("@dngs is a word")]),
+    );
+    h.run(30);
+    assert_eq!(heard(&h, b, fb, ida), 1, "said as any other line");
+    assert!(h.server.network_commands.is_empty());
+}
+
 /// The Dereth Network's command said into a chat room is answered as the room's request, and
 /// reaches nobody, not even as the speaker's own echo.
 /// Behaviour: server.friends.dn-said-in-chat

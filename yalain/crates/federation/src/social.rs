@@ -157,6 +157,7 @@ impl Federation {
         }
         self.tell_watchers(friends, name, None);
         self.watch_friends_of(friends, name, true);
+        self.watch_person(name, true);
     }
 
     /// A character is no longer present: what its friends' worlds told it is forgotten, and if
@@ -173,6 +174,7 @@ impl Federation {
         }
         self.tell_watchers(friends, name, Some(false));
         self.watch_friends_of(friends, name, false);
+        self.watch_person(name, false);
     }
 
     /// Puts a character of this world on the network, or takes it off, at once: kept in the
@@ -222,6 +224,7 @@ impl Federation {
         if self.enabled() && friends.present(name).is_some() {
             self.tell_watchers(friends, name, Some(false));
             self.watch_friends_of(friends, name, false);
+            self.watch_person(name, false);
         }
         let character = name.to_lowercase();
         self.presence.retain(|(c, _), _| *c != character);

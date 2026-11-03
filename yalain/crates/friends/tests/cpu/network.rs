@@ -40,8 +40,10 @@ fn another_worlds_friend_is_watched_and_its_state_shown_once_the_character_is_on
         },
     );
     assert!(w.take(ann).is_empty(), "answered when its world answers");
+    let mut sent = w.frames();
+    sent.retain(|m| !matches!(m, Message::PersonWatch { .. }));
     assert_eq!(
-        w.frames(),
+        sent,
         vec![Message::Watch {
             owner: addr("Ann@dawnsong"),
             target: addr("Bob@coldeve"),

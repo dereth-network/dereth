@@ -15,10 +15,10 @@
 //!
 //! **Specified in** `docs/network/02-link-protocol.md` (the messages, the order of a link, who
 //! answers what, the rate limits), `03-world-behaviour.md` (the rules a world keeps: sections 1, 2,
-//! 5, 7, 8 and 10) and `04-text-rules.md`. It carries `hello`, `welcome`, `world`, `watch`,
-//! `presence`, `tell`, `tell.result`, `error` and the directory's `listing`, `listing.result` and
-//! `listing.off`, and skips every other family (rooms, channels, persons, reach, say), as a world
-//! that does not carry a family may.
+//! 4, 5, 7, 8, 9 and 10) and `04-text-rules.md`. It carries `hello`, `welcome`, `world`, `watch`,
+//! `presence`, `tell`, `tell.result`, `error`, the channels', the persons' (all but a person's
+//! friends), `reach` and the directory's `listing`, `listing.result` and `listing.off`, and skips
+//! the rest (rooms, say), as a world that does not carry a family may.
 //!
 //! - **On the network.** Every character starts off it; its player puts it on (and the setting is
 //!   kept in the store). Only a character on the network is seen online by other worlds, may tell
@@ -38,6 +38,11 @@
 //! - **The directory** (`directory`): a character on the network is listed with its profile, which
 //!   the world composes and hands in at login, while it plays and at logout; it is taken out when
 //!   it goes off the network.
+//! - **Persons** (`persons`): `@dn link` and `@dn unlink` ask the hub on a character's behalf, the
+//!   person view says whether it is linked, and `reach` lets a tell to it, away, go on to its
+//!   person's Discord.
+//! - **Channels** (`channels`): `@dn channel ...` asks the hub, and an invitation or a channel's
+//!   line is shown as a tell would be.
 //! - **Verifying the world** (`verify`): the operator's `dn verify <token>`, at the console or
 //!   said by an admin in game, goes to the hub through the host, and while it waits the world
 //!   answers the hub's challenge to its game port, which the host hands in.
@@ -46,9 +51,11 @@
 //! [`Federation::on_link_down`], [`Federation::take_frames`], [`Federation::tick`] and
 //! [`Federation::keep`]; a test drives the same calls on virtual time.
 
+mod channels;
 mod chatter;
 pub mod directory;
 mod operator;
+mod persons;
 mod social;
 mod tells;
 mod verify;
@@ -57,13 +64,16 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
 use dereth_network_protocol::wire::{WireError, PROTOCOL};
-use dereth_network_protocol::{Address, DirectoryMessage, Message, WorldInfo};
+use dereth_network_protocol::{
+    Address, ChannelOp, DirectoryMessage, Message, PersonOp, ReachMessage, WorldInfo,
+};
 use yalain_store::{Store, StoreResult};
 
 use chatter::Chatter;
 use directory::Directory;
 
-pub use operator::HELP;
+pub use operator::{HELP, IN_GAME_HELP};
+pub use persons::{ASKED_RECORD, NOW_LINKED, PAUSED};
 pub use verify::{
     answer_line, is_verification_token, unreachable_line, ChallengeAnswer, VerifyRequest, ASKING,
     KEY_UNKNOWN, MAX_BY_CHARS, MAX_MESSAGE_CHARS, NOT_SENT, ON_ITS_WAY, VERIFY_HELP,
@@ -109,6 +119,9 @@ pub const WORLD_OFF: &str = "This world is not on the Dereth Network.";
 /// What a character sending faster than its own share of the hub's limits is told.
 pub const TOO_QUICKLY: &str =
     "You are sending to the Dereth Network too quickly. Wait a moment and try again.";
+
+/// What `@dn global` and `@dng` answer: a world of this game carries no Global room.
+pub const NO_GLOBAL_ROOM: &str = "This world does not carry the Global room.";
 
 /// What a teller is told when its tell waited too long without a link.
 pub const UNAVAILABLE: &str = "The Dereth Network is unavailable.";
@@ -176,6 +189,13 @@ pub trait Friends {
 
     /// A tell a character sent another world has ended ([`Federation::tell`]).
     fn tell_ended(&mut self, tell: TellId, end: TellEnd);
+
+    /// Whether a character of this world (by name, any case) is in the world, with a friends
+    /// stream or not.
+    fn in_world(&self, name: &str) -> bool;
+
+    /// Show a character of this world one of the network's lines, if it is in the world.
+    fn show_line(&mut self, character: u64, line: &str);
 }
 
 /// The friends service's mark for one of its tells, handed back when it ends.
@@ -214,6 +234,8 @@ pub enum Ended {
     WorldOff,
     /// Not sent: the teller sends faster than its own pace.
     TooQuickly,
+    /// Not shown: the teller is not a member of the channel it told (the line says so).
+    NotMember,
     /// Not sent, or not answered: the link was down too long (the line says the network is
     /// unavailable), or no answer came in time (the line says the recipient's world cannot be
     /// reached).
@@ -276,6 +298,29 @@ struct Pending {
     sent: Option<f64>,
 }
 
+/// A player's request of the hub not yet answered.
+#[derive(Debug, Clone)]
+struct Ask {
+    character: u64,
+    kind: AskKind,
+    /// When it was handed to the link; none while it waits for one.
+    sent: Option<f64>,
+}
+
+/// What a request asks, which decides what its answer shows.
+#[derive(Debug, Clone)]
+enum AskKind {
+    /// A person request. Quiet: the world's own, whose answer shows nothing.
+    Person {
+        op: PersonOp,
+        quiet: bool,
+    },
+    Channel {
+        op: ChannelOp,
+        who: Option<Address>,
+    },
+}
+
 /// What a local character has been shown of one friend on another world, beside what the
 /// friend's world last said. See [`PRESENCE_PACE`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -336,6 +381,16 @@ pub struct Federation {
     directory: Directory,
     /// The operator's `dn verify` waiting for the hub.
     verification: verify::Verification,
+    /// Person and channel requests not yet answered.
+    asks: HashMap<String, Ask>,
+    /// The characters that asked for a link (by id), kept: a link holds only for them.
+    asked_link: BTreeSet<u64>,
+    /// What the person view last said of each present character on the network, by its name in
+    /// small letters: whether it is linked.
+    linked: HashMap<String, bool>,
+    /// Person view requests: sent after the tells and answers, only while the link is up (a welcome
+    /// sends them again).
+    person_watches: VecDeque<Message>,
 }
 
 impl Federation {
@@ -368,6 +423,10 @@ impl Federation {
             pace: None,
             directory: Directory::default(),
             verification: verify::Verification::default(),
+            asks: HashMap::new(),
+            asked_link: BTreeSet::new(),
+            linked: HashMap::new(),
+            person_watches: VecDeque::new(),
         }
     }
 
@@ -386,6 +445,7 @@ impl Federation {
         }
         f.blocked = store.network_blocks()?.into_iter().collect();
         f.directory = Directory::load(store.world_record(directory::RECORD)?.as_deref());
+        f.asked_link = persons::read_asked(store.world_record(ASKED_RECORD)?.as_deref());
         Ok(f)
     }
 
@@ -520,13 +580,15 @@ impl Federation {
 
     /// Queues an answer owed to `world`.
     fn owe(&mut self, t: f64, world: &str, message: &Message) {
+        self.owe_frame(t, world, message.to_json());
+    }
+
+    /// Queues an answer owed to `world`, as its frame.
+    fn owe_frame(&mut self, t: f64, world: &str, frame: String) {
         self.answers
             .entry(world.to_owned())
             .or_default()
-            .push_back(Owed {
-                at: t,
-                frame: message.to_json(),
-            });
+            .push_back(Owed { at: t, frame });
     }
 
     /// The next answer owed, from the world after the one answered last.
@@ -586,12 +648,19 @@ impl Federation {
         self.directory_down();
         // The hub answers for this world every tell it had not answered when the link went.
         self.answers.clear();
+        self.person_watches.clear();
         for m in std::mem::take(&mut self.in_flight).into_iter().rev() {
-            if let Message::Tell { id, .. } = &m {
-                if let Some(p) = self.pending.get_mut(id) {
-                    p.sent = None;
-                    self.outbox.push_front(Queued { at: t, message: m });
+            let waiting = match &m {
+                Message::Tell { id, .. } => {
+                    self.pending.get_mut(id).map(|p| p.sent = None).is_some()
                 }
+                Message::Channel { id, .. } | Message::Person { id, .. } => {
+                    self.asks.get_mut(id).map(|a| a.sent = None).is_some()
+                }
+                _ => false,
+            };
+            if waiting {
+                self.outbox.push_front(Queued { at: t, message: m });
             }
         }
         tracing::info!("Dereth Network: the link to the hub is down");
@@ -634,11 +703,20 @@ impl Federation {
                 while pace.has(t) {
                     if let Some(q) = self.outbox.pop_front() {
                         pace.take(t);
-                        if let Message::Tell { id, .. } = &q.message {
-                            if let Some(p) = self.pending.get_mut(id) {
-                                p.sent = Some(t);
+                        match &q.message {
+                            Message::Tell { id, .. } => {
+                                if let Some(p) = self.pending.get_mut(id) {
+                                    p.sent = Some(t);
+                                }
+                                self.in_flight.push(q.message.clone());
                             }
-                            self.in_flight.push(q.message.clone());
+                            Message::Channel { id, .. } | Message::Person { id, .. } => {
+                                if let Some(a) = self.asks.get_mut(id) {
+                                    a.sent = Some(t);
+                                }
+                                self.in_flight.push(q.message.clone());
+                            }
+                            _ => {}
                         }
                         out.push(q.message.to_json());
                         continue;
@@ -646,6 +724,11 @@ impl Federation {
                     if let Some(frame) = self.next_answer() {
                         pace.take(t);
                         out.push(frame);
+                        continue;
+                    }
+                    if let Some(m) = self.person_watches.pop_front() {
+                        pace.take(t);
+                        out.push(m.to_json());
                         continue;
                     }
                     if let Some(m) = self.chatter.pop_ready(t, share) {
@@ -675,7 +758,11 @@ impl Federation {
             Ok(m) => self.on_message(friends, t, m),
             Err(WireError::Unknown(_)) => match DirectoryMessage::from_json(text) {
                 Ok(m) => self.on_directory(friends, t, m),
-                Err(WireError::Unknown(_)) => {}
+                Err(WireError::Unknown(_)) => match ReachMessage::from_json(text) {
+                    Ok(m) => self.on_reach(friends, t, m),
+                    Err(WireError::Unknown(_)) => {}
+                    Err(e) => tracing::debug!("Dereth Network: skipped a frame from the hub: {e}"),
+                },
                 Err(e) => tracing::debug!("Dereth Network: skipped a frame from the hub: {e}"),
             },
             Err(e) => tracing::debug!("Dereth Network: skipped a frame from the hub: {e}"),
@@ -709,6 +796,7 @@ impl Federation {
                     self.worlds_online()
                 );
                 self.directory_welcomed(t);
+                self.watch_every_person(friends);
                 // What was queued goes first (it is in the outbox already); the watches of
                 // everyone present, for the worlds online now, after. A world the hub names
                 // later is watched when it does.
@@ -746,6 +834,40 @@ impl Federation {
                 outcome,
                 message,
             } => self.on_result(friends, &id, outcome, message.as_deref()),
+            Message::PersonResult {
+                id,
+                outcome,
+                code,
+                expires_secs,
+                url,
+                ..
+            } => self.on_person_result(
+                friends,
+                &id,
+                outcome,
+                code.as_deref(),
+                url.as_deref(),
+                expires_secs,
+            ),
+            Message::PersonFriends { to, linked, .. } => {
+                self.on_person_view(friends, t, &to, linked);
+            }
+            Message::ChannelResult {
+                id,
+                outcome,
+                channel,
+                members,
+                channels,
+            } => self.on_channel_result(friends, &id, outcome, &channel, &members, &channels),
+            Message::ChannelInvite { channel, by, to } => {
+                self.on_channel_invite(friends, t, &channel, &by, &to);
+            }
+            Message::ChannelLine {
+                channel,
+                from,
+                to,
+                text,
+            } => self.on_channel_line(friends, t, &channel, &from, &to, &text),
             Message::Error { code, message } => {
                 tracing::warn!("Dereth Network: the hub reports {code}: {message}");
             }
@@ -772,8 +894,12 @@ impl Federation {
             keep
         });
         for m in expired {
-            if let Message::Tell { id, .. } = m {
-                self.give_up(friends, &id);
+            match m {
+                Message::Tell { id, .. } => self.give_up(friends, &id),
+                Message::Channel { id, .. } | Message::Person { id, .. } => {
+                    self.give_up_ask(friends, &id);
+                }
+                _ => {}
             }
         }
         // An answer the hub has stopped waiting for is of no use to anyone.
@@ -793,9 +919,19 @@ impl Federation {
         for id in late {
             self.give_up(friends, &id);
         }
-        let pending = &self.pending;
+        let late: Vec<String> = self
+            .asks
+            .iter()
+            .filter(|(_, a)| a.sent.is_some_and(|s| t - s >= timeout))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for id in late {
+            self.give_up_ask(friends, &id);
+        }
+        let (pending, asks) = (&self.pending, &self.asks);
         self.in_flight.retain(|m| match m {
             Message::Tell { id, .. } => pending.contains_key(id),
+            Message::Channel { id, .. } | Message::Person { id, .. } => asks.contains_key(id),
             _ => false,
         });
         self.sends.retain(|_, b| !b.full_at(t));

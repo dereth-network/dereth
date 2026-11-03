@@ -9,15 +9,19 @@
 //! dn help                             these lines
 //! ```
 //!
+//! `dn admin block ...` and `dn admin unblock ...` are the same, as they are typed in game
+//! (`@dn admin ...`, an admin's alone). `dn admin global` says what the world carries.
+//!
 //! A block refuses what the world or character sends (a tell is answered `offline`, a watch
 //! `offline` and then told nothing), and what this world's characters send it (a tell ends as to
 //! a character not available); it takes hold at once, and lifting it gives back what it took.
 
 use dereth_network_protocol::address::is_slug;
+use dereth_network_protocol::say::without_mark;
 use dereth_network_protocol::Address;
 use yalain_store::Store;
 
-use crate::{Federation, Friends, LinkState, VERIFY_HELP, WORLD_OFF};
+use crate::{Federation, Friends, LinkState, NO_GLOBAL_ROOM, VERIFY_HELP, WORLD_OFF};
 
 /// The commands, one line each.
 pub const HELP: &[&str] = &[
@@ -25,6 +29,14 @@ pub const HELP: &[&str] = &[
     "dn block <world or Name@world> - block a world or a character for everyone on this world",
     "dn unblock <world or Name@world> - lift a block",
     VERIFY_HELP,
+];
+
+/// The operator's commands as they are said in game, one line each.
+pub const IN_GAME_HELP: &[&str] = &[
+    "@dn admin block <world or Name@world> - block a world or a character for everyone on this world",
+    "@dn admin unblock <world or Name@world> - lift a block",
+    "@dn admin block - show the blocks and the network's state",
+    "@dn verify <token> - verify this world with the token the site gave you",
 ];
 
 /// Who a verification typed at the console names as its maker, for the hub's log.
@@ -53,17 +65,70 @@ impl Federation {
         if let ["verify", args @ ..] = words {
             return vec![self.verify(t, None, CONSOLE, args)];
         }
+        if let ["admin", rest @ ..] = words {
+            return self.operator_words(store, friends, rest, HELP);
+        }
         if !matches!(words, [] | ["block" | "unblock", ..]) {
             return help();
         }
         if !self.enabled() {
             return vec![WORLD_OFF.to_owned()];
         }
+        self.block_words(store, friends, words)
+    }
+
+    /// `@dn admin` and the words after it, said in game by an admin's character: the lines
+    /// to answer it with.
+    pub fn operator_said(
+        &mut self,
+        store: &mut impl Store,
+        friends: &mut impl Friends,
+        words: &[&str],
+    ) -> Vec<String> {
+        self.operator_words(store, friends, words, IN_GAME_HELP)
+    }
+
+    /// The words after `admin`: anything but `block`, `unblock` or `global` is the help.
+    fn operator_words(
+        &mut self,
+        store: &mut impl Store,
+        friends: &mut impl Friends,
+        words: &[&str],
+        help: &[&str],
+    ) -> Vec<String> {
+        let first = words.first().map(|w| w.to_ascii_lowercase());
+        let words: Vec<&str> = first
+            .iter()
+            .map(String::as_str)
+            .chain(words.iter().skip(1).copied())
+            .collect();
+        let words = words.as_slice();
+        if !matches!(words, ["block" | "unblock" | "global", ..]) {
+            return help.iter().map(|&l| l.to_owned()).collect();
+        }
+        if !self.enabled() {
+            return vec![WORLD_OFF.to_owned()];
+        }
+        if let ["global", ..] = words {
+            return vec![NO_GLOBAL_ROOM.to_owned()];
+        }
+        self.block_words(store, friends, words)
+    }
+
+    /// A block's words, the network on: `block` or `unblock` and what it names, or with nothing
+    /// after them (or no words at all) the state of the link and what is blocked.
+    fn block_words(
+        &mut self,
+        store: &mut impl Store,
+        friends: &mut impl Friends,
+        words: &[&str],
+    ) -> Vec<String> {
         let (op, named) = match words {
             [] | ["block" | "unblock"] => return self.status(),
             [op, rest @ ..] => (*op, rest.join(" ")),
         };
-        let key = match Address::parse(&named) {
+        let named = without_mark(&named);
+        let key = match Address::parse(named) {
             Ok(a) => a.key(),
             Err(_) if is_slug(&named.to_ascii_lowercase()) => named.to_ascii_lowercase(),
             Err(_) => return vec![HELP[if op == "block" { 1 } else { 2 }].to_owned()],

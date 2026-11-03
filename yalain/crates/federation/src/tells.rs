@@ -57,9 +57,11 @@ fn answered(to: &Address, outcome: Outcome, message: Option<&str>) -> TellEnd {
         Outcome::Delivered | Outcome::Ok => (Ended::Delivered, None),
         Outcome::Afk => (Ended::Away, Some(away_line(to, message))),
         Outcome::Squelched => (Ended::Squelched, None),
-        // A channel is not a family this world carries: its answers end a tell as an unknown
-        // name's does.
-        Outcome::Offline | Outcome::NotMember => (Ended::Offline, None),
+        Outcome::Offline => (Ended::Offline, None),
+        Outcome::NotMember => (
+            Ended::NotMember,
+            Some(format!("You are not a member of {to}.")),
+        ),
         Outcome::Unavailable => (Ended::Unavailable, Some(cannot_reach(to))),
         Outcome::NotOnNetwork => (
             Ended::NotOnNetwork,
@@ -86,8 +88,8 @@ impl Federation {
     /// here, else when the hub answers, or when it is given up on ([`Federation::tick`]).
     ///
     /// Refused here: from a world off the network; from a character off the network; to a
-    /// world or character the operator blocks, or a channel (not shown, as an unknown name);
-    /// past the teller's own pace. The text is cut to what a link message carries.
+    /// world or character the operator blocks (not shown, as an unknown name); past the teller's
+    /// own pace. The text is cut to what a link message carries.
     pub fn tell(
         &mut self,
         friends: &mut impl Friends,
@@ -105,7 +107,7 @@ impl Federation {
             friends.tell_ended(tell, refused(Ended::NotOn, Some(NOT_ON)));
             return;
         };
-        if to.world() == self.settings.slug || to.is_channel() || self.blocked(to) {
+        if to.world() == self.settings.slug || self.blocked(to) {
             friends.tell_ended(tell, refused(Ended::Offline, None));
             return;
         }

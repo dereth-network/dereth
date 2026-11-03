@@ -825,7 +825,7 @@ impl Service {
                     if online { Mode::ONLINE } else { Mode::OFFLINE },
                 )
             }
-            Target::NoSuchUser => (entry.to_owned(), Mode::OFFLINE),
+            Target::Channel(_) | Target::NoSuchUser => (entry.to_owned(), Mode::OFFLINE),
         }
     }
 
@@ -1023,6 +1023,16 @@ impl Service {
         self.lists
             .get(&character)
             .is_some_and(|l| l.of(list).iter().any(|e| e.to_lowercase() == key))
+    }
+
+    /// How many whole worlds a character squelches.
+    fn count_worlds(&self, character: u64) -> usize {
+        self.lists.get(&character).map_or(0, |l| {
+            l.ignored
+                .iter()
+                .filter(|e| names::is_world_entry(e))
+                .count()
+        })
     }
 
     /// How many names a character lists.

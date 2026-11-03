@@ -1,8 +1,10 @@
 //! The world's half of the network, driven as the host drives it, on virtual time, with a friends
 //! service of the test's own.
 
+mod channels;
 mod directory;
 mod operator;
+mod persons;
 mod presence;
 mod tells;
 mod verify;
@@ -30,6 +32,10 @@ pub struct Service {
     pub tells: Vec<(String, Address, String)>,
     pub states: Vec<(String, Address, bool, bool)>,
     pub ended: Vec<(TellId, TellEnd)>,
+    /// Characters in the world without a stream, by name in small letters.
+    pub in_world: Vec<String>,
+    /// The network's lines shown, with the character each was for.
+    pub lines: Vec<(u64, String)>,
 }
 
 impl Friends for Service {
@@ -66,6 +72,15 @@ impl Friends for Service {
 
     fn tell_ended(&mut self, tell: TellId, end: TellEnd) {
         self.ended.push((tell, end));
+    }
+
+    fn in_world(&self, name: &str) -> bool {
+        let name = name.to_lowercase();
+        self.present.contains_key(&name) || self.in_world.contains(&name)
+    }
+
+    fn show_line(&mut self, character: u64, line: &str) {
+        self.lines.push((character, line.to_owned()));
     }
 }
 

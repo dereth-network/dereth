@@ -2073,6 +2073,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.dn-channel-said",
+        says: "Said @dn channel asks the hub, given rightly and on the network, and the hub's \
+               answer comes as a line; given wrongly it is its help line, a bad name the rule for \
+               names, a gagged character the gag's line. A tell to a channel goes through the link; \
+               squelching a channel's address leaves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-CHANNEL-SAID"),
+        station: "yalain-friends::cpu::commands::dn_channel_asks_the_hub_and_a_squelch_of_a_channel_leaves_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.dn-friends-said",
+        says: "Said @dn friends lists the character's friends on other worlds with their state; add \
+               and remove do what the client's own add and delete do, with no request to answer, \
+               and say so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-FRIENDS-SAID"),
+        station: "yalain-friends::cpu::commands::dn_friends_lists_adds_and_removes_friends_on_other_worlds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.dn-global-not-carried",
+        says: "Said @dn global says the world carries no Global room, and a character off the \
+               network that it is off. No line goes anywhere.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-GLOBAL"),
+        station: "yalain-friends::cpu::commands::dn_global_says_the_world_carries_no_global_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.dn-link-said",
+        says: "Said @dn link asks the hub and its answer comes as a line; @dn status reads as @dn, \
+               which says a linked character is linked and names its directory page; @dn off says a \
+               linked character's link is paused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-LINK-SAID"),
+        station: "yalain-friends::cpu::commands::dn_link_is_answered_by_the_hub_and_status_and_off_say_a_character_is_linked",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.dn-said-in-chat",
         says: "A line said as @dn, aloud or into a room, is heard by nobody and answered with the \
                world's lines: the character's place on the network, on and off at once (kept), \
@@ -2080,6 +2120,25 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-DN"),
         station: "yalain-friends::cpu::commands::dn_said_in_chat_shows_puts_on_and_takes_off_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.dn-spelled-out-and-dng",
+        says: "@derethnetwork is @dn spelled out, and @dng with its text is @dn global with its \
+               text made short: heard by nobody and kept with their words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-NAMES"),
+        station: "yalain-testkit::cpu::entry::chat::derethnetwork_and_dng_are_the_networks_command_under_other_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.dn-squelch-a-world",
+        says: "Said @dn squelch ignores every character of a world for the one character, kept \
+               across a restart and never shown in the client's own squelch list, at most fifty \
+               worlds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DN-SQUELCH-WORLD"),
+        station: "yalain-friends::cpu::commands::dn_squelch_ignores_a_whole_world_without_showing_it_in_the_clients_list",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3395,6 +3454,36 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.channel-invitation-shown-as-a-tell",
+        says: "An invitation to a channel is shown as a tell from the inviter would be: to a \
+               present character on the network, never past an ignore of the inviter, its world or \
+               the channel, or the operator's blocks.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHANNEL-INVITE"),
+        station: "yalain-federation::cpu::channels::an_invitation_is_shown_only_as_a_tell_from_the_inviter_would_be",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.channel-line-shown-as-a-tell",
+        says: "A channel's line reaches a member as a tell from the channel's address, its text the \
+               speaker's address and the line, never past an ignore of the speaker or the channel, \
+               a block, or to one not present.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHANNEL-LINE"),
+        station: "yalain-federation::cpu::channels::a_channels_line_reaches_a_member_as_a_tell_from_the_channels_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.channel-requests-answered",
+        says: "A channel request goes to the hub under the character's address, and each answer is \
+               shown as the network's own line for it; off the network nothing goes, and a request \
+               never answered ends in the network's line.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHANNEL-REQUESTS"),
+        station: "yalain-federation::cpu::channels::a_channel_request_goes_to_the_hub_and_its_answer_is_shown",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.directory-answers",
         says: "A listing refused after @dn on is shown and holds the character out until its next \
                login or @dn on; one the hub held back to its pace goes again a minute later, the \
@@ -3512,6 +3601,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.network.operator-admin-words",
+        says: "dn admin block is dn block as the game says it, at the console or by an admin in \
+               game; a name may carry the mark a line from Discord shows; dn admin alone is the \
+               help, and dn admin global says the world carries no Global room.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-ADMIN-WORDS"),
+        station: "yalain-federation::cpu::operator::the_operators_words_read_the_same_after_admin_and_in_game",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.operator-block-at-once",
         says: "An operator's block takes hold at once: what it covers sees this world's characters \
                offline, is no longer watched and shows offline here; lifting it gives back what it \
@@ -3529,6 +3628,66 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-CONSOLE"),
         station: "yalain-federation::cpu::operator::the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.operator-words-in-game-for-admins",
+        says: "Said @dn admin is an admin's: an admin's line is the operator's command, staff below \
+               it are refused as for any command beyond their level, and a player's is a word the \
+               friends service answers with its help.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-IN-GAME"),
+        station: "yalain-testkit::cpu::operator::moderation::dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-link-and-unlink",
+        says: "Said @dn link and @dn unlink ask the hub under the character's address, and each \
+               answer is shown as the network's own line for it; off the network or past its pace \
+               nothing goes and it is told why; a request never answered ends in the network's \
+               line.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-LINK"),
+        station: "yalain-federation::cpu::persons::link_and_unlink_ask_the_hub_and_show_its_answer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-link-holds-for-its-asker",
+        says: "A link holds only for the character that asked for it, kept across a restart: one \
+               that never asked is taken as unlinked and the hub told so quietly; one that asked is \
+               told when it becomes linked while here, and not when it arrives linked.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-ASKED"),
+        station: "yalain-federation::cpu::persons::a_link_holds_only_for_the_character_that_asked_and_is_told_when_it_comes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-request-outlives-a-link",
+        says: "A person request handed to a link that goes before the hub answers goes again on the \
+               next link.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-OUTLIVES"),
+        station: "yalain-federation::cpu::persons::a_person_request_on_a_link_that_goes_goes_again_on_the_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-view-watched",
+        says: "A present character on the network asks for its person view, again at each welcome, \
+               and stops when it leaves or goes off the network.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-VIEW"),
+        station: "yalain-federation::cpu::persons::the_person_view_is_watched_while_a_character_is_present_on_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.reach-answered",
+        says: "The hub's question about a tell to a character away is true only for one of this \
+               world's, away, on the network, that asked for its link, ignoring neither the teller \
+               nor its world, the operator blocking neither, within the pace of that world's tells \
+               to it; false for anything else, alike.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REACH"),
+        station: "yalain-federation::cpu::persons::the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_be",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3578,6 +3737,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-TELL-OUT"),
         station: "yalain-federation::cpu::tells::a_tell_to_another_world_goes_to_the_hub_and_ends_as_its_answer_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-to-a-channel",
+        says: "A tell to a channel goes to the hub as any tell, and a teller who is no member is \
+               told so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TELL-CHANNEL"),
+        station: "yalain-federation::cpu::channels::a_tell_to_a_channel_goes_as_any_tell_and_a_non_member_is_told",
         tier: Tier::Cpu,
     },
     behaviour! {

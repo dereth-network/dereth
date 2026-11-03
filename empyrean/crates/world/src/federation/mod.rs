@@ -202,7 +202,7 @@ pub const MAX_REMOTE_FRIENDS: usize = 100;
 pub const MAX_REMOTE_SQUELCHES: usize = 100;
 
 /// The most whole worlds one character may squelch.
-pub const MAX_SQUELCHED_WORLDS: usize = 50;
+pub const MAX_SQUELCHED_WORLDS: usize = dereth_network_protocol::limits::MAX_SQUELCHED_WORLDS;
 
 /// How long a stand-in id no character's record names (as a friend or a squelch) is kept after
 /// it was last used, in seconds: a day. Past that its identity is forgotten (the id itself is

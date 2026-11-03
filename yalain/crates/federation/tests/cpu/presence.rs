@@ -240,7 +240,8 @@ fn watches_wait_behind_tells_and_answers_and_go_a_world_at_a_time() {
     let first = w.frames();
     assert!(matches!(first[0], Message::Tell { .. }), "{first:?}");
     assert!(matches!(first[1], Message::TellResult { .. }), "{first:?}");
-    let rest = &first[2..];
+    assert!(matches!(first[2], Message::PersonWatch { .. }), "{first:?}");
+    let rest = &first[3..];
     // A burst of 72 (a tenth under 80): the tell, the answer, then 70 watches; each world's share
     // is a burst of 18 (a tenth under 20).
     assert_eq!(rest.len(), 36, "two worlds' shares: {}", rest.len());

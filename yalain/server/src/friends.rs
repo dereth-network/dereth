@@ -4,7 +4,7 @@
 //!
 //! The service itself is `yalain_friends`'s: this module hands it bytes and the time, checks its
 //! tickets by the login's own rule, tells it who enters and leaves the world, hands it the
-//! network's commands said in chat (an admin's `@dn verify` to the network's half), and shows its
+//! network's commands said in chat (an admin's `@dn verify` and `@dn admin` to the network's half), and shows its
 //! lines in the players' chat windows. With
 //! `--no-friends` there is no listener: nobody is present, `@dn` still answers, and each entry
 //! shows the line that the friends list is out of reach (as it does for an account with no
@@ -126,8 +126,11 @@ impl Friends {
         for c in std::mem::take(&mut server.network_commands) {
             let lines = if c.admin && yalain_world::chat::is_verify(&c.words) {
                 vec![verify_said(fed.as_deref_mut(), now.as_secs_f64(), &c)]
+            } else if c.admin && yalain_world::chat::is_admin_word(&c.words) {
+                self.operator_said(&mut server.store, fed.as_deref_mut(), &c)
             } else {
                 self.service.said(
+                    now,
                     &mut server.store,
                     fed.as_deref_mut(),
                     c.character,
@@ -135,8 +138,9 @@ impl Friends {
                     &c.words,
                 )
             };
-            for line in lines {
-                yalain_world::login::notice(net, c.world, &line);
+            // One message: separate ones of a long answer may overtake each other on the wire.
+            if !lines.is_empty() {
+                yalain_world::login::notice(net, c.world, &lines.join("\n"));
             }
         }
         self.service
@@ -171,6 +175,20 @@ impl Friends {
             }
         }
         busy
+    }
+
+    /// `@dn admin ...`, said in game by an admin's character: the lines to answer it with.
+    fn operator_said<S: Store>(
+        &mut self,
+        store: &mut S,
+        fed: Option<&mut Federation>,
+        c: &NetworkCommand,
+    ) -> Vec<String> {
+        let args: Vec<&str> = c.words.split_whitespace().skip(1).collect();
+        match fed {
+            Some(f) => f.operator_said(store, &mut self.service, &args),
+            None => vec![yalain_federation::WORLD_OFF.to_owned()],
+        }
     }
 
     fn accept(&mut self, now: Duration) -> bool {
@@ -459,6 +477,59 @@ mod tests {
         assert_eq!(f.in_world.get(&account), None, "gone with its body");
     }
 
+    /// An admin's `@dn admin ...` said in game is the operator's command, answered in its chat
+    /// window; a player's is a word the friends service does not know: its help. With the network
+    /// off the world says so.
+    /// Behaviour: server.network.operator-words-in-game-for-admins
+    #[test]
+    fn dn_admin_said_by_an_admin_blocks_and_a_players_is_the_help() {
+        use yalain_federation::{Settings, WORLD_OFF};
+        let mut h = Harness::new();
+        let service = Service::new(yalain_friends::Config::new("Dawnsong", "dawnsong"));
+        let mut f = Friends::start(service, None).expect("no listener");
+        let mut fed = Federation::new(
+            Settings {
+                enabled: true,
+                slug: "dawnsong".into(),
+                software: "yalain test".into(),
+            },
+            1,
+        );
+        let (a, elara) = h.player_in_world("one", "Elara");
+        let (b, cara) = h.player_in_world("two", "Cara");
+        let said = |h: &mut Harness, b: usize, character: u64, name: &str, admin: bool| {
+            let world = world_of(&h.server, character).expect("in the world");
+            h.server.network_commands.push(NetworkCommand {
+                world,
+                character,
+                name: name.into(),
+                words: "admin block coldeve".into(),
+                admin,
+            });
+            h.bots[b].inbox.len()
+        };
+        let from = [
+            said(&mut h, a, elara, "Elara", true),
+            said(&mut h, b, cara, "Cara", false),
+        ];
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(
+            h.bots[a].notices(from[0]),
+            ["coldeve is blocked for everyone on this world."]
+        );
+        assert_eq!(
+            h.bots[b].notices(from[1]),
+            [yalain_friends::HELP.join("\n")],
+            "all of it, in order"
+        );
+        assert_eq!(fed.blocks(), ["coldeve"]);
+        let from = said(&mut h, a, elara, "Elara", true);
+        f.pump(at(&h), &mut h.server, &mut h.net, None);
+        h.run(20);
+        assert_eq!(h.bots[a].notices(from), [WORLD_OFF]);
+    }
+
     /// An admin's `@dn verify <token>` said in game goes to the network's half as its
     /// character's, and is answered in its chat window at once; the hub's answer comes to the
     /// same window while the character is in the world, and to the log otherwise. A player's is
@@ -502,7 +573,7 @@ mod tests {
         assert_eq!(h.bots[a].notices(from[0]), [ASKING]);
         assert_eq!(
             h.bots[b].notices(from[1]),
-            yalain_friends::HELP,
+            [yalain_friends::HELP.join("\n")],
             "a player's is the friends service's"
         );
         assert_eq!(

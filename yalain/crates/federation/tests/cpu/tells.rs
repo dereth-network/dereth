@@ -127,9 +127,9 @@ fn a_tell_to_another_world_goes_to_the_hub_and_ends_as_its_answer_says() {
 }
 
 /// A tell is refused before it is sent, with the line its teller is shown: from a world off the
-/// network; from a character off the network; to a world or character the operator blocks, or a
-/// channel (as to a character not available, with no line); and past the teller's own pace of a
-/// burst of ten, then one every two seconds.
+/// network; from a character off the network; to a world or character the operator blocks (as to a
+/// character not available, with no line); and past the teller's own pace of a burst of ten, then
+/// one every two seconds.
 /// Behaviour: server.network.tell-refused-before-sending
 #[test]
 fn a_tell_is_refused_here_for_the_world_the_teller_the_blocks_and_the_tellers_pace() {
@@ -165,14 +165,9 @@ fn a_tell_is_refused_here_for_the_world_the_teller_the_blocks_and_the_tellers_pa
     w.operator(&["block", "Mal@coldeve"]);
     w.tell(2, "Ann", "Eve@frost", "hi");
     w.tell(3, "Ann", "mal@COLDEVE", "hi");
-    w.tell(4, "Ann", "oldguard@channel", "hi");
     assert_eq!(
         ended(&w),
-        vec![
-            (2, Ended::Offline, None),
-            (3, Ended::Offline, None),
-            (4, Ended::Offline, None)
-        ]
+        vec![(2, Ended::Offline, None), (3, Ended::Offline, None)]
     );
     assert!(w.frames().is_empty(), "nothing refused goes to the hub");
     w.service.ended.clear();

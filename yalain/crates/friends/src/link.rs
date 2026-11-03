@@ -5,7 +5,7 @@ use auberean_friends::{Event, Mode};
 use dereth_network_protocol::Address;
 use yalain_federation::{Friends, Present, TellEnd, TellId};
 
-use crate::names::{read_entry, Target};
+use crate::names::{read_entry, world_entry, Target};
 use crate::Service;
 
 impl Friends for Service {
@@ -39,10 +39,12 @@ impl Friends for Service {
         let Some(id) = self.id_of(character) else {
             return false;
         };
+        let world = world_entry(who.world());
         self.lists.get(&id).is_some_and(|l| {
-            l.ignored
-                .iter()
-                .any(|e| matches!(read_entry(e), Target::Remote(a) if a.same(who)))
+            l.ignored.iter().any(|e| {
+                *e == world
+                    || matches!(read_entry(e), Target::Remote(a) | Target::Channel(a) if a.same(who))
+            })
         })
     }
 
@@ -82,5 +84,17 @@ impl Friends for Service {
 
     fn tell_ended(&mut self, tell: TellId, end: TellEnd) {
         self.tell_done(tell, end);
+    }
+
+    fn in_world(&self, name: &str) -> bool {
+        self.here.contains_key(&name.to_lowercase())
+            || self
+                .in_world
+                .values()
+                .any(|w| w.name.eq_ignore_ascii_case(name))
+    }
+
+    fn show_line(&mut self, character: u64, line: &str) {
+        self.line(character, line);
     }
 }

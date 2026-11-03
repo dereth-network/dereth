@@ -455,6 +455,12 @@ mod tests {
         fn show_presence(&mut self, _: &str, _: &Address, _: bool, _: bool) {}
 
         fn tell_ended(&mut self, _: TellId, _: TellEnd) {}
+
+        fn in_world(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn show_line(&mut self, _character: u64, _line: &str) {}
     }
 
     #[test]

@@ -857,6 +857,10 @@ a slash:
 | `@dn on` | put this character on the network, as `Name@slug` |
 | `@dn off` | take it off |
 | `@dn` | its status: on or off, the hub connected or not, its friends on other worlds |
+| `@dn link`, `@dn unlink` | link it to the player's Discord account, or undo that |
+| `@dn friends`, `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | its friends on other worlds |
+| `@dn squelch <world>`, `@dn unsquelch <world>` | squelch a whole world for it, or undo that |
+| `@dn channel create`, `invite`, `join`, `leave`, `members`, `list` | channels across worlds |
 | `@dn help` | the commands |
 
 The line is heard by nobody, and the world answers in the player's chat window. The setting is
@@ -868,7 +872,7 @@ every player with the friends service.
 | Command | What it does |
 | --- | --- |
 | `dn` | the world's link (connected, connecting or not connected), how many worlds are online, how many messages wait for the hub, and what is blocked |
-| `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world |
+| `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world (`dn admin block ...` too; `@dn admin block ...` in game, from an admin) |
 | `dn unblock <world>` or `dn unblock <Name@world>` | lift a block |
 | `dn verify <token>` | verify this world with the token the site gave you |
 | `dn help` | list these commands |

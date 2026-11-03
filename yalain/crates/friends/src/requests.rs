@@ -13,7 +13,7 @@
 //! The stream answers the rest itself (the ticket's place, `Flags`, the reserved requests).
 
 use auberean_friends::{Answer, Cx, Event, Extra, Hr, Mode, Request};
-use dereth_network_protocol::limits::{Bucket, Limits};
+use dereth_network_protocol::limits::{Bucket, Limits, MAX_SQUELCHED_WORLDS};
 use dereth_network_protocol::Address;
 use yalain_federation::{Ended, Federation, State, TellEnd, AWAY_TEXT, DO_NOT_DISTURB_TEXT};
 use yalain_federation::{NOT_ON, TOO_QUICKLY, WORLD_OFF};
@@ -33,7 +33,11 @@ pub fn tell_code(ended: Ended) -> Hr {
         Ended::Delivered | Ended::Away | Ended::Squelched => Hr::OK,
         Ended::Offline => Hr::NOT_ONLINE,
         Ended::Unavailable | Ended::NotOnNetwork | Ended::NetworkUnavailable => Hr::TIMED_OUT,
-        Ended::RateLimited | Ended::TooQuickly | Ended::NotOn | Ended::WorldOff => Hr::DENIED,
+        Ended::RateLimited
+        | Ended::TooQuickly
+        | Ended::NotOn
+        | Ended::WorldOff
+        | Ended::NotMember => Hr::DENIED,
     }
 }
 
@@ -54,7 +58,7 @@ impl Service {
         cx: Cx,
         request: Request,
         store: &mut impl Store,
-        fed: Option<&mut Federation>,
+        mut fed: Option<&mut Federation>,
     ) {
         let Some(h) = self.here_on(stream).cloned() else {
             // The stream answers requests while no character is in the world itself; a request
@@ -75,6 +79,7 @@ impl Service {
                     .map(|l| {
                         l.ignored
                             .iter()
+                            .filter(|e| !crate::names::is_world_entry(e))
                             .map(|e| match crate::names::read_entry(e) {
                                 Target::Local(n) => self.written_local(&n),
                                 _ => e.clone(),
@@ -97,6 +102,12 @@ impl Service {
             }
             Request::IgnoredAdd { user } => {
                 let hr = self.ignore(&h.name, h.character, &user, true, store);
+                // Squelching a channel's address leaves the channel.
+                if let (Hr::OK, Target::Channel(a), Some(f)) =
+                    (hr, self.target(&user), fed.as_deref_mut())
+                {
+                    f.leave_channel(crate::secs(self.now), h.character, &h.name, a.name());
+                }
                 self.answer(stream, cx, hr, Answer::IgnoredAdd);
             }
             Request::IgnoredDelete { user } => {
@@ -166,39 +177,11 @@ impl Service {
         store: &mut impl Store,
         fed: Option<&mut Federation>,
     ) -> Option<Hr> {
-        let (entry, remote) = match self.target(user) {
-            Target::NoSuchUser => return Some(Hr::NO_SUCH_USER),
-            Target::Local(n) => match Self::local_entry(store, &n) {
-                Some((id, name)) if id != character => (name, None),
-                _ => return Some(Hr::NO_SUCH_USER),
-            },
-            Target::Remote(a) => {
-                match fed.as_deref() {
-                    Some(f) if f.enabled() => {
-                        if !f.is_on(owner) {
-                            self.line(character, NOT_ON);
-                            return Some(FRIEND_REFUSED);
-                        }
-                    }
-                    _ => {
-                        self.line(character, WORLD_OFF);
-                        return Some(FRIEND_REFUSED);
-                    }
-                }
-                (a.to_string(), Some(a))
-            }
+        let (entry, remote) = match self.list_friend(character, owner, user, store, fed.as_deref())
+        {
+            Ok(listed) => listed,
+            Err(hr) => return Some(hr),
         };
-        if self.listed(character, NetworkList::Friends, &entry) {
-            return Some(ALREADY_IN_LIST);
-        }
-        if self.count(character, NetworkList::Friends) >= MAX_LISTED {
-            self.line(character, FRIENDS_FULL);
-            return Some(FRIEND_REFUSED);
-        }
-        if let Err(e) = self.keep(store, character, owner, NetworkList::Friends, &entry, true) {
-            tracing::warn!("friends service: the store: {e}");
-            return Some(FRIEND_REFUSED);
-        }
         // The friend's state first, then the answer, as the original service did. Another
         // world's friend is shown once, with the state its world gives: the client prints a line
         // for each state, so a guess followed by the truth would read as a false departure.
@@ -222,6 +205,155 @@ impl Service {
         let (user, mode) = self.status_of(owner, &entry, fed.as_deref());
         self.event(stream, Event::FriendStat { user, mode });
         Some(Hr::OK)
+    }
+
+    /// Keeps a friend on a character's list, if it may be: the entry kept, and the friend's address
+    /// when it is on another world. Refused, the code to answer with; the character has been told
+    /// why if its client would not say.
+    fn list_friend(
+        &mut self,
+        character: u64,
+        owner: &str,
+        user: &str,
+        store: &mut impl Store,
+        fed: Option<&Federation>,
+    ) -> Result<(String, Option<Address>), Hr> {
+        let (entry, remote) = match self.target(user) {
+            Target::NoSuchUser | Target::Channel(_) => return Err(Hr::NO_SUCH_USER),
+            Target::Local(n) => match Self::local_entry(store, &n) {
+                Some((id, name)) if id != character => (name, None),
+                _ => return Err(Hr::NO_SUCH_USER),
+            },
+            Target::Remote(a) => {
+                match fed {
+                    Some(f) if f.enabled() => {
+                        if !f.is_on(owner) {
+                            self.line(character, NOT_ON);
+                            return Err(FRIEND_REFUSED);
+                        }
+                    }
+                    _ => {
+                        self.line(character, WORLD_OFF);
+                        return Err(FRIEND_REFUSED);
+                    }
+                }
+                (a.to_string(), Some(a))
+            }
+        };
+        if self.listed(character, NetworkList::Friends, &entry) {
+            return Err(ALREADY_IN_LIST);
+        }
+        if self.count(character, NetworkList::Friends) >= MAX_LISTED {
+            self.line(character, FRIENDS_FULL);
+            return Err(FRIEND_REFUSED);
+        }
+        if let Err(e) = self.keep(store, character, owner, NetworkList::Friends, &entry, true) {
+            tracing::warn!("friends service: the store: {e}");
+            return Err(FRIEND_REFUSED);
+        }
+        Ok((entry, remote))
+    }
+
+    /// `@dn friends add`: as the client's own add, with no request to answer. A friend on another
+    /// world being watched is shown when its world answers.
+    pub(crate) fn friend_said(
+        &mut self,
+        character: u64,
+        owner: &str,
+        user: &str,
+        store: &mut impl Store,
+        f: &mut Federation,
+    ) -> Vec<String> {
+        let (entry, remote) = match self.list_friend(character, owner, user, store, Some(f)) {
+            Ok(listed) => listed,
+            Err(Hr::NO_SUCH_USER) => return vec![Self::no_such_friend(self.target(user))],
+            Err(ALREADY_IN_LIST) => {
+                return vec!["That character is already in your friends list".to_owned()];
+            }
+            Err(_) => return Vec::new(),
+        };
+        let watched = remote
+            .as_ref()
+            .is_some_and(|a| f.friend_added(self, owner, a));
+        let (shown, mode) = self.status_of(owner, &entry, Some(f));
+        if !watched {
+            if let Some(stream) = self.here.get(&owner.to_lowercase()).map(|h| h.stream) {
+                self.event(
+                    stream,
+                    Event::FriendStat {
+                        user: shown.clone(),
+                        mode,
+                    },
+                );
+            }
+        }
+        vec![format!("{shown} has been added to your friends list.")]
+    }
+
+    /// What `@dn friends add` answers for what cannot be listed.
+    fn no_such_friend(target: Target) -> String {
+        match target {
+            Target::Channel(_) => "A channel is not a character; it cannot be a friend.".to_owned(),
+            _ => "That character does not exist".to_owned(),
+        }
+    }
+
+    /// `@dn friends remove`: as the client's own delete, with no request to answer.
+    pub(crate) fn unfriend_said(
+        &mut self,
+        character: u64,
+        owner: &str,
+        user: &str,
+        store: &mut impl Store,
+        f: &mut Federation,
+    ) -> Vec<String> {
+        let shown = match self.target(user) {
+            Target::Local(n) => self.written_local(&n),
+            Target::Remote(a) | Target::Channel(a) => a.to_string(),
+            Target::NoSuchUser => user.to_owned(),
+        };
+        match self.unfriend(owner, character, user, store, Some(f)) {
+            Hr::OK => vec![format!("{shown} has been removed from your friends list.")],
+            NOT_IN_LIST | Hr::NO_SUCH_USER => {
+                vec!["That character is not in your friends list!".to_owned()]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// `@dn squelch <world>` or `@dn unsquelch <world>`, `world` one that is not this one: the line
+    /// to answer it with.
+    pub(crate) fn squelch_world(
+        &mut self,
+        character: u64,
+        owner: &str,
+        world: &str,
+        on: bool,
+        store: &mut impl Store,
+    ) -> String {
+        let entry = crate::names::world_entry(world);
+        let listed = self.listed(character, NetworkList::Ignored, &entry);
+        if on == listed {
+            return if on {
+                format!("{world} is already squelched.")
+            } else {
+                format!("{world} is not squelched.")
+            };
+        }
+        if on && self.count_worlds(character) >= MAX_SQUELCHED_WORLDS {
+            return format!(
+                "You squelch {MAX_SQUELCHED_WORLDS} worlds already. Unsquelch one first."
+            );
+        }
+        if let Err(e) = self.keep(store, character, owner, NetworkList::Ignored, &entry, on) {
+            tracing::warn!("friends service: the store: {e}");
+            return "The Dereth Network can't keep that now. Try again later.".to_owned();
+        }
+        if on {
+            format!("Every character of {world} has been squelched.")
+        } else {
+            format!("{world} has been unsquelched.")
+        }
     }
 
     /// A friend on another world being added has its state, from its world or for want of an
@@ -250,7 +382,7 @@ impl Service {
         fed: Option<&mut Federation>,
     ) -> Hr {
         let (entry, remote) = match self.target(user) {
-            Target::NoSuchUser => return Hr::NO_SUCH_USER,
+            Target::NoSuchUser | Target::Channel(_) => return Hr::NO_SUCH_USER,
             Target::Local(n) => (n, None),
             Target::Remote(a) => (a.to_string(), Some(a)),
         };
@@ -282,7 +414,7 @@ impl Service {
                 _ => return Hr::NO_SUCH_USER,
             },
             Target::Local(n) => n,
-            Target::Remote(a) => a.to_string(),
+            Target::Remote(a) | Target::Channel(a) => a.to_string(),
         };
         let listed = self.listed(character, NetworkList::Ignored, &entry);
         if on && listed {
@@ -291,7 +423,10 @@ impl Service {
         if !on && !listed {
             return NOT_IN_LIST;
         }
-        if on && self.count(character, NetworkList::Ignored) >= MAX_LISTED {
+        if on
+            && self.count(character, NetworkList::Ignored) - self.count_worlds(character)
+                >= MAX_LISTED
+        {
             // The client reads this code as the list being out of reach; the line says why.
             self.line(character, IGNORED_FULL);
             return Hr::NOT_ONLINE;
@@ -323,7 +458,7 @@ impl Service {
         let hr = match self.target(user) {
             Target::NoSuchUser => Hr::NO_SUCH_USER,
             Target::Local(n) => self.tell_here(teller, &n, text, extra, store),
-            Target::Remote(a) => {
+            Target::Remote(a) | Target::Channel(a) => {
                 return self.tell_away(stream, cx, teller, &a, text, fed);
             }
         };

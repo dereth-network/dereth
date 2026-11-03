@@ -20,7 +20,8 @@
 //!          keep every character in the world now; the world goes on
 //! dn       the world's link to the Dereth Network and its blocks; `dn block <world or
 //!          Name@world>` and `dn unblock ...` block a world or a character for everyone on this
-//!          world, or lift it; `dn verify <token>` verifies the world with the token the site gave
+//!          world, or lift it (`dn admin block ...` is the same, as it is said in game); `dn verify
+//!          <token>` verifies the world with the token the site gave
 //!          (`yalain_federation`'s operator commands)
 //! hero     `hero <name>` makes a character a hero (it earns focus, and has its greatest at
 //!          once), `hero <name> off` no longer one; in the world or out of it

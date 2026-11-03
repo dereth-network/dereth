@@ -365,9 +365,14 @@ impl World {
     /// What a character's `@dn` and the words after it answer.
     pub fn said(&mut self, name: &str, words: &str) -> Vec<String> {
         let (_, id) = self.ids(name);
-        let lines = self
-            .service
-            .said(&mut self.store, self.fed.as_mut(), id, name, words);
+        let lines = self.service.said(
+            self.now,
+            &mut self.store,
+            self.fed.as_mut(),
+            id,
+            name,
+            words,
+        );
         self.flush();
         lines
     }

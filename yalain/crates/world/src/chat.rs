@@ -171,19 +171,33 @@ fn send_to_knowers<S: Store>(
 }
 
 /// The Dereth Network's command, said in chat (the client handles every `/` command itself):
-/// a line that is `@dn`, or begins with `@dn ` (in any case). Its words after `@dn`.
+/// a line that is `@dn` or `@derethnetwork` (the same command spelled out), or begins with one and
+/// a space (in any case). Its words after that.
 #[must_use]
 pub fn network_words(text: &str) -> Option<&str> {
+    command_words(text, "@dn").or_else(|| command_words(text, "@derethnetwork"))
+}
+
+/// The words after `command` in a line that is it or begins with it and a space, in any case.
+fn command_words<'a>(text: &'a str, command: &str) -> Option<&'a str> {
     let t = text.trim_start();
-    let head = t.get(..3)?;
-    if !head.eq_ignore_ascii_case("@dn") {
+    let head = t.get(..command.len())?;
+    if !head.eq_ignore_ascii_case(command) {
         return None;
     }
-    let rest = &t[3..];
+    let rest = &t[command.len()..];
     if rest.is_empty() {
         return Some("");
     }
     rest.starts_with(char::is_whitespace).then(|| rest.trim())
+}
+
+/// The words the network's command is given by a line said: `@dng <text>` is `@dn global <text>`
+/// made short.
+fn said_network_words(text: &str) -> Option<String> {
+    network_words(text).map(str::to_owned).or_else(|| {
+        command_words(text, "@dng").map(|rest| format!("global {rest}").trim_end().to_owned())
+    })
 }
 
 /// The Dereth Network's command, said by a player in the world: heard by nobody, and answered by
@@ -196,12 +210,14 @@ pub struct NetworkCommand {
     pub name: String,
     /// The words after `@dn`.
     pub words: String,
-    /// The speaker's account is an admin's: `@dn verify` is its to give.
+    /// The speaker's account is an admin's: the operator's words are its to give.
     pub admin: bool,
 }
 
-/// The network's word for the operator, `@dn verify <token>`: an admin's.
+/// The network's words for the operator, `@dn verify <token>` and `@dn admin ...`: an admin's.
 pub const VERIFY: &str = "verify";
+/// See [`VERIFY`].
+pub const ADMIN: &str = "admin";
 
 /// Whether the words after `@dn` begin with `verify` (in any case).
 #[must_use]
@@ -212,15 +228,25 @@ pub fn is_verify(words: &str) -> bool {
         .is_some_and(|w| w.eq_ignore_ascii_case(VERIFY))
 }
 
+/// Whether the words after `@dn` begin with `admin` (in any case).
+#[must_use]
+pub fn is_admin_word(words: &str) -> bool {
+    words
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case(ADMIN))
+}
+
 /// Keeps a line said as the network's command for the friends service: true when it was one.
-/// `@dn verify` from staff below an admin is refused here, as any command beyond their level.
+/// The operator's words from staff below an admin are refused here, as any command beyond their
+/// level; a player's are the friends service's, which reads them as no word it knows.
 fn network_command<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     text: &str,
 ) -> bool {
-    let Some(words) = network_words(text) else {
+    let Some(words) = said_network_words(text) else {
         return false;
     };
     let Some(p) = s.players.get(&world) else {
@@ -232,11 +258,11 @@ fn network_command<S: Store>(
         .map_or(crate::admin::Access::Player, |x| {
             crate::admin::Access::from_number(x.account.access)
         });
-    if is_verify(words)
+    if (is_verify(&words) || is_admin_word(&words))
         && access > crate::admin::Access::Player
         && access < crate::admin::Access::Admin
     {
-        tracing::info!(character = %p.name, %access, "refused: dn verify is an admin's");
+        tracing::info!(character = %p.name, %access, "refused: the network's operator words are an admin's");
         crate::login::notice(
             net,
             world,
@@ -248,7 +274,7 @@ fn network_command<S: Store>(
         world,
         character: p.character,
         name: p.name.clone(),
-        words: words.to_owned(),
+        words,
         admin: access == crate::admin::Access::Admin,
     };
     s.network_commands.push(command);

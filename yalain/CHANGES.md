@@ -7,8 +7,10 @@ what they see, not how it was done.
 
 ## Unreleased
 
-- macOS: Intel Macs are no longer supported; Apple silicon only.
 - Fixed login cookies that another player could work out.
+- New `@dn link`, friends, world squelches and channels, as on other Dereth Network worlds.
+- New `@dn admin block` in game, from an admin.
+- macOS: Intel Macs are no longer supported; Apple silicon only.
 
 ## 0.1.2 (2026-11-03)
 

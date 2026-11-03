@@ -18,7 +18,9 @@ pub enum Target {
     Local(String),
     /// Another world's character.
     Remote(Address),
-    /// No address: two separators, a name half that is no name, or a channel.
+    /// A channel, by its address: told and squelched as a character is, never a friend.
+    Channel(Address),
+    /// No address: two separators, or a name half that is no name.
     NoSuchUser,
 }
 
@@ -26,13 +28,30 @@ pub enum Target {
 /// address.
 pub(crate) fn read_entry(entry: &str) -> Target {
     if entry.contains('@') {
-        match Address::parse(entry) {
-            Ok(a) if !a.is_channel() => Target::Remote(a),
-            _ => Target::NoSuchUser,
-        }
+        by_address(entry)
     } else {
         Target::Local(entry.to_owned())
     }
+}
+
+/// What an address names.
+fn by_address(address: &str) -> Target {
+    match Address::parse(address) {
+        Ok(a) if a.is_channel() => Target::Channel(a),
+        Ok(a) => Target::Remote(a),
+        Err(_) => Target::NoSuchUser,
+    }
+}
+
+/// The entry an ignored list keeps for a whole world (`@dn squelch`): no name half, so that it reads
+/// as no address, and the client is not shown it.
+pub(crate) fn world_entry(world: &str) -> String {
+    format!("@{world}")
+}
+
+/// Whether an entry of an ignored list is a whole world's.
+pub(crate) fn is_world_entry(entry: &str) -> bool {
+    entry.starts_with('@')
 }
 
 impl Service {
@@ -59,10 +78,7 @@ impl Service {
                 Target::NoSuchUser
             };
         }
-        match Address::parse(user) {
-            Ok(a) if !a.is_channel() => Target::Remote(a),
-            _ => Target::NoSuchUser,
-        }
+        by_address(user)
     }
 
     /// A character of this world as the client is shown it.

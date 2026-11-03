@@ -35,13 +35,27 @@ its players the friends service within the world.
   - it is never repeated to anyone, whether said aloud or in one of the game's chat rooms (a room
     line is answered as the room's request, and shown to nobody);
   - the world answers in the speaker's chat window with its own system lines.
-- **The commands:**
+- **The command's names.** `@derethnetwork` is the same command spelled out, and `@dng <text>` is
+  `@dn global <text>` made short.
+- **The commands**, each as [03](03-world-behaviour.md) section 6 has it, the player's lines saying
+  *Say @dn* where that page's say *Type @dn*:
 
-  | said | does |
-  |---|---|
-  | `@dn` | the character's network status |
-  | `@dn on`, `@dn off` | on or off the network, at once |
-  | `@dn help`, or a word `@dn` does not know | the commands, one line each |
+  | said | who | does |
+  |---|---|---|
+  | `@dn`, `@dn status` | any player | the character's network status |
+  | `@dn on`, `@dn off` | any player | on or off the network, at once |
+  | `@dn friends` | any player | its friends on other worlds and their state |
+  | `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | any player | what the client's own add and delete do, with no request to answer: the world says so itself, and the client's friends page shows the change when it next asks for its list. For a linked character too: the friend stays its own, not a person friend |
+  | `@dn squelch <world>`, `@dn unsquelch <world>` | any player | a whole world, at most 50 ([03](03-world-behaviour.md) section 5). Kept beside the character's ignored names; the client's own squelch list does not show it |
+  | `@dn channel ...` | any player | channels ([03](03-world-behaviour.md) section 4). A channel is a tell address: `/tell oldguard@channel, text` is the friends service's tell, a line from one reaches the client as a tell from that address, and squelching the address leaves the channel |
+  | `@dn link`, `@dn unlink` | any player | the one-time link to the player's Discord account, and undoing it ([03](03-world-behaviour.md) section 9) |
+  | `@dng <text>`, `@dn global <text>` | any player on the network | *This world does not carry the Global room.* A world of this game carries none yet |
+  | `@dn help`, or a word `@dn` does not know | any player | the commands, one line each |
+  | `@dn admin block <x>`, `@dn admin unblock <x>`, `@dn admin block`, `@dn verify <token>` | an admin, and the server's console | the operator's blocks and verifying the world, as [03](03-world-behaviour.md) sections 5 and 6 have them. From staff below an admin the world's own line that the command needs an admin's access; from a player a word `@dn` does not know |
+  | `@dn admin global` | an admin, and the server's console | *This world does not carry the Global room.* |
+
+  An answer of several lines is one system message, its lines in order. Separate messages of a long
+  answer may overtake each other on the way to the client.
 
 - **What the player sees** (the world `shardfall`, the character Ann):
 
@@ -54,13 +68,22 @@ its players the friends service within the world.
   | `@dn`, on | *You are on the Dereth Network as Ann@shardfall. The hub is connected. You have 2 friends on other worlds.* (the hub *connecting* or *not connected*; *You have no friends on other worlds.*, *1 friend*) |
   | `@dn`, off | *You are not on the Dereth Network. Say @dn on to join it as Ann@shardfall.* |
   | any `@dn`, the world not on the network | *This world is not on the Dereth Network.* |
-  | `@dn help` | `@dn - show your Dereth Network status`, `@dn on - put this character on the Dereth Network`, `@dn off - take this character off the Dereth Network`, `@dn help - show these commands`, `/tell <Name@world>, <text> - tell a character on another world`, `/friend add <Name@world> - add a friend on another world` |
+  | `@dn off`, a linked character | the line above, and *This character's link to your Discord account is paused until you say @dn on.* |
+| `@dn`, on and linked | the line above, ending *This character is linked to a Discord account.* (then *Your directory page: <url>* once the hub has named one) |
+| `@dn link` | *Open https://dereth.network/link/#K7QD-2MXP within 10 minutes to link this character to your Discord account. Keep the link to yourself.*, and the rest of [03](03-world-behaviour.md) section 9's answers |
+| `@dn friends`, none | *You have no friends on other worlds. Add one with @dn friends add Name@world.* |
+| `@dn friends` | *Your friends on other worlds:*, then *Bob@coldeve: online* or *offline* for each |
+| `@dn friends add Bob@coldeve` | *Bob@coldeve has been added to your friends list.* |
+| `@dn friends remove Bob@coldeve` | *Bob@coldeve has been removed from your friends list.* |
+| `@dn squelch coldeve` | *Every character of coldeve has been squelched.* |
+| an invitation to a channel | *Bob@coldeve invites you to the channel oldguard@channel. Say @dn channel join oldguard to join it.* |
 
 - **The friends service within the world needs no `@dn on`.** Friends, presence and tells between
   characters of one world work for every player with a friends stream. Only another world's
   characters need the character on the network.
 - **At the server's console**, the operator's blocks, as [03](03-world-behaviour.md) section 5:
-  `dn block <world|Name@world>`, `dn unblock <…>`, and `dn` (the link and the blocks).
+  `dn block <world|Name@world>`, `dn unblock <…>`, and `dn` (the link and the blocks). `dn admin
+  block ...` and `dn admin unblock ...` are the same, as they are said in game.
 
 ## 2. A stream, an account, a character
 
@@ -145,7 +168,13 @@ and the chat line both read right. Offline is `0`. A friend on another world is 
 | `presence` | `FriendStat` (`Mode` 1 or 0) to the present character that lists `of`. At most four changes for one friend at once, then one every five seconds ([03](03-world-behaviour.md) section 2) |
 | `tell` to its character | shown as `UTellEv User=<the teller's address>`, after the text rules (section 6), when the character is present, on the network, ignores neither the teller nor the teller's world, the operator blocks neither, and the paces of [03](03-world-behaviour.md) section 8 allow. Answered at once: `delivered`; `afk` when the character is away or not to be disturbed, with the default text *Away from keyboard.* or *Not to be disturbed.*; `squelched` when ignored; `rate_limited` past a pace; `offline` for everything else, alike |
 | `tell.result` | answers the waiting `SendToUserEx` |
-| `rooms`, `room.line`, `channel.*`, `person.friends`, `person.result`, `listing.*`, `reach`, `say` | none: skipped, as [02](02-link-protocol.md) lets a world skip a family it does not carry |
+| `person.result` | shown to the character that asked, if it is in the world, by [03](03-world-behaviour.md) section 9; a world's own quiet request shows nothing |
+| `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are not listed: a linked character's friends stay the ones the world keeps for it, and none is carried to the hub. The view is watched while a character is present, so a character with no friends stream is not told, and its `@dn` does not say it is linked |
+| `reach` | answered as [03](03-world-behaviour.md) section 1, *A person's Discord*, has it. A tell within the world never goes through the hub, so a teller of this world is answered false |
+| `channel.result` | shown to the character that asked |
+| `channel.invite` | shown as a tell from the inviter would be, by [03](03-world-behaviour.md) section 4 |
+| `channel.line` | `UTellEv User=<the channel's address>`, its text the speaker's address, `: ` and the line, by [03](03-world-behaviour.md) section 4 |
+| `rooms`, `room.line`, `say` | none: skipped, as [02](02-link-protocol.md) lets a world skip a family it does not carry |
 
 **A tell's outcome, as the teller on an AC2 world sees it.** The code goes back in
 `SendToUserExRes`, one answer for each request; the line is the world's own system text, as
@@ -163,6 +192,7 @@ reads the same network:
 | `rate_limited` | `0xc1120018` | the same | *The Dereth Network is holding back tells from this world to Bob@coldeve for now. Wait a moment and try again.* |
 | queued past 60 seconds without a link | `0xc1120010` | the same | *The Dereth Network is unavailable.* |
 | no answer within 100 seconds of reaching the hub | `0xc1120010` | the same | *The Dereth Network can't reach coldeve right now.* |
+| `not_member`, a tell to a channel | `0xc1120018` | the same | *You are not a member of oldguard@channel.* |
 | refused before it goes: the teller off the network, the world off it, the teller's own pace | `0xc1120018` | the same | *You are not on the Dereth Network. Say @dn on to join it.*, *This world is not on the Dereth Network.*, *You are sending to the Dereth Network too quickly. Wait a moment and try again.* |
 
 A tell to a character of the same world that is away is shown and answered `0x0`, and the teller

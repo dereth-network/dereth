@@ -596,6 +596,57 @@ fn dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused() {
     assert!(chat::is_verify("VERIFY x") && !chat::is_verify("verified") && !chat::is_verify(""));
 }
 
+/// `@dn admin ...` is an admin's, as `@dn verify` is: an admin's line is kept marked as an admin's;
+/// staff below it are refused as for any command beyond their level, and nothing is kept; a player's
+/// is kept as any other of its `@dn` words, which the friends service answers with its help. Nobody
+/// hears any of them.
+/// Behaviour: server.network.operator-words-in-game-for-admins
+#[test]
+fn dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    let (b, babyfare) = h.player_in_world("two", "Babyfare");
+    let (c, cara) = h.player_in_world("three", "Cara");
+    console(&mut h, "set-accountaccess one admin");
+    console(&mut h, "set-accountaccess two sentinel");
+    let from = [
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    ];
+    say(&mut h, a, "@dn admin block coldeve");
+    say(&mut h, b, "@DN Admin block coldeve");
+    room_line(&mut h, c, "@dn admin block coldeve");
+    let kept: Vec<(u64, String, bool)> = h
+        .server
+        .network_commands
+        .drain(..)
+        .map(|k| (k.character, k.words, k.admin))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (elara, "admin block coldeve".to_owned(), true),
+            (cara, "admin block coldeve".to_owned(), false),
+        ]
+    );
+    assert_eq!(
+        notices(&h, b, from[1]),
+        ["That command needs an Admin's access."]
+    );
+    for (bot, f) in [(a, from[0]), (b, from[1]), (c, from[2])] {
+        for speaker in [elara, babyfare, cara] {
+            assert_eq!(heard(&h, bot, f, speaker), 0, "nobody hears it");
+        }
+        assert_eq!(room_lines(&h, bot, f), 0, "nor in the room");
+    }
+    assert!(
+        chat::is_admin_word("ADMIN x")
+            && !chat::is_admin_word("admins")
+            && !chat::is_admin_word("")
+    );
+}
+
 /// Each line of a moderation command's answer says whether it was done or why nothing was, for the
 /// console's tags: a boot of one online is done, of one not online or by an id that does not read
 /// refused; a gag of a character done, of nobody refused; an account made again, a lift of no ban
