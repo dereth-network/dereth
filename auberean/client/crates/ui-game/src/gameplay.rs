@@ -68,6 +68,9 @@ pub mod notice {
     pub const DISPLAY_MESSAGE: u32 = 0x0085 << 16 | 0x000C;
     /// Someone offers to bring the player back to life.
     pub const RESURRECTION_REQUESTED_BY_OTHER: u32 = 0x0085 << 16 | 0x0010;
+    /// The server asks whether an effect may go on: its target, its source, the effect, the
+    /// question.
+    pub const SHOULD_APPLY_TOTEM: u32 = 0x0092 << 16 | 0x0003;
     /// The player mounted (1) or dismounted (0).
     pub const UPDATE_MOUNT_STATE: u32 = 0x0085 << 16 | 0x0011;
     /// The player is attacking (1) or not (0).
@@ -346,10 +349,10 @@ pub enum Request {
     /// Bring the player back to life, or turn down someone's offer to.
     Resurrect,
     DeclineResurrection,
-    /// Answer a question the player's scripts asked: yes, with what the question carried.
+    /// Yes to the server's question whether an effect may go on: its target and source, and the
+    /// effect.
     Confirm {
         objects: [u64; 2],
-        tokens: [u32; 2],
         value: u32,
     },
     /// The story's scenes are done (or none was played): the scenes, as the scripts handed them.
@@ -540,7 +543,6 @@ const LOGIN_NOTICES: [u32; 10] = [
 struct Confirmation {
     id: u32,
     objects: [u64; 2],
-    tokens: [u32; 2],
     value: u32,
 }
 
@@ -928,6 +930,15 @@ impl GamePlay {
                 });
                 self.display_message(String::new(), info, n.word_at(1) != 0, out);
             }
+            notice::SHOULD_APPLY_TOTEM => {
+                let info = n.records.iter().flatten().find_map(|r| match r {
+                    Record::Text(t) => Some(t.clone()),
+                    _ => None,
+                });
+                let text = info.and_then(|i| ui.assets().write(&i)).unwrap_or_default();
+                let objects = [n.long(0), n.long(2)];
+                self.make_confirmation_dialog(text, objects, n.word_at(4), out);
+            }
             notice::PORTAL_SCENE => self.portal_scene(ui, n.word() != 0, &scenes_of(n), out),
             crate::story::notice::FINISH_PLAY_SEQUENCE => {
                 self.finish_play_sequence(ui, &scenes_of(n), out);
@@ -1055,7 +1066,6 @@ impl GamePlay {
         &mut self,
         text: String,
         objects: [u64; 2],
-        tokens: [u32; 2],
         value: u32,
         out: &mut Vec<Request>,
     ) {
@@ -1063,12 +1073,7 @@ impl GamePlay {
             self.close_dialog(c.id, out);
         }
         let id = self.new_dialog(dialog::CONFIRMATION, text, true, out);
-        self.confirmation = Some(Confirmation {
-            id,
-            objects,
-            tokens,
-            value,
-        });
+        self.confirmation = Some(Confirmation { id, objects, value });
     }
 
     /// The player died (the play screen hidden, death's dialog up) or lives again (the dialog
@@ -1113,7 +1118,6 @@ impl GamePlay {
             if yes {
                 out.push(Request::Confirm {
                     objects: c.objects,
-                    tokens: c.tokens,
                     value: c.value,
                 });
             }

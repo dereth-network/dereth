@@ -205,6 +205,7 @@ impl Sound {
                     self.manager.stop(h, fade);
                 }
             }
+            SoundOrder::Groove(level) => self.manager.set_groove(level),
             SoundOrder::Preference {
                 key,
                 value,

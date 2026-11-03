@@ -63,6 +63,8 @@ pub enum Request {
     /// Set the camera: the interface's camera panel decides mouse look and first person, and
     /// zooms by the wheel over the world.
     Camera(CameraRequest),
+    /// The world shown again, or hidden while the story plays.
+    ShowWorld(bool),
     /// Find the body under the pointer (window pixels) in the world as last drawn: the answer
     /// comes with the next frame's game ([`Game::world_pick`]).
     PickWorld { x: f32, y: f32 },
@@ -94,6 +96,8 @@ pub enum SoundOrder {
     },
     /// Stop the sound a slot keeps, fading out over `fade` seconds.
     Stop { slot: SoundSlot, fade: f32 },
+    /// The groove level the music follows.
+    Groove(i32),
     /// A sound preference (`auberean_audio::options`) changed or applied: its key and value (the
     /// number, the features' number, or 1 or 0 for yes or no).
     Preference { key: u32, value: f32, applied: bool },

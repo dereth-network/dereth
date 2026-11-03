@@ -758,6 +758,24 @@ impl Client {
             Action::CancelQuest { quest } => {
                 self.ask(function::CANCEL_QUEST, &[InterfaceArg::Word(quest)]);
             }
+            Action::Resurrect => self.request_resurrect(),
+            Action::DeclineResurrection => self.clear_resurrection_request(),
+            Action::Dismount => self.dismount(),
+            // D2-00594, D2-01283
+            Action::KeepOptions => self.ask(function::UPLOAD_GAME_OPTIONS, &[]),
+            // D2-00452, D2-01270
+            Action::ApplyTotem {
+                target,
+                source,
+                effect,
+            } => self.ask(
+                function::SHOULD_APPLY_TOTEM_DONE,
+                &[
+                    InterfaceArg::Word(effect),
+                    InterfaceArg::Long(source),
+                    InterfaceArg::Long(target),
+                ],
+            ),
             Action::Skill(a) => self.skill(a),
             Action::Craft(a) => self.craft_action(a),
             Action::Trade(a) => {

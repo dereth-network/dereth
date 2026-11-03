@@ -1048,9 +1048,15 @@ impl Retail {
         }
     }
 
+    /// How many pixels at the screen's top and foot the panels there cover.
+    #[must_use]
+    pub fn preclude(&self) -> (i32, i32) {
+        self.flow.flow.data.preclude
+    }
+
     /// What the play screen asked, carried out as the client's actions, the camera's settings and
-    /// the flow's screens; what has no counterpart yet is logged.
-    fn carry_out(&mut self, out: Vec<gameplay::Request>, requests: &mut Vec<Request>) {
+    /// the flow's screens. Every kind of request has its arm.
+    pub fn carry_out(&mut self, out: Vec<gameplay::Request>, requests: &mut Vec<Request>) {
         use gameplay::Request as R;
         for r in out {
             match r {
@@ -1126,7 +1132,11 @@ impl Retail {
                                 requests.push(Request::KeepPreferences(kept));
                             }
                         }
-                        _ => tracing::debug!(?r, "not carried out yet"),
+                        o @ (auberean_ui_game::options::Request::AssistanceSite
+                        | auberean_ui_game::options::Request::Assistance { .. }) => {
+                            tracing::debug!(?o, "no assistance service yet");
+                        }
+                        auberean_ui_game::options::Request::Set { .. } => {}
                     },
                 },
                 R::LogOff => requests.push(Request::Act(Action::LogOff)),
@@ -1310,7 +1320,35 @@ impl Retail {
                     });
                 }
                 R::Social(r) => requests.push(Request::Act(map::social_action(r))),
-                r => tracing::debug!(?r, "not carried out yet"),
+                R::Resurrect => requests.push(Request::Act(Action::Resurrect)),
+                R::DeclineResurrection => {
+                    requests.push(Request::Act(Action::DeclineResurrection));
+                }
+                R::Dismount => requests.push(Request::Act(Action::Dismount)),
+                R::KeepOptions => requests.push(Request::Act(Action::KeepOptions)),
+                R::Confirm { objects, value } => {
+                    requests.push(Request::Act(Action::ApplyTotem {
+                        target: objects[0],
+                        source: objects[1],
+                        effect: value,
+                    }));
+                }
+                R::GrooveLevel(level) => requests.push(Request::Sound(
+                    auberean_shell::interface::SoundOrder::Groove(level),
+                )),
+                // The examination panel opens on the selection: the client's own notice.
+                R::OpenExaminationPanel => self.said.push(gameplay::Notice {
+                    native: auberean_ui_game::inventory::notice::OPEN_EXAMINATION,
+                    ..gameplay::Notice::default()
+                }),
+                R::ShowWorld(on) => requests.push(Request::ShowWorld(on)),
+                R::PrecludeFromTop(n) => self.flow.flow.data.preclude.0 = n,
+                // The play screen takes these itself, before they would come here.
+                R::Notice(_) | R::ShortcutRows(_) => {}
+                // Windows of their own, not made yet.
+                r @ (R::Help { .. } | R::PluginManager { .. }) => {
+                    tracing::debug!(?r, "no window for this yet");
+                }
             }
         }
     }

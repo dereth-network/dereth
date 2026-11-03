@@ -333,3 +333,59 @@ fn looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand() {
     let weapon = s.client_ref().model.object(held).expect("the sword");
     assert!(weapon.wielder.is_some(), "the sword still in hand");
 }
+
+/// A player killed asks to be brought back, as death's dialog does, and lives: the player's scripts
+/// hear it.
+///
+/// Behaviour: session.server.a-dead-player-comes-back-by-the-dialogs-ask
+#[test]
+fn a_dead_player_asks_and_comes_back() {
+    use auberean_client_sdk::Action;
+    const STARTING_WEAPON: u32 = 0x4700_051C;
+    /// The player died (1) or lives again (0).
+    const DEATH: u32 = 0x0085 << 16 | 0x0008;
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::SENTINEL]));
+    ok(play::wield(&mut s, STARTING_WEAPON).map(|_| ()));
+    s.client().act(Action::Select { target: 0 });
+    s.client().act(Action::Examination {
+        tabs: Some(play::TABS),
+    });
+    let sentinel = play::find(s.client_ref(), authored::SENTINEL).expect("a sentinel");
+    let at = sentinel.place.expect("placed").origin;
+    ok(play::walk_to(&mut s, [at.x, at.y, at.z], 1.5));
+    ok(play::select_and_examine(&mut s, sentinel.id).map(|_| ()));
+    // A sentinel that does not fall, and a player that does at its first blow.
+    s.h.server
+        .things
+        .get_mut(sentinel.id)
+        .expect("the sentinel")
+        .health = 100_000;
+    let player = s.h.server.players.values_mut().next().expect("the player");
+    yalain_world::quals::set_int(
+        &mut player.qualities,
+        yalain_world::player::quality::HEALTH,
+        1,
+    );
+    let fight = play::attack_until_dead(&mut s, sentinel.id);
+    assert!(fight.is_err(), "the player falls first");
+    // Dead, and its corpse on the ground: death's dialog waits on the player.
+    ok(play::until(&mut s, 30.0, "told it died", |c| {
+        c.notices
+            .iter()
+            .any(|n| n.native == DEATH && n.words.first() == Some(&1))
+    }));
+    play::wait(&mut s, 15.0);
+    s.client().notices.clear();
+    s.client().act(Action::Resurrect);
+    play::wait(&mut s, 15.0);
+    let back = s
+        .client_ref()
+        .notices
+        .iter()
+        .any(|n| n.native == DEATH && n.words.first() == Some(&0));
+    assert!(back, "told it lives again");
+}

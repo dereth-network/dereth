@@ -27,6 +27,8 @@ not how it was done.
 - Knockbacks and other server pushes now move your character.
 - Clicking just beside a creature now selects it.
 - No water reflections while under water.
+- Resurrect and Dismount now work.
+- Music now follows what's near you.
 
 ## 0.1.2 (2026-11-02)
 

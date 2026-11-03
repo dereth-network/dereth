@@ -288,24 +288,22 @@ fn the_answers_reach_the_panel_that_asked() {
     w.tick(&[alive]);
     assert!(w.play.shown(&w.ui));
 
-    // A question of the scripts: yes answers with what it carried.
-    let mut out = Vec::new();
-    w.play
-        .make_confirmation_dialog("Accept?".into(), [7, 8], [9, 10], 11, &mut out);
-    for r in out {
-        if let Request::Dialog(d) = r {
-            let parent = Some(w.play.frame());
-            w.dialogs
-                .make_dialog(&mut w.ui, parent, &(&d).into(), &mut w.said);
-        }
-    }
+    // The server's question whether an effect may go on: yes answers with what it carried.
+    let question = Notice {
+        native: notice::SHOULD_APPLY_TOTEM,
+        about: Some(1),
+        words: vec![0, 7, 0, 8, 11],
+        records: vec![Some(Record::Text(auberean_text::StringInfo::literal(
+            "Accept?",
+        )))],
+    };
+    w.tick(&[question]);
     w.tick(&[]);
     assert_eq!(w.text("QuestionText"), "Accept?");
     let out = w.click(w.button("YesButton"));
     assert!(
         out.contains(&Request::Confirm {
             objects: [7, 8],
-            tokens: [9, 10],
             value: 11,
         }),
         "{out:?}"

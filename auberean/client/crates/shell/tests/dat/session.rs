@@ -3485,6 +3485,50 @@ fn range_of_at_eyes(s: &Shell<'_, DoubleHost>) -> Vec<(u64, std::ops::Range<usiz
     vec![(PLAYER, s.scene.drawn_batches(PLAYER).expect("drawn"))]
 }
 
+/// The groove level the radar works out reaches the music: the play screen's request becomes a
+/// sound order, and the order sets the level the music's patterns follow.
+///
+/// Behaviour: desktop.sound.the-radars-groove-level-reaches-the-music
+#[test]
+fn the_radars_groove_level_reaches_the_music() {
+    use auberean_shell::interface::SoundOrder;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    step(&mut s);
+    assert_eq!(s.sound.manager.groove(), 0);
+    s.sound.request(SoundOrder::Groove(12));
+    assert_eq!(s.sound.manager.groove(), 12);
+}
+
+/// The world hidden while a story plays is not drawn, and is drawn again when shown.
+///
+/// Behaviour: desktop.world.the-world-hidden-is-not-drawn
+#[test]
+fn the_world_hidden_is_not_drawn_and_shown_again_is() {
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    assert!(s.frame().world.is_some(), "drawn");
+    s.scene.show_world(false);
+    step(&mut s);
+    assert!(s.frame().world.is_none(), "hidden");
+    s.scene.show_world(true);
+    step(&mut s);
+    assert!(s.frame().world.is_some(), "drawn again");
+}
+
 /// The world's frame carries the client's running time every frame: the clouds' shadows slide, the
 /// water's ripples move and the sun's flare fades by it. (The player put 150 m up over the land of
 /// block `0x0298`, the frame read every frame for 12 seconds.)

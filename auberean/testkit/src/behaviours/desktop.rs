@@ -782,6 +782,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.what-the-play-screen-asks-is-carried-out",
+        says: "Each request of the play screen reaches what carries it out: being brought back, turning an offer down, getting down from a mount, keeping the options, yes to the server's question, the groove level, the world hidden and shown, what the status bar covers, and the examination panel opened.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLAY-REQUESTS"),
+        station: "auberean-interface::dat::screens::what_the_play_screen_asks_is_carried_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.keys.a-key-let-go-ends-what-its-press-began",
         says: "A key let go ends the action its press began, whatever modifier was let go in \
                between: a key pressed with Shift ends its Shift action even after Shift is let \
@@ -1261,6 +1269,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.sound.the-radars-groove-level-reaches-the-music",
+        says: "The groove level the radar works out from what is near sets the level the music's patterns follow.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SOUND-GROOVE-REACHES"),
+        station: "auberean-shell::dat::session::the_radars_groove_level_reaches_the_music",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.text.references-the-files-lack-are-asked-for-through-the-clients-cache",
         says: "Once a client is here the interface writes string references through its data cache \
                (a reference its files write reads as before and asks for nothing), and a reference \
@@ -1454,6 +1470,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SKY-EVERY-FRAME"),
         station: "auberean-shell::dat::session::the_sky_follows_the_camera_every_frame_and_the_ground_is_lit_on_the_lights_tick",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.the-world-hidden-is-not-drawn",
+        says: "A world hidden while a story plays makes no frame, and is drawn again when shown.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-HIDDEN"),
+        station: "auberean-shell::dat::session::the_world_hidden_is_not_drawn_and_shown_again_is",
         tier: Tier::Dat,
     },
     behaviour! {

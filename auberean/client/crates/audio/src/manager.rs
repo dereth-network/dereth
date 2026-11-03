@@ -327,6 +327,12 @@ impl SoundPlayer {
         }
     }
 
+    /// The master groove level.
+    #[must_use]
+    pub fn groove(&self) -> i32 {
+        self.music.perf.lock().map_or(0, |p| p.master_groove())
+    }
+
     /// The mixer the device fills its blocks from, when there is a device.
     #[must_use]
     pub fn mixer(&self) -> Option<Arc<Mutex<Mixer>>> {

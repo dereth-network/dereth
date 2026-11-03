@@ -329,6 +329,8 @@ pub struct Scene<'w> {
     table: World,
     others: others::Others,
     built: Option<Built>,
+    /// The world is shown (it is hidden while the story plays).
+    world_shown: bool,
     /// When the time of day is next looked at and the world's lighting next worked out again (the
     /// client's own seconds), and how many times it has been.
     sky_at: f64,
@@ -1178,6 +1180,7 @@ impl<'w> Scene<'w> {
             seen: seen::Seen::default(),
             drawn: Vec::new(),
             built: None,
+            world_shown: true,
             sky_at: 0.0,
             light_at: 0.0,
             lightings: 0,
@@ -1255,13 +1258,28 @@ impl<'w> Scene<'w> {
         self.portal_look = self.portal.think(now);
     }
 
+    /// Show the world, or hide it (while the story plays): hidden, no world's frame is made.
+    // D2-10654, D2-10655
+    pub fn show_world(&mut self, on: bool) {
+        self.world_shown = on;
+    }
+
+    /// Whether the world is shown.
+    // D2-10653
+    #[must_use]
+    pub const fn world_shown(&self) -> bool {
+        self.world_shown
+    }
+
     /// Builds what [`Scene::frames`] hands out at `now`: the world's frame (when `world` and
     /// portal space leaves it in sight) and portal space's. The world's camera and the bodies
     /// drawn are then in [`Scene::seen`].
     pub fn build_frames(&mut self, now: f64, world: bool) {
         self.frame_rate.end_frame(now);
         let look = self.portal_look.clone();
-        let world_drawn = world && look.draw_world && self.build_world(now, look.world_fov);
+        // D2-10658
+        let world_drawn =
+            world && self.world_shown && look.draw_world && self.build_world(now, look.world_fov);
         self.portal_frame = self
             .portal
             .frame(&self.world.records, &mut self.builder, &look, now);

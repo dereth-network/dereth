@@ -1520,6 +1520,60 @@ fn picks(s: &Shell<'_, DoubleHost>, id: u64) -> Option<(f32, f32)> {
     None
 }
 
+/// Every kind of request the play screen makes reaches what carries it out: being brought back,
+/// turning an offer down, getting down from a mount, keeping the options, yes to the server's
+/// question, the groove level, the world hidden and shown, what the status bar covers, and the
+/// examination panel opened.
+///
+/// Behaviour: desktop.interface.what-the-play-screen-asks-is-carried-out
+#[test]
+fn what_the_play_screen_asks_is_carried_out() {
+    use auberean_shell::interface::SoundOrder;
+    use auberean_ui_game::gameplay::Request as R;
+    let (mut s, retail) = into_the_world_with(with_a_man());
+    assert!(until(&mut s, 3.0, |s| on_screen(s, MAN).is_some()), "in");
+    let carried = |r: R| {
+        let mut out = Vec::new();
+        retail.borrow_mut().carry_out(vec![r], &mut out);
+        out
+    };
+    for (r, a) in [
+        (R::Resurrect, Action::Resurrect),
+        (R::DeclineResurrection, Action::DeclineResurrection),
+        (R::Dismount, Action::Dismount),
+        (R::KeepOptions, Action::KeepOptions),
+        (
+            R::Confirm {
+                objects: [7, 8],
+                value: 9,
+            },
+            Action::ApplyTotem {
+                target: 7,
+                source: 8,
+                effect: 9,
+            },
+        ),
+    ] {
+        assert_eq!(carried(r), vec![Request::Act(a)]);
+    }
+    assert_eq!(
+        carried(R::GrooveLevel(3)),
+        vec![Request::Sound(SoundOrder::Groove(3))]
+    );
+    assert_eq!(
+        carried(R::ShowWorld(false)),
+        vec![Request::ShowWorld(false)]
+    );
+    assert!(carried(R::PrecludeFromTop(40)).is_empty());
+    assert_eq!(retail.borrow().preclude().0, 40);
+    assert!(!shows(&retail, "ExaminationField"));
+    assert!(carried(R::OpenExaminationPanel).is_empty());
+    assert!(
+        until(&mut s, 1.0, |_| shows(&retail, "ExaminationField")),
+        "the examination panel opens"
+    );
+}
+
 /// What a body holds is seen and picked as itself: a click on the bow in the player's hand
 /// selects the bow, and a double press on it, an item the player holds, selects it without
 /// using it.

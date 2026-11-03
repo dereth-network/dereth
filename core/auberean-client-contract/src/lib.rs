@@ -75,6 +75,20 @@ pub enum Action {
     Examination { tabs: Option<u32> },
     /// Give up a quest under way.
     CancelQuest { quest: u32 },
+    /// Be brought back to life.
+    Resurrect,
+    /// Turn down someone's offer to bring the player back to life.
+    DeclineResurrection,
+    /// Get down from a mount.
+    Dismount,
+    /// Send the player's options to the server to keep.
+    KeepOptions,
+    /// Yes: the effect the server asked about may go on, from `source` to `target`.
+    ApplyTotem {
+        target: u64,
+        source: u64,
+        effect: u32,
+    },
     /// Ask something of a skill, as the skill window does.
     Skill(SkillAction),
     /// Ask something of crafting, as the crafting page and the ingredient panel do.

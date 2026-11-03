@@ -273,6 +273,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.a-dead-player-comes-back-by-the-dialogs-ask",
+        says: "A player killed asks to be brought back, as death's dialog does, and is told it lives again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-RESURRECT"),
+        station: "yalain-testkit::dat::session::a_dead_player_asks_and_comes_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say",
         says: "An item whose template keeps its places only in its qualities record, used from the \
                pack, goes on the body where they say and leaves what is in hand there.",
