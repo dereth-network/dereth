@@ -52,7 +52,7 @@ fn a_body_stands_and_runs_on_an_interior_floor() {
         CellId(0x0298_0109),
         Frame::new(Vec3::new(59.0, 240.0, -44.0), Quat::IDENTITY),
     );
-    let mut b = body(w, start, 0.0);
+    let mut b = body(w, start, 180.0);
     b.contact = false;
     b.on_walkable = false;
     let mut cells = std::collections::BTreeSet::new();
@@ -474,4 +474,57 @@ fn a_cell_with_no_collision_tree_is_open_air() {
         [0x0286_0101, 0x0286_0104],
         "down through the doorway in the floor"
     );
+}
+
+/// A body falls by the gravity where it is. Each room's own properties may set it, and the region
+/// lays it over the land: dropped in a room whose gravity is 3 m/s2 (cell `0x04970195`) a body is
+/// going 0.3 m/s faster each tick; in a room whose gravity pulls up at 1 m/s2 (cell `0x03C70125`) it
+/// goes up; on the land the region's blocks say 125/255 of 20 m/s2 (9.8039), and in the low blocks
+/// 2/255 of it (block `0xF6F8`).
+///
+/// Behaviour: motion.interior.a-body-falls-by-the-gravity-where-it-is
+#[test]
+fn a_body_falls_by_the_gravity_where_it_is() {
+    let w = need_world!();
+    let list: auberean_assets::property::PropertyList =
+        w.records.get(0x3400_0000).expect("the property list");
+    let dt = auberean_physics::body::tick_seconds();
+    let fall = |cell: u32, origin: Vec3| {
+        let land = Land::new();
+        let mut trees = Trees::default();
+        let (x, y) = ((cell >> 24) as u8, ((cell >> 16) & 0xFF) as u8);
+        if cell & 0xFFFF >= 0x100 {
+            add_block_cells(&land, &w.records, &mut trees, x, y);
+        } else {
+            land.add_block(&w.records, &w.region, &mut trees, x, y);
+        }
+        let mut world = World::new();
+        world.set_property_list(list.clone());
+        let at = Position::new(CellId(cell), Frame::new(origin, Quat::IDENTITY));
+        let mut b = body(w, at, 0.0);
+        b.contact = false;
+        b.on_walkable = false;
+        let before = b.velocity.z;
+        b.tick_in(&land, &mut world, dt);
+        (b.current_gravity(), b.velocity.z - before)
+    };
+    let room = |cell: u32| {
+        let (x, y, low) = (
+            (cell >> 24) as i32,
+            ((cell >> 16) & 0xFF) as i32,
+            (cell & 0xFFFF) as u16,
+        );
+        let c = w.records.cell(x, y, low).expect("the room");
+        Vec3::new(c.frame.origin.x, c.frame.origin.y, c.frame.origin.z)
+    };
+    let (g, dv) = fall(0x0497_0195, room(0x0497_0195));
+    assert_eq!(g, Vec3::new(0.0, 0.0, -3.0));
+    assert!((dv + 0.3).abs() < 1e-4, "{dv}");
+    let (g, dv) = fall(0x03C7_0125, room(0x03C7_0125));
+    assert_eq!(g, Vec3::new(0.0, 0.0, 1.0));
+    assert!((dv - 0.1).abs() < 1e-4, "{dv}");
+    let (g, _) = fall(0x0298_0001, Vec3::new(12.0, 12.0, 150.0));
+    assert!((g.z + 9.8039).abs() < 1e-3, "{g:?}");
+    let (g, _) = fall(0xF6F8_0001, Vec3::new(12.0, 12.0, 400.0));
+    assert!((g.z + 0.1568).abs() < 1e-3, "{g:?}");
 }

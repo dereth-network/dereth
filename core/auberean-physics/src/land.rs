@@ -7,9 +7,11 @@
 //! physics tree, registered in each land cell its bounding sphere reaches.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
+use auberean_assets::property::{PropertyCollection, PropertyList};
 use auberean_world::math::over_polygon;
+use auberean_world::property::BlockProperties;
 use auberean_world::records::{RegionSet, WorldRecords};
 use dereth_physics::cell::{Cell, CellArray, CellInfo, HostCell};
 use dereth_physics::geom::{Plane, Polygon, Sphere};
@@ -273,6 +275,15 @@ impl LandCell {
     }
 }
 
+/// What an interior cell adds to the material of a body in it.
+#[derive(Clone, Debug, Default)]
+pub struct CellMaterial {
+    /// Its landblock's properties.
+    pub block: Arc<PropertyCollection>,
+    /// Its own.
+    pub own: Option<PropertyCollection>,
+}
+
 /// The world's land, as the shared core asks for it.
 #[derive(Debug)]
 pub struct Land {
@@ -284,6 +295,11 @@ pub struct Land {
     /// The entities placed in interior cells that collide through their setups' cylinders or
     /// spheres, by full id.
     cell_objects: RwLock<HashMap<u32, Arc<Placed>>>,
+    /// The properties laid over the world.
+    properties: OnceLock<Option<Arc<BlockProperties>>>,
+    /// What interior cells add to the material of a body in them, by full id: their landblock's
+    /// properties, then their own.
+    cell_materials: RwLock<HashMap<u32, Arc<CellMaterial>>>,
     table: Box<[f32; LAND_HEIGHT_TABLE_LEN]>,
 }
 
@@ -301,6 +317,8 @@ impl Land {
             cells: RwLock::new(HashMap::new()),
             cell_solids: RwLock::new(HashMap::new()),
             cell_objects: RwLock::new(HashMap::new()),
+            properties: OnceLock::new(),
+            cell_materials: RwLock::new(HashMap::new()),
             table: Box::new([0.0; LAND_HEIGHT_TABLE_LEN]),
         }
     }
@@ -309,6 +327,55 @@ impl Land {
     pub fn insert_cell(&self, cell: EnvCellGeometry) {
         if let Ok(mut c) = self.cells.write() {
             c.insert(cell.id.0, Arc::new(cell));
+        }
+    }
+
+    /// The properties laid over the world, taken once.
+    pub fn properties_or(
+        &self,
+        read: impl FnOnce() -> Option<Arc<BlockProperties>>,
+    ) -> Option<&Arc<BlockProperties>> {
+        self.properties.get_or_init(read).as_ref()
+    }
+
+    /// Add what an interior cell adds to the material of a body in it.
+    pub fn insert_cell_material(&self, id: CellId, material: CellMaterial) {
+        if let Ok(mut c) = self.cell_materials.write() {
+            c.insert(id.0, Arc::new(material));
+        }
+    }
+
+    /// Updates `material` with what holds at `at` in cell `id`: what the region lays over the block,
+    /// and in an interior cell its landblock's properties and then its own.
+    // D2-03828, D2-03560, D2-13692
+    pub fn update_cell_material(
+        &self,
+        id: CellId,
+        at: &Position,
+        material: &mut PropertyCollection,
+        list: &PropertyList,
+    ) {
+        let lb = at.cell.landblock();
+        if let Some(Some(p)) = self.properties.get() {
+            crate::material::update_block_material(
+                p,
+                material,
+                list,
+                u32::from(lb.x()),
+                u32::from(lb.y()),
+                at.frame.origin,
+            );
+        }
+        let cell = self
+            .cell_materials
+            .read()
+            .ok()
+            .and_then(|c| c.get(&id.0).cloned());
+        if let Some(c) = cell {
+            material.update_collection(&c.block);
+            if let Some(own) = &c.own {
+                material.update_collection(own);
+            }
         }
     }
 
@@ -521,6 +588,7 @@ impl Land {
         x: u8,
         y: u8,
     ) -> bool {
+        self.properties_or(|| region.properties.clone());
         let Some(block) = build(records, region, trees, x, y) else {
             return false;
         };

@@ -256,6 +256,8 @@ impl Body {
     ) -> u32 {
         self.position = Position::new(cell, pos.frame);
         world.place(land, key, self.position);
+        let at = self.position;
+        self.update_cell_material(land, world, key, &at);
         self.water = land.water_plane(cell);
         error::OK
     }

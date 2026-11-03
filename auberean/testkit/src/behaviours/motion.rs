@@ -120,6 +120,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "motion.corpus.recorded-players-fall-by-a-rooms-own-gravity",
+        says: "Falling in the rooms whose own properties make gravity 3 m/s2, the 2017 sessions' players fall at 3 m/s2: \
+               the middle half of over a thousand accelerations lies within 0.5 of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-ROOM-GRAVITY-CORPUS"),
+        station: "auberean-physics::corpus::replay::recorded_players_fall_by_a_rooms_own_gravity",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "motion.drag.a-body-on-dragging-ground-slows-by-its-drag",
         says: "On ground whose motion values have drag, a body nothing pushes keeps one less the \
                drag of its velocity each second, decayed tick by tick.",
@@ -320,6 +329,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PHYS-IMPULSE"),
         station: "auberean-physics::cpu::motion::element::a_targeted_impulse_pushes_away",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.interior.a-body-falls-by-the-gravity-where-it-is",
+        says: "A body falls by the gravity where it is: a room's own properties may set it (3 m/s2 in some, 1 m/s2 \
+               upward in others), and the region lays it over the land, block by block (9.8039 m/s2 nearly \
+               everywhere, 0.157 in the low blocks).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-MATERIAL-GRAVITY"),
+        station: "auberean-physics::dat::interior::a_body_falls_by_the_gravity_where_it_is",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "motion.interior.a-body-moved-by-hand-meets-the-walls",

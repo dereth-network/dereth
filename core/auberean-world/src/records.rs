@@ -80,7 +80,7 @@ pub struct RegionSet {
     /// The fog kinds' block map.
     pub fog_kinds: Option<auberean_assets::region::BlockMap>,
     /// The properties laid over the world, and the block map of each that has one.
-    pub properties: Option<BlockProperties>,
+    pub properties: Option<Arc<BlockProperties>>,
 }
 
 impl RegionSet {
@@ -226,17 +226,7 @@ impl WorldRecords {
                     desc,
                 })
             });
-        // D2-07487
-        let properties = first(&region.properties)
-            .and_then(|id| self.get::<auberean_assets::region::PropertyDesc>(id))
-            .map(|desc| {
-                let maps = desc
-                    .properties
-                    .iter()
-                    .map(|p| self.get(p.block_map.0))
-                    .collect();
-                BlockProperties { desc, maps }
-            });
+        let properties = self.properties_of(&region).map(Arc::new);
         Ok(RegionSet {
             properties,
             region,
@@ -250,6 +240,25 @@ impl WorldRecords {
             water,
             fog_kinds,
         })
+    }
+
+    /// The properties the region lays over the world, read on their own.
+    #[must_use]
+    pub fn block_properties(&self) -> Option<BlockProperties> {
+        self.properties_of(&self.get::<Region>(REGION_ID)?)
+    }
+
+    /// `region`'s current property description and its block maps.
+    // D2-07487
+    fn properties_of(&self, region: &Region) -> Option<BlockProperties> {
+        let id = region.properties.first()?.record.0;
+        let desc = self.get::<auberean_assets::region::PropertyDesc>(id)?;
+        let maps = desc
+            .properties
+            .iter()
+            .map(|p| self.get(p.block_map.0))
+            .collect();
+        Some(BlockProperties { desc, maps })
     }
 
     /// The landblock at block coordinates `(x, y)`.

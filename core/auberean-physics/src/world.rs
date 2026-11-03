@@ -748,6 +748,25 @@ impl World {
         touched
     }
 
+    /// The install's property list.
+    #[must_use]
+    pub const fn property_list(&self) -> &PropertyList {
+        &self.properties
+    }
+
+    /// Entry `key`'s surroundings' properties are `material`'s, when it has collisions.
+    pub(crate) fn add_environmental_properties(
+        &mut self,
+        key: BodyKey,
+        material: &PhysicsMaterial,
+    ) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            if let Some(c) = e.collisions.as_deref_mut() {
+                c.add_environmental_properties(Some(material), &self.properties);
+            }
+        }
+    }
+
     fn collisions_mut(&mut self, key: BodyKey) -> Option<&mut Collisions> {
         self.entries.get_mut(&key)?.collisions.as_deref_mut()
     }

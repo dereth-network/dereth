@@ -15,13 +15,16 @@
 
 use dereth_physics::geom::Plane;
 use dereth_physics::V3;
-use dereth_primitives::Vec3;
+use dereth_primitives::{Position, Vec3};
 
 use auberean_assets::animation::{ModeKey, MotionParams};
 
 use super::{Animate, Body, Notice};
+use crate::collision::manager::BodyKey;
+use crate::land::Land;
 use crate::motion::values::default_values;
 use crate::motion::{shows, Owner, AIR, EARTH, PEACE, SEA_FLOOR, WATER};
+use crate::world::World;
 
 /// The element of a body walking on air.
 pub const WALK_ON_AIR: u32 = 0x4000_0007;
@@ -205,6 +208,28 @@ impl Body {
             }
             None => false,
         }
+    }
+
+    /// The cell `at` is in updates the body's material with what holds there: its gravity is the
+    /// body's, its properties are the surroundings' to the body's collisions.
+    // D2-06156, D2-06044, D2-06045
+    pub(crate) fn update_cell_material(
+        &mut self,
+        land: &Land,
+        world: &mut World,
+        key: BodyKey,
+        at: &Position,
+    ) {
+        self.material_cell = Some(at.cell);
+        let material = self.material.get_or_insert_with(Box::default);
+        land.update_cell_material(at.cell, at, &mut material.properties, world.property_list());
+        let gravity = material
+            .properties
+            .get(world.property_list(), crate::material::GRAVITY)
+            .and_then(|p| p.value.inq_vector())
+            .map(|v| Vec3::new(v.x, v.y, v.z));
+        world.add_environmental_properties(key, material);
+        self.update_gravity(gravity);
     }
 
     /// The element from the water around the body (see the module's description).

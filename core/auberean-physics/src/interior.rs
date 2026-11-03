@@ -20,7 +20,7 @@ use dereth_physics::source::{CellPortal, EnvCellGeometry};
 use dereth_physics::V3;
 use dereth_primitives::{CellId, Frame, Quat, Vec3};
 
-use crate::land::{segment_distance, segment_polygon, Land, Solid};
+use crate::land::{segment_distance, segment_polygon, CellMaterial, Land, Solid};
 use crate::mesh::{convert, physics_polygons, physics_tree, positions, Trees};
 
 /// The lowest cell index of an interior cell; land cells are numbered 1 to 64.
@@ -137,6 +137,8 @@ pub fn add_block_cells(
     let Some(info) = records.landblock_info(bx, by) else {
         return 0;
     };
+    land.properties_or(|| records.block_properties().map(Arc::new));
+    let block_properties = Arc::new(info.properties.clone());
     let mut meshes: HashMap<u32, Option<Arc<CellMesh>>> = HashMap::new();
     let mut added = 0;
     for k in 0..info.cell_count {
@@ -161,6 +163,13 @@ pub fn add_block_cells(
                 .filter_map(|e| crate::object::placed_entity(records, trees, e, g.id))
                 .map(|(p, s)| (p, Arc::new(s)))
                 .collect();
+            land.insert_cell_material(
+                g.id,
+                CellMaterial {
+                    block: Arc::clone(&block_properties),
+                    own: cell.properties.clone(),
+                },
+            );
             land.insert_cell_objects(g.id, objects);
             land.insert_cell_solids(g.id, cell_solids(records, trees, &cell, g.id));
             land.insert_cell(g);

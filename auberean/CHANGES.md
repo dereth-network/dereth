@@ -14,6 +14,7 @@ not how it was done.
 - Fixed your character wobbling while running in mouse look.
 - Fixed falling through the floor in the training ground's second area.
 - The world's closed-off regions now stop you at their edge.
+- Some dungeon rooms now have their own gravity, as in retail.
 
 ## 0.1.2 (2026-11-02)
 

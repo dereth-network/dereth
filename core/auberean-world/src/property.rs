@@ -21,7 +21,8 @@ pub struct BlockProperties {
 
 impl BlockProperties {
     /// The first entry for `property`, with its block map.
-    fn entry(&self, property: u32) -> Option<(&MappedProperty, Option<&BlockMap>)> {
+    #[must_use]
+    pub fn entry(&self, property: u32) -> Option<(&MappedProperty, Option<&BlockMap>)> {
         let k = self
             .desc
             .properties

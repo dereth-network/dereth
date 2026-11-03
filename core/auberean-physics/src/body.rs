@@ -23,6 +23,7 @@ use std::sync::Arc;
 use dereth_primitives::num::math;
 
 use auberean_assets::animation::{ModeKey, MotionDesc, MotionParams, MotionSet};
+use auberean_assets::property::PhysicsMaterial;
 use dereth_physics::geom::{Plane, Sphere};
 use dereth_physics::transition::insert::find_transitional_position;
 use dereth_physics::transition::{ObjectInfoState, Transition};
@@ -297,6 +298,10 @@ pub struct Body {
     pub walk_on_air: bool,
     /// Gravity where the body is.
     pub local_gravity: Vec3,
+    /// What the cells the body has been in made of it ([`crate::material`]); none until the first.
+    pub material: Option<Box<PhysicsMaterial>>,
+    /// The cell that last updated the material.
+    material_cell: Option<CellId>,
     /// The water plane of the body's cell, the body's depth under it, and whether there is one.
     pub water: Option<Plane>,
     depth: f32,
@@ -426,6 +431,8 @@ impl Body {
             pushers: Pushers::default(),
             walk_on_air: false,
             local_gravity: DEFAULT_GRAVITY,
+            material: None,
+            material_cell: None,
             water: None,
             depth: 0.0,
             has_water: false,
@@ -560,6 +567,10 @@ impl Body {
         dt: f32,
     ) {
         self.tell_world(world, key);
+        if self.material_cell != Some(self.position.cell) {
+            let at = self.position;
+            self.update_cell_material(land, world, key, &at);
+        }
         self.advance(land, world, key, objects, dt);
         if world.position(key) != Some(self.position) {
             world.place(land, key, self.position);
@@ -895,6 +906,9 @@ impl Body {
     ) {
         let r = rules();
         let ci = t.collision_info.clone();
+        if t.sphere_path.curr_pos.cell != self.position.cell {
+            self.update_cell_material(land, world, key, &t.sphere_path.curr_pos);
+        }
         self.position = t.sphere_path.curr_pos;
         if let Some(q) = rotation {
             self.position.frame.rotation = q;
