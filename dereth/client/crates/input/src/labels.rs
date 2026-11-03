@@ -72,6 +72,13 @@ pub fn control_name(
     meta: bool,
     provider: &impl LabelProvider,
 ) -> String {
+    // On a Mac the host hands Command over as Control, so a binding of Control is pressed there.
+    if cfg!(target_os = "macos")
+        && device == DeviceType::Keyboard
+        && matches!(control.offset(), 0x1D | 0x9D)
+    {
+        return "Cmd".to_owned();
+    }
     let name = provider
         .override_name(device, control, meta)
         .or_else(|| {
@@ -125,6 +132,15 @@ pub const fn sub_control_token(sub: SubControlIndex) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::{activation, keymap::DeviceKeyMapEntry};
+
+    /// What the Control key is called: a Mac presses Command for it.
+    fn control() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "Cmd"
+        } else {
+            "Control"
+        }
+    }
 
     struct Text {
         classic: bool,
@@ -194,11 +210,15 @@ mod tests {
         let chord = ControlChord::new(key(0x11), 0x8000_0001, activation::DOWN);
         assert_eq!(
             binding_label(&map(), chord, &text),
-            "Control / Right Alt / W"
+            format!("{} / Right Alt / W", control())
         );
         assert_eq!(
             control_name(DeviceType::Keyboard, key(0x1d), false, &text),
-            "Left Ctrl"
+            if cfg!(target_os = "macos") {
+                "Cmd"
+            } else {
+                "Left Ctrl"
+            }
         );
         let unknown = ControlChord::new(key(0xffff), chord.meta_mode, activation::DOWN);
         assert_eq!(binding_label(&map(), unknown, &text), "");
@@ -217,7 +237,7 @@ mod tests {
                     composition: None
                 }
             ),
-            "Control / Space"
+            format!("{} / Space", control())
         );
         assert_eq!(
             binding_label(
@@ -228,7 +248,7 @@ mod tests {
                     composition: None
                 }
             ),
-            "Control / Spacebar"
+            format!("{} / Spacebar", control())
         );
         assert_eq!(
             binding_label(
@@ -239,7 +259,7 @@ mod tests {
                     composition: None
                 }
             ),
-            "Right Alt / Control / Spacebar"
+            format!("Right Alt / {} / Spacebar", control())
         );
         let text = Text {
             classic: false,

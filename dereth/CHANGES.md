@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- macOS: Command takes the place of Control for shortcuts, copy and paste among them, and the key bindings pages show it as Cmd.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.
