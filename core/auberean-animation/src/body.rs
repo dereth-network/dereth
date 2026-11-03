@@ -667,20 +667,6 @@ impl Body {
         self.scripts.do_script(records, script)
     }
 
-    /// A slider's value now (0 for one never moved).
-    // D2-05897, D2-06393
-    #[must_use]
-    pub fn slider_current(&self, slider: u32) -> f32 {
-        self.sliders.current(slider)
-    }
-
-    /// The value a slider is moving to.
-    // D2-05898, D2-06394
-    #[must_use]
-    pub fn slider_desired(&self, slider: u32) -> f32 {
-        self.sliders.desired(slider)
-    }
-
     /// What the behaviors asked of the object since last taken.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)

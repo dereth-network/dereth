@@ -38,7 +38,6 @@ pub fn position_heading(p: &Position) -> Heading {
 }
 
 /// Faces the position toward a heading, keeping its tilt.
-// D2-05828
 pub fn set_position_heading(p: &mut Position, h: Heading) {
     set_heading(&mut p.frame, h);
 }
@@ -62,7 +61,6 @@ pub fn positions_differ(a: &Position, b: &Position) -> bool {
 
 /// Brings the position into the land cell its origin lies over, the origin carried into that
 /// cell's landblock; false (and cell 0) off the map.
-// D2-03472
 pub fn adjust_position_to_outside(p: &mut Position) -> bool {
     cells::adjust_to_outside(&mut p.cell, &mut p.frame.origin)
 }

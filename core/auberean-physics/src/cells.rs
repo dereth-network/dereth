@@ -666,7 +666,6 @@ pub fn in_same_block(a: CellId, b: CellId) -> bool {
 
 /// Whether a point in a landblock's frame lies over it: from 0 (included) to 160 m (excluded)
 /// east and north.
-// D2-03611
 #[must_use]
 pub fn within_block(v: Vec3) -> bool {
     0.0 <= v.x && 0.0 <= v.y && v.x < crate::rules::BLOCK_LENGTH && v.y < crate::rules::BLOCK_LENGTH

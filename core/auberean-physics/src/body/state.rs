@@ -212,10 +212,6 @@ impl Body {
     pub fn set_report_collisions(&mut self, on: bool) {
         self.put(flags::REPORT_COLLISIONS, on);
     }
-    // D2-06015
-    pub fn set_game_draw(&mut self, on: bool) {
-        self.put(flags::GAME_DRAW, on);
-    }
     // D2-06016
     pub fn set_tools_draw(&mut self, on: bool) {
         self.put(flags::TOOLS_DRAW, on);

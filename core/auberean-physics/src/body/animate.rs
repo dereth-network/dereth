@@ -196,11 +196,4 @@ impl Body {
         self.fx_target = 0;
         self.look_to_clone = 0;
     }
-
-    /// Whether the body has anything to collide with: a collision sphere.
-    // D2-06278
-    #[must_use]
-    pub fn has_physics_presence(&self) -> bool {
-        self.num_sphere() != 0
-    }
 }

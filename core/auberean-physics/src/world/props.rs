@@ -143,7 +143,7 @@ impl World {
     /// A drawing property: kept as the entry's own; a truth value among those saying how the
     /// object is drawn sets or clears its bit of the graphics state, or (not drawn in the game)
     /// whether it is drawn in the game. True when it set something.
-    // D2-06038
+    // D2-06038, D2-06015
     pub fn apply_render_property(&mut self, key: BodyKey, p: &Property) -> bool {
         self.keep_property(key, p);
         let PropertyValue::Bool(on) = p.value else {

@@ -563,7 +563,7 @@ impl Placer<'_> {
     /// Whether every piece of ground a circle of radius `r` about the place reaches is within the
     /// group's slopes in radius (and, for an aligned group, turned within its heading limits);
     /// a circle reaching off the block fails.
-    // D2-03644, D2-03831, D2-12424, D2-12428
+    // D2-03644, D2-03831, D2-12424, D2-12428, D2-03611
     fn check_radius(&self, g: &ScatterGroup, place: &Place, scale: Vec3) -> bool {
         let r = if g.scale_check_radius {
             scale.x.max(scale.y) * g.check_slope_radius

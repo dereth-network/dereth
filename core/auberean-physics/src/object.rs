@@ -234,7 +234,7 @@ impl Shape {
 
     /// [`Self::check_ray`], with what the line meets facing it: a sphere or a cylinder straight back
     /// along the line, a tree by its polygon's facing, turned into the world.
-    // D2-06184
+    // D2-06184, D2-06278
     #[must_use]
     pub fn check_ray_facing(
         &self,

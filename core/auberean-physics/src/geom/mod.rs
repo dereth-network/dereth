@@ -668,7 +668,7 @@ pub fn set_vector_heading(frame: &mut Frame, v: Vec3) {
 }
 
 /// Faces a frame toward a heading, keeping its tilt.
-// D2-13173
+// D2-13173, D2-05828
 pub fn set_heading(frame: &mut Frame, h: Heading) {
     let m = rotation_axes(frame.rotation);
     let r = h.radians();
@@ -716,7 +716,6 @@ pub fn slerp_rotation(frame: &mut Frame, a: &Frame, b: &Frame, t: f32) {
 
 /// A direction of length at most one as three bytes, its parts held to -1 to 1 (a part that is not
 /// a number counting as -1) and each mapped to 0 to 255: east in the high byte, up in the low.
-// D2-13126
 #[must_use]
 pub fn unit_vector_to_u24(v: Vec3) -> u32 {
     let byte = |c: f32| {

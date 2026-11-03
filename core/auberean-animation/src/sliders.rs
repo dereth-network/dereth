@@ -148,14 +148,14 @@ impl Sliders {
     }
 
     /// A slider's value now; 0 for a slider never set.
-    // D2-15189
+    // D2-15189, D2-05897, D2-06393
     #[must_use]
     pub fn current(&self, slider: u32) -> f32 {
         self.infos.get(slider).map_or(0.0, |i| i.value)
     }
 
     /// The value a slider is headed for.
-    // D2-15190
+    // D2-15190, D2-05898, D2-06394
     #[must_use]
     pub fn desired(&self, slider: u32) -> f32 {
         self.infos.get(slider).map_or(0.0, |i| i.desired)

@@ -38,7 +38,7 @@ fn names_a_cell(cell: CellId) -> bool {
 /// (none when that is off the map or not loaded); inside, the cell (or one it sees) holding the
 /// point `center` (in the body's frame) lands on, else, for a cell seen from outside, the land
 /// cell outside. None when the place names no cell, or its interior cell is not loaded.
-// D2-06047, D2-03593
+// D2-06047, D2-03593, D2-03472
 pub fn adjust_position(land: &Land, pos: &mut Position, center: Vec3) -> Option<Option<CellId>> {
     if !names_a_cell(pos.cell) {
         return None;
