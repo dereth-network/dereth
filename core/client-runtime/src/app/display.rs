@@ -24,6 +24,8 @@ impl<S: Shell> App<S> {
         // Set every frame rather than on the mode edge because it has to be right at the instant
         // the drain below consumes the latch, which is not an edge frame.
         self.pump.state.allow_full_screen_mode = Self::full_screen_allowed(shell);
+        self.window
+            .hold_at_login_size(!Self::full_screen_allowed(shell));
         let drained = self
             .window
             .pump_events((self.cfg.width, self.cfg.height), self.applied_full_screen);
@@ -86,6 +88,9 @@ impl<S: Shell> App<S> {
                 // the backbuffer and UI/hit-test extent in the host's same physical coordinates.
                 // No reposition or preference write here; a minimized zero extent is ignored.
                 self.restart_rendering_system(shell, *width, *height);
+                if !self.applied_full_screen && !self.use_forced_resolution {
+                    self.windowed_size = Some((*width, *height));
+                }
             }
         }
         self.note_flycam_input(event);
@@ -169,6 +174,11 @@ impl<S: Shell> App<S> {
         // before the display-preference load overwrote it — and branches on it,
         // so the old value has to be captured before the shadow moves.
         let was_full = self.applied_full_screen;
+        // Leaving full screen comes back to a dragged window's own size (client divergence
+        // CD-resizable-window), unless a resolution was chosen in the same change.
+        if full && !was_full && (self.cfg.width, self.cfg.height) == self.applied_resolution {
+            (self.cfg.width, self.cfg.height) = self.present.size();
+        }
         self.applied_full_screen = full;
         self.applied_resolution = (self.cfg.width, self.cfg.height);
         self.applied_sync_to_refresh = self.cfg.display.sync_to_refresh;
@@ -269,6 +279,9 @@ impl<S: Shell> App<S> {
                 .window
                 .request_inner_size(self.cfg.width, self.cfg.height);
             self.window.set_outer_position(place.x, place.y);
+            if !self.use_forced_resolution {
+                self.windowed_size = Some(applied);
+            }
             applied
         };
         self.restart_rendering_system(shell, applied.0, applied.1);
@@ -471,6 +484,10 @@ impl<S: Shell> App<S> {
             .load_display_preferences(self.forced_pair(), true)
             .unwrap_or(p);
         if (p.width, p.height) == (self.cfg.width, self.cfg.height) {
+            // A dragged window is not at this size yet: the event loop's poll asks for it.
+            if !self.applied_full_screen {
+                self.applied_resolution = self.present.size();
+            }
             return false;
         }
         self.cfg.width = p.width;

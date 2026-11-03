@@ -160,6 +160,10 @@ pub trait WindowHost {
     /// `SetWindowPos`'s move half.
     fn set_outer_position(&self, _x: i32, _y: i32) {}
 
+    /// Whether the current screen holds the window at the login size, so the player cannot drag
+    /// it. The default is for a window the player never sizes.
+    fn hold_at_login_size(&self, _held: bool) {}
+
     /// drain the queue completely.
     ///
     /// `requested` and `full_screen` are inputs because the DPI negotiation happens *inside* the

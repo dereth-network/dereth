@@ -75,6 +75,69 @@ fn pref() -> Option<PrefValue> {
     store::inq_value("Display.Resolution")
 }
 
+/// Behaviour: presentation.window.a-dragged-size-lasts-the-run
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail data: --features retail-dats"
+)]
+fn a_dragged_size_survives_full_screen_and_the_saved_resolution_can_still_be_chosen() {
+    let mut a = app();
+    let granted = Rc::new(Cell::new((1000, 700)));
+    let requests = Rc::new(Cell::new(0));
+    a.window = Box::new(Window {
+        granted: granted.clone(),
+        requests: requests.clone(),
+    });
+    a.handle_window_event(
+        &mut NullShell,
+        &HostEvent::Resized {
+            width: 1000,
+            height: 700,
+        },
+        0,
+    );
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!(a.present.size(), (1000, 700));
+    assert_eq!(requests.get(), 0, "the drag is not undone");
+
+    // The saved resolution is still 800x600: choosing it asks the window for it.
+    dispatch(
+        &mut a,
+        ResolutionAction::Begin {
+            size: (800, 600),
+            policy: ResolutionPolicy::Modern,
+            persist: false,
+        },
+        1.0,
+    );
+    assert_eq!(requests.get(), 1, "the size the window left is asked for");
+    a.resolution.cancel();
+
+    a.handle_window_event(
+        &mut NullShell,
+        &HostEvent::Resized {
+            width: 1000,
+            height: 700,
+        },
+        0,
+    );
+    a.pump.state.full_screen = true;
+    granted.set((1920, 1080));
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!(a.present.size(), (1920, 1080));
+    a.pump.state.full_screen = false;
+    granted.set((1000, 700));
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!((a.cfg.width, a.cfg.height), (1000, 700));
+    assert_eq!(a.present.size(), (1000, 700));
+    assert_eq!(
+        pref(),
+        Some(PrefValue::Int((800 << 16) | 600)),
+        "a drag is not the saved resolution"
+    );
+}
+
 /// Behaviour: presentation.resolution.shared-transaction
 #[test]
 #[cfg_attr(

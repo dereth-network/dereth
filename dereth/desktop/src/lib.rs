@@ -68,10 +68,11 @@ pub trait Product: 'static {
     const ICON_PNG: &'static [u8];
     /// The application id a Linux desktop finds the window's `.desktop` entry by.
     const APP_ID: &'static str;
-    /// Whether the window can be resized and maximised. The game client's window keeps the size
-    /// its resolution names, as the original's does; a tool's window is resized freely, and its
-    /// back buffer and interface follow.
+    /// Whether the window can be resized and maximised; its back buffer and interface follow.
     const RESIZABLE: bool = false;
+    /// The size a resizable window stops at, and is held at on a screen that keeps the login
+    /// size. `None`: no floor, and no screen holds it.
+    const LOGIN_SIZE: Option<(u32, u32)> = None;
 
     /// Anything to do before the window opens: on Linux, the Dereth client writes its `.desktop`
     /// entry here, which is where a Wayland desktop takes the window's icon from.

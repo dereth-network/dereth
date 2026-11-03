@@ -1017,6 +1017,9 @@ pub struct App<S: Shell> {
     /// divergence CD-001). Taken, and so cleared, when full screen is left. `None` when the window
     /// is windowed, or when it went full screen with no rectangle to remember.
     pub windowed_rect_before_full_screen: Option<dereth_client_contract::window_proc::Rect>,
+    /// The window's last windowed size with the login size not forced, saved at exit as
+    /// [`crate::config::DISPLAY_WINDOW_SIZE`]. `None` until the window has reported one.
+    pub windowed_size: Option<(u32, u32)>,
     /// The UI button-press sound (`0x72`) proof, played once. See `App::start_shell`.
     pub startup_sound_played: bool,
     /// UI sound-table id, resolved and cached once per session.

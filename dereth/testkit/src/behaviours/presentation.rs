@@ -536,6 +536,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "presentation.window.a-dragged-size-lasts-the-run",
+        says: "A size the player drags the window to is not saved as the resolution. Leaving full \
+               screen comes back to it, and choosing the saved resolution still resizes the window \
+               to that.",
+        since: THIS_CLIENT,
+        divergence: "CD-resizable-window",
+        evidence: Evidence::Private("AC-EVID-WINDOW-DRAGGED-SIZE"),
+        station: "dereth-client-runtime::lib::app::resolution_app_tests::a_dragged_size_survives_full_screen_and_the_saved_resolution_can_still_be_chosen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.window.a-resolution-change-keeps-the-windows-top-left",
         says: "Picking a new resolution changes the window's size but keeps its top-left corner \
                where it was, instead of re-centring the window.",
@@ -544,6 +555,26 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P184-WINDOW"),
         station: "dereth-client::gpu::presentation::window_position::wired::picking_a_resolution_resizes_without_moving_the_window",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "presentation.window.a-screen-held-at-the-login-size-cannot-be-dragged",
+        says: "While the screen shown keeps the login size, the player cannot drag the window. In \
+               the world, and at a screen drawn at the player's own size, they can.",
+        since: THIS_CLIENT,
+        divergence: "CD-resizable-window",
+        evidence: Evidence::Private("AC-EVID-WINDOW-DRAG-HELD-SCREEN"),
+        station: "dereth-client-runtime::lib::app::tests::the_window_is_held_only_on_a_screen_that_keeps_the_login_size",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.window.dragging-a-window-stops-at-the-login-size",
+        says: "A window the player can drag stops at the login size, 800 by 600 pixels. A window \
+               they cannot drag has no such floor.",
+        since: THIS_CLIENT,
+        divergence: "CD-resizable-window",
+        evidence: Evidence::Private("AC-EVID-WINDOW-DRAG-FLOOR"),
+        station: "dereth-desktop::lib::platform::window::tests::a_dragged_game_window_stops_at_the_login_size",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "presentation.window.leaving-full-screen-puts-the-window-back-where-it-was",
@@ -577,6 +608,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-006",
         evidence: Evidence::Private("AC-EVID-CONFIG-TITLE"),
         station: "dereth-client-runtime::lib::config::tests::the_window_title_carries_the_account_as_typed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "presentation.window.the-window-opens-at-the-size-it-closed-at",
+        says: "The windowed size is saved on exit as Display.WindowSize, once it differs from the \
+               resolution, and the next start opens the window at it once the login size lifts. A \
+               saved size below the login size is not read.",
+        since: THIS_CLIENT,
+        divergence: "CD-resizable-window",
+        evidence: Evidence::Private("AC-EVID-WINDOW-CLOSED-SIZE"),
+        station: "dereth-client-runtime::lib::config::tests::the_window_size_it_closed_at_is_read_and_one_below_the_login_size_is_not",
         tier: Tier::Cpu,
     },
 ];

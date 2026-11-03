@@ -62,6 +62,8 @@ pub struct DisplayPrefs {
     pub sync_to_refresh: bool,
     /// As `triple_buffering`.
     pub antialiasing: bool,
+    /// [`DISPLAY_WINDOW_SIZE`]: the windowed size the client last closed at, when it was saved.
+    pub window_size: Option<(u32, u32)>,
 }
 
 impl Default for DisplayPrefs {
@@ -73,9 +75,15 @@ impl Default for DisplayPrefs {
             triple_buffering: false,
             sync_to_refresh: false,
             antialiasing: false,
+            window_size: None,
         }
     }
 }
+
+/// `Display.WindowSize`, `"<width>x<height>"`: this client's own key, not retail's (client
+/// divergence CD-resizable-window). The window's size when the client last closed, written once
+/// it differs from the resolution, and what the window opens at in place of the resolution.
+pub const DISPLAY_WINDOW_SIZE: &str = "Display.WindowSize";
 
 /// Display-preference values preserved by the compatibility projection.
 /// The active renderer reads its preferences independently of this record.
@@ -1390,6 +1398,9 @@ impl Config {
                 self.height = p.height;
             }
         }
+        if let Some(v) = prefs.get(DISPLAY_WINDOW_SIZE).and_then(window_size) {
+            self.display.window_size = Some(v);
+        }
         if let Some(v) = prefs.bool(dereth_client_contract::options::names::DISPLAY_FULL_SCREEN) {
             self.display.full_screen = v;
         }
@@ -1981,6 +1992,13 @@ fn display_resolution(prefs: &Preferences) -> Option<u32> {
         return Some(u32::from_ne_bytes(v.to_ne_bytes()));
     }
     strtoul_base0(raw)
+}
+
+/// A [`DISPLAY_WINDOW_SIZE`] value: `None` unless it is `<width>x<height>` at 800x600 or more.
+fn window_size(v: &str) -> Option<(u32, u32)> {
+    let (w, h) = v.trim().split_once(['x', 'X'])?;
+    let size = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    (size.0 >= 800 && size.1 >= 600).then_some(size)
 }
 
 /// `strtol(value, 0, 0)` as the `0x22` conversion applies it, clamped into the `u32` the two port

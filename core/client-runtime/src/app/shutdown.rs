@@ -138,6 +138,7 @@ impl<S: Shell> App<S> {
                         },
                     );
                 let n = dereth_client_contract::options::store::save_into(&mut ini);
+                self.save_window_size(&mut ini);
                 match crate::platform::files::write(&path, ini.to_text()) {
                     Ok(()) => {
                         tracing::info!("saved {n} preferences to {}", path.display());
@@ -182,5 +183,22 @@ impl<S: Shell> App<S> {
             },
         );
         (self.present, log)
+    }
+
+    /// Write [`crate::config::DISPLAY_WINDOW_SIZE`] into the profile being saved: the window's last
+    /// windowed size, once it differs from the resolution or the key is there already.
+    pub(super) fn save_window_size(
+        &self,
+        ini: &mut dereth_client_contract::persist::preferences::UserPreferences,
+    ) {
+        let Some((w, h)) = self.windowed_size else {
+            return;
+        };
+        let resolution = self.cfg.display.resolution;
+        let key = crate::config::DISPLAY_WINDOW_SIZE;
+        if (w, h) != (resolution >> 16, resolution & 0xFFFF) || ini.get(key).is_some() {
+            let (section, name) = key.split_once('.').unwrap_or(("Display", key));
+            ini.write_profile_string(section, name, &format!("{w}x{h}"));
+        }
     }
 }

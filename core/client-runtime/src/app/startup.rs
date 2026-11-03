@@ -71,6 +71,12 @@ impl<S: Shell> App<S> {
         } else {
             unforced_resolution
         };
+        // The size the window last closed at is where the force lifts to (client divergence
+        // CD-resizable-window).
+        let unforced_resolution = match cfg.display.window_size {
+            Some(size) if from_preference => size,
+            _ => unforced_resolution,
+        };
         let cfg = cfg;
 
         // Step 9: initialize networking, plus the connection portion of step 11.
@@ -371,6 +377,7 @@ impl<S: Shell> App<S> {
             frame_metrics,
             window_rect,
             windowed_rect_before_full_screen: None,
+            windowed_size: None,
             startup_sound_played: false,
             ui_sound_table: None,
             hud: S::Hud::default(),

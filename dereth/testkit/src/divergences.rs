@@ -504,6 +504,18 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A player who sees something drawn wrong, or slow frames, can hand over exactly what \
               is needed to see it again on another machine.",
     },
+    Divergence {
+        id: "CD-resizable-window",
+        title: "On macOS the window can be dragged to any size",
+        change: "On macOS the player can drag the window's edges, down to the login size, and the \
+                 picture and the interface follow. Leaving full screen comes back to a dragged \
+                 size, and the next start opens at the size the window closed at, which this \
+                 client keeps beside the saved resolution; choosing a resolution still sizes the \
+                 window to it. A screen held at the login size cannot \
+                 be dragged. The final client's window kept the size its resolution named.",
+        why: "A Mac window is expected to resize, and a resolution in real pixels can be very \
+              small on a Retina display.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

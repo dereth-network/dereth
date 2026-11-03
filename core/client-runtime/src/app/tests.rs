@@ -657,6 +657,43 @@ fn tick(app: &mut App<Screens>, shell: &mut Screens, on: bool) {
     app.apply_changed_display_presentation(shell);
 }
 
+/// Behaviour: presentation.window.a-screen-held-at-the-login-size-cannot-be-dragged
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_window_is_held_only_on_a_screen_that_keeps_the_login_size() {
+    struct Told(std::rc::Rc<std::cell::Cell<Option<bool>>>);
+    impl crate::platform::window::WindowHost for Told {
+        fn screen_metrics(
+            &self,
+            _frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window_proc::ScreenMetrics {
+            crate::platform::window::headless_screen_metrics()
+        }
+        fn client_size(&self) -> (u32, u32) {
+            (800, 600)
+        }
+        fn hold_at_login_size(&self, held: bool) {
+            self.0.set(Some(held));
+        }
+    }
+    let told = std::rc::Rc::new(std::cell::Cell::new(None));
+    let mut shell = Screens::default();
+    let mut app = full_screen_client(&mut shell);
+    app.window = Box::new(Told(told.clone()));
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(true), "the login screen holds it");
+    shell.world = true;
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(false), "the world does not");
+    shell.world = false;
+    shell.own_size = true;
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(false), "nor a screen at the player's size");
+}
+
 /// Behaviour: window.full-screen.screens-drawn-at-the-players-own-size-are-full-screen-before-the-world-too
 #[test]
 #[cfg_attr(
