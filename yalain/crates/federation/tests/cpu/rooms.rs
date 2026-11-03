@@ -587,6 +587,31 @@ fn dn_admin_global_says_where_the_room_is_and_asks_the_hub_to_move_it() {
     assert_eq!(w.fed.global_room(), Some(Room::Trade));
 }
 
+/// A mirror set on either word for the room both name (the hub's page shows them as one row) is
+/// joined under that word and carries that room's lines; set on both, it is joined once, under the
+/// first.
+/// Behaviour: server.network.own-rooms-mirrored
+#[test]
+fn a_mirror_on_either_word_for_one_room_carries_that_room() {
+    for word in ["lfg", "roleplay"] {
+        let mut w = carrying(Some("general"));
+        on(&mut w, "Ann");
+        w.link(&[]);
+        told(&mut w, Some("general"), &[word]);
+        assert_eq!(joins(&w.frames()), [(word.to_owned(), true)], "{word}");
+        said(&mut w, "Ann", Room::Pvp, "one");
+        assert_eq!(lines_out(&mut w)[0].1, word);
+    }
+    let mut w = carrying(Some("general"));
+    on(&mut w, "Ann");
+    w.link(&[]);
+    told(&mut w, Some("general"), &["lfg", "roleplay"]);
+    assert_eq!(joins(&w.frames()), [("lfg".to_owned(), true)]);
+    said(&mut w, "Ann", Room::Pvp, "one");
+    let sent = lines_out(&mut w);
+    assert_eq!((sent.len(), sent[0].1.as_str()), (1, "lfg"));
+}
+
 /// The world's own rooms the hub mirrors are joined by their names, and left when they stop; a line
 /// there goes to the hub under the room's name, and its speaker is told of Discord. A room the hub
 /// answers it does not mirror keeps its lines here for a minute. The room carrying the Global room
