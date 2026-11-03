@@ -169,6 +169,8 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
   letter-spacing: 0.04em;
   color: var(--faint);
 }
+/* Each piece of the footnote on one line, whatever its version's length. */
+.foot > * { flex: none; white-space: nowrap; }
 .foot a { color: inherit; text-decoration: none; }
 .foot a:hover { color: var(--gold-bright); text-decoration: underline; }
 .foot .sep { opacity: 0.6; }
