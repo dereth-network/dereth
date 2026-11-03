@@ -119,6 +119,43 @@ pub(crate) fn run_north(b: &mut Body, land: &Land, world: &mut World, ticks: u32
     farthest
 }
 
+/// A solid standing near a block's edge and reaching over it is met from the land cells it reaches
+/// in the block next to it, and only those, once that block is in; a solid well inside its block
+/// reaches no other.
+///
+/// Behaviour: collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells
+#[test]
+fn a_solid_over_a_block_edge_is_in_the_next_blocks_cells() {
+    use auberean_physics::land::Solid;
+    let solid = |x: f32, r: f32| Solid {
+        part: dereth_physics::source::PhysicsPart::default(),
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        bounds: Sphere::new(Vec3::new(x, 90.0, GROUND_Z), r),
+        render_box: BBox::default(),
+        properties: Vec::new(),
+    };
+    let land = Land::new();
+    let mut west = Block::flat(0x40, 0x40, GROUND_Z);
+    west.add_solid(solid(159.0, 3.0));
+    west.add_solid(solid(80.0, 3.0));
+    land.insert(west);
+    land.insert(Block::flat(0x41, 0x40, GROUND_Z));
+    let (near, far) = ((0, 4), (1, 4));
+    let over = |cx, cy| land.overhanging(0x41, 0x40, cx, cy);
+    assert_eq!(over(near.0, near.1).len(), 1, "the cell next to the edge");
+    assert_eq!(over(near.0, near.1)[0].1, 0, "the solid by the edge");
+    assert!(over(far.0, far.1).is_empty(), "beyond its reach");
+    assert!(over(near.0, 0).is_empty(), "north and south of its reach");
+    assert!(
+        land.overhanging(0x40, 0x40, 7, 4).is_empty(),
+        "its own block's cells hold it themselves"
+    );
+    assert!(
+        land.block(0x40, 0x40).expect("in").cell_solids[7 * 8 + 4].contains(&0),
+        "and it is in them"
+    );
+}
+
 /// A body running at an object the host put in the world stops against it, its sphere outside
 /// the object's cylinder; with the object taken out, a body making the same run goes on past
 /// where it stood.

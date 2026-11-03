@@ -35,6 +35,7 @@ not how it was done.
 - Fixed objects vanishing on an out-of-date message.
 - Fixed things that should push you, such as currents, not pushing you.
 - Effects aimed at someone now act on them, and effects make their objects.
+- Fixed walking through solids that hang over a block edge.
 
 ## 0.1.2 (2026-11-02)
 

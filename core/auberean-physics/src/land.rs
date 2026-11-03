@@ -77,6 +77,19 @@ pub struct Solid {
 /// Placed entities that collide through cylinders or spheres, each where it stands.
 pub type Placed = Vec<(Position, Arc<Shape>)>;
 
+/// A solid of a block reaching a land cell of a block next to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Overhang {
+    /// The other block, blocks east and north of this one.
+    pub dx: i8,
+    pub dy: i8,
+    /// The land cell it reaches there.
+    pub cx: u8,
+    pub cy: u8,
+    /// The solid, by its index in this block.
+    pub solid: u32,
+}
+
 /// One block's collision: its ground and its solids, by land cell.
 #[derive(Debug)]
 pub struct Block {
@@ -86,6 +99,8 @@ pub struct Block {
     pub solids: Vec<Solid>,
     /// Per land cell (x major), the solids its area reaches.
     pub cell_solids: Vec<Vec<u32>>,
+    /// The solids that reach over the block's edge, and into which cells of the blocks around it.
+    pub overhangs: Vec<Overhang>,
     /// The height of the block's water surface, if it has water.
     pub water: Option<f32>,
     /// The placed entities that collide through their setups' cylinders or spheres, each where it
@@ -110,6 +125,14 @@ pub struct GroundMaterials {
 }
 
 impl Block {
+    /// Stands a solid in the block: in the lists of the land cells it reaches, and among the
+    /// overhangs for those of the blocks around.
+    pub fn add_solid(&mut self, solid: Solid) {
+        let i = u32::try_from(self.solids.len()).unwrap_or(u32::MAX);
+        register(&mut self.cell_solids, &mut self.overhangs, &solid.bounds, i);
+        self.solids.push(solid);
+    }
+
     /// The physics material under point `at` of the block: of the vertex nearest the point, the
     /// road's when the point is on the road, else the ground's.
     // D2-03662, D2-03636, D2-13217, D2-03829
@@ -188,6 +211,7 @@ impl Block {
             geometry,
             solids: Vec::new(),
             cell_solids: vec![Vec::new(); CELLS_PER_SIDE * CELLS_PER_SIDE],
+            overhangs: Vec::new(),
             water: None,
             objects: Vec::new(),
             passable: true,
@@ -256,6 +280,8 @@ pub struct LandCell {
     pub block: Arc<Block>,
     pub cx: usize,
     pub cy: usize,
+    /// The solids of the blocks around that reach this cell, each with its block.
+    overhanging: Vec<(Arc<Block>, u32)>,
 }
 
 impl HostCell for LandCell {
@@ -295,8 +321,11 @@ impl HostCell for LandCell {
         }
         // The solids standing in the cell.
         let k = self.cx * CELLS_PER_SIDE + self.cy;
-        for &i in &self.block.cell_solids[k] {
-            let solid = &self.block.solids[i as usize];
+        let own = self.block.cell_solids[k]
+            .iter()
+            .map(|&i| &self.block.solids[i as usize]);
+        let over = self.overhanging.iter().map(|(b, i)| &b.solids[*i as usize]);
+        for solid in own.chain(over) {
             let r = collide::object_part_find_obj_collisions_scaled(
                 ctx,
                 t,
@@ -778,6 +807,49 @@ impl Land {
     }
 
     // D2-03632, D2-03839, D2-03838
+    /// The solids of the blocks around block `(x, y)` that reach its land cell `(cx, cy)`: only a
+    /// cell on the block's edge has any.
+    #[must_use]
+    pub fn overhanging(&self, x: u8, y: u8, cx: usize, cy: usize) -> Vec<(Arc<Block>, u32)> {
+        let last = CELLS_PER_SIDE - 1;
+        let mut out = Vec::new();
+        if cx != 0 && cy != 0 && cx != last && cy != last {
+            return out;
+        }
+        for dx in -1i16..=1 {
+            for dy in -1i16..=1 {
+                if (dx, dy) == (0, 0)
+                    || (dx < 0 && cx != 0)
+                    || (dx > 0 && cx != last)
+                    || (dy < 0 && cy != 0)
+                    || (dy > 0 && cy != last)
+                {
+                    continue;
+                }
+                let (Ok(nx), Ok(ny)) = (
+                    u8::try_from(i16::from(x) + dx),
+                    u8::try_from(i16::from(y) + dy),
+                ) else {
+                    continue;
+                };
+                let Some(b) = self.block(nx, ny) else {
+                    continue;
+                };
+                for o in &b.overhangs {
+                    #[allow(clippy::cast_possible_truncation)]
+                    if i16::from(o.dx) == -dx
+                        && i16::from(o.dy) == -dy
+                        && usize::from(o.cx) == cx
+                        && usize::from(o.cy) == cy
+                    {
+                        out.push((Arc::clone(&b), o.solid));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn land_cell(&self, id: CellId) -> Option<LandCell> {
         let index = usize::from(id.index());
         if !(1..=CELLS_PER_SIDE * CELLS_PER_SIDE).contains(&index) {
@@ -785,11 +857,13 @@ impl Land {
         }
         let lb = id.landblock();
         let block = self.block(lb.x(), lb.y())?;
+        let (cx, cy) = ((index - 1) / CELLS_PER_SIDE, (index - 1) % CELLS_PER_SIDE);
         Some(LandCell {
             id,
             block,
-            cx: (index - 1) / CELLS_PER_SIDE,
-            cy: (index - 1) % CELLS_PER_SIDE,
+            cx,
+            cy,
+            overhanging: self.overhanging(lb.x(), lb.y(), cx, cy),
         })
     }
 }
@@ -886,6 +960,7 @@ pub fn build(
     );
     let mut solids = Vec::new();
     let mut cell_solids = vec![Vec::new(); CELLS_PER_SIDE * CELLS_PER_SIDE];
+    let mut overhangs = Vec::new();
     let mut objects = Vec::new();
     if let Some(info) = records.landblock_info(bx, by) {
         // Any cell of the block will do: a part's cell only says which block's frame it is in.
@@ -900,7 +975,7 @@ pub fn build(
             }
             for s in crate::object::placed_solids(records, trees, e, any) {
                 let i = u32::try_from(solids.len()).unwrap_or(u32::MAX);
-                register(&mut cell_solids, &s.bounds, i);
+                register(&mut cell_solids, &mut overhangs, &s.bounds, i);
                 solids.push(s);
             }
         }
@@ -937,6 +1012,7 @@ pub fn build(
         geometry,
         solids,
         cell_solids,
+        overhangs,
         water,
         objects,
         passable: region.passable(u32::from(x), u32::from(y)),
@@ -945,20 +1021,37 @@ pub fn build(
     })
 }
 
-/// Register solid `i` in every land cell its bounds reach.
-fn register(cell_solids: &mut [Vec<u32>], bounds: &Sphere, i: u32) {
-    let lo = |v: f32| ((v - bounds.radius) / CELL_LENGTH).floor();
-    let hi = |v: f32| ((v + bounds.radius) / CELL_LENGTH).floor();
+/// Register solid `i` in every land cell its bounds reach: those of its own block in the cells'
+/// lists, those of the blocks around it as overhangs.
+fn register(cell_solids: &mut [Vec<u32>], overhangs: &mut Vec<Overhang>, bounds: &Sphere, i: u32) {
     #[allow(clippy::cast_possible_truncation)]
-    let clamp = |v: f32| (v.max(0.0) as usize).min(CELLS_PER_SIDE - 1);
-    let (x0, x1) = (lo(bounds.center.x), hi(bounds.center.x));
-    let (y0, y1) = (lo(bounds.center.y), hi(bounds.center.y));
-    if x1 < 0.0 || y1 < 0.0 || x0 >= CELLS_PER_SIDE as f32 || y0 >= CELLS_PER_SIDE as f32 {
-        return;
-    }
-    for cx in clamp(x0)..=clamp(x1) {
-        for cy in clamp(y0)..=clamp(y1) {
-            cell_solids[cx * CELLS_PER_SIDE + cy].push(i);
+    let cell = |v: f32| (v / CELL_LENGTH).floor() as i32;
+    #[allow(clippy::cast_possible_wrap)]
+    let side = CELLS_PER_SIDE as i32;
+    let (x0, x1) = (
+        cell(bounds.center.x - bounds.radius),
+        cell(bounds.center.x + bounds.radius),
+    );
+    let (y0, y1) = (
+        cell(bounds.center.y - bounds.radius),
+        cell(bounds.center.y + bounds.radius),
+    );
+    for cx in x0..=x1 {
+        for cy in y0..=y1 {
+            let (dx, dy) = (cx.div_euclid(side), cy.div_euclid(side));
+            let (lx, ly) = (cx.rem_euclid(side), cy.rem_euclid(side));
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            if dx == 0 && dy == 0 {
+                cell_solids[lx as usize * CELLS_PER_SIDE + ly as usize].push(i);
+            } else if dx.abs() <= 1 && dy.abs() <= 1 {
+                overhangs.push(Overhang {
+                    dx: dx as i8,
+                    dy: dy as i8,
+                    cx: lx as u8,
+                    cy: ly as u8,
+                    solid: i,
+                });
+            }
         }
     }
 }

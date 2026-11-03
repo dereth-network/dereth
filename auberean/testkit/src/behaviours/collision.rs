@@ -324,6 +324,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells",
+        says: "A solid reaching over a block's edge is met from the land cells it reaches in the \n               block next to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-OVERHANG"),
+        station: "auberean-physics::cpu::contact::objects::a_solid_over_a_block_edge_is_in_the_next_blocks_cells",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.objects.an-object-outside-stands-in-every-land-cell-under-it",
         says: "An object outside stands in the collision list of every land cell the box around \n               its shape reaches, across a landblock's edge too; inside, of its own cell and of \n               each cell through a doorway whose polygon the box reaches.",
         since: RETAIL,
