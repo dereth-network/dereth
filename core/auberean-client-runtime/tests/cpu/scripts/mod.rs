@@ -2,6 +2,7 @@
 //! repository, the files scripts write, the log masks, the physics object and the distributor.
 
 mod distributor;
+mod dumps;
 mod files;
 mod log_system;
 mod names;

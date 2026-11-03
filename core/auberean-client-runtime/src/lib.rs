@@ -59,6 +59,7 @@ pub mod looks;
 pub mod motion;
 pub mod notices;
 pub mod physics_object;
+pub mod quality_dump;
 pub mod repository;
 pub mod rooms;
 pub mod selection;

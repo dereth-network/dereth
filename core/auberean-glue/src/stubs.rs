@@ -36,7 +36,7 @@ pub fn host_bound() -> impl Iterator<Item = NativeId> {
     HOST.iter().map(|(id, _)| NativeId(*id))
 }
 
-/// 449 natives, by id.
+/// 437 natives, by id.
 static STUBS: &[(u32, Binding)] = &[
     (0x000a << 16 | 0x0001, not_ported!("D2-09192")),
     (0x000e << 16 | 0x0001, not_ported!("D2-08365")),
@@ -424,17 +424,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x0080 << 16 | 0x0066, not_ported!("D2-04763")),
     (0x0080 << 16 | 0x006b, not_ported!("D2-04773")),
     (0x0080 << 16 | 0x006c, not_ported!("D2-04753")),
-    (0x0081 << 16 | 0x0057, not_ported!("D2-04829")),
-    (0x0081 << 16 | 0x0058, not_ported!("D2-04830")),
-    (0x0081 << 16 | 0x0059, not_ported!("D2-04831")),
-    (0x0081 << 16 | 0x005a, not_ported!("D2-04833")),
-    (0x0081 << 16 | 0x005b, not_ported!("D2-04832")),
-    (0x0081 << 16 | 0x005c, not_ported!("D2-04835")),
-    (0x0081 << 16 | 0x005d, not_ported!("D2-04837")),
-    (0x0081 << 16 | 0x005e, not_ported!("D2-04838")),
-    (0x0081 << 16 | 0x005f, not_ported!("D2-04836")),
-    (0x0081 << 16 | 0x0060, not_ported!("D2-04839")),
-    (0x0081 << 16 | 0x006c, not_ported!("D2-04834")),
     (0x0095 << 16 | 0x0003, not_ported!("D2-00979")),
     (0x009b << 16 | 0x0003, not_ported!("D2-01475")),
     (0x009b << 16 | 0x0004, not_ported!("D2-01482")),
@@ -654,6 +643,16 @@ static HOST: &[(u32, Binding)] = &[
     (0x0081 << 16 | 0x0053, host_bound!("D2-04801")),
     (0x0081 << 16 | 0x0054, host_bound!("D2-04803")),
     (0x0081 << 16 | 0x0056, host_bound!("D2-08535")),
+    (0x0081 << 16 | 0x0057, host_bound!("D2-04829")),
+    (0x0081 << 16 | 0x0058, host_bound!("D2-04830")),
+    (0x0081 << 16 | 0x0059, host_bound!("D2-04831")),
+    (0x0081 << 16 | 0x005a, host_bound!("D2-04833")),
+    (0x0081 << 16 | 0x005b, host_bound!("D2-04832")),
+    (0x0081 << 16 | 0x005c, host_bound!("D2-04835")),
+    (0x0081 << 16 | 0x005d, host_bound!("D2-04837")),
+    (0x0081 << 16 | 0x005e, host_bound!("D2-04838")),
+    (0x0081 << 16 | 0x005f, host_bound!("D2-04836")),
+    (0x0081 << 16 | 0x0060, host_bound!("D2-04839")),
     (0x0081 << 16 | 0x0061, host_bound!("D2-04849")),
     (0x0081 << 16 | 0x0063, host_bound!("D2-04799")),
     (0x0081 << 16 | 0x0064, host_bound!("D2-04799")),
@@ -663,6 +662,7 @@ static HOST: &[(u32, Binding)] = &[
     (0x0081 << 16 | 0x0069, host_bound!("D2-04781")),
     (0x0081 << 16 | 0x006a, host_bound!("D2-04778")),
     (0x0081 << 16 | 0x006b, host_bound!("D2-04854")),
+    (0x0081 << 16 | 0x006c, host_bound!("D2-04834")),
     (0x0084 << 16 | 0x0001, host_bound!("D2-00815")),
     (0x0084 << 16 | 0x0002, host_bound!("D2-00814")),
     (0x0084 << 16 | 0x0003, host_bound!("D2-00813")),

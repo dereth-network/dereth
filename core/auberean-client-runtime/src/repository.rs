@@ -509,18 +509,18 @@ pub fn string_info_of(v: &TextInfo) -> StringInfo {
 }
 
 /// A narrow text as the scripts see it: a character a byte.
-fn widen(s: &[u8]) -> Vec<u16> {
+pub(crate) fn widen(s: &[u8]) -> Vec<u16> {
     s.iter().map(|b| u16::from(*b)).collect()
 }
 
 /// A wide text kept narrow: a character a byte, one past the narrow range as a question mark.
-fn narrow(s: &[u16]) -> Vec<u8> {
+pub(crate) fn narrow(s: &[u16]) -> Vec<u8> {
     s.iter().map(|c| u8::try_from(*c).unwrap_or(b'?')).collect()
 }
 
 /// A position as the scripts hold one: its cell, and its origin and rotation (scalar first) as
 /// bits.
-fn position_words(p: &Placement) -> (u32, [u32; 7]) {
+pub(crate) fn position_words(p: &Placement) -> (u32, [u32; 7]) {
     let f = &p.frame;
     (
         p.cell,

@@ -813,6 +813,71 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.a-dump-lists-a-descriptions-contents-in-order",
+        says: "An object's description written out lists what it has set in the client's own order, \
+               under a heading for each level; a record with no description says so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-DESC"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_description_lists_what_it_has_set_in_the_clients_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-lists-a-value-the-data-does-not-name-under-the-last-name",
+        says: "A value whose number its kind's enumeration does not name is listed under the last \
+               name found, nothing before the first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NAMES"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_value_the_data_does_not_name_is_listed_under_the_last_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-lists-each-level-of-a-kind-in-hash-order",
+        says: "An object's qualities of one kind written out list the object's own level then its \
+               record's, each saying how many it holds, a table in hash order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-LEVELS"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_dump_lists_the_object_then_its_record_in_hash_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-native-answers-a-new-string",
+        says: "A dump native takes whether to go on to the record and answers a new string; a null \
+               receiver crashes the call and an object the client does not hold gets its own line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NATIVES"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::the_natives_answer_a_new_string_and_a_missing_object_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-of-the-objects-own-level-answers-once",
+        says: "Asked not to go on to the record, a dump lists the object's own level once and \
+               answers.",
+        since: THIS_CLIENT,
+        divergence: "CD2-qualities-dump-answers",
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-ONE-LEVEL"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_dump_of_the_objects_own_level_answers_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-writes-a-string-reference-for-a-log",
+        says: "A string reference written out is its text for a log in parentheses, or a line saying \
+               it cannot show.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-STRINGINFO"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_string_reference_is_written_for_a_log_or_says_it_cannot_show",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-writes-each-kind-in-its-format",
+        says: "Each kind of quality writes in its own format: yes or no as true or false, data ids in \
+               eight hexadecimal digits, object ids in sixteen, floats and times to two decimals, \
+               whole numbers unsigned, 64-bit numbers by their low half.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-FORMATS"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::each_kind_writes_its_values_in_its_format",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-physics-object-passes-requests-to-its-body",
         says: "What a script asks of an object's physics object (its speed or acceleration scale, \
                cloaking, reporting or ignoring collisions, looking at an object, a push, stopping \

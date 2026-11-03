@@ -580,15 +580,13 @@ fn cylinder_distance(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// The receiver written out: `0x` and its cell in eight hexadecimal digits, its origin in
-/// brackets, then its rotation (scalar first), each part with six decimals.
-// D2-08888, D2-13204
-fn to_string(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let Some((cell, frame)) = receiver(c)? else {
-        return Ok(Status::Crash);
-    };
+/// A position written out: `0x` and its cell in eight hexadecimal digits, its origin in brackets,
+/// then its rotation (scalar first), each part with six decimals.
+// D2-13204
+#[must_use]
+pub fn position_text(cell: u32, frame: &[u32; 7]) -> String {
     let f = |k: usize| crate::text::fixed(f64::from(f32::from_bits(frame[k])));
-    let s = format!(
+    format!(
         "0x{cell:08X} [{} {} {}] {} {} {} {}",
         f(0),
         f(1),
@@ -597,8 +595,16 @@ fn to_string(c: &mut Call<'_>) -> Result<Status, Stop> {
         f(4),
         f(5),
         f(6)
-    );
-    give_text(c, &s)
+    )
+}
+
+/// The receiver written out.
+// D2-08888
+fn to_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some((cell, frame)) = receiver(c)? else {
+        return Ok(Status::Crash);
+    };
+    give_text(c, &position_text(cell, &frame))
 }
 
 /// The receiver's map coordinates, as the client writes them for a player (a new string).

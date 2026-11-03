@@ -1059,6 +1059,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.quality-filter.packs-back-to-its-own-bytes",
+        says: "A quality filter written out is its id and its table as read, the bytes it was \
+               read from.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-FILTER-PACK"),
+        station: "auberean-assets::dat::game::script::every_quality_filter_packs_back_to_its_own_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.read.failed-records-are-checked-and-read-again",
         says: "A record that fails to read or decode is checked against its file: a file that changed \
                since it was opened is reported as changed; over one that did not, the record is read \

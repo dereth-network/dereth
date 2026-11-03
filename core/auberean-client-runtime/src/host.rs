@@ -588,6 +588,7 @@ pub fn model_natives(lib: &Library) -> NativeTable {
     }
     for (id, f) in crate::selection::natives()
         .chain(crate::repository::natives())
+        .chain(crate::quality_dump::natives())
         .chain(crate::shell::natives())
         .chain(crate::latent::natives())
         .chain(crate::combat::natives())

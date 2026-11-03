@@ -86,6 +86,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                refused.",
     },
     Divergence {
+        id: "CD2-qualities-dump-answers",
+        says: "Asked to write out an object's own qualities without its record's, this client \
+               writes them once; the original never answers, repeating them until it runs out of \
+               memory.",
+    },
+    Divergence {
         id: "CD2-script-step-budget",
         says: "Every script run has a step budget: one that runs too long is stopped instead of \
                freezing the game, where the retail client would hang.",
