@@ -1749,6 +1749,7 @@ impl ParticleSet {
                     visible: None,
                     block: None,
                     far: false,
+                    ground: None,
                 });
             }
         };

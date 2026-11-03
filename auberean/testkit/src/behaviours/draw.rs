@@ -944,6 +944,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.rain.a-streak-falls-from-80-m-at-150-m-a-second",
+        says: "A rain streak starts 80 m over its landing and falls at 150 m a second.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RAIN-FALL"),
+        station: "auberean-draw::cpu::effects::rain::a_streak_falls_from_80_m_at_150_m_a_second",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.rain.a-streak-is-a-thin-quad-fading-toward-its-top",
         says: "A rain streak is a quad a tenth of a meter wide across the camera, 8 m long \n               along its slant, its top transparent and its foot pale at 0.45.",
         since: RETAIL,
@@ -1428,6 +1436,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.a-body-takes-the-sun-shadow-about-its-spot",
+        says: "A body standing on the land takes the sun's shadow map about its spot in its \n               light and specular.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-BODY-SHADE"),
+        station: "auberean-gpu::gpu::shadows::a_body_takes_the_sun_shadow_about_its_spot",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.world.a-frill-takes-its-color-from-the-shadow-about-it",
         says: "A frill's vertices take, in place of their own color, the sun's shadow map about \
                the frill's spot on the ground: the texels there and two and four away each way, \
@@ -1475,6 +1491,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LENS-FLARE"),
         station: "auberean-draw::dat::landscape::the_sun_throws_a_lens_flare",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.what-stands-on-the-land-takes-the-lands-shadow",
+        says: "What stands on the land and is not seen through is drawn dark by the share of \n               the sun the land lets through at its spot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-LAND-SHADOW"),
+        station: "auberean-draw::dat::landscape::what_stands_on_the_land_takes_the_lands_shadow",
         tier: Tier::Dat,
     },
 ];

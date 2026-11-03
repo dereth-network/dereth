@@ -19,6 +19,7 @@ not how it was done.
 - Far-off characters draw at lower detail.
 - It rains now, with thunder, on the days it should.
 - New option: your character turns see-through under the pointer.
+- Characters and objects darken in the shade.
 
 ## 0.1.2 (2026-11-02)
 

@@ -342,6 +342,7 @@ impl BodyDrawer {
                             visible: degrade.map(|g| g.visible),
                             block: None,
                             far: distance.is_some_and(|d| d > 40.0),
+                            ground: None,
                         });
                     }
                 }

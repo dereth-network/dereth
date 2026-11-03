@@ -90,6 +90,11 @@ struct DrawUniforms {
 @group(2) @binding(3) var samp1: sampler;
 @group(2) @binding(4) var tex2: texture_2d<f32>;
 @group(2) @binding(5) var samp2: sampler;
+// The sun's shadow map (white with none): what a body standing on the land takes about its spot.
+@group(3) @binding(0) var shadow_map: texture_2d<f32>;
+
+// What the draw's light and specular are multiplied by for the shadow about its spot.
+var<private> ground_tint: vec3<f32> = vec3<f32>(1.0);
 
 const DYNAMIC_LIGHTING: u32 = 0x1u;
 const SPECULAR: u32 = 0x4u;
@@ -225,7 +230,7 @@ fn apply_ambient(c: vec4<f32>) -> vec4<f32> {
 }
 
 fn modulate_material_diffuse(c: vec4<f32>) -> vec4<f32> {
-    return c * draw.diffuse;
+    return c * vec4<f32>(ground_tint, 1.0) * draw.diffuse;
 }
 
 fn modulate_vertex_diffuse(c: vec4<f32>, v: vec4<f32>) -> vec4<f32> {
@@ -392,6 +397,7 @@ struct MeshOut {
     // the eye in the surface's own frame, times the square root of the light's attenuation; and
     // 0.75 times the attenuation
     @location(7) half_vector: vec4<f32>,
+    @location(8) ground_tint: vec3<f32>,
 };
 
 // The half vector between the eye and the light `to_light` (a unit for the sun, the way to a point
@@ -499,15 +505,41 @@ fn frill_shade(at: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
+// A body's share of the sun: the shadow map about its spot on the ground, as a frill reads it.
+fn body_shade(at: vec3<f32>) -> vec3<f32> {
+    let uv = (frame.shadow_uv * vec4<f32>(at, 1.0)).xy;
+    let size = vec2<i32>(textureDimensions(shadow_map));
+    let p = vec2<i32>(uv * vec2<f32>(size));
+    var sum = vec3<f32>(0.0);
+    var n = 0.0;
+    for (var i = -4; i <= 4; i = i + 2) {
+        for (var j = -4; j <= 4; j = j + 2) {
+            let q = p + vec2<i32>(i, j);
+            if (q.x >= 0 && q.y >= 0 && q.x < size.x && q.y < size.y) {
+                sum = sum + textureLoad(shadow_map, q, 0).rgb;
+                n = n + 1.0;
+            }
+        }
+    }
+    if (n == 0.0) {
+        return vec3<f32>(1.0);
+    }
+    return clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @vertex
 fn vs_mesh(v: MeshIn) -> MeshOut {
     var o: MeshOut;
     let sw = draw.stage.x;
-    // A frill's vertices take the shadow's color about its spot in place of their own.
+    // A frill's vertices take the shadow's color about its spot in place of their own; a body's
+    // light takes it.
     var vd = v.diffuse;
-    if (draw.shade.w > 0.5) {
+    if (draw.shade.w > 1.5) {
+        ground_tint = body_shade(draw.shade.xyz);
+    } else if (draw.shade.w > 0.5) {
         vd = frill_shade(draw.shade.xyz);
     }
+    o.ground_tint = ground_tint;
     o.clip = transform_to_clip(v.position, draw.model);
     let world = (draw.model * vec4<f32>(v.position, 1.0)).xyz;
     o.world_z = world.z;
@@ -573,7 +605,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         }
         var c11 = vec3<f32>(1.0);
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
-            c11 = draw.diffuse.rgb;
+            c11 = (draw.diffuse.rgb * ground_tint);
         }
         c1 = apply_ambient(vec4<f32>(other * c11, spec));
     } else if (draw.stage.z == 1u && (sw & DYNAMIC_LIGHTING) != 0u) {
@@ -589,7 +621,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
                 c1 = vec4<f32>(c1.rgb + r.y * r.z * draw.pt_specular[k].rgb, 0.0);
             }
         }
-        c1 = vec4<f32>(c1.rgb * draw.specular.rgb, 0.0);
+        c1 = vec4<f32>(c1.rgb * (draw.specular.rgb * ground_tint), 0.0);
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c0 = modulate_material_diffuse(c0);
         }
@@ -620,7 +652,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         }
         var c11 = vec3<f32>(1.0);
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
-            c11 = draw.diffuse.rgb;
+            c11 = (draw.diffuse.rgb * ground_tint);
         }
         c1 = apply_ambient(vec4<f32>(other * c11, spec));
     } else if ((sw & DYNAMIC_LIGHTING) != 0u) {
@@ -639,7 +671,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
             spec = spec + r.y * r.z * draw.pt_specular[k].rgb;
         }
         if ((sw & SPECULAR) != 0u) {
-            c1 = vec4<f32>(spec * draw.specular.rgb, 0.0);
+            c1 = vec4<f32>(spec * (draw.specular.rgb * ground_tint), 0.0);
         }
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c0 = modulate_material_diffuse(c0);
@@ -726,7 +758,7 @@ fn stage_arg(a: u32, t: vec4<f32>, cur: vec4<f32>, d: vec4<f32>, s: vec4<f32>) -
     switch (a & 0xFu) {
         case 0u: { x = d; }
         case 2u: { x = t; }
-        case 3u: { x = draw.tfactor; }
+        case 3u: { x = vec4<f32>(draw.tfactor.rgb * ground_tint, draw.tfactor.a); }
         case 4u: { x = s; }
         default: { x = cur; }
     }
@@ -827,19 +859,19 @@ fn bump_program(v: MeshOut) -> vec4<f32> {
     let n = nm.rgb * 2.0 - vec3<f32>(1.0);
     let l = v.color0.rgb * 2.0 - vec3<f32>(1.0);
     let d = clamp(dot(n, l), 0.0, 1.0) * v.color0.a;
-    var rgb = (d * draw.lit_diffuse.rgb + v.color1.rgb) * 2.0 * dm.rgb;
+    var rgb = (d * (draw.lit_diffuse.rgb * ground_tint) + v.color1.rgb) * 2.0 * dm.rgb;
     var a = draw.diffuse.a;
     if ((opts & ALPHA_FROM_DIFFUSE) != 0u) {
         a = a * dm.a;
     }
-    var spec = v.color1.a * draw.specular.rgb;
+    var spec = v.color1.a * (draw.specular.rgb * ground_tint);
     if ((opts & HALF_VECTOR_SPECULAR) != 0u) {
         // The half vector comes as a coordinate set: packed into 0..1, held there, unpacked; its
         // facing on the normal map squared, less 0.75 of the attenuation, four times, held to 0..1.
         let packed = clamp((v.half_vector.xyz + vec3<f32>(1.0)) * 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
         let h = packed * 2.0 - vec3<f32>(1.0);
         let x = clamp(dot(n, h), 0.0, 1.0);
-        spec = clamp(4.0 * (x * x - v.half_vector.w), 0.0, 1.0) * draw.specular.rgb;
+        spec = clamp(4.0 * (x * x - v.half_vector.w), 0.0, 1.0) * (draw.specular.rgb * ground_tint);
     }
     if ((opts & GLOSS) != 0u) {
         spec = spec * dm.a;
@@ -879,6 +911,7 @@ fn vertex_lit_program(v: MeshOut) -> vec4<f32> {
 
 @fragment
 fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
+    ground_tint = v.ground_tint;
     if (clipped(v.world_z)) {
         discard;
     }
@@ -1012,5 +1045,5 @@ fn fs_volume() -> @location(0) vec4<f32> {
 // The darkening where the count is not zero: the shadow's strength, which the blend takes away.
 @fragment
 fn fs_darken() -> @location(0) vec4<f32> {
-    return vec4<f32>(draw.diffuse.rgb, 1.0);
+    return vec4<f32>((draw.diffuse.rgb * ground_tint), 1.0);
 }

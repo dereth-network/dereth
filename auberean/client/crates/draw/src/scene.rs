@@ -146,6 +146,9 @@ pub struct ObjectBatch {
     /// Its object stands more than 40 m from the camera: a draw of it not wholly opaque is not
     /// tested against its alpha reference ([`crate::material::DrawLayer::faded`]).
     pub far: bool,
+    /// Where a body stands on the land: its light and specular take the sun's shadow map about
+    /// that spot, as they take the shadow the land throws in the tint's color.
+    pub ground: Option<Vec3>,
 }
 
 /// A placed object that casts a volume of shadow, as each of its draws carries it.
@@ -344,6 +347,46 @@ pub fn fade_objects(objects: &mut [ObjectBatch], eye: Vec3, blocks: &[((u8, u8),
         }
         b.tint.a = opacity.clamp(0.0, 1.0);
         b.far = d > FAR_FADE;
+    }
+}
+
+/// A place in the frame of block `home` as a place in the frame of `block`.
+#[allow(clippy::cast_precision_loss)] // a few blocks
+fn sub_block(p: Vec3, block: (i32, i32), home: (i32, i32), block_len: f32) -> Vec3 {
+    Vec3::new(
+        p.x - (block.0 - home.0) as f32 * block_len,
+        p.y - (block.1 - home.1) as f32 * block_len,
+        p.z,
+    )
+}
+
+/// How much of the sun the land lets through at a place of a detailed block: the mean of the four
+/// corners of the square holding it, each lit or not by the land's own shadow; nothing under a
+/// tenth, whole over nine tenths.
+// D2-10970, D2-10925
+#[must_use]
+pub fn land_shadow(tb: &TerrainBlock, local: Vec3, square_side: f32, light_direction: Vec3) -> f32 {
+    let bit = auberean_world::sky::self_shadow_bit(light_direction);
+    let side = tb.geometry.squares_per_side;
+    let square = |v: f32| {
+        usize::try_from(floor_to_i32(v / square_side))
+            .unwrap_or(0)
+            .min(side - 1)
+    };
+    let (i, j) = (square(local.x), square(local.y));
+    let mean: f32 = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .iter()
+        .map(|&(a, b)| {
+            auberean_world::sky::sun_reaches(tb.shadow_bits[tb.vertex(i + a, j + b)], bit)
+        })
+        .sum::<f32>()
+        * 0.25;
+    if mean < 0.1 {
+        0.0
+    } else if mean > 0.9 {
+        1.0
+    } else {
+        mean
     }
 }
 
@@ -1057,6 +1100,7 @@ impl<'a> SceneBuilder<'a> {
                 visible: None,
                 block: None,
                 far: false,
+                ground: None,
             });
         }
     }
@@ -1190,6 +1234,7 @@ impl<'a> SceneBuilder<'a> {
                     visible,
                     block: None,
                     far: distance > FAR_FADE,
+                    ground: None,
                 });
             }
         }
@@ -1231,8 +1276,27 @@ impl<'a> SceneBuilder<'a> {
                 visible: None,
                 block: None,
                 far: false,
+                ground: None,
             })
             .collect()
+    }
+
+    /// How much of the sun the land lets through at `at` (a place in the frame of block
+    /// `frame_block`), as the last frame outdoors built the detailed blocks; whole off them.
+    // D2-10925
+    #[must_use]
+    pub fn land_shadow_at(&self, at: Vec3, frame_block: (i32, i32), light_direction: Vec3) -> f32 {
+        let len = self.region.land.grid().block_length();
+        let (dx, dy) = (floor_to_i32(at.x / len), floor_to_i32(at.y / len));
+        let block = (frame_block.0 + dx, frame_block.1 + dy);
+        self.ground.get(&block).map_or(1.0, |tb| {
+            land_shadow(
+                tb,
+                sub_block(at, block, frame_block, len),
+                self.square_side(),
+                light_direction,
+            )
+        })
     }
 
     /// The two triangles of the landscape square holding `at` (a point in the frame of block
@@ -1649,6 +1713,26 @@ impl<'a> SceneBuilder<'a> {
         } else {
             None
         };
+        // What stands on the land and is not seen through takes the land's shadow there.
+        // D2-06220
+        for b in &mut objects {
+            let Some(block) = b.block else { continue };
+            if b.seen_through {
+                continue;
+            }
+            let Some(tb) = near_blocks.get(&block) else {
+                continue;
+            };
+            #[allow(clippy::cast_precision_loss)]
+            let at = sub_block(
+                b.anchor.unwrap_or_else(|| b.transform.point(Vec3::ZERO)),
+                block,
+                spot.block,
+                block_len,
+            );
+            let s = land_shadow(tb, at, self.square_side(), light.light_direction);
+            b.tint = Color::new(s, s, s, b.tint.a);
+        }
         let (shore, foam) = self.shore_batches(spot.block, &near_blocks);
         self.ground = near_blocks
             .iter()
@@ -1965,6 +2049,7 @@ impl<'a> SceneBuilder<'a> {
                     visible: None,
                     block: None,
                     far: false,
+                    ground: None,
                 })
                 .collect::<Vec<_>>()
         };
@@ -2077,6 +2162,7 @@ impl<'a> SceneBuilder<'a> {
                 visible: None,
                 block: None,
                 far: false,
+                ground: None,
             })
             .collect()
     }

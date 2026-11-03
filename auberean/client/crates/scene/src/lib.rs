@@ -3703,6 +3703,40 @@ impl<'w> Scene<'w> {
                 }
             }
         }
+        // Every body standing on the land takes the land's shadow and the sun's shadow map there,
+        // but one seen through.
+        // D2-06220
+        if !is_interior(view) || built.frame.outside.is_some() {
+            let sun = built
+                .frame
+                .outside
+                .as_ref()
+                .unwrap_or(&built.frame.light)
+                .light_direction;
+            for (id, range, at, _) in &noted {
+                let cell = if *id == p.id {
+                    Some(pos.cell.0)
+                } else {
+                    self.others.body(*id).map(|b| b.position.cell.0)
+                };
+                if cell.is_some_and(is_interior) {
+                    continue;
+                }
+                let s = self.builder.land_shadow_at(*at, (bx, by), sun);
+                for b in built
+                    .frame
+                    .objects
+                    .get_mut(range.clone())
+                    .into_iter()
+                    .flatten()
+                {
+                    if !b.seen_through {
+                        b.tint = auberean_world::color::Color::new(s, s, s, b.tint.a);
+                        b.ground = Some(*at);
+                    }
+                }
+            }
+        }
         let casting = Casting {
             records: &self.world.records,
             table: &self.table,

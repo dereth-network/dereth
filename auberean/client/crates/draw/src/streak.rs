@@ -301,6 +301,7 @@ impl Trail {
                 visible: None,
                 block: None,
                 far: false,
+                ground: None,
             })
             .collect()
     }

@@ -21,7 +21,7 @@ const H: u32 = 64;
 
 /// A wall `y` meters north of the camera, filling the picture, lit by nothing but its layer's
 /// diffuse color, twice gray `g` (a layer with no stages doubles its color).
-fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
+pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
     let vertex = |x: f32, z: f32| MeshVertex {
         position: [x, y, z],
         normal: [0.0, 0.0, 1.0],
@@ -84,6 +84,7 @@ fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
         visible: Some(1000.0),
         block: None,
         far: false,
+        ground: None,
     }
 }
 
@@ -105,7 +106,7 @@ fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
     frame
 }
 
-fn middle(device: &mut Renderer, frame: &Frame) -> u8 {
+pub(crate) fn middle(device: &mut Renderer, frame: &Frame) -> u8 {
     let mut load = |_: u32| None;
     checked(device, |d| {
         let p = d.render(frame, W, H, &mut load).expect("read back");

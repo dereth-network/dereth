@@ -498,3 +498,72 @@ fn carried_lights_light_what_stands_near_them_outdoors() {
     println!("the human: {brighter} pixels brighter, {darker} darker");
     assert!(brighter > 50, "{brighter} pixels brighter");
 }
+
+/// A body standing on the land takes the sun's shadow map about its spot in its light: over the
+/// camp's own spots it is darkened where a shadow falls, never brightened, and whole off the map.
+///
+/// Behaviour: draw.world.a-body-takes-the-sun-shadow-about-its-spot
+#[test]
+fn a_body_takes_the_sun_shadow_about_its_spot() {
+    use auberean_draw::scene::{Camera, SceneBuilder, Spot};
+    use auberean_primitives::Vec3;
+    use auberean_world::math::Mat4;
+    let r = &crate::common::install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camp = Spot {
+        block: (0xC1, 0x56),
+        position: Vec3::new(122.842, 89.758, 81.6),
+        heading: 90.0,
+        pitch: 5.0,
+        time_of_day: 0.45,
+        day: None,
+    };
+    let mut frame = builder.frame(&camp, 60.0);
+    assert!(frame.shadow.is_some(), "the camp's sun casts shadows");
+    frame.water.clear();
+    frame.shore.clear();
+    frame.foam.clear();
+    frame.terrain.clear();
+    frame.sky_before.clear();
+    frame.sky_after.clear();
+    frame.clouds = None;
+    frame.camera = Camera {
+        position: Vec3::new(60.0, 60.0, 500.0),
+        heading: 0.0,
+        pitch: 0.0,
+        fov_y: 60.0,
+        near: 0.1,
+        far: 2000.0,
+        orthographic: None,
+    };
+    let mut wall = crate::fade::wall(10.0, 0.5, false, 10.0);
+    wall.transform = Mat4::translation(Vec3::new(60.0, 60.0, 500.0));
+    wall.visible = None;
+    let mut device = renderer();
+    let mut at = |device: &mut auberean_gpu::Renderer, ground: Option<Vec3>| {
+        frame.objects = vec![auberean_draw::scene::ObjectBatch {
+            ground,
+            ..wall.clone()
+        }];
+        crate::fade::middle(device, &frame)
+    };
+    let whole = at(&mut device, None);
+    let off = at(&mut device, Some(Vec3::new(-20000.0, -20000.0, 80.0)));
+    assert_eq!(off, whole, "off the map");
+    let (mut least, mut most) = (255u8, 0u8);
+    for i in 0..16 {
+        for j in 0..16 {
+            let spot = Vec3::new(i as f32 * 10.0 + 5.0, j as f32 * 10.0 + 5.0, 80.0);
+            let v = at(&mut device, Some(spot));
+            least = least.min(v);
+            most = most.max(v);
+        }
+    }
+    println!("whole {whole}, over the camp {least}..{most}");
+    assert!(most <= whole, "{most} over {whole}");
+    assert!(
+        f32::from(least) < 0.95 * f32::from(whole),
+        "{least} against {whole}"
+    );
+}

@@ -331,3 +331,68 @@ fn the_camps_pond_has_a_shore_where_its_water_meets_the_ground() {
     let off = b.frame(&s, 60.0);
     assert!(off.shore.is_empty() && off.foam.is_empty(), "no shore");
 }
+
+/// With the sun low, some of the land stands in the shadow of the land about it: an object placed
+/// there is drawn dark, by the share of the four corners of the square under it that the sun
+/// reaches (nothing under a tenth, whole over nine tenths); off the blocks kept it is drawn whole.
+/// What is placed on a block takes it at where it stands; what is seen through never.
+///
+/// Behaviour: draw.world.what-stands-on-the-land-takes-the-lands-shadow
+#[test]
+fn what_stands_on_the_land_takes_the_lands_shadow() {
+    let r = &crate::common::install().records;
+    let region = r.region().expect("the region");
+    let mut builder = auberean_draw::scene::SceneBuilder::new(r, &region);
+    // The first of the world's blocks, at a low sun, with land in the land's shadow.
+    let coordinates = r.landblock_coordinates();
+    let found = coordinates.iter().step_by(37).find_map(|&block| {
+        let spot = auberean_draw::scene::Spot {
+            block,
+            position: auberean_primitives::Vec3::new(80.0, 80.0, 200.0),
+            heading: 90.0,
+            pitch: 5.0,
+            time_of_day: 0.27,
+            day: None,
+        };
+        let frame = builder.frame(&spot, 60.0);
+        let sun = frame.light.light_direction;
+        let mut seen = std::collections::BTreeSet::new();
+        for i in 0..107 {
+            for j in 0..107 {
+                let at = auberean_primitives::Vec3::new(i as f32 * 1.5, j as f32 * 1.5, 0.0);
+                let s = builder.land_shadow_at(at, block, sun);
+                assert!([0.0, 0.25, 0.5, 0.75, 1.0].contains(&s), "{s}");
+                seen.insert((s * 4.0) as u32);
+            }
+        }
+        (seen.len() >= 2 && frame.objects.iter().any(|b| b.block.is_some()))
+            .then_some((spot, frame, seen))
+    });
+    let (spot, frame, seen) = found.expect("a block in the land's shadow");
+    println!("shares by quarters at {:x?}: {seen:?}", spot.block);
+    let sun = frame.light.light_direction;
+    let off = auberean_primitives::Vec3::new(160.0 * 20.0, 0.0, 0.0);
+    assert_eq!(
+        builder.land_shadow_at(off, spot.block, sun),
+        1.0,
+        "off the blocks"
+    );
+    let mut placed = 0;
+    for b in &frame.objects {
+        if b.block.is_none() {
+            continue;
+        }
+        let at = b
+            .anchor
+            .unwrap_or_else(|| b.transform.point(auberean_primitives::Vec3::ZERO));
+        let s = if b.seen_through {
+            1.0
+        } else {
+            builder.land_shadow_at(at, spot.block, sun)
+        };
+        assert_eq!((b.tint.r, b.tint.g, b.tint.b), (s, s, s), "{at:?}");
+        assert!(b.ground.is_none(), "the map is for what moves");
+        placed += 1;
+    }
+    assert!(placed > 0, "{placed}");
+}

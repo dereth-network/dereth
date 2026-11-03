@@ -199,6 +199,8 @@ pub struct Renderer {
     queue: wgpu::Queue,
     module: wgpu::ShaderModule,
     frame_layout: wgpu::BindGroupLayout,
+    /// The sun's shadow map, as the vertices of a body standing on the land read it.
+    shadow_layout: wgpu::BindGroupLayout,
     draw_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
@@ -485,12 +487,26 @@ impl Renderer {
             label: None,
             entries: &[tex(0), samp(1), tex(2), samp(3), tex(4), samp(5)],
         });
+        let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[
                 Some(&frame_layout),
                 Some(&draw_layout),
                 Some(&texture_layout),
+                Some(&shadow_layout),
             ],
             immediate_size: 0,
         });
@@ -512,6 +528,7 @@ impl Renderer {
             queue,
             module,
             frame_layout,
+            shadow_layout,
             draw_layout,
             texture_layout,
             pipeline_layout,
@@ -1128,6 +1145,7 @@ impl Renderer {
         let Some((caster, lift)) = self.shadow_pipelines.as_ref() else {
             return view;
         };
+        let white_shadow = self.shadow_group(&self.white);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow map"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1146,6 +1164,7 @@ impl Renderer {
         });
         pass.set_pipeline(caster);
         pass.set_bind_group(0, &map_group, &[]);
+        pass.set_bind_group(3, &white_shadow, &[]);
         for (vb, ib, count, dg, tg) in &draws {
             pass.set_bind_group(1, dg, &[]);
             pass.set_bind_group(2, tg, &[]);
@@ -1593,6 +1612,18 @@ impl Renderer {
         }
     }
 
+    /// The group the shadow map `view` is read through.
+    fn shadow_group(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.shadow_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            }],
+        })
+    }
+
     /// Draw `frame` at `width` x `height`, loading pictures with `load` the first time each is used,
     /// and read the picture back, every texel opaque.
     ///
@@ -1744,6 +1775,10 @@ impl Renderer {
             .as_ref()
             .filter(|_| outdoors)
             .map(|s| Arc::new(self.render_shadow_map(s, &out_u, &mut encoder, load)));
+        let shadow_group = match &shadow_view {
+            Some(view) => self.shadow_group(view),
+            None => self.shadow_group(&self.white),
+        };
         let cloud_view = frame.clouds.map(|c| self.texture(c.picture, load));
 
         // The frame is drawn multisampled and resolved into the picture read back.
@@ -1930,6 +1965,9 @@ impl Renderer {
                 let mut uniforms =
                     Self::draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 uniforms.params[1] = faded.alpha_ref.unwrap_or(-1.0);
+                if let Some(at) = b.ground {
+                    uniforms.shade = [at.x, at.y, at.z, 2.0];
+                }
                 // Only a layer that reads its vertices' color shows it (none of the frills'
                 // materials in the data does). The shadow map's texels are read where they lie
                 // on it, a texel off the map read as none.
@@ -2467,6 +2505,7 @@ impl Renderer {
                     wgpu::Color::BLACK,
                     None,
                 );
+                pass.set_bind_group(3, &shadow_group, &[]);
                 record(
                     &mut pass,
                     self,
@@ -2557,6 +2596,7 @@ impl Renderer {
                 backdrop,
                 flare_queries.as_ref(),
             );
+            pass.set_bind_group(3, &shadow_group, &[]);
             record(
                 &mut pass,
                 self,

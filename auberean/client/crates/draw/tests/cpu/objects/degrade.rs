@@ -132,6 +132,7 @@ fn fade_batch(anchor: Vec3) -> ObjectBatch {
         visible: None,
         block: None,
         far: false,
+        ground: None,
     }
 }
 

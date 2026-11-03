@@ -246,3 +246,37 @@ fn water_gives_a_body_bubbles_and_ripples() {
     assert!(bubbles > 50, "{bubbles}");
     assert!(ripples > 10 && ripples < 80, "one time in five: {ripples}");
 }
+
+/// A streak starts 80 m over its landing and falls at 150 m a second: no quad stands higher, some
+/// nearly that high, and between two moments a streak falls by that speed.
+///
+/// Behaviour: draw.rain.a-streak-falls-from-80-m-at-150-m-a-second
+#[test]
+fn a_streak_falls_from_80_m_at_150_m_a_second() {
+    let (mut rain, rng) = (Rain::default(), Random::new());
+    let mut now = 1.0;
+    rain.update(1.0, &world(now), &rng, &mut flat(30.0), &mut |_, _| {});
+    for _ in 0..40 {
+        now += 0.02;
+        rain.update(1.0, &world(now), &rng, &mut flat(30.0), &mut |_, _| {});
+    }
+    let before = rain.drawn().0;
+    now += 0.01;
+    rain.update(1.0, &world(now), &rng, &mut flat(30.0), &mut |_, _| {});
+    let after = rain.drawn().0;
+    let top = before
+        .iter()
+        .map(|c| c.position[2])
+        .fold(f32::MIN, f32::max);
+    assert!(top <= 110.5 && top > 100.0, "{top}");
+    let mut fell = 0;
+    for (a, b) in before.chunks(4).zip(after.chunks(4)) {
+        let d = a[0].position[2] - b[0].position[2];
+        if d > 0.0 {
+            // a fall of 1.5 m along a slant all but straight down
+            assert!((1.3..=1.6).contains(&d), "{d}");
+            fell += 1;
+        }
+    }
+    assert!(fell > SEGMENTS * 9 / 10, "{fell}");
+}
