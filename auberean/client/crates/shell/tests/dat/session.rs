@@ -1385,6 +1385,77 @@ fn figures_animate_a_thirtieth_of_a_second_apart_at_any_frame_rate() {
     );
 }
 
+/// A behavior asked with its actions locked holds the player's own movement while it plays: forward
+/// held does not move the body until the behavior is over, then it does.
+///
+/// Behaviour: desktop.shell.a-behavior-that-locks-actions-holds-the-player
+#[test]
+fn a_behavior_that_locks_actions_holds_the_player_until_it_ends() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    use auberean_physics::body::JUMP_BEHAVIOR;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    let player = s
+        .client
+        .as_ref()
+        .and_then(|c| c.model.player)
+        .expect("the player");
+    s.scene.carry_out_behavior(&Behavior::Play {
+        object: player,
+        params: BehaviorParams {
+            behavior: JUMP_BEHAVIOR,
+            lock_actions: 1,
+            ..BehaviorParams::default()
+        },
+    });
+    step(&mut s);
+    step(&mut s);
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .player_figure()
+            .expect("the figure")
+            .is_doing_behavior(JUMP_BEHAVIOR)
+    };
+    assert!(doing(&s), "it plays");
+    assert!(s.scene.actions_locked(), "and holds the player");
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let start = s.host.time;
+    while doing(&s) && s.host.time < start + 5.0 {
+        step(&mut s);
+        if doing(&s) {
+            assert!(
+                s.scene.status.speed < 0.01,
+                "held while it plays: {}",
+                s.scene.status.speed
+            );
+        }
+    }
+    assert!(!doing(&s), "it ends");
+    assert!(!s.scene.actions_locked(), "and lets go");
+    let over = s.host.time;
+    while s.scene.status.speed < 1.0 && s.host.time < over + 5.0 {
+        step(&mut s);
+    }
+    assert!(
+        s.scene.status.speed >= 1.0,
+        "runs once it is over: {}",
+        s.scene.status.speed
+    );
+}
+
 /// Space pressed with the player standing in the hall: its figure plays the jump's lead-in while
 /// the body stays on the ground, until the lead-in's animation sets the jump off; then the body
 /// leaves the ground at the jump's speed with its figure in the air, the server is told of the

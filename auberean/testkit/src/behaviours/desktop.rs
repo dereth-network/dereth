@@ -575,6 +575,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.controls.a-behavior-action-plays-and-stops-its-behavior",
+        says: "An action of the behavior class has the player play its behavior as it begins and stop it as it ends, its value read with no modifier held when it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ACTION-BEHAVIOR"),
+        station: "auberean-shell::dat::controls::a_behavior_action_plays_and_stops_its_behavior",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.a-movement-key-begins-its-action-once",
         says: "A movement key pressed begins its action of the key map once: forward, backward, \
                the strafes, the turns (strafes in mouse look, where the left button runs), the \
@@ -1257,6 +1265,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-DISPLAY-PREFS"),
         station: "auberean-shell::cpu::settings::the_display_and_values_read_as_the_client_writes_them",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.shell.a-behavior-that-locks-actions-holds-the-player",
+        says: "A behavior asked with its actions locked holds the player's own movement, its turning and its jumping while it plays; they come back when it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ACTION-LOCK"),
+        station: "auberean-shell::dat::session::a_behavior_that_locks_actions_holds_the_player_until_it_ends",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.shell.a-placed-player-stands-where-there-is-room",

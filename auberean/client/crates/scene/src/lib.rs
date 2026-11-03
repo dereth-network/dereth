@@ -738,7 +738,11 @@ pub(crate) fn takes_look(
         .as_mut()
         .is_some_and(|f| f.compare_and_modify(anims, look));
     if !kept {
+        let is_player = figure.as_ref().is_some_and(|f| f.is_player);
         *figure = Figure::from_look(anims, look);
+        if let Some(f) = figure.as_mut() {
+            f.is_player = is_player;
+        }
     }
     *effects = fx::BodyFx::again(effects.take(), look, id);
 }
@@ -2144,7 +2148,7 @@ impl<'w> Scene<'w> {
     }
 
     /// The world without a player: the camera forgets where it stood and whom it followed.
-    // D2-10660, D2-10765, D2-10807
+    // D2-10660, D2-10765, D2-10807, D2-09648, D2-03437
     fn reset_world_state(&mut self, client: &mut Client) {
         self.weather.indoors();
         self.cells.release(client.data_download_mut());
@@ -2175,7 +2179,7 @@ impl<'w> Scene<'w> {
     /// The player's object made where the client placed its body (`b`): its body, its figure, and
     /// the camera set to follow it; its entry in the world's table takes the properties of the
     /// physics record `record` the client named.
-    // D2-10663, D2-10661
+    // D2-10663, D2-10661, D2-09648, D2-03437
     fn make_player(
         &mut self,
         o: &Object,
@@ -2677,30 +2681,8 @@ impl<'w> Scene<'w> {
             .as_mut()
             .map(|s| std::mem::take(&mut s.host.behaviors))
             .unwrap_or_default();
-        for b in asked {
-            use auberean_client_sdk::runtime::host::Behavior;
-            let (object, play) = match &b {
-                Behavior::Play { object, params } => (*object, Some(params_of(params))),
-                Behavior::Stop { object, .. } => (*object, None),
-            };
-            match (play, &b) {
-                (Some(params), _) => {
-                    self.play_behavior(object, &params);
-                }
-                (None, Behavior::Stop { behavior, .. }) => {
-                    let anims = &self.anims;
-                    if let Some(f) = figure_in(
-                        &mut self.player,
-                        &mut self.others,
-                        &mut self.held,
-                        &mut self.temporaries,
-                        object,
-                    ) {
-                        f.stop_behavior(anims, *behavior);
-                    }
-                }
-                (None, Behavior::Play { .. }) => {}
-            }
+        for b in &asked {
+            self.carry_out_behavior(b);
         }
         // What the figures asked beyond their animation, and the effects the scripts played.
         asked_of.extend(self.others.take_figure_events());
@@ -3035,6 +3017,39 @@ impl<'w> Scene<'w> {
                     client.queue.add_object_to_be_destroyed(i, now);
                 }
             }
+        }
+    }
+
+    /// Whether a behavior that locks actions holds the player's own movement.
+    #[must_use]
+    pub fn actions_locked(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.actions_locked)
+    }
+
+    /// A behavior asked of an object: played, or stopped.
+    pub fn carry_out_behavior(&mut self, b: &auberean_client_sdk::runtime::host::Behavior) {
+        use auberean_client_sdk::runtime::host::Behavior;
+        let (object, play) = match b {
+            Behavior::Play { object, params } => (*object, Some(params_of(params))),
+            Behavior::Stop { object, .. } => (*object, None),
+        };
+        match (play, b) {
+            (Some(params), _) => {
+                self.play_behavior(object, &params);
+            }
+            (None, Behavior::Stop { behavior, .. }) => {
+                let anims = &self.anims;
+                if let Some(f) = figure_in(
+                    &mut self.player,
+                    &mut self.others,
+                    &mut self.held,
+                    &mut self.temporaries,
+                    object,
+                ) {
+                    f.stop_behavior(anims, *behavior);
+                }
+            }
+            (None, Behavior::Play { .. }) => {}
         }
     }
 

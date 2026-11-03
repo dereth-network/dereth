@@ -393,3 +393,41 @@ fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_pres
     );
     assert!(c.actions().is_empty(), "its release ends it");
 }
+
+/// An action of the behavior class has the player play its behavior as it begins: the data's one
+/// such action, which no default key names and which lasts one press, so never stops it. One held
+/// has it stopped as it ends.
+///
+/// Behaviour: desktop.controls.a-behavior-action-plays-and-stops-its-behavior
+#[test]
+fn a_behavior_action_plays_and_stops_its_behavior() {
+    use auberean_assets::ui::ActionEntry;
+    use auberean_shell::controls::{class, toggle};
+    const ACTION: u32 = 0x8000_0001;
+    const BEHAVIOR: u32 = 0x4100_0007;
+    let mut c = controls();
+    c.action_handler(keys(), ACTION, 1.0, 1, 7);
+    assert_eq!(c.intent(keys()).behaviors, [(BEHAVIOR, true)]);
+    assert!(c.intent(keys()).behaviors.is_empty(), "once");
+
+    const HELD: u32 = 0x8000_0002;
+    let mut records = keys().records.clone();
+    records.action_map.toggles.push((HELD, toggle::HELD));
+    records.action_map.actions.push(ActionEntry {
+        action: HELD,
+        modifiers: 0,
+        class: class::BEHAVIOR,
+        value: BEHAVIOR,
+        extent: 1.0,
+    });
+    let held = Keys::start(
+        records,
+        KeyFiles::default(),
+        &mut HostFiles(&mut TestHost::default()),
+    );
+    let mut c = controls();
+    c.action_handler(&held, HELD, 1.0, 1, 7);
+    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, true)]);
+    c.action_handler(&held, HELD, 0.0, 1, 7);
+    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, false)]);
+}
