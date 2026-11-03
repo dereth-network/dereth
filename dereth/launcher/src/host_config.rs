@@ -187,6 +187,11 @@ pub struct Settings {
     /// ([`free_status_port`]) and keeps it; the page never sees it or sets it.
     #[serde(skip)]
     pub status_port: u16,
+    /// The status endpoint's address (`server.status_address`): this computer's alone, as the
+    /// launcher makes a world, or every address, or one of them, as its operator may set it by hand
+    /// (for a proxy on the local network). The page never sees it or sets it.
+    #[serde(skip, default = "loopback")]
+    pub status_host: IpAddr,
     /// `server.accounts.allow_auto_account_creation`.
     pub accounts: bool,
     /// `[era] profile`.
@@ -212,6 +217,25 @@ pub struct Settings {
     /// `[dat_overlay]`'s patching.
     pub patching: Patching,
 }
+/// The status endpoint's address when nothing else is set: this computer's alone.
+fn loopback() -> IpAddr {
+    IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+}
+
+impl Settings {
+    /// Where the launcher asks the status endpoint: on this computer when it listens on every
+    /// address, else at the address it listens on.
+    #[must_use]
+    pub fn status_url(&self) -> String {
+        let host = if self.status_host.is_unspecified() {
+            loopback()
+        } else {
+            self.status_host
+        };
+        format!("http://{}/status", SocketAddr::new(host, self.status_port))
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -220,6 +244,7 @@ impl Default for Settings {
             bind: "127.0.0.1".into(),
             port: 9000,
             status_port: FIRST_STATUS_PORT,
+            status_host: loopback(),
             accounts: true,
             era: "eor".into(),
             welcome: String::new(),
@@ -556,7 +581,9 @@ pub fn check_change(text: &str, dir: &Path, next: &Settings) -> Result<(), Strin
 /// Why not, in words for a person.
 pub fn save_over(text: &str, dir: &Path, next: &Settings) -> Result<String, String> {
     let mut next = next.clone();
-    next.status_port = Settings::from_config(text)?.status_port;
+    let before = Settings::from_config(text)?;
+    next.status_port = before.status_port;
+    next.status_host = before.status_host;
     if plays(text, dir).published.is_some() {
         next.patching.enabled = true;
     }
@@ -655,9 +682,6 @@ impl Settings {
             .unwrap_or("127.0.0.1:9100")
             .parse::<SocketAddr>()
             .map_err(|_| "The status address is invalid.")?;
-        if status.ip() != IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) {
-            return Err("The world's status_address must be on 127.0.0.1.".into());
-        }
         let port = match network.get("port") {
             None => 9000,
             Some(item) => item
@@ -740,6 +764,7 @@ impl Settings {
             bind: net("host").as_str().unwrap_or("127.0.0.1").into(),
             port,
             status_port: status.port(),
+            status_host: status.ip(),
             accounts: server
                 .get("accounts")
                 .and_then(|a| a.get("allow_auto_account_creation"))
@@ -793,7 +818,7 @@ impl Settings {
         );
         set(
             &mut doc["server"]["status_address"],
-            format!("127.0.0.1:{}", self.status_port),
+            SocketAddr::new(self.status_host, self.status_port).to_string(),
         );
         set(&mut doc["server"]["interactive_console"], true);
         set(&mut doc["server"]["update"], "off");
@@ -1113,11 +1138,16 @@ mod tests {
         assert_eq!(redact("World ready"), "World ready");
     }
     #[test]
-    fn invalid_ports_and_unreachable_status_addresses_are_not_silently_replaced() {
+    fn invalid_ports_and_status_addresses_are_not_silently_replaced() {
         for port in ["-1", "65536", "'9000'"] {
             assert!(Settings::from_config(&format!("[server.network]\nport={port}\n")).is_err());
         }
-        assert!(Settings::from_config("[server]\nstatus_address='[::1]:9100'\n").is_err());
+        for status in ["'nowhere:9100'", "'127.0.0.1'"] {
+            assert!(
+                Settings::from_config(&format!("[server]\nstatus_address={status}\n")).is_err(),
+                "{status}"
+            );
+        }
     }
     #[test]
     fn managed_hosts_refuse_an_independent_updater_or_external_character_databases() {
@@ -1699,6 +1729,38 @@ mod tests {
         assert!(
             saved.contains("status_address = \"127.0.0.1:9107\""),
             "{saved}"
+        );
+    }
+
+    /// A status address set by hand, on every address or on one of them, is read, kept by the
+    /// next save from the page, and asked by the launcher: on this computer for every address,
+    /// else at the address itself.
+    #[test]
+    fn a_status_address_set_by_hand_is_read_kept_and_asked_where_it_listens() {
+        let temp = tempfile::tempdir().unwrap();
+        let modern = temp.path().join("modern");
+        dereth_launch::testing::write_dat_set(&modern, dereth_launch::Iterations::END_OF_RETAIL);
+        let made = Settings {
+            status_port: 9107,
+            dats: modern.clone(),
+            ..Settings::default()
+        }
+        .update_config("")
+        .unwrap();
+        let every = made.replace("127.0.0.1:9107", "0.0.0.0:39100");
+        let read = Settings::from_config(&every).unwrap();
+        assert_eq!(read.status_url(), "http://127.0.0.1:39100/status");
+        let mut from_page: Settings = serde_json::from_value(serde_json::json!({})).unwrap();
+        from_page.dats = modern;
+        let saved = save_over(&every, temp.path(), &from_page).unwrap();
+        assert!(
+            saved.contains("status_address = \"0.0.0.0:39100\""),
+            "{saved}"
+        );
+        let one = made.replace("127.0.0.1:9107", "10.21.23.5:9100");
+        assert_eq!(
+            Settings::from_config(&one).unwrap().status_url(),
+            "http://10.21.23.5:9100/status"
         );
     }
 

@@ -306,7 +306,7 @@ fn health(settings: &Settings) -> Option<u64> {
         .build()
         .into();
     let bytes = agent
-        .get(format!("http://127.0.0.1:{}/status", settings.status_port))
+        .get(settings.status_url())
         .call()
         .ok()?
         .body_mut()

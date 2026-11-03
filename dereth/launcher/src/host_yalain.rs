@@ -208,7 +208,7 @@ pub fn update_config(settings: &Settings, original: &str) -> Result<String, Stri
     );
     set(
         &mut server["status_address"],
-        format!("127.0.0.1:{}", settings.status_port),
+        std::net::SocketAddr::new(settings.status_host, settings.status_port).to_string(),
     );
     set(
         &mut server["message_of_the_day"],
@@ -252,6 +252,7 @@ pub fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
     if let Ok(before) = from_config(&original) {
         if !original.is_empty() {
             next.status_port = before.status_port;
+            next.status_host = before.status_host;
         }
     }
     keep_config(dir, &update_config(&next, &original)?)

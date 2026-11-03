@@ -292,7 +292,15 @@ pub fn views(shared: &Shared) -> Vec<View> {
         // Its configuration file: Empyrean's empyrean.toml, or Yalain's yalain.toml in its form.
         let text = std::fs::read_to_string(dir.join(host_runtime::config_file(definition.game)))
             .unwrap_or_default();
-        let settings = host_runtime::read_settings(&dir, definition.game).unwrap_or_default();
+        // A configuration that does not read is shown with the defaults, and the page says why.
+        let read = host_runtime::read_settings(&dir, definition.game);
+        let unread = read.as_ref().err().map(|e| {
+            format!(
+                "{} could not be read: {e}",
+                host_runtime::config_file(definition.game)
+            )
+        });
+        let settings = read.unwrap_or_default();
         let program = definition.program.clone();
         let logs = std::fs::read(dir.join("log.json"))
             .ok()
@@ -313,7 +321,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
         });
         views.push(View {
             busy: store.busy.get(&definition.id).cloned(),
-            message: store.messages.get(&definition.id).cloned(),
+            message: store.messages.get(&definition.id).cloned().or(unread),
             id: definition.id,
             game: definition.game,
             settings,
