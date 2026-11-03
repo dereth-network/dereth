@@ -1561,6 +1561,61 @@ fn what_a_body_holds_is_picked_and_selected_as_itself() {
     );
 }
 
+/// Running while mouse look turns it, the player's body holds its place before the camera from
+/// frame to frame: as far from the camera, and facing the way the camera faces, though its physics
+/// ticks only every sixth frame. (Well clear of the hall's walls; near them the camera moves in.)
+///
+/// Behaviour: desktop.interface.the-body-holds-its-place-before-the-camera-in-mouse-look
+#[test]
+fn the_body_holds_its_place_before_the_camera_in_mouse_look() {
+    let (mut s, _retail) = into_the_world();
+    for _ in 0..120 {
+        step(&mut s);
+    }
+    s.event(&Event::Button {
+        button: Button::Right,
+        down: true,
+    });
+    for _ in 0..10 {
+        step(&mut s);
+    }
+    assert!(s.scene.camera.mouse_look, "the right button held looks");
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    for _ in 0..60 {
+        step(&mut s);
+    }
+    let mut frames = Vec::new();
+    for _ in 0..70 {
+        s.event(&Event::Motion { dx: 6.0, dy: 0.0 });
+        step(&mut s);
+        let seen = &s.scene.seen;
+        let camera = seen.camera.expect("the world is drawn");
+        let body = seen.body(PLAYER).expect("the body is drawn");
+        let (dx, dy) = (
+            body.origin.x - camera.position.x,
+            body.origin.y - camera.position.y,
+        );
+        let away = (dx * dx + dy * dy).sqrt();
+        let facing = (camera.heading - body.heading + 540.0).rem_euclid(360.0) - 180.0;
+        frames.push((away, facing, body.heading));
+    }
+    let turned = frames[69].2 - frames[30].2;
+    assert!(turned.abs() > 45.0, "the body turned: {turned}");
+    for w in frames[30..].windows(2) {
+        assert!(
+            (w[1].0 - w[0].0).abs() < 0.05,
+            "as far from the camera: {:?} then {:?}",
+            w[0],
+            w[1]
+        );
+        assert!(w[1].1.abs() < 0.5, "facing with the camera: {:?}", w[1]);
+    }
+}
+
 /// In mouse look the left button runs the body forward while it is held, though the field that
 /// lies over the world takes the press: the world's controls see the button too.
 ///

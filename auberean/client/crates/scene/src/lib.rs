@@ -803,7 +803,9 @@ struct CameraWorld<'a, 'w> {
 }
 
 /// The camera placed for player `p` where its body stands now, as the client places it each time
-/// the player's physics ticks (each frame instead in mouse look, `each_frame`): its rates, the
+/// the player's physics ticks; each frame instead in mouse look (`each_frame`), where the frame
+/// draws the body, that share of the way through its tick, so it keeps its place before the
+/// camera: its rates, the
 /// slope, the shoulder, its distance and glide over `dt`; the place it wants (riding the head bone
 /// in first person while a behavior moves that camera); kept off the world by its lines of sight
 /// (none in first person), in the cell the last ended in. Where it stood becomes where it stood
@@ -817,11 +819,14 @@ fn place_camera(
     p: &Player,
     w: &CameraWorld<'_, '_>,
     dt: f32,
-    each_frame: bool,
+    each_frame: Option<f32>,
 ) {
-    let pos = p.body.position;
+    let (pos, alpha) = match each_frame {
+        Some(alpha) => (p.body.drawn(alpha).0, alpha),
+        None => (p.body.position, 1.0),
+    };
     let subject = subject_of(p, pos, p.body.heading);
-    let objects = followed_of(Some(p), w.others, w.anims, 1.0, w.stand_ins);
+    let objects = followed_of(Some(p), w.others, w.anims, alpha, w.stand_ins);
     camera.update_with(dt, &subject, &objects);
     // In first person, while a behavior that moves the first-person camera plays and the avatar
     // option shows the player, the camera rides the head bone: its whole frame, a fifth of a meter
@@ -868,7 +873,7 @@ fn place_camera(
         (Some(s), Some(at)) => {
             s.set_previous(s.current);
             s.set_current(at);
-            if each_frame && traced {
+            if each_frame.is_some() && traced {
                 s.set_previous(at);
             }
         }
@@ -2280,7 +2285,7 @@ impl<'w> Scene<'w> {
                 }
             };
             if !frozen && steer.turn != 0.0 {
-                p.body.heading = (p.body.heading - steer.turn).rem_euclid(360.0);
+                p.body.turn_at_once(-steer.turn);
             }
             p.body.steer(input);
             // The jump asked: standing, or moving slowly, the figure plays the jump's lead-in,
@@ -2329,14 +2334,7 @@ impl<'w> Scene<'w> {
                         anims: &self.anims,
                         stand_ins: self.stand_ins,
                     };
-                    place_camera(
-                        &mut self.camera,
-                        &mut self.camera_stands,
-                        p,
-                        &w,
-                        tick,
-                        false,
-                    );
+                    place_camera(&mut self.camera, &mut self.camera_stands, p, &w, tick, None);
                 }
             }
             // The player's collisions go to its scripts.
@@ -2422,8 +2420,8 @@ impl<'w> Scene<'w> {
             // D2-08202
             self.status.moving = p.body.is_moving();
             self.status.contact = p.body.contact;
-            // In mouse look the camera is placed each frame for where the body stands, and first
-            // of all once there is a player to place it for; then a frame of its effects.
+            // In mouse look the camera is placed each frame for where the frame draws the body,
+            // and first of all once there is a player to place it for; then a frame of its effects.
             if !still && (self.camera.mouse_look || self.camera_stands.is_none()) {
                 let w = CameraWorld {
                     land: &self.land,
@@ -2432,7 +2430,15 @@ impl<'w> Scene<'w> {
                     anims: &self.anims,
                     stand_ins: self.stand_ins,
                 };
-                place_camera(&mut self.camera, &mut self.camera_stands, p, &w, dt, true);
+                let alpha = self.ticker.alpha(now);
+                place_camera(
+                    &mut self.camera,
+                    &mut self.camera_stands,
+                    p,
+                    &w,
+                    dt,
+                    Some(alpha),
+                );
             }
             self.camera.use_time(dt);
             self.fov = self.camera.fov;

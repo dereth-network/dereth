@@ -643,6 +643,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-body-holds-its-place-before-the-camera-in-mouse-look",
+        says: "Running while mouse look turns it, the player's body holds its place before the \
+               camera from frame to frame, as far from it and facing the way it faces, though its \
+               physics ticks less often than frames are drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MOUSE-LOOK-BODY-STEADY"),
+        station: "auberean-interface::dat::screens::the_body_holds_its_place_before_the_camera_in_mouse_look",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-input-method-writes-over-the-chat-entry-while-it-takes-the-keys",
         says: "An editable entry that takes the keyboard turns the platform's input method on over \
                the part of it that shows, unless it is marked to keep it off; the host is told \

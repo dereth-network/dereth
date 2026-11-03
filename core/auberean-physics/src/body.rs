@@ -1113,6 +1113,15 @@ impl Body {
         self.previous = (position, heading);
     }
 
+    /// The player's mouse turns the body at once, `degrees` to the right: it is drawn turned this
+    /// frame, whatever the share of its tick, so it keeps its place before the camera turning with
+    /// it. (Drawn between its last two ticks' headings, a turn made between ticks would come and go
+    /// behind the camera as the tick runs.)
+    pub fn turn_at_once(&mut self, degrees: f32) {
+        self.heading = (self.heading + degrees).rem_euclid(360.0);
+        self.previous.1 = (self.previous.1 + degrees).rem_euclid(360.0);
+    }
+
     /// Where the body is drawn `alpha` of a tick past its last tick (from [`Ticker::alpha`]):
     /// between where it was before that tick and where it is, the origin along the line between
     /// them (across a block's edge, in the block it is in now) and the heading turned the short

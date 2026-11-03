@@ -11,6 +11,7 @@ not how it was done.
 - Fixed the quest journal being empty after logging back in.
 - Fixed available experience showing a huge number in the skills panel.
 - The screens before the world now stay 4:3 in any window.
+- Fixed your character wobbling while running in mouse look.
 
 ## 0.1.2 (2026-11-02)
 
