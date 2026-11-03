@@ -160,6 +160,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effect-moves-its-sliders-over-its-ramp",
+        says: "An effect entry moves its slider to its intensity over its ramp time, and an \
+               entry with a color moves the object's four color sliders to that color's \
+               parts.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-SLIDERS"),
+        station: "auberean-draw::cpu::effects::particles::an_effect_moves_its_sliders_over_its_ramp",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.an-effects-appearance-is-laid-over-its-object-until-it-stops",
         says: "An effect that names an appearance table lays that table's value over the whole \
                object at the strength the effect has (its key's strength times the effect's; at \

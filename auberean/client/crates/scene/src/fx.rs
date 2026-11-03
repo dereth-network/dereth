@@ -137,6 +137,12 @@ impl BodyFx {
         self.fx.think(systems, home, &place, scale, light, now);
         let asked = self.fx.take_appearance();
         self.sounds.extend(self.fx.take_sounds());
+        let sliders = self.fx.take_sliders();
+        if let Some(f) = figure.as_deref_mut() {
+            for s in sliders {
+                f.sliders.do_slider(0, s.slider, s.value, s.time);
+            }
+        }
         let (total, changes) = lay_appearance(anims, dress?, &asked)?;
         tracing::debug!(?asked, changes, "the effects changed a body's look");
         if let Some(f) = figure {

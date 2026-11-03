@@ -38,6 +38,48 @@ const MAX_DEPTH: usize = 16;
 /// The bucket count of an object's own effect table.
 const OWN_TABLE_BUCKETS: u32 = 32;
 
+/// A slider an effect moves: to `value` over `time` seconds, on the object's children too when
+/// `children`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FxSlider {
+    pub slider: u32,
+    pub value: f32,
+    pub time: f32,
+    pub children: bool,
+}
+
+/// The sliders holding an object's color: red, green, blue, alpha.
+const COLOR_SLIDERS: [u32; 4] = [0x4000_0016, 0x4000_0017, 0x4000_0018, 0x4000_001A];
+
+/// The sliders `node` moves over its ramp time: its own to its intensity, and with a color each of
+/// the object's color sliders to that color's part.
+// D2-06881, D2-06880
+#[must_use]
+pub fn node_sliders(node: &FxNode) -> Vec<FxSlider> {
+    let time = node.ramp_time.unwrap_or(0.0);
+    let children = node.property_color == Some(true);
+    let mut out = Vec::new();
+    if let Some(slider) = node.slider.filter(|s| *s != 0) {
+        out.push(FxSlider {
+            slider,
+            value: node.intensity.unwrap_or(0.0),
+            time,
+            children,
+        });
+    }
+    if let Some((true, c)) = node.color {
+        for (slider, value) in COLOR_SLIDERS.into_iter().zip([c.r, c.g, c.b, c.a]) {
+            out.push(FxSlider {
+                slider,
+                value,
+                time,
+                children,
+            });
+        }
+    }
+    out
+}
+
 /// Every effect stored table `table` (and, after it, each table it extends, in order and depth
 /// first) lists for effect id `effect`.
 // D2-15746
@@ -280,6 +322,8 @@ pub struct ObjectEffects {
     /// The streaks its effects asked turned on (true) or off since last taken, each with the
     /// holding location whose objects' streaks it means (0: every object it holds).
     streak_asks: Vec<(bool, u32)>,
+    /// The sliders its effects moved since last taken, in order.
+    sliders: Vec<FxSlider>,
     /// The sounds its effects played or stopped, in order, not yet taken.
     sounds: Vec<FxSound>,
 }
@@ -423,8 +467,14 @@ impl ObjectEffects {
             lights: Vec::new(),
             streaks: Vec::new(),
             streak_asks: Vec::new(),
+            sliders: Vec::new(),
             sounds: Vec::new(),
         })
+    }
+
+    /// The sliders its effects moved since last taken, in order.
+    pub fn take_sliders(&mut self) -> Vec<FxSlider> {
+        std::mem::take(&mut self.sliders)
     }
 
     /// The sounds its effects played or stopped since last taken, in order.
@@ -884,6 +934,7 @@ impl ObjectEffects {
             }
             let script = node.fx_script.filter(|d| !d.is_none()).map(|d| d.0);
             scripts.extend(script);
+            self.sliders.extend(node_sliders(&node));
             let mut looping = false;
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
                 if node.fire_and_forget == Some(true) {
