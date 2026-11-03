@@ -29,8 +29,9 @@ use dereth_network_protocol::address::is_network_slug;
 use dereth_network_protocol::directory::{
     is_shown_text, Allegiance, AubereanVitals, Vital, MAX_ALLEGIANCE_NAME_CHARS,
 };
+use dereth_network_protocol::rooms::read_setting;
 use dereth_network_protocol::{Address, AubereanProfile};
-use yalain_federation::{Federation, Friends, Settings};
+use yalain_federation::{Federation, Friends, Settings, DEFAULT_ROOM};
 use yalain_net::ServerNet;
 use yalain_store::Store;
 use yalain_world::player::quality;
@@ -71,11 +72,14 @@ pub struct Network {
     verifier: Option<Verifier>,
 }
 
-/// The settings the world's half runs with: on, under the hub's slug, as this program.
+/// The settings the world's half runs with: on, under the hub's slug, as this program, carrying the
+/// Global room where `federation.global_room` (`global_room`) says, or in General when it says
+/// nothing.
 ///
 /// # Errors
-/// The slug cannot be a network address's world half (too long, or reserved).
-pub fn settings(hub: &HubSettings) -> Result<Settings, String> {
+/// The slug cannot be a network address's world half (too long, or reserved), or `global_room` names
+/// no room.
+pub fn settings(hub: &HubSettings, global_room: Option<&str>) -> Result<Settings, String> {
     if !is_network_slug(&hub.slug) {
         return Err(format!(
             "--federation: the slug {} cannot join the Dereth Network (2 to 12 small letters, \
@@ -87,6 +91,8 @@ pub fn settings(hub: &HubSettings) -> Result<Settings, String> {
         enabled: true,
         slug: hub.slug.clone(),
         software: concat!("yalain ", env!("CARGO_PKG_VERSION")).to_owned(),
+        global_room: read_setting(global_room, DEFAULT_ROOM)?,
+        global_room_named: global_room.is_some(),
     })
 }
 
@@ -111,9 +117,14 @@ impl Network {
     ///
     /// # Errors
     /// The settings or the store, or the link's thread would not start.
-    pub fn start(hub: &HubSettings, unix: i64, store: &mut impl Store) -> Result<Self, String> {
+    pub fn start(
+        hub: &HubSettings,
+        global_room: Option<&str>,
+        unix: i64,
+        store: &mut impl Store,
+    ) -> Result<Self, String> {
         let url = link_url(hub)?;
-        let federation = Federation::load(settings(hub)?, unix, store)
+        let federation = Federation::load(settings(hub, global_room)?, unix, store)
             .map_err(|e| format!("the network's records: {e}"))?;
         let link = LinkClient::start(&url, &hub.slug, &hub.key)
             .map_err(|e| format!("the link to the hub: {e}"))?;
@@ -475,8 +486,8 @@ mod tests {
             "ws://127.0.0.1:9/v1/servers/shardfall/link"
         );
         let mut store = MemoryStore::default();
-        let federation =
-            Federation::load(settings(&hub).expect("settings"), 1, &mut store).expect("loaded");
+        let federation = Federation::load(settings(&hub, None).expect("settings"), 1, &mut store)
+            .expect("loaded");
         let (link, mut far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         let mut friends =
@@ -533,7 +544,7 @@ mod tests {
             slug: "a-slug-too-long".into(),
             ..hub
         };
-        assert!(settings(&long).is_err());
+        assert!(settings(&long, None).is_err());
     }
 
     /// One request a stand-in hub took, and the connection to answer it on.
@@ -616,8 +627,8 @@ mod tests {
         };
         let url = link_url(&hub).expect("a link address");
         let mut store = MemoryStore::default();
-        let federation =
-            Federation::load(settings(&hub).expect("settings"), 1, &mut store).expect("loaded");
+        let federation = Federation::load(settings(&hub, None).expect("settings"), 1, &mut store)
+            .expect("loaded");
         let (link, _far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         n.verifier = Some(Verifier::new(
@@ -710,7 +721,7 @@ mod tests {
             key: "drth_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
         };
         let federation =
-            Federation::load(settings(&hub).expect("settings"), 1, store).expect("loaded");
+            Federation::load(settings(&hub, None).expect("settings"), 1, store).expect("loaded");
         let (link, mut far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         far.hand(Event::Up);

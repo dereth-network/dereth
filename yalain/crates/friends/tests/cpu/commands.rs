@@ -406,19 +406,50 @@ fn dn_channel_asks_the_hub_and_a_squelch_of_a_channel_leaves_it() {
     assert_eq!(w.frames(), []);
 }
 
-/// `@dn global` says the world carries no Global room, and a character off the network that it is
-/// off: no line goes anywhere.
-/// Behaviour: server.friends.dn-global-not-carried
+/// `@dn global`, as `@dng` is given to the service: on a world that carries no Global room it says
+/// so, with nothing to say its help, and a character off the network that it is off; otherwise the
+/// line is kept for the host to say in the room, and nothing is answered.
+/// Behaviour: server.friends.dn-global-said
 #[test]
-fn dn_global_says_the_world_carries_no_global_room() {
+fn dn_global_says_a_line_in_the_room_that_carries_it_or_says_why_not() {
+    use yalain_federation::{Room, NOT_CARRIED, NOT_ON};
+    let mut none = World::linked();
+    none.player("Ann");
+    assert_eq!(none.said("Ann", "global hello"), [NOT_CARRIED]);
+    none.on("Ann");
+    none.frames();
+    assert_eq!(none.said("Ann", "GLOBAL hello"), [NOT_CARRIED]);
+
     let mut w = World::linked();
+    w.carry_global_in("general");
     w.player("Ann");
-    assert_eq!(w.said("Ann", "global hello"), [yalain_federation::NOT_ON]);
+    assert_eq!(w.said("Ann", "global hello"), [NOT_ON], "off the network");
+    assert_eq!(w.global_lines(), []);
     w.on("Ann");
     w.frames();
     assert_eq!(
-        w.said("Ann", "GLOBAL hello"),
-        [yalain_federation::NO_GLOBAL_ROOM]
+        w.said("Ann", "global"),
+        ["@dng <text> - say a line in the Global room"],
+        "nothing to say"
     );
-    assert_eq!(w.frames(), []);
+    assert_eq!(w.said("Ann", "GLOBAL hello   Arwic"), Vec::<String>::new());
+    let (_, ann) = w.ids("Ann");
+    assert_eq!(
+        w.global_lines(),
+        [yalain_federation::GlobalLine {
+            character: ann,
+            room: Room::General,
+            text: "hello Arwic".into(),
+        }]
+    );
+    assert_eq!(
+        w.frames(),
+        [],
+        "the world says it, and it goes on from there"
+    );
+
+    // The hub moves the room, and the line goes there.
+    w.carry_global_in("roleplay");
+    assert_eq!(w.said("Ann", "global hello"), Vec::<String>::new());
+    assert_eq!(w.global_lines()[0].room, Room::Pvp);
 }

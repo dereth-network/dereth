@@ -12,7 +12,7 @@ use dereth_network_protocol::say::without_mark;
 use dereth_network_protocol::{Address, ChannelOp};
 use yalain_federation::directory::page_line;
 use yalain_federation::{
-    Federation, Friends as _, LinkState, NOT_ON, NO_GLOBAL_ROOM, PAUSED, WORLD_OFF,
+    Federation, Friends as _, LinkState, NOT_CARRIED, NOT_ON, PAUSED, WORLD_OFF,
 };
 use yalain_store::Store;
 
@@ -20,13 +20,15 @@ use crate::names::{read_entry, Target};
 use crate::{secs, Service};
 
 /// The commands, one line each, as `@dn help` shows them.
-pub const HELP: [&str; 20] = [
+pub const HELP: [&str; 22] = [
     "@dn - show your Dereth Network status",
     "@dn on - put this character on the Dereth Network",
     "@dn off - take this character off the Dereth Network",
     "@dn friends - list your friends on other worlds",
     "@dn friends add <Name@world> - add a friend on another world",
     "@dn friends remove <Name@world> - remove a friend on another world",
+    "@dng <text> - say a line in the Global room",
+    "@dn global <text> - say a line in the Global room",
     "@dn squelch <world> - squelch every character of a world",
     "@dn unsquelch <world> - unsquelch a world",
     "@dn channel create <channel> - make a channel",
@@ -178,11 +180,20 @@ impl Service {
                 }
             }
             "channel" => self.channel_said(f, character, name, &rest),
-            "global" => vec![if f.is_on(name) {
-                NO_GLOBAL_ROOM.to_owned()
-            } else {
-                NOT_ON.to_owned()
-            }],
+            "global" => {
+                let Some(room) = f.global_room() else {
+                    return vec![NOT_CARRIED.to_owned()];
+                };
+                let text = rest.join(" ");
+                if text.is_empty() {
+                    return usage("@dng");
+                }
+                if !f.is_on(name) {
+                    return vec![NOT_ON.to_owned()];
+                }
+                f.say_global(character, room, text);
+                Vec::new()
+            }
             _ => help(),
         }
     }

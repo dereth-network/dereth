@@ -6,6 +6,7 @@ mod directory;
 mod operator;
 mod persons;
 mod presence;
+mod rooms;
 mod tells;
 mod verify;
 mod watches;
@@ -120,6 +121,7 @@ impl World {
                     enabled,
                     slug: SLUG.into(),
                     software: "yalain test".into(),
+                    ..Settings::default()
                 },
                 1_790_000_000,
             ),

@@ -243,6 +243,7 @@ fn going_off_takes_the_character_out_at_once_and_is_owed_until_answered() {
             enabled: true,
             slug: SLUG.into(),
             software: "yalain test".into(),
+            ..Settings::default()
         },
         1_790_000_001,
         &mut w.store,

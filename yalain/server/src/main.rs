@@ -82,6 +82,8 @@
 //!                         federation is on at the hub: characters whose players put them on the
 //!                         network reach and are reached by other worlds' characters, of either
 //!                         game
+//!   --global-room ROOM    the room that carries the network's Global room until the hub keeps
+//!                         one: general (the default), trade, lfg, roleplay, or empty for none
 //!   --no-friends          serve no friends service: by default the world serves its players'
 //!                         friends, presence and tells to Name@world on TCP at the login port's
 //!                         number
@@ -223,6 +225,9 @@ struct Options {
     hub: Option<hub::HubSettings>,
     /// Link to the hub's network (`--federation`).
     federation: bool,
+    /// The room that carries the Global room until the hub keeps one (`--global-room`), when the
+    /// operator names one.
+    global_room: Option<String>,
     /// Serve the friends service (not `--no-friends`).
     friends: bool,
     seconds: Option<f64>,
@@ -334,6 +339,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         hold_clock: false,
         hub: None,
         federation: false,
+        global_room: None,
         friends: true,
         seconds: None,
         verbose: false,
@@ -493,6 +499,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             "--hub-slug" => hub_slug = Some(value()?),
             "--hub-key-file" => hub_key_file = Some(PathBuf::from(value()?)),
             "--federation" => o.federation = true,
+            "--global-room" => o.global_room = Some(value()?),
             "--no-friends" => o.friends = false,
             "--seconds" => {
                 o.seconds = Some(value()?.parse().map_err(|e| format!("--seconds: {e}"))?)
@@ -535,7 +542,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         match &o.hub {
             None => return Err("--federation needs --hub, --hub-slug and --hub-key-file".into()),
             Some(h) => {
-                network::settings(h)?;
+                network::settings(h, o.global_room.as_deref())?;
                 network::link_url(h)?;
             }
         }
@@ -838,7 +845,12 @@ fn run<S: Store>(
         tracing::info!("status endpoint listening on http://{}/status", s.addr());
     }
     let mut network = match (&o.hub, o.federation) {
-        (Some(h), true) => Some(network::Network::start(h, unix_now(), &mut server.store)?),
+        (Some(h), true) => Some(network::Network::start(
+            h,
+            o.global_room.as_deref(),
+            unix_now(),
+            &mut server.store,
+        )?),
         _ => None,
     };
     let slug = match (&o.hub, o.federation) {
@@ -1652,7 +1664,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"

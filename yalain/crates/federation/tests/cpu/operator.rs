@@ -27,7 +27,8 @@ fn the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts() {
         w.operator(&[]),
         lines(&[
             "This world is on the Dereth Network as dawnsong. The hub is not connected. 0 worlds \
-             are online. 0 messages are waiting for the hub.",
+             are online. 0 messages are waiting for the hub. The Global room is carried in no \
+             room. Rooms mirrored into Discord: none.",
             "Nothing is blocked.",
         ])
     );
@@ -48,7 +49,8 @@ fn the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts() {
         w.operator(&["unblock"]),
         lines(&[
             "This world is on the Dereth Network as dawnsong. The hub is connected. 1 world is \
-             online. 0 messages are waiting for the hub.",
+             online. 0 messages are waiting for the hub. The Global room is carried in no room. \
+             Rooms mirrored into Discord: none.",
             "Blocked: coldeve, mal dark@frost.",
         ])
     );
@@ -172,6 +174,7 @@ fn the_setting_and_the_blocks_are_kept_and_read_back_at_start() {
             enabled: true,
             slug: SLUG.into(),
             software: "yalain test".into(),
+            ..Settings::default()
         },
         1,
         &mut w.store,
@@ -188,8 +191,7 @@ fn the_setting_and_the_blocks_are_kept_and_read_back_at_start() {
 }
 
 /// `dn admin block` is `dn block` as the game says it, at the console or by an admin in game; a name
-/// may carry the mark a line said from Discord shows; `dn admin` alone is the help, and
-/// `dn admin global` says the world carries no Global room.
+/// may carry the mark a line said from Discord shows; `dn admin` alone is the help.
 /// Behaviour: server.network.operator-admin-words
 #[test]
 fn the_operators_words_read_the_same_after_admin_and_in_game() {
@@ -215,18 +217,14 @@ fn the_operators_words_read_the_same_after_admin_and_in_game() {
         "with nothing after it, the state of the link and the blocks"
     );
     assert_eq!(w.operator(&["admin"]), lines(HELP));
-    assert_eq!(
-        w.operator(&["admin", "global", "general"]),
-        lines(&["This world does not carry the Global room."])
-    );
     let said = w
         .fed
-        .operator_said(&mut w.store, &mut w.service, &["block", "Mal@Frost"]);
+        .operator_said(&mut w.store, &mut w.service, 1, &["block", "Mal@Frost"]);
     assert_eq!(
         said,
         lines(&["mal@frost is blocked for everyone on this world."])
     );
-    let help = w.fed.operator_said(&mut w.store, &mut w.service, &[]);
+    let help = w.fed.operator_said(&mut w.store, &mut w.service, 1, &[]);
     assert_eq!(help, lines(IN_GAME_HELP));
     assert!(help.iter().all(|l| l.starts_with("@dn ")), "{help:?}");
 }

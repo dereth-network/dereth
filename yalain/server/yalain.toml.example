@@ -217,6 +217,14 @@ slug = ""
 # key is never written in this file; keep that one readable by the server only.
 key_file = "network.key"
 
+# default: "general" (--global-room)
+# The chat room that carries the network's Global room until the hub keeps one for this world:
+# "general", "trade", "lfg" or "roleplay", or empty for none. General and Trade are those rooms;
+# this game has no LFG or Roleplay room, so "lfg" and "roleplay" both mean its PvP room, which
+# nobody else needs. A hub that keeps none is told this one, once; after that the hub's holds,
+# moved on its operator page or with @dn admin global. SETUP.md, section 8.4, says more.
+global_room = "general"
+
 # ----------------------------------------------------------------------------------------------
 [testing]
 # Setting up characters and the clock for trials (Yalain only; a world needs none of these).

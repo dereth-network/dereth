@@ -19,8 +19,8 @@ use auberean_friends::{
 };
 use dereth_network_protocol::limits::Limits;
 use dereth_network_protocol::wire::PROTOCOL;
-use dereth_network_protocol::{Address, Message, WorldInfo};
-use yalain_federation::{Federation, Settings};
+use dereth_network_protocol::{Address, Message, RoomsMessage, WorldInfo};
+use yalain_federation::{Federation, GlobalLine, Settings};
 use yalain_friends::{Config, Out, Service, StreamId, GAGGED};
 use yalain_store::{Character, MemoryStore, Store};
 
@@ -76,6 +76,7 @@ impl World {
                 enabled: true,
                 slug: SLUG.into(),
                 software: "yalain test".into(),
+                ..Settings::default()
             },
             1_790_000_000,
         );
@@ -360,6 +361,27 @@ impl World {
                 .map(|f| Message::from_json(f).expect("a message the hub reads"))
                 .collect()
         })
+    }
+
+    /// The hub says the world carries the Global room in `room`.
+    pub fn carry_global_in(&mut self, room: &str) {
+        let frame = RoomsMessage::Setup {
+            id: None,
+            global: Some(room.to_owned()),
+            mirrored: Vec::new(),
+        }
+        .to_json();
+        let t = self.now.as_secs_f64();
+        let f = self.fed.as_mut().expect("the link's half");
+        f.on_frame(&mut self.service, t, &frame);
+    }
+
+    /// The `@dng` lines kept for the host to say.
+    pub fn global_lines(&mut self) -> Vec<GlobalLine> {
+        self.fed
+            .as_mut()
+            .expect("the link's half")
+            .take_global_lines()
     }
 
     /// What a character's `@dn` and the words after it answer.

@@ -626,3 +626,193 @@ fn a_system_line_the_world_writes_ends_its_line_as_the_clients_strings_do() {
         ]
     );
 }
+
+/// What a client was sent by the chat service since `from`, read.
+fn service_packets(h: &Harness, b: usize, from: usize) -> Vec<IncomingPayload> {
+    h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| !r.world)
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                &[
+                    &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                    &p,
+                ]
+                .concat(),
+            )
+            .ok()
+            .map(|i| i.payload),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A note as the recorded clients attach it: its version, a zero word, its flags and its speaker's
+/// meta letters. These are the four forms 19,839 recorded lines carry.
+/// Behaviour: server.chat.speaker-note-as-recorded
+#[test]
+fn a_speakers_note_is_what_the_recorded_clients_attach() {
+    let head = [1, 0, 0, 0, 0, 0, 0, 0];
+    for (letters, rest) in [
+        ("M", &[0x01, 0x00, 0xD4, 0x00][..]),
+        ("F", &[0x01, 0x00, 0x64, 0x00][..]),
+        ("Mv", &[0x02, 0x00, 0xEC, 0x92, 0xE3, 0xE5, 0x00, 0x00][..]),
+        ("Fv", &[0x02, 0x00, 0x5C, 0x92, 0xE3, 0xE5, 0x00, 0x00][..]),
+    ] {
+        assert_eq!(chat::speaker_note(letters), [&head[..], rest].concat());
+    }
+    use yalain_world::chargen::FEMALE;
+    assert_eq!(chat::meta_letters("Elara", FEMALE), "Fv");
+    assert_eq!(chat::meta_letters("Babyfare", 0), "M");
+    let none = chat::speaker_note("");
+    assert_eq!(
+        none,
+        [&head[..], &[0, 0, 0, 0]].concat(),
+        "no letters, as a note"
+    );
+}
+
+/// A line from elsewhere reaches every player in the world as the room's own line under the name it
+/// is given, with no meta letters, except a player the rule says does not hear it. It is kept for
+/// nobody, and it answers no request.
+/// Behaviour: server.chat.line-from-afar-reaches-the-room
+#[test]
+fn a_line_from_afar_reaches_the_players_in_the_room_and_only_those_it_lets_hear() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, babyfare) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    chat::hear_from_afar(
+        &h.server,
+        &mut h.net,
+        chat::PVP_ROOM,
+        "Bob@coldeve",
+        "Ballroom at 8!",
+        |id, name| id != babyfare && name != "Babyfare",
+    );
+    h.run(20);
+    let to_a = service_packets(&h, a, fa);
+    let [IncomingPayload::RoomEvent(e)] = &to_a[..] else {
+        panic!("{to_a:?}")
+    };
+    assert_eq!(
+        (e.room, e.name.as_str(), e.text.as_str()),
+        (2, "Bob@coldeve", "Ballroom at 8!")
+    );
+    assert_eq!(e.extra, chat::speaker_note(""));
+    assert_eq!(service_packets(&h, b, fb), []);
+    assert_eq!(h.server.room_lines, [], "it goes no further");
+}
+
+/// `@dng` says a line as the client would: it comes back to its speaker as the room's own line
+/// under its name and note, reaches the others, and is kept for the world's link; no request is
+/// answered, since the client made none. A gagged character is told it may not talk, and nobody
+/// hears it.
+/// Behaviour: server.chat.said-from-anywhere-as-a-room-line
+#[test]
+fn a_line_said_from_anywhere_is_the_rooms_own_line_and_no_request_is_answered() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    chat::say_in_room(
+        &mut h.server,
+        &mut h.net,
+        elara,
+        chat::GENERAL_ROOM,
+        "Anyone near Arwic?",
+    );
+    h.run(20);
+    for (bot, from) in [(a, fa), (b, fb)] {
+        let got = service_packets(&h, bot, from);
+        let [IncomingPayload::RoomEvent(e)] = &got[..] else {
+            panic!("the room's line and nothing else: {got:?}")
+        };
+        assert_eq!(
+            (e.room, e.name.as_str(), e.text.as_str()),
+            (1, "Elara", "Anyone near Arwic?")
+        );
+        assert_eq!(e.extra, chat::speaker_note("Mv"), "a new human man");
+    }
+    assert_eq!(
+        h.server.room_lines,
+        [chat::RoomSaid {
+            character: elara,
+            name: "Elara".into(),
+            room: 1,
+            text: "Anyone near Arwic?".into(),
+        }]
+    );
+    h.server.room_lines.clear();
+
+    let gag = yalain_world::admin::parse("gag elara")
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    yalain_world::admin::run(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        &yalain_world::admin::Issuer::Console,
+        &gag,
+    );
+    let from = h.bots[b].inbox.len();
+    chat::say_in_room(&mut h.server, &mut h.net, elara, chat::GENERAL_ROOM, "hush");
+    h.run(20);
+    assert_eq!(service_packets(&h, b, from), []);
+    assert_eq!(h.server.room_lines, []);
+}
+
+/// A line a client sends to a room every player has is kept for the world's link with the words as
+/// sent; one to a kingdom's room, which reaches its own members alone, or one refused, is not.
+/// Behaviour: server.chat.room-line-kept-for-the-link
+#[test]
+fn a_line_in_a_room_everyone_has_is_kept_for_the_link_and_a_kingdoms_is_not() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let send = |h: &mut Harness, room: u32| {
+        let packet = SendToRoomById {
+            context: 7,
+            room,
+            text: "Anyone?".into(),
+            extra: ExtraBlob::Speaker {
+                sender: 1,
+                chat_type: 100 << 16 | 1,
+            },
+        }
+        .network_packet()
+        .expect("packs");
+        h.bots[a].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+        h.run(20);
+    };
+    for room in [chat::GENERAL_ROOM, chat::TRADE_ROOM, chat::PVP_ROOM] {
+        send(&mut h, room);
+        assert_eq!(
+            std::mem::take(&mut h.server.room_lines),
+            [chat::RoomSaid {
+                character: elara,
+                name: "Elara".into(),
+                room,
+                text: "Anyone?".into(),
+            }]
+        );
+    }
+    for room in [6, 77] {
+        send(&mut h, room);
+        assert_eq!(h.server.room_lines, [], "room {room}");
+    }
+    let names: Vec<&str> = [chat::GENERAL_ROOM, chat::TRADE_ROOM, chat::PVP_ROOM]
+        .iter()
+        .map(|r| {
+            chat::NEW_CHANNELS
+                .iter()
+                .find(|c| c.room == *r)
+                .expect("a new character's channel")
+                .name
+        })
+        .collect();
+    assert_eq!(names, ["General", "Trade 1", "PvP"]);
+}

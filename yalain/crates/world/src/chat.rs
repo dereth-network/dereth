@@ -32,6 +32,11 @@
 //! The rooms a client may use are the channels the world sends it as it enters, and the rooms of
 //! its kingdom, allegiance and fellowship. A line to any other room, or from a client not in the
 //! world, is answered with a refusal and reaches nobody.
+//!
+//! **The Dereth Network's rooms.** A line in a room every player has (General, Trade, PvP) is also
+//! kept for the world's link ([`Server::room_lines`]), which passes it on when the room carries the
+//! network's lines. A line from another world reaches the players in the room as the room's own line
+//! ([`hear_from_afar`]), and `@dng` says a line as the client would ([`say_in_room`]).
 
 use auberean_protocol::login::ChatPacket;
 use auberean_protocol::physics::ObjectEvent;
@@ -41,6 +46,7 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::library::Elem;
 use auberean_script::native_object::{Item, NativeObject, TextInfo, Variable, VariableValue};
+use auberean_script::wire::Out;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
@@ -632,6 +638,14 @@ pub const NEW_CHANNELS: [Channel; 4] = [
     },
 ];
 
+/// The room of the PvP channel, which the network's `lfg` and `roleplay` mean on this game: it
+/// carried no line in any recorded session.
+pub const PVP_ROOM: u32 = NEW_CHANNELS[0].room;
+/// The room of the General channel.
+pub const GENERAL_ROOM: u32 = NEW_CHANNELS[1].room;
+/// The room of the first Trade channel.
+pub const TRADE_ROOM: u32 = NEW_CHANNELS[2].room;
+
 /// Tags the script machine gives a channel's slots: 2 for a whole number, 4 for one set from an
 /// enumeration or a truth value (as the 2017 server's slots carried them).
 const fn tag_of(set_as_enum: bool) -> u8 {
@@ -844,6 +858,155 @@ fn send_chat(net: &mut ServerNet, login: ConnId, packet: Vec<u8>) {
     );
 }
 
+/// What a speaker's client says about it with a line, as the service passes it on: the note's
+/// version 1, a zero word, the chat flags (0 for everything a world says itself) and the speaker's
+/// meta letters.
+#[must_use]
+pub fn speaker_note(meta_letters: &str) -> Vec<u8> {
+    let letters: Vec<u16> = meta_letters.encode_utf16().collect();
+    let mut w = Out::new();
+    w.u16(1);
+    w.u16(0);
+    w.u32(0);
+    w.wide(&letters);
+    w.buf
+}
+
+/// The meta letters of a character of this name and sex: `M` or `F`, and `v` when the name starts
+/// with a vowel.
+#[must_use]
+pub fn meta_letters(name: &str, sex: u32) -> String {
+    let written = player::world_name(name, sex);
+    written
+        .rsplit_once('[')
+        .map(|(_, letters)| letters.trim_end_matches(']').to_owned())
+        .unwrap_or_default()
+}
+
+/// A line a character said in a room every player has, kept for the world's link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomSaid {
+    pub character: u64,
+    pub name: String,
+    pub room: u32,
+    pub text: String,
+}
+
+/// A line that may go: back to its sender as the room's line, then (for a line the client asked to
+/// send) as the answer to its request, and to every other player the room reaches (`members`, or
+/// everyone in the world). A line in a room everyone has is kept for the world's link.
+fn relay<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    name: &str,
+    line: &RoomLine,
+    members: Option<&[u64]>,
+    answered: bool,
+) {
+    let event = |l: ConnId| room_event(service_word(l), line.room, name, &line.text, &line.extra);
+    send_chat(net, login, event(login));
+    if answered {
+        send_chat(
+            net,
+            login,
+            room_response(service_word(login), line.context, 0),
+        );
+    }
+    let others: Vec<ConnId> = s
+        .sessions
+        .iter()
+        .filter(|(c, x)| match x.stage {
+            Stage::InWorld { character, .. } => {
+                **c != login && members.is_none_or(|m| m.contains(&character))
+            }
+            _ => false,
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    for l in others {
+        send_chat(net, l, event(l));
+    }
+    if members.is_none() {
+        let character = s.sessions.get(&login).and_then(|x| match x.stage {
+            Stage::InWorld { character, .. } => Some(character),
+            _ => None,
+        });
+        if let Some(character) = character {
+            s.room_lines.push(RoomSaid {
+                character,
+                name: name.to_owned(),
+                room: line.room,
+                text: String::from_utf16_lossy(&line.text),
+            });
+        }
+    }
+}
+
+/// `character` says `text` in `room` as its client would, from wherever it was talking: the room's
+/// line back to it and to the others, and on to the world's link. A gagged character is told it may
+/// not talk, and nobody hears it. No request of the client's is answered, since it made none.
+pub fn say_in_room<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    character: u64,
+    room: u32,
+    text: &str,
+) {
+    let Some((world, login, name, sex)) = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == character)
+        .map(|(w, p)| (*w, p.login, p.name.clone(), p.sex))
+    else {
+        return;
+    };
+    if crate::admin::refuse_gagged(s, net, world) {
+        return;
+    }
+    let line = RoomLine {
+        context: 0,
+        room,
+        text: text.encode_utf16().collect(),
+        extra: speaker_note(&meta_letters(&name, sex)),
+    };
+    relay(s, net, login, &name, &line, None, false);
+}
+
+/// A line from elsewhere reaches every player in the world `hears` lets hear it, by id and name, as
+/// the room's own line under the name given. It has no meta letters, since the world knows none for
+/// its speaker.
+pub fn hear_from_afar<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    room: u32,
+    name: &str,
+    text: &str,
+    hears: impl Fn(u64, &str) -> bool,
+) {
+    let text: Vec<u16> = text.encode_utf16().collect();
+    let note = speaker_note("");
+    let listeners: Vec<ConnId> = s
+        .sessions
+        .iter()
+        .filter_map(|(login, x)| match x.stage {
+            Stage::InWorld { character, world } => s
+                .players
+                .get(&world)
+                .filter(|p| hears(character, &p.name))
+                .map(|_| *login),
+            _ => None,
+        })
+        .collect();
+    for l in listeners {
+        send_chat(
+            net,
+            l,
+            room_event(service_word(l), room, name, &text, &note),
+        );
+    }
+}
+
 /// A client's packet to the chat service, on its login connection.
 pub fn service<S: Store>(
     s: &mut Server<S>,
@@ -910,25 +1073,5 @@ pub fn service<S: Store>(
             return;
         }
     }
-    let event = |l: ConnId| room_event(service_word(l), line.room, &name, &line.text, &line.extra);
-    send_chat(net, login, event(login));
-    send_chat(
-        net,
-        login,
-        room_response(service_word(login), line.context, 0),
-    );
-    let others: Vec<ConnId> = s
-        .sessions
-        .iter()
-        .filter(|(c, x)| match x.stage {
-            Stage::InWorld { character, .. } => {
-                **c != login && members.as_ref().is_none_or(|m| m.contains(&character))
-            }
-            _ => false,
-        })
-        .map(|(c, _)| *c)
-        .collect();
-    for l in others {
-        send_chat(net, l, event(l));
-    }
+    relay(s, net, login, &name, &line, members.as_deref(), true);
 }

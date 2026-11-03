@@ -66,6 +66,8 @@ yalain --dats <install folder> [options]
                         federation is on at the hub: characters whose players put them on the
                         network reach and are reached by other worlds' characters, of either
                         game
+  --global-room ROOM    the room that carries the network's Global room until the hub keeps
+                        one: general (the default), trade, lfg, roleplay, or empty for none
   --no-friends          serve no friends service: by default the world serves its players'
                         friends, presence and tells to Name@world on TCP at the login port's
                         number

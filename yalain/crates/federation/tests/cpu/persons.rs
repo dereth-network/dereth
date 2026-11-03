@@ -233,6 +233,7 @@ fn a_link_holds_only_for_the_character_that_asked_and_is_told_when_it_comes() {
         enabled: true,
         slug: SLUG.into(),
         software: "yalain test".into(),
+        ..Settings::default()
     };
     w.fed = Federation::load(settings, 1_790_000_100, &mut w.store).expect("loads");
     assert!(w.fed.asked_link(ann));

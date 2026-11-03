@@ -182,7 +182,7 @@ to others.
 | `--config <file>` | read the options from this configuration file (section 3.6) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
-| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation` | the Dereth Network (section 8) |
+| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation`, `--global-room` | the Dereth Network (section 8) |
 | `--verbose` | log at the debug level (section 7) |
 | `--seconds <s>` | stop after that many seconds |
 | `--stop-at-console-end` | stop, saving everyone, when the console's input ends (section 3.3) |
@@ -374,6 +374,7 @@ shard_db_path = "yalain.sqlite"
 | `[federation] hub_url` | `--hub` | `wss://` (the heartbeat goes to its `https://`), or `ws://` on this machine |
 | `[federation] slug` | `--hub-slug` | |
 | `[federation] key_file` | `--hub-key-file` | default `network.key` |
+| `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
 | `[testing] add_characters`, `place_characters`, `character_money`, `make_characters` | `--add-character`, `--place`, `--money`, `--make-character` | Yalain only; lists |
 | `[testing] game_time`, `hold_clock`, `echo_positions`, `run_seconds` | `--game-time`, `--hold-clock`, `--no-echo` when false, `--seconds` | Yalain only |
 
@@ -877,8 +878,8 @@ address players reach and the **login port**. Section 2.4 of
 once. Put it alone in a file (whitespace around it is ignored) that only the server's user can
 read. The key is the world's identity at the hub: whoever holds it can speak for the world.
 
-**Verify it.** A newly registered world is pending, and its key works only to verify it. Yalain
-has no in-game verification, so verify with a page on the endpoint's own host, as section 2.5 of
+**Verify it.** A newly registered world is pending, and its key works only to verify it. Verify it
+with `dn verify` (section 8.3), or with a page on the endpoint's own host, as section 2.5 of
 [the hub's specification](../docs/network/05-hub.md#25-proving-the-operator-runs-the-world) says.
 
 **Start the server** with the three options:
@@ -918,7 +919,8 @@ heartbeat. Over it:
   Name@world, text`);
 - they list friends on other worlds (`/friend add Name@world`) and see them come online and go;
 - each character on the network is listed in the network's character directory, with its level,
-  race, sex, health and vigor, and its allegiance.
+  race, sex, health and vigor, and its allegiance;
+- the network's Global room is carried in one of the world's chat rooms (section 8.4).
 
 What linking needs:
 
@@ -944,6 +946,7 @@ a slash:
 | `@dn link`, `@dn unlink` | link it to the player's Discord account, or undo that |
 | `@dn friends`, `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | its friends on other worlds |
 | `@dn squelch <world>`, `@dn unsquelch <world>` | squelch a whole world for it, or undo that |
+| `@dng <text>`, `@dn global <text>` | say a line in the Global room, from wherever it is talking |
 | `@dn channel create`, `invite`, `join`, `leave`, `members`, `list` | channels across worlds |
 | `@dn help` | the commands |
 
@@ -958,6 +961,7 @@ every player with the friends service.
 | `dn` | the world's link (connected, connecting or not connected), how many worlds are online, how many messages wait for the hub, and what is blocked |
 | `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world (`dn admin block ...` too; `@dn admin block ...` in game, from an admin) |
 | `dn unblock <world>` or `dn unblock <Name@world>` | lift a block |
+| `dn admin global`, `dn admin global <general\|trade\|lfg\|roleplay\|off>` | where the world carries the Global room, or ask the hub to carry it there (`@dn admin global ...` in game, from an admin; section 8.4) |
 | `dn verify <token>` | verify this world with the token the site gave you |
 | `dn help` | list these commands |
 
@@ -976,6 +980,40 @@ refused.
 
 Without `--federation`, every `dn` command, `dn help` among them, answers *This world is not on
 the Dereth Network.*
+
+### 8.4 The Global room
+
+The Dereth Network's Global room is one room shared by every world that carries it, of either game.
+A world carries it in one of its own chat rooms, whose players then hear the other worlds' lines
+there as that room's own. Each line in that room from a character on the network goes to the other
+worlds. It is on from the start, in General; turn it off, or move it, as you like.
+
+`[federation] global_room` (`--global-room`) names the room:
+
+| `global_room` | carried in |
+| --- | --- |
+| left out, or `"general"` | General |
+| `"trade"` | Trade |
+| `"roleplay"`, `"lfg"` | PvP |
+| `""` | none: the world carries no Global room |
+
+Anything else stops the server at start. The names are the same on every world of the network, and
+Asheron's Call 2 has no LFG or Roleplay room, so both mean PvP, the room nobody here needs. No
+recorded session of the game ever said a line there. General is where a world's players already
+talk, so another world's lines mix with theirs and are shown as `[General]`. A quiet world may
+like that; a busy one may prefer `"roleplay"`, where they read `[PvP]`, and its players can filter
+them apart. New characters see all of these rooms in their main chat window.
+
+**The hub has the last word.** The setting is read until the hub keeps a room for the world: a hub
+that keeps none is told this one, once, and keeps it. After that, the setting is not read (the log
+says so, once, if it differs), so to move the room, say `@dn admin global trade` in game as an
+admin, type `dn admin global trade` at the console, or use the hub's operator page. `off` carries it
+nowhere. The world keeps the hub's last word, so it carries the room there while the hub is away.
+
+**What leaves the game.** A hub may mirror the Global room, and the world's own rooms, into Discord,
+and a linked person may say a line there as its own character; the world says that line only under
+the rules a character's own line meets. Tell your players, since their lines in that room leave the
+world and stay in those channels.
 
 ---
 

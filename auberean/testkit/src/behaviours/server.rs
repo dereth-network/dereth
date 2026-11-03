@@ -393,6 +393,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.line-from-afar-reaches-the-room",
+        says: "A line from elsewhere reaches every player in the world as the room's own line \
+               under the name it is given, with no meta letters, except a player the rule says \
+               does not hear it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ROOM-FROM-AFAR"),
+        station: "yalain-testkit::cpu::entry::chat::a_line_from_afar_reaches_the_players_in_the_room_and_only_those_it_lets_hear",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.messages-as-2017-sent-them",
         says: "The chat messages the server builds are those the 2017 servers sent: the empty \
                allegiance profile, a new character's channels, each emote's behavior, each typed \
@@ -414,6 +424,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.room-line-kept-for-the-link",
+        says: "A line a client sends to a room every player has is kept for the world's link with \
+               the words as sent; one to a kingdom's room, or one refused, is not.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ROOM-KEPT-FOR-LINK"),
+        station: "yalain-testkit::cpu::entry::chat::a_line_in_a_room_everyone_has_is_kept_for_the_link_and_a_kingdoms_is_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.room-line-to-a-room-not-the-speakers-is-refused",
         says: "A line to a room that is not one of the world's, or to a kingdom's, allegiance's or \
                fellowship's room the speaker is not in, or from a client not in the world, is \
@@ -425,6 +444,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.said-from-anywhere-as-a-room-line",
+        says: "A line said from anywhere comes back to its speaker as the room's own line, \
+               reaches the others and is kept for the world's link, and no request is answered; a \
+               gagged character is told it may not talk, and nobody hears it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ROOM-SAID-ANYWHERE"),
+        station: "yalain-testkit::cpu::entry::chat::a_line_said_from_anywhere_is_the_rooms_own_line_and_no_request_is_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.say-heard-nearby",
         says: "What a player says reaches it and every player within hearing as a saying on the \
                speaker's object, carrying the words exactly as the client sent them; a player out \
@@ -432,6 +461,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SAY"),
         station: "yalain-testkit::cpu::entry::chat::a_saying_reaches_the_speaker_and_the_players_within_hearing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.speaker-note-as-recorded",
+        says: "The note a world attaches to a line it says is what the recorded clients attach: \
+               its version, a zero word, its flags and the speaker's meta letters, in each of the \
+               four forms the recorded lines carry.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ROOM-SPEAKER-NOTE"),
+        station: "yalain-testkit::cpu::entry::chat::a_speakers_note_is_what_the_recorded_clients_attach",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2094,12 +2133,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.friends.dn-global-not-carried",
-        says: "Said @dn global says the world carries no Global room, and a character off the \
-               network that it is off. No line goes anywhere.",
+        id: "server.friends.dn-global-said",
+        says: "Said @dn global on a world that carries no Global room says so, with nothing to say \
+               its help, and off the network that it is off; otherwise the line is kept for the \
+               world to say in the room, and nothing is answered.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DN-GLOBAL"),
-        station: "yalain-friends::cpu::commands::dn_global_says_the_world_carries_no_global_room",
+        station: "yalain-friends::cpu::commands::dn_global_says_a_line_in_the_room_that_carries_it_or_says_why_not",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3599,6 +3639,124 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.global-room-a-line-each-way",
+        says: "Through the world's own chat service a line said in the room carrying the Global \
+               room goes to the hub from a character on the network, a line from another world \
+               reaches this world's players in that room, a player who squelches its world does \
+               not hear it, and @dng is a line said in that room from anywhere.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-EACH-WAY"),
+        station: "yalain::bin.yalain::friends::tests::a_line_goes_each_way_between_the_world_and_the_hub_and_dng_says_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-admin-word",
+        says: "dn admin global says where the world carries the Global room and whence it knows, \
+               asks the hub to move it with a room, tells whoever asked what the hub answered, \
+               and says so for a word that is no room, a link down, a hub that keeps no room and \
+               a link that goes first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-ADMIN-WORD"),
+        station: "yalain-federation::cpu::rooms::dn_admin_global_says_where_the_room_is_and_asks_the_hub_to_move_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-as-the-hub-says",
+        says: "The room the hub keeps has the last word over the setting, holds at once, joining \
+               or leaving the Global room as it goes on or off, and is kept across a restart.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-HUB-WORD"),
+        station: "yalain-federation::cpu::rooms::the_hubs_room_has_the_last_word_and_is_kept_across_a_restart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-carried-as-the-setting-says",
+        says: "A world joins the Global room at its welcome, ahead of what was queued, and a hub \
+               that holds no room for it is told the room its setting names, once on each link.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-SEED"),
+        station: "yalain-federation::cpu::rooms::a_world_joins_the_global_room_and_tells_a_hub_that_holds_none_its_setting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-empty-carries-nothing",
+        says: "A world whose setting is empty joins no room, tells a hub that holds none off, \
+               sends no line and shows no line, and its status says it carries the Global room in \
+               no room.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-EMPTY"),
+        station: "yalain-federation::cpu::rooms::a_world_whose_setting_is_empty_carries_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-line-in",
+        says: "A line from another world is kept for the players in the room under its speaker's \
+               address, made safe and marked with where it was said; a line of this world's own, \
+               one the operator blocks, one left empty, one in another room and one in the \
+               world's own room reach nobody.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-LINE-IN"),
+        station: "yalain-federation::cpu::rooms::a_line_from_another_world_is_kept_for_the_room_under_its_speakers_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-line-in-paced",
+        says: "Another world's lines are held to the room's pace by this world too, a world at a \
+               time.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-LINE-PACED"),
+        station: "yalain-federation::cpu::rooms::another_worlds_lines_are_held_to_the_rooms_pace_by_this_world_too",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-line-out",
+        says: "A line a character on the network says in the room that carries the Global room \
+               goes to the hub under its address; off the network, or in another room, it stays \
+               here, and the line follows the room when the hub moves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-LINE-OUT"),
+        station: "yalain-federation::cpu::rooms::a_line_said_in_the_carrying_room_goes_to_the_hub_under_its_speakers_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-line-out-after-the-link",
+        says: "A line waits for the link as a tell does, behind the room's joining, and one the \
+               link took down with it is sent again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-LINE-WAITS"),
+        station: "yalain-federation::cpu::rooms::a_line_waits_for_the_link_and_is_sent_again_when_the_link_went",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-line-out-refused",
+        says: "A speaker past its own pace is told so and its line stays here, and one the hub \
+               refuses for the world's share of the room is told that.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-LINE-REFUSED"),
+        station: "yalain-federation::cpu::rooms::a_line_past_its_pace_or_held_back_by_the_hub_tells_its_speaker",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-pvp-each-way",
+        says: "The network's roleplay is the PvP room each way, and a world whose setting is \
+               empty carries nothing either way and answers @dn global that it does not carry the \
+               room.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-PVP"),
+        station: "yalain::bin.yalain::friends::tests::roleplay_is_the_pvp_room_each_way_and_an_empty_setting_carries_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.global-room-words-name-this-clients-rooms",
+        says: "The network's general and trade are General and Trade; this client has no room for \
+               looking for company or for roleplay, so lfg and roleplay are PvP; nothing else is \
+               a room.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-WORDS"),
+        station: "yalain-federation::cpu::rooms::each_of_the_hubs_room_names_is_a_room_this_client_has",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.linked-to-a-hub",
         says: "A server on the Dereth Network links to its hub with the world's key and says hello \
                first; once welcomed it answers another world's tell and watch, and its console \
@@ -3612,7 +3770,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.network.operator-admin-words",
         says: "dn admin block is dn block as the game says it, at the console or by an admin in \
                game; a name may carry the mark a line from Discord shows; dn admin alone is the \
-               help, and dn admin global says the world carries no Global room.",
+               help.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-ADMIN-WORDS"),
         station: "yalain-federation::cpu::operator::the_operators_words_read_the_same_after_admin_and_in_game",
@@ -3646,6 +3804,18 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-IN-GAME"),
         station: "yalain-testkit::cpu::operator::moderation::dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.own-rooms-mirrored",
+        says: "The world's own rooms the hub mirrors are joined by their names and left when they \
+               stop; a line there goes to the hub under the room's name and its speaker is told \
+               of Discord; a room the hub says it does not mirror keeps its lines here for a \
+               minute; the room carrying the Global room is never one, and two names for one room \
+               go under the first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OWN-ROOMS-MIRRORED"),
+        station: "yalain-federation::cpu::rooms::the_worlds_own_rooms_the_hub_mirrors_are_joined_and_their_lines_go_to_discord",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3696,6 +3866,36 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-REACH"),
         station: "yalain-federation::cpu::persons::the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_be",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.say-from-the-worlds-own-facts",
+        says: "A line the hub asks a character to say reads the world's own facts of it: shown to \
+               the room's players marked with where it was said, except one who ignores it, and \
+               refused for no such character, a gag or a ban, in the world or not.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAY-WORLD-FACTS"),
+        station: "yalain::bin.yalain::friends::tests::a_say_from_the_hub_reads_the_worlds_own_facts_of_the_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.say-refused",
+        says: "A line the hub asks for is refused with its reason, no_character, not_on_network, \
+               not_linked, banned, gagged, room_off or rate_limited, or with none when nothing is \
+               left of it, and nothing is shown or sent.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAY-REFUSED"),
+        station: "yalain-federation::cpu::rooms::a_line_the_hub_asks_for_is_refused_for_each_reason_and_nothing_is_shown",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.say-said-from-discord",
+        says: "A line the hub asks a character to say reaches the room's players marked with \
+               where it was said, goes on to the hub with the same mark, and is answered said; \
+               the character is told nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAY-SAID"),
+        station: "yalain-federation::cpu::rooms::a_line_the_hub_asks_for_is_said_as_the_character_marked_with_where_it_was_said",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3772,7 +3972,8 @@ pub static ROWS: &[Behaviour] = &[
                presence and tells between their players both ways, within this game and across \
                games: refused with the joining line off the network, listed in the directory at \
                @dn on, offline when a player leaves, quits, says @dn off or its world's link \
-               drops, and online again when it returns.",
+               drops, and online again when it returns; and a line in the Global room reaches \
+               the other worlds, of either game, in each world's own room.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-E2E"),
         station: "yalain-testkit::network::end_to_end::players_of_both_games_reach_each_other_across_three_worlds_on_one_hub",
@@ -4052,6 +4253,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-GAMECAST"),
         station: "yalain-testkit::cpu::operator::moderation::gamecast_shows_every_player_in_the_world_the_message",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.global-room-setting",
+        says: "federation.global_room takes general, trade, lfg, roleplay or empty, in any case: \
+               left out it is General and on, empty carries no room, anything else stops the \
+               server, and a world only listed reads none of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-SETTING"),
+        station: "yalain::bin.yalain::config::tests::the_global_room_setting_takes_the_four_rooms_or_empty_and_refuses_anything_else",
         tier: Tier::Cpu,
     },
     behaviour! {

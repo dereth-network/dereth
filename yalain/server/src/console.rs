@@ -101,7 +101,7 @@ pub const HELP: &str = "commands: reload (compile the world database again and t
                         <seconds> (the countdown's length, 0 to 99999), stop-now [message] (or \
                         stop, or exit), save-world (keep every character in the world now), dn \
                         (the Dereth Network: dn, dn block <world or Name@world>, dn unblock \
-                        <world or Name@world>, dn verify <token>), hero (hero <name>, hero \
+                        <world or Name@world>, dn admin global [<room>], dn verify <token>), hero (hero <name>, hero \
                         <name> off: make a \
                         character a hero or no longer one), teleport <character> to <character \
                         | place <name> | cell x y z [heading]>, place <character> to <character \

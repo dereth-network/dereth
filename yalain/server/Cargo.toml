@@ -62,6 +62,9 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 live = ["yalain-testkit/retail-dats"]
 
 [dev-dependencies]
+# The Global room's tests send and read the chat service's packets.
+auberean-protocol.workspace = true
+dereth-protocol.workspace = true
 # The updater's tests: a stand-in for a repository's releases on loopback.
 dereth-server-update = { workspace = true, features = ["testing"] }
 # The updater's tests read a database back.

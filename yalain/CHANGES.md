@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Fixed login cookies that another player could work out.
 - New `@dn link`, friends, world squelches and channels, as on other Dereth Network worlds.
 - New `@dn admin block` in game, from an admin.
+- Worlds can carry the Dereth Network's Global room in a room of their choice.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - An open corpse now closes when you walk away from it.
 

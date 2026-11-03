@@ -156,6 +156,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ("federation", "hub_url", Takes::Hub),
     ("federation", "slug", Takes::Hub),
     ("federation", "key_file", Takes::Hub),
+    ("federation", "global_room", Takes::Hub),
     ("testing", "add_characters", Takes::Many("--add-character")),
     ("testing", "place_characters", Takes::Many("--place")),
     ("testing", "character_money", Takes::Many("--money")),
@@ -406,6 +407,11 @@ fn hub(r: &mut Reading<'_>, section: &toml::Table) -> Result<(), String> {
     r.give("--hub-key-file", Some(path));
     if enabled {
         r.give("--federation", None);
+        // Empty is a value here: it carries the Global room in no room.
+        if section.contains_key("global_room") {
+            let room = text("global_room", "")?;
+            r.give("--global-room", Some(room));
+        }
     }
     Ok(())
 }
@@ -693,6 +699,57 @@ mod tests {
             .0;
         let o = crate::parse_from(given).expect("parses");
         assert!(o.federation && o.hub.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `federation.global_room` is Empyrean's key, in Empyrean's form: it reaches the server as
+    /// named, empty included, left out the world carries the Global room in General, and anything
+    /// but the four rooms and empty stops the server. A world only listed reads none of it.
+    /// Behaviour: server.operator.global-room-setting
+    #[test]
+    fn the_global_room_setting_takes_the_four_rooms_or_empty_and_refuses_anything_else() {
+        let dir = std::env::temp_dir().join(format!("yalain-config-room-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        std::fs::write(
+            dir.join("network.key"),
+            format!("drth_{}\n", "a".repeat(43)),
+        )
+        .expect("the key");
+        let linked = |room: &str| {
+            format!("[federation]\nenabled = true\nslug = \"dawnsong\"\nglobal_room = \"{room}\"\n")
+        };
+        let settings = |text: &str| -> Result<yalain_federation::Settings, String> {
+            let (args, warnings) = arguments(text, &dir)?;
+            assert_eq!(warnings, Vec::<String>::new());
+            let o = crate::parse_from(args)?;
+            crate::network::settings(o.hub.as_ref().expect("a hub"), o.global_room.as_deref())
+        };
+
+        let unset = settings("[federation]\nenabled = true\nslug = \"dawnsong\"\n").expect("reads");
+        assert_eq!(unset.global_room, Some("general"), "the default, and on");
+        assert!(!unset.global_room_named);
+        for room in ["general", "trade", "lfg", "roleplay"] {
+            let s = settings(&linked(room)).expect(room);
+            assert_eq!(s.global_room, Some(room));
+            assert!(s.global_room_named);
+        }
+        let upper = settings(&linked(" Roleplay ")).expect("any case");
+        assert_eq!(upper.global_room, Some("roleplay"));
+        let empty = settings(&linked("")).expect("empty");
+        assert_eq!(empty.global_room, None, "no room");
+        assert!(empty.global_room_named);
+
+        for bad in ["off", "pvp", "global", "society"] {
+            let why = settings(&linked(bad)).expect_err(bad);
+            assert!(why.starts_with("federation.global_room"), "{why}");
+        }
+
+        let (args, _) = arguments(
+            "[federation]\nlisted = true\nslug = \"dawnsong\"\nglobal_room = \"pvp\"\n",
+            &dir,
+        )
+        .expect("reads");
+        assert!(!args.contains(&"--global-room".to_owned()), "{args:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -49,10 +49,10 @@ its players the friends service within the world.
   | `@dn squelch <world>`, `@dn unsquelch <world>` | any player | a whole world, at most 50 ([03](03-world-behaviour.md) section 5). Kept beside the character's ignored names; the client's own squelch list does not show it |
   | `@dn channel ...` | any player | channels ([03](03-world-behaviour.md) section 4). A channel is a tell address: `/tell oldguard@channel, text` is the friends service's tell, a line from one reaches the client as a tell from that address, and squelching the address leaves the channel |
   | `@dn link`, `@dn unlink` | any player | the one-time link to the player's Discord account, and undoing it ([03](03-world-behaviour.md) section 9) |
-  | `@dng <text>`, `@dn global <text>` | any player on the network | *This world does not carry the Global room.* A world of this game carries none yet |
+  | `@dng <text>`, `@dn global <text>` | any player on the network | a line in the Global room, as if said in the room that carries it (section 7) |
   | `@dn help`, or a word `@dn` does not know | any player | the commands, one line each |
   | `@dn admin block <x>`, `@dn admin unblock <x>`, `@dn admin block`, `@dn verify <token>` | an admin, and the server's console | the operator's blocks and verifying the world, as [03](03-world-behaviour.md) sections 5 and 6 have them. From staff below an admin the world's own line that the command needs an admin's access; from a player a word `@dn` does not know |
-  | `@dn admin global` | an admin, and the server's console | *This world does not carry the Global room.* |
+  | `@dn admin global`, `@dn admin global <general\|trade\|lfg\|roleplay\|off>` | an admin, and the server's console | where the world carries the Global room; with a room, asks the hub to carry it there, or nowhere (section 7) |
 
   An answer of several lines is one system message, its lines in order. Separate messages of a long
   answer may overtake each other on the way to the client.
@@ -68,6 +68,8 @@ its players the friends service within the world.
   | `@dn`, on | *You are on the Dereth Network as Ann@shardfall. The hub is connected. You have 2 friends on other worlds.* (the hub *connecting* or *not connected*; *You have no friends on other worlds.*, *1 friend*) |
   | `@dn`, off | *You are not on the Dereth Network. Say @dn on to join it as Ann@shardfall.* |
   | any `@dn`, the world not on the network | *This world is not on the Dereth Network.* |
+| `@dng`, the world carrying no Global room | *This world does not carry the Global room.* |
+| `@dng`, off the network | *You are not on the Dereth Network. Say @dn on to join it.* |
   | `@dn off`, a linked character | the line above, and *This character's link to your Discord account is paused until you say @dn on.* |
 | `@dn`, on and linked | the line above, ending *This character is linked to a Discord account.* (then *Your directory page: <url>* once the hub has named one) |
 | `@dn link` | *Open https://dereth.network/link/#K7QD-2MXP within 10 minutes to link this character to your Discord account. Keep the link to yourself.*, and the rest of [03](03-world-behaviour.md) section 9's answers |
@@ -174,7 +176,7 @@ and the chat line both read right. Offline is `0`. A friend on another world is 
 | `channel.result` | shown to the character that asked |
 | `channel.invite` | shown as a tell from the inviter would be, by [03](03-world-behaviour.md) section 4 |
 | `channel.line` | `UTellEv User=<the channel's address>`, its text the speaker's address, `: ` and the line, by [03](03-world-behaviour.md) section 4 |
-| `rooms`, `room.line`, `say` | none: skipped, as [02](02-link-protocol.md) lets a world skip a family it does not carry |
+| `rooms`, `room.line`, `room.result`, `say` | section 7 |
 
 **A tell's outcome, as the teller on an AC2 world sees it.** The code goes back in
 `SendToUserExRes`, one answer for each request; the line is the world's own system text, as
@@ -208,7 +210,8 @@ knows nothing of away, so the notice comes from the world.
   - the operator's blocks.
 - **Not kept:** its state (away and the rest last until it leaves the world), messages, presence
   history.
-- **No stand-in ids:** the friends service names everyone by name or address.
+- **No stand-in ids:** the friends service names everyone by name or address, and so does a room's
+  line.
 - **The game's own tell honours the ignore list:** a character never hears a tell from one it
   ignores, and the teller is shown its tell as usual.
 - **Limits** are [03](03-world-behaviour.md) section 8's that apply: per-world paces held by the
@@ -234,3 +237,65 @@ name is shown as markup would read it, and an address holds none of the characte
 Each system line the world shows (the network's answers, the friends service's lines) ends with a
 line end (LF), as the client's own strings do: the client adds each line to the chat window as it
 comes, so a line without one runs into the next.
+
+## 7. The Global room and the game's rooms
+
+[03](03-world-behaviour.md) section 3 has the rules. This section says what differs on the final
+client.
+
+**The rooms.** The final client has one room of each of five kinds: General, Trade, a kingdom's, a
+region's and PvP, each with a room id the world gives it as it enters. It has no LFG or Roleplay
+room. A kingdom's, an allegiance's and a fellowship's room reach their own members, so they cannot
+carry the network's lines, and a world gives no region's room. So a world carries the Global room in
+General, Trade or PvP, every character's, and the link's four names for a world's rooms mean:
+
+| on the link, and in the setting | the room | a line reads |
+|---|---|---|
+| `general` | General | `[General] Bob@coldeve: ...` |
+| `trade` | Trade | `[Trade] Bob@coldeve: ...` |
+| `lfg`, `roleplay` | PvP | `[PvP] Bob@coldeve: ...` |
+| `off`, in the setting empty | none | |
+
+PvP is the room nobody needs: in every recorded session of every era, no line was sent to it and
+none was heard from it. Anyone may speak there: the client asks nothing of a speaker but the channel.
+Two of the link's names being one room, a world tells the hub the name it was given, and a room the
+hub mirrors under both goes under the first.
+
+**The setting.** `[federation] global_room`, in the form of [03](03-world-behaviour.md) section 3's:
+`general`, `trade`, `lfg`, `roleplay` or empty; anything else stops the server. **Left out it is
+`general`, and on**, not the Roleplay of a world of the first game. A world's setting is read as
+[03](03-world-behaviour.md) section 3 says: until its hub has told it a room, and sent to a hub that
+holds none, once on each link, as its seed. The hub's word then holds, and is kept with the world's
+records.
+
+**Out.** A line a character says in the carrying room is answered and shown to the world's players
+as any room's line, whoever said it. It then goes to the hub as `room.say` from a character on the
+network, under [03](03-world-behaviour.md) section 3's rules, its lines as there, with *Say @dn* for
+*Type @dn*. A world of this game has no setting for a minimum character age yet, so no line is
+refused as too new.
+
+**In.** A `room.line` reaches every character in the world, on the network or not, as the chat
+service's own line of that room, under the speaker's address (or `Ann@coldeve (Discord)`, marked as
+[03](03-world-behaviour.md) section 3 says). It carries no meta letters, and its speaker's note is a
+note with none, so the client writes the address as it stands. There is no listen option on the
+server's side: a character chooses in its chat windows' filters what each shows. The client squelches
+a speaker by its name on its own list, and the world also holds back a line from a character or world
+its list ignores, and one the operator blocks.
+
+**From anywhere.** `@dng <text>` is the character's own line in the carrying room: back to it as the
+room's line under its own name and meta letters, to the world's other players, and on to the hub. The
+client asked for none of it, so nothing answers a request. A gagged character is told so, and nobody
+hears it.
+
+**Said from Discord.** The rules of [03](03-world-behaviour.md) section 3, and the reasons but two:
+no line is refused `too_new` (above), and none is refused `not_allowed`, since every character of this
+game may use these rooms. The line goes to the room's players as `Ann (Discord)`, except one who
+ignores the character.
+
+**The world's own rooms in Discord.** As [03](03-world-behaviour.md) section 3 says, by the same names
+as the table above. The room carrying the Global room is never one of them, under either of its
+names.
+
+**The operator.** `@dn admin global` and its answers are [03](03-world-behaviour.md) section 6's, the
+room as the table above names it, with *Say @dn* for *Type @dn*. `dn` at the console and `@dn admin
+block` in game add *The Global room is carried in General. Rooms mirrored into Discord: none.*

@@ -5,7 +5,9 @@
 //! The service itself is `yalain_friends`'s: this module hands it bytes and the time, checks its
 //! tickets by the login's own rule, tells it who enters and leaves the world, hands it the
 //! network's commands said in chat (an admin's `@dn verify` and `@dn admin` to the network's half), and shows its
-//! lines in the players' chat windows. With
+//! lines in the players' chat windows. It also carries the Dereth Network's rooms between the
+//! world's chat service and the network's half: lines said, lines heard, `@dng`, and the lines the
+//! hub asks a character to say ([`Friends::rooms`]). With
 //! `--no-friends` there is no listener: nobody is present, `@dn` still answers, and each entry
 //! shows the line that the friends list is out of reach (as it does for an account with no
 //! stream).
@@ -15,7 +17,7 @@ use std::io::{ErrorKind, Read as _, Write as _};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
-use yalain_federation::Federation;
+use yalain_federation::{Character, Federation, Room, Speaker};
 use yalain_friends::{Out, Service, StreamId};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -143,6 +145,7 @@ impl Friends {
                 yalain_world::login::notice(net, c.world, &lines.join("\n"));
             }
         }
+        self.rooms(now, server, net, fed.as_deref_mut());
         self.service
             .poll(now, &mut server.store, fed.as_deref_mut());
         let (wrote, lost) = self.write();
@@ -177,6 +180,60 @@ impl Friends {
         busy
     }
 
+    /// The Dereth Network's rooms, one pass: `@dng` is said as a line of the room, the lines the
+    /// world's players said go to the network's half, and what comes from the network reaches the
+    /// players in the room. A player who ignores a speaker does not hear it.
+    fn rooms<S: Store>(
+        &mut self,
+        now: Duration,
+        server: &mut Server<S>,
+        net: &mut ServerNet,
+        fed: Option<&mut Federation>,
+    ) {
+        let Some(f) = fed else {
+            server.room_lines.clear();
+            return;
+        };
+        let t = now.as_secs_f64();
+        for line in f.take_global_lines() {
+            yalain_world::chat::say_in_room(
+                server,
+                net,
+                line.character,
+                room_id(line.room),
+                &line.text,
+            );
+        }
+        for said in std::mem::take(&mut server.room_lines) {
+            if let Some(room) = room_of(said.room) {
+                f.room_said(
+                    &mut self.service,
+                    t,
+                    said.character,
+                    &said.name,
+                    room,
+                    &said.text,
+                );
+            }
+        }
+        for ask in f.take_says() {
+            let character = character_named(server, ask.who.name());
+            f.answer_say(t, &ask, character);
+        }
+        for line in f.take_heard() {
+            let service = &self.service;
+            let ignoring = &server.ignoring;
+            let room = room_id(line.room);
+            let hears = |id: u64, name: &str| match &line.speaker {
+                Speaker::Remote(from) => !yalain_federation::Friends::ignores(service, name, from),
+                Speaker::Own(speaker) => !ignoring
+                    .get(&id)
+                    .is_some_and(|names| names.contains(&speaker.to_lowercase())),
+            };
+            yalain_world::chat::hear_from_afar(server, net, room, &line.name, &line.text, hears);
+        }
+    }
+
     /// `@dn admin ...`, said in game by an admin's character: the lines to answer it with.
     fn operator_said<S: Store>(
         &mut self,
@@ -186,7 +243,7 @@ impl Friends {
     ) -> Vec<String> {
         let args: Vec<&str> = c.words.split_whitespace().skip(1).collect();
         match fed {
-            Some(f) => f.operator_said(store, &mut self.service, &args),
+            Some(f) => f.operator_said(store, &mut self.service, c.character, &args),
             None => vec![yalain_federation::WORLD_OFF.to_owned()],
         }
     }
@@ -374,6 +431,50 @@ impl Friends {
 }
 
 /// The world connection of a character in the world.
+/// The chat room of one of the rooms the network can use.
+fn room_id(room: Room) -> u32 {
+    match room {
+        Room::General => yalain_world::chat::GENERAL_ROOM,
+        Room::Trade => yalain_world::chat::TRADE_ROOM,
+        Room::Pvp => yalain_world::chat::PVP_ROOM,
+    }
+}
+
+/// The room the network knows a chat room as, if it can use it.
+fn room_of(id: u32) -> Option<Room> {
+    [Room::General, Room::Trade, Room::Pvp]
+        .into_iter()
+        .find(|r| room_id(*r) == id)
+}
+
+/// A character the hub asks to speak as, as the world has it: none for no such character, or one
+/// deleted. Whether its account is banned is asked of the store, so that a ban made since it
+/// entered counts, and it holds whether or not the character is in the world.
+fn character_named<S: Store>(server: &mut Server<S>, name: &str) -> Option<Character> {
+    let c = server
+        .store
+        .character_named(name)
+        .ok()
+        .flatten()
+        .filter(|c| c.deleted_at.is_none())?;
+    let account = server
+        .store
+        .accounts()
+        .ok()?
+        .into_iter()
+        .find(|a| a.id == c.account);
+    let banned =
+        account.is_some_and(|a| yalain_world::admin::banned(&mut server.store, &a, unix_now()));
+    // A gag holds whether or not the character is in the world.
+    let gagged = server.gags.gagged(c.id) || matches!(server.store.gag(c.id), Ok(Some(_)));
+    Some(Character {
+        id: c.id,
+        name: c.name,
+        banned,
+        gagged,
+    })
+}
+
 /// `@dn verify <token>`, said in game at `t` by an admin's character: the line to answer it with
 /// at once. The hub's answer comes later, to the same character ([`show_operator`]).
 fn verify_said(fed: Option<&mut Federation>, t: f64, c: &NetworkCommand) -> String {
@@ -492,6 +593,7 @@ mod tests {
                 enabled: true,
                 slug: "dawnsong".into(),
                 software: "yalain test".into(),
+                ..Settings::default()
             },
             1,
         );
@@ -530,6 +632,356 @@ mod tests {
         assert_eq!(h.bots[a].notices(from), [WORLD_OFF]);
     }
 
+    /// A world on the network, carrying the Global room where `room` says, its link up.
+    fn linked(h: &Harness, room: Option<&'static str>) -> (Friends, Federation) {
+        use yalain_federation::Settings;
+        let service = Service::new(yalain_friends::Config::new("Dawnsong", "dawnsong"));
+        let f = Friends::start(service, None).expect("no listener");
+        let mut fed = Federation::new(
+            Settings {
+                enabled: true,
+                slug: "dawnsong".into(),
+                software: "yalain test".into(),
+                global_room: room,
+                global_room_named: false,
+            },
+            1,
+        );
+        let t = h.now.0;
+        fed.on_link_up();
+        let _hello = fed.take_frames(t);
+        let welcome = dereth_network_protocol::Message::Welcome {
+            proto: dereth_network_protocol::wire::PROTOCOL,
+            world: "dawnsong".into(),
+            hub: "test hub".into(),
+            worlds: Vec::new(),
+            rooms: vec!["global".into()],
+            limits: dereth_network_protocol::limits::Limits::DEFAULT,
+        };
+        let mut f = f;
+        fed.on_frame(&mut f.service, t, &welcome.to_json());
+        let _join = fed.take_frames(t);
+        (f, fed)
+    }
+
+    /// A line a client sent to a chat room.
+    fn room_line(h: &mut Harness, b: usize, room: u32, text: &str) {
+        use auberean_protocol::login::ChatPacket;
+        use auberean_protocol::ClientMessage;
+        use dereth_protocol::turbine::{ExtraBlob, SendToRoomById};
+        let packet = SendToRoomById {
+            context: 7,
+            room,
+            text: text.into(),
+            extra: ExtraBlob::Speaker {
+                sender: 1,
+                chat_type: 100 << 16 | 1,
+            },
+        }
+        .network_packet()
+        .expect("packs");
+        h.bots[b].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+        h.run(20);
+    }
+
+    /// The room lines a client was sent since `from`: its room, the name and the text.
+    fn room_lines(h: &Harness, b: usize, from: usize) -> Vec<(u32, String, String)> {
+        use auberean_protocol::login::ChatPacket;
+        use auberean_protocol::ServerMessage;
+        use dereth_protocol::turbine::{decode_incoming, IncomingPayload};
+        h.bots[b].inbox[from..]
+            .iter()
+            .filter_map(|r| match r.message() {
+                Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                    &[
+                        &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                        &p,
+                    ]
+                    .concat(),
+                )
+                .ok()
+                .map(|i| i.payload),
+                _ => None,
+            })
+            .filter_map(|p| match p {
+                IncomingPayload::RoomEvent(e) => Some((e.room, e.name, e.text)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The `room.say`s the world sends the hub now: their rooms, speakers and words.
+    fn room_says(fed: &mut Federation, t: f64) -> Vec<(String, String, String)> {
+        fed.take_frames(t)
+            .iter()
+            .filter_map(|f| dereth_network_protocol::Message::from_json(f).ok())
+            .filter_map(|m| match m {
+                dereth_network_protocol::Message::RoomSay {
+                    room, from, text, ..
+                } => Some((room, from.to_string(), text)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn hub_line(fed: &mut Federation, f: &mut Friends, t: f64, text: &str) {
+        let line = dereth_network_protocol::Message::RoomLine {
+            room: "global".into(),
+            from: dereth_network_protocol::Address::parse("Bob@coldeve").expect("an address"),
+            text: text.into(),
+            via: None,
+        };
+        fed.on_frame(&mut f.service, t, &line.to_json());
+    }
+
+    /// `@dn ...` said by a character: what it is answered with comes in its chat window.
+    fn dn(h: &mut Harness, character: u64, name: &str, words: &str) {
+        let world = world_of(&h.server, character).expect("in the world");
+        h.server.network_commands.push(NetworkCommand {
+            world,
+            character,
+            name: name.into(),
+            words: words.into(),
+            admin: false,
+        });
+    }
+
+    /// A line each way, through the world's own chat service: a line said in the room that carries
+    /// the Global room goes to the hub from a character on the network, and a line from another
+    /// world reaches this world's players in that room. `@dng` is a line said in that room from
+    /// anywhere, and off the network it says why not.
+    /// Behaviour: server.network.global-room-a-line-each-way
+    #[test]
+    fn a_line_goes_each_way_between_the_world_and_the_hub_and_dng_says_one() {
+        let mut h = Harness::new();
+        let (a, elara) = h.player_in_world("one", "Elara");
+        let (b, cara) = h.player_in_world("two", "Cara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, Some("general"));
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        let _ = fed.take_frames(h.now.0);
+
+        // Out, in the room that carries it; a line in another room stays here.
+        room_line(&mut h, a, 1, "Anyone near Arwic?");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(
+            room_says(&mut fed, h.now.0),
+            [(
+                "global".to_owned(),
+                "Elara@dawnsong".to_owned(),
+                "Anyone near Arwic?".to_owned()
+            )]
+        );
+        room_line(&mut h, a, 8, "A sword for sale");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(room_says(&mut fed, h.now.0), []);
+
+        // Off the network, heard here and not sent.
+        room_line(&mut h, b, 1, "Only here");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(room_says(&mut fed, h.now.0), []);
+
+        // In: every player in the world, on the network or not.
+        let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+        hub_line(&mut fed, &mut f, h.now.0, "Ballroom at 8!");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        let line = (1, "Bob@coldeve".to_owned(), "Ballroom at 8!".to_owned());
+        assert_eq!(room_lines(&h, a, from[0]), std::slice::from_ref(&line));
+        assert_eq!(room_lines(&h, b, from[1]), [line]);
+
+        // `@dng`, from anywhere: shown here as the room's own line, and sent.
+        let from = h.bots[b].inbox.len();
+        dn(&mut h, elara, "Elara", "global dance at 8");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(
+            room_lines(&h, b, from),
+            [(1, "Elara".to_owned(), "dance at 8".to_owned())]
+        );
+        assert_eq!(
+            room_says(&mut fed, h.now.0),
+            [(
+                "global".to_owned(),
+                "Elara@dawnsong".to_owned(),
+                "dance at 8".to_owned()
+            )]
+        );
+
+        // Off the network: told so, and nothing is said.
+        let from = h.bots[b].inbox.len();
+        dn(&mut h, cara, "Cara", "global hello");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(h.bots[b].notices(from), [yalain_federation::NOT_ON]);
+        assert_eq!(room_lines(&h, b, from), []);
+        assert_eq!(room_says(&mut fed, h.now.0), []);
+
+        // A player who squelches the speaker's world does not hear it, and the others do.
+        fed.set_on(&mut h.server.store, &f.service, cara, "Cara", true)
+            .expect("kept");
+        dn(&mut h, cara, "Cara", "squelch coldeve");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+        hub_line(&mut fed, &mut f, h.now.0, "Second line");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(room_lines(&h, a, from[0]).len(), 1);
+        assert_eq!(room_lines(&h, b, from[1]), []);
+    }
+
+    /// The room the hub's word means here is the one the lines use: `roleplay` is the PvP room, each
+    /// way, and an empty setting carries nothing either way.
+    /// Behaviour: server.network.global-room-pvp-each-way
+    #[test]
+    fn roleplay_is_the_pvp_room_each_way_and_an_empty_setting_carries_nothing() {
+        let mut h = Harness::new();
+        let (a, elara) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, Some("roleplay"));
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        let _ = fed.take_frames(h.now.0);
+        room_line(
+            &mut h,
+            a,
+            yalain_world::chat::PVP_ROOM,
+            "To the other worlds",
+        );
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(room_says(&mut fed, h.now.0).len(), 1);
+        let from = h.bots[a].inbox.len();
+        hub_line(&mut fed, &mut f, h.now.0, "Ballroom at 8!");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(room_lines(&h, a, from)[0].0, yalain_world::chat::PVP_ROOM);
+
+        let (mut f, mut fed) = linked(&h, None);
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        let _ = fed.take_frames(h.now.0);
+        for room in [
+            yalain_world::chat::GENERAL_ROOM,
+            yalain_world::chat::TRADE_ROOM,
+            yalain_world::chat::PVP_ROOM,
+        ] {
+            room_line(&mut h, a, room, "Stays here");
+        }
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(room_says(&mut fed, h.now.0), []);
+        let from = h.bots[a].inbox.len();
+        hub_line(&mut fed, &mut f, h.now.0, "Nobody hears this");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(room_lines(&h, a, from), []);
+        dn(&mut h, elara, "Elara", "global hello");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(h.bots[a].notices(from), [yalain_federation::NOT_CARRIED]);
+    }
+
+    /// A line the hub asks a character to say, by what the world knows of the character: shown to
+    /// the room's players marked with where it was said, except one who ignores it, and answered
+    /// `said`; a character with no such name, one gagged and one banned are refused, whether or not
+    /// it is in the world.
+    /// Behaviour: server.network.say-from-the-worlds-own-facts
+    #[test]
+    fn a_say_from_the_hub_reads_the_worlds_own_facts_of_the_character() {
+        use dereth_network_protocol::say::{SayMessage, SayOutcome};
+        let mut h = Harness::new();
+        let (a, elara) = h.player_in_world("one", "Elara");
+        let (b, cara) = h.player_in_world("two", "Cara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, Some("general"));
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        fed.link_person(&mut h.server.store, h.now.0, elara, "Elara");
+        let _ = fed.take_frames(h.now.0);
+        h.server
+            .ignoring
+            .entry(cara)
+            .or_default()
+            .insert("elara".to_owned());
+
+        let ask = |fed: &mut Federation, f: &mut Friends, t: f64, who: &str| {
+            let m = SayMessage::Ask {
+                id: "h1".into(),
+                room: "global".into(),
+                who: dereth_network_protocol::Address::parse(who).expect("an address"),
+                text: "evening all".into(),
+                via: "discord".into(),
+            };
+            fed.on_frame(&mut f.service, t, &m.to_json());
+        };
+        let answer = |fed: &mut Federation, t: f64| -> Vec<(SayOutcome, Option<String>)> {
+            fed.take_frames(t)
+                .iter()
+                .filter_map(|f| match SayMessage::from_json(f) {
+                    Ok(SayMessage::Result {
+                        outcome, reason, ..
+                    }) => Some((outcome, reason)),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+        ask(&mut fed, &mut f, h.now.0, "Elara@dawnsong");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(
+            room_lines(&h, a, from[0]),
+            [(1, "Elara (Discord)".to_owned(), "evening all".to_owned())]
+        );
+        assert_eq!(room_lines(&h, b, from[1]), [], "Cara ignores Elara");
+        assert_eq!(answer(&mut fed, h.now.0), [(SayOutcome::Said, None)]);
+
+        ask(&mut fed, &mut f, h.now.0, "Nobody@dawnsong");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(
+            answer(&mut fed, h.now.0),
+            [(SayOutcome::Refused, Some("no_character".to_owned()))]
+        );
+
+        h.server
+            .store
+            .set_gag(elara, Some(600.0))
+            .expect("gag kept");
+        ask(&mut fed, &mut f, h.now.0, "Elara@dawnsong");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(
+            answer(&mut fed, h.now.0),
+            [(SayOutcome::Refused, Some("gagged".to_owned()))]
+        );
+        h.server.store.set_gag(elara, None).expect("gag lifted");
+
+        let account = h
+            .server
+            .store
+            .character(elara)
+            .expect("reads")
+            .expect("Elara")
+            .account;
+        let ban = yalain_store::Ban {
+            at: 0,
+            until: i64::MAX,
+            by: "the console".into(),
+            reason: None,
+        };
+        h.server
+            .store
+            .set_account_ban(account, Some(&ban))
+            .expect("ban kept");
+        ask(&mut fed, &mut f, h.now.0, "Elara@dawnsong");
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert_eq!(
+            answer(&mut fed, h.now.0),
+            [(SayOutcome::Refused, Some("banned".to_owned()))]
+        );
+    }
+
     /// An admin's `@dn verify <token>` said in game goes to the network's half as its
     /// character's, and is answered in its chat window at once; the hub's answer comes to the
     /// same window while the character is in the world, and to the log otherwise. A player's is
@@ -548,6 +1000,7 @@ mod tests {
                 enabled: true,
                 slug: "dawnsong".into(),
                 software: "yalain test".into(),
+                ..Settings::default()
             },
             1,
         );

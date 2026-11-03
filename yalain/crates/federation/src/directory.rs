@@ -333,6 +333,7 @@ impl Federation {
             store.set_world_record(RECORD, &self.directory.record())?;
             self.directory.dirty = false;
         }
+        self.keep_rooms(store)?;
         Ok(())
     }
 
