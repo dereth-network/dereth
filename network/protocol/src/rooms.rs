@@ -14,6 +14,7 @@
 //! it does not know. A world that knows nothing of them keeps its own settings, and a hub that knows
 //! nothing of them never tells a world its rooms.
 
+use crate::game::Game;
 use serde::{Deserialize, Serialize};
 
 use crate::wire::{WireError, GLOBAL_ROOM, MAX_ID_CHARS, MAX_MESSAGE_BYTES};
@@ -21,6 +22,16 @@ use crate::wire::{WireError, GLOBAL_ROOM, MAX_ID_CHARS, MAX_MESSAGE_BYTES};
 /// A world's own rooms, by their names on the link: the TurbineChat rooms a world may carry the
 /// Global room in, and those the hub may mirror into Discord for it alone.
 pub const OWN_ROOMS: &[&str] = &["general", "trade", "lfg", "roleplay"];
+
+/// What each of [`OWN_ROOMS`] is called in a game, in their order: the rooms a player of that game
+/// sees. Asheron's Call 2 has no LFG or Roleplay channel, and carries both names in PvP.
+#[must_use]
+pub const fn own_room_titles(game: Game) -> [&'static str; 4] {
+    match game {
+        Game::Dereth => ["General", "Trade", "LFG", "Roleplay"],
+        Game::Auberean => ["General", "Trade", "PvP", "PvP"],
+    }
+}
 
 /// The word that says a world carries the Global room in none of its rooms.
 pub const OFF: &str = "off";
@@ -262,6 +273,20 @@ mod tests {
 
     fn malformed(text: &str) -> bool {
         matches!(RoomsMessage::from_json(text), Err(WireError::Malformed(_)))
+    }
+
+    /// Spec: hub: an operator is shown each room by what a player of the world's game calls it.
+    #[test]
+    fn each_of_a_worlds_rooms_has_the_name_its_game_gives_it() {
+        assert_eq!(OWN_ROOMS.len(), own_room_titles(Game::Dereth).len());
+        assert_eq!(
+            own_room_titles(Game::Dereth),
+            ["General", "Trade", "LFG", "Roleplay"]
+        );
+        assert_eq!(
+            own_room_titles(Game::Auberean),
+            ["General", "Trade", "PvP", "PvP"]
+        );
     }
 
     /// Spec: world behaviour: `federation.global_room` left out is the game's own choice, empty is none, and

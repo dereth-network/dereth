@@ -2070,10 +2070,15 @@ mod bridge {
             global_room,
             &json!({ "room": "trade" }),
         );
-        assert_eq!(
-            (set.status, set.json()),
-            (200, json!({ "globalRoom": "trade" }))
-        );
+        let named = |room: &str| {
+            json!({
+                "globalRoom": room,
+                "roomNames": {
+                    "general": "General", "trade": "Trade", "lfg": "LFG", "roleplay": "Roleplay",
+                },
+            })
+        };
+        assert_eq!((set.status, set.json()), (200, named("trade")));
         assert_eq!(
             rooms_of(&mut aa, "its rooms after the site set them", |i| i
                 .is_none()),
@@ -2086,7 +2091,7 @@ mod bridge {
         );
         assert_eq!(
             op(&f, &session, "GET", global_room, &Value::Null).json(),
-            json!({ "globalRoom": "trade" })
+            named("trade")
         );
         for bad in [
             json!({ "room": "global" }),
