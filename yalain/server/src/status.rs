@@ -203,12 +203,18 @@ mod tests {
     /// Behaviour: server.update.status-address-let-go
     #[test]
     fn a_stopped_status_endpoint_lets_its_address_go() {
-        let e = Endpoint::start(
-            SocketAddr::from(([127, 0, 0, 1], 0)),
-            Snapshot::default(),
-            Vec::new(),
-        )
-        .expect("listens");
+        // A port below every system's ephemeral range: one the system gave out would be free for
+        // any other test's connection to take as soon as this one lets it go.
+        let e = (20_000..32_000)
+            .find_map(|port| {
+                Endpoint::start(
+                    SocketAddr::from(([127, 0, 0, 1], port)),
+                    Snapshot::default(),
+                    Vec::new(),
+                )
+                .ok()
+            })
+            .expect("listens");
         let at = e.addr();
         assert!(TcpListener::bind(at).is_err(), "held while it runs");
         e.stop();
