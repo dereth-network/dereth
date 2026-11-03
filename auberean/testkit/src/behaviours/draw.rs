@@ -660,6 +660,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.an-objects-detail-follows-the-camera-every-frame",
+        says: "A placed object's level of detail and materials follow its distance from the camera every frame, not \
+               only when the frame is built again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETAIL-EVERY-FRAME"),
+        station: "auberean-draw::dat::landscape::an_objects_detail_follows_the_camera_every_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.mesh.an-objects-opacity-follows-the-camera-and-its-landblock",
         says: "An object's opacity is worked out each frame from the camera, times the \n               opacity of the landblock it stands on while that fades in.",
         since: RETAIL,
@@ -710,6 +719,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.the-reflection-takes-an-objects-detail-distances-at-40-percent",
+        says: "The water's reflection takes a placed object's detail distances at 40%: its detail falls that much \
+               sooner there than in the frame.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-REFLECTION-DETAIL"),
+        station: "auberean-draw::dat::landscape::the_reflection_takes_an_objects_detail_distances_at_40_percent",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.mesh.the-scenery-draw-distance-draws-placed-objects-in",
         says: "At the scenery draw distance's low and medium settings a placed object's distances \
                are drawn in to 0.4 and 0.7 of themselves (its visible distance never under 20 m); \
@@ -718,24 +736,6 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-SCENERY-DISTANCE"),
         station: "auberean-draw::cpu::objects::degrade::the_scenery_draw_distance_draws_placed_objects_in",
         tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "draw.mesh.an-objects-detail-follows-the-camera-every-frame",
-        says: "A placed object's level of detail and materials follow its distance from the camera every frame, not \
-               only when the frame is built again.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-DETAIL-EVERY-FRAME"),
-        station: "auberean-draw::dat::landscape::an_objects_detail_follows_the_camera_every_frame",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "draw.mesh.the-reflection-takes-an-objects-detail-distances-at-40-percent",
-        says: "The water's reflection takes a placed object's detail distances at 40%: its detail falls that much \
-               sooner there than in the frame.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-REFLECTION-DETAIL"),
-        station: "auberean-draw::dat::landscape::the_reflection_takes_an_objects_detail_distances_at_40_percent",
-        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.mesh.the-waters-reflection-reaches-40-percent-of-an-objects-distance",
@@ -1428,6 +1428,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.water.the-reflection-shows-the-land-under-the-water",
+        says: "The water's reflection shows all the land the mirrored camera can see, what lies under the water too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-REFLECTION-LAND"),
+        station: "auberean-gpu::gpu::water::the_reflection_shows_the_land_under_the_water",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.water.the-reflection-takes-objects-by-where-they-stand",
+        says: "The water's reflection shows an object standing above the water whole, and none standing below it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-REFLECTION-OBJECTS"),
+        station: "auberean-gpu::gpu::water::the_reflection_takes_objects_by_where_they_stand",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.water.the-ripples-push-the-reflection-one-way",
         says: "The ripples push the water's reflection one way only, never back: what the                reflection shows is drawn out downward and to the left in spikes, never up or to                the right; without ripples it lies as it stands.",
         since: RETAIL,
@@ -1462,20 +1478,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "draw.world.a-far-blocks-water-repeats-every-four-tile-widths",
-        says: "A far block's water surface is one polygon, its picture and the reflection's ripples on one set of                coordinates that repeats every four of the water's tile widths.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-FAR-WATER-COORDS"),
-        station: "auberean-draw::dat::landscape::a_far_blocks_water_repeats_every_four_tile_widths",
-        tier: Tier::Dat,
-    },
-    behaviour! {
         id: "draw.world.a-body-takes-the-sun-shadow-about-its-spot",
         says: "A body standing on the land takes the sun's shadow map about its spot in its \n               light and specular.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-BODY-SHADE"),
         station: "auberean-gpu::gpu::shadows::a_body_takes_the_sun_shadow_about_its_spot",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.world.a-far-blocks-water-repeats-every-four-tile-widths",
+        says: "A far block's water surface is one polygon, its picture and the reflection's ripples on one set of                coordinates that repeats every four of the water's tile widths.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FAR-WATER-COORDS"),
+        station: "auberean-draw::dat::landscape::a_far_blocks_water_repeats_every_four_tile_widths",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.world.a-frill-takes-its-color-from-the-shadow-about-it",
@@ -1498,20 +1514,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.the-far-landscape-and-the-frills-reach-as-far-as-set",
+        says: "The far landscape reaches as many blocks past the detailed ones as its radius, the detailed blocks drawn at every radius; frills are drawn only in the land cells within their radius of the viewer's, none when turned off, fading out over the last eight meters of their reach.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-LANDSCAPE-REACH"),
+        station: "auberean-draw::dat::landscape::the_far_landscape_and_the_frills_reach_as_far_as_set",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.the-far-landscape-thins-out-with-distance",
         says: "The far landscape's squares lie 1, 2, 2, 4, 4, 8, 8 or 16 vertices apart by how many rings past the \
                detailed blocks a block stands, and a block next to a coarser one fills the gap along their edge.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FAR-STRIDE"),
         station: "auberean-draw::dat::landscape::the_far_landscape_thins_out_with_distance",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "draw.world.the-far-landscape-and-the-frills-reach-as-far-as-set",
-        says: "The far landscape reaches as many blocks past the detailed ones as its radius, the detailed blocks drawn at every radius; frills are drawn only in the land cells within their radius of the viewer's, none when turned off, fading out over the last eight meters of their reach.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-DRAW-LANDSCAPE-REACH"),
-        station: "auberean-draw::dat::landscape::the_far_landscape_and_the_frills_reach_as_far_as_set",
         tier: Tier::Dat,
     },
     behaviour! {

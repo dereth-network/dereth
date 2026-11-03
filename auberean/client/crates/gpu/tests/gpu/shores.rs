@@ -364,6 +364,7 @@ fn the_foam_lies_over_the_waters_reflection() {
         vertex([-80.0, 20.0, 6.0], [0.0, 1.0], 1.0),
         vertex([80.0, 20.0, 6.0], [1.0, 1.0], 1.0),
     ]);
+    bar.anchor = Some(Vec3::new(0.0, 0.0, 1.0));
     frame.objects = vec![bar];
     frame.water = vec![flat(
         &camp.water,

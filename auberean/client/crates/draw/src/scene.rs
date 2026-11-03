@@ -478,6 +478,15 @@ impl ObjectBatch {
         )
     }
 
+    /// Whether its object stands above `height`, as the objects the water's reflection shows do.
+    #[must_use]
+    pub fn stands_above(&self, height: f32) -> bool {
+        self.anchor
+            .unwrap_or_else(|| self.transform.point(Vec3::ZERO))
+            .z
+            > height
+    }
+
     /// The step an object's draw belongs to, by its object, never its layer: the step it is
     /// given ([`Self::step`]); an interior cell's own mesh, every layer of it in turn, before the
     /// decals; an object seen through, every layer of it with those seen through; another, every
@@ -560,6 +569,9 @@ pub struct Frame {
     pub light: DayLight,
     pub sky_before: Vec<ObjectBatch>,
     pub terrain: Vec<TerrainBatch>,
+    /// The land as the water's reflection shows it: all of it as the far landscape, the detailed
+    /// blocks too.
+    pub reflection_land: Option<TerrainBatch>,
     pub objects: Vec<ObjectBatch>,
     pub sky_after: Vec<ObjectBatch>,
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
@@ -1556,6 +1568,7 @@ impl<'a> SceneBuilder<'a> {
         }
 
         let mut terrain: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
+        let mut near_land: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
         let mut near_blocks: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
         let mut water = Vec::new();
         for &(bx, by) in &wanted {
@@ -1574,6 +1587,9 @@ impl<'a> SceneBuilder<'a> {
             let near = (bx - spot.block.0).abs().max((by - spot.block.1).abs()) <= NEAR_RADIUS;
             if near {
                 self.near_terrain(&tb, offset, &light, &mut terrain, &mut counts);
+                if self.water_reflections {
+                    self.far_terrain(&tb, offset, &light, spot.block, &mut near_land);
+                }
             } else {
                 self.far_terrain(&tb, offset, &light, spot.block, &mut terrain);
                 // The far blocks' water: one surface each, with the far water material.
@@ -1922,6 +1938,15 @@ impl<'a> SceneBuilder<'a> {
             _ => Vec::new(),
         };
 
+        // D2-10950
+        let reflection_land = near_land.into_values().next().map(|mut land| {
+            if let Some(far) = terrain.values().find(|b| b.far) {
+                let base = u32::try_from(land.vertices.len()).unwrap_or(u32::MAX);
+                land.vertices.extend_from_slice(&far.vertices);
+                land.indices.extend(far.indices.iter().map(|i| i + base));
+            }
+            land
+        });
         let mut terrain: Vec<TerrainBatch> = terrain.into_values().collect();
         terrain.sort_by_key(|b| (b.far, b.layer, b.ground, b.mask));
         Frame {
@@ -1937,6 +1962,7 @@ impl<'a> SceneBuilder<'a> {
             light,
             sky_before,
             terrain,
+            reflection_land,
             objects,
             sky_after,
             frill_fade: {
@@ -2088,6 +2114,7 @@ impl<'a> SceneBuilder<'a> {
             light,
             sky_before: Vec::new(),
             terrain: Vec::new(),
+            reflection_land: None,
             objects,
             sky_after: Vec::new(),
             frill_fade: [f32::MAX, f32::MAX],

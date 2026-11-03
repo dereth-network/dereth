@@ -38,8 +38,6 @@ struct FrameUniforms {
     cloud: vec4<f32>,
     // 1 when the near terrain's shadows and fog are laid on after its layers, unused x3
     terrain: vec4<f32>,
-    // 1 when everything below a plane is left out (the water's reflection), its height, unused x2
-    clip: vec4<f32>,
     // the picture's width and height in pixels, unused x2
     viewport: vec4<f32>,
 };
@@ -265,14 +263,7 @@ struct TerrainOut {
     // the sun's shadow map's coordinates, and the clouds'
     @location(4) shadow_uv: vec2<f32>,
     @location(5) cloud_uv: vec2<f32>,
-    // the point's height
-    @location(6) world_z: f32,
 };
-
-// In the water's reflection, nothing below the water's plane is seen.
-fn clipped(z: f32) -> bool {
-    return frame.clip.x > 0.5 && z < frame.clip.y;
-}
 
 @vertex
 fn vs_terrain(v: TerrainIn) -> TerrainOut {
@@ -286,7 +277,6 @@ fn vs_terrain(v: TerrainIn) -> TerrainOut {
     o.shadow_uv = (frame.shadow_uv * vec4<f32>(v.position, 1.0)).xy;
     // the ground's place times the clouds' scale, slid by the running time
     o.cloud_uv = v.position.xy * frame.cloud.x + frame.cloud.yz;
-    o.world_z = v.position.z;
     return o;
 }
 
@@ -305,9 +295,6 @@ fn terrain_fogged(c: vec3<f32>, f: f32) -> vec3<f32> {
 // The bottom layer: the ground modulated twice by the lit color.
 @fragment
 fn fs_terrain_base(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let c = clamp(2.0 * t.rgb * v.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(terrain_fogged(c, v.fog), 1.0);
@@ -316,9 +303,6 @@ fn fs_terrain_base(v: TerrainOut) -> @location(0) vec4<f32> {
 // A blended layer: the same, with the mask's alpha.
 @fragment
 fn fs_terrain_mask(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let m = textureSample(tex1, samp1, v.mask_uv);
     let c = clamp(2.0 * t.rgb * v.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -338,9 +322,6 @@ fn cloud_shade(uv: vec2<f32>) -> vec3<f32> {
 // multiplying what the layers drew.
 @fragment
 fn fs_terrain_shade(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let s = textureSample(tex0, samp0, v.shadow_uv).rgb;
     return vec4<f32>(s * cloud_shade(v.cloud_uv), 1.0);
 }
@@ -348,9 +329,6 @@ fn fs_terrain_shade(v: TerrainOut) -> @location(0) vec4<f32> {
 // Then the fog over it: the fog color, as opaque as the point is fogged.
 @fragment
 fn fs_terrain_fog(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     return vec4<f32>(frame.fog_color.rgb, 1.0 - v.fog);
 }
 
@@ -358,9 +336,6 @@ fn fs_terrain_fog(v: TerrainOut) -> @location(0) vec4<f32> {
 // shadows, added signed, then doubled against the cloud picture.
 @fragment
 fn fs_terrain_far(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let cloud = textureSample(tex1, samp1, v.cloud_uv).rgb;
     var c = clamp(2.0 * (t.rgb + v.color.rgb - vec3<f32>(0.5)), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -392,7 +367,6 @@ struct MeshOut {
     @location(3) uv1: vec2<f32>,
     @location(4) uv2: vec2<f32>,
     @location(5) fog: f32,
-    @location(6) world_z: f32,
     // for a program lit per pixel against the half vector: the half vector between the light and
     // the eye in the surface's own frame, times the square root of the light's attenuation; and
     // 0.75 times the attenuation
@@ -542,7 +516,6 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
     o.ground_tint = ground_tint;
     o.clip = transform_to_clip(v.position, draw.model);
     let world = (draw.model * vec4<f32>(v.position, 1.0)).xyz;
-    o.world_z = world.z;
     var c0 = vec4<f32>(1.0);
     var c1 = vec4<f32>(0.0);
     if ((sw & LIT_IN_VERTICES) != 0u && draw.program.x == 1u) {
@@ -912,9 +885,6 @@ fn vertex_lit_program(v: MeshOut) -> vec4<f32> {
 @fragment
 fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
     ground_tint = v.ground_tint;
-    if (clipped(v.world_z)) {
-        discard;
-    }
     if (draw.program.x == 1u && (draw.stage.x & LIT_IN_VERTICES) != 0u) {
         let c = vertex_lit_program(v);
         let a = clamp(c.a, 0.0, 1.0);
@@ -945,15 +915,20 @@ fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
 
 // ---- the water's surface with its reflection ----
 
+// The ripples' signed picture on a water surface, into a picture that holds no value below zero.
+@fragment
+fn fs_ripple(v: MeshOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureSample(tex0, samp0, v.uv0).rg, 0.0, 1.0);
+}
+
 // The reflection (the first picture, the mirrored scene) where this point lies on the screen,
-// turned over top to bottom as the mirrored camera sees it, its coordinates pushed by the ripple
-// picture (the second, at the surface's coordinates) by the draw's push (params.z: 0.04 of the
-// picture per unit of offset, 0 with no ripples); as opaque as the water's own layer. The ripples
-// are laid in a picture that holds no value below zero, so only their offsets above zero push.
+// turned over top to bottom as the mirrored camera sees it, its coordinates pushed by the ripples'
+// picture (the second, where this point lies on the screen) by the draw's push (params.z: 0.04 of
+// the picture per unit of offset, 0 with no ripples); as opaque as the water's own layer.
 @fragment
 fn fs_water(v: MeshOut) -> @location(0) vec4<f32> {
-    let ripple = max(textureSample(tex1, samp1, v.uv0).rg, vec2<f32>(0.0));
     let screen = v.clip.xy / frame.viewport.xy;
+    let ripple = textureSample(tex1, samp1, screen).rg;
     let at = vec2<f32>(screen.x, 1.0 - screen.y) + draw.params.z * ripple;
     let c = textureSample(tex0, samp0, at).rgb;
     return vec4<f32>(c, clamp(draw.diffuse.a, 0.0, 1.0));

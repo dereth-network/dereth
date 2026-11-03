@@ -39,6 +39,7 @@ not how it was done.
 - Objects change detail as you move, not in steps.
 - The far landscape reaches a block farther and thins out with distance.
 - The options now list the avatar's first-person and see-through settings.
+- Water reflections now show the sea floor.
 
 ## 0.1.2 (2026-11-02)
 

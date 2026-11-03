@@ -99,8 +99,6 @@ struct FrameUniforms {
     cloud: [f32; 4],
     // 1 when the near terrain's shadows and fog are laid on after its layers, unused x3
     terrain: [f32; 4],
-    // 1 when everything below a plane is left out, the plane's height, unused x2
-    clip: [f32; 4],
     // the picture's width and height in pixels, unused x2
     viewport: [f32; 4],
 }
@@ -209,6 +207,8 @@ pub struct Renderer {
     shadow_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
     /// The water's surface laid with its rippled reflection, and the ripples' bump picture.
     water_pipelines: HashMap<PassKey, wgpu::RenderPipeline>,
+    /// The ripples laid over the water's surfaces, in their own picture.
+    ripple_pipeline: Option<wgpu::RenderPipeline>,
     bump: Option<Arc<wgpu::TextureView>>,
     mesh_pipelines: HashMap<PassKey, wgpu::RenderPipeline>,
     veil: Option<wgpu::RenderPipeline>,
@@ -536,6 +536,7 @@ impl Renderer {
             shadow_pipelines: None,
             volume_pipelines: None,
             water_pipelines: HashMap::new(),
+            ripple_pipeline: None,
             bump: None,
             mesh_pipelines: HashMap::new(),
             veil: None,
@@ -787,7 +788,7 @@ impl Renderer {
             dst: 1,
             depth_test: true,
             depth_write: true,
-            cull: d3d::CULL_NONE,
+            cull: d3d::CULL_CW,
             target: Target::Frame,
         };
         let blended = PassKey {
@@ -795,7 +796,7 @@ impl Renderer {
             dst: d3d::BLEND_INV_SRC_ALPHA,
             depth_test: true,
             depth_write: false,
-            cull: d3d::CULL_NONE,
+            cull: d3d::CULL_CW,
             target: Target::Frame,
         };
         let base = self.pipeline(
@@ -827,7 +828,7 @@ impl Renderer {
                 dst: d3d::BLEND_ZERO,
                 depth_test: true,
                 depth_write: false,
-                cull: d3d::CULL_NONE,
+                cull: d3d::CULL_CW,
                 target: Target::Frame,
             },
         );
@@ -1747,7 +1748,6 @@ impl Renderer {
                 0.0,
                 0.0,
             ],
-            clip: [0.0; 4],
             #[allow(clippy::cast_precision_loss)]
             viewport: [width as f32, height as f32, 0.0, 0.0],
             ..FrameUniforms::zeroed()
@@ -2018,7 +2018,10 @@ impl Renderer {
                     texture_group,
                     env,
                     shown: b.shown(),
-                    reflected: b.reflected(frame.camera.position),
+                    reflected: b.reflected(frame.camera.position)
+                        && frame
+                            .reflection
+                            .is_none_or(|r| sky || b.step.is_some() || b.stands_above(r.height)),
                 });
             }
         };
@@ -2122,6 +2125,13 @@ impl Renderer {
             let ground = self.texture(b.ground, load);
             let tg = self.bind_textures(&ground, &self.wrap, &clouds, &self.wrap);
             terrain_draw(b, "far", tg, self, &mut world_draws);
+        }
+        // The land as the water's reflection shows it.
+        let mut land_draws = Vec::new();
+        if let (true, Some(land)) = (frame.reflection.is_some(), &frame.reflection_land) {
+            let ground = self.texture(land.ground, load);
+            let tg = self.bind_textures(&ground, &self.wrap, &clouds, &self.wrap);
+            terrain_draw(land, "far", tg, self, &mut land_draws);
         }
         // Each step's objects under the frame's own light first, then those standing outdoors;
         // the steps of the world's objects farthest first.
@@ -2368,6 +2378,7 @@ impl Renderer {
                         }
                         &[]
                     }
+                    Pass::Terrain if reflecting && !land_draws.is_empty() => &land_draws,
                     Pass::Terrain => &world_draws,
                     Pass::Cells => &cell_draws,
                     Pass::Decals => &decal_draws,
@@ -2414,8 +2425,8 @@ impl Renderer {
             }
         };
         // The reflection: the same scene from the camera mirrored about the water plane (its
-        // height mirrored, its pitch turned over), everything below the plane left out, the sky
-        // round the mirrored camera.
+        // height mirrored, its pitch turned over): all the land it can see, what lies under the
+        // water too, the objects standing above the plane, the sky round the mirrored camera.
         // D2-11030, D2-10552, D2-10553, D2-11031
         if let Some(r) = reflection {
             let h = r.height;
@@ -2435,7 +2446,6 @@ impl Renderer {
                 m.view_proj = mat(&m_vp);
                 m.eye = [m_eye[0], m_eye[1], m_eye[2], 1.0];
                 m.forward = [m_forward[0], m_forward[1], m_forward[2], 0.0];
-                m.clip = [1.0, h, 0.0, 0.0];
                 m
             };
             let m_frame = mirrored(&frame_u);
@@ -2532,18 +2542,118 @@ impl Renderer {
                 let f = (s - s.floor()) as f32;
                 f
             };
+            // The ripples are first laid over the water's surfaces into a picture of their own,
+            // 512 texels square from the frame's own camera, which holds no value below zero; the
+            // reflection reads its push from that picture where it lies on the screen.
             // D2-10598, D2-10587
+            let ripple_view = if r.ripples {
+                let target = |label, samples, format, usage| {
+                    device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some(label),
+                        size: wgpu::Extent3d {
+                            width: REFLECTION_SIZE,
+                            height: REFLECTION_SIZE,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: samples,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage,
+                        view_formats: &[],
+                    })
+                };
+                let drawn = target(
+                    "ripples",
+                    1,
+                    COLOR_FORMAT,
+                    wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                );
+                let view = drawn.create_view(&wgpu::TextureViewDescriptor::default());
+                let multi = (self.samples > 1).then(|| {
+                    target(
+                        "multisampled ripples",
+                        self.samples,
+                        COLOR_FORMAT,
+                        wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    )
+                    .create_view(&wgpu::TextureViewDescriptor::default())
+                });
+                let depth = target(
+                    "ripples depth",
+                    self.samples,
+                    DEPTH_FORMAT,
+                    wgpu::TextureUsages::RENDER_ATTACHMENT,
+                )
+                .create_view(&wgpu::TextureViewDescriptor::default());
+                let key = PassKey {
+                    src: d3d::BLEND_ONE,
+                    dst: d3d::BLEND_ZERO,
+                    depth_test: true,
+                    depth_write: true,
+                    cull: d3d::CULL_NONE,
+                    target: Target::Frame,
+                };
+                if self.ripple_pipeline.is_none() {
+                    self.ripple_pipeline =
+                        Some(self.pipeline("vs_mesh", "fs_ripple", Self::mesh_layout(), key));
+                }
+                let textures = self.bind_three(&[
+                    (&bump, &self.wrap),
+                    (&self.white, &self.wrap),
+                    (&self.white, &self.wrap),
+                ]);
+                let mut surfaces = Vec::new();
+                for b in water {
+                    if b.indices.is_empty() {
+                        continue;
+                    }
+                    let mut u =
+                        Self::draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
+                    u.uv_sets = [0, 0, 0, 0];
+                    u.uv_rows[0] = [0.5, 0.0, 0.5 * slide, 0.0];
+                    u.uv_rows[1] = [0.0, 0.5, 0.5 * slide, 0.0];
+                    let group = self.uniform_group(&self.draw_layout, bytemuck::bytes_of(&u));
+                    let (verts, idx) = Self::mesh_buffers(b);
+                    surfaces.push((
+                        group,
+                        self.vertex_buffer(&verts),
+                        self.index_buffer(&idx),
+                        u32::try_from(b.indices.len()).unwrap_or(0),
+                    ));
+                }
+                if let Some(pipeline) = &self.ripple_pipeline {
+                    let mut pass = begin_pass(
+                        &mut encoder,
+                        "ripples",
+                        multi.as_ref().unwrap_or(&view),
+                        multi.as_ref().map(|_| &view),
+                        &depth,
+                        wgpu::Color::BLACK,
+                        None,
+                    );
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &out_group, &[]);
+                    pass.set_bind_group(2, &textures, &[]);
+                    pass.set_bind_group(3, &shadow_group, &[]);
+                    for (group, vertices, indices, count) in &surfaces {
+                        pass.set_bind_group(1, group, &[]);
+                        pass.set_vertex_buffer(0, vertices.slice(..));
+                        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint16);
+                        pass.draw_indexed(0..*count, 0, 0..1);
+                    }
+                }
+                view
+            } else {
+                (*self.white).clone()
+            };
             for b in water {
                 if b.indices.is_empty() {
                     continue;
                 }
                 let key = Self::water_key(&b.layer, target);
                 self.water_pipeline(key);
-                // the ripples lie on each polygon's own 0..1 coordinates (the second set)
                 let mut u = Self::draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
-                u.uv_sets = [1, 0, 0, 0];
-                u.uv_rows[0] = [0.5, 0.0, 0.5 * slide, 0.0];
-                u.uv_rows[1] = [0.0, 0.5, 0.5 * slide, 0.0];
                 u.params[2] = push;
                 let draw_group = self.uniform_group(&self.draw_layout, bytemuck::bytes_of(&u));
                 // the reflection and the ripples' picture set on the stages as pictures of their
@@ -2551,7 +2661,7 @@ impl Renderer {
                 // D2-10090
                 let texture_group = self.bind_three(&[
                     (&refl_view, &self.clamp),
-                    (&bump, &self.wrap),
+                    (&ripple_view, &self.clamp),
                     (&self.white, &self.wrap),
                 ]);
                 let (verts, idx) = Self::mesh_buffers(b);
