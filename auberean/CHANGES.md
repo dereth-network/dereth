@@ -23,6 +23,7 @@ not how it was done.
 - New option: your character turns see-through under the pointer.
 - Characters and objects darken in the shade.
 - Line of sight outdoors now sees into buildings through their doors.
+- Fixed players getting stuck in deep water; they float and swim now.
 
 ## 0.1.2 (2026-11-02)
 

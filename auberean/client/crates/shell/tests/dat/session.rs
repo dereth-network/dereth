@@ -2696,18 +2696,18 @@ fn a_body_out_of_the_world_is_let_go_of_after_25_seconds() {
     assert!(!has(&s), "let go of");
 }
 
-/// The player moves while its body does, falling as much as running: dropped 150 m over the land
-/// of block `0x0298`, it moves as it falls straight down with no speed along the ground, and stops
+/// The player moves while its body does, falling as much as running: dropped 150 m over the dry land
+/// of block `0xC156`, it moves as it falls straight down with no speed along the ground, and stops
 /// moving once it stands there.
 ///
 /// Behaviour: desktop.bodies.the-player-moves-while-its-body-does-falling-too
 #[test]
 fn the_player_moves_while_its_body_does_falling_too() {
-    let cell = 0x0298_0001;
+    let cell = 0xC156_0035;
     let at = Vec3 {
-        x: 12.0,
-        y: 12.0,
-        z: 150.0,
+        x: 122.84,
+        y: 89.76,
+        z: 231.0,
     };
     let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 30.0);
     let server =
@@ -2728,7 +2728,7 @@ fn the_player_moves_while_its_body_does_falling_too() {
         if !s.scene.has_player() || s.scene.cells_pending() {
             continue;
         }
-        if !st.contact && st.origin.z < 140.0 {
+        if !st.contact && st.origin.z < 221.0 {
             assert!(st.moving && st.speed < 0.01, "falling: {} m/s", st.speed);
             falling += 1;
         } else if st.contact && falling > 0 {
@@ -2817,6 +2817,69 @@ fn the_player_arrives_and_runs_in_a_room_with_no_doorways() {
     let ran = s.scene.status.origin.y - stood.y;
     assert!(ran > 10.0, "it ran: {ran} m");
     assert!(s.scene.status.contact, "on the floor");
+}
+
+/// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
+/// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
+/// at the water's speed, its description's, not the ground's or none.
+///
+/// Behaviour: desktop.world.a-player-in-deep-water-rises-and-swims
+#[test]
+fn a_player_in_deep_water_rises_and_swims() {
+    const SURFACE: f32 = 139.45;
+    let at = Vec3::new(22.0, 50.0, 125.0);
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: 0x9889_000B,
+        origin: at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(8.0, put)], 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 25.0 {
+        step(&mut s);
+    }
+    let floating = s.scene.status.origin;
+    assert!(
+        floating.z > SURFACE - 3.0 && floating.z < SURFACE,
+        "the water line near the surface: {floating:?}"
+    );
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    while s.host.time < 28.0 {
+        step(&mut s);
+    }
+    let swum = s.scene.status.origin;
+    let far = (swum.y - floating.y).hypot(swum.x - floating.x);
+    assert!(far > 8.0, "it swam {far} m: {floating:?} to {swum:?}");
+    assert!(
+        s.scene.status.speed > 4.0 && s.scene.status.speed < 5.0,
+        "at the water's speed: {}",
+        s.scene.status.speed
+    );
 }
 
 /// With the camera under water the fog is the water's at the camera's depth, the light the same:

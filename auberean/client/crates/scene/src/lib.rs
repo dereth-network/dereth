@@ -673,13 +673,25 @@ pub(crate) fn body_config(
 }
 
 /// `body` takes the part group `look` puts together (each mesh read once through `trees`) and ends
-/// its making with it, the scale its look gives it and the scale its look gives what it holds.
+/// its making with it, the scale its look gives it and the scale its look gives what it holds; and
+/// the whole of the motion description its look names, every element's and mode's values: water's,
+/// the sea floor's and each kind of ground's as well as the earth's and the air's.
+// D2-06230, D2-06411
 pub(crate) fn give_parts(
     body: &mut Body,
     records: &WorldRecords,
     trees: &mut Trees,
     look: &auberean_animation::look::Look,
 ) {
+    let motion = if look.motion_desc.is_none() {
+        PLAYER_MOTION
+    } else {
+        look.motion_desc.0
+    };
+    if let Some(md) = records.get::<MotionDesc>(motion) {
+        body.minterp
+            .set_description(motion, std::sync::Arc::new(md));
+    }
     let mut parts = auberean_physics::parts::PartGroup::default();
     if parts.init_look(
         &auberean_physics::parts::CachedParts::new(records, trees),
@@ -1395,6 +1407,7 @@ impl<'w> Scene<'w> {
         };
         let took = p.figure.do_mode(anims, 0, mode);
         if took {
+            p.body.set_mode(mode);
             self.told_modes.push((p.id, mode));
         }
         took
@@ -1702,6 +1715,11 @@ impl<'w> Scene<'w> {
         };
         if !f.do_mode(anims, 0, mode) {
             return false;
+        }
+        if let Some(p) = self.player.as_mut().filter(|p| p.id == id) {
+            p.body.set_mode(mode);
+        } else if let Some(b) = self.others.body_mut(id) {
+            b.set_mode(mode);
         }
         self.told_modes.push((id, mode));
         let held: Vec<u64> = self
@@ -2105,6 +2123,7 @@ impl<'w> Scene<'w> {
         );
         let mut body = Body::new(config, start, b.heading);
         give_parts(&mut body, &self.world.records, &mut self.trees, &look);
+        body.set_mode(figure.mode);
         profile::init_physics(&self.world.records, o, &mut body);
         let p = &o.physics;
         if let Some(k) = velocity_scale(p) {

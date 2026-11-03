@@ -1406,6 +1406,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-player-in-deep-water-rises-and-swims",
+        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
+        station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.under-water-the-fog-is-the-waters-at-the-cameras-depth",
         says: "With the camera under its cell's water the fog is the water's at the camera's depth, \
                the light the same; above it, the day's.",

@@ -1327,6 +1327,9 @@ fn take_look(
         if let Some(l) = look.as_ref() {
             crate::give_parts(&mut ob.body, records, trees, l);
         }
+        if let Some(f) = b.figure.as_ref() {
+            ob.body.set_mode(f.mode);
+        }
         crate::profile::init_physics(records, o, &mut ob.body);
         if let Some([v, a, j]) = scales {
             ob.body.set_velocity_scale(v);
