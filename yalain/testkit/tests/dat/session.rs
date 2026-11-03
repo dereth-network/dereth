@@ -388,6 +388,24 @@ fn looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand() {
     assert!(weapon.wielder.is_some(), "the sword still in hand");
 }
 
+/// An item whose template names itself only in its qualities record is named and described in its
+/// profile from there, in its own table.
+///
+/// Behaviour: session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say
+#[test]
+fn an_item_named_only_in_its_qualities_has_its_name_and_description() {
+    use yalain_content::Prop;
+    use yalain_testkit::authored::Portal;
+    /// Initiate Moccasins, and the table holding their text.
+    const MOCCASINS: u32 = 0x4700_0E0C;
+    const TABLE: u32 = 0x2500_1907;
+    let t = Portal::open().template(MOCCASINS);
+    let line = yalain_world::profile::item_line::NAME;
+    assert_eq!(t.props.get("Name"), Some(&Prop::Str(line, TABLE)));
+    let line = yalain_world::profile::item_line::DESCRIPTION;
+    assert_eq!(t.props.get("Description"), Some(&Prop::Str(line, TABLE)));
+}
+
 /// A player killed asks to be brought back, as death's dialog does, and lives: the player's scripts
 /// hear it.
 ///

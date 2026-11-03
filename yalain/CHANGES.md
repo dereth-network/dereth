@@ -25,6 +25,7 @@ what they see, not how it was done.
 - The server starts in about half the time.
 - New `download_bytes_per_second` setting for how fast clients download data.
 - Armor with no worn properties now shows on the body when worn.
+- Items named only in their qualities now show their name when examined.
 
 ## 0.1.2 (2026-11-03)
 

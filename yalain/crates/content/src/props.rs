@@ -32,6 +32,9 @@ pub struct Props {
 
 const CHAIN_LIMIT: usize = 16;
 
+/// The properties of what an item is called, and the qualities that say the same.
+const NAME_QUALITIES: [(&str, u32); 2] = [("Name", 0x10B), ("Description", 0x102)];
+
 /// The properties of where an item goes, and the qualities that say the same.
 const PLACE_QUALITIES: [(&str, u32); 3] = [
     ("Item_ValidInventoryLocations", 0x113),
@@ -83,9 +86,9 @@ impl Props {
         out
     }
 
-    /// The properties with where an item goes taken from its qualities record where its own
-    /// properties do not say: some item templates (Initiate Moccasins among them) keep their
-    /// places only there.
+    /// The properties with where an item goes and what it is called taken from its qualities
+    /// record where its own properties do not say: some item templates (Initiate Moccasins among
+    /// them) keep those only there.
     #[must_use]
     pub fn with_places_of(mut self, q: Option<&auberean_assets::script::Qualities>) -> Self {
         let Some(q) = q else { return self };
@@ -94,6 +97,14 @@ impl Props {
                 if let Some((_, v)) = q.ints.iter().find(|(k, _)| *k == quality) {
                     self.values
                         .insert(name.to_string(), Prop::Int(i64::from(*v)));
+                }
+            }
+        }
+        for (name, quality) in NAME_QUALITIES {
+            if !self.values.contains_key(name) {
+                if let Some((_, v)) = q.string_infos.iter().find(|(k, _)| *k == quality) {
+                    self.values
+                        .insert(name.to_string(), Prop::Str(v.token, v.table.0));
                 }
             }
         }
