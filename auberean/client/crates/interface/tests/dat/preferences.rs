@@ -12,8 +12,8 @@ const INVERT_Y: u32 = 0x4000_0026;
 const TEXTURE_DETAIL: u32 = 0x4000_004F;
 
 /// At startup the camera puts in its preferences (eight in the camera section, three for the
-/// mouse, three for the avatar), each read from the preferences file by the data's names, the
-/// rest at the camera's defaults; the client page lists them by section. A distance tried and
+/// mouse, three for the avatar after the drawing's two), each read from the preferences file by
+/// the data's names, the rest at the defaults; the client page lists them by section. A distance tried and
 /// applied goes to the camera with the other options as the file had them, and keeping writes
 /// every preference by its names: the camera's, the graphics (a choice by its name in the data)
 /// and the key maps' files.
@@ -51,7 +51,31 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
             section::AVATARS
         ]
         .map(count),
-        [0, 8, 3, 4]
+        [0, 8, 3, 5]
+    );
+    let avatar: Vec<u32> = l
+        .sections
+        .iter()
+        .find(|(x, _)| *x == section::AVATARS)
+        .expect("the avatar's section")
+        .1
+        .iter()
+        .map(|c| match c {
+            Change::Flag(f) => f.description.key,
+            Change::Number(n) => n.description.key,
+            Change::Choice(c) => c.description.key,
+        })
+        .collect();
+    assert_eq!(
+        avatar,
+        [
+            0x4000_006C,
+            0x4000_006D,
+            0x4000_0068,
+            0x4000_0069,
+            0x4000_006A
+        ],
+        "first person and the pointer's see-through first, then the looks"
     );
     let find = |k: u32| {
         l.sections
@@ -107,5 +131,5 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert_eq!(sound.len(), 8, "{sound:?}");
     assert!(has("Sound", &music, "1.000000"), "{sound:?}");
     assert!(has("Sound", &features, "Hardware"), "{sound:?}");
-    assert_eq!(kept.len(), 21 + 15 + 8 + 3);
+    assert_eq!(kept.len(), 21 + 16 + 8 + 3);
 }

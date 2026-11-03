@@ -67,6 +67,7 @@ mod key {
     pub const AVATAR_LOOK_AROUND: u32 = 0x4000_0068;
     pub const AVATAR_LOOK_AT_CAMERA: u32 = 0x4000_0069;
     pub const AVATAR_LOOK_AT_SELECTION: u32 = 0x4000_006A;
+    pub const AVATAR_IN_FIRST_PERSON: u32 = 0x4000_006C;
     pub const AVATAR_HOVER_TRANSPARENCY: u32 = 0x4000_006D;
     pub const MOUSE_LOOK_STEERS: u32 = 0x4000_006B;
 }
@@ -80,7 +81,7 @@ enum CameraKind {
 /// The camera's preferences, in the order the camera puts them in: each one's section and key,
 /// label and help, and kind.
 // D2-10689
-const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 15] = [
+const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 14] = [
     (
         section::CAMERA,
         key::CAMERA_HEIGHT,
@@ -179,14 +180,53 @@ const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 15] = [
         "ID_Avatar_Look_At_Selection_Help",
         CameraKind::Flag(true),
     ),
-    (
-        section::AVATAR,
-        key::AVATAR_HOVER_TRANSPARENCY,
+];
+
+/// When the avatar shows in first person: its enumeration, and each choice's number, name in that
+/// enumeration and label. The file holds the name.
+const FIRST_PERSON_VALUES: u32 = 0x4000_004A;
+const FIRST_PERSON_CHOICES: [(i32, u32, &str); 3] = [
+    (0, 0x4000_0012, "ID_Avatar_Value_Never"),
+    (1, 0x4000_0014, "ID_Avatar_Value_Always"),
+    (2, 0x4000_0013, "ID_Avatar_Value_DuringCombat"),
+];
+/// Which choice shows the avatar until it is chosen: during combat.
+const FIRST_PERSON_DEFAULT: i32 = 2;
+
+/// The avatar's two preferences that are the drawing's: put in ahead of the camera's, so the avatar
+/// section lists them first.
+// D2-09703
+fn drawing_avatar_preferences() -> [(u32, Pref); 2] {
+    let describe = |label: &str, help: &str| {
+        let mut d = Description::default();
+        d.describe(
+            PREFERENCE_STRINGS,
+            Token::of(label).raw(),
+            Token::of(help).raw(),
+        );
+        d
+    };
+    let mut first_person = Choice::new();
+    first_person.map(FIRST_PERSON_VALUES);
+    for (v, named, label) in FIRST_PERSON_CHOICES {
+        first_person.assign_named_choice(v, (PREFERENCE_STRINGS, Token::of(label).raw()), named);
+    }
+    first_person.set_default(FIRST_PERSON_DEFAULT);
+    first_person.description = describe(
+        "ID_Avatar_VisibleInFirstPerson",
+        "ID_Avatar_VisibleInFirstPerson_Help",
+    );
+    let mut hover = Flag::new();
+    hover.set_default(false);
+    hover.description = describe(
         "ID_Avatar_MouseHoverTransparency",
         "ID_Avatar_MouseHoverTransparency_Help",
-        CameraKind::Flag(false),
-    ),
-];
+    );
+    [
+        (key::AVATAR_IN_FIRST_PERSON, Pref::Choice(first_person)),
+        (key::AVATAR_HOVER_TRANSPARENCY, Pref::Flag(hover)),
+    ]
+}
 
 /// The key maps' files, as the client puts them in: each key and its default file.
 const KEY_MAP_FILES: [(u32, &str); 3] = [
@@ -202,10 +242,15 @@ struct Names(Vec<(u32, EnumNames)>);
 impl Names {
     fn read(records: &WorldRecords) -> Self {
         Self(
-            [SECTION_NAMES, KEY_NAMES, GRAPHICS_VALUES]
-                .into_iter()
-                .map(|e| (e, EnumNames::read(records, e)))
-                .collect(),
+            [
+                SECTION_NAMES,
+                KEY_NAMES,
+                GRAPHICS_VALUES,
+                FIRST_PERSON_VALUES,
+            ]
+            .into_iter()
+            .map(|e| (e, EnumNames::read(records, e)))
+            .collect(),
         )
     }
 
@@ -440,6 +485,11 @@ impl Preferences {
                 .bless(&mut pref, GRAPHICS, p.key, &file, &self.names, &mut out);
             self.bank.link(p.key, DRAWING);
         }
+        for (k, mut pref) in drawing_avatar_preferences() {
+            self.bank
+                .bless(&mut pref, section::AVATAR, k, &file, &self.names, &mut out);
+            self.bank.link(k, CAMERA_HANDLER);
+        }
         for (s, k, label, help, kind) in &CAMERA_PREFERENCES {
             let mut pref = camera_preference(label, help, kind);
             self.bank
@@ -523,8 +573,7 @@ impl Preferences {
         g
     }
 
-    /// The camera's options as the bank holds them now (whether the avatar shows in first person
-    /// is not among them).
+    /// The camera's options as the bank holds them now.
     fn camera_options(&self) -> Options {
         let mut o = self.camera;
         let n = |k: u32| self.bank.find(k).map(number_of);
@@ -543,6 +592,12 @@ impl Preferences {
         o.look_around = on(key::AVATAR_LOOK_AROUND).unwrap_or(o.look_around);
         o.look_at_camera = on(key::AVATAR_LOOK_AT_CAMERA).unwrap_or(o.look_at_camera);
         o.look_at_selection = on(key::AVATAR_LOOK_AT_SELECTION).unwrap_or(o.look_at_selection);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        if let Some(v) = n(key::AVATAR_IN_FIRST_PERSON)
+            .and_then(|v| auberean_scene::camera::AvatarInFirstPerson::of_number(v as u32))
+        {
+            o.avatar_in_first_person = v;
+        }
         o.avatar_hover_transparency =
             on(key::AVATAR_HOVER_TRANSPARENCY).unwrap_or(o.avatar_hover_transparency);
         o

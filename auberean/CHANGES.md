@@ -38,6 +38,7 @@ not how it was done.
 - Fixed walking through solids that hang over a block edge.
 - Objects change detail as you move, not in steps.
 - The far landscape reaches a block farther and thins out with distance.
+- The options now list the avatar's first-person and see-through settings.
 
 ## 0.1.2 (2026-11-02)
 
