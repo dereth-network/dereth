@@ -223,6 +223,11 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ("federation", "slug", Takes::Hub),
     ("federation", "key_file", Takes::Hub),
     ("federation", "global_room", Takes::Hub),
+    (
+        "federation",
+        "min_character_age_seconds",
+        Takes::Value("--min-character-age"),
+    ),
     ("testing", "add_characters", Takes::Many("--add-character")),
     ("testing", "place_characters", Takes::Many("--place")),
     ("testing", "character_money", Takes::Many("--money")),
@@ -265,7 +270,6 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "ddd",
     "dat_overlay",
     "federation.store_path",
-    "federation.min_character_age_seconds",
     "era",
 ];
 
@@ -902,6 +906,20 @@ mod tests {
             started("listen = \"0.0.0.0:9443\"").is_ok(),
             "off, a listener is not checked"
         );
+    }
+
+    /// `federation.min_character_age_seconds` is Empyrean's key, and reaches the server as its
+    /// option.
+    /// Behaviour: server.network.too-new-sends-nothing
+    #[test]
+    fn empyreans_least_age_key_reaches_the_server() {
+        let (args, warnings) = arguments(
+            "[federation]\nmin_character_age_seconds = 600\n",
+            Path::new("."),
+        )
+        .expect("reads");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(args.windows(2).any(|w| w == ["--min-character-age", "600"]));
     }
 
     /// `federation.global_room` is Empyrean's key, in Empyrean's form: it reaches the server as

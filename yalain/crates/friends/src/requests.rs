@@ -35,6 +35,7 @@ pub fn tell_code(ended: Ended) -> Hr {
         Ended::Unavailable | Ended::NotOnNetwork | Ended::NetworkUnavailable => Hr::TIMED_OUT,
         Ended::RateLimited
         | Ended::TooQuickly
+        | Ended::TooNew
         | Ended::NotOn
         | Ended::WorldOff
         | Ended::NotMember => Hr::DENIED,

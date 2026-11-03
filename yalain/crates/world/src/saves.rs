@@ -44,6 +44,52 @@ impl Saves {
     }
 }
 
+/// The seconds a player in the world has played: those it had kept and those of this stay.
+#[must_use]
+pub fn played_seconds(p: &crate::world::Player, now: f64) -> u64 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let stay = (now - p.entered_at).max(0.0) as u64;
+    p.play.played_seconds.saturating_add(stay)
+}
+
+/// Is a character younger than the operator asks of one sending to the Dereth Network
+/// ([`ServerConfig::min_character_age_seconds`](crate::ServerConfig)), in the world or not? A
+/// character with no kept play has played nothing.
+#[must_use]
+pub fn too_new<S: Store>(s: &mut Server<S>, character: u64) -> bool {
+    let least = u64::from(s.cfg.min_character_age_seconds);
+    if least == 0 {
+        return false;
+    }
+    let now = s.saves.now.0;
+    let played = match s.players.values().find(|p| p.character == character) {
+        Some(p) => played_seconds(p, now),
+        None => s
+            .store
+            .world_state(character)
+            .ok()
+            .flatten()
+            .and_then(|w| crate::state::PlayState::from_bytes(&w.play).ok())
+            .map_or(0, |play| play.played_seconds),
+    };
+    played < least
+}
+
+/// The names, in lower case, of the characters in the world too new to send to the network.
+#[must_use]
+pub fn too_new_in_world<S: Store>(s: &Server<S>) -> std::collections::HashSet<String> {
+    let least = u64::from(s.cfg.min_character_age_seconds);
+    if least == 0 {
+        return std::collections::HashSet::new();
+    }
+    let now = s.saves.now.0;
+    s.players
+        .values()
+        .filter(|p| played_seconds(p, now) < least)
+        .map(|p| p.name.to_lowercase())
+        .collect()
+}
+
 /// Keep the characters whose last save is old enough, at most [`PER_TICK`] of them, the longest
 /// unsaved first. A character the world has not seen before starts its wait now.
 pub(crate) fn tick<S: Store>(s: &mut Server<S>, clock: Clock) {

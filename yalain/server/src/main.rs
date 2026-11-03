@@ -47,6 +47,8 @@
 //!   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
 //!   --max-sessions N      how many logins the world holds at once (default 128); a login past
 //!                         them is told the server is full
+//!   --min-character-age S  seconds a character must have played before it sends to the Dereth
+//!                         Network: tells, room lines, channels (default 0)
 //!   --max-sessions-per-address N  how many logins one address holds at once (default
 //!                         `unlimited`)
 //!   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
@@ -230,6 +232,9 @@ struct Options {
     max_sessions: u32,
     /// The bytes a second a client's large downloads go at (`--download-rate`).
     download_rate: u32,
+    /// Seconds a character must have played before it sends to the Dereth Network
+    /// (`--min-character-age`).
+    min_character_age: u32,
     /// Logins one address holds at once (`--max-sessions-per-address`; none: no limit).
     max_sessions_per_address: Option<u32>,
     /// Addresses no per-address limit holds back (`--unlimited-sessions-from`).
@@ -358,6 +363,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
         max_sessions: yalain_world::login::MAX_SESSIONS,
+        min_character_age: 0,
         download_rate: yalain_net::pace::DEFAULT_BYTES_PER_SECOND,
         max_sessions_per_address: None,
         unlimited_addresses: Vec::new(),
@@ -457,6 +463,11 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     return Err("--shutdown-interval takes 0 to 99999 seconds".into());
                 }
                 o.shutdown_seconds = n;
+            }
+            "--min-character-age" => {
+                o.min_character_age = value()?
+                    .parse()
+                    .map_err(|e| format!("--min-character-age: {e}"))?;
             }
             "--max-sessions" => {
                 o.max_sessions = value()?
@@ -855,6 +866,7 @@ fn run<S: Store>(
         save_seconds: o.save_seconds,
         shutdown_seconds: o.shutdown_seconds,
         max_sessions: o.max_sessions,
+        min_character_age_seconds: o.min_character_age,
         max_sessions_per_address: o.max_sessions_per_address,
         unlimited_addresses: o.unlimited_addresses.clone(),
         motd: o.motd.clone(),

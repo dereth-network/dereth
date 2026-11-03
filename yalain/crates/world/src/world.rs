@@ -96,6 +96,8 @@ pub struct Player {
     pub selection: u64,
     /// An admin call of its was refused and logged this stay.
     pub refused_admin_call: bool,
+    /// When it entered the world this time, on the local clock.
+    pub entered_at: f64,
     /// The stamp of its last movement order.
     pub move_to_stamp: u16,
     /// A use it is being walked toward: the use and the reach it needs.
@@ -362,6 +364,7 @@ pub fn enter<S: Store>(
         scene_drawn: false,
         selection: 0,
         refused_admin_call: false,
+        entered_at: clock.local.0,
         move_to_stamp: 0,
         walking_to: None,
         giving: None,
@@ -614,6 +617,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     play.last_used = p.last_used.iter().map(|(k, t)| (*k, *t)).collect();
     play.last_used.sort_by_key(|(k, _)| *k);
     play.kept_at = s.game_now;
+    play.played_seconds = crate::saves::played_seconds(p, s.saves.now.0);
     // What its items carry of their own (their instance stamps, their makers, their wear) is kept
     // with them.
     play.item_states = play

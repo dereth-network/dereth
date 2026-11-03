@@ -4234,6 +4234,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Network,
     },
     behaviour! {
+        id: "server.network.too-new-is-time-in-the-world",
+        says: "A character's time in the world is kept with it, and it is too new for the Dereth \
+               Network until that time reaches the seconds the operator asks; nothing asked, no \
+               character is.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TOO-NEW-TIME"),
+        station: "yalain-testkit::cpu::operator::saves::time_in_the_world_is_kept_and_a_character_ages_past_the_networks_limit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.too-new-sends-nothing",
+        says: "A character younger than federation.min_character_age_seconds sends nothing to the \
+               Dereth Network: its tell is refused with Empyrean's line, its room line and its channel \
+               request likewise, and the hub's asks to speak for it are refused as too new. Old enough, \
+               each goes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-TOO-NEW"),
+        station: "yalain::bin.yalain::friends::tests::the_worlds_least_age_holds_back_what_a_character_sends_to_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.verify-answer-lines",
         says: "Each of the hub's answers to a dn verify is one line in the network's words: verified \
                with each approval, the key unknown and where it is set, too many attempts, any \

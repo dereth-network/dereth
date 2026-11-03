@@ -30,6 +30,8 @@ yalain --dats <install folder> [options]
   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
   --max-sessions N      how many logins the world holds at once (default 128); a login past
                         them is told the server is full
+  --min-character-age S  seconds a character must have played before it sends to the
+                        Dereth Network: tells, room lines, channels (default 0)
   --max-sessions-per-address N  how many logins one address holds at once (default
                         `unlimited`)
   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given

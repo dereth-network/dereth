@@ -11,7 +11,7 @@ use dereth_network_protocol::{Address, Message, Outcome};
 
 use crate::{
     Ended, Federation, Friends, LinkState, Pending, State, TellEnd, TellId, AWAY_TEXT,
-    DO_NOT_DISTURB_TEXT, NOT_ON, TOO_QUICKLY, UNAVAILABLE, WORLD_OFF,
+    DO_NOT_DISTURB_TEXT, NOT_ON, TOO_NEW, TOO_QUICKLY, UNAVAILABLE, WORLD_OFF,
 };
 
 /// What a teller is told when a limit the whole world shares held its tell back (the hub's, or
@@ -88,8 +88,8 @@ impl Federation {
     /// here, else when the hub answers, or when it is given up on ([`Federation::tick`]).
     ///
     /// Refused here: from a world off the network; from a character off the network; to a
-    /// world or character the operator blocks (not shown, as an unknown name); past the teller's
-    /// own pace. The text is cut to what a link message carries.
+    /// world or character the operator blocks (not shown, as an unknown name); from a character
+    /// younger than the operator asks; past the teller's own pace. The text is cut to what a link message carries.
     pub fn tell(
         &mut self,
         friends: &mut impl Friends,
@@ -109,6 +109,10 @@ impl Federation {
         };
         if to.world() == self.settings.slug || self.blocked(to) {
             friends.tell_ended(tell, refused(Ended::Offline, None));
+            return;
+        }
+        if self.too_new(&name) {
+            friends.tell_ended(tell, refused(Ended::TooNew, Some(TOO_NEW)));
             return;
         }
         let Some(own) = self.own_address(&name) else {

@@ -27,6 +27,7 @@ what they see, not how it was done.
 - Armor with no worn properties now shows on the body when worn.
 - Items named only in their qualities now show their name when examined.
 - Admins can now log in to a full world.
+- `federation.min_character_age_seconds` now works, as it does on Empyrean.
 - Quests now hold to the least levels the game sets for them.
 - Quests for heroes, or that need another quest first, are no longer given to anyone.
 

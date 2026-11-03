@@ -200,6 +200,9 @@ pub struct ServerConfig {
     /// How many logins the world holds at once ([`login::MAX_SESSIONS`] unless the operator
     /// gives another); a login past them is told the world is full.
     pub max_sessions: u32,
+    /// The seconds a character must have played before it sends to the Dereth Network: tells,
+    /// room lines and channels (0: none, the default).
+    pub min_character_age_seconds: u32,
     /// How many logins one address holds at once; `None` for no limit (the default).
     pub max_sessions_per_address: Option<u32>,
     /// Addresses no per-address limit holds back.
@@ -225,6 +228,7 @@ impl Default for ServerConfig {
             shutdown_seconds: shutdown::LEAD,
             admin_commands: Vec::new(),
             max_sessions: login::MAX_SESSIONS,
+            min_character_age_seconds: 0,
             max_sessions_per_address: None,
             unlimited_addresses: Vec::new(),
             motd: String::new(),

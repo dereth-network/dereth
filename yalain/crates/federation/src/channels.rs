@@ -7,7 +7,7 @@ use dereth_network_protocol::answers::channel_line;
 use dereth_network_protocol::text::{sanitize_line, sanitize_name};
 use dereth_network_protocol::{Address, ChannelOp, ChannelOutcome, Message};
 
-use crate::{Ask, AskKind, Federation, Friends, NOT_ON, TOO_QUICKLY};
+use crate::{Ask, AskKind, Federation, Friends, NOT_ON, TOO_NEW, TOO_QUICKLY};
 
 impl Federation {
     /// A channel request of a character on the network, within its pace of requests. Refused, the
@@ -26,6 +26,9 @@ impl Federation {
     ) -> Result<(), &'static str> {
         if !self.is_on(name) {
             return Err(NOT_ON);
+        }
+        if self.too_new(name) {
+            return Err(TOO_NEW);
         }
         if !self.may_ask(t, name) {
             return Err(TOO_QUICKLY);

@@ -21,7 +21,8 @@
 //!   network's rules and answers the hub.
 
 use dereth_network_protocol::rooms::{
-    held_back_line, too_quickly_line, KeptRooms, RoomsMessage, OFF, OWN_ROOMS, UNCARRIED_SECS,
+    held_back_line, too_new_line, too_quickly_line, KeptRooms, RoomsMessage, OFF, OWN_ROOMS,
+    UNCARRIED_SECS,
 };
 use dereth_network_protocol::say::{marked, reason, SayMessage, SayOutcome};
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_TEXT_CHARS};
@@ -122,6 +123,8 @@ pub struct Character {
     /// Its account is banned now.
     pub banned: bool,
     pub gagged: bool,
+    /// It is younger than the operator asks of one sending to the network.
+    pub too_new: bool,
 }
 
 /// A line handed to the hub, not yet answered.
@@ -460,6 +463,10 @@ impl Federation {
         if self.uncarried.get(&word).is_some_and(|&until| t < until) {
             return;
         }
+        if self.too_new(&name) {
+            friends.show_line(character, &too_new_line(&word));
+            return;
+        }
         let Some(from) = self.own_address(&name) else {
             return;
         };
@@ -682,6 +689,9 @@ impl Federation {
         }
         if c.gagged {
             return Err(Some(reason::GAGGED));
+        }
+        if c.too_new {
+            return Err(Some(reason::TOO_NEW));
         }
         let room = self.carried_as(&ask.room).ok_or(Some(reason::ROOM_OFF))?;
         let text = sanitize_line(&ask.text);

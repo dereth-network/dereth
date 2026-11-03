@@ -65,7 +65,7 @@ mod social;
 mod tells;
 mod verify;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
 use dereth_network_protocol::rooms::KeptRooms;
@@ -124,6 +124,9 @@ pub const NOT_ON: &str = "You are not on the Dereth Network. Say @dn on to join 
 
 /// What a character is told when it reaches for another world from a world off the network.
 pub const WORLD_OFF: &str = "This world is not on the Dereth Network.";
+
+/// What a character younger than its operator asks is told when it sends to the network.
+pub const TOO_NEW: &str = "This character is too new to send to the Dereth Network yet.";
 
 /// What a character sending faster than its own share of the hub's limits is told.
 pub const TOO_QUICKLY: &str =
@@ -248,6 +251,8 @@ pub enum Ended {
     WorldOff,
     /// Not sent: the teller sends faster than its own pace.
     TooQuickly,
+    /// The teller is younger than its operator asks.
+    TooNew,
     /// Not shown: the teller is not a member of the channel it told (the line says so).
     NotMember,
     /// Not sent, or not answered: the link was down too long (the line says the network is
@@ -417,6 +422,8 @@ pub struct Federation {
     settings_differ_logged: bool,
     /// When each of the world's own rooms the hub does not mirror may try the hub again, by name.
     uncarried: HashMap<String, f64>,
+    /// The characters in the world younger than the operator asks, by their names in lower case.
+    too_new: HashSet<String>,
     /// `rooms.global` frames: sent first, and only while the link is up.
     requests: VecDeque<String>,
     /// Who asked the hub to move the Global room, by the request's id (none: the console).
@@ -473,6 +480,7 @@ impl Federation {
             seeded: false,
             settings_differ_logged: false,
             uncarried: HashMap::new(),
+            too_new: HashSet::new(),
             requests: VecDeque::new(),
             global_asks: HashMap::new(),
             pending_rooms: HashMap::new(),
@@ -519,6 +527,17 @@ impl Federation {
     #[must_use]
     pub fn link(&self) -> LinkState {
         self.link
+    }
+
+    /// The characters in the world younger than the operator asks of one sending to the network,
+    /// by their names in lower case, as the host says.
+    pub fn set_too_new(&mut self, names: HashSet<String>) {
+        self.too_new = names;
+    }
+
+    /// Is a character in the world younger than the operator asks?
+    pub(crate) fn too_new(&self, name: &str) -> bool {
+        self.too_new.contains(&name.to_lowercase())
     }
 
     /// Whether a character of this world (by name, any case) is on the network.

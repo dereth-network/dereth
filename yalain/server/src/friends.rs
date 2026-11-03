@@ -97,6 +97,9 @@ impl Friends {
     ) -> bool {
         let mut busy = self.accept(now);
         self.service.set_gagged(server.gags.characters());
+        if let Some(f) = fed.as_deref_mut() {
+            f.set_too_new(yalain_world::saves::too_new_in_world(server));
+        }
         busy |= self.read(now, &mut server.store, fed.as_deref_mut());
         for t in self.service.take_tickets() {
             // A banned account's ticket is refused as banned: the client says the account is.
@@ -467,11 +470,13 @@ fn character_named<S: Store>(server: &mut Server<S>, name: &str) -> Option<Chara
         account.is_some_and(|a| yalain_world::admin::banned(&mut server.store, &a, unix_now()));
     // A gag holds whether or not the character is in the world.
     let gagged = server.gags.gagged(c.id) || matches!(server.store.gag(c.id), Ok(Some(_)));
+    let too_new = yalain_world::saves::too_new(server, c.id);
     Some(Character {
         id: c.id,
         name: c.name,
         banned,
         gagged,
+        too_new,
     })
 }
 
@@ -881,6 +886,63 @@ mod tests {
         f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
         h.run(20);
         assert_eq!(h.bots[a].notices(from), [yalain_federation::NOT_CARRIED]);
+    }
+
+    /// The operator's least age reaches the network's half from the world: a character under it
+    /// says nothing and is told why, and the hub's asks to speak for it are refused; old enough it
+    /// goes.
+    /// Behaviour: server.network.too-new-sends-nothing
+    #[test]
+    fn the_worlds_least_age_holds_back_what_a_character_sends_to_the_network() {
+        use dereth_network_protocol::say::{SayMessage, SayOutcome};
+        use yalain_federation::Room;
+        let mut h = Harness::new();
+        let (_, elara) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, Some("general"));
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        fed.link_person(&mut h.server.store, h.now.0, elara, "Elara");
+        let _ = fed.take_frames(h.now.0);
+        h.server.cfg.min_character_age_seconds = 3_600;
+        let mut attempt = |h: &mut Harness, f: &mut Friends, fed: &mut Federation| {
+            f.pump(at(h), &mut h.server, &mut h.net, Some(fed));
+            let t = h.now.0;
+            fed.room_said(&mut f.service, t, elara, "Elara", Room::General, "hi");
+            let said = !fed.take_frames(t).is_empty();
+            let m = SayMessage::Ask {
+                id: "h1".into(),
+                room: "global".into(),
+                who: dereth_network_protocol::Address::parse("Elara@dawnsong").expect("an address"),
+                text: "evening all".into(),
+                via: "discord".into(),
+            };
+            fed.on_frame(&mut f.service, t, &m.to_json());
+            f.pump(at(h), &mut h.server, &mut h.net, Some(fed));
+            let spoke = fed
+                .take_frames(t)
+                .iter()
+                .find_map(|x| match SayMessage::from_json(x) {
+                    Ok(SayMessage::Result {
+                        outcome, reason, ..
+                    }) => Some((outcome, reason)),
+                    _ => None,
+                });
+            (said, spoke)
+        };
+        assert_eq!(
+            attempt(&mut h, &mut f, &mut fed),
+            (
+                false,
+                Some((SayOutcome::Refused, Some("too_new".to_owned())))
+            )
+        );
+        for p in h.server.players.values_mut() {
+            p.play.played_seconds = 3_600;
+        }
+        let (said, spoke) = attempt(&mut h, &mut f, &mut fed);
+        assert!(said, "its line goes");
+        assert_eq!(spoke, Some((SayOutcome::Said, None)));
     }
 
     /// A line the hub asks a character to say, by what the world knows of the character: shown to

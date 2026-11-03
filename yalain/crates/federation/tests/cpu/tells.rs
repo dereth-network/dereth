@@ -442,3 +442,29 @@ fn a_world_owed_a_hundred_answers_is_answered_no_more_until_it_is_owed_fewer() {
     w.told("u", "Bob@coldeve", "Ann@dawnsong", "hi");
     assert_eq!(w.fed.answers_owed(), 1);
 }
+
+/// A character younger than the operator asks sends no tell to another world and is told why; it
+/// sends when it is no longer.
+/// Behaviour: server.network.too-new-sends-nothing
+#[test]
+fn a_character_too_new_sends_no_tell_to_another_world() {
+    let mut w = World::new();
+    w.on_and_present("Ann");
+    w.link(&[("coldeve", true)]);
+    w.frames();
+    w.fed
+        .set_too_new(std::collections::HashSet::from(["ann".to_owned()]));
+    w.tell(1, "Ann", "Bob@coldeve", "hi");
+    assert_eq!(
+        ended(&w),
+        vec![(
+            1,
+            Ended::TooNew,
+            Some("This character is too new to send to the Dereth Network yet.".into())
+        )]
+    );
+    assert!(w.frames().is_empty(), "nothing goes to the hub");
+    w.fed.set_too_new(std::collections::HashSet::new());
+    w.tell(2, "Ann", "Bob@coldeve", "hi");
+    assert_eq!(w.frames().len(), 1, "now it goes");
+}

@@ -294,6 +294,10 @@ slug = ""
 # key is never written in this file; keep that one readable by the server only.
 key_file = "network.key"
 
+# default: 0 (--min-character-age)
+# Seconds a character must have played before it sends to the network: tells, room lines, channels.
+min_character_age_seconds = 0
+
 # default: "general" (--global-room)
 # The chat room that carries the network's Global room until the hub keeps one for this world:
 # "general", "trade", "lfg" or "roleplay", or empty for none. General and Trade are those rooms;

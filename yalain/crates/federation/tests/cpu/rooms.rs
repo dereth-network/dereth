@@ -750,6 +750,7 @@ fn with_ann() -> (World, Character) {
         name: "Ann".into(),
         banned: false,
         gagged: false,
+        too_new: false,
     };
     (w, ann)
 }
@@ -837,6 +838,11 @@ fn a_line_the_hub_asks_for_is_refused_for_each_reason_and_nothing_is_shown() {
         ..ann.clone()
     };
     refused(&mut w, &global, Some(gagged), "gagged");
+    let young = Character {
+        too_new: true,
+        ..ann.clone()
+    };
+    refused(&mut w, &global, Some(young), "too_new");
     refused(
         &mut w,
         &ask("general", "Ann@dawnsong"),
@@ -888,4 +894,26 @@ fn a_line_the_hub_asks_for_is_refused_for_each_reason_and_nothing_is_shown() {
     told(&mut w, Some("off"), &[]);
     w.frames();
     refused(&mut w, &global, Some(ann), "room_off");
+}
+
+/// A character younger than the operator asks says nothing to the network from a room, and is told
+/// why; it is no longer, and its line goes.
+/// Behaviour: server.network.too-new-sends-nothing
+#[test]
+fn a_character_too_new_is_told_its_line_did_not_reach_the_network() {
+    let (mut w, ann) = with_ann();
+    w.fed
+        .set_too_new(std::collections::HashSet::from(["ann".to_owned()]));
+    said(&mut w, "Ann", Room::General, "hello, other worlds");
+    assert_eq!(lines_out(&mut w), []);
+    assert_eq!(
+        w.service.lines,
+        [(
+            ann.id,
+            dereth_network_protocol::rooms::too_new_line(GLOBAL_ROOM)
+        )]
+    );
+    w.fed.set_too_new(std::collections::HashSet::new());
+    said(&mut w, "Ann", Room::General, "hello, other worlds");
+    assert_eq!(lines_out(&mut w).len(), 1);
 }

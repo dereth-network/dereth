@@ -187,7 +187,7 @@ to others.
 | `--config <file>` | read the options from this configuration file (section 3.6) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
-| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation`, `--global-room` | the Dereth Network (section 8) |
+| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation`, `--global-room`, `--min-character-age` | the Dereth Network (section 8) |
 | `--verbose` | log at the debug level (section 7) |
 | `--seconds <s>` | stop after that many seconds |
 | `--stop-at-console-end` | stop, saving everyone, when the console's input ends (section 3.3) |
@@ -383,6 +383,7 @@ shard_db_path = "yalain.sqlite"
 | `[federation] hub_url` | `--hub` | `wss://` (the heartbeat goes to its `https://`), or `ws://` on this machine |
 | `[federation] slug` | `--hub-slug` | |
 | `[federation] key_file` | `--hub-key-file` | default `network.key` |
+| `[federation] min_character_age_seconds` | `--min-character-age` | 0: seconds a character must have played before it sends to the network |
 | `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
 | `[testing] add_characters`, `place_characters`, `character_money`, `make_characters` | `--add-character`, `--place`, `--money`, `--make-character` | Yalain only; lists |
 | `[testing] game_time`, `hold_clock`, `echo_positions`, `run_seconds` | `--game-time`, `--hold-clock`, `--no-echo` when false, `--seconds` | Yalain only |

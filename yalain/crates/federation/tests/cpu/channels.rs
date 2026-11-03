@@ -209,3 +209,19 @@ fn a_tell_to_a_channel_goes_as_any_tell_and_a_non_member_is_told() {
         Some("You are not a member of oldguard@channel.")
     );
 }
+
+/// A character younger than the operator asks makes no channel request, and is told why.
+/// Behaviour: server.network.too-new-sends-nothing
+#[test]
+fn a_character_too_new_makes_no_channel_request() {
+    let (mut w, ann) = with_ann();
+    w.fed
+        .set_too_new(std::collections::HashSet::from(["ann".to_owned()]));
+    let t = w.t;
+    assert_eq!(
+        w.fed
+            .ask_channel(t, ann, "Ann", ChannelOp::Create, "newbies", None),
+        Err(yalain_federation::TOO_NEW)
+    );
+    assert!(w.frames().is_empty());
+}
