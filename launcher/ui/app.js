@@ -773,6 +773,7 @@ const TIP_PER_ADDRESS = "The most players at once from each unique IP address. E
 const TIP_WELCOME = "What the character screen says, line by line. Not every client shows it.";
 const TIP_YALAIN_WELCOME = "Shown to each player as their character enters the world, line by line.";
 const TIP_PLAY = "Players can play this world in their web browser at https://play.dereth.network. The world needs a secure connection for it: a certificate and its key, or a TLS proxy in front.";
+const TIP_PLAY_YALAIN = "Takes connections from web browsers. The world needs a secure connection for it: a certificate and its key, or a TLS proxy in front.";
 const TIP_PROXY = "A proxy such as nginx or Cloudflare handles the secure connection. It must be the only way in.";
 const TIP_LINK = "Linked, players here can talk with, befriend and tell characters on the other worlds of the Dereth Network.";
 const TIP_SLUG = "The world's name on the Dereth Network's website, which can differ from its name here: 2 to 12 lowercase letters and digits, with hyphens between.";
@@ -1144,7 +1145,7 @@ function settingsPage() {
   const origins = ws.allowed_origins ?? [];
   const proxy = !!ws.behind_tls_proxy;
   const websocket = `<div class="form long-labels">
-      ${checkRow("set-ws-enabled", "ENABLE WEBSOCKET CONNECTIONS", "websocket.enabled", !!ws.enabled, { tip: TIP_PLAY })}
+      ${checkRow("set-ws-enabled", "ENABLE WEBSOCKET CONNECTIONS", "websocket.enabled", !!ws.enabled, { tip: h.game === "auberean" ? TIP_PLAY_YALAIN : TIP_PLAY })}
       ${checkRow("set-ws-proxy", "BEHIND A TLS PROXY", "websocket.behind_tls_proxy", proxy, { tip: TIP_PROXY })}
       ${proxy ? "" : `${formRow("set-ws-cert", "CERTIFICATE", textField("set-ws-cert", "websocket.tls_certificate", s, `placeholder="The certificate file (PEM)"`))}
         ${formRow("set-ws-key", "KEY", textField("set-ws-key", "websocket.tls_private_key", s, `placeholder="Its private key file (PEM)"`))}`}
@@ -1195,6 +1196,7 @@ function settingsPage() {
   const sections = yalain
     ? `${fold(`set-world-${id}`, "WORLD", yalainWorld, true)}
           ${fold(`set-players-${id}`, "PLAYERS", players, true)}
+          ${fold(`set-websocket-${id}`, "WEBSOCKET", websocket, false)}
           ${fold(`set-network-${id}`, "DERETH NETWORK", network, false)}
           ${fold(`set-athenaeum-${id}`, "ATHENAEUM WORLD", athenaeum, !!h.publication)}
           ${fold(`set-advanced-${id}`, "ADVANCED", advanced, false)}

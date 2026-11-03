@@ -11,7 +11,7 @@
 //! (the login port and the three after it: its world service is two above), its player limits,
 //! whether it makes an account the first time a name logs in, its welcome message, its shutdown
 //! warning, its log level, its status endpoint (on this computer, where the launcher counts its
-//! players) and the Dereth Network's settings, with the world's database of accounts and
+//! players), its WebSocket endpoint and the Dereth Network's settings, with the world's database of accounts and
 //! characters beside them. The world database it serves is the one its release pins, which `yalain
 //! world fetch` puts in the player's cache before its first start ([`FETCHED`]). It is up once its
 //! log says where it listens.
@@ -202,6 +202,7 @@ pub fn read(dir: &Path) -> Result<Settings, String> {
 /// The settings are not ones a world takes, or the text does not read.
 pub fn update_config(settings: &Settings, original: &str) -> Result<String, String> {
     settings.validate_shared()?;
+    settings.websocket.validate()?;
     let mut doc = original.parse::<DocumentMut>().map_err(|e| e.to_string())?;
     for table in ["server", "database"] {
         if doc.get(table).is_none() {
@@ -256,6 +257,7 @@ pub fn update_config(settings: &Settings, original: &str) -> Result<String, Stri
     if doc["database"].get("shard_db_path").is_none() {
         doc["database"]["shard_db_path"] = toml_edit::value(DATABASE);
     }
+    crate::host_config::put_websocket(&mut doc, &settings.websocket)?;
     let fed = &settings.federation;
     put(&mut doc, &["federation"], "enabled", fed.enabled, false)?;
     put(&mut doc, &["federation"], "slug", fed.slug.as_str(), "")?;
@@ -285,6 +287,7 @@ pub fn write(dir: &Path, settings: &Settings) -> Result<(), String> {
 /// A name, address, port or limit Yalain cannot take, or an install that is not ready.
 pub fn validate(settings: &Settings) -> Result<(), String> {
     settings.validate_shared()?;
+    settings.websocket.validate()?;
     if settings.port == 0 || settings.port > u16::MAX - (PORTS - 1) {
         return Err(
             "Choose a port from 1 to 65532: the world takes it and the three after it.".into(),
@@ -727,6 +730,57 @@ mod tests {
         bad = s.clone();
         bad.max_players = 0;
         assert!(validate(&bad).is_err(), "the limits Empyrean's world has");
+    }
+
+    /// The page's WebSocket fields are `[server.websocket]` in `yalain.toml`, Empyrean's keys, read
+    /// back as they were saved, with a key the page has no field for kept; the same settings are
+    /// refused as for an Empyrean world.
+    #[test]
+    fn the_websocket_settings_are_kept_as_empyrean_keeps_them_and_refused_alike() {
+        use crate::host_config::WebSocket;
+        let d = tempfile::tempdir().unwrap();
+        let mut s = settings(Path::new("/ac2"));
+        write(d.path(), &s).unwrap();
+        assert!(
+            !config_text(d.path()).contains("websocket"),
+            "a new world's file stays short"
+        );
+        s.websocket = WebSocket {
+            enabled: true,
+            listen: "127.0.0.1:9180".into(),
+            behind_tls_proxy: true,
+            allowed_origins: vec!["https://play.example.org".into()],
+            public_url: "wss://play.example.org/ws".into(),
+            ..WebSocket::default()
+        };
+        let edited = format!(
+            "{}\n[server.websocket]\n# by hand\ntrusted_proxies = [\"127.0.0.1\"]\n",
+            config_text(d.path())
+        );
+        keep_config(d.path(), &edited).unwrap();
+        write(d.path(), &s).unwrap();
+        let text = config_text(d.path());
+        assert_eq!(read(d.path()).unwrap().websocket, s.websocket, "{text}");
+        assert!(
+            text.contains("[server.websocket]") && text.contains("listen = \"127.0.0.1:9180\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("# by hand\ntrusted_proxies = [\"127.0.0.1\"]"),
+            "{text}"
+        );
+        let refused = |change: fn(&mut WebSocket)| {
+            let mut bad = s.clone();
+            change(&mut bad.websocket);
+            update_config(&bad, "").unwrap_err()
+        };
+        let plain = refused(|w| {
+            w.listen = "0.0.0.0:9443".into();
+            w.behind_tls_proxy = false;
+        });
+        assert!(plain.contains("secure connection"), "{plain}");
+        let scheme = refused(|w| w.public_url = "https://play.example.org/ws".into());
+        assert!(scheme.contains("wss://"), "{scheme}");
     }
 
     /// A world the launcher hosts keeps Yalain's own updater off: the settings are saved with it

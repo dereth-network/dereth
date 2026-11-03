@@ -384,7 +384,7 @@ pub fn free_status_port(taken: &[u16], free: impl Fn(u16) -> bool) -> Option<u16
 }
 
 impl WebSocket {
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         let listen = self.listen.parse::<SocketAddr>().map_err(|_| {
             "Enter the address browser players connect to as <ip>:<port>, such as 0.0.0.0:9443."
         })?;
@@ -844,49 +844,7 @@ impl Settings {
                 }
             }
         }
-        let ws = &self.websocket;
-        let ws_defaults = WebSocket::default();
-        let at = ["server", "websocket"];
-        put(&mut doc, &at, "enabled", ws.enabled, ws_defaults.enabled)?;
-        put(
-            &mut doc,
-            &at,
-            "listen",
-            ws.listen.as_str(),
-            ws_defaults.listen.as_str(),
-        )?;
-        put(
-            &mut doc,
-            &at,
-            "tls_certificate",
-            ws.tls_certificate.as_str(),
-            "",
-        )?;
-        put(
-            &mut doc,
-            &at,
-            "tls_private_key",
-            ws.tls_private_key.as_str(),
-            "",
-        )?;
-        put(
-            &mut doc,
-            &at,
-            "behind_tls_proxy",
-            ws.behind_tls_proxy,
-            false,
-        )?;
-        put(
-            &mut doc,
-            &at,
-            "allowed_origins",
-            ws.allowed_origins
-                .iter()
-                .map(String::as_str)
-                .collect::<toml_edit::Array>(),
-            toml_edit::Array::new(),
-        )?;
-        put(&mut doc, &at, "public_url", ws.public_url.as_str(), "")?;
+        put_websocket(&mut doc, &self.websocket)?;
         let fed = &self.federation;
         put(&mut doc, &["federation"], "enabled", fed.enabled, false)?;
         put(&mut doc, &["federation"], "slug", fed.slug.as_str(), "")?;
@@ -974,6 +932,39 @@ pub(crate) fn escaped(text: &str) -> Result<toml_edit::Value, String> {
         .map_err(|e| e.to_string())?
         .parse::<toml_edit::Value>()
         .map_err(|e| e.to_string())
+}
+
+/// `[server.websocket]` written into `doc`, each key only when it differs from the server's
+/// default or the file already has it: Empyrean's and Yalain's file alike.
+///
+/// # Errors
+/// The file's table is not a table.
+pub(crate) fn put_websocket(doc: &mut DocumentMut, ws: &WebSocket) -> Result<(), String> {
+    let ws_defaults = WebSocket::default();
+    let at = ["server", "websocket"];
+    put(doc, &at, "enabled", ws.enabled, ws_defaults.enabled)?;
+    put(
+        doc,
+        &at,
+        "listen",
+        ws.listen.as_str(),
+        ws_defaults.listen.as_str(),
+    )?;
+    put(doc, &at, "tls_certificate", ws.tls_certificate.as_str(), "")?;
+    put(doc, &at, "tls_private_key", ws.tls_private_key.as_str(), "")?;
+    put(doc, &at, "behind_tls_proxy", ws.behind_tls_proxy, false)?;
+    put(
+        doc,
+        &at,
+        "allowed_origins",
+        ws.allowed_origins
+            .iter()
+            .map(String::as_str)
+            .collect::<toml_edit::Array>(),
+        toml_edit::Array::new(),
+    )?;
+    put(doc, &at, "public_url", ws.public_url.as_str(), "")?;
+    Ok(())
 }
 
 /// Sets `key` in the table at `path` to `next`, as [`set`] does. A key the file does not have is

@@ -403,7 +403,7 @@ Library, a port: the world takes it and the three after it, and the two switches
 its own folder under `hosts-auberean/<id>` with its settings in `yalain.toml` (in `empyrean.toml`'s
 form), **Start** (which fetches the world database its Yalain pins into your user cache the first time,
 `yalain world fetch`), **Stop**, **Play**, **Settings**, its console and log. A world's page has
-**Athenaeum** where Empyrean's has **Lyceum**: its world base (`Yalain v0.21.0`, the world
+the same **Websocket** settings, and **Athenaeum** where Empyrean's has **Lyceum**: its world base (`Yalain v0.21.0`, the world
 database its Yalain pins) and what it runs, `Unmodified.` or an Athenaeum world and its version;
 **Publish Athenaeum World** with a picker of Athenaeum's worlds (or Other...), **Publish Latest**
 once the world was saved since, and **Restore World Base**. Its Settings say `Plays the Athenaeum world <name> version <n>,
