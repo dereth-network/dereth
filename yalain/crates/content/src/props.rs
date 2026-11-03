@@ -100,6 +100,26 @@ impl Props {
         self
     }
 
+    /// The properties with the worn appearances of template `template` taken from
+    /// [`crate::worn_table::WORN_IN_CODE`] where its own properties name none.
+    #[must_use]
+    pub fn with_worn_of(mut self, template: u32) -> Self {
+        if self.values.contains_key("Item_WornAppearanceFile1") {
+            return self;
+        }
+        let rows = crate::worn_table::WORN_IN_CODE
+            .iter()
+            .filter(|(t, ..)| *t == template);
+        for (n, (_, race, sex, file)) in rows.enumerate() {
+            let n = n + 1;
+            for (name, v) in [("File", *file), ("Race", *race), ("Sex", *sex)] {
+                self.values
+                    .insert(format!("Item_WornAppearance{name}{n}"), Prop::Word(v));
+            }
+        }
+        self
+    }
+
     /// Set a value (for content made by hand).
     pub fn set(&mut self, name: &str, v: Prop) -> &mut Self {
         self.values.insert(name.to_string(), v);

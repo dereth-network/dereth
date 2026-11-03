@@ -221,6 +221,72 @@ fn every_recorded_worn_or_wielded_item_is_listed_as_this_server_lists_it() {
     assert_eq!(t.others_agree, t.others, "every worn item's entry: {t:#?}");
 }
 
+/// Each look the 2017 servers listed at entry for an item whose template names no worn appearance in
+/// its properties (the data files do not say; the template's class does, in code) is one the table
+/// gives that template.
+///
+/// Behaviour: session.server.an-item-without-worn-properties-changes-the-body-as-2017-showed
+#[test]
+fn every_recorded_look_of_a_template_without_worn_properties_is_in_the_table() {
+    use std::collections::BTreeMap;
+    use yalain_content::worn_table::WORN_IN_CODE;
+    let path = auberean_testkit::data::require_capture_index();
+    let lib = library().expect("the client library reads from the install");
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.dir = 's2c' \
+             AND m.status = 'ac2' AND m.mtype IN (65624, 65638) ORDER BY m.session_id, m.idx",
+        )
+        .expect("the query prepares");
+    let rows = st
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))
+        .expect("the query runs");
+    let mut templates: BTreeMap<(i64, u64), u32> = BTreeMap::new();
+    let mut worn: Vec<(i64, u64, u32)> = Vec::new();
+    for (session, raw) in rows.flatten() {
+        match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::CreateObject(o)) => {
+                templates.insert((session, o.id), o.weenie.entity_did);
+            }
+            Ok(ServerMessage::PlayerCall(c)) if c.function.0 == function::SESSION_START => {
+                let args = c.args.as_ref().and_then(|a| decode(&a.0, lib).ok());
+                let Some(Arg::Object(by_item)) = args.as_ref().and_then(|a| a.get(8)) else {
+                    continue;
+                };
+                for p in profiles(by_item) {
+                    let item = u64::from(p.slots[5]) << 32 | u64::from(p.slots[4]);
+                    if let Some((look, _)) = shape(by_item, p).and_then(|s| look_of(&s.3[1])) {
+                        worn.push((session, item, look));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let (mut checked, mut missed) = (0, Vec::new());
+    for (session, item, look) in worn {
+        let Some(template) = templates.get(&(session, item)) else {
+            continue;
+        };
+        let given: Vec<u32> = WORN_IN_CODE
+            .iter()
+            .filter(|(t, ..)| t == template)
+            .map(|(.., file)| *file)
+            .collect();
+        if given.is_empty() {
+            continue;
+        }
+        checked += 1;
+        if !given.contains(&look) {
+            missed.push((*template, look, given));
+        }
+    }
+    assert!(checked > 500, "the sessions wear such items: {checked}");
+    assert!(missed.is_empty(), "looks the table lacks: {missed:x?}");
+}
+
 /// The look a recorded profile's appearance native lists: its one appearance and values (none
 /// for an empty table).
 fn look_of(packed: &[u8]) -> Option<(u32, auberean_protocol::table::Table<f32>)> {

@@ -264,7 +264,8 @@ pub fn catalog(
             continue;
         }
         let props = Props::of(t, &|id| p.entity(id), &prop_name)
-            .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref());
+            .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref())
+            .with_worn_of(t);
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
             Ok(d) => d,
             Err(e) => {

@@ -35,6 +35,7 @@ pub mod spawns;
 pub mod stores;
 pub mod story;
 pub mod talk;
+pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
 pub use loot::{LootProfile, LootTable};

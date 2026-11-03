@@ -309,6 +309,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.an-item-without-worn-properties-changes-the-body-as-2017-showed",
+        says: "An item whose template names no worn appearance in its properties gives its wearer \
+               the look the 2017 servers sent for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SERVER-WORN-IN-CODE"),
+        station: "yalain-testkit::corpus::keeping::every_recorded_look_of_a_template_without_worn_properties_is_in_the_table",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
         says: "Our client wields its starting sword on our server, logs off and enters again: its \
                model has the sword hanging from the player and wielded by it, and the server \
