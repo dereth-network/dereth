@@ -121,6 +121,11 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "allow_unlimited_sessions_from_ip_addresses",
         Takes::Many("--unlimited-sessions-from"),
     ),
+    (
+        "server.network",
+        "download_bytes_per_second",
+        Takes::Whole("--download-rate"),
+    ),
     ("server.websocket", "enabled", Takes::Flag("--websocket")),
     (
         "server.websocket",
@@ -988,6 +993,31 @@ mod tests {
             );
         }
         assert!(args.contains(&"--max-sessions".to_owned()));
+    }
+
+    /// `[server.network] download_bytes_per_second` sets the rate of large downloads, retail's when
+    /// it is not given; a rate no download does well at stops the server at its start.
+    /// Behaviour: server.net.large-message-rate-setting
+    #[test]
+    fn the_download_rate_setting_takes_a_rate_and_refuses_one_out_of_bounds() {
+        let folder = Path::new("/srv");
+        let rate = |n: u64| {
+            let text = format!("[server.network]\ndownload_bytes_per_second = {n}\n");
+            crate::parse_from(arguments(&text, folder).expect("reads").0).map(|o| o.download_rate)
+        };
+        assert_eq!(rate(4096), Ok(4096));
+        assert_eq!(rate(262_144), Ok(262_144));
+        assert_eq!(
+            crate::parse_from(Vec::<String>::new())
+                .expect("parses")
+                .download_rate,
+            65_536
+        );
+        for refused in [0, 4095, 262_145] {
+            let e = rate(refused).expect_err("refused");
+            assert!(e.contains("--download-rate"), "{e}");
+        }
+        assert!(rate(1 << 40).is_err(), "more than a rate can be");
     }
 
     /// `--config` names the file and is taken out of the arguments; without it, `yalain.toml` in

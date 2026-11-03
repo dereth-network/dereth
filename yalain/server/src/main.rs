@@ -51,6 +51,8 @@
 //!                         `unlimited`)
 //!   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
 //!                         many times)
+//!   --download-rate N     the bytes a second a client is sent a large data download at, 4096 to
+//!                         262144 (default 65536, the retail servers' rate)
 //!   --motd TEXT           a message shown to each player as its character enters the world
 //!                         (`\n` starts a new line)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
@@ -226,6 +228,8 @@ struct Options {
     shutdown_seconds: u32,
     /// Logins the world holds at once (`--max-sessions`).
     max_sessions: u32,
+    /// The bytes a second a client's large downloads go at (`--download-rate`).
+    download_rate: u32,
     /// Logins one address holds at once (`--max-sessions-per-address`; none: no limit).
     max_sessions_per_address: Option<u32>,
     /// Addresses no per-address limit holds back (`--unlimited-sessions-from`).
@@ -354,6 +358,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
         max_sessions: yalain_world::login::MAX_SESSIONS,
+        download_rate: yalain_net::pace::DEFAULT_BYTES_PER_SECOND,
         max_sessions_per_address: None,
         unlimited_addresses: Vec::new(),
         motd: String::new(),
@@ -457,6 +462,13 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 o.max_sessions = value()?
                     .parse()
                     .map_err(|e| format!("--max-sessions: {e}"))?;
+            }
+            "--download-rate" => {
+                let rate = value()?
+                    .parse()
+                    .map_err(|e| format!("--download-rate: {e}"))?;
+                yalain_net::pace::check_rate(rate).map_err(|e| format!("--download-rate: {e}"))?;
+                o.download_rate = rate;
             }
             "--max-sessions-per-address" => {
                 let v = value()?;
@@ -883,7 +895,10 @@ fn run<S: Store>(
         .game_time
         .unwrap_or_else(|| (unix_now() - GAME_EPOCH) as f64);
     let mut net = ServerNet::new(
-        NetConfig::retail_ids(SocketAddrV4::new(advertise, o.world_port)),
+        NetConfig {
+            large_message_bytes_per_second: o.download_rate,
+            ..NetConfig::retail_ids(SocketAddrV4::new(advertise, o.world_port))
+        },
         random::os_u64,
         game_time,
         local(),
@@ -1821,7 +1836,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"

@@ -23,6 +23,7 @@ what they see, not how it was done.
 - New named admin groups, for keeping bans, boots and the like to chosen admins.
 - New `--serve-admin-library`, so an admin's retail client can use its admin commands too.
 - The server starts in about half the time.
+- New `download_bytes_per_second` setting for how fast clients download data.
 
 ## 0.1.2 (2026-11-03)
 

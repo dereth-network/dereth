@@ -34,6 +34,8 @@ yalain --dats <install folder> [options]
                         `unlimited`)
   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
                         many times)
+  --download-rate N     the bytes a second a client is sent a large data download at, 4096 to
+                        262144 (default 65536, the retail servers' rate)
   --motd TEXT           a message shown to each player as its character enters the world
                         (`\\n` starts a new line)
   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),

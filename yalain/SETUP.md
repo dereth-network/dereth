@@ -180,6 +180,7 @@ to others.
 | `--max-sessions <n>` | how many logins the world holds at once (default 128; section 3.7) |
 | `--max-sessions-per-address <n>` | how many logins one address holds at once (default `unlimited`; section 3.7) |
 | `--unlimited-sessions-from <ip>` | an address the per-address limit does not hold back; may be given many times (section 3.7) |
+| `--download-rate <n>` | the bytes a second a client is sent a large data download at, 4096 to 262144 (default 65536, the retail servers' rate: about two minutes over the largest record) |
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
 | `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
@@ -365,6 +366,7 @@ shard_db_path = "yalain.sqlite"
 | `[server.network] maximum_allowed_sessions` | `--max-sessions` | |
 | `[server.network] maximum_allowed_sessions_per_ip_address` | `--max-sessions-per-address` | -1: unlimited |
 | `[server.network] allow_unlimited_sessions_from_ip_addresses` | `--unlimited-sessions-from` | a list |
+| `[server.network] download_bytes_per_second` | `--download-rate` | Yalain only; default 65536, 4096 to 262144. The floor hasn't been tried against a retail client, and at the top about a quarter of the packets were sent twice |
 | `[server.accounts] allow_auto_account_creation` | `--listed-accounts` when false | |
 | `[server.accounts] password_hash_work_factor` | `--secret-cost` | |
 | `[server.accounts] accounts` | `--add-account` | Yalain only; a list of `name:ticket` |

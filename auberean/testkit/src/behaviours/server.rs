@@ -3640,6 +3640,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.large-message-rate-setting",
+        says: "A host may set the rate of large messages between 4 KiB and 256 KiB a second, the \
+               2013 servers' 64 KiB unless it does: at the highest a seven-megabyte record arrives \
+               whole over a link that loses packets, with never more out than the window, nothing \
+               let go; at the lowest a large message still arrives; any other rate stops the server \
+               at its start.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACE-SETTING"),
+        station: "yalain-net::cpu::pace::a_seven_megabyte_message_at_the_highest_rate_arrives_whole_and_loses_nothing_it_sent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.large-message-window",
         says: "A server's large message waits while 1,140 packets it sent are unacknowledged, \
                ten of the client's requests to send again, so a link that goes down never leaves \

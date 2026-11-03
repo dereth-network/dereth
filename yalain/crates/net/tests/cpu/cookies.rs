@@ -8,7 +8,7 @@ use dereth_transport::wire::{PacketFlags, ParsedPacket};
 use yalain_net::endpoint::standalone;
 use yalain_net::login::build_login;
 use yalain_net::server::{CloseReason, ConnId, Datagram, NetConfig, NetEvent, Port, ServerNet};
-use yalain_net::{fixed_stream, LocalTime};
+use yalain_net::{fixed_stream, BlobKind, LocalTime};
 
 const NOW: LocalTime = LocalTime(10.0);
 
@@ -303,4 +303,31 @@ fn a_carried_client_is_referred_to_the_world_by_its_own_numbers() {
         assert_eq!(*sent.addr.ip(), std::net::Ipv4Addr::new(203, 0, 113, 10));
         assert_eq!(sent.addr.port(), port);
     }
+}
+
+/// A connection sends its large messages at the rate the host set: a first step's burst is that
+/// rate's budget.
+/// Behaviour: server.net.large-message-rate-setting
+#[test]
+fn a_connection_sends_large_messages_at_the_rate_the_host_set() {
+    let first_burst = |rate: u32| {
+        let world: SocketAddrV4 = "203.0.113.10:9002".parse().expect("an address");
+        let config = NetConfig {
+            large_message_bytes_per_second: rate,
+            ..NetConfig::retail_ids(world)
+        };
+        let mut net = ServerNet::new(config, fixed_stream(1), 0.0, NOW);
+        let client: SocketAddr = "198.51.100.7:40000".parse().expect("an address");
+        let (conn, _) = logged_in(&mut net, client);
+        net.take_datagrams();
+        net.send(conn, 5, BlobKind(0), vec![7; 1 << 20]);
+        net.tick(NOW);
+        net.take_datagrams()
+            .iter()
+            .map(|d| d.bytes.len())
+            .sum::<usize>()
+    };
+    let (slow, fast) = (first_burst(8 * 1024), first_burst(128 * 1024));
+    assert!((4096..5096).contains(&slow), "{slow}");
+    assert!((64 * 1024..65 * 1024 + 1000).contains(&fast), "{fast}");
 }

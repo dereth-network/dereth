@@ -131,6 +131,12 @@ maximum_allowed_sessions_per_ip_address = -1
 # IP addresses exempt from that limit. Example: ["127.0.0.1"]
 allow_unlimited_sessions_from_ip_addresses = []
 
+# default: 65536 (--download-rate; Yalain only)
+# The bytes a second a client is sent a large data download at, 4096 to 262144. The default is
+# the retail servers' rate, which takes about two minutes over the largest record; the highest
+# takes about half a minute. Anything else stops the server at its start.
+download_bytes_per_second = 65536
+
 # ----------------------------------------------------------------------------------------------
 [server.websocket]
 # The WebSocket endpoint: clients in a browser connect here directly, one game datagram per

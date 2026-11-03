@@ -33,6 +33,7 @@ use dereth_transport::wire::{PacketFlags, ParsedPacket};
 use crate::blob::{blob_id, BlobKind};
 use crate::endpoint::{standalone, Endpoint, Role, Stats};
 use crate::login::{parse_login, GameLogin};
+use crate::pace::{Pace, DEFAULT_BYTES_PER_SECOND};
 
 /// How many times a handshake is sent before the server gives up on the client.
 pub const HANDSHAKE_TRIES: u32 = 20;
@@ -97,6 +98,8 @@ pub struct NetConfig {
     /// The world service's even port as clients reach it: what a referral names (for a client
     /// close by, see [`ServerNet::refer_nearby`]).
     pub world_addr: SocketAddrV4,
+    /// The rate each connection sends its large messages at ([`crate::pace`]).
+    pub large_message_bytes_per_second: u32,
 }
 
 impl NetConfig {
@@ -113,6 +116,7 @@ impl NetConfig {
                 iteration: 2,
             },
             world_addr,
+            large_message_bytes_per_second: DEFAULT_BYTES_PER_SECOND,
         }
     }
 
@@ -523,6 +527,7 @@ impl ServerNet {
             game_time,
             now,
         );
+        ep.pace = Pace::at_rate(self.cfg.large_message_bytes_per_second);
         if self.held {
             ep.hold_clock(now);
         }
