@@ -371,6 +371,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.interior.a-room-names-the-material-of-its-floor",
+        says: "A body on an interior floor touches the physics material the cell's own properties                name; a cell that names none gives none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELL-FLOOR-MATERIAL"),
+        station: "auberean-physics::dat::walk::a_room_names_the_material_of_its_floor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.a-body-stands-and-runs-on-an-interior-floor",
         says: "Dropped in a cell of the human training hall, the player's body lands on its floor; \
                running, it passes from cell to cell through the doorways, never falls through a \

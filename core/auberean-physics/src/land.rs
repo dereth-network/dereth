@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use auberean_assets::property::{PropertyCollection, PropertyList};
+use auberean_assets::property::{PropertyCollection, PropertyList, PropertyValue};
 use auberean_world::land::LandConstants;
 use auberean_world::math::over_polygon;
 use auberean_world::property::BlockProperties;
@@ -36,6 +36,9 @@ pub const CELLS_PER_SIDE: usize = 8;
 pub const CELL_LENGTH: f32 = BLOCK_LENGTH / 8.0;
 /// The terrain kind that opens a hole in the ground.
 const HOLE_TERRAIN: u32 = 0x1E;
+/// The group of an interior cell's own properties, and the one that names its physics material.
+const CELL_GROUP: u32 = 0x4000_0010;
+const CELL_MATERIAL: u32 = 0x4000_005F;
 
 /// A land cell's id: block `(x, y)`, cell `(cx, cy)` (x major, numbered from 1).
 #[must_use]
@@ -475,12 +478,29 @@ impl Land {
         self.block(lb.x(), lb.y()).map_or(0, |b| b.water_material)
     }
 
-    /// What a body standing at `at` in cell `id` touches: a land cell's ground; an interior's floors
-    /// name no material.
+    /// What a body standing at `at` in cell `id` touches: a land cell's ground; in an interior cell
+    /// the material its own properties name, the last of them, none if they name none.
+    // D2-03497, D2-03528, D2-03606
     #[must_use]
     pub fn ground_material(&self, id: CellId, at: Vec3) -> u32 {
         if crate::interior::is_interior(id) {
-            return 0;
+            let Some(c) = self
+                .cell_materials
+                .read()
+                .ok()
+                .and_then(|c| c.get(&id.0).cloned())
+            else {
+                return 0;
+            };
+            let properties = c.own.iter().flat_map(|p| p.groups.iter());
+            return properties
+                .filter(|g| g.group == CELL_GROUP)
+                .flat_map(|g| g.properties.iter())
+                .filter(|p| p.id == CELL_MATERIAL)
+                .fold(0, |kept, p| match p.value {
+                    PropertyValue::DataFile(d) => d.0,
+                    _ => kept,
+                });
         }
         let lb = id.landblock();
         self.block(lb.x(), lb.y())
