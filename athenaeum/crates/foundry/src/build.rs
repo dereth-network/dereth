@@ -8,10 +8,12 @@
 //! on the machine that made them.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
+use auberean_script::library::{Library, RECORD};
 use yalain_world_db::compile::{compile, Install, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::merge::Merged;
@@ -25,6 +27,8 @@ pub struct InstallFiles {
     pub local: Option<DatFile>,
     pub ctx: Context,
     states: Vec<u32>,
+    /// The script library, read at the first compile and shared by the ones after it.
+    library: OnceLock<Library>,
 }
 
 impl std::fmt::Debug for InstallFiles {
@@ -59,7 +63,21 @@ impl InstallFiles {
             local,
             ctx,
             states,
+            library: OnceLock::new(),
         })
+    }
+
+    /// The install's script library, read once.
+    fn library(&self) -> Result<&Library, String> {
+        if let Some(lib) = self.library.get() {
+            return Ok(lib);
+        }
+        let bytes = self
+            .portal
+            .read(RECORD)
+            .map_err(|e| format!("the script library: {e}"))?;
+        let lib = Library::from_record(&bytes).map_err(|e| format!("the script library: {e}"))?;
+        Ok(self.library.get_or_init(|| lib))
     }
 
     /// What a compile reads of the install.
@@ -70,6 +88,7 @@ impl InstallFiles {
         let mut install = DatInstall::new(
             Box::new(|id| self.portal.read(id).ok()),
             self.ctx.clone(),
+            self.library()?,
             self.states.clone(),
         )?;
         if let Some(local) = &self.local {

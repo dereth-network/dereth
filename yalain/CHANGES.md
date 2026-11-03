@@ -22,6 +22,7 @@ what they see, not how it was done.
 - The game's admin commands now work for admin characters: teleports, bans, making objects and more.
 - New named admin groups, for keeping bans, boots and the like to chosen admins.
 - New `--serve-admin-library`, so an admin's retail client can use its admin commands too.
+- The server starts in about half the time.
 
 ## 0.1.2 (2026-11-03)
 

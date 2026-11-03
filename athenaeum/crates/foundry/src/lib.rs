@@ -5,8 +5,8 @@
 //! **Depends on** the shared pack format (`dereth-pack`) in Asheron's Call 2's dialect
 //! (`auberean-pack`); the world database (`yalain-world-db`), whose rows, checks, merge over a
 //! base and compile a world uses as the server does, and the server's tables it compiles into
-//! (`yalain-content`); the data files (`auberean-dat`, `auberean-assets`) a world is built
-//! against; and `toml_edit`, to change a pack's rows in place. **Used by** the `athenaeum` command
+//! (`yalain-content`); the data files (`auberean-dat`, `auberean-assets`) and the script library
+//! (`auberean-script`) a world is built against; and `toml_edit`, to change a pack's rows in place. **Used by** the `athenaeum` command
 //! (`athenaeum-cli`) and the editor (`athenaeum-editor`).
 //!
 //! A **world** is a folder: its `world.toml` names the world database it lies over (`[base]`, a

@@ -2,6 +2,7 @@
 //! data, the levels, skills and vitae costs, the templates the world makes things of, the ground;
 //! and the files it serves clients' requests for records from.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -39,10 +40,13 @@ pub fn install_files(dats: &Path) -> Result<yalain_world::download::InstallFiles
 /// The character generation data's saved state.
 pub const MATRIX: u32 = 0x7000_0390;
 
-/// The install's portal file and its decoding context.
+/// The install's portal file, its decoding context and its script library.
 pub struct Portal {
     pub dat: DatFile,
     pub ctx: Context,
+    /// Read at its first use and shared by everything the start reads with it after that: it is a
+    /// large record, and every table of the start needs its field names.
+    library: OnceCell<Library>,
 }
 
 impl Portal {
@@ -58,7 +62,11 @@ impl Portal {
             .ok_or_else(|| format!("no portal data file in {}", dats.display()))?;
         let dat = DatFile::open(&portal).map_err(|e| e.to_string())?;
         let ctx = Context::from_portal(&dat).map_err(|e| e.to_string())?;
-        Ok(Self { dat, ctx })
+        Ok(Self {
+            dat,
+            ctx,
+            library: OnceCell::new(),
+        })
     }
 
     fn entity(&self, id: u32) -> Option<Entity> {
@@ -112,8 +120,8 @@ pub fn start_rules(p: &Portal) -> Result<StartRules, String> {
         .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
     let st: ScriptState = auberean_assets::decode(MATRIX, &bytes, &p.ctx)
         .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
-    let g = Graph::decode(&st.graph, &lib).map_err(|e| format!("{MATRIX:08X}: {e}"))?;
-    StartRules::from_matrix(&lib, &g)
+    let g = Graph::decode(&st.graph, lib).map_err(|e| format!("{MATRIX:08X}: {e}"))?;
+    StartRules::from_matrix(lib, &g)
 }
 
 /// The ids of the properties a template's facts are read from, found by name in the data's
@@ -149,8 +157,8 @@ pub fn level_table(p: &Portal) -> Result<yalain_world::levels::LevelTable, Strin
     let bytes = p.dat.read(id).map_err(|e| format!("{id:08X}: {e}"))?;
     let st: ScriptState =
         auberean_assets::decode(id, &bytes, &p.ctx).map_err(|e| format!("{id:08X}: {e}"))?;
-    let g = Graph::decode(&st.graph, &lib).map_err(|e| format!("{id:08X}: {e}"))?;
-    yalain_world::levels::LevelTable::from_state(&lib, &g)
+    let g = Graph::decode(&st.graph, lib).map_err(|e| format!("{id:08X}: {e}"))?;
+    yalain_world::levels::LevelTable::from_state(lib, &g)
 }
 
 /// The vitae cost table (the experience to raise vitae by one at full vitae, by level from 1),
@@ -164,8 +172,8 @@ pub fn vitae_costs(p: &Portal) -> Result<Vec<u64>, String> {
     let bytes = p.dat.read(id).map_err(|e| format!("{id:08X}: {e}"))?;
     let st: ScriptState =
         auberean_assets::decode(id, &bytes, &p.ctx).map_err(|e| format!("{id:08X}: {e}"))?;
-    let g = Graph::decode(&st.graph, &lib).map_err(|e| format!("{id:08X}: {e}"))?;
-    yalain_world::death::vitae_costs_from_state(&lib, &g)
+    let g = Graph::decode(&st.graph, lib).map_err(|e| format!("{id:08X}: {e}"))?;
+    yalain_world::death::vitae_costs_from_state(lib, &g)
 }
 
 /// The skills' definitions (each skill's saved state, found by its name in the skills'
@@ -186,9 +194,9 @@ pub fn skill_table(p: &Portal) -> Result<yalain_world::skills::SkillTable, Strin
     let graph = |id: u32| -> Option<Graph> {
         let bytes = p.dat.read(id).ok()?;
         let st: ScriptState = auberean_assets::decode(id, &bytes, &p.ctx).ok()?;
-        Graph::decode(&st.graph, &lib).ok()
+        Graph::decode(&st.graph, lib).ok()
     };
-    Ok(SkillTable::read(&lib, &names.names, &graph))
+    Ok(SkillTable::read(lib, &names.names, &graph))
 }
 
 /// Templates the world makes things of beyond the camps' creatures and their loot: the corpse,
@@ -332,9 +340,15 @@ pub fn creature_weapons(
 /// The kind of an entity made of a script package.
 const ENTITY_OF_PACKAGE: u32 = 0x4000_0002;
 
-/// The script library. A read or decode that fails is checked against the file and read once
-/// more; a second read that succeeds is warned of.
-fn library(p: &Portal) -> Result<Library, String> {
+/// The script library, read once. A read or decode that fails is checked against the file and read
+/// once more; a second read that succeeds is warned of.
+///
+/// # Errors
+/// The library does not read.
+pub fn library(p: &Portal) -> Result<&Library, String> {
+    if let Some(lib) = p.library.get() {
+        return Ok(lib);
+    }
     let lib = p
         .dat
         .read_checked(RECORD, Library::from_record)
@@ -342,7 +356,7 @@ fn library(p: &Portal) -> Result<Library, String> {
     if let Some(r) = lib.retried {
         tracing::warn!("the script library: {r}");
     }
-    Ok(lib.value)
+    Ok(p.library.get_or_init(|| lib.value))
 }
 
 /// A saved state's object graph.
@@ -362,9 +376,9 @@ pub fn effect_table(
 ) -> Result<yalain_world::effect_defs::EffectTable, String> {
     let lib = library(p)?;
     Ok(yalain_world::effect_defs::EffectTable::read(
-        &lib,
+        lib,
         states,
-        &|id| state_graph(p, &lib, id),
+        &|id| state_graph(p, lib, id),
     ))
 }
 
@@ -385,8 +399,8 @@ pub fn item_effects(
     let mut shown = |name: &str| -> Option<EffectShown> {
         *known.entry(name.to_string()).or_insert_with(|| {
             let state = 0x7000_0000 | lib.package_id(name)?;
-            let g = state_graph(p, &lib, state)?;
-            EffectShown::of(&EffectDef::from_state(state, &lib, &g).ok()?)
+            let g = state_graph(p, lib, state)?;
+            EffectShown::of(&EffectDef::from_state(state, lib, &g).ok()?)
         })
     };
     let mut out = std::collections::HashMap::new();
@@ -419,9 +433,9 @@ pub fn mounts(p: &Portal, bodies: &[u32]) -> Result<yalain_world::mounts::Mounts
         })
         .collect();
     Ok(yalain_world::mounts::Mounts::read(
-        &lib,
+        lib,
         &states,
-        &|id| state_graph(p, &lib, id),
+        &|id| state_graph(p, lib, id),
         &|id| p.dat.read(id).ok(),
         bodies,
     ))
@@ -449,9 +463,9 @@ pub fn interactions(
         .map(|t| (t.id, t.description.package))
         .collect();
     Ok(yalain_world::usable::interactions::Interactions::read(
-        &lib,
+        lib,
         &states,
-        &|id| state_graph(p, &lib, id),
+        &|id| state_graph(p, lib, id),
         &templates,
     ))
 }
@@ -485,16 +499,16 @@ pub fn item_uses(
         .filter_map(|id| {
             let st: ScriptState =
                 auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()?;
-            let value = Graph::decode(&st.graph, &lib)
+            let value = Graph::decode(&st.graph, lib)
                 .ok()
-                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(&lib, &g));
+                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(lib, &g));
             Some((id, st.package, value))
         })
         .collect();
     let templates = || catalog.templates.iter().map(|(id, t)| (*id, &t.props));
     Ok((
-        read_named(&lib, states.iter().copied(), templates(), USED),
-        read_named(&lib, states.iter().copied(), templates(), WORN),
+        read_named(lib, states.iter().copied(), templates(), USED),
+        read_named(lib, states.iter().copied(), templates(), WORN),
     ))
 }
 
@@ -664,11 +678,11 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         .iter()
         .flatten()
         .filter_map(|&state| {
-            let g = state_graph(p, &lib, state)?;
-            let (_, table) = yalain_world::effect_defs::EffectDef::from_state(state, &lib, &g)
+            let g = state_graph(p, lib, state)?;
+            let (_, table) = yalain_world::effect_defs::EffectDef::from_state(state, lib, &g)
                 .ok()?
                 .name?;
-            Some((state, (table, treasure::potion_color(&lib, &g)?)))
+            Some((state, (table, treasure::potion_color(lib, &g)?)))
         })
         .collect();
     Ok(treasure::Kinds {
@@ -713,11 +727,11 @@ pub fn crafting(
 ) -> Result<yalain_world::craft::Crafting, String> {
     let lib = library(p)?;
     Ok(yalain_world::craft::Crafting::read(
-        &lib,
+        lib,
         &start.skills,
         more,
         &start.recipes,
-        &|id| state_graph(p, &lib, id),
+        &|id| state_graph(p, lib, id),
     ))
 }
 

@@ -11,6 +11,7 @@ use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::testing::{require_install, TARGET};
 use auberean_dat::DatFile;
 use auberean_protocol::{queue, ServerMessage};
+use auberean_script::library::{Library, RECORD};
 use yalain_content::Kind;
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
@@ -109,7 +110,11 @@ fn dat_install() -> DatInstall<'static> {
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
-    DatInstall::new(Box::new(move |id| portal.read(id).ok()), ctx, states)
+    static LIBRARY: OnceLock<Library> = OnceLock::new();
+    let lib = LIBRARY.get_or_init(|| {
+        Library::from_record(&portal.read(RECORD).expect("the library")).expect("the library reads")
+    });
+    DatInstall::new(Box::new(move |id| portal.read(id).ok()), ctx, lib, states)
         .expect("install")
         .with_text(Box::new(move |id| local.read(id).ok()))
 }

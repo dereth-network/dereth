@@ -12,7 +12,7 @@ use auberean_assets::script::{Qualities, ScriptState};
 use auberean_assets::strings::{EnumMap, StringTable};
 use auberean_assets::Context;
 use auberean_script::graph::{Body, Graph, PackedObject};
-use auberean_script::library::{Library, RECORD};
+use auberean_script::library::Library;
 use auberean_script::native_object::{Item, NativeObject};
 use auberean_script::opcode::{length, low_byte, signed};
 use auberean_script::value::FunctionId;
@@ -33,7 +33,7 @@ pub struct DatInstall<'a> {
     portal: Records<'a>,
     local: Option<Records<'a>>,
     ctx: Context,
-    lib: Library,
+    lib: &'a Library,
     profiles: BTreeMap<u32, String>,
     states: Vec<u32>,
     quests: OnceCell<HashMap<u32, u32>>,
@@ -45,14 +45,18 @@ pub struct DatInstall<'a> {
 }
 
 impl<'a> DatInstall<'a> {
-    /// An install from its portal file's records, its decoding context, and the ids of its saved
-    /// states (`0x6F...`, searched for a quest's definition when a row names no state).
+    /// An install from its portal file's records, its decoding context, its script library (read by
+    /// the caller, which may share it), and the ids of its saved states (`0x6F...`, searched for a
+    /// quest's definition when a row names no state).
     ///
     /// # Errors
-    /// The script library or the profile names do not read.
-    pub fn new(portal: Records<'a>, ctx: Context, states: Vec<u32>) -> Result<Self, String> {
-        let lib = Library::from_record(&portal(RECORD).ok_or("the install has no script library")?)
-            .map_err(|e| format!("the script library: {e}"))?;
+    /// The profile names do not read.
+    pub fn new(
+        portal: Records<'a>,
+        ctx: Context,
+        lib: &'a Library,
+        states: Vec<u32>,
+    ) -> Result<Self, String> {
         let bytes = portal(PROFILE_NAMES).ok_or("the install has no generator profile names")?;
         let names: EnumMap = auberean_assets::decode(PROFILE_NAMES, &bytes, &ctx)
             .map_err(|e| format!("{PROFILE_NAMES:08X}: {e}"))?;
@@ -84,7 +88,7 @@ impl<'a> DatInstall<'a> {
 
     fn graph(&self, id: u32) -> Option<Graph> {
         let st: ScriptState = self.decode(id)?;
-        Graph::decode(&st.graph, &self.lib).ok()
+        Graph::decode(&st.graph, self.lib).ok()
     }
 
     fn text(&self, string: u32, table: u32) -> Option<String> {
@@ -106,7 +110,7 @@ impl<'a> DatInstall<'a> {
             let mut out = HashMap::new();
             for &id in &self.states {
                 let Some(g) = self.graph(id) else { continue };
-                let nav = Nav::new(&self.lib, &g);
+                let nav = Nav::new(self.lib, &g);
                 let Some(root) = g.root().and_then(|r| nav.object(r)) else {
                     continue;
                 };
@@ -174,7 +178,7 @@ impl Install for DatInstall<'_> {
 
     fn store_sales(&self, store: u32) -> Option<Vec<InstallSale>> {
         let g = self.graph(store)?;
-        let nav = Nav::new(&self.lib, &g);
+        let nav = Nav::new(self.lib, &g);
         let root = nav.object(g.root()?)?;
         let mut out = Vec::new();
         for item in nav.items(nav.field(root, "m_sales")?)? {
@@ -192,7 +196,7 @@ impl Install for DatInstall<'_> {
     fn store_gates(&self, store: u32) -> (Vec<(u32, SaleGate)>, bool) {
         let read = || -> Option<(Vec<(u32, SaleGate)>, bool)> {
             let g = self.graph(store)?;
-            let nav = Nav::new(&self.lib, &g);
+            let nav = Nav::new(self.lib, &g);
             let root = nav.object(g.root()?)?;
             // The store's first flag: it hides the sales a player may not have.
             let hides = nav.field(root, "m_uiFlags").is_some_and(|f| f & 1 != 0);
@@ -229,7 +233,7 @@ impl Install for DatInstall<'_> {
             None => *self.quest_states().get(&id)?,
         };
         let g = self.graph(state)?;
-        let nav = Nav::new(&self.lib, &g);
+        let nav = Nav::new(self.lib, &g);
         let root = nav.object(g.root()?)?;
         if nav.field(root, "mEnum")? != id {
             return None;
@@ -300,7 +304,7 @@ impl Install for DatInstall<'_> {
             .iter()
             .max_by_key(|(p, _)| *p)
             .is_some_and(|(_, r)| *r > 1);
-        let setup = setup_of(&self.lib, root.package_id());
+        let setup = setup_of(self.lib, root.package_id());
         Some(QuestDefinition {
             state,
             name: text("m_siLongName")?,

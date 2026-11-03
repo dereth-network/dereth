@@ -270,6 +270,7 @@ dependencies = [
  "auberean-assets",
  "auberean-dat",
  "auberean-pack",
+ "auberean-script",
  "dereth-pack",
  "toml_edit",
  "yalain-content",

@@ -1432,17 +1432,22 @@ fn make_character<S: Store>(server: &mut Server<S>, path: &Path, now: i64) {
 /// Compile the world database (a folder, or `pinned`) against the install: its folder and tables.
 fn compile_world(
     dats: &Path,
+    portal: &data::Portal,
     world_db: &str,
     base: Option<&Path>,
 ) -> Result<(PathBuf, Tables), String> {
     world::database_dir(world_db).and_then(|d| {
-        let t = world::compile_dir(dats, &d, base)?;
+        let t = world::compile_dir(dats, portal, &d, base)?;
         Ok((d, t))
     })
 }
 
 /// The world's objects and what it plays, from its database compiled and the install.
-fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), String> {
+fn load_play(
+    dats: &Path,
+    portal: &data::Portal,
+    compiled: Tables,
+) -> Result<(ContentPack, Play), String> {
     let Tables {
         content,
         spawns,
@@ -1459,8 +1464,8 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
         weapon_rules,
         ..
     } = compiled;
-    let play = data::Portal::open(dats).and_then(|portal| {
-        let skills = data::skill_table(&portal)?;
+    let play = (|| {
+        let skills = data::skill_table(portal)?;
         tracing::info!(
             skills = skills.skills.len(),
             tables = skills.tables.len(),
@@ -1487,7 +1492,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
                     .flat_map(|q| q.effects.iter().map(|(_, e)| *e)),
             )
             .collect();
-        let effects = data::effect_table(&portal, &states)?;
+        let effects = data::effect_table(portal, &states)?;
         let granted: Vec<u32> = effects
             .effects
             .values()
@@ -1497,7 +1502,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
                 _ => None,
             })
             .collect();
-        let mut craft = data::crafting(&portal, &crafting, &granted)?;
+        let mut craft = data::crafting(portal, &crafting, &granted)?;
         craft.butchery = crafting
             .butchery
             .iter()
@@ -1530,7 +1535,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             | yalain_world::craft::Action::ItemEffect { state, .. } => Some(*state),
             _ => None,
         }));
-        let effects = data::effect_table(&portal, &states)?;
+        let effects = data::effect_table(portal, &states)?;
         tracing::info!(
             effects = effects.effects.len(),
             recipes = craft.recipes.len(),
@@ -1561,12 +1566,12 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             // The placed objects' own (a chest's lock and contents, a door's).
             .chain(content.objects.iter().map(|o| o.template))
             .collect();
-        let (mut catalog, mut skipped) = data::catalog(&portal, &spawns, &loot, &more)?;
+        let (mut catalog, mut skipped) = data::catalog(portal, &spawns, &loot, &more)?;
         // The weapons the creatures wield, described with the rest.
-        let weapons = data::creature_weapons(&portal, &catalog, &listed_weapons)?;
+        let weapons = data::creature_weapons(portal, &catalog, &listed_weapons)?;
         let wanted: Vec<u32> = weapons.values().copied().collect();
         let (held, also) = data::catalog(
-            &portal,
+            portal,
             &SpawnTable::default(),
             &LootTable::default(),
             &wanted,
@@ -1579,7 +1584,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             catalog.icons.entry(id).or_insert(icon);
         }
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
-        catalog.bodies = data::bodies(&portal, &catalog);
+        catalog.bodies = data::bodies(portal, &catalog);
         for s in &skipped {
             tracing::warn!("not described: {s}");
         }
@@ -1589,21 +1594,21 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             templates = catalog.templates.len(),
             "spawns, loot and templates read"
         );
-        let brokers = data::brokers(&portal, &content);
+        let brokers = data::brokers(portal, &content);
         tracing::info!(brokers = brokers.len(), "the market's brokers read");
         let (ground, walls) = data::land_ground(dats, &spawns, &catalog)?;
         tracing::info!("the ground under the camps, and the interior cells: {ground:?}; {walls:?}");
-        let levels = data::level_table(&portal)?;
+        let levels = data::level_table(portal)?;
         tracing::info!(levels = levels.levels.len(), "the level table read");
-        let vitae_costs = data::vitae_costs(&portal)?;
-        let item_effects = data::item_effects(&portal, &catalog)?;
+        let vitae_costs = data::vitae_costs(portal)?;
+        let item_effects = data::item_effects(portal, &catalog)?;
         // The mounts, their effects read with the rest.
-        let bodies: Vec<u32> = data::chargen_rules(&portal)?
+        let bodies: Vec<u32> = data::chargen_rules(portal)?
             .bodies
             .values()
             .copied()
             .collect();
-        let mut mounts = data::mounts(&portal, &bodies)?;
+        let mut mounts = data::mounts(portal, &bodies)?;
         states.extend(mounts.effects.keys().copied());
         tracing::info!(
             effects = mounts.effects.len(),
@@ -1611,14 +1616,14 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             "the mounts read"
         );
         // The effects the items' uses put on, read with the rest.
-        let (item_uses, worn_effects) = data::item_uses(&portal, &catalog)?;
+        let (item_uses, worn_effects) = data::item_uses(portal, &catalog)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
         states.extend(yalain_world::item_use::FOOD_EFFECTS);
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
         mounts.note_items(&item_uses);
-        let effects = data::effect_table(&portal, &states)?;
+        let effects = data::effect_table(portal, &states)?;
         tracing::info!(
             templates = item_uses.len(),
             effects = effects.effects.len(),
@@ -1628,34 +1633,34 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             templates = worn_effects.len(),
             "the effects items put on their wearers read"
         );
-        let walk_in = data::walk_in_packages(&portal, &content)?;
+        let walk_in = data::walk_in_packages(portal, &content)?;
         let persons =
-            data::packages_deriving_from(&portal, &content, &yalain_world::places::PERSONS)?;
+            data::packages_deriving_from(portal, &content, &yalain_world::places::PERSONS)?;
         let shrines = data::packages_deriving_from(
-            &portal,
+            portal,
             &content,
             &yalain_world::usable::shrines::FACTION_SHRINES,
         )?;
         // The kingdom each shrine's use joins, by its kind.
         let mut shrine_kingdoms = std::collections::HashMap::new();
         for (kind, kingdom) in yalain_world::kingdoms::SHRINES {
-            for package in data::packages_deriving_from(&portal, &content, &[kind])? {
+            for package in data::packages_deriving_from(portal, &content, &[kind])? {
                 shrine_kingdoms.insert(package, kingdom);
             }
         }
         let cannot_use =
-            data::packages_deriving_from(&portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
-        let (doors, doors_through_locks) = data::door_packages(&portal, &content)?;
-        let chests = data::chest_packages(&portal, &content)?;
+            data::packages_deriving_from(portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
+        let (doors, doors_through_locks) = data::door_packages(portal, &content)?;
+        let chests = data::chest_packages(portal, &content)?;
         tracing::info!(
             doors = doors.len(),
             chests = chests.len(),
             "the doors' and chests' kinds read"
         );
-        let destroyed_on_use = data::destroyed_on_use(&portal, &catalog)?;
-        let treasure = data::treasure(&portal, &catalog)?;
+        let destroyed_on_use = data::destroyed_on_use(portal, &catalog)?;
+        let treasure = data::treasure(portal, &catalog)?;
         let tesserae =
-            data::catalog_packages_from(&portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
+            data::catalog_packages_from(portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
         tracing::info!(
             equipment = treasure.equipment.len(),
             potions = treasure.potions.len(),
@@ -1663,18 +1668,18 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             tesserae = tesserae.len(),
             "the treasure items' kinds read"
         );
-        let interactions = data::interactions(&portal, &catalog)?;
+        let interactions = data::interactions(portal, &catalog)?;
         tracing::info!(
             tables = interactions.tables.len(),
             "the items' interaction tables read"
         );
-        let plant_looks = data::plant_looks(&portal, &catalog);
+        let plant_looks = data::plant_looks(portal, &catalog);
         tracing::info!(looks = plant_looks.len(), "the dye plants' ripe looks read");
         let inscribable =
-            data::catalog_packages_from(&portal, &catalog, &yalain_world::personal::INSCRIBABLE)?;
+            data::catalog_packages_from(portal, &catalog, &yalain_world::personal::INSCRIBABLE)?;
         let mut held_answers = std::collections::HashMap::new();
         for (base, status, flags) in yalain_world::places::HELD_ANSWERED {
-            for pkg in data::catalog_packages_from(&portal, &catalog, &[base])? {
+            for pkg in data::catalog_packages_from(portal, &catalog, &[base])? {
                 held_answers.insert(pkg, (status, flags));
             }
         }
@@ -1701,7 +1706,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             plant_looks,
             item_uses,
             worn_effects,
-            quest_ids: data::quest_ids(&portal)?,
+            quest_ids: data::quest_ids(portal)?,
             craft,
             vitae_costs,
             stores,
@@ -1728,7 +1733,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             weapons,
             weapon_rules: weapon_rules.into_iter().collect(),
         })
-    });
+    })();
     play.map(|p| (content, p))
 }
 /// The world database compiled again for a running server: its folder and its tables, with what
@@ -1740,11 +1745,13 @@ fn reload_world(
     banned_names: Option<&Path>,
 ) -> Result<(PathBuf, WorldTables), String> {
     let names = banned_names.map(read_banned_names).transpose()?;
-    let (dir, compiled) = compile_world(dats, world_db, base)?;
+    // A portal file of its own: this reload is the only reader of it, on its own thread.
+    let portal = data::Portal::open(dats)?;
+    let (dir, compiled) = compile_world(dats, &portal, world_db, base)?;
     for w in &compiled.warnings {
         tracing::warn!("{w}");
     }
-    let (content, p) = load_play(dats, compiled)?;
+    let (content, p) = load_play(dats, &portal, compiled)?;
     let tables = WorldTables {
         content,
         catalog: p.catalog,
@@ -1831,8 +1838,8 @@ fn main() -> std::process::ExitCode {
     };
 
     let loaded = data::Portal::open(&dats)
-        .and_then(|p| Ok((data::chargen_rules(&p)?, data::start_rules(&p)?)));
-    let (rules, start) = match loaded {
+        .and_then(|p| Ok((data::chargen_rules(&p)?, data::start_rules(&p)?, p)));
+    let (rules, start, portal) = match loaded {
         Ok(r) => r,
         Err(e) => {
             eprintln!("yalain: reading the character data: {e}");
@@ -1855,7 +1862,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let compiled = match compile_world(&dats, &o.world_db, o.world_base.as_deref()) {
+    let compiled = match compile_world(&dats, &portal, &o.world_db, o.world_base.as_deref()) {
         Ok((d, t)) => {
             for w in &t.warnings {
                 tracing::warn!("{w}");
@@ -1876,7 +1883,8 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let play = load_play(&dats, compiled);
+    let play = load_play(&dats, &portal, compiled);
+    drop(portal);
     let (content, play) = match play {
         Ok(p) => p,
         Err(e) => {

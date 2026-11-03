@@ -25,6 +25,8 @@ yalain-content.workspace = true
 # The install a world is built against.
 auberean-dat = { workspace = true, features = ["fs"] }
 auberean-assets.workspace = true
+# The script library a compile reads saved states with.
+auberean-script.workspace = true
 # Rows edited in place, their comments and layout kept.
 toml_edit.workspace = true
 

@@ -17,8 +17,14 @@ fn a_quests_phases_read_the_subquests_they_are_done_by() {
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
-    let install = DatInstall::new(Box::new(|id| p.dat.read(id).ok()), p.ctx.clone(), states)
-        .expect("install");
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
     let def = install
         .quest_definition(None, 0x4000_005E)
         .expect("the doctrines' quest");
@@ -57,8 +63,14 @@ fn a_quests_setup_says_whether_it_is_done_once() {
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
-    let install = DatInstall::new(Box::new(|id| p.dat.read(id).ok()), p.ctx.clone(), states)
-        .expect("install");
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
     let once = |q: u32| install.quest_definition(None, q).map(|d| d.once);
     assert_eq!(once(0x4000_0088), Some(true), "the training hall quest");
     assert_eq!(once(0x4000_0296), Some(false), "two solutions");
@@ -80,8 +92,14 @@ fn a_quests_setup_says_how_a_kill_reaches_fellows_and_its_definition_whether_its
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
-    let install = DatInstall::new(Box::new(|id| p.dat.read(id).ok()), p.ctx.clone(), states)
-        .expect("install");
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
     let read = |q: u32| {
         install.quest_definition(None, q).map(|d| {
             (

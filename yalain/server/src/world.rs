@@ -32,7 +32,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use auberean_assets::Context;
+use crate::data;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use yalain_world_db::compile::{compile, Tables};
@@ -437,7 +437,12 @@ fn safe(path: &str) -> bool {
 /// # Errors
 /// The database does not read, check or merge, the install does not open, or a row names what
 /// the install lacks.
-pub fn compile_dir(dats: &Path, db_dir: &Path, base_dir: Option<&Path>) -> Result<Tables, String> {
+pub fn compile_dir(
+    dats: &Path,
+    portal: &data::Portal,
+    db_dir: &Path,
+    base_dir: Option<&Path>,
+) -> Result<Tables, String> {
     let files = load(db_dir)?;
     let named = rows::read_partly(&files).0.and_then(|db| db.world.base);
     let (problems, base) = match &named {
@@ -473,15 +478,18 @@ pub fn compile_dir(dats: &Path, db_dir: &Path, base_dir: Option<&Path>) -> Resul
             .find(|(n, _)| want(n))
             .and_then(|(_, p)| DatFile::open(p).ok())
     };
-    let portal = open(&|n| *n == DatName::Portal)
-        .ok_or_else(|| format!("no portal data file in {}", dats.display()))?;
     let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
-    let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
     let states: Vec<u32> = portal
+        .dat
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
-    let mut install = DatInstall::new(Box::new(|id| portal.read(id).ok()), ctx, states)?;
+    let mut install = DatInstall::new(
+        Box::new(|id| portal.dat.read(id).ok()),
+        portal.ctx.clone(),
+        data::library(portal)?,
+        states,
+    )?;
     if let Some(local) = &local {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
@@ -520,7 +528,8 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
         );
     };
     let dir = database_dir(db.as_deref().unwrap_or("pinned"))?;
-    let t = compile_dir(&dats, &dir, base.as_deref())?;
+    let portal = data::Portal::open(&dats)?;
+    let t = compile_dir(&dats, &portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [
         ("content.tsv", t.content.to_text()),

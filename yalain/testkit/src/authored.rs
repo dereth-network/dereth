@@ -120,6 +120,16 @@ impl std::fmt::Debug for Portal {
 }
 
 impl Portal {
+    /// The script library.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn library(&self) -> Library {
+        Library::from_record(&self.dat.read(RECORD).expect("the library"))
+            .expect("the library reads")
+    }
+
     /// The target install's portal file.
     ///
     /// # Panics
@@ -193,8 +203,7 @@ impl Portal {
     /// The library or the skills' names do not read.
     #[must_use]
     pub fn skills(&self) -> SkillTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let names: EnumMap = auberean_assets::decode(
             SKILL_NAMES,
             &self.dat.read(SKILL_NAMES).expect("the skills' names"),
@@ -215,8 +224,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn effects(&self, states: &[u32]) -> yalain_world::effect_defs::EffectTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
             let st: ScriptState =
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
@@ -233,8 +241,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn mounts(&self, templates: &[u32]) -> yalain_world::mounts::Mounts {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let states: Vec<(u32, u32)> = self
             .dat
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -273,8 +280,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn derives(&self, template: u32, names: &[&str]) -> bool {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let package = self.template(template).description.package;
         names
             .iter()
@@ -293,8 +299,7 @@ impl Portal {
         templates: &[u32],
         targets: &[(u32, u32)],
     ) -> yalain_world::usable::interactions::Interactions {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let states: Vec<u32> = templates
             .iter()
             .filter_map(|t| {
@@ -335,8 +340,7 @@ impl Portal {
         templates: &[u32],
         props: (&str, &str),
     ) -> yalain_world::item_use::ItemUses {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let ids: Vec<u32> = self
             .dat
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -368,8 +372,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn crafting(&self, skills: &[u32], recipes: &[u32]) -> yalain_world::craft::Crafting {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
             let st: ScriptState =
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
@@ -398,8 +401,7 @@ impl Portal {
     /// The table does not read.
     #[must_use]
     pub fn levels(&self) -> LevelTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let st: ScriptState = auberean_assets::decode(
             LEVEL_TABLE,
             &self.dat.read(LEVEL_TABLE).expect("the level table"),
@@ -425,9 +427,11 @@ impl Portal {
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
             .map(|e| e.id)
             .collect();
+        let lib = self.library();
         let install = DatInstall::new(
             Box::new(|id| self.dat.read(id).ok()),
             self.ctx.clone(),
+            &lib,
             states,
         )
         .expect("the install reads");
