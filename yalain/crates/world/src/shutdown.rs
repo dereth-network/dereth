@@ -122,6 +122,22 @@ pub fn begin<S: Store>(
     true
 }
 
+/// Begin the countdown an update warns players with, `seconds` long from now on, as an operator who
+/// set the interval and began a shutdown would. Nothing if a countdown is already running or done;
+/// returns whether it began.
+pub fn begin_warning<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    seconds: u32,
+) -> bool {
+    if s.shutdown != Shutdown::No {
+        return false;
+    }
+    s.cfg.shutdown_seconds = seconds.min(MAX_SECONDS);
+    begin(s, net, clock, None)
+}
+
 /// Show the operator's message, if there is one, and the countdown's first line, with `left`
 /// seconds left.
 fn count_down<S: Store>(

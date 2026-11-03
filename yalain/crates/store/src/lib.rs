@@ -34,7 +34,7 @@ mod sqlite;
 
 pub use memory::MemoryStore;
 #[cfg(feature = "sqlite")]
-pub use sqlite::{backups, SqliteStore, KEEP_BACKUPS, SCHEMA_VERSION};
+pub use sqlite::{backups, restore, snapshot, SqliteStore, KEEP_BACKUPS, SCHEMA_VERSION};
 
 use core::fmt;
 

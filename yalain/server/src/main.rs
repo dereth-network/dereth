@@ -12,8 +12,8 @@
 //! random source (`getrandom`) for login cookies, checksum seeds, the world's dice and the
 //! directory's allegiance keys, and the players' friends
 //! service (`yalain-friends`), and `ctrlc` for the system's stop signals, with `serde` and
-//! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files). **Used
-//! by** nothing: it is the `yalain` program.
+//! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files), and the
+//! servers' updater (`dereth-server-update`). **Used by** nothing: it is the `yalain` program.
 //!
 //! ```text
 //! yalain --dats <install folder> [options]
@@ -90,6 +90,13 @@
 //!   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
 //!                         for a program that runs the server and holds its console (by
 //!                         default the end of the input ends only the console)
+//!   --update POLICY       which new releases the server installs by itself: off (the default),
+//!                         patch or minor; `yalain update --check` says what would be taken
+//!   --update-check-hours H  hours between its checks for a new release (default 6)
+//!   --update-warning-seconds S  the countdown players see before it restarts into a new release
+//!                         (default 300)
+//!   --update-source URL   where new releases are looked for (default: the GitHub repository this
+//!                         build came from)
 //!   --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
 //!                         HTTP at this address (default: off); keep it on loopback or a private
 //!                         network: it has no authentication
@@ -105,6 +112,10 @@
 //! yalain world check|release|fetch|compile ...
 //!
 //!   the world database's commands (see the `world` module)
+//!
+//! yalain update --check|--apply [--config <yalain.toml>] [--policy <off|patch|minor>]
+//!
+//!   what a new release would involve, and installing it on a stopped server (the `update` module)
 //! ```
 //!
 //! While it runs, lines typed into its standard input are the operator's commands (the `console`
@@ -147,6 +158,7 @@ mod random;
 mod referral;
 mod status;
 mod stop;
+mod update;
 mod verify;
 mod world;
 
@@ -217,20 +229,34 @@ struct Options {
     verbose: bool,
     /// Stop, keeping everyone, when the console's input ends (`--stop-at-console-end`).
     stop_at_console_end: bool,
+    /// The updater's settings (`--update`, `--update-check-hours`, `--update-warning-seconds`,
+    /// `--update-source`).
+    update: update::Settings,
+    /// The updater's health check of a newly installed release (`--update-trial <report>`): start
+    /// up, write this build's facts to the report, and stop. It never updates itself.
+    update_trial: Option<PathBuf>,
+    /// Hidden, for the updater's own tests: the updater takes this process for that version.
+    update_test_version: Option<String>,
 }
 
 /// The options the configuration file and the command line give (the command line after the
 /// file, so it wins), and what to log about the file once logging is up.
 fn parse() -> Result<(Options, Vec<String>), String> {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let (o, notes, _) = read_options(std::env::args().skip(1).collect())?;
+    Ok((o, notes))
+}
+
+/// The options the configuration file and `args` give, what to log about the file once logging is
+/// up, and the file read.
+fn read_options(mut args: Vec<String>) -> Result<(Options, Vec<String>, Option<PathBuf>), String> {
     let cwd = std::env::current_dir().unwrap_or_default();
     let exe = std::env::current_exe().ok();
     let exe_dir = exe.as_deref().and_then(Path::parent);
     let mut notes = Vec::new();
     let mut all = Vec::new();
-    if let Some(file) = config::locate(&mut args, &cwd, exe_dir)? {
-        let text =
-            std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let found = config::locate(&mut args, &cwd, exe_dir)?;
+    if let Some(file) = &found {
+        let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
         let folder = match file.parent() {
             Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
             _ => cwd.clone(),
@@ -246,7 +272,30 @@ fn parse() -> Result<(Options, Vec<String>), String> {
         all = from_file;
     }
     all.extend(args);
-    Ok((parse_from(all)?, notes))
+    Ok((parse_from(all)?, notes, found))
+}
+
+/// Logging from here on, at the debug level when `verbose`.
+fn start_logging(verbose: bool) {
+    tracing_subscriber::fmt()
+        .with_max_level(if verbose {
+            tracing::Level::DEBUG
+        } else {
+            tracing::Level::INFO
+        })
+        .with_ansi(false)
+        .init();
+}
+
+/// What [`read_options`] had to say about the file.
+fn log_notes(notes: &[String]) {
+    for n in notes {
+        if n.starts_with("configuration read") {
+            tracing::info!("{n}");
+        } else {
+            tracing::warn!("{n}");
+        }
+    }
 }
 
 /// The options these arguments give; `Err("")` for `--help`.
@@ -289,6 +338,9 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         seconds: None,
         verbose: false,
         stop_at_console_end: false,
+        update: update::Settings::default(),
+        update_trial: None,
+        update_test_version: None,
     };
     let (mut hub_url, mut hub_slug, mut hub_key_file) = (None, None, None);
     let mut args = args.into_iter();
@@ -447,6 +499,22 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--verbose" => o.verbose = true,
             "--stop-at-console-end" => o.stop_at_console_end = true,
+            "--update" => o.update.update = value()?,
+            "--update-check-hours" => {
+                o.update.check_hours = value()?
+                    .parse()
+                    .map_err(|e| format!("--update-check-hours: {e}"))?;
+            }
+            "--update-warning-seconds" => {
+                o.update.warning_seconds = value()?
+                    .parse()
+                    .map_err(|e| format!("--update-warning-seconds: {e}"))?;
+            }
+            "--update-source" => o.update.source = value()?,
+            "--update-trial" => o.update_trial = Some(PathBuf::from(value()?)),
+            dereth_server_update::running::TEST_VERSION_FLAG => {
+                o.update_test_version = Some(value()?);
+            }
             "--help" | "-h" => return Err(String::new()),
             other => return Err(format!("unknown option {other}")),
         }
@@ -622,6 +690,16 @@ impl Failure {
     }
 }
 
+/// How the world's loop ended, for what follows it.
+struct Ended {
+    /// The updater, when it ran.
+    auto: Option<std::sync::Arc<update::AutoUpdate>>,
+    /// The world ended by itself: its countdown ran out, or `stop-now`.
+    world_ended: bool,
+    /// The console's lines.
+    typed: std::sync::mpsc::Receiver<String>,
+}
+
 fn run<S: Store>(
     o: &Options,
     names: NameRules,
@@ -630,7 +708,7 @@ fn run<S: Store>(
     start: StartRules,
     content: ContentPack,
     play: Play,
-) -> Result<(), Failure> {
+) -> Result<Ended, Failure> {
     seed(o, &mut store, &rules);
     // The world's dice. A world whose system has no random source does not start: its cookies come
     // from the same place, and nothing stands in for it.
@@ -784,6 +862,17 @@ fn run<S: Store>(
     // Whether the console's input is still open, and whether its end stops the server.
     let mut console_open = true;
     let mut console_ended = false;
+    // What the updater thread asks the world, and the updater: never in its own health check.
+    let (ask, asks) = std::sync::mpsc::channel();
+    let auto = match &o.update_trial {
+        Some(_) => None,
+        None => update::start(
+            &o.update,
+            (!o.memory).then_some(o.data.as_path()),
+            o.update_test_version.as_deref(),
+            ask,
+        ),
+    };
     loop {
         if o.seconds
             .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
@@ -965,6 +1054,9 @@ fn run<S: Store>(
         for c in pending.drain(..) {
             world_command(&mut server, &mut net, clock, c);
         }
+        for a in asks.try_iter() {
+            update::answer(a, &mut server, &mut net, clock);
+        }
         server.pump(&mut net, clock);
         if let Some(r) = &mut reporter {
             let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
@@ -1005,10 +1097,16 @@ fn run<S: Store>(
         if server.shutdown == yalain_world::shutdown::Shutdown::Done {
             break;
         }
+        // Everything has started and the world has run a pass: the health check has its answer.
+        if let Some(report) = &o.update_trial {
+            update::report_ready(report);
+            break;
+        }
         if got == 0 && out.is_empty() && !talked {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
+    let world_ended = server.shutdown == yalain_world::shutdown::Shutdown::Done;
     let kept = yalain_world::shutdown::save_everyone(&mut server, &mut net);
     tracing::info!("stopping: {kept} characters in the world kept");
     ports.send(&net.take_datagrams());
@@ -1019,10 +1117,18 @@ fn run<S: Store>(
     if let Some(r) = reporter {
         r.stop();
     }
+    // The status address is free for whichever server runs next.
+    if let Some(s) = status {
+        s.stop();
+    }
     for (what, n) in server.unhandled.counts() {
         tracing::info!("not handled yet: {what} x{n}");
     }
-    Ok(())
+    Ok(Ended {
+        auto,
+        world_ended,
+        typed,
+    })
 }
 
 /// The status ping on the login port, as Empyrean's on its game port: on unless turned off, with
@@ -1523,8 +1629,11 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::SUCCESS;
     }
     if args == ["--release-facts"] {
-        println!("{}", release_facts());
+        println!("{}", update::Facts::this_build().to_json());
         return std::process::ExitCode::SUCCESS;
+    }
+    if args.first().map(String::as_str) == Some("update") {
+        return update::command(args.into_iter().skip(1));
     }
     if args.first().map(String::as_str) == Some("world") {
         return match world::main(&args[1..]) {
@@ -1543,27 +1652,17 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
+            eprintln!(
+                "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"
+            );
             eprintln!("       yalain --version | --release-facts");
             return std::process::ExitCode::FAILURE;
         }
     };
-    tracing_subscriber::fmt()
-        .with_max_level(if o.verbose {
-            tracing::Level::DEBUG
-        } else {
-            tracing::Level::INFO
-        })
-        .with_ansi(false)
-        .init();
-    for n in &notes {
-        if n.starts_with("configuration read") {
-            tracing::info!("{n}");
-        } else {
-            tracing::warn!("{n}");
-        }
-    }
+    start_logging(o.verbose);
+    log_notes(&notes);
     let Some(dats) = o.dats.clone() else {
         eprintln!("yalain: --dats names the install to read the data from");
         return std::process::ExitCode::FAILURE;
@@ -1652,7 +1751,10 @@ fn main() -> std::process::ExitCode {
         }
     };
     match result {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        // A release the updater staged is installed now that everything is saved and closed, and
+        // the new server (or, when it fails, the restored one) takes over this process.
+        Ok(ended) => update::after_shutdown(ended.auto.as_deref(), ended.world_ended, ended.typed)
+            .unwrap_or(std::process::ExitCode::SUCCESS),
         Err(f) if f.ports_taken => {
             tracing::error!(
                 target: yalain_world::answers::TARGET,
@@ -1679,38 +1781,16 @@ fn version_text() -> String {
     )
 }
 
-/// What `yalain --release-facts` prints, one line of JSON, as Empyrean's: this build's version and
-/// target, its database's schema version and the world database release it serves by default,
-/// which a launcher compares with a release's upgrade declaration.
-fn release_facts() -> String {
-    let target = option_env!("YALAIN_BUILD_TARGET").map_or_else(
-        || match (std::env::consts::ARCH, std::env::consts::OS) {
-            ("x86_64", "windows") => "x86_64-pc-windows-msvc".to_owned(),
-            ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
-            ("aarch64", "linux") => "aarch64-unknown-linux-gnu".to_owned(),
-            ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
-            (arch, os) => format!("{arch}-{os}"),
-        },
-        str::to_owned,
-    );
-    serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "target": target,
-        "databases": { "store": yalain_store::SCHEMA_VERSION },
-        "world_database": yalain_world_db::release::PINNED_TAG,
-    })
-    .to_string()
-}
-
 #[cfg(test)]
 mod version_tests {
     //! Behaviour: none (tooling: what `--version` and `--release-facts` print for releases)
-    use super::{release_facts, version_text};
+    use super::version_text;
+    use crate::update::Facts;
 
     #[test]
     fn release_facts_name_the_version_the_database_schema_and_the_world_database() {
         let v: serde_json::Value =
-            serde_json::from_str(&release_facts()).expect("one line of JSON");
+            serde_json::from_str(&Facts::this_build().to_json()).expect("one line of JSON");
         assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(v["databases"]["store"], yalain_store::SCHEMA_VERSION);
         assert_eq!(v["world_database"], yalain_world_db::release::PINNED_TAG);

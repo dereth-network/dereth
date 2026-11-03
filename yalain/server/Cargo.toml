@@ -39,6 +39,8 @@ serde_json.workspace = true
 # over it.
 dereth-network-link.workspace = true
 yalain-federation.workspace = true
+# `yalain update` and `server.update`: the servers' updater.
+dereth-server-update.workspace = true
 # The players' friends service, served on TCP beside the login.
 yalain-friends.workspace = true
 # The operator's character recipes, read from TOML (character files are JSON, with serde_json).
@@ -60,6 +62,10 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 live = ["yalain-testkit/retail-dats"]
 
 [dev-dependencies]
+# The updater's tests: a stand-in for a repository's releases on loopback.
+dereth-server-update = { workspace = true, features = ["testing"] }
+# The updater's tests read a database back.
+rusqlite.workspace = true
 # The live test's friends streams speak the stream's client half.
 auberean-friends.workspace = true
 auberean-client-sdk = { workspace = true, features = ["fs"] }

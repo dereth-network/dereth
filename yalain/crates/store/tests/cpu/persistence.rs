@@ -2,8 +2,8 @@
 //! folder, removed at the end.
 
 use yalain_store::{
-    backups, Ban, Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition,
-    WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
+    backups, restore, snapshot, Ban, Character, Listed, MemoryStore, NetworkList, SqliteStore,
+    Store, StoredPosition, WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
 };
 
 fn character(id: u64, account: u64, name: &str) -> Character {
@@ -625,6 +625,52 @@ fn only_the_newest_three_backups_of_a_database_are_kept() {
         made[1..],
         "the newest three, the oldest removed"
     );
+}
+
+/// The backup before an update: a sibling of the file named for the update, whatever the file's
+/// schema, the newest three kept; putting it back removes what the file became, its write-ahead log
+/// with it; and a file that is not there has no backup.
+/// Behaviour: server.update.database-backup-and-restore
+#[test]
+fn an_updates_backup_is_named_for_it_and_puts_the_database_back() {
+    let file = temp("update-backup");
+    drop(SqliteStore::open(&file.0).expect("opens"));
+    let backup = snapshot(&file.0, "update-v0.1.0-v0.2.0").expect("backed up");
+    let name = backup
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        name.contains(".sqlite.backup-update-v0.1.0-v0.2.0-"),
+        "{name}"
+    );
+    assert_eq!(backups(&file.0), [backup.clone()]);
+    assert_eq!(holds(&backup).0, SCHEMA_VERSION);
+
+    rusqlite::Connection::open(&file.0)
+        .expect("opens")
+        .pragma_update(None, "user_version", 99)
+        .expect("as a new program leaves it");
+    let mut wal = file.0.as_os_str().to_owned();
+    wal.push("-wal");
+    std::fs::write(&wal, b"what the new program left").expect("a write-ahead log");
+    restore(&backup, &file.0).expect("put back");
+    assert!(!std::path::Path::new(&wal).exists(), "its log goes");
+    assert_eq!(holds(&file.0).0, SCHEMA_VERSION);
+
+    let mut made = vec![backup];
+    for i in 0..3 {
+        made.push(snapshot(&file.0, &format!("update-{i}")).expect("backed up"));
+    }
+    assert_eq!(backups(&file.0).len(), KEEP_BACKUPS, "the newest three");
+    assert_eq!(
+        made.iter().filter(|b| b.exists()).count(),
+        KEEP_BACKUPS,
+        "and no more on disk"
+    );
+
+    assert!(snapshot(&file.0.with_extension("gone"), "update").is_err());
 }
 
 /// A database a newer Yalain kept (a schema version above this build's) is refused, naming its

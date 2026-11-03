@@ -186,10 +186,11 @@ to others.
 | `--verbose` | log at the debug level (section 7) |
 | `--seconds <s>` | stop after that many seconds |
 | `--stop-at-console-end` | stop, saving everyone, when the console's input ends (section 3.3) |
+| `--update <policy>`, `--update-check-hours <h>`, `--update-warning-seconds <s>`, `--update-source <url>` | which new releases the server installs by itself, and how (section 3.10) |
 | `--no-status-ping`, `--status-ping-hellos <n>`, `--status-ping-asks <n>`, `--status-ping-replies <n>` | turn the status ping off, or set its limits (section 3.9) |
 
-`yalain --version` prints the version, and `yalain --release-facts` what a launcher's updates read
-(section 3.10). The server exits with 0 when it stops as asked, 1 when it fails, and **3** when
+`yalain --version` prints the version, `yalain --release-facts` what an update reads, and
+`yalain update` checks for and installs a new release (section 3.10). The server exits with 0 when it stops as asked, 1 when it fails, and **3** when
 another program holds one of its ports (section 6.3).
 
 **Banned names.** The file holds one pattern a line, in small letters; `*` stands for any run of
@@ -347,6 +348,10 @@ shard_db_path = "yalain.sqlite"
 | `[server] log_level` | `--verbose` | `debug` (or `trace`) logs at the debug level; others at `info` |
 | `[server] status_address` | `--status` | empty: off |
 | `[server] stop_at_console_end` | `--stop-at-console-end` | Yalain only |
+| `[server] update` | `--update` | default `"off"`; `"patch"` or `"minor"` (section 3.10) |
+| `[server] update_check_hours` | `--update-check-hours` | default 6 |
+| `[server] update_warning_seconds` | `--update-warning-seconds` | default 300 |
+| `[server] update_source` | `--update-source` | default empty: the repository the build came from |
 | `[server.network] host` | `--bind` | |
 | `[server.network] port` | `--login-port` | |
 | `[server.network] world_port` | `--world-port` | Yalain only; default `port` + 2 |
@@ -374,7 +379,7 @@ shard_db_path = "yalain.sqlite"
 
 A relative path is read from the file's folder, not the working folder. Empyrean's keys that
 Yalain has no setting for (its world pack and overlay, its engine's caches and preloaded
-landblocks, its WebSocket endpoint, its own updates, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
+landblocks, its WebSocket endpoint, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
 so is any key the server does not know.
 
 The command line is read after the file, so an option given in both takes the command line's
@@ -426,16 +431,95 @@ question, so the ping cannot be used to flood someone else.
 Each Yalain release says what upgrading to it involves, in its `release.json`'s `upgrade`: the
 oldest version that can upgrade straight to it, whether the database's layout changes, whether it
 serves a newer world database, configuration keys it removes or needs, and notes. A launcher
-hosting the world reads it before updating. `yalain --release-facts` prints what a program is:
+hosting the world reads it before updating, and so does the server's own updater. `yalain
+--release-facts` prints what a program is:
 
 ```
 {"version":"0.1.0","target":"x86_64-unknown-linux-gnu","databases":{"store":2},"world_database":"v0.23.0"}
 ```
 
-To update by hand: stop the server, replace `yalain`, run `yalain world fetch` if the release
-serves a newer world database, and start it. A release that changes the database's layout backs
-it up first (section 3.5); to go back, put the old program and that backup back. A patch release
-never changes the database's layout or the configuration.
+A patch release never changes the database's layout or the configuration.
+
+**Automatic updates.** The server can keep itself up to date, within limits you set, and undo an
+update that does not come up. It is off until you turn it on:
+
+```toml
+[server]
+update = "patch"          # "off" (the default), "patch" or "minor"
+update_check_hours = 6    # how often it looks
+update_warning_seconds = 300   # the in-game countdown before it restarts
+```
+
+| `update` | What it installs by itself |
+|---|---|
+| `"off"` | Nothing. |
+| `"patch"` | Patch releases of the version it runs (`0.1.0` to `0.1.3`). These change the program alone: no migration and no configuration change (the world database's own patches are fetched). |
+| `"minor"` | Also minor releases of the same major version (`0.1.3` to `0.2.0`), with their database migrations and newer world databases. |
+
+Never installed by itself, only reported in the log: a major release, a pre-release, a release that
+needs a configuration key you must set, a release that cannot be upgraded to straight from the
+version you run (the intermediate one is installed first, on a later check), and a release that
+already failed here.
+
+**What happens.** A minute after start-up, and then every `update_check_hours`, the server asks
+GitHub for the releases of the repository it was built from, or of the one `update_source` names:
+another GitHub repository (`https://github.com/<owner>/<name>`), or a mirror that serves GitHub's
+releases API for one (`https://<host>/repos/<owner>/<name>`). When one qualifies, with the world
+still running, it:
+
+1. downloads this platform's archive, `release.json` and `SHA256SUMS`, and refuses the release if a
+   SHA-256 does not match. That is the only check of where the files came from: releases are not
+   signed, so the log says the release was checked by SHA-256 only;
+2. unpacks it into `.yalain-update/` beside the server, runs the new `yalain` once to confirm it
+   runs on this machine and is what the release declares, and, for a release that serves a newer
+   world database, has the new `yalain` fetch it (`yalain world fetch`);
+3. starts the shutdown countdown (`update_warning_seconds`), which players see as the usual shutdown
+   lines (also written to the log). `cancel-shutdown` cancels the update too; the next check tries
+   again;
+4. when the countdown ends and everything is saved: backs up the database
+   (`yalain.sqlite.backup-update-v<old>-v<new>-<UTC timestamp>`, the newest three kept), moves each
+   replaced file aside as `<name>.previous-v<old>`, puts the new files in place, and starts the new
+   server for a health check: it must open and migrate the database, load the world, open its
+   listeners and report itself ready;
+5. passes: the new server starts for real. Fails: the old files and the backed-up database are put
+   back, the failure is logged and recorded in `.yalain-update/state.json` (so that release is not
+   tried again automatically), and the old server starts again.
+
+A server stopped with Ctrl-C or a signal while an update waits installs nothing.
+
+**The folder must be writable** by the account the server runs as: the updater renames and writes
+the files beside `yalain`, and writes `.yalain-update/`.
+
+**Running as a service.** The server restarts itself into the new release; nothing needs to be
+configured for it. On Linux and macOS the process replaces itself with the new program, keeping its
+process ID, so a service manager sees the same main process keep running. On Windows, which cannot
+replace a running process, the old process starts the new server as its child, in the same console,
+and waits for it, holding no files, ports or databases; what is typed at the console is passed on
+to the new server.
+
+**By hand**, with any `update` setting:
+
+```
+yalain update --check [--config yalain.toml] [--policy patch|minor]
+yalain update --apply [--config yalain.toml] [--policy patch|minor]
+```
+
+`--check` lists every newer release, says why each would or would not be installed, and what
+installing the chosen one involves (migrations, the world database's fetch, configuration changes).
+`--apply` does steps 1 to 5 on a **stopped** server (it refuses while the server's login port is in
+use) and leaves the server stopped, so you or the service manager start it. It needs the world's
+`yalain.toml` to start the new server for its health check. Without `--policy`, the policy is
+`update`, or `minor` when `update` is `"off"`.
+
+**Going back.** A release that fails its health check is undone by itself. To go back later: stop
+the server, put `yalain.previous-v<old>` back as `yalain`, and put the backup made before the update
+back as the database (remove its `-wal` and `-shm` files first). What was played since the update
+is lost. A release that needs another first, or a major release, is installed the same way by hand:
+stop the server, replace `yalain`, run `yalain world fetch` if the release serves a newer world
+database, and start it.
+
+**A world the launcher hosts** keeps `update = "off"`: the launcher updates it, and refuses to start
+it otherwise.
 
 ---
 

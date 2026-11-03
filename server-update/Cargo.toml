@@ -19,6 +19,10 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
+[features]
+# A stand-in for a repository's releases, for a server's updater tests.
+testing = []
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"

@@ -74,6 +74,13 @@ yalain --dats <install folder> [options]
   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
                         for a program that runs the server and holds its console (by
                         default the end of the input ends only the console)
+  --update POLICY       which new releases the server installs by itself: off (the default),
+                        patch or minor; yalain update --check says what would be taken
+  --update-check-hours H  hours between its checks for a new release (default 6)
+  --update-warning-seconds S  the countdown players see before it restarts into a new release
+                        (default 300)
+  --update-source URL   where new releases are looked for (default: the GitHub repository this
+                        build came from)
   --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
                         HTTP at this address (default: off); keep it on loopback or a private
                         network: it has no authentication
@@ -91,6 +98,11 @@ yalain --dats <install folder> [options]
 yalain world check|release|fetch|compile ...
 
   the world database's commands: yalain world check <folder>, yalain world fetch, and the rest
+
+yalain update --check|--apply [--config <yalain.toml>] [--policy <off|patch|minor>]
+
+  says what a new release would involve and why each newer one would or would not be installed
+  (--check), or installs it on a stopped server and leaves it stopped (--apply)
 
 yalain --version
 

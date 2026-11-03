@@ -8,8 +8,10 @@
 //! the requests from it, one at a time.
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 /// What `/status` says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -53,6 +55,8 @@ impl Snapshot {
 pub struct Endpoint {
     latest: Arc<Mutex<Snapshot>>,
     addr: SocketAddr,
+    stopping: Arc<AtomicBool>,
+    stopped: Arc<Mutex<mpsc::Receiver<()>>>,
 }
 
 impl Endpoint {
@@ -68,10 +72,20 @@ impl Endpoint {
             .map_err(|e| format!("--status {at}: {e}"))?;
         let latest = Arc::new(Mutex::new(first));
         let shared = Arc::clone(&latest);
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&stopping);
+        let (closed, stopped) = mpsc::channel();
         std::thread::Builder::new()
             .name("status".into())
             .spawn(move || {
+                // Dropped in reverse order: the listener closes, and the address is free, before
+                // `stop` hears of it.
+                let _closed = closed;
+                let listener = listener;
                 for stream in listener.incoming().flatten() {
+                    if stop.load(Ordering::SeqCst) {
+                        return;
+                    }
                     let snapshot = shared
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
@@ -82,7 +96,29 @@ impl Endpoint {
                 }
             })
             .map_err(|e| format!("--status: {e}"))?;
-        Ok(Self { latest, addr })
+        Ok(Self {
+            latest,
+            addr,
+            stopping,
+            stopped: Arc::new(Mutex::new(stopped)),
+        })
+    }
+
+    /// Stop listening, so the next server can have the address. A request being answered is given a
+    /// moment, and a guard against a hang.
+    pub fn stop(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        let mut at = self.addr;
+        if at.ip().is_unspecified() {
+            at.set_ip(if at.is_ipv4() {
+                Ipv4Addr::LOCALHOST.into()
+            } else {
+                Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        let _ = TcpStream::connect_timeout(&at, Duration::from_secs(1));
+        let stopped = self.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = stopped.recv_timeout(Duration::from_secs(5));
     }
 
     /// Where it listens.
@@ -140,6 +176,20 @@ mod tests {
         let mut text = String::new();
         s.read_to_string(&mut text).expect("an answer");
         text
+    }
+
+    /// A stopped endpoint lets its address go, for the server that follows an update.
+    /// Behaviour: server.update.status-address-let-go
+    #[test]
+    fn a_stopped_status_endpoint_lets_its_address_go() {
+        let e = Endpoint::start(SocketAddr::from(([127, 0, 0, 1], 0)), Snapshot::default())
+            .expect("listens");
+        let at = e.addr();
+        assert!(TcpListener::bind(at).is_err(), "held while it runs");
+        e.stop();
+        let next = Endpoint::start(at, Snapshot::default()).expect("free for the next server");
+        assert!(get(next.addr(), "/health").ends_with("ok"));
+        next.stop();
     }
 
     /// The status endpoint answers `/health` with ok, `/status` and `/v1/world` with the world's

@@ -2,8 +2,8 @@
 //! operator allows, and undoing one that does not come up.
 //!
 //! **Depends on** an HTTP client (`ureq`, over rustls), the archive readers (`zip`, `flate2`) and
-//! `sha2`, `serde`, `serde_json` and `tracing`. **Used by** the game servers: `empyrean-server`,
-//! giving it what is its own as a [`Product`].
+//! `sha2`, `serde`, `serde_json` and `tracing`. **Used by** the game servers: `empyrean-server` and
+//! `yalain`, each giving it what is its own as a [`Product`].
 //!
 //! **Must never** know one server's databases, world data or configuration file: those come through
 //! [`Product`] and the facts and declaration types it names. It holds no game, and it never decides
@@ -34,6 +34,8 @@ pub mod policy;
 pub mod release;
 pub mod running;
 pub mod source;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod verify;
 pub mod version;
 

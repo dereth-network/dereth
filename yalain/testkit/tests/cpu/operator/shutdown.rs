@@ -239,6 +239,56 @@ fn a_shutdown_shows_the_operators_message_and_counts_down_the_operators_interval
     assert_eq!(done, Some(620.0), "done twenty seconds after the last line");
 }
 
+/// The countdown an update warns players with: every player in the world is shown its own length
+/// at once, the lines follow as a shutdown's do, and the server is done twenty seconds after the
+/// last; a second one, or one during an operator's shutdown, begins nothing.
+/// Behaviour: server.update.players-warned-by-the-shutdown-countdown
+#[test]
+fn an_updates_warning_counts_down_its_own_seconds_to_every_player() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Tamsin");
+    h.run(5);
+    let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+    let begun = h.now.0;
+    let clock = h.clock();
+    assert!(shutdown::begin_warning(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        300
+    ));
+    assert_eq!(h.server.cfg.shutdown_seconds, 300);
+    assert!(
+        !shutdown::begin_warning(&mut h.server, &mut h.net, clock, 60),
+        "one countdown at a time"
+    );
+    assert_eq!(
+        h.server.cfg.shutdown_seconds, 300,
+        "and it keeps its length"
+    );
+    let (at, done) = watch(&mut h, &[a, b], begun, 340.0);
+    let want = vec![
+        (0.0, Shown::Line(shutdown::MINUTES, vec![5])),
+        (180.0, Shown::Line(shutdown::MINUTES, vec![2])),
+        (
+            210.0,
+            Shown::Line(shutdown::MINUTES_AND_SECONDS, vec![1, 30]),
+        ),
+        (240.0, Shown::Line(shutdown::MINUTES, vec![1])),
+        (270.0, Shown::Line(shutdown::SECONDS, vec![30])),
+        (300.0, Shown::Line(shutdown::NOW, vec![])),
+    ];
+    for (i, bot) in [a, b].into_iter().enumerate() {
+        assert_eq!(
+            shown(&h, bot, from[i], &at[i]),
+            want,
+            "what player {i} was shown, and when"
+        );
+    }
+    assert_eq!(done, Some(320.0), "done twenty seconds after the last line");
+}
+
 /// A countdown cancelled after two lines: every player in the world is told the world is no
 /// longer shutting down, no more lines come, the world goes on, and a later shutdown counts down
 /// afresh. Cancelling with no countdown running does nothing.

@@ -63,6 +63,29 @@ status_address = ""
 # server and holds its console. Leave it off for a server run as a service.
 stop_at_console_end = false
 
+# default: "off" (--update)
+# Which new releases the server installs by itself: "off", "patch" (patch releases of this minor
+# version, which change no database or configuration) or "minor" (also minor releases, with their
+# database migrations and newer world databases). Major releases and pre-releases are only
+# reported. `yalain update --check` says what would be taken and why. See SETUP.md, "Automatic
+# updates".
+update = "off"
+
+# default: 6 (--update-check-hours)
+# Hours between checks for a new release while update is not "off".
+update_check_hours = 6
+
+# default: 300 (--update-warning-seconds)
+# Seconds of in-game shutdown countdown before the server restarts into a new release.
+update_warning_seconds = 300
+
+# default: "" (--update-source)
+# Where new releases are looked for. Empty means the GitHub repository this build came from.
+# Otherwise a GitHub repository ("https://github.com/<owner>/<name>"), or a mirror that serves
+# GitHub's releases API for one ("https://mirror.example.org/repos/<owner>/<name>"). Every download
+# is checked against the release's SHA256SUMS and release.json.
+update_source = ""
+
 # ----------------------------------------------------------------------------------------------
 [server.network]
 # The listeners and session limits.

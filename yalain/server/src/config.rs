@@ -51,6 +51,18 @@ enum Takes {
 /// Every key a file may give, by its section and name, and what it gives.
 const KEYS: &[(&str, &str, Takes)] = &[
     ("server", "world_name", Takes::Value("--world-name")),
+    ("server", "update", Takes::Value("--update")),
+    (
+        "server",
+        "update_check_hours",
+        Takes::Value("--update-check-hours"),
+    ),
+    (
+        "server",
+        "update_warning_seconds",
+        Takes::Value("--update-warning-seconds"),
+    ),
+    ("server", "update_source", Takes::Value("--update-source")),
     ("server", "dat_files_directory", Takes::Install),
     ("server", "message_of_the_day", Takes::Value("--motd")),
     ("server", "world_database_path", Takes::WorldDatabase),
@@ -175,10 +187,6 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.interactive_console",
     "server.admin_channel",
     "server.source_url",
-    "server.update",
-    "server.update_check_hours",
-    "server.update_warning_seconds",
-    "server.update_source",
     "server.preloaded_landblocks",
     "server.websocket",
     "server.network.default_session_timeout",

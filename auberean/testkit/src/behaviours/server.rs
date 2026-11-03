@@ -6350,6 +6350,208 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.update.archive-for-this-target",
+        says: "A release's archive is the one its release.json lists for the target this build  \
+               was made for, whichever comes first; a release with none for it is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-ARCHIVE"),
+        station: "yalain::bin.yalain::update::tests::the_archive_taken_is_the_one_for_this_builds_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.backup-and-way-back",
+        says: "A release's install backs the database up first; when the new server fails its  \
+               health check, the old program and the database with its rows come back, and the  \
+               release is recorded as failed and not tried again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WAY-BACK"),
+        station: "yalain::bin.yalain::update::tests::a_release_that_fails_its_health_check_is_rolled_back_with_its_database_and_not_retried",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.bad-checksum-refused",
+        says: "A download whose SHA-256 is not the one SHA256SUMS lists is refused: nothing is  \
+               installed and the new program never runs.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CHECKSUM"),
+        station: "yalain::bin.yalain::update::tests::a_checksum_that_does_not_match_refuses_the_release_and_installs_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.cancelled-with-the-shutdown",
+        says: "An operator who cancels the shutdown cancels the update, and the next check  \
+               stages it again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CANCEL"),
+        station: "yalain::bin.yalain::update::tests::a_cancelled_countdown_cancels_the_update_and_the_next_check_stages_it_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.check-by-hand",
+        says: "yalain update --check, needing no install, reads the source its configuration  \
+               names and says what it would do; without --check or --apply it prints its usage  \
+               and exits with 2.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CHECK-BY-HAND"),
+        station: "yalain::live::stopping::update_check_reads_the_source_the_configuration_names_and_says_what_it_would_do",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.update.command-line",
+        says: "yalain update takes --check or --apply, --config and --policy, and refuses  \
+               anything else in Empyrean's words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-COMMAND"),
+        station: "yalain::bin.yalain::update::tests::the_update_command_takes_check_or_apply_and_a_config_and_a_policy",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.database-backup-and-restore",
+        says: "The backup before an update is a sibling of the database named for the update,  \
+               the newest three kept, and putting it back removes what the file became and its  \
+               write-ahead log.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-BACKUP"),
+        station: "yalain-store::cpu::persistence::an_updates_backup_is_named_for_it_and_puts_the_database_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.needs-a-step-or-a-hand-refused",
+        says: "A release that cannot be upgraded to straight from this version, or that needs a  \
+               configuration key set by hand, is reported and not taken.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-REFUSED"),
+        station: "yalain::bin.yalain::update::tests::a_release_that_cannot_upgrade_straight_or_needs_a_key_set_by_hand_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.newer-release-installed",
+        says: "A newer release on the source is found, checked against SHA256SUMS and  \
+               release.json, staged, its program run once, and installed with the old files  \
+               moved aside and the database backed up first, then health-checked.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-INSTALL"),
+        station: "yalain::bin.yalain::update::tests::a_newer_release_is_found_checked_installed_and_health_checked",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.not-what-it-declares-refused",
+        says: "A release whose own program reports another database schema or world database  \
+               than its release declares is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-DECLARES"),
+        station: "yalain::bin.yalain::update::tests::a_release_that_is_not_what_it_declares_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.off-patch-minor",
+        says: "server.update off installs nothing, patch takes patch releases that change  \
+               nothing but the program (a patch of the world database is fetched), minor also  \
+               takes minor releases with their migrations; by hand with neither set means  \
+               minor.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-POLICY"),
+        station: "yalain::bin.yalain::update::tests::off_patch_and_minor_take_what_they_take_on_empyrean",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.players-warned-by-the-shutdown-countdown",
+        says: "The countdown an update warns players with shows every player in the world its  \
+               own length at once, then the shutdown's lines, and the server is done twenty  \
+               seconds after the last.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WARNING-LINES"),
+        station: "yalain-testkit::cpu::operator::shutdown::an_updates_warning_counts_down_its_own_seconds_to_every_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.players-warned-first",
+        says: "The running server stages a release with the world running, then counts down  \
+               server.update_warning_seconds; nothing is installed until the world has ended by  \
+               itself, and a server stopped from outside installs nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WARNED"),
+        station: "yalain::bin.yalain::update::tests::the_running_server_warns_players_first_and_installs_only_after_the_world_ends_by_itself",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.reads-its-own-tags",
+        says: "Of a repository holding the releases of many programs, only the tags beginning  \
+               yalain-v are read.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-TAGS"),
+        station: "yalain::bin.yalain::update::tests::only_yalains_tags_are_read_from_a_repository_of_many_programs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.reads-what-packaging-writes",
+        says: "The release.json the packaging writes and the facts --release-facts prints are  \
+               what the updater reads.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-INDEX"),
+        station: "yalain::bin.yalain::update::tests::the_release_json_the_packaging_writes_and_the_facts_the_program_prints_are_read",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.running-server-restarts-into-the-release",
+        says: "A running server taken for an older version counts down, stops, installs the  \
+               release, passes its health check on the real install and restarts into it in the  \
+               same process.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-RESTART"),
+        station: "yalain::live::stopping::the_running_server_counts_down_installs_and_restarts_into_a_patch_release",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.update.says-what-it-would-do",
+        says: "The check says, in Empyrean's words with Yalain's name, what it would install  \
+               and why it would not install each other release.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-DESCRIBE"),
+        station: "yalain::bin.yalain::update::tests::the_check_says_what_it_would_install_and_why_it_would_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.settings",
+        says: "server.update, server.update_check_hours, server.update_warning_seconds and  \
+               server.update_source are read with Empyrean's defaults (off, 6, 300, empty),  \
+               without a warning.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-KEYS"),
+        station: "yalain::bin.yalain::update::tests::the_update_keys_are_read_with_empyreans_defaults",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.source",
+        says: "New releases are looked for in the repository the build came from, a GitHub  \
+               repository named instead, or a mirror of the releases API; anything else is  \
+               refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-SOURCE"),
+        station: "yalain::bin.yalain::update::tests::the_release_source_is_the_builds_repository_or_a_configured_mirror",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.status-address-let-go",
+        says: "A stopped status endpoint lets its address go, so the server that follows an update \
+               can listen there.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-STATUS-ADDRESS"),
+        station: "yalain::bin.yalain::status::tests::a_stopped_status_endpoint_lets_its_address_go",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.update.world-database-fetched-first",
+        says: "A release serving a newer world database has it fetched by its own program while  \
+               it is staged, before anything is installed and before the new program starts; a  \
+               fetch that fails refuses the release, and a release serving the same one fetches  \
+               nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-FETCH"),
+        station: "yalain::bin.yalain::update::tests::a_newer_world_database_is_fetched_by_the_new_program_before_anything_is_installed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.basic-attacks-read-from-their-definitions",
         says: "A player's basic attacks are the used skills with weights to be drawn by; each read \n               with its ranges and the implements it is used with.",
         since: RETAIL,

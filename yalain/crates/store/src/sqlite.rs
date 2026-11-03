@@ -307,6 +307,56 @@ fn back_up(db: &Connection, file: &Path, from: i64) -> StoreResult<PathBuf> {
     Ok(target)
 }
 
+/// Back up the database file at `file` as the schema upgrade does (SQLite's online backup, a sibling
+/// named `<file>.backup-<label>-<UTC timestamp>`), whatever its schema, and keep the newest
+/// [`KEEP_BACKUPS`] backups of it. Used before a release is installed over the file. The backup's
+/// path.
+///
+/// # Errors
+/// The file cannot be opened or copied; no backup is left behind.
+pub fn snapshot(file: &Path, label: &str) -> StoreResult<PathBuf> {
+    if !file.is_file() {
+        return Err(StoreError(format!(
+            "{}: no such database file",
+            file.display()
+        )));
+    }
+    let db = Connection::open(file).map_err(err)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let target = backup_path(file, &format!("{label}-{}", utc_stamp(now)));
+    db.backup(DatabaseName::Main, &target, None).map_err(|e| {
+        let _ = std::fs::remove_file(&target);
+        StoreError(format!("{}: {e}", target.display()))
+    })?;
+    drop(db);
+    let all = backups(file);
+    for old in &all[..all.len().saturating_sub(KEEP_BACKUPS)] {
+        let _ = std::fs::remove_file(old);
+    }
+    Ok(target)
+}
+
+/// Put the backup at `backup` back as the database file `file`: the file's `-wal` and `-shm`
+/// companions are removed first (they belong to the file being replaced), then the backup is copied
+/// over it. The database must not be open.
+///
+/// # Errors
+/// A file cannot be removed or copied.
+pub fn restore(backup: &Path, file: &Path) -> std::io::Result<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut companion = file.as_os_str().to_owned();
+        companion.push(suffix);
+        match std::fs::remove_file(PathBuf::from(companion)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    std::fs::copy(backup, file).map(|_| ())
+}
+
 /// Where a backup of `file` named for `label` goes: beside it, and not the name of anything
 /// already there (a second backup in the same second gets `.2`, `.3` ...).
 fn backup_path(file: &Path, label: &str) -> PathBuf {

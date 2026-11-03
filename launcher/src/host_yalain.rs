@@ -148,6 +148,25 @@ pub fn keep_advertised(dir: &Path, address: Option<std::net::Ipv4Addr>) -> Resul
     keep_config(dir, &next)
 }
 
+/// Whether a configuration file's `text` lets the launcher run the world: Yalain's own updater must
+/// be off, as Empyrean's must ([`crate::host_config::validate_managed`]).
+///
+/// # Errors
+/// In words for a person.
+pub fn check_updates_off(text: &str) -> Result<(), String> {
+    let doc = text.parse::<DocumentMut>().map_err(|e| e.to_string())?;
+    let update = doc
+        .get("server")
+        .and_then(|s| s.get("update"))
+        .and_then(toml_edit::Item::as_str)
+        .unwrap_or("off");
+    if update == "off" {
+        Ok(())
+    } else {
+        Err("The launcher updates this server itself: server.update must be 'off'.".into())
+    }
+}
+
 /// The settings a configuration file's `text` holds, as the page shows them: Empyrean's keys, with
 /// the welcome message from `[server] message_of_the_day`.
 ///
@@ -217,6 +236,8 @@ pub fn update_config(settings: &Settings, original: &str) -> Result<String, Stri
     set(&mut server["shutdown_interval"], settings.shutdown_warning);
     set(&mut server["log_level"], &settings.log_level);
     set(&mut server["stop_at_console_end"], true);
+    // The launcher updates its worlds itself, so Yalain's own updater never races it.
+    set(&mut server["update"], "off");
     let network = &mut server["network"];
     set(&mut network["host"], &settings.bind);
     set(&mut network["port"], i64::from(settings.port));
@@ -708,6 +729,26 @@ mod tests {
         assert!(validate(&bad).is_err(), "the limits Empyrean's world has");
     }
 
+    /// A world the launcher hosts keeps Yalain's own updater off: the settings are saved with it
+    /// off, whatever the file said, and a file turned on by hand is refused at the world's start,
+    /// in the words Empyrean's world is refused in.
+    #[test]
+    fn a_hosted_worlds_own_updater_stays_off() {
+        let s = settings(Path::new("/ac2"));
+        let saved = update_config(&s, "").unwrap();
+        assert_eq!(check_updates_off(&saved), Ok(()));
+        let by_hand = saved.replace("update = \"off\"", "update = \"patch\"");
+        assert_eq!(
+            check_updates_off(&by_hand).unwrap_err(),
+            "The launcher updates this server itself: server.update must be 'off'."
+        );
+        assert_eq!(
+            check_updates_off(&update_config(&s, &by_hand).unwrap()),
+            Ok(())
+        );
+        assert_eq!(check_updates_off(""), Ok(()), "off by default");
+    }
+
     /// The settings are kept in `yalain.toml` in the form of `empyrean.toml`, in Yalain's keys
     /// alone (none of Empyrean's it has no setting for); a setting changed by hand is read back,
     /// and a key or comment the page has no field for is kept when the page saves over it.
@@ -751,6 +792,7 @@ mod tests {
             "server.shutdown_interval",
             "server.log_level",
             "server.stop_at_console_end",
+            "server.update",
             "server.network.host",
             "server.network.port",
             "server.network.maximum_allowed_sessions",
@@ -767,6 +809,7 @@ mod tests {
         }
         let doc = text.parse::<DocumentMut>().unwrap();
         assert_eq!(doc["server"]["stop_at_console_end"].as_bool(), Some(true));
+        assert_eq!(doc["server"]["update"].as_str(), Some("off"));
         assert_eq!(doc["database"]["shard_db_path"].as_str(), Some(DATABASE));
         assert_eq!(
             doc["server"]["status_address"].as_str(),

@@ -699,6 +699,9 @@ pub fn start_host(
     }
     // A Yalain world others may join is told the address they reach it at.
     if definition.game == Game::Auberean {
+        crate::host_yalain::check_updates_off(
+            &std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap_or_default(),
+        )?;
         let settings = crate::host_yalain::read(&dir)?;
         let here = crate::share::view(&sharing);
         let address = crate::host_yalain::advertised(
