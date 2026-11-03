@@ -25,6 +25,8 @@ pub mod function {
     pub const SEND_TEXT_ID: u32 = 0x8201_0121;
     pub const ADMIN_DIALOG: u32 = 0x8201_0074;
     pub const RENAME: u32 = 0x8201_0130;
+    pub const SUFFIX: u32 = 0x8201_0113;
+    pub const SERVER_TELL: u32 = 0x8201_0084;
     pub const CLOAK: u32 = 0x8201_0017;
     pub const UNCLOAK: u32 = 0x8201_0061;
     pub const CLOAK_STATUS: u32 = 0x8201_0009;
@@ -52,6 +54,8 @@ pub(super) fn call<S: Store>(cx: &mut Cx<'_, S>, f: u32, a: &Args<'_>) -> Option
         function::SEND_TEXT_ID => send_text_id(cx, a),
         function::ADMIN_DIALOG => dialog(cx, a),
         function::RENAME => rename(cx, a),
+        function::SUFFIX => suffix(cx, a),
+        function::SERVER_TELL => server_tell(cx, a),
         function::CLOAK => cloak(cx, true),
         function::UNCLOAK => cloak(cx, false),
         function::CLOAK_STATUS => vec![if cx.state().cloaked {
@@ -286,6 +290,45 @@ fn rename<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     crate::world::keep_player(cx.s, w);
     answer(cx.net, w, &format!("You are now named {name}."));
     vec![format!("{old} is now {name}.")]
+}
+
+/// The longest suffix a name may have.
+pub const MAX_SUFFIX: usize = 24;
+
+/// `/suffix` puts words after a player's name, kept with it; none takes them off. Letters, digits,
+/// spaces and a little punctuation: nothing that reads as the client's mark for the name's grammar.
+/// Where the original showed one isn't held: here, after the name, before that mark.
+fn suffix<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
+    let w = match cx.player(a.long(0).unwrap_or(0)) {
+        Ok(w) => w,
+        Err(why) => return vec![why],
+    };
+    let typed = a.text(1).unwrap_or_default();
+    let words = typed.trim().trim_matches('"').trim();
+    let fits = |c: char| c.is_alphanumeric() || matches!(c, ' ' | '\'' | '-' | '.' | ',');
+    if words.chars().count() > MAX_SUFFIX || !words.chars().all(fits) {
+        return vec![format!(
+            "A suffix is up to {MAX_SUFFIX} letters, digits, spaces and ' - . ,"
+        )];
+    }
+    let Some(p) = cx.s.players.get_mut(&w) else {
+        return Vec::new();
+    };
+    words.clone_into(&mut p.play.suffix);
+    let shown = p.shown_name();
+    crate::player::show_name(cx.s, cx.net, w);
+    crate::world::keep_player(cx.s, w);
+    vec![format!("Shown as {shown}.")]
+}
+
+/// `/gunservertell`: a line to a player by name, from no one.
+fn server_tell<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
+    let (target, words) = (a.text(0).unwrap_or_default(), a.text(1).unwrap_or_default());
+    let Some(w) = cx.player_named(&target) else {
+        return vec![format!("{target} is not in the world.")];
+    };
+    notice(cx.net, w, &words);
+    vec![format!("Shown to {}.", cx.name_of(w))]
 }
 
 fn cloak<S: Store>(cx: &mut Cx<'_, S>, on: bool) -> Vec<String> {

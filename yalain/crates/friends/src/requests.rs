@@ -479,7 +479,7 @@ impl Service {
         let to = self
             .here
             .get(&name.to_lowercase())
-            .filter(|h| !self.hidden.contains(&h.character) || h.character == teller.character)
+            .filter(|h| !self.hidden.contains(&h.character))
             .cloned();
         let Some(to) = to else {
             return match Self::local_entry(store, name) {

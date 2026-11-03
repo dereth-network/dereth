@@ -202,7 +202,7 @@ fn in_hand(p: &Player) -> Vec<u64> {
 pub fn player_seen(p: &Player) -> ServerMessage {
     let mut o = player::player_object(
         p.character,
-        &p.name,
+        &p.shown_name(),
         p.sex,
         crate::mounts::shown_look(p).clone(),
         player::placement(&p.position),

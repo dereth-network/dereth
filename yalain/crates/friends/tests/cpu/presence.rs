@@ -602,6 +602,18 @@ fn a_hidden_character_is_not_there_to_other_worlds() {
         online: true,
     });
     assert_eq!(events(&w.take(ann)), [], "nor of its friends");
+    for online in [false, true] {
+        w.hub(&Message::World(WorldInfo {
+            slug: "coldeve".into(),
+            name: "Coldeve".into(),
+            online,
+        }));
+    }
+    assert_eq!(
+        w.frames(),
+        [],
+        "its friend's world coming back gets no watch"
+    );
 
     w.leave("Ann");
     assert_eq!(w.frames(), [], "its leaving says nothing");
@@ -611,6 +623,6 @@ fn a_hidden_character_is_not_there_to_other_worlds() {
 
     hide(&mut w, &[]);
     let sent = w.frames();
-    assert!(sent.contains(&online("Cid@coldeve")), "{sent:?}");
+    assert!(sent.contains(&online("Bob@coldeve")), "{sent:?}");
     assert!(sent.contains(&starts), "{sent:?}");
 }

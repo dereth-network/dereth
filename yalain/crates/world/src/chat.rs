@@ -33,6 +33,8 @@
 //! its kingdom, allegiance and fellowship. A line to any other room, or from a client not in the
 //! world, is answered with a refusal and reaches nobody.
 //!
+//! **Rooms admins made.** A line to one reaches its members ([`crate::admin_calls`]) and no one else.
+//!
 //! **The Dereth Network's rooms.** A line in a room every player has (General, Trade, PvP) is also
 //! kept for the world's link ([`Server::room_lines`]), which passes it on when the room carries the
 //! network's lines. A line from another world reaches the players in the room as the room's own line
@@ -1028,6 +1030,23 @@ pub fn service<S: Store>(
                 login,
                 room_response(service_word(login), line.context, 0),
             );
+            return;
+        }
+    }
+    // A room admins made: to its members, as an admin's answer, or nowhere.
+    if let Some(world) = world {
+        let text = String::from_utf16_lossy(&line.text);
+        if let Some(went) = crate::admin_calls::rooms::said(s, net, world, line.room, &name, &text)
+        {
+            if went {
+                send_chat(
+                    net,
+                    login,
+                    room_response(service_word(login), line.context, 0),
+                );
+            } else {
+                refuse(net);
+            }
             return;
         }
     }

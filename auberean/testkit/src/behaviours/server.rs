@@ -387,6 +387,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.rooms-of-an-admins-own",
+        says: "An admin's chat room is made by name, holds its maker and whoever joins by name, and \
+               lasts while anyone is in it. A line reaches its members as an admin's answer and no one \
+               else, since a client shows no room but its channels; one from outside is refused as one \
+               to a room that isn't there. Our design: no recording holds one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ROOMS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admins_chat_room_reaches_its_members_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.suffix-shown-after-the-name",
+        says: "A suffix goes after a player's name, before the mark for its grammar, for every client \
+               that knows it and for good; empty, it comes off. Nothing that reads as that mark or \
+               breaks a line is taken. Our design: the help says only that it adds a suffix to the \
+               name.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-SUFFIX"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_suffix_shows_after_the_name_for_every_client_and_lasts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.taking-admin-away-ends-what-it-set",
         says: "A character the console makes a player again is at once no longer hidden, can die, is \
                noticed by creatures, has its own ethereality and speed, and no longer sees what is hidden, \

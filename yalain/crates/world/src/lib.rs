@@ -274,6 +274,8 @@ pub struct Server<S: Store> {
     pub gags: admin::Gags,
     /// The admin calls refused.
     pub admin_calls: admin_calls::AdminCalls,
+    /// The chat rooms admins made.
+    pub admin_rooms: admin_calls::Rooms,
     /// The script library admin accounts' retail clients are served, when the operator serves one,
     /// and the logins waiting for it to be stored before they see their characters.
     pub admin_library: Option<admin_library::AdminLibrary>,
@@ -619,6 +621,7 @@ impl<S: Store> Server<S> {
             login_guard: login::LoginGuard::default(),
             gags: admin::Gags::default(),
             admin_calls: admin_calls::AdminCalls::default(),
+            admin_rooms: admin_calls::Rooms::default(),
             admin_library: None,
             storing_library: std::collections::HashSet::new(),
             worlds: HashMap::new(),

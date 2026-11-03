@@ -98,6 +98,13 @@ pub fn world_name(name: &str, sex: u32) -> String {
 /// The quality a player's name is, as an object's name is.
 pub const NAME_QUALITY: u32 = 256;
 
+/// Make a player's encoded qualities name it.
+pub fn set_name(qualities: &mut Vec<u8>, name: &str, sex: u32) {
+    let mut q = crate::quals::read(qualities);
+    q.weenie.name = StringInfo::literal(&world_name(name, sex));
+    *qualities = crate::quals::write(&q);
+}
+
 /// A player's name changed: its qualities hold the new one, and its client and every client that
 /// knows it are told, as they are of a pet's new name.
 pub fn show_name<S: yalain_store::Store>(
@@ -108,10 +115,9 @@ pub fn show_name<S: yalain_store::Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let shown = StringInfo::literal(&world_name(&p.name, p.sex));
-    let mut q = crate::quals::read(&p.qualities);
-    q.weenie.name = shown.clone();
-    p.qualities = crate::quals::write(&q);
+    let name = p.shown_name();
+    let shown = StringInfo::literal(&world_name(&name, p.sex));
+    set_name(&mut p.qualities, &name, p.sex);
     let m = ServerMessage::UpdateStringInfoVisual(VisualQuality {
         object: crate::places::player_event(p, ()).sender,
         quality: NAME_QUALITY,

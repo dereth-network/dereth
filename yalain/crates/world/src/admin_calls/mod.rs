@@ -13,7 +13,8 @@
 //!
 //! The calls are by kind: the account's and the players' ([`moderation`]), moving ([`movement`]),
 //! objects and items ([`objects`]), a character's state ([`character`]), effects and looks
-//! ([`effects`]), factions and creatures ([`factions`]), quests and the story ([`quests`]). A call
+//! ([`effects`]), factions and creatures ([`factions`]), quests and the story ([`quests`]), chat rooms
+//! of an admin's own ([`rooms`]). A call
 //! with no counterpart in this server is answered that it has none ([`none`]).
 
 mod args;
@@ -25,6 +26,7 @@ mod movement;
 mod none;
 mod objects;
 mod quests;
+pub(crate) mod rooms;
 
 use std::collections::BTreeMap;
 
@@ -39,6 +41,7 @@ use crate::{chat, progress, session, Clock, Server};
 
 pub use args::Args;
 pub use factions::{ethereal_value, Attackable, Ethereality};
+pub use rooms::Rooms;
 
 /// The call family only admin characters send.
 const ADMIN_FAMILY: u32 = 0x8201;
@@ -172,21 +175,27 @@ pub fn allowed<S: Store>(s: &Server<S>, world: ConnId) -> Option<Issuer> {
 
 /// A character in the world is no longer an admin's: what its commands set on it ends at once. It is
 /// seen again, can die, creatures notice it, it passes through what it should and runs at its own
-/// speed, and it no longer sees what is hidden.
+/// speed, it no longer sees what is hidden, and it is in no admin's room. A suffix on its name, which
+/// may say it is staff, goes too.
 pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let was = std::mem::take(&mut p.admin);
+    let me = p.character;
+    let suffixed = !std::mem::take(&mut p.play.suffix).is_empty();
     if was.run.to_bits() != AdminState::default().run.to_bits() {
         let m = ServerMessage::VelocityScale(crate::places::player_event(
             p,
             auberean_protocol::physics::Scale(AdminState::default().run),
         ));
-        let me = p.character;
         progress::private(net, world, &m);
         crate::places::to_knowers(s, net, me, &m);
     }
+    if suffixed {
+        crate::player::show_name(s, net, world);
+    }
+    rooms::leave_all(s, me);
     crate::presence::cloak_changed(s, net, world);
     crate::presence::stops_seeing_hidden(s, net, world);
     crate::kingdoms::settle_ethereality(s, net, world);
@@ -194,7 +203,7 @@ pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
 }
 
 /// A character not in the world is no longer an admin's: a cloak it left with is forgotten, so that
-/// it does not come back should it be made an admin's again.
+/// it does not come back should it be made an admin's again, and a suffix on its name goes.
 pub(crate) fn forget_kept<S: Store>(s: &mut Server<S>, character: u64) {
     if s.players.values().any(|p| p.character == character) {
         return;
@@ -205,14 +214,21 @@ pub(crate) fn forget_kept<S: Store>(s: &mut Server<S>, character: u64) {
     let Ok(mut play) = crate::state::PlayState::from_bytes(&st.play) else {
         return;
     };
-    if !std::mem::take(&mut play.cloaked) {
+    let cloaked = std::mem::take(&mut play.cloaked);
+    let suffixed = !std::mem::take(&mut play.suffix).is_empty();
+    if !cloaked && !suffixed {
         return;
+    }
+    if suffixed {
+        if let Ok(Some(c)) = s.store.character(character) {
+            crate::player::set_name(&mut st.qualities, &c.name, c.sex);
+        }
     }
     st.play = play.to_bytes();
     if let Err(e) = s.store.set_world_state(character, &st) {
         tracing::warn!(
             id = format_args!("{character:#x}"),
-            "the cloak was not forgotten: {e}"
+            "what its commands set was not forgotten: {e}"
         );
     }
 }
@@ -326,6 +342,7 @@ fn dispatch<S: Store>(
         .or_else(|| effects::call(cx, f, a))
         .or_else(|| factions::call(cx, f, a))
         .or_else(|| quests::call(cx, f, a))
+        .or_else(|| rooms::call(cx, f, a))
         .unwrap_or_else(|| none::call(cx, f))
 }
 

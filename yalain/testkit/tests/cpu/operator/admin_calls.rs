@@ -1515,10 +1515,14 @@ fn a_rename_reaches_every_client_at_once_and_lasts() {
     let new = StringInfo::literal("Renamed [M]");
     assert_eq!(
         name_told(&h, viewer, seen),
-        [new.clone()],
+        std::slice::from_ref(&new),
         "one who knows it"
     );
-    assert_eq!(name_told(&h, victim, own), [new.clone()], "its own client");
+    assert_eq!(
+        name_told(&h, victim, own),
+        std::slice::from_ref(&new),
+        "its own client"
+    );
 
     h.bots[victim].leave_world();
     assert!(h.run_until(400, |h| !h
@@ -1630,8 +1634,27 @@ fn taking_admin_away_ends_a_kept_cloak_in_the_world_and_out_of_it() {
         let mut h = Harness::new();
         let (me, id) = admin_in_world(&mut h, "one", "Elara");
         send(&mut h, me, 0x8201_0017, &[]);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == id)
+            .map(|(w, _)| w)
+            .expect("in the world");
+        yalain_world::world::keep_player(&mut h.server, world);
         if in_world {
             console(&mut h, off);
+            let st = h
+                .server
+                .store
+                .world_state(id)
+                .expect("reads")
+                .expect("kept");
+            let play = yalain_world::state::PlayState::from_bytes(&st.play).expect("reads");
+            assert!(
+                !play.cloaked,
+                "{off}: forgotten at once, not at its leaving"
+            );
         }
         h.bots[me].leave_world();
         assert!(h.run_until(400, |h| !h
@@ -1690,4 +1713,389 @@ fn taking_admin_away_ends_a_kept_cloak_in_the_world_and_out_of_it() {
         .expect("in the world");
     assert!(!p.admin_character);
     assert!(!p.admin.cloaked, "an ordinary character is never cloaked");
+}
+
+/// A client's line to a chat room, as the client sends it: what the service answered, if anything.
+fn room_line(h: &mut Harness, b: usize, room: u32, words: &str) -> Vec<(u32, u32)> {
+    use auberean_protocol::login::ChatPacket;
+    use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
+    let from = h.bots[b].inbox.len();
+    let packet = SendToRoomById {
+        context: 7,
+        room,
+        text: words.into(),
+        extra: ExtraBlob::Speaker {
+            sender: 1,
+            chat_type: 100 << 16 | 1,
+        },
+    }
+    .network_packet()
+    .expect("packs");
+    h.bots[b].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+    h.run(20);
+    h.bots[b].inbox[from..]
+        .iter()
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                &[
+                    &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                    &p,
+                ]
+                .concat(),
+            )
+            .ok()
+            .map(|i| i.payload),
+            _ => None,
+        })
+        .filter_map(|p| match p {
+            IncomingPayload::RoomResponse(r) => Some((r.context, r.result)),
+            _ => None,
+        })
+        .collect()
+}
+
+const ROOM_CREATE: u32 = 0x8201_002A;
+const ROOM_JOIN: u32 = 0x8201_0005;
+const ROOM_LEAVE: u32 = 0x8201_004E;
+const ROOM_LEAVE_ALL: u32 = 0x8201_005A;
+
+/// An admin's chat rooms: one made by name holds its maker and whoever joins by name; a line reaches
+/// its members as an admin's answer and no one else; leaving, or the last member's leaving, ends it.
+/// Bad names and rooms that are not there are answered.
+/// Behaviour: server.admin.rooms-of-an-admins-own
+#[test]
+fn an_admins_chat_room_reaches_its_members_alone() {
+    use yalain_world::chat::REFUSED;
+    let mut h = Harness::new();
+    let (player, _) = h.player_in_world("zero", "Viewer");
+    let (a, _) = admin_in_world(&mut h, "one", "Elara");
+    let (b, _) = admin_in_world(&mut h, "two", "Cara");
+    let (c, _) = admin_in_world(&mut h, "three", "Babyfare");
+
+    let said = |h: &mut Harness, who: usize, call: u32, args: &[Arg]| {
+        let from = h.bots[who].inbox.len();
+        send(h, who, call, args);
+        answers(h, who, from)
+    };
+    assert_eq!(
+        said(&mut h, b, ROOM_JOIN, &[text("Staff")]),
+        ["There is no room Staff."]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_CREATE, &[text("Staff")]),
+        ["You made room 1000000, Staff, and are in it."]
+    );
+    assert_eq!(
+        said(&mut h, b, ROOM_CREATE, &[text("staff")]),
+        ["There is a room staff already: room 1000000."]
+    );
+    assert_eq!(
+        said(&mut h, b, ROOM_JOIN, &[text("STAFF")]),
+        ["You are in room 1000000, Staff."]
+    );
+    for bad in ["", "   ", "two\nlines", &"x".repeat(65)] {
+        assert_eq!(
+            said(&mut h, b, ROOM_CREATE, &[text(bad)]),
+            ["A room's name is 1 to 64 characters, on one line."],
+            "{bad:?}"
+        );
+    }
+    let room = 1_000_000;
+    let heard: [usize; 4] = [player, a, b, c].map(|w| h.bots[w].inbox.len());
+    assert_eq!(
+        room_line(&mut h, a, room, "hello"),
+        [(7, 0)],
+        "answered done"
+    );
+    assert_eq!(answers(&h, a, heard[1]), ["[Staff] Elara: hello"]);
+    assert_eq!(answers(&h, b, heard[2]), ["[Staff] Elara: hello"]);
+    assert_eq!(
+        answers(&h, c, heard[3]),
+        Vec::<String>::new(),
+        "not a member"
+    );
+    assert_eq!(
+        answers(&h, player, heard[0]),
+        Vec::<String>::new(),
+        "nor a player"
+    );
+
+    // A line from outside goes nowhere, answered as one to a room that isn't there is.
+    let nowhere = room_line(&mut h, c, 999_999, "anyone");
+    let shut_out = room_line(&mut h, c, room, "let me in");
+    assert_eq!(nowhere, [(7, REFUSED)]);
+    assert_eq!(shut_out, nowhere, "an admin outside it");
+    assert_eq!(
+        room_line(&mut h, player, room, "let me in"),
+        nowhere,
+        "a player"
+    );
+    let quiet = h.bots[a].inbox.len();
+    h.run(5);
+    assert_eq!(answers(&h, a, quiet), Vec::<String>::new());
+
+    assert_eq!(
+        said(&mut h, a, ROOM_LEAVE, &[Arg::Int(room)]),
+        [format!("You left room {room}.")]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_LEAVE, &[Arg::Int(room)]),
+        [format!("You are not in room {room}.")]
+    );
+    assert_eq!(room_line(&mut h, a, room, "still here?"), nowhere, "left");
+    assert_eq!(
+        said(&mut h, b, ROOM_LEAVE_ALL, &[]),
+        ["You left every room."]
+    );
+    assert_eq!(
+        room_line(&mut h, b, room, "anyone"),
+        nowhere,
+        "gone with its last"
+    );
+    assert!(h.server.admin_rooms.rooms.is_empty());
+}
+
+/// A place in an admin's room needs an admin's rights at that moment: taking admin away, or leaving
+/// the world, takes it, and a line to the room then goes nowhere. A player's calls of these do nothing
+/// at all.
+/// Behaviour: server.admin.taking-admin-away-ends-what-it-set
+#[test]
+fn only_an_admin_in_the_world_stays_in_an_admins_room() {
+    use yalain_world::chat::REFUSED;
+    for line in ["set-accountadmin two off", "set-characteradmin Cara off"] {
+        let mut h = Harness::new();
+        let (player, _) = h.player_in_world("zero", "Viewer");
+        let (a, _) = admin_in_world(&mut h, "one", "Elara");
+        let (b, cara) = admin_in_world(&mut h, "two", "Cara");
+        send(&mut h, a, ROOM_CREATE, &[text("Staff")]);
+        send(&mut h, b, ROOM_JOIN, &[text("Staff")]);
+        let room = 1_000_000;
+        console(&mut h, line);
+        h.run(5);
+        assert!(
+            !h.server.admin_rooms.rooms[&room].members.contains(&cara),
+            "{line}: out of it"
+        );
+        let (ha, hb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+        assert_eq!(
+            room_line(&mut h, b, room, "secret"),
+            [(7, REFUSED)],
+            "{line}"
+        );
+        assert_eq!(answers(&h, a, ha), Vec::<String>::new(), "{line}: unheard");
+        assert_eq!(room_line(&mut h, a, room, "hello"), [(7, 0)], "{line}");
+        assert_eq!(
+            answers(&h, b, hb),
+            Vec::<String>::new(),
+            "{line}: hears nothing"
+        );
+
+        // A player's calls of these are the gate's.
+        let refused = h.bots[player].inbox.len();
+        send(&mut h, player, ROOM_JOIN, &[text("Staff")]);
+        send(&mut h, player, ROOM_CREATE, &[text("Mine")]);
+        assert_eq!(h.server.admin_rooms.rooms.len(), 1, "{line}");
+        assert_eq!(answers(&h, player, refused), Vec::<String>::new());
+    }
+
+    // Rights lost another way than the console's own path still count at the moment of a line.
+    let mut h = Harness::new();
+    let (a, _) = admin_in_world(&mut h, "one", "Elara");
+    let (b, cara) = admin_in_world(&mut h, "two", "Cara");
+    send(&mut h, a, ROOM_CREATE, &[text("Staff")]);
+    send(&mut h, b, ROOM_JOIN, &[text("Staff")]);
+    let room = 1_000_000;
+    for x in h.server.sessions.values_mut() {
+        if x.account.name == "two" {
+            x.account.admin = false;
+        }
+    }
+    let (ha, hb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    assert_eq!(room_line(&mut h, b, room, "secret"), [(7, REFUSED)]);
+    assert_eq!(
+        answers(&h, a, ha),
+        Vec::<String>::new(),
+        "checked as it speaks"
+    );
+    assert_eq!(room_line(&mut h, a, room, "hello"), [(7, 0)]);
+    assert_eq!(
+        answers(&h, b, hb),
+        Vec::<String>::new(),
+        "checked as it hears"
+    );
+
+    // Leaving the world leaves the room.
+    h.bots[a].leave_world();
+    assert!(h.run_until(400, |h| h
+        .server
+        .players
+        .values()
+        .all(|p| p.name != "Elara")));
+    h.run(20);
+    assert!(h.server.admin_rooms.rooms[&room].members.contains(&cara));
+    assert_eq!(
+        h.server.admin_rooms.rooms[&room].members.len(),
+        1,
+        "left it"
+    );
+}
+
+/// `/suffix` puts words after a player's name, for every client that knows it and for good; empty, it
+/// takes them off. Nothing that reads as the name's grammar mark or breaks a line is taken.
+/// Behaviour: server.admin.suffix-shown-after-the-name
+#[test]
+fn a_suffix_shows_after_the_name_for_every_client_and_lasts() {
+    use auberean_protocol::text::StringInfo;
+    const SUFFIX: u32 = 0x8201_0113;
+    let mut h = Harness::new();
+    let (victim, id) = h.player_in_world("one", "Elara");
+    let (viewer, _) = h.player_in_world("three", "Babyfare");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    h.run(20);
+    let told = |h: &Harness, b: usize, from: usize| {
+        h.world_messages(b, from)
+            .into_iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateStringInfoVisual(u)
+                    if u.object.id == id && u.quality == yalain_world::player::NAME_QUALITY =>
+                {
+                    Some(u.value)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (seen, own) = (h.bots[viewer].inbox.len(), h.bots[victim].inbox.len());
+    send(
+        &mut h,
+        me,
+        SUFFIX,
+        &[Arg::LongInt(id), text("\"the Bold\"")],
+    );
+    h.run(20);
+    let new = StringInfo::literal("Elara the Bold [Mv]");
+    assert_eq!(
+        told(&h, viewer, seen),
+        std::slice::from_ref(&new),
+        "one who knows it"
+    );
+    assert_eq!(
+        told(&h, victim, own),
+        std::slice::from_ref(&new),
+        "its own client"
+    );
+    for bad in ["[F]", "two\nlines", "<b>", &"x".repeat(25)] {
+        let from = h.bots[viewer].inbox.len();
+        let said = h.bots[me].inbox.len();
+        send(&mut h, me, SUFFIX, &[Arg::LongInt(id), text(bad)]);
+        h.run(20);
+        assert_eq!(told(&h, viewer, from), [], "{bad:?}");
+        assert!(
+            answers(&h, me, said)[0].starts_with("A suffix is"),
+            "{bad:?}"
+        );
+    }
+
+    let from = h.bots[victim].inbox.len();
+    relog(&mut h, victim, "one", id);
+    h.run(20);
+    let described = h
+        .world_messages(victim, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerQualities(q) => Some(q.0.weenie.name),
+            _ => None,
+        })
+        .expect("described");
+    assert_eq!(described, new, "its own description, at its next entry");
+
+    let (fresh, _) = h.player_in_world("four", "Wrenna");
+    h.run(20);
+    let created = h
+        .world_messages(fresh, 0)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.id == id => Some(o.weenie.name),
+            _ => None,
+        })
+        .expect("seen");
+    assert_eq!(created, new, "one who meets it later");
+
+    let seen = h.bots[viewer].inbox.len();
+    send(&mut h, me, SUFFIX, &[Arg::LongInt(id), text("")]);
+    h.run(20);
+    assert_eq!(
+        told(&h, viewer, seen),
+        [StringInfo::literal("Elara [Mv]")],
+        "taken off"
+    );
+}
+
+/// A suffix an admin gave itself goes with its rights, in the world or out of it, for it may say it is
+/// staff.
+/// Behaviour: server.admin.taking-admin-away-ends-what-it-set
+#[test]
+fn taking_admin_away_takes_a_suffix_off_its_name() {
+    const SUFFIX: u32 = 0x8201_0113;
+    for in_world in [true, false] {
+        let mut h = Harness::new();
+        let (me, id) = admin_in_world(&mut h, "one", "Elara");
+        send(&mut h, me, SUFFIX, &[Arg::LongInt(id), text("Staff")]);
+        if in_world {
+            console(&mut h, "set-accountadmin one off");
+        }
+        h.bots[me].leave_world();
+        assert!(h.run_until(400, |h| !h
+            .server
+            .players
+            .values()
+            .any(|p| p.character == id)));
+        h.run(20);
+        if !in_world {
+            console(&mut h, "set-accountadmin one off");
+        }
+        let from = h.bots[me].inbox.len();
+        h.enter_world(me, "one", id);
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        assert_eq!(p.shown_name(), "Elara", "in the world {in_world}");
+        let described = h
+            .world_messages(me, from)
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::PlayerQualities(q) => Some(q.0.weenie.name),
+                _ => None,
+            })
+            .expect("described");
+        assert_eq!(
+            described,
+            auberean_protocol::text::StringInfo::literal("Elara [Mv]"),
+            "in the world {in_world}"
+        );
+    }
+}
+
+/// `/gunservertell` shows a player the words, by its name; a name not in the world is answered.
+/// Behaviour: server.admin.rooms-of-an-admins-own
+#[test]
+fn a_server_tell_reaches_a_player_by_name() {
+    const SERVER_TELL: u32 = 0x8201_0084;
+    let mut h = Harness::new();
+    let (victim, _) = h.player_in_world("one", "Elara");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    let from = h.bots[victim].inbox.len();
+    send(
+        &mut h,
+        me,
+        SERVER_TELL,
+        &[text("Elara"), text("Hello there")],
+    );
+    assert_eq!(h.bots[victim].notices(from), ["Hello there"]);
+    let said = h.bots[me].inbox.len();
+    send(&mut h, me, SERVER_TELL, &[text("Nobody"), text("Hello")]);
+    assert_eq!(answers(&h, me, said), ["Nobody is not in the world."]);
 }

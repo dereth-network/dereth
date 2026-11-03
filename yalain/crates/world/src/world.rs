@@ -164,6 +164,16 @@ pub struct Player {
 }
 
 impl Player {
+    /// Its name as the world shows it: with the words an admin put after it, if any.
+    #[must_use]
+    pub fn shown_name(&self) -> String {
+        if self.play.suffix.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{} {}", self.name, self.play.suffix)
+        }
+    }
+
     /// Its object, with its instance stamp.
     #[must_use]
     pub const fn stamp(&self) -> ObjectStamp {
@@ -411,7 +421,7 @@ pub fn enter<S: Store>(
     let at = player::placement(&position);
     let object = player::player_object(
         character,
-        &c.name,
+        &p.shown_name(),
         c.sex,
         p.look.clone(),
         at,
@@ -669,6 +679,7 @@ pub fn keep_player<S: Store>(s: &mut Server<S>, world: ConnId) {
 pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     // Its fellowship and its trade go on without it.
     if let Some(id) = s.players.get(&world).map(|p| p.character) {
+        crate::admin_calls::rooms::leave_all(s, id);
         crate::fellowship::leave(s, net, id);
         crate::trade::left(s, net, id);
         crate::pets::owner_leaves(s, net, id);

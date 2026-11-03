@@ -591,13 +591,58 @@ mod tests {
         assert_eq!(f.in_world.get(&account), None, "gone with its body");
     }
 
-    /// A cloak reaches the friends service and the network from the world at its next pass: another
-    /// world's watch sees the character go offline, and it is not shown online on its way out of
-    /// the world, nor as it comes back still cloaked.
+    /// A stream for an account, admitted without a check of its ticket.
+    fn stream_for(h: &mut Harness, f: &mut Friends, fed: &mut Federation, id: u64, account: &str) {
+        use auberean_friends::{Cx, Element, Hello, Request, Ticket, PREAMBLE, PROTO};
+        f.service.accept(
+            at(h),
+            id,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        );
+        let mut bytes = PREAMBLE.to_vec();
+        for e in [
+            Element::Hello(Hello {
+                proto: PROTO,
+                software: "test/1".into(),
+                locale: None,
+            }),
+            Element::Request {
+                cx: Cx(1),
+                request: Request::PresentTicket {
+                    email: String::new(),
+                    ticket: Ticket::new(account, "ticket").encode().expect("a ticket"),
+                },
+            },
+        ] {
+            e.write_frame(&mut bytes).expect("fits");
+        }
+        f.service
+            .on_bytes(at(h), id, &bytes, &mut h.server.store, Some(&mut *fed));
+        let check = f.service.take_tickets().pop().expect("its ticket");
+        let account = h
+            .server
+            .sessions
+            .values()
+            .find(|x| x.account.name == account)
+            .map(|x| x.account.id)
+            .expect("its login");
+        f.service.admit(
+            at(h),
+            check.stream,
+            check.cx,
+            account,
+            &mut h.server.store,
+            Some(fed),
+        );
+    }
+
+    /// A cloak reaches the friends service and the network from the world at its next pass: a friend
+    /// in the world and another world's watch see the character go offline, and it is not shown
+    /// online to either on its way out of the world, nor as it comes back still cloaked.
     /// Behaviour: server.friends.hidden-is-not-on-the-network
     #[test]
     fn a_cloak_reaches_the_network_and_a_cloaked_character_comes_and_goes_unseen() {
-        use auberean_friends::{Cx, Element, Hello, Request, Ticket, PREAMBLE, PROTO};
+        use auberean_friends::{Element, Event, FrameReader, Mode, Request};
         use dereth_network_protocol::{Address, Message};
         let frames = |fed: &mut Federation, t: f64| -> Vec<Message> {
             fed.take_frames(t)
@@ -622,53 +667,51 @@ mod tests {
             );
         }
         h.enter_world(a, "one", elara);
+        h.player_in_world("two", "Viewer");
         h.run(10);
         let (mut f, mut fed) = linked(&h, None);
         let t = h.now.0;
-        f.service.accept(
-            at(&h),
-            1,
-            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-        );
-        let mut bytes = PREAMBLE.to_vec();
-        for e in [
-            Element::Hello(Hello {
-                proto: PROTO,
-                software: "test/1".into(),
-                locale: None,
-            }),
-            Element::Request {
-                cx: Cx(1),
-                request: Request::PresentTicket {
-                    email: String::new(),
-                    ticket: Ticket::new("one", "ticket").encode().expect("a ticket"),
-                },
-            },
-        ] {
-            e.write_frame(&mut bytes).expect("fits");
-        }
-        f.service
-            .on_bytes(at(&h), 1, &bytes, &mut h.server.store, Some(&mut fed));
-        let check = f.service.take_tickets().pop().expect("its ticket");
-        let account = h
-            .server
-            .sessions
-            .values()
-            .find(|x| x.account.name == "one")
-            .map(|x| x.account.id)
-            .expect("its login");
-        f.service.admit(
-            at(&h),
-            check.stream,
-            check.cx,
-            account,
-            &mut h.server.store,
-            Some(&mut fed),
-        );
+        stream_for(&mut h, &mut f, &mut fed, 1, "one");
+        stream_for(&mut h, &mut f, &mut fed, 2, "two");
         fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
             .expect("kept");
         f.world(at(&h), &mut h.server, Some(&mut fed));
         assert!(f.service.is_present("Elara"));
+
+        // What the friend's client is told of Elara from now on.
+        let mut bytes = Vec::new();
+        Element::Request {
+            cx: auberean_friends::Cx(2),
+            request: Request::FriendAdd {
+                user: "Elara".into(),
+            },
+        }
+        .write_frame(&mut bytes)
+        .expect("fits");
+        f.service
+            .on_bytes(at(&h), 2, &bytes, &mut h.server.store, Some(&mut fed));
+        let mut reader = FrameReader::new();
+        let mut told_friend = |f: &mut Friends| -> Vec<Mode> {
+            let mut modes = Vec::new();
+            for o in f.service.take_out() {
+                let yalain_friends::Out::Write(2, b) = o else {
+                    continue;
+                };
+                reader.push(&b);
+                while let Some(text) = reader.next_frame().expect("a frame") {
+                    if let Ok(Element::Event(Event::FriendStat { user, mode })) =
+                        Element::parse(&text)
+                    {
+                        if user.starts_with("Elara") {
+                            modes.push(mode);
+                        }
+                    }
+                }
+            }
+            modes
+        };
+        let _ = told_friend(&mut f);
+
         let bob = Address::parse("Bob@coldeve").expect("an address");
         let told = |online| Message::Presence {
             to: bob.clone(),
@@ -693,6 +736,7 @@ mod tests {
             .cloaked = true;
         f.world(at(&h), &mut h.server, Some(&mut fed));
         assert!(frames(&mut fed, t).contains(&told(false)), "cloaked: gone");
+        assert_eq!(told_friend(&mut f), [Mode::OFFLINE], "to its friend too");
 
         h.bots[a].leave_world();
         while h.server.players.values().any(|p| p.character == elara) {
@@ -703,6 +747,7 @@ mod tests {
             !frames(&mut fed, t).contains(&told(true)),
             "not online on its way out"
         );
+        assert_eq!(told_friend(&mut f), [], "its friend is told nothing");
 
         h.run(400);
         h.enter_world(a, "one", elara);
@@ -719,6 +764,7 @@ mod tests {
             !frames(&mut fed, t).contains(&told(true)),
             "nor as it comes back"
         );
+        assert_eq!(told_friend(&mut f), [], "its friend is told nothing");
     }
 
     /// An admin's `@dn admin ...` said in game is the operator's command, answered in its chat

@@ -146,14 +146,16 @@ pub struct PlayState {
     pub played_seconds: u64,
     /// It left the world cloaked: it enters so, if it is still an admin's.
     pub cloaked: bool,
+    /// Words an admin put after its name.
+    pub suffix: String,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played).
-const VERSION: u32 = 13;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak).
+const VERSION: u32 = 14;
 
 /// Which of a treasure item's own properties are kept: its least level, its Arcane Lore, its effect.
 const OWN_MIN_LEVEL: u32 = 0x1;
@@ -325,6 +327,8 @@ impl PlayState {
         w32(&mut out, self.hero_credits);
         w64(&mut out, self.played_seconds);
         w32(&mut out, u32::from(self.cloaked));
+        w32(&mut out, u32::try_from(self.suffix.len()).unwrap_or(0));
+        out.extend_from_slice(self.suffix.as_bytes());
         out
     }
 
@@ -507,6 +511,12 @@ impl PlayState {
         }
         if version >= 13 {
             s.cloaked = r.u32().ok_or_else(bad)? != 0;
+        }
+        if version >= 14 {
+            let n = usize::try_from(r.u32().ok_or_else(bad)?).map_err(|_| bad())?;
+            let bytes = r.0.get(..n).ok_or_else(bad)?;
+            s.suffix = String::from_utf8_lossy(bytes).into_owned();
+            r.0 = &r.0[n..];
         }
         if !r.0.is_empty() {
             return Err(bad());
