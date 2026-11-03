@@ -9,6 +9,7 @@ not how it was done.
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - Fixed the quest journal being empty after logging back in.
+- Fixed available experience showing a huge number in the skills panel.
 
 ## 0.1.2 (2026-11-02)
 

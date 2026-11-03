@@ -1623,6 +1623,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.skills.the-foot-shows-the-experience-the-points-notice-carries",
+        says: "The scripts' notice of the player's points carries the experience to spend high word first, as a 64-bit number sits below a notice's receiver; the skill window's foot shows the number with both words in it, not its words swapped.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SKILL-POINTS-NOTICE"),
+        station: "auberean-ui-game::dat::play::skills::the_foot_shows_the_experience_the_points_notice_carries",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.skills.the-trees-scroll-bar-shows-no-thumb-while-the-whole-tree-shows",
         says: "While the whole skill tree is in view its scroll bar is disabled and shows only its \
                track and arrows, no thumb, from the moment the window first shows: the tree finds \
