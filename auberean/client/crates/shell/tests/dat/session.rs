@@ -3126,7 +3126,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
 
 /// Outdoors the sky stands at the camera every frame, wherever the camera moves within its cell,
 /// and moves on with the moment every frame, as do the light and fog; the ground keeps the
-/// lighting it was lit with until the light's tick, 30 seconds of game time after the last.
+/// lighting it was lit with until the light's tick, 30 seconds after the last.
 /// (The player put 150 m up over the land of block `0x0298` in the morning, falling there; the
 /// world's frame read every frame for 40 seconds.)
 ///
@@ -3244,6 +3244,86 @@ fn the_sky_follows_the_camera_every_frame_and_the_ground_is_lit_on_the_lights_ti
     );
     let c = when(36.0);
     assert_ne!(b.ground, c.ground, "lit again on the light's tick");
+}
+
+/// An admin moving the time of day has the ground lit for it on the next frame, long before the
+/// light's tick, and the tick booked from there is shortened by the rate the world's time runs at:
+/// at twice the rate, 15 seconds. (The player put 150 m up over the land of block `0x0298`, the
+/// ground's first corner read every frame.)
+///
+/// Behaviour: desktop.world.a-moved-game-clock-relights-the-ground
+#[test]
+fn a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often() {
+    let cell = 0x0298_0001;
+    let at = Vec3 {
+        x: 12.0,
+        y: 12.0,
+        z: 150.0,
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 45.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    const MOVED: f64 = 12.0;
+    let mut moved = false;
+    // The ground's first corner by frame, after the move.
+    let mut seen: Vec<(f64, [f32; 4])> = Vec::new();
+    while s.host.time < 32.0 {
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let now = s.host.time;
+        if now >= MOVED && !moved {
+            moved = true;
+            let c = s.client.as_mut().expect("a client");
+            let t = c.game_time();
+            let clock = c.game_clock_mut().expect("the world's clock");
+            assert!(clock.dilate(2.0, t), "the rate taken");
+            clock.use_time(t);
+            let to = (clock.time_of_day() + 0.25).fract();
+            clock.alter_time_of_day(to, t);
+        }
+        let out = s.frame();
+        let Some(f) = out.world else {
+            continue;
+        };
+        if now >= MOVED - 1.0 && !f.terrain.is_empty() {
+            seen.push((now, f.terrain[0].vertices[0].color));
+        }
+    }
+    let changes: Vec<f64> = seen
+        .windows(2)
+        .filter(|w| w[0].1 != w[1].1)
+        .map(|w| w[1].0)
+        .collect();
+    assert!(changes.len() >= 2, "lit again: {changes:?}");
+    assert!(
+        changes[0] >= MOVED && changes[0] - MOVED < 0.1,
+        "lit on the frame after the move, not at {changes:?}"
+    );
+    assert!(
+        (changes[1] - changes[0] - 15.0).abs() < 0.1,
+        "the next tick half of 30 s on, not at {changes:?}"
+    );
+    assert!(
+        !s.client
+            .as_ref()
+            .and_then(|c| c.game_clock())
+            .expect("the world's clock")
+            .needs_light(),
+        "the clock told the land has been lit"
+    );
 }
 
 /// The world's frame carries the client's running time every frame: the clouds' shadows slide, the

@@ -1298,6 +1298,11 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
         station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
+        id: "desktop.world.a-moved-game-clock-relights-the-ground",
+        says: "A time of day moved by an admin lights the ground on the next frame, and the                light's tick is shortened by the rate the world's time runs at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVED-CLOCK-RELIGHTS"),
+        station: "auberean-shell::dat::session::a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1415,7 +1420,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "desktop.world.the-sky-follows-the-camera-every-frame-and-the-ground-is-lit-on-the-lights-tick",
         says: "Outdoors the sky stands at the camera every frame and moves on with the moment, as \
                do the light and fog; the ground keeps the lighting it was lit with until the \
-               light's tick, the sky's light interval (30 s of game time) after the last.",
+               light's tick, the sky's light interval (30 s) after the last.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SKY-EVERY-FRAME"),
         station: "auberean-shell::dat::session::the_sky_follows_the_camera_every_frame_and_the_ground_is_lit_on_the_lights_tick",

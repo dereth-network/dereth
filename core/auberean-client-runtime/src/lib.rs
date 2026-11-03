@@ -1528,6 +1528,11 @@ impl Client {
         self.game_clock.as_ref()
     }
 
+    /// The world's clock, to say the land has been lit for it.
+    pub const fn game_clock_mut(&mut self) -> Option<&mut auberean_world::calendar::GameClock> {
+        self.game_clock.as_mut()
+    }
+
     /// The physics object of game object `id`, made by the scene (see
     /// [`world::create_physics_obj`]): from the physics record its qualities name, as its
     /// repository answers them (its own qualities without scripts). Whether it was made.

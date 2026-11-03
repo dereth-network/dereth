@@ -89,9 +89,6 @@ pub const PLAYER_MOTION: u32 = 0x3200_0000;
 pub const BLOCK_LENGTH: f32 = 160.0;
 /// The lowest cell index of an interior cell; land cells are 1 to 64.
 pub const FIRST_INTERIOR: u32 = 0x100;
-/// How often the world's lighting is worked out again while nothing else changes, in seconds of
-/// game time, when the region's sky does not say.
-pub const LIGHT_EVERY: f64 = 30.0;
 
 /// The world's records and its region, read once.
 pub struct WorldData {
@@ -332,8 +329,9 @@ pub struct Scene<'w> {
     table: World,
     others: others::Others,
     built: Option<Built>,
-    /// When the world's lighting is next worked out again (game time), and how many times it has
-    /// been.
+    /// When the time of day is next looked at and the world's lighting next worked out again (the
+    /// client's own seconds), and how many times it has been.
+    sky_at: f64,
     light_at: f64,
     lightings: u32,
     /// The vertical field of view, degrees.
@@ -1180,7 +1178,8 @@ impl<'w> Scene<'w> {
             seen: seen::Seen::default(),
             drawn: Vec::new(),
             built: None,
-            light_at: f64::NEG_INFINITY,
+            sky_at: 0.0,
+            light_at: 0.0,
             lightings: 0,
             fov: auberean_physics::camera::BASE_FOV + auberean_physics::camera::MIN_FOV_EFFECTS,
             status: Status::default(),
@@ -2083,7 +2082,8 @@ impl<'w> Scene<'w> {
         self.camera.reset_camera();
         self.camera_stands = None;
         // The world's lighting is worked out afresh in the next world entered.
-        self.light_at = f64::NEG_INFINITY;
+        self.sky_at = 0.0;
+        self.light_at = 0.0;
         self.built = None;
         // The land let go of, and the objects standing in it with it; the world entered next
         // starts with fresh free blocks.
@@ -2243,6 +2243,9 @@ impl<'w> Scene<'w> {
                     self.follow_player_cell(client, true);
                 }
             }
+        }
+        if self.player.is_some() {
+            self.light_tick(client, now);
         }
         if let Some(p) = &mut self.player {
             if client.body.placements() != p.placements {
@@ -3267,7 +3270,7 @@ impl<'w> Scene<'w> {
         if self.player.is_none() {
             return false;
         }
-        let lightings = self.light_tick();
+        let lightings = self.lightings;
         let Some(p) = self.player.as_ref() else {
             return false;
         };
@@ -4097,22 +4100,43 @@ impl<'w> Scene<'w> {
         seen::pick(camera, size, pointer, &built.frame.objects, &self.drawn)
     }
 
-    /// The moment of the day and the sky's day, from the game clock.
-    /// The light's tick: once the sky's light interval (half way between its two; 30 s in the
-    /// September 2013 data) has passed in game time since the world's lighting was last worked
-    /// out, it is worked out again. How many times it has been.
+    /// The light's tick, each frame in the world: when the sky's interval has passed (none in the
+    /// September 2013 data), the time of day is looked at, and the world's lighting worked out
+    /// again if the sky's light interval has passed since it last was (half way between its two;
+    /// 30 s in that data) or the time of day was moved. Both intervals run on the client's own
+    /// seconds, shortened by the rate the world's time runs at. A world with no sky or no day
+    /// keeps its lighting, and looks again a day on.
     // D2-11025, D2-10909
-    fn light_tick(&mut self) -> u32 {
-        if self.game_time >= self.light_at {
-            let every = self.world.region.sky.as_ref().map_or(LIGHT_EVERY, |s| {
-                auberean_world::sky::light_tick_size(s, 0.5)
-            });
-            self.light_at = self.game_time + every;
-            self.lightings = self.lightings.wrapping_add(1);
+    fn light_tick(&mut self, client: &mut Client, now: f64) {
+        if now < self.sky_at {
+            return;
         }
-        self.lightings
+        let Some(clock) = client.game_clock() else {
+            return;
+        };
+        let rate = f64::from(clock.dilation());
+        let moved = clock.needs_light();
+        let tomorrow = clock.time_til_tomorrow();
+        let (known, day) = (self.game_time > 0.0, self.moment().1);
+        let Some(sky) = self.world.region.sky.as_ref().filter(|_| !known || day.is_some()) else {
+            self.sky_at += tomorrow;
+            return;
+        };
+        let (tick, light_tick) = (
+            auberean_world::sky::tick_size(sky, 0.5),
+            auberean_world::sky::light_tick_size(sky, 0.5),
+        );
+        if self.light_at <= now || moved {
+            self.light_at = light_tick / rate + now;
+            self.lightings = self.lightings.wrapping_add(1);
+            if let Some(clock) = client.game_clock_mut() {
+                clock.lit();
+            }
+        }
+        self.sky_at = tick / rate + now;
     }
 
+    /// The moment of the day and the sky's day, from the game clock.
     fn moment(&self) -> (f32, Option<DataId>) {
         let r = &self.world.region;
         match (r.calendar.as_ref(), r.sky.as_ref()) {
