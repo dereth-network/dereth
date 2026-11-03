@@ -136,8 +136,13 @@ pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out"];
 
 /// The crates outside the four parts the server may use: the Dereth Network's protocol and a
 /// world's end of its link, which name no game (the network is self-contained), so that the server
-/// speaks the network with the code every world shares rather than a copy of its own.
-pub const SERVER_MAY_USE: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
+/// speaks the network with the code every world shares rather than a copy of its own, and the
+/// updater both game servers run.
+pub const SERVER_MAY_USE: &[&str] = &[
+    "dereth-network-protocol",
+    "dereth-network-link",
+    "dereth-server-update",
+];
 
 /// The client's and the server's crates the world builder may use: the world's frame and its
 /// device, which it draws the world with, and the world database and the server's tables, which

@@ -1853,7 +1853,9 @@ version = "0.1.0"
 dependencies = [
  "dereth-network-protocol",
  "rustls",
+ "serde_json",
  "tungstenite",
+ "ureq",
  "webpki-roots",
 ]
 

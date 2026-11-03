@@ -7,12 +7,12 @@ what they see, not how it was done.
 
 ## Unreleased
 
+- New `yalain update`, and worlds can keep themselves up to date.
 - Fixed login cookies that another player could work out.
 - New `@dn link`, friends, world squelches and channels, as on other Dereth Network worlds.
 - New `@dn admin block` in game, from an admin.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - An open corpse now closes when you walk away from it.
-- New `yalain update`, and worlds can keep themselves up to date.
 
 ## 0.1.2 (2026-11-03)
 

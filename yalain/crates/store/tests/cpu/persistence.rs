@@ -645,7 +645,7 @@ fn an_updates_backup_is_named_for_it_and_puts_the_database_back() {
         name.contains(".sqlite.backup-update-v0.1.0-v0.2.0-"),
         "{name}"
     );
-    assert_eq!(backups(&file.0), [backup.clone()]);
+    assert_eq!(backups(&file.0), std::slice::from_ref(&backup));
     assert_eq!(holds(&backup).0, SCHEMA_VERSION);
 
     rusqlite::Connection::open(&file.0)

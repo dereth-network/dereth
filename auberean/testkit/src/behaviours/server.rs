@@ -6394,7 +6394,7 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CHECK-BY-HAND"),
         station: "yalain::live::stopping::update_check_reads_the_source_the_configuration_names_and_says_what_it_would_do",
-        tier: Tier::Dat,
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.update.command-line",
@@ -6500,7 +6500,7 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-RESTART"),
         station: "yalain::live::stopping::the_running_server_counts_down_installs_and_restarts_into_a_patch_release",
-        tier: Tier::Dat,
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.update.says-what-it-would-do",

@@ -518,7 +518,9 @@ mod tests {
             [era]
             profile = "eor"
         "#;
-        let (args, warnings) = arguments(text, folder).expect("reads");
+        let (args, mut warnings) = arguments(text, folder).expect("reads");
+        // Their order is the table's, which a build's features can change.
+        warnings.sort();
         assert_eq!(
             warnings,
             [
