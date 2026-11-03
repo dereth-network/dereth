@@ -138,6 +138,24 @@ The Dereth Network's hub and ACE mod are released the same way, each on tags of 
 their workflows write the release notes from the commits.
 [network/RELEASING.md](network/RELEASING.md) describes the whole flow.
 
+## Publishing the drafts
+
+The release workflows leave drafts. `cargo xtask publish drafts` publishes them, instead of each
+being published by hand on GitHub:
+
+```
+cargo xtask publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
+```
+
+- It takes our products' drafts (`dereth-v`, `dereth-web-v`, `empyrean-v`, `lyceum-v`, `auberean-v`,
+  `yalain-v`, `athenaeum-v`, `network-hub-v`, `network-ace-v`), or only the tags named, and skips any
+  that isn't whole: no `SHA256SUMS` yet, a file it lists is missing, or a file still uploading.
+- Only Dereth's final release becomes "Latest". Every other product, and every pre-release, doesn't.
+- `--wait` stays until the tags named (else those on `main`'s head) are published, asking again every
+  minute, and stops naming any release workflow that failed.
+- Without `--yes` it says what it would publish and changes nothing. It needs a token, as `publish`
+  does (`DERETH_PUBLISH_TOKEN`, else `GITHUB_TOKEN`).
+
 ## Releasing without GitHub Actions
 
 When the release workflows cannot run, `cargo xtask publish` makes the same GitHub release from

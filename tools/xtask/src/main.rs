@@ -173,6 +173,11 @@ Release and packaging:
                             Dereth's plugin source: each sample of dereth/plugins packed into a zip
                             and listed in plugins.json, as the web release publishes it beside
                             the page (docs/plugins/sources.md)
+  publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
+                            publish the whole drafts the release workflows left, Dereth's final
+                            release as Latest; --wait stays until the tags named (else those on
+                            main's head) are published, and names any workflow that failed. A dry
+                            run unless --yes.
   publish dereth|empyrean|web|lyceum <version> --upload <dir> | --finish | --publish
           [--repo <owner/name>] [--yes]
                             the GitHub release without the release workflows: each machine
