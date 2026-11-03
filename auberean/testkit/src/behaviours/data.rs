@@ -232,6 +232,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.database.an-enum-map-names-its-base-record",
+        says: "An enum map names its base map's record among the records it needs, and one with no \
+               base names none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-ENUM-MAP-BASE"),
+        station: "auberean-assets::cpu::requests::an_enum_map_names_its_base_record",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.database.data-graph",
         says: "A record that loads goes into an installed data graph as a node with an edge to each \
                record it needs; a cell file's record, or one of 24 types \

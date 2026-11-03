@@ -306,6 +306,14 @@ pub struct EnumMap {
 }
 
 impl EnumMap {
+    /// The records it needs: its base map, when it has one.
+    // D2-16815
+    pub fn sub_ids(&self, out: &mut auberean_dat::QualifiedIds) {
+        if self.base != 0 {
+            out.add(self.base);
+        }
+    }
+
     /// The map's own id, the base map's id (or 0), then a counted list of a value and its name (a
     /// narrow string). Also read embedded in other records, id included.
     // D2-14375, D2-14365

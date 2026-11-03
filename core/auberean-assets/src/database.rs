@@ -91,6 +91,8 @@ pub fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
         t.sub_ids(kind, out);
     } else if let Some(m) = record.downcast_ref::<IdMap>() {
         m.sub_ids(kind, out);
+    } else if let Some(m) = record.downcast_ref::<crate::strings::EnumMap>() {
+        m.sub_ids(out);
     } else if let Some(e) = record.downcast_ref::<Entity>() {
         e.sub_ids(out);
     } else if let Some(g) = record.downcast_ref::<EntityGroup>() {
@@ -289,6 +291,7 @@ impl Database {
         self.language
     }
 
+    // D2-12611
     pub fn set_local_language(&mut self, language: u32) {
         self.language = language;
     }
