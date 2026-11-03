@@ -858,6 +858,18 @@ pub fn mask_uv(cx: f32, cy: f32, rotation: u8) -> [f32; 2] {
     }
 }
 
+/// How many vertices apart a far block's squares are laid, `ring` blocks past the detailed ones: 1
+/// in the first ring, then 2, 2, 4, 4, 8, 8, 16, no more than the block's `squares`.
+// D2-10962, D2-10984
+#[must_use]
+pub fn far_stride(ring: i32, squares: usize) -> usize {
+    if ring <= 1 {
+        return 1;
+    }
+    let steps = u32::try_from((ring - 2) / 2 + 1).unwrap_or(0).min(30);
+    (1usize << steps).min(squares.max(1))
+}
+
 /// The two triangles of a square, as corner slots, for its split.
 fn square_triangles(cut: bool) -> [u32; 6] {
     if cut {
@@ -1515,7 +1527,7 @@ impl<'a> SceneBuilder<'a> {
         let light = self.light(spot, day.as_ref());
 
         // The blocks in the window, and one more ring for their normals.
-        let far = self.far_radius.max(NEAR_RADIUS);
+        let far = NEAR_RADIUS + self.far_radius;
         let mut window = LandblockWindow::<()>::with_spec(
             u32::try_from(far).unwrap_or(4),
             WindowSpec {
@@ -2455,7 +2467,7 @@ impl<'a> SceneBuilder<'a> {
         tb: &TerrainBlock,
         offset: Vec3,
         light: &DayLight,
-        _center: (i32, i32),
+        center: (i32, i32),
         out: &mut HashMap<(u32, Option<u32>, u8, bool), TerrainBatch>,
     ) {
         let surface = &self.region.surface;
@@ -2469,31 +2481,61 @@ impl<'a> SceneBuilder<'a> {
             ..TerrainBatch::default()
         });
         let n = tb.geometry.vertices_per_side;
+        let squares_here = n - 1;
+        // The block's own squares, every `stride` vertices by how far off it lies.
+        let ring = |x: i32, y: i32| (x - center.0).abs().max((y - center.1).abs());
+        let stride = far_stride(ring(tb.x, tb.y) - NEAR_RADIUS, squares_here);
+        let side = squares_here / stride + 1;
         let base = u32::try_from(batch.vertices.len()).unwrap_or(u32::MAX);
-        for k in 0..n * n {
-            let p = tb.geometry.vertices[k];
-            let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
-            let c =
-                auberean_world::sky::lit_vertex(light, tb.normals[k], tb.terrain[k].far_color, lit);
-            let (x, y) = (p.x + offset.x, p.y + offset.y);
-            batch.vertices.push(TerrainVertex {
-                position: [x, y, p.z],
-                color: [c.r, c.g, c.b, 1.0],
-                uv: [x * scale, y * scale],
-                mask_uv: [0.0, 0.0],
-            });
+        for i in 0..side {
+            for j in 0..side {
+                let k = i * stride * n + j * stride;
+                let p = tb.geometry.vertices[k];
+                let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
+                let c = auberean_world::sky::lit_vertex(
+                    light,
+                    tb.normals[k],
+                    tb.terrain[k].far_color,
+                    lit,
+                );
+                let (x, y) = (p.x + offset.x, p.y + offset.y);
+                batch.vertices.push(TerrainVertex {
+                    position: [x, y, p.z],
+                    color: [c.r, c.g, c.b, 1.0],
+                    uv: [x * scale, y * scale],
+                    mask_uv: [0.0, 0.0],
+                });
+            }
         }
-        let squares = n - 1;
-        for i in 0..squares {
-            for j in 0..squares {
-                let v = |a: usize, b: usize| base + u32::try_from(a * n + b).unwrap_or(0);
+        let v = |a: usize, b: usize| base + u32::try_from(a * side + b).unwrap_or(0);
+        for i in 0..side - 1 {
+            for j in 0..side - 1 {
                 let (sw, se, nw, ne) = (v(i, j), v(i + 1, j), v(i, j + 1), v(i + 1, j + 1));
-                let tri = if tb.geometry.sw_to_ne_cut[i * squares + j] {
-                    [nw, sw, ne, sw, se, ne]
-                } else {
-                    [sw, se, nw, se, ne, nw]
-                };
-                batch.indices.extend(tri);
+                batch.indices.extend([nw, sw, se, nw, se, ne]);
+            }
+        }
+        // Where the block next door has half the vertices along their shared edge, a triangle over
+        // each pair of its squares fills what its coarser edge leaves open, going round this block.
+        // Its index runs along x, then y; a neighbor's stride comes of its own ring.
+        let coarser = |x: i32, y: i32| {
+            far_stride(ring(x, y) - NEAR_RADIUS, squares_here) == stride * 2 && stride < squares_here
+        };
+        let last = side - 1;
+        let (bx, by) = (tb.x, tb.y);
+        for k in (0..last.saturating_sub(1)).step_by(2) {
+            if coarser(bx + 1, by) {
+                batch.indices.extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
+            }
+            if coarser(bx, by - 1) {
+                batch.indices.extend([v(k, 0), v(k + 2, 0), v(k + 1, 0)]);
+            }
+            if coarser(bx, by + 1) {
+                batch
+                    .indices
+                    .extend([v(k + 2, last), v(k, last), v(k + 1, last)]);
+            }
+            if coarser(bx - 1, by) {
+                batch.indices.extend([v(0, k + 2), v(0, k), v(0, k + 1)]);
             }
         }
     }

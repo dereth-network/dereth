@@ -1,6 +1,6 @@
 //! How far the landscape reaches and where frills are drawn, at the camp of block `0xC156`.
 
-use auberean_draw::scene::{fade_objects, SceneBuilder, Spot};
+use auberean_draw::scene::{fade_objects, far_stride, SceneBuilder, Spot};
 use auberean_primitives::Vec3;
 
 use crate::common::install;
@@ -16,9 +16,9 @@ fn spot() -> Spot {
     }
 }
 
-/// The far landscape reaches as many blocks about the viewer's as its radius (none, 2, 8: the 3 x 3
-/// detailed blocks alone, 5 x 5, 17 x 17 where the region has land); the detailed blocks are drawn
-/// at every radius. Frills are drawn only in the land cells within their radius of the viewer's
+/// The far landscape reaches as many blocks past the detailed ones as its radius (none, 2, 8: the
+/// 3 x 3 detailed blocks alone, 7 x 7, 19 x 19 where the region has land); the detailed blocks are
+/// drawn at every radius. Frills are drawn only in the land cells within their radius of the viewer's
 /// (more with two cells than one), none when turned off, and fade out over the last eight meters
 /// of their reach.
 ///
@@ -43,7 +43,7 @@ fn the_far_landscape_and_the_frills_reach_as_far_as_set() {
     for r in [0, 2, 8] {
         b.set_far_radius(r);
         let f = b.frame(&spot(), 60.0);
-        blocks.push((f.counts.blocks, land(r.max(1))));
+        blocks.push((f.counts.blocks, land(r + 1)));
     }
     for (drawn, held) in &blocks {
         assert_eq!(drawn, held, "every block of land in reach: {blocks:?}");
@@ -225,6 +225,46 @@ fn the_sun_throws_a_lens_flare() {
     assert!((up - (0.1 * sun.fade_speed).min(1.0)).abs() < 1e-5, "{up}");
     let down = fade.advance(10.15, sun.fade_speed, false);
     assert!(down < up, "fades out unseen");
+}
+
+/// The far landscape thins out with distance: each block's squares lie 1, 2, 2, 4, 4, 8, 8 or 16
+/// vertices apart by how many rings past the detailed blocks it stands, and a block next to a
+/// coarser one fills the gap along their edge.
+///
+/// Behaviour: draw.world.the-far-landscape-thins-out-with-distance
+#[test]
+fn the_far_landscape_thins_out_with_distance() {
+    assert_eq!(
+        (1..=9).map(|r| far_stride(r, 16)).collect::<Vec<_>>(),
+        [1, 2, 2, 4, 4, 8, 8, 16, 16]
+    );
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.water_reflections = false;
+    let (cx, cy) = (0xC1, 0x56);
+    let f = b.frame(&spot(), 60.0);
+    let far = f.terrain.iter().find(|t| t.far).expect("the far landscape");
+    let mut vertices = 0;
+    let mut squares = 0;
+    for x in cx - 9..=cx + 9 {
+        for y in cy - 9..=cy + 9 {
+            let ring = i32::max(i32::abs(x - cx), i32::abs(y - cy)) - 1;
+            if ring >= 1 && i.records.landblock(x, y).is_some() {
+                let side = 16 / far_stride(ring, 16);
+                vertices += (side + 1) * (side + 1);
+                squares += side * side;
+            }
+        }
+    }
+    assert_eq!(far.vertices.len(), vertices);
+    assert!(
+        far.indices.len() > squares * 6,
+        "the gaps' triangles besides the squares': {} of {}",
+        far.indices.len(),
+        squares * 6
+    );
 }
 
 /// A far block's water is one polygon, its picture and the ripples on the one set of coordinates,

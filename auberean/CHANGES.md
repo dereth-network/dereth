@@ -37,6 +37,7 @@ not how it was done.
 - Effects aimed at someone now act on them, and effects make their objects.
 - Fixed walking through solids that hang over a block edge.
 - Objects change detail as you move, not in steps.
+- The far landscape reaches a block farther and thins out with distance.
 
 ## 0.1.2 (2026-11-02)
 

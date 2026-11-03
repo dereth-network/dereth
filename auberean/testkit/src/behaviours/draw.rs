@@ -1498,8 +1498,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.the-far-landscape-thins-out-with-distance",
+        says: "The far landscape's squares lie 1, 2, 2, 4, 4, 8, 8 or 16 vertices apart by how many rings past the \
+               detailed blocks a block stands, and a block next to a coarser one fills the gap along their edge.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FAR-STRIDE"),
+        station: "auberean-draw::dat::landscape::the_far_landscape_thins_out_with_distance",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.the-far-landscape-and-the-frills-reach-as-far-as-set",
-        says: "The far landscape reaches as many blocks about the viewer's as its radius, the detailed blocks drawn at every radius; frills are drawn only in the land cells within their radius of the viewer's, none when turned off, fading out over the last eight meters of their reach.",
+        says: "The far landscape reaches as many blocks past the detailed ones as its radius, the detailed blocks drawn at every radius; frills are drawn only in the land cells within their radius of the viewer's, none when turned off, fading out over the last eight meters of their reach.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LANDSCAPE-REACH"),
         station: "auberean-draw::dat::landscape::the_far_landscape_and_the_frills_reach_as_far_as_set",
