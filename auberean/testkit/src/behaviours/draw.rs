@@ -1444,6 +1444,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.a-far-blocks-water-repeats-every-four-tile-widths",
+        says: "A far block's water surface is one polygon, its picture and the reflection's ripples on one set of                coordinates that repeats every four of the water's tile widths.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FAR-WATER-COORDS"),
+        station: "auberean-draw::dat::landscape::a_far_blocks_water_repeats_every_four_tile_widths",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.a-body-takes-the-sun-shadow-about-its-spot",
         says: "A body standing on the land takes the sun's shadow map about its spot in its \n               light and specular.",
         since: RETAIL,

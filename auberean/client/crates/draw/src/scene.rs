@@ -1434,11 +1434,18 @@ impl<'a> SceneBuilder<'a> {
                         ..w
                     };
                     counts.water_blocks += 1;
+                    // Its one set of coordinates runs a quarter of a block over the tile width
+                    // from corner to corner.
+                    let tile = if w.tile_width > 0.0 {
+                        block_len * w.tile_width / (block_len * NEAR_WATER_SHARE)
+                    } else {
+                        block_len
+                    };
                     water.extend(self.water_batches(
                         &w,
                         &Mat4::translation(offset),
                         block_len,
-                        w.tile_width,
+                        tile,
                     ));
                 }
             }
@@ -2094,12 +2101,10 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// A block's water surface: flat across the whole block at the water's height, in square
-    /// polygons `poly` meters wide, its picture repeating every `tile` meters (the first
-    /// coordinate set) and 0..1 across each polygon (the second, which the reflection's ripples
-    /// follow), drawn with the material seen from above. A detailed block's water is four
-    /// polygons by four, a quarter of the block wide, its picture once across each (whatever the
-    /// water's own sizes say); a far block's one polygon with the picture repeating every tile
-    /// width.
+    /// polygons `poly` meters wide, its picture and the reflection's ripples on the one set of
+    /// coordinates, repeating every `tile` meters, drawn with the material seen from above. A
+    /// detailed block's water is four polygons by four, a quarter of the block wide, its picture
+    /// once across each (whatever the water's own sizes say); a far block's is one polygon.
     // D2-10986, D2-10977, D2-10975
     fn water_batches(
         &mut self,
@@ -2124,13 +2129,7 @@ impl<'a> SceneBuilder<'a> {
                     position: [x, y, water.height],
                     normal: [0.0, 0.0, 1.0],
                     diffuse: 0xFFFF_FFFF,
-                    // the picture's repeats, then each polygon's own 0..1 (the ripples' set)
-                    uv: [
-                        [x / tile, y / tile],
-                        [x / step, y / step],
-                        [x / tile, y / tile],
-                        [x / tile, y / tile],
-                    ],
+                    uv: [[x / tile, y / tile]; 4],
                     tangent_u: [1.0, 0.0, 0.0],
                     tangent_v: [0.0, 1.0, 0.0],
                     to_light: [0.0; 3],

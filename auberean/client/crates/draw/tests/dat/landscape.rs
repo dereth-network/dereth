@@ -227,6 +227,32 @@ fn the_sun_throws_a_lens_flare() {
     assert!(down < up, "fades out unseen");
 }
 
+/// A far block's water is one polygon, its picture and the ripples on the one set of coordinates,
+/// four repeats across the block for a tile width of 10 (a repeat every 40 m, as near the viewer).
+///
+/// Behaviour: draw.world.a-far-blocks-water-repeats-every-four-tile-widths
+#[test]
+fn a_far_blocks_water_repeats_every_four_tile_widths() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    let mut s = spot();
+    s.position.z = 81.6;
+    let f = b.frame(&s, 60.0);
+    let far: Vec<_> = f.water.iter().filter(|w| w.vertices.len() == 4).collect();
+    assert!(!far.is_empty(), "water among the far blocks");
+    for w in far {
+        assert_eq!(w.indices.len(), 6, "one polygon");
+        for v in w.vertices.iter() {
+            let [x, y, _] = v.position;
+            let across = [x / 40.0, y / 40.0];
+            assert_eq!(v.uv[0], across, "the picture every 40 m");
+            assert_eq!(v.uv[1], across, "the ripples on the same coordinates");
+        }
+    }
+}
+
 /// A detailed block's water is laid four polygons by four, each a quarter of the block (40 m)
 /// wide, with the water's picture and the ripples' coordinates both 0..1 across each polygon,
 /// whatever the water's own tile and polygon widths say; the reflection about it ripples only when
