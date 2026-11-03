@@ -1107,7 +1107,8 @@ impl Retail {
                 R::CeaseAttack(id) => self.gather.asks.push(world::Ask::CeaseAttack(id)),
                 R::PrecludeFromBottom(n) => self.flow.flow.data.preclude.1 = n,
                 R::ShowCoordinates(on) => {
-                    self.gather.asks.push(world::Ask::ShowCoordinates(on));
+                    requests.push(Request::Act(Action::ShowRadarCoordinates { on }));
+                    self.gather.options_changed();
                     self.options.stale = true;
                 }
                 R::ShowNames(on) => {
@@ -1139,6 +1140,7 @@ impl Retail {
                         auberean_ui_game::options::Request::Set { .. } => {}
                     },
                 },
+                R::KeepOptions => requests.push(Request::Act(Action::KeepOptions)),
                 R::LogOff => requests.push(Request::Act(Action::LogOff)),
                 R::Quit => requests.push(Request::Quit),
                 R::CharacterSelection => self.go(mode::CHARACTER_SELECTION),
@@ -1325,7 +1327,6 @@ impl Retail {
                     requests.push(Request::Act(Action::DeclineResurrection));
                 }
                 R::Dismount => requests.push(Request::Act(Action::Dismount)),
-                R::KeepOptions => requests.push(Request::Act(Action::KeepOptions)),
                 R::Confirm { objects, value } => {
                     requests.push(Request::Act(Action::ApplyTotem {
                         target: objects[0],

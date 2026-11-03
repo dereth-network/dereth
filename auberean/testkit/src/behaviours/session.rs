@@ -353,6 +353,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.our-clients-options-sent-at-log-off-come-back-on-the-next-entry",
+        says: "An option our client changes in play comes back at the next entry when the play \
+               screen's end sends the options to our server before the log off, and not otherwise.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-KEEP-OPTIONS"),
+        station: "yalain-testkit::dat::session::our_clients_options_sent_at_log_off_come_back_on_the_next_entry",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.time.a-players-position-leaves-the-game-clock-alone",
         says: "A position the server gives for the player places its body and leaves the game \
                clock alone, whether its time is ahead of the clock or behind it: only the \

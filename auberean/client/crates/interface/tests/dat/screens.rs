@@ -706,6 +706,31 @@ fn the_play_screen_follows_the_player_and_takes_war_and_chat() {
     );
 }
 
+/// The radar's button for the map coordinates changes them and then sends the player's options to
+/// the server to keep, in that order.
+///
+/// Behaviour: desktop.interface.the-play-screen-sends-the-options-to-keep
+#[test]
+fn the_radars_coordinates_button_sends_the_options_to_keep() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let show = |on| Request::Act(Action::ShowRadarCoordinates { on });
+    let keep = Request::Act(Action::KeepOptions);
+    let at = |r: &Request| ASKED.with(|a| a.borrow().iter().position(|x| x == r));
+    assert_eq!(at(&keep), None, "not asked on the way in");
+    let button = middle(&retail, "CoordBoxButton");
+    click(&mut s, button);
+    step(&mut s);
+    let shown = at(&show(true))
+        .or(at(&show(false)))
+        .expect("shown or hidden");
+    let kept = at(&keep).expect("asked");
+    assert!(shown < kept, "the change is what is kept: {shown} {kept}");
+}
+
 /// W held runs forward; Enter starts a chat line, and the run stops at once with the key still held;
 /// letting W go and ending the line leaves the player standing, and W pressed again runs.
 ///

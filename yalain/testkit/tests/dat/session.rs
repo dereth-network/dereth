@@ -200,6 +200,60 @@ fn our_clients_kept_window_places_come_back_on_the_next_entry() {
     assert_eq!(kept(&mut s).location(RADAR.0, RADAR.1), Some(place));
 }
 
+/// Our client changes an option in play and logs off without sending it: it is gone at the next
+/// entry. It changes it again and the play screen's end sends the options before the log off: its
+/// scripts answer the option as changed at the next entry.
+/// Behaviour: session.server.our-clients-options-sent-at-log-off-come-back-on-the-next-entry
+#[test]
+fn our_clients_options_sent_at_log_off_come_back_on_the_next_entry() {
+    use auberean_client_sdk::contract::PlayerOption;
+    use auberean_client_sdk::runtime::interface::function;
+    use auberean_client_sdk::Action;
+    const OPTION: PlayerOption = PlayerOption::ShortcutHeight;
+    fn shown(s: &mut InProcess) -> u32 {
+        for _ in 0..20_000 {
+            if let Some(v) = s.client().option(OPTION).filter(|v| *v != 0) {
+                return v;
+            }
+            s.step();
+        }
+        panic!("the scripts never answered the option");
+    }
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    let first = shown(&mut s);
+    let other = first + 1;
+
+    s.client().set_option(OPTION, other);
+    assert_eq!(shown(&mut s), other, "the scripts keep it for now");
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    assert_eq!(shown(&mut s), first, "not sent, not kept");
+
+    s.client().set_option(OPTION, other);
+    s.client().act(Action::KeepOptions);
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    assert_eq!(shown(&mut s), other, "sent, kept");
+
+    // The radar's button: the change, then the options sent, in one step.
+    let coordinates = |s: &mut InProcess| {
+        s.client()
+            .interface(function::GET_SHOW_RADAR_COORDS, &[])
+            .map(|(_, v)| v)
+    };
+    let before = coordinates(&mut s).expect("answered");
+    s.client()
+        .act(Action::ShowRadarCoordinates { on: before == 0 });
+    s.client().act(Action::KeepOptions);
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    shown(&mut s);
+    assert_ne!(coordinates(&mut s), Some(before), "the change is kept");
+}
+
 /// A character that logged off with a quest under way enters again: the whole-list notice the
 /// scripts send the journal at the session's start carries the quest, as the journal asks for it.
 /// Behaviour: session.server.a-character-entering-again-gives-the-journal-its-quests

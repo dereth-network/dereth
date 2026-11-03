@@ -137,6 +137,8 @@ pub enum Action {
         changes: Vec<(PlayerOption, u32)>,
         tell: bool,
     },
+    /// Show or hide the map coordinates on the radar, as its button does.
+    ShowRadarCoordinates { on: bool },
     /// Ask something of the player's fellowship or allegiance, as the social window does.
     Social(SocialAction),
     /// Play an emote: a string reference (its string and its string table).

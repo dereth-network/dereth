@@ -46,7 +46,6 @@ pub(crate) mod notice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ask {
     CeaseAttack(u64),
-    ShowCoordinates(bool),
     ShowNames(bool),
 }
 
@@ -125,6 +124,11 @@ fn global(cell: u32, origin: [f32; 3]) -> [f32; 3] {
 }
 
 impl Gather {
+    /// The options the panels read changed: ask them again.
+    pub fn options_changed(&mut self) {
+        self.options = None;
+    }
+
     /// Ask the player's scripts what the panels read of them (see the module's description).
     pub fn prepare(&mut self, client: &mut Client, notices: &[Notice]) {
         let Some(player) = client
@@ -145,11 +149,6 @@ impl Gather {
                     client.interface(function::STOP_ATTACKING, &[InterfaceArg::Long(id)]);
                 }
                 // D2-00565, D2-01265
-                Ask::ShowCoordinates(on) => {
-                    let w = InterfaceArg::Word(u32::from(on));
-                    client.interface(function::SET_SHOW_RADAR_COORDS, &[w]);
-                    self.options = None;
-                }
                 // D2-00567, D2-01262
                 Ask::ShowNames(on) => {
                     let w = InterfaceArg::Word(u32::from(on));

@@ -739,6 +739,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-play-screen-sends-the-options-to-keep",
+        says: "What the play screen asks to keep the player's options (the radar's coordinates \
+               button, its end, logging off) sends them to the server through the player's \
+               scripts.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-KEEP-OPTIONS"),
+        station: "auberean-interface::dat::screens::the_radars_coordinates_button_sends_the_options_to_keep",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-play-screens-kept-places-go-into-a-table-and-come-back",
         says: "The play screen's kept places go into a table of saved places as the client keeps \
                them (each panel under its layout and name, its corners and whether it shows) and \

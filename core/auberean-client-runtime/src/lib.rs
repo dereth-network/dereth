@@ -654,6 +654,12 @@ impl Client {
                 self.toolbar_stale = true;
             }
             Action::SetOptions { changes, tell } => self.set_options(&changes, tell),
+            // D2-00565, D2-01265
+            Action::ShowRadarCoordinates { on } => {
+                let on = InterfaceArg::Word(u32::from(on));
+                self.ask(function::SET_SHOW_RADAR_COORDS, &[on]);
+            }
+            Action::KeepOptions => self.upload_game_options(),
             Action::Social(a) => self.social(a),
             Action::Emote { string, table } => self.emote(string, table),
             Action::AssistedTell { name } => self.assisted_tell(&name),
@@ -778,8 +784,6 @@ impl Client {
             Action::Resurrect => self.request_resurrect(),
             Action::DeclineResurrection => self.clear_resurrection_request(),
             Action::Dismount => self.dismount(),
-            // D2-00594, D2-01283
-            Action::KeepOptions => self.ask(function::UPLOAD_GAME_OPTIONS, &[]),
             // D2-00452, D2-01270
             Action::ApplyTotem {
                 target,
@@ -977,7 +981,12 @@ impl Client {
             });
         }
         self.toolbar_stale = true;
-        // D2-00594, D2-01283
+        self.upload_game_options();
+    }
+
+    /// Send the player's options to the server to keep, through the player's interface.
+    // D2-00594, D2-01283
+    fn upload_game_options(&mut self) {
         self.ask(function::UPLOAD_GAME_OPTIONS, &[]);
     }
 
