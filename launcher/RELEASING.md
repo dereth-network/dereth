@@ -7,7 +7,7 @@ and reads its `latest.json` to update itself and the client ("Updates" below). T
 commands and one review:
 
 1. **`cargo xtask release dereth <version>`** on a clean `main`: sets the version, dates the
-   release's highlights in [`CHANGES.md`](../CHANGES.md), runs the checks, packages the host's
+   release's highlights in [`CHANGES.md`](../dereth/CHANGES.md), runs the checks, packages the host's
    target as a smoke test and tags `dereth-v<version>`.
 2. **Pushing the tag** starts the release workflow on GitHub, which builds every target, checks and
    signs everything, and creates a **draft** release.
@@ -19,7 +19,7 @@ commands and one review:
 
 A release's description on GitHub starts with its notes, in two parts:
 
-- **Highlights:** the release's section of [`dereth/CHANGES.md`](../CHANGES.md), a few
+- **Highlights:** the release's section of [`dereth/CHANGES.md`](../dereth/CHANGES.md), a few
   player-facing lines written by hand. Add a line under `## Unreleased` when a change lands that a
   player would notice. The release command turns that section into the release's own,
   `## <version> (<date>)`, and opens a new empty Unreleased section, in the version commit. A
@@ -49,7 +49,7 @@ release gets.
 ## Versions and tags
 
 The launcher and the client are released together, with one version: the `version` in
-`dereth/client/Cargo.toml` and in `dereth/launcher/Cargo.toml`, which must agree. A release
+`dereth/client/Cargo.toml` and in `launcher/Cargo.toml`, which must agree. A release
 version is `MAJOR.MINOR.PATCH`, optionally with a pre-release suffix such as `-rc.1`. The tag is
 `dereth-v<version>`, and it must name exactly the version the tagged commit carries; the workflow
 fails otherwise, and when the tagged commit is not on `main`. A pre-release is published as a
@@ -121,7 +121,7 @@ fetched (no network, GitHub's unauthenticated rate limit) or holds no such relea
 skips the check quietly and tries again at its next start.
 
 The launcher accepts an update only with a signature from the update-signing key whose public
-half is `plugins.updater.pubkey` in `dereth/launcher/tauri.conf.json`. The signature is
+half is `plugins.updater.pubkey` in `launcher/tauri.conf.json`. The signature is
 minisign's, in the form Tauri's signer writes (`cargo tauri signer sign`): base64 of the signature
 file, whose trusted comment names the file and the version. The updater refuses a signature for
 another version than the one `latest.json` announces.
@@ -193,7 +193,7 @@ cargo xtask package friends-dll [--out <dir>] [--allow-dirty]
 ```
 
 Builds the client (`cargo build --release -p dereth-client`) and the launcher (`cargo tauri build`
-in `dereth/launcher`, with the client, the notices and on macOS MoltenVK added to the bundle)
+in `launcher`, with the client, the notices and on macOS MoltenVK added to the bundle)
 for each `--target` (default: this host's), stages, scans, checks, archives and signs the
 launcher's file, and writes the index (`MANIFEST.txt`, `release.json`, `latest.json` when
 signed, `SHA256SUMS`) in `target/package/dereth-<version>/` unless `--out` names another folder. It refuses a tree with
@@ -237,7 +237,7 @@ cargo xtask release dereth <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>]
    numbers, not older than the version the client and the launcher carry, and `dereth-v<version>`
    exists neither here nor on the remote (default `origin`).
 2. Sets the client's and the launcher's `version` to `<version>`, updates both lock files' entries
-   for their workspaces' own packages (`Cargo.lock`, `dereth/launcher/Cargo.lock`), turns the
+   for their workspaces' own packages (`Cargo.lock`, `launcher/Cargo.lock`), turns the
    Unreleased section of `dereth/CHANGES.md` into `## <version> (<date>)` under a new empty one
    (not for a pre-release), and commits exactly those files as `Dereth <version>`. When they already carry `<version>`,
    there is nothing to commit, except the highlights when `CHANGES.md` has no section for
@@ -316,4 +316,4 @@ Anyone can verify a download with `sha256sum -c SHA256SUMS --ignore-missing`.
 **Without GitHub Actions.** `cargo xtask publish dereth <version>` makes the same draft from
 `cargo xtask package dereth` run on a Windows, a macOS and a Linux machine, each signing its own
 launcher files with the key above, then finishes and publishes it:
-[CONTRIBUTING.md, "Releasing without GitHub Actions"](../../CONTRIBUTING.md#releasing-without-github-actions).
+[CONTRIBUTING.md, "Releasing without GitHub Actions"](../CONTRIBUTING.md#releasing-without-github-actions).

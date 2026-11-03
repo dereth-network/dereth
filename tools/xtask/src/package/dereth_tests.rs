@@ -124,7 +124,7 @@ fn a_tauri_cli_key_signs_here_and_a_tauri_cli_signature_verifies_here() {
 /// secret half is one every launcher accepts.
 #[test]
 fn the_launchers_configured_public_key_is_a_minisign_public_key() {
-    let conf = std::fs::read_to_string(workspace_root().join("dereth/launcher/tauri.conf.json"))
+    let conf = std::fs::read_to_string(workspace_root().join("launcher/tauri.conf.json"))
         .expect("tauri.conf.json");
     let key = sign::launcher_public_key(&conf).expect("a pubkey");
     let text = String::from_utf8(
@@ -254,7 +254,7 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
 #[test]
 fn the_launchers_release_configuration_names_no_machine_folder() {
     let ws = workspace_root();
-    let app = ws.join("dereth").join("launcher");
+    let app = ws.join("launcher");
     let stage = ws.join("target").join("package").join("stage").join("x");
     let client = stage.join("bin").join("dereth-client");
     let tool = stage.join("bin").join("dereth-plugin");
@@ -268,17 +268,17 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
         assert_eq!(
             c["externalBin"],
             serde_json::json!([
-                "../../target/package/stage/x/bin/dereth-client",
-                "../../target/package/stage/x/bin/dereth-plugin"
+                "../target/package/stage/x/bin/dereth-client",
+                "../target/package/stage/x/bin/dereth-plugin"
             ])
         );
         assert_eq!(
-            c["resources"]["../../target/package/stage/x/notices/NOTICE.txt"],
+            c["resources"]["../target/package/stage/x/notices/NOTICE.txt"],
             "NOTICE.txt"
         );
         // The retail client's friends library, beside the notices.
         assert_eq!(
-            c["resources"]["../../target/package/stage/x/auberean_friends.dll"],
+            c["resources"]["../target/package/stage/x/auberean_friends.dll"],
             "auberean_friends.dll"
         );
         let text = c.to_string();
@@ -702,10 +702,10 @@ fn every_file_the_dereth_package_reads_from_the_tree_is_there() {
     for path in [
         "dereth/about.toml",
         "dereth/about.hbs",
-        "dereth/launcher/Cargo.toml",
-        "dereth/launcher/tauri.conf.json",
-        "dereth/launcher/assets/fonts/OFL-Cinzel.txt",
-        "dereth/launcher/assets/fonts/OFL-EBGaramond.txt",
+        "launcher/Cargo.toml",
+        "launcher/tauri.conf.json",
+        "launcher/assets/fonts/OFL-Cinzel.txt",
+        "launcher/assets/fonts/OFL-EBGaramond.txt",
         "LICENSE",
     ] {
         assert!(ws.join(path).is_file(), "{path}");

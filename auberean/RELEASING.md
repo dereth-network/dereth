@@ -13,7 +13,7 @@ launcher update from Auberean's releases. Whichever game's release a player down
 that game first and the other one click away: its client, Yalain and Athenaeum download when first
 wanted. The launcher keeps its own version, Dereth's; how the two channels update, and why a
 launcher never downgrades itself, is in
-[`dereth/launcher/RELEASING.md`](../dereth/launcher/RELEASING.md) ("Two channels").
+[`launcher/RELEASING.md`](../launcher/RELEASING.md) ("Two channels").
 
 1. **`cargo xtask release auberean|yalain|athenaeum <version>`** on a clean `main`: sets the
    version, dates the release's highlights in the product's `CHANGES.md`, runs the checks, packages
@@ -122,7 +122,7 @@ its piece of `latest.json`, as Dereth's package does.
 What it needs, and says when missing, before building anything:
 
 - **cargo-about**: `cargo install --locked cargo-about --features cli`.
-- **Auberean:** what Dereth's package needs (dereth/launcher/RELEASING.md): the Tauri CLI
+- **Auberean:** what Dereth's package needs (launcher/RELEASING.md): the Tauri CLI
   (`cargo install --locked tauri-cli --version ^2`), on macOS MoltenVK (`--moltenvk <dir>` or
   `DERETH_MOLTENVK_DIR`), and the retail client's friends library, which the launcher carries:
   built on a Windows host (`rustup target add i686-pc-windows-msvc`), else the file

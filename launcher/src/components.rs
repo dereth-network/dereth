@@ -2001,7 +2001,7 @@ mod tests {
         std::fs::write(checkout.join("Cargo.toml"), b"[workspace]").unwrap();
         std::fs::create_dir_all(checkout.join("dereth/client")).unwrap();
         std::fs::write(checkout.join("dereth/client/Cargo.toml"), b"[package]").unwrap();
-        let here = checkout.join("dereth/launcher/target/debug");
+        let here = checkout.join("launcher/target/debug");
         std::fs::create_dir_all(&here).unwrap();
         let folders = build_folders(&here);
         assert_eq!(

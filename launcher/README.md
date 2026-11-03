@@ -160,14 +160,14 @@ own icon, so each window gets its name and icon.
 ## Plugins
 
 Plugins are experimental. The **Plugins** screen installs plugins for the Dereth client from plugin
-sources, each a `plugins.json` at an `https://` address listing plugins at their latest release ([`docs/plugins/sources.md`](../../docs/plugins/sources.md)).
+sources, each a `plugins.json` at an `https://` address listing plugins at their latest release ([`docs/plugins/sources.md`](../docs/plugins/sources.md)).
 Dereth's own source is there from the start, with nothing installed; the player adds others by
 their address, once they confirm it, and removes them. The screen has four sections that fold,
 only the first open at first: the plugins installed; the ones the sources offer that are not
 installed, each with its source, what it does and what it uses; the sources; and **Make Your Own**,
 which makes a new plugin repository in an empty folder the author chooses, or adds a new plugin to
 a plugin repository, as `dereth-plugin new` does
-([`docs/plugins/guide/publishing.md`](../../docs/plugins/guide/publishing.md)). A plugin's row
+([`docs/plugins/guide/publishing.md`](../docs/plugins/guide/publishing.md)). A plugin's row
 opens to everything known about it, and each plugin is installed by itself. A zip is kept only when it is the file its source lists and
 its manifest says what its entry says; an id under `network.dereth.` installs only from Dereth's
 source.
@@ -447,7 +447,7 @@ folder `auberean` in it, so a trial run keeps away from the player's own setting
 
 ```sh
 cargo test -p dereth-launch        # the logic crate, from the repository root
-cd dereth/launcher
+cd launcher
 cargo run                          # the launcher, in a native window
 cargo run -- --downloads           # the same, downloading the servers and builders as a release does
 cargo test                         # the app's own tests
@@ -473,7 +473,7 @@ The page also runs in a browser against demo data (`ui/demo.js`), which is how i
 taken:
 
 ```sh
-cd dereth/launcher && cargo build          # once, to copy the art into ui/assets
+cd launcher && cargo build          # once, to copy the art into ui/assets
 cd ui && python3 -m http.server 8765 --bind 127.0.0.1    # then open http://127.0.0.1:8765/
 ```
 

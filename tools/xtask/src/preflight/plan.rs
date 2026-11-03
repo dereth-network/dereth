@@ -71,7 +71,7 @@ impl Product {
             Self::Dereth => &[
                 ("Cargo.lock", "dereth-client"),
                 ("Cargo.lock", "dereth-web"),
-                ("dereth/launcher/Cargo.lock", "dereth-launcher"),
+                ("launcher/Cargo.lock", "dereth-launcher"),
             ],
             Self::Auberean => &[("Cargo.lock", "auberean-client")],
             Self::Yalain => &[("Cargo.lock", "yalain")],
@@ -238,7 +238,7 @@ pub fn products_of(
             out.insert(Product::Athenaeum);
             continue;
         }
-        if (path.starts_with("dereth/launcher/") && !path.starts_with("dereth/launcher/crates/"))
+        if (path.starts_with("launcher/") && !path.starts_with("launcher/crates/"))
             || path.starts_with(WEB)
         {
             out.insert(Product::Dereth);
@@ -264,7 +264,7 @@ pub fn products_of(
 
 /// The lock files a preflight weighs crate by crate: the main workspace's, and the launcher's own
 /// workspace's, which is Dereth's.
-pub const LOCKS: [&str; 2] = ["Cargo.lock", "dereth/launcher/Cargo.lock"];
+pub const LOCKS: [&str; 2] = ["Cargo.lock", "launcher/Cargo.lock"];
 
 /// A crate as a lock file pins it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

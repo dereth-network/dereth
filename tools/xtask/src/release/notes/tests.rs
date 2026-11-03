@@ -32,16 +32,16 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
                 "dereth/client/tests/gpu/rendering/mips.rs",
                 "dereth/testkit/src/behaviours/rendering.rs",
                 "core/physics/src/tests.rs",
-                "dereth/launcher/src/update_tests.rs",
+                "launcher/src/update_tests.rs",
             ],
         ),
         commit(
             "The launcher's release notes",
-            &["dereth/launcher/RELEASING.md", "dereth/CHANGES.md"],
+            &["launcher/RELEASING.md", "dereth/CHANGES.md"],
         ),
         commit(
             "Dereth 0.1.1",
-            &["dereth/client/Cargo.toml", "dereth/launcher/Cargo.toml"],
+            &["dereth/client/Cargo.toml", "launcher/Cargo.toml"],
         ),
         commit(
             "Empyrean 0.2.0-rc.1: its upgrade fixture",
@@ -62,7 +62,7 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
         ),
         commit(
             "The launcher remembers its window",
-            &["dereth/launcher/src/main.rs"],
+            &["launcher/src/main.rs"],
         ),
         commit(
             "The web relay keeps the socket open",
@@ -81,7 +81,7 @@ fn a_commit_is_grouped_by_the_launcher_then_a_fix_then_its_words() {
     let cases = [
         (
             "launcher: the window remembers its size",
-            &["dereth/launcher/src/window.rs"][..],
+            &["launcher/src/window.rs"][..],
             Group::Launcher,
         ),
         (

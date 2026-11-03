@@ -116,7 +116,7 @@ pub(super) fn about_page(
 }
 
 /// The launcher's Tauri app, a workspace of its own.
-pub const LAUNCHER_DIR: &str = "dereth/launcher";
+pub const LAUNCHER_DIR: &str = "launcher";
 
 /// cargo-about's configuration and template for Dereth.
 const ABOUT_CONFIG: &str = "dereth/about.toml";
@@ -127,12 +127,12 @@ pub const FONTS: &[(&str, &str, &str)] = &[
     (
         "Cinzel",
         "The launcher's page is set in Cinzel, which the launcher carries",
-        "dereth/launcher/assets/fonts/OFL-Cinzel.txt",
+        "launcher/assets/fonts/OFL-Cinzel.txt",
     ),
     (
         "EB Garamond",
         "The launcher's page is set in EB Garamond, which the launcher carries",
-        "dereth/launcher/assets/fonts/OFL-EBGaramond.txt",
+        "launcher/assets/fonts/OFL-EBGaramond.txt",
     ),
     (
         "Liberation",
@@ -224,8 +224,7 @@ pub fn archive_root(target: Target, version: &str) -> Option<String> {
 /// those it may (what the bundler writes on some machines and not others). Empty for the AppImage.
 /// The launcher's macOS bundle configuration, which names the icon the bundler copies into the
 /// bundle.
-const LAUNCHER_MACOS_CONFIG: &str =
-    include_str!("../../../../dereth/launcher/tauri.macos.conf.json");
+const LAUNCHER_MACOS_CONFIG: &str = include_str!("../../../../launcher/tauri.macos.conf.json");
 
 /// The `.icns` icon in the launcher's macOS bundle, by the name the bundler gives it there: the
 /// file name of the one the launcher's configuration lists, so renaming the icon never leaves the

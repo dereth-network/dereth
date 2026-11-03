@@ -29,7 +29,7 @@ serde_json = "1"
 dereth-launch = { path = "crates/launch" }
 # A new plugin repository, made from the Plugins page: the template the author's tool writes, from
 # the same library.
-dereth-plugin-template = { path = "../../tools/plugin-template" }
+dereth-plugin-template = { path = "../tools/plugin-template" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 # The launcher updates itself (and the client beside it) from the signed `latest.json` of the
@@ -80,7 +80,7 @@ glib = "0.18"
 [dev-dependencies]
 tempfile = "3"
 # A world's half of the friends stream, the stand-in the probe's test greets.
-auberean-friends = { path = "../../core/auberean-friends" }
+auberean-friends = { path = "../core/auberean-friends" }
 dereth-launch = { path = "crates/launch", features = ["testing"] }
 
 

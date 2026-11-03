@@ -14,7 +14,7 @@ cargo xtask web --build-only
 This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
 the bindings into `www/pkg/`, copies the Horizon interface's art into `www/pkg/horizon/`, and
 copies the launcher's art the front page wears (Dereth's paintings and emblem, and the Cinzel and
-EB Garamond typefaces with their licences) from `dereth/launcher/assets/` into `www/assets/`,
+EB Garamond typefaces with their licences) from `launcher/assets/` into `www/assets/`,
 which git ignores. It needs:
 
 - the target, installed once: `rustup target add wasm32-unknown-unknown`;

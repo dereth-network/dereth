@@ -110,7 +110,7 @@ pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 /// of the client released with it.
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
-    "dereth/launcher/Cargo.toml",
+    "launcher/Cargo.toml",
     "dereth/web/Cargo.toml",
     "dereth/headless/Cargo.toml",
     "tools/plugin/Cargo.toml",
@@ -118,10 +118,8 @@ pub const DERETH_MANIFESTS: &[&str] = &[
 
 /// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
 /// as (the folder cargo runs in, the lock file), relative to the workspace root.
-pub const DERETH_LOCKS: &[(&str, &str)] = &[
-    ("", "Cargo.lock"),
-    ("dereth/launcher", "dereth/launcher/Cargo.lock"),
-];
+pub const DERETH_LOCKS: &[(&str, &str)] =
+    &[("", "Cargo.lock"), ("launcher", "launcher/Cargo.lock")];
 
 /// The manifests of the crates that carry Dereth's version.
 pub fn dereth_manifests(ws: &Path) -> Vec<PathBuf> {

@@ -874,7 +874,7 @@ mod tests {
             w.push(pkg(name, dir, &[(dep, false)], false));
             part_violations(&w)
         };
-        let launch = "dereth/launcher/crates/launch";
+        let launch = "launcher/crates/launch";
         assert!(with("dereth-launch", launch, "auberean-friends").is_empty());
         assert!(with("dereth-launch", launch, "auberean-dat")[0]
             .contains("dereth-launch depends on `auberean-dat`"));

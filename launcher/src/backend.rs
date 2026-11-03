@@ -2681,7 +2681,7 @@ mod tests {
         );
         // The author's tool carries Dereth's version, as the launcher does, and fills the
         // template with it; its `new` with these words is this.
-        let tool = include_str!("../../../tools/plugin/Cargo.toml");
+        let tool = include_str!("../../tools/plugin/Cargo.toml");
         assert!(
             tool.contains(&format!("\nversion = \"{version}\"\n")),
             "the tool is of this launcher's release"

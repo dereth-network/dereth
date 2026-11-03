@@ -1,7 +1,7 @@
 //! Put the launcher's artwork where the web front end can load it, then let Tauri build.
 //!
 //! The paintings (a folder for each game), the portals, the emblems the page shows, the two
-//! typefaces and the app's own icon live in `dereth/launcher/assets`. The page's are copied into
+//! typefaces and the app's own icon live in `launcher/assets`. The page's are copied into
 //! `ui/assets` (which git ignores) before Tauri embeds `ui/`, and the icon's files into `icons/`. The chrome is not
 //! among them: this front end draws its frames, buttons and beads in CSS and SVG rather than
 //! cutting them out of the sprite atlas.

@@ -6,13 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-# The main workspace, named, because the launcher app's own workspace (`dereth/launcher`) is the
+# The main workspace, named, because the launcher app's own workspace (`launcher`) is the
 # nearer one on disk.
-workspace = "../../../.."
+workspace = "../../.."
 
 # The world record, reading a dat's iterations, identifying a client install, the pre-launch check,
 # the command lines, the state file, the launcher's folders, its own update's file swap and the
-# signed registry. The launcher window (`dereth/launcher`, a workspace of its own) is one
+# signed registry. The launcher window (`launcher`, a workspace of its own) is one
 # front end over it; a web or phone world picker, or the game client's own, would be another.
 [dependencies]
 # The state file and the registry are JSON documents with a dozen record types between them. Deriving

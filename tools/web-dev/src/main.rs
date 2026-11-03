@@ -68,7 +68,7 @@ const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
 
 /// The desktop launcher's art, relative to the workspace: the front page wears the part of it that
 /// is Dereth's (its paintings, its emblem and the typefaces), copied into `www/assets/`.
-const LAUNCHER_ART: &str = "dereth/launcher/assets";
+const LAUNCHER_ART: &str = "launcher/assets";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Server {

@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn the_bundle_s_launcher_art_is_the_launcher_s_dereth_art() {
         // What `cargo xtask web --build-only` copies into `assets/`.
-        let art = workspace_root().join("dereth/launcher/assets");
+        let art = workspace_root().join("launcher/assets");
         let names = |dir: &str| -> Vec<String> {
             let folder = art.join(dir);
             std::fs::read_dir(&folder)

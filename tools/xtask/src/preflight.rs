@@ -590,7 +590,7 @@ fn play(cfg: &Config) -> Result<(), String> {
             "build".into(),
             "--release".into(),
             "--manifest-path".into(),
-            "dereth/launcher/Cargo.toml".into(),
+            "launcher/Cargo.toml".into(),
             "--target-dir".into(),
             launcher_target.display().to_string(),
         ],

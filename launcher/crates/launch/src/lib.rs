@@ -10,7 +10,7 @@
 //! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions, the
 //! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
 //! plugins, and Asheron's Call 2's friends stream (`auberean-friends`), for the greeting that asks
-//! a world whether it serves its friends service and for the friends ticket. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! a world whether it serves its friends service and for the friends ticket. **Used by** the launcher's window, the Tauri app in `launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:

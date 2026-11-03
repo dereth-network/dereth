@@ -3,7 +3,7 @@
 A Lyceum release includes the editor, the `lyceum` command, and the separate Empyrean server
 and import tool, for Windows, macOS and
 Linux, published as a GitHub release of this repository under a `lyceum-v<version>` tag. It is
-released the way Dereth is ([`dereth/launcher/RELEASING.md`](../dereth/launcher/RELEASING.md)):
+released the way Dereth is ([`launcher/RELEASING.md`](../launcher/RELEASING.md)):
 two commands and one review.
 
 1. **`cargo xtask release lyceum <version>`** on a clean `main`: sets the version, dates the

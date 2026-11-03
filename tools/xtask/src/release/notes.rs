@@ -5,7 +5,7 @@
 //! does, so the subjects are the changelog. A commit counts when it changes something the release
 //! ships, and is neither a test nor a document:
 //!
-//! - **Dereth** (the client and the launcher): a file under `dereth/` or `core/`, or the web
+//! - **Dereth** (the client and the launcher): a file under `dereth/`, `launcher/` or `core/`, or the web
 //!   client's relay.
 //! - **Empyrean** (the server): a file under `empyrean/`, or under one of the shared `core/`
 //!   crates the server is built from when the commit changes nothing that only the client ships
@@ -137,7 +137,7 @@ impl Group {
 }
 
 /// Paths outside these are not part of what a Dereth release ships.
-const SHIPPED: &[&str] = &["dereth/", "core/", "tools/web-relay/"];
+const SHIPPED: &[&str] = &["dereth/", "launcher/", "core/", "tools/web-relay/"];
 
 /// The core crates that are Asheron's Call 2's, not Dereth's, though they are under `core/`.
 const AUBEREAN_CORE: &str = "core/auberean-";
@@ -382,7 +382,7 @@ fn server_path_group(path: &str) -> Option<Group> {
 /// The heading a client path's folder implies, when it implies one.
 fn client_path_group(path: &str) -> Option<Group> {
     let under = |dirs: &[&str]| dirs.iter().any(|d| path.starts_with(d));
-    if under(&["dereth/launcher/"]) {
+    if under(&["launcher/"]) {
         Some(Group::Launcher)
     } else if under(&[
         "dereth/client/crates/render/",

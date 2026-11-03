@@ -9,7 +9,7 @@ name: Release Dereth
 # the release files kept as a workflow artifact for 7 days, nothing published.
 #
 # Every job runs `cargo xtask package dereth`, the same command a contributor runs locally
-# (dereth/launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
+# (launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
 # push.
 #
 # Every package carries the retail Asheron's Call 2 client's friends library
@@ -162,7 +162,7 @@ jobs:
       - name: Fetch locked dependencies
         run: |
           cargo fetch --locked
-          cargo fetch --locked --manifest-path dereth/launcher/Cargo.toml
+          cargo fetch --locked --manifest-path launcher/Cargo.toml
       - name: Install cargo-about and the Tauri CLI
         run: |
           cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli

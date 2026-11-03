@@ -117,7 +117,7 @@ Dereth (the launcher, with the client inside it) is released the same way:
 `cargo xtask release dereth <version>` and a pushed `dereth-v<version>` tag, whose workflow drafts
 the release; once published, it is the one launchers update from.
 `cargo xtask package dereth` builds this host's release files locally.
-[dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
+[launcher/RELEASING.md](launcher/RELEASING.md) describes the whole flow.
 
 Lyceum (the world builder's editor and its `lyceum` command) is released the same way:
 `cargo xtask release lyceum <version>` and a pushed `lyceum-v<version>` tag, whose workflow drafts

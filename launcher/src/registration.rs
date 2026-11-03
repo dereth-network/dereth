@@ -21,7 +21,7 @@ pub const APP_ID: &str = desktop::LAUNCHER_APP_ID;
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon/network.png");
 
 /// The client's icon, 256 pixels square: the Dereth emblem, the one the client writes itself.
-const CLIENT_ICON_PNG: &[u8] = include_bytes!("../../client/assets/dereth-256.png");
+const CLIENT_ICON_PNG: &[u8] = include_bytes!("../../dereth/client/assets/dereth-256.png");
 
 /// Both icons, as the entries name them.
 const ICONS: desktop::Icons = desktop::Icons {

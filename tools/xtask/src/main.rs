@@ -134,7 +134,7 @@ Release and packaging:
                             Linux AppImage), with the client and the retail AC2 client's friends
                             library inside it, checked and scanned, and signed for the launcher's
                             updater (latest.json) when TAURI_SIGNING_PRIVATE_KEY is set
-                            (dereth/launcher/RELEASING.md)
+                            (launcher/RELEASING.md)
   package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
                  | --gather <dir>
                             Lyceum's release files: builds the editor and the lyceum command for

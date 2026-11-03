@@ -1164,7 +1164,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         ("empyrean-world", "empyrean/crates/world"),
         ("empyrean-server", "empyrean/server"),
         ("dereth-client", "dereth/client"),
-        ("dereth-launch", "dereth/launcher/crates/launch"),
+        ("dereth-launch", "launcher/crates/launch"),
     ]
     .iter()
     .map(|(n, d)| ((*n).to_owned(), (*d).to_owned()))
@@ -1220,10 +1220,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         [Product::Hub, Product::Empyrean, Product::Dereth]
     );
     assert_eq!(
-        of(&[
-            "dereth/launcher/ui/app.js",
-            "dereth/launcher/crates/launch/src/pad.rs"
-        ]),
+        of(&["launcher/ui/app.js", "launcher/crates/launch/src/pad.rs"]),
         [Product::Dereth]
     );
     assert_eq!(
@@ -1232,7 +1229,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     );
     // A lock file by itself is no product's: the crates that moved in it say whose it is.
     assert_eq!(
-        of(&["Cargo.lock", "dereth/launcher/Cargo.lock"]),
+        of(&["Cargo.lock", "launcher/Cargo.lock"]),
         [] as [Product; 0]
     );
     let moved: BTreeMap<Product, Vec<String>> =
@@ -1528,9 +1525,9 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
         ])
     };
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|lock| {
-            assert_eq!(lock, "dereth/launcher/Cargo.lock");
+            assert_eq!(lock, "launcher/Cargo.lock");
             (launcher("2.8.0"), launcher("2.9.1"))
         },
         &BTreeMap::new(),
@@ -1540,7 +1537,7 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
     assert_eq!(found[&Product::Dereth], ["tauri 2.8.0 -> 2.9.1"]);
     // A launcher lock that is new on the branch is all added.
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|_| (String::new(), launcher("2.9.1")),
         &BTreeMap::new(),
     )
@@ -1555,7 +1552,7 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
         "name = \"tauri\"\nversion = \"2.9.1\"\nsource = \"git+https://example.org/tauri#0123abc\"",
     );
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|_| (launcher("2.9.1"), from_git.clone()),
         &BTreeMap::new(),
     )
@@ -1695,7 +1692,7 @@ fn workspaces() -> plan::Built {
             ("dereth-web", Some("dereth/web"), &["dereth-client-runtime"]),
             (
                 "dereth-launch",
-                Some("dereth/launcher/crates/launch"),
+                Some("launcher/crates/launch"),
                 &["dereth-primitives"],
             ),
             ("mlua", Some("vendor/mlua"), &["bstr"]),
@@ -1717,12 +1714,12 @@ fn workspaces() -> plan::Built {
         &[
             (
                 "dereth-launcher",
-                Some("dereth/launcher"),
+                Some("launcher"),
                 &["dereth-launch:normal+dev", "tauri", "tempfile:dev"],
             ),
             (
                 "dereth-launch",
-                Some("dereth/launcher/crates/launch"),
+                Some("launcher/crates/launch"),
                 &["dereth-primitives"],
             ),
             ("dereth-primitives", Some("core/primitives"), &["serde"]),
@@ -1732,10 +1729,7 @@ fn workspaces() -> plan::Built {
         ],
     );
     plan::Built::read(
-        &[
-            ("Cargo.lock", main),
-            ("dereth/launcher/Cargo.lock", launcher),
-        ],
+        &[("Cargo.lock", main), ("launcher/Cargo.lock", launcher)],
         Path::new("/w"),
     )
 }
@@ -1846,7 +1840,7 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
         .contains(&("mlua".to_owned(), "vendor/mlua".to_owned())));
     assert!(built
         .packages
-        .contains(&("dereth-launcher".to_owned(), "dereth/launcher".to_owned())));
+        .contains(&("dereth-launcher".to_owned(), "launcher".to_owned())));
     assert!(
         built.packages.iter().all(|(n, _)| n != "serde"),
         "a crate from crates.io has no folder here"
@@ -1888,10 +1882,7 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
     assert_eq!(of("core/client-runtime/src/audio.rs"), [Product::Dereth]);
     // A vendored crate outside the workspace is its users'.
     assert_eq!(of("vendor/mlua/src/lua.rs"), [Product::Dereth]);
-    assert_eq!(
-        of("dereth/launcher/crates/launch/src/pad.rs"),
-        [Product::Dereth]
-    );
+    assert_eq!(of("launcher/crates/launch/src/pad.rs"), [Product::Dereth]);
     assert_eq!(
         of("core/primitives/src/lib.rs"),
         [Product::Hub, Product::Empyrean, Product::Dereth]
