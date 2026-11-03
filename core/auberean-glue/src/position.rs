@@ -96,6 +96,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (VECTOR, 0x0C, vector_part::<0>),
     (VECTOR, 0x0D, vector_part::<1>),
     (VECTOR, 0x0E, vector_part::<2>),
+    (VECTOR, 0x0F, vector_string),
 ];
 
 /// Bind this module's natives.
@@ -253,6 +254,23 @@ fn give_vector(c: &mut Call<'_>, k: i64, v: [f32; 3]) -> Result<Status, Stop> {
             .add_native(VECTOR, NativeObject::Vector(v.map(f32::to_bits)));
     c.write(k, r, tag::REFERENCE)?;
     Ok(Status::Success)
+}
+
+/// The vector as text, a new string at `fp[-2]`.
+// D2-09021
+fn vector_string(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    if r == NULL {
+        return Ok(Status::Crash);
+    }
+    let v = match c.vm.heap.native(r)? {
+        NativeObject::Vector(p) => p.map(f32::from_bits),
+        _ => return Err(c.fail("not a vector")),
+    };
+    give_text(
+        c,
+        &auberean_physics::geom::vector_text(dereth_primitives::Vec3::new(v[0], v[1], v[2])),
+    )
 }
 
 /// A new string into the slot `fp[-2]`.

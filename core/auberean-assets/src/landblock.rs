@@ -367,7 +367,7 @@ impl Encode for LightInfo {
 }
 
 impl Encode for Cell {
-    // D2-03569, D2-04243
+    // D2-03569, D2-04243, D2-04241, D2-04242
     fn encode(&self, id: u32, w: &mut Writer) {
         w.u32(id);
         w.frame(self.frame);

@@ -63,6 +63,47 @@ fn wrap(degrees: f64) -> f32 {
     }
 }
 
+/// A number as C's `%.3f` writes it in the client's library, infinities and not-a-numbers rounded
+/// at the same place.
+#[must_use]
+pub fn fixed_three(v: f32) -> String {
+    if v.is_nan() {
+        return if v.is_sign_negative() {
+            "-1.#IO"
+        } else {
+            "1.#QO"
+        }
+        .to_owned();
+    }
+    if v.is_infinite() {
+        return if v < 0.0 { "-1.#IO" } else { "1.#IO" }.to_owned();
+    }
+    format!("{:.3}", f64::from(v))
+}
+
+/// A vector as text: `(x, y, z)`, three places each.
+// D2-13128, D2-13129
+#[must_use]
+pub fn vector_text(v: Vec3) -> String {
+    format!(
+        "({}, {}, {})",
+        fixed_three(v.x),
+        fixed_three(v.y),
+        fixed_three(v.z)
+    )
+}
+
+/// A plane as text: its normal, then its distance, and the end of the line.
+// D2-13141, D2-13142
+#[must_use]
+pub fn plane_text(plane: &Plane) -> String {
+    format!(
+        "N = {}, d = {}\n",
+        vector_text(plane.normal),
+        fixed_three(plane.d)
+    )
+}
+
 /// A heading: degrees clockwise from north. A copy is the same heading.
 // D2-13349, D2-13350
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -218,6 +259,51 @@ impl Heading {
     #[must_use]
     pub fn is_zero(self) -> bool {
         self.is_in_range(Self::ZERO, Self::EPSILON)
+    }
+
+    /// The compass point nearest this heading: within 11.25 degrees of north, south, east or west,
+    /// its letter; else, in the quarter it falls in, the two letters of the point between them, within
+    /// 11.25 degrees of it, or those with the nearer of the two letters first.
+    // D2-13364
+    #[must_use]
+    pub fn compass(self) -> String {
+        const WITHIN: f32 = 11.25;
+        for (center, letter) in [(0.0, "N"), (180.0, "S"), (90.0, "E"), (270.0, "W")] {
+            if self.is_in_range(Self(center), Self(WITHIN)) {
+                return letter.to_owned();
+            }
+        }
+        let north = self.abs().0 < 90.0;
+        let centered = |h: f32| if h > 180.0 { h - 360.0 } else { h };
+        let east = centered(self.0) > 0.0;
+        let middle = Self::lerp(
+            Self(if north { 0.0 } else { 180.0 }),
+            Self(if east { 90.0 } else { 270.0 }),
+            0.5,
+        );
+        let past = centered(self.minus(middle).0);
+        let side = if north { 'N' } else { 'S' };
+        let along = if east { 'E' } else { 'W' };
+        if past > WITHIN {
+            // Clockwise of the middle of the quarter.
+            let first = match (north, east) {
+                (true, true) => 'E',
+                (true, false) => 'N',
+                (false, true) => 'S',
+                (false, false) => 'W',
+            };
+            format!("{first}{side}{along}")
+        } else if past < -WITHIN {
+            let first = match (north, east) {
+                (true, true) => 'N',
+                (true, false) => 'W',
+                (false, true) => 'E',
+                (false, false) => 'S',
+            };
+            format!("{first}{side}{along}")
+        } else {
+            format!("{side}{along}")
+        }
     }
 
     /// The heading of a direction in the ground plane (`+y` north, `+x` east), from its angle.

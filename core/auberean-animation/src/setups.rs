@@ -133,7 +133,7 @@ pub fn default_detail() -> [DetailDistances; 3] {
 }
 
 /// A pose packed: its kind, its bone count, each bone's transform.
-// D2-12866
+// D2-12866, D2-13261
 fn pack_pose(w: &mut Writer, p: &Pose) {
     w.u32(p.kind);
     w.list(&p.bones, |w, b| {
@@ -226,7 +226,7 @@ pub fn pack(id: u32, setup: &Setup) -> Vec<u8> {
 }
 
 /// The size of a setup's packed form, in bytes.
-// D2-12898
+// D2-12898, D2-13260
 #[must_use]
 pub fn pack_size(setup: &Setup) -> usize {
     let transform = 40;

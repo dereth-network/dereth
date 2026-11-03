@@ -18,6 +18,7 @@ mod position;
 mod position_cases;
 mod sphere;
 mod sphere_cases;
+mod text;
 mod tree;
 mod tree_cases;
 mod workpoly;

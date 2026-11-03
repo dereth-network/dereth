@@ -179,6 +179,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (HEADING, 0x02, heading_degrees),
     (HEADING, 0x03, heading_degrees_centered),
     (HEADING, 0x04, heading_in_range),
+    (HEADING, 0x05, heading_compass),
     (RAY, 0x01, ray_line_segment),
     (RAY, 0x02, ray_from_offset),
     (RAY, 0x03, ray_direction),
@@ -743,6 +744,17 @@ fn heading_in_range(c: &mut Call<'_>) -> Result<Status, Stop> {
         return Ok(Status::Crash);
     };
     answer_byte(c, -4, inside)?;
+    Ok(Status::Success)
+}
+
+/// The compass point nearest the heading, as a new string at `fp[-2]`.
+// D2-08603, D2-13365
+fn heading_compass(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let Some(text) = with(c, heading, |h| h.compass())? else {
+        return Ok(Status::Crash);
+    };
+    let r = crate::machine::new_text(c, text.encode_utf16().collect());
+    c.write(-2, r, tag::REFERENCE)?;
     Ok(Status::Success)
 }
 
