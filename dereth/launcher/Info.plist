@@ -6,5 +6,11 @@
 	     assets/Network.icon by build.rs: what macOS 26 looks for first. -->
 	<key>CFBundleIconName</key>
 	<string>Network</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.role-playing-games</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>GCSupportsGameMode</key>
+	<true/>
 </dict>
 </plist>

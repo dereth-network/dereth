@@ -165,8 +165,9 @@ finds the Vulkan loader itself (the MoltenVK a release bundles, then `$VULKAN_SD
 or macOS build from Windows, add the rustup target and run
 `cargo check -p dereth-render --target x86_64-unknown-linux-gnu` (or `aarch64-apple-darwin`).
 
-Three renderers are built in: Vulkan (the default), Direct3D 12 (Windows only) and `wgpu` (Metal,
-Vulkan or Direct3D 12 underneath, chosen by `WGPU_BACKEND`; the web client uses it too). Pick one
+Three renderers are built in: Vulkan (the default, but on a Mac), Direct3D 12 (Windows only) and
+`wgpu` (Metal, Vulkan or Direct3D 12 underneath, chosen by `WGPU_BACKEND`; the default on a Mac,
+on Metal, and the web client uses it too). Pick one
 with `--renderer vulkan|d3d12|wgpu` or `Renderer=` in the preferences file. One that isn't built
 in or can't create a device falls back to the default and says so.
 

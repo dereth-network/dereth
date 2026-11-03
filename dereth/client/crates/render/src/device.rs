@@ -501,10 +501,14 @@ impl Backend {
             .collect()
     }
 
-    /// The default — Vulkan everywhere — falling back to whatever *is* compiled in when
-    /// a build left Vulkan out.
+    /// The default — Metal through `wgpu` on a Mac, Vulkan everywhere else — falling back to
+    /// whatever *is* compiled in when a build left it out.
     #[must_use]
     pub fn default_backend() -> Option<Self> {
+        // On a Mac, Metal itself through `wgpu`, not Vulkan through a translation layer.
+        if cfg!(target_os = "macos") && Self::Wgpu.compiled_in() {
+            return Some(Self::Wgpu);
+        }
         Self::compiled().first().copied()
     }
 
@@ -1378,13 +1382,17 @@ mod tests {
         }
     }
 
-    /// Vulkan is the default wherever it is compiled in.
+    /// Metal is the default on a Mac where it is compiled in, and Vulkan elsewhere.
     #[test]
-    fn vulkan_is_the_default_wherever_it_is_compiled_in() {
+    fn the_default_is_metal_on_a_mac_and_vulkan_elsewhere_where_compiled_in() {
         let compiled = Backend::compiled();
-        assert_eq!(compiled.first().copied(), Backend::default_backend());
-        if Backend::Vulkan.compiled_in() {
-            assert_eq!(Backend::default_backend(), Some(Backend::Vulkan));
+        if cfg!(target_os = "macos") && Backend::Wgpu.compiled_in() {
+            assert_eq!(Backend::default_backend(), Some(Backend::Wgpu));
+        } else {
+            assert_eq!(compiled.first().copied(), Backend::default_backend());
+            if Backend::Vulkan.compiled_in() {
+                assert_eq!(Backend::default_backend(), Some(Backend::Vulkan));
+            }
         }
         for b in [Backend::Vulkan, Backend::D3d12] {
             assert_eq!(compiled.contains(&b), b.compiled_in(), "{b:?}");
