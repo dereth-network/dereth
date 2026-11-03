@@ -15,7 +15,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use dereth_render::wgpu::sidecar::{build_derived_pipeline, ordinary_blend};
+use dereth_render::wgpu::sidecar::{build_derived_pipeline_with_constants, ordinary_blend};
 use dereth_render::PipelineKey;
 
 use super::{derive, DerivedKey, ModuleKey, Variant};
@@ -192,14 +192,20 @@ fn build(
             state.z_func = dereth_render::ZFunc::LessEqual;
         }
     }
+    let constants: &[(&str, f64)] = if key.adds_in_display_light() {
+        &[(super::reshade::ADDITIVE_CONSTANT, 1.0)]
+    } else {
+        &[]
+    };
     scoped(&cx.device, || {
-        build_derived_pipeline(
+        build_derived_pipeline_with_constants(
             &cx.device,
             layout,
             &module,
             key.fragment_entry(),
             &state,
             &targets,
+            constants,
         )
     })
 }

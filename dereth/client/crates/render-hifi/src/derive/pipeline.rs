@@ -40,6 +40,16 @@ impl DerivedKey {
             _ => None,
         }
     }
+
+    /// Whether this draw adds its colour times its alpha to what is there, in a variant that
+    /// draws colour: it is written as the ordinary frame would add it.
+    #[must_use]
+    pub fn adds_in_display_light(&self) -> bool {
+        matches!(self.variant, Variant::Reshade | Variant::Material)
+            && self.key.alpha_blend
+            && self.key.src_blend == dereth_render::Blend::SrcAlpha
+            && self.key.dst_blend == dereth_render::Blend::One
+    }
 }
 
 /// The re-shaded pipeline's two colour targets.

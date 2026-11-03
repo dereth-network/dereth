@@ -122,6 +122,9 @@ impl MaterialClass {
     }
 }
 
+/// The overridable constant set for a draw that adds its colour times its alpha to what is there.
+pub const ADDITIVE_CONSTANT: &str = "HIFI_ADDITIVE";
+
 /// The pixel stages of the ordinary source, by entry point.
 pub const PIXEL_STAGES: [&str; 5] = [
     "ps_modulate",
@@ -323,6 +326,12 @@ pub fn prelude(format: VertexFormat) -> String {
         "
 // ---- the re-shaded output ----------------------------------------------------------------
 
+override HIFI_ADDITIVE: bool = false;
+// The brightness in the display's encoding an additive sprite is matched over.
+const HIFI_ADD_OVER: f32 = 0.3;
+// The same indoors, where what stands behind a flame's glow is dark and the exposure is raised.
+const HIFI_ADD_OVER_INDOORS: f32 = 0.04;
+
 struct HifiOut {{
     // Linear light, unclamped; the alpha is the ordinary stage's, for the ordinary blend.
     @location(0) colour: vec4<f32>,
@@ -446,7 +455,18 @@ fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
     // Fog and brightness as the ordinary stage applies them, then the result as linear light,
     // not clamped: the ordinary stage's clamp is the resolve's.
     let shown = mix(g_frame.fog_color.rgb, c.rgb, i.fog) * gamma_scale();
-    o.colour = vec4<f32>(hifi_linear_rgb(shown), c.a);
+    if (HIFI_ADDITIVE) {{
+        // The ordinary frame adds in the display's encoding and this blend adds in linear light,
+        // where the same sprite all but vanishes over anything lit. So it adds what the ordinary
+        // frame would add over a surface of middling brightness, its very faintest part eased
+        // away so a stack of sprites shows no edges of their quads.
+        let added = saturate(shown * clamp(c.a, 0.0, 1.0));
+        let eased = added * smoothstep(vec3<f32>(0.0), vec3<f32>(0.04), added);
+        let over = vec3<f32>(mix(HIFI_ADD_OVER, HIFI_ADD_OVER_INDOORS, g_frame.screen.w));
+        o.colour = vec4<f32>(hifi_linear_rgb(over + eased) - hifi_linear_rgb(over), 1.0);
+    }} else {{
+        o.colour = vec4<f32>(hifi_linear_rgb(shown), c.a);
+    }}
     let n = hifi_view_normal(i);
     if (material == {foliage}) {{
         o.normal = vec4<f32>(hifi_canopy_normal(i, n), hifi_foliage_code(i));
