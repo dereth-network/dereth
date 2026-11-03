@@ -141,6 +141,8 @@ pub struct Controls {
     pub mouse_look: bool,
     /// In mouse look the mouse steers the player (the camera's option): turns strafe.
     pub steers: bool,
+    /// The behaviors actions began (`true`) or ended (`false`) since the last frame.
+    behaviors: Vec<(u32, bool)>,
     /// A text entry has the keys.
     text_mode: bool,
 }
@@ -179,6 +181,7 @@ impl Controls {
                 }
                 true
             }
+            // D2-03438, D2-09639
             Event::Motion { dx, dy } => {
                 self.mouse.0 += dx;
                 self.mouse.1 += dy;
@@ -225,6 +228,14 @@ impl Controls {
             }
         }
         self.focus_switch(keys, true);
+    }
+
+    /// Mouse look switched: the focus handlers hear it, and with a text entry having the keys the
+    /// actions in force are let go ([`Self::focus_switch`]).
+    pub fn mouse_look_switched(&mut self, keys: &Keys) {
+        if self.text_mode {
+            self.focus_switch(keys, true);
+        }
     }
 
     /// The window's keyboard gone, or (`focus` kept) a text entry having the keys: each action in
@@ -369,7 +380,8 @@ impl Controls {
     }
 
     /// An action begun: a movement action noted as begun (it interrupts a move to a place); a
-    /// camera action that switches the view, pressed; an interface action, the interface's.
+    /// behavior asked of the player; a camera action that switches the view, pressed; an interface
+    /// action, the interface's.
     // D2-03451
     fn start_action(&mut self, keys: &Keys, action: u32) {
         let modifiers = self.modifier_bitfield(keys);
@@ -378,6 +390,8 @@ impl Controls {
         };
         match v.class {
             class::MOVEMENT => self.started.push(action),
+            class::BEHAVIOR => self.behaviors.push((v.value, true)),
+            // D2-09642
             class::CAMERA => {
                 let press = match v.value {
                     camera::RESET => Press::Reset,
@@ -396,11 +410,16 @@ impl Controls {
         }
     }
 
-    /// An action ended. The camera's held actions and the movement actions are read from the
-    /// actions in force each frame, so nothing more is needed here.
-    // D2-03435
+    /// An action ended: by its plain values, whatever modifiers are held, a behavior is asked to
+    /// stop. The camera's held actions and the movement actions are read from the actions in force
+    /// each frame, so nothing more is needed for them.
+    // D2-03435, D2-09643
     fn stop_action(&mut self, keys: &Keys, action: u32) {
-        let _ = (keys, action);
+        if let Some(v) = keys.records.action_map.action_values(action, 0) {
+            if v.class == class::BEHAVIOR {
+                self.behaviors.push((v.value, false));
+            }
+        }
     }
 
     /// An interface action no interface took: the camera's first person, mouse look and wheel
@@ -507,6 +526,7 @@ impl Controls {
             presses,
             mouse: std::mem::take(&mut self.mouse),
             started: std::mem::take(&mut self.started),
+            behaviors: std::mem::take(&mut self.behaviors),
         }
     }
 }

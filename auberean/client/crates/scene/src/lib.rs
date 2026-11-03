@@ -134,6 +134,8 @@ pub struct Intent {
     pub mouse: (f32, f32),
     /// The movement actions begun this frame, by the client's action numbers ([`movement`]).
     pub started: Vec<u32>,
+    /// The behaviors the player's keys began (`true`) or ended (`false`) this frame.
+    pub behaviors: Vec<(u32, bool)>,
 }
 
 /// The client's movement actions: the keys of its action map that move the player.
@@ -149,6 +151,7 @@ pub mod movement {
 }
 
 /// The player's body: physics, figure, and what the scene last took from the client.
+// D2-09633, D2-09634, D2-09647
 struct Player {
     id: u64,
     /// The description it was last sent, and its own descriptions (none when its look is a stored
@@ -173,6 +176,8 @@ struct Player {
     ticked: dereth_primitives::Vec3,
     /// The physics record its physics object was made from, as the client named it.
     record: u32,
+    /// A behavior that locks the player's actions is playing: what its keys ask of the body waits.
+    actions_locked: bool,
 }
 
 /// What a frame draws: the world, and portal space laid over it (`portal_alpha` of the way, the
@@ -1688,6 +1693,14 @@ impl<'w> Scene<'w> {
         )
     }
 
+    /// Whether the player's figure plays a behavior.
+    #[must_use]
+    pub fn player_figure_plays(&self, behavior: u32) -> bool {
+        self.player
+            .as_ref()
+            .is_some_and(|p| p.figure.is_doing_behavior(behavior))
+    }
+
     /// Plays a behavior on object `id`'s body, as the client plays one asked of an object: on its
     /// figure; and when it is passed on, the behavior alone (at its time scale, sending nothing,
     /// passed on again) on everything the body holds. Whether the figure took it: a body with no
@@ -2114,6 +2127,22 @@ impl<'w> Scene<'w> {
         })
     }
 
+    /// The behaviors the player's keys began or ended: played on its body or stopped, as a behavior
+    /// asked by its id alone is.
+    // D2-09640, D2-09641, D2-06262
+    fn key_behaviors(&mut self, asked: &[(u32, bool)]) {
+        let Some(id) = self.player.as_ref().map(|p| p.id) else {
+            return;
+        };
+        for &(behavior, start) in asked {
+            if start {
+                self.play_behavior(id, &auberean_animation::track::Params::behavior(behavior));
+            } else if let Some(p) = &mut self.player {
+                p.figure.stop_behavior(&self.anims, behavior);
+            }
+        }
+    }
+
     /// The world without a player: the camera forgets where it stood and whom it followed.
     // D2-10660, D2-10765, D2-10807
     fn reset_world_state(&mut self, client: &mut Client) {
@@ -2155,7 +2184,9 @@ impl<'w> Scene<'w> {
     ) -> Option<Player> {
         let mut dress = None;
         let look = figures::look_after(&self.world.records, &self.anims, &o.visual, &mut dress)?;
-        let figure = Figure::from_look(&self.anims, &look)?;
+        let mut figure = Figure::from_look(&self.anims, &look)?;
+        // What its behaviors ask only of the player (the action lock, the camera) is asked.
+        figure.is_player = true;
         let scale = look.scale;
         let (config, height) = body_config(&self.world.records, &look, &figure, &o.physics)?;
         let start = Position::new(
@@ -2196,6 +2227,7 @@ impl<'w> Scene<'w> {
         self.camera
             .set_player(&camera::NoObjects, o.id, height * scale.z);
         self.setup_camera_stand_ins(&figure);
+        // D2-03437, D2-09648
         Some(Player {
             id: o.id,
             visual: o.visual.clone(),
@@ -2211,6 +2243,7 @@ impl<'w> Scene<'w> {
             effects,
             ticked: dereth_primitives::Vec3::ZERO,
             record,
+            actions_locked: false,
         })
     }
 
@@ -2378,9 +2411,11 @@ impl<'w> Scene<'w> {
         self.others.note_objects(&mut self.objects);
         self.start_movement_actions(client, &intent.started);
         self.keep_move_target();
+        self.key_behaviors(&intent.behaviors);
         if let Some(p) = &mut self.player {
             let frozen = client.body.frozen;
-            let input = if frozen {
+            let locked = p.actions_locked;
+            let input = if frozen || locked {
                 MotionInput::default()
             } else {
                 MotionInput {
@@ -2389,16 +2424,19 @@ impl<'w> Scene<'w> {
                     turn: intent.turn,
                 }
             };
-            if !frozen && steer.turn != 0.0 {
+            if !frozen && !locked && steer.turn != 0.0 {
                 p.body.turn_at_once(-steer.turn);
             }
-            p.body.steer(input);
+            if !locked {
+                p.body.steer(input);
+            }
             // The jump asked: standing, or moving slowly, the figure plays the jump's lead-in,
             // whose animation sets the jump off; one it cannot play, or moving faster, jumps at
             // once.
             let jumps = p.body.jumps;
             if intent.jump
                 && !frozen
+                && !locked
                 && p.body.jump_logic()
                 && p.body.behaviors.contains(&JUMP_BEHAVIOR)
             {
@@ -3043,6 +3081,20 @@ impl<'w> Scene<'w> {
                 } => {
                     self.camera
                         .set_targeted_camera(&objects, target, words, time, ramp);
+                }
+                // The body stops where it is, and its keys ask nothing more of it.
+                // D2-06094, D2-09644
+                Event::LockInput => {
+                    if let Some(p) = self.player.as_mut().filter(|p| p.id == id) {
+                        p.body.steer(MotionInput::default());
+                        p.actions_locked = true;
+                    }
+                }
+                // D2-06095
+                Event::UnlockInput => {
+                    if let Some(p) = self.player.as_mut().filter(|p| p.id == id) {
+                        p.actions_locked = false;
+                    }
                 }
                 other => tracing::trace!(
                     object = format_args!("{id:#x}"),

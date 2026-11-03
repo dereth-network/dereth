@@ -421,6 +421,85 @@ fn a_turn_begun_stops_an_attack_made_while_moving_on_its_own() {
     assert_eq!(frame(&mut c, &mut scene, Vec::new()), 0, "nothing begun");
 }
 
+/// While a behavior that locks the player's actions plays, what the keys ask of the body waits: it
+/// stops at once and asks nothing, and stopping the behavior gives the keys back. A behavior asked
+/// by a key plays and stops on the figure as one asked by its id alone.
+///
+/// Behaviour: desktop.bodies.a-behavior-that-locks-actions-holds-the-players-keys
+#[test]
+fn a_behavior_that_locks_actions_holds_the_players_keys() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    let (mut c, mut scene, _) = played("1e177f6bfede2082:3", 5.0);
+    let id = c.model.player_object().expect("the player").id;
+    let mut t = c.local_time();
+    let mut frame = |c: &mut Client, scene: &mut Scene<'_>, intent: &Intent| {
+        t += FRAME;
+        c.set_time(LocalTime(t));
+        #[allow(clippy::cast_possible_truncation)]
+        scene.update(c, intent, t, FRAME as f32);
+        scene.body(id).expect("its body").minterp.asked.y
+    };
+    let run = Intent {
+        forward: 1.0,
+        ..Intent::default()
+    };
+    assert_eq!(frame(&mut c, &mut scene, &run), 1.0, "the keys are heard");
+    let behavior = auberean_physics::body::JUMP_BEHAVIOR;
+    let params = BehaviorParams {
+        behavior,
+        lock_actions: 1,
+        ..BehaviorParams::default()
+    };
+    c.scripts
+        .as_mut()
+        .expect("the scripts run")
+        .host
+        .behaviors
+        .push(Behavior::Play { object: id, params });
+    frame(&mut c, &mut scene, &run);
+    assert!(
+        scene.player_figure_plays(behavior),
+        "the figure took the behavior"
+    );
+    frame(&mut c, &mut scene, &run);
+    for _ in 0..5 {
+        assert_eq!(
+            frame(&mut c, &mut scene, &run),
+            0.0,
+            "the body stopped, the keys held"
+        );
+    }
+    c.scripts
+        .as_mut()
+        .expect("the scripts run")
+        .host
+        .behaviors
+        .push(Behavior::Stop {
+            object: id,
+            behavior,
+        });
+    frame(&mut c, &mut scene, &run);
+    frame(&mut c, &mut scene, &run);
+    assert_eq!(frame(&mut c, &mut scene, &run), 1.0, "the keys are back");
+    // A key's behavior: played, then stopped.
+    let key = Intent {
+        behaviors: vec![(behavior, true)],
+        ..Intent::default()
+    };
+    frame(&mut c, &mut scene, &key);
+    assert!(scene.player_figure_plays(behavior), "the key played it");
+    let key = Intent {
+        behaviors: vec![(behavior, false)],
+        ..Intent::default()
+    };
+    frame(&mut c, &mut scene, &key);
+    assert!(
+        !scene.player_figure_plays(behavior),
+        "the key's release stopped it"
+    );
+}
+
 /// What the objects' scripts set on their bodies reaches the bodies: in a recorded session each
 /// body's own scale (the creatures' 0.85 to 1.2, as the scripts read it from their qualities when
 /// they were made) and whether it slides along edges; and when the scripts then scale a creature,

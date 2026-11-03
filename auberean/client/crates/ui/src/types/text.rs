@@ -1806,6 +1806,7 @@ impl Ui {
 
     /// Type into the entry that has the keyboard, a character at a time; returns whether an entry
     /// took the text.
+    // D2-04864
     pub fn type_text(&mut self, typed: &str) -> bool {
         let Some(h) = self.focus() else {
             return false;

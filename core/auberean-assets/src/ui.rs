@@ -616,6 +616,7 @@ impl Decode for Font {
 }
 
 /// One binding of a key map: an input to an action, with a name.
+// D2-04879
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct KeyBinding {
     pub action: u32,
@@ -625,7 +626,7 @@ pub struct KeyBinding {
 
 /// A key map (`.keymap`, `0x1D000000`+): a named set of bindings from inputs to actions. A new
 /// one is empty (the client leaves a new map's identity as the memory held it; this one is zero).
-// D2-04904, D2-04905, D2-04906, D2-04911
+// D2-04904, D2-04905, D2-04906, D2-04911, D2-04910
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct KeyMap {
     pub name: String,
@@ -678,7 +679,7 @@ pub struct ActionText {
 
 /// The action map (`.actionmap`, `0x51000000`+): which actions toggle which, what each action does
 /// with each set of modifiers, and the actions' names.
-// D2-03421, D2-03422, D2-03427, D2-03428, D2-03431
+// D2-03421, D2-03422, D2-03427, D2-03428, D2-03431, D2-03430
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ActionBindings {
     pub string_table: DataId,

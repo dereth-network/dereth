@@ -9,6 +9,15 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "desktop.bodies.a-behavior-that-locks-actions-holds-the-players-keys",
+        says: "While a behavior that locks the player's actions plays, the body stops at once and what \
+               the keys ask of it waits; a behavior a key names plays and stops on the player's figure.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-LOCKED-KEYS"),
+        station: "auberean-scene::corpus::combat::a_behavior_that_locks_actions_holds_the_players_keys",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.a-behavior-with-an-emote-plays-when-the-objects-scripts-take-it",
         says: "A behavior the server asks of a body plays with the context 1; one carrying an emote \
                is first handed to the object's own scripts, and plays only when they take it.",
@@ -585,6 +594,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.mouse-look-switching-while-typing-lets-actions-go",
+        says: "Mouse look switching lets the actions in force go while a text entry has the keys, and \
+               leaves them when none does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-MOUSE-LOOK-FOCUS"),
+        station: "auberean-shell::dat::controls::mouse_look_switching_while_a_text_entry_has_the_keys_lets_actions_go",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.select-use-and-letting-go-on-focus-loss",
         says: "The selection keys select, Escape clears the selection and F uses what is selected; \
                a window that loses the keyboard lets every key go.",
@@ -620,6 +638,35 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-KEYS-CAMERA"),
         station: "auberean-shell::dat::controls::the_keypad_and_mouse_drive_the_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.input.an-inactive-window-hears-no-device",
+        says: "While the window is not the active one nothing hears a press, the wheel, mouse motion or \
+               the pointer; letting go passes; where the pointer went is heard when the window is \
+               active again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-ACTIVE-WINDOW"),
+        station: "auberean-shell::cpu::input_manager::an_inactive_window_hears_no_device_and_then_the_pointer_where_it_went",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.input.mouse-look-holds-the-pointer-at-the-middle",
+        says: "While the pointer is held for mouse look nothing hears where it is; taking hold of it \
+               puts it at the middle of the display.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-MOUSE-LOOK-MODE"),
+        station: "auberean-shell::cpu::input_manager::mouse_look_holds_the_pointer_at_the_middle_of_the_display",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.input.the-shell-passes-events-through-the-gate",
+        says: "The interface and the scene hear the pointer only while the window is active and the \
+               pointer is not held; the shell puts it at the middle of the display when mouse look \
+               takes hold of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-SHELL-GATE"),
+        station: "auberean-shell::dat::session::the_shell_passes_events_through_the_gate",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -840,6 +887,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-PLAY-REQUESTS"),
         station: "auberean-interface::dat::screens::what_the_play_screen_asks_is_carried_out",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.keys.a-behavior-action-plays-and-stops-on-the-player",
+        says: "An action of the behavior class asks the player to play its value when it begins and to \
+               stop it when it ends, once each.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-BEHAVIOR-ACTION"),
+        station: "auberean-shell::cpu::keys::a_behavior_action_asks_the_player_to_play_it_and_to_stop_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.keys.a-key-let-go-ends-what-its-press-began",

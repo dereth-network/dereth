@@ -301,6 +301,24 @@ fn select_use_and_letting_go_on_focus_loss() {
     assert_eq!(c.intent(keys()).forward, 0.0);
 }
 
+/// Mouse look switching lets the actions in force go while a text entry has the keys, and leaves
+/// them when none does.
+///
+/// Behaviour: desktop.controls.mouse-look-switching-while-typing-lets-actions-go
+#[test]
+fn mouse_look_switching_while_a_text_entry_has_the_keys_lets_actions_go() {
+    const FORWARD: u32 = 0x4000_0020;
+    let mut c = controls();
+    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
+    c.mouse_look_switched(keys());
+    assert!(c.action_down(FORWARD), "no text entry: it stays");
+    c.set_text_mode(keys(), true);
+    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
+    assert!(c.action_down(FORWARD), "begun with the entry up");
+    c.mouse_look_switched(keys());
+    assert!(!c.action_down(FORWARD), "let go");
+}
+
 /// A text entry taking the keys lets a held key's action go, as the key's release would, and leaves
 /// a latched run, a single press for this frame and what the modifier and interface classes hold;
 /// the key's release later finds nothing, a press after the entry gives the keys back works, and a

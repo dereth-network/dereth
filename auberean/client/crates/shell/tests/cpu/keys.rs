@@ -20,6 +20,8 @@ const SHIFT_KEY: u32 = 0x4000_000E;
 const CTRL_KEY: u32 = 0x4000_000D;
 const INVENTORY: u32 = 0x4100_0002;
 const REPLY: u32 = 0x4100_0049;
+const WAVE: u32 = 0x8000_0001;
+const WAVE_BEHAVIOR: u32 = 0x4100_0007;
 
 fn entry(action: u32, modifiers: u32, class: u32, value: u32, extent: f32) -> ActionEntry {
     ActionEntry {
@@ -56,6 +58,7 @@ fn records() -> KeyRecords {
         (CTRL_KEY, "LEFT_CTRL_KEY"),
         (INVENTORY, "INVENTORY_PANEL_KEY"),
         (REPLY, "REPLY_KEY"),
+        (WAVE, "Wave_KEY"),
     ];
     KeyRecords {
         base: map(
@@ -76,6 +79,7 @@ fn records() -> KeyRecords {
                     (Key::Q, RUN_LOCK),
                     (Key::Space, JUMP),
                     (Key::I, INVENTORY),
+                    (Key::O, WAVE),
                 ],
             ),
             map("Defaults Shift", &[(Key::A, STRAFE_LEFT)]),
@@ -97,6 +101,7 @@ fn records() -> KeyRecords {
                 (SHIFT_KEY, toggle::HELD),
                 (CTRL_KEY, toggle::HELD),
                 (INVENTORY, toggle::HELD),
+                (WAVE, toggle::HELD),
             ],
             actions: vec![
                 entry(FORWARD, 0, class::MOVEMENT, 0x4000_0001, 1.0),
@@ -110,6 +115,7 @@ fn records() -> KeyRecords {
                 entry(SHIFT_KEY, 0, class::MODIFIER, 1, 0.0),
                 entry(CTRL_KEY, 0, class::MODIFIER, 2, 0.0),
                 entry(INVENTORY, 0, class::INTERFACE, INVENTORY, 0.0),
+                entry(WAVE, 0, class::BEHAVIOR, WAVE_BEHAVIOR, 0.0),
             ],
             ..ActionBindings::default()
         },
@@ -215,6 +221,22 @@ fn held_latched_and_single_press_actions_toggle_as_the_action_map_says() {
     assert!(c.action_down(INVENTORY));
     key(&mut c, &keys, Key::I, false);
     assert!(c.actions().is_empty());
+}
+
+/// An action of the behavior class asks the player to play its value when it begins and to stop it
+/// when it ends, once each.
+///
+/// Behaviour: desktop.keys.a-behavior-action-plays-and-stops-on-the-player
+#[test]
+fn a_behavior_action_asks_the_player_to_play_it_and_to_stop_it() {
+    let keys = start(&mut TestHost::default());
+    let mut c = Controls::default();
+    key(&mut c, &keys, Key::O, true);
+    assert_eq!(c.intent(&keys).behaviors, [(WAVE_BEHAVIOR, true)]);
+    assert!(c.intent(&keys).behaviors.is_empty(), "once");
+    key(&mut c, &keys, Key::O, false);
+    assert_eq!(c.intent(&keys).behaviors, [(WAVE_BEHAVIOR, false)]);
+    assert!(c.intent(&keys).behaviors.is_empty(), "once");
 }
 
 /// The modifier actions in force choose an action's values: Shift's entry for forward walks,

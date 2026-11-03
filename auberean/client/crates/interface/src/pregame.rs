@@ -195,6 +195,7 @@ pub(crate) enum Net {
 impl Retail {
     /// A key pressed (or the left button) while the key map is up: heard by it with the modifier
     /// held (Ctrl before Shift), at its next tick.
+    // D2-04867
     pub(crate) fn key_for_keyboard(&mut self, word: u32, shift: bool, ctrl: bool) {
         if self.pre::<Keyboard>().is_none() {
             return;

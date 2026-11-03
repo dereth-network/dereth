@@ -661,6 +661,47 @@ fn the_interface_takes_input_first() {
     );
 }
 
+struct WatchesPointer(Rc<RefCell<Vec<(f32, f32)>>>);
+
+impl Interface for WatchesPointer {
+    fn event(&mut self, event: &Event, _game: &Game<'_>) -> bool {
+        if let Event::Pointer { x, y } = event {
+            self.0.borrow_mut().push((*x, *y));
+        }
+        false
+    }
+    fn update(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
+}
+
+/// The shell lets the interface and the scene hear the pointer only while the window is active
+/// (they hear where it went when it comes back) and the pointer is not held; mouse look holds it,
+/// and puts it at the middle of the display.
+///
+/// Behaviour: desktop.input.the-shell-passes-events-through-the-gate
+#[test]
+fn the_shell_passes_events_through_the_gate() {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut s = shell(Box::new(WatchesPointer(Rc::clone(&seen))));
+    s.size = (801, 601);
+    s.event(&Event::Pointer { x: 1.0, y: 2.0 });
+    s.event(&Event::Focus(false));
+    s.event(&Event::Pointer { x: 3.0, y: 4.0 });
+    assert_eq!(*seen.borrow(), [(1.0, 2.0)]);
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((1.0, 2.0)));
+    s.event(&Event::Focus(true));
+    assert_eq!(*seen.borrow(), [(1.0, 2.0), (3.0, 4.0)]);
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((3.0, 4.0)));
+    s.scene.camera.set_mouse_look(true, 0.0);
+    step(&mut s);
+    assert_eq!(seen.borrow().last(), Some(&(400.0, 300.0)));
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((400.0, 300.0)));
+    let heard = seen.borrow().len();
+    s.event(&Event::Pointer { x: 5.0, y: 6.0 });
+    step(&mut s);
+    assert_eq!(seen.borrow().len(), heard, "held, and heard once");
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((400.0, 300.0)));
+}
+
 /// The cameras an interface saw: at each frame's update and after the world's frame was built.
 #[derive(Default)]
 struct CamerasSeen {

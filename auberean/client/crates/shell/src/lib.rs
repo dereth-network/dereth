@@ -36,6 +36,7 @@ pub mod controls;
 pub mod dev;
 pub mod host;
 pub mod input;
+pub mod input_manager;
 pub mod interface;
 pub mod keys;
 pub mod preferences;
@@ -122,6 +123,8 @@ pub struct Shell<'w, H: Host> {
     pub scene: Scene<'w>,
     interface: Box<dyn Interface + 'w>,
     pub controls: controls::Controls,
+    /// What decides which events reach the interface and the world's controls.
+    input: input_manager::InputManager,
     /// The key maps and what their actions do.
     pub keys: keys::Keys,
     pub settings: Settings,
@@ -249,6 +252,7 @@ impl<'w, H: Host> Shell<'w, H> {
             scene,
             interface,
             controls: controls::Controls::default(),
+            input: input_manager::InputManager::default(),
             keys,
             settings,
             selected: 0,
@@ -296,6 +300,9 @@ impl<'w, H: Host> Shell<'w, H> {
 
     /// One event from the host: the interface first, then the world's controls.
     pub fn event(&mut self, e: &Event) {
+        if !self.input.admit(e) {
+            return;
+        }
         if let Event::Pointer { x, y } = e {
             self.scene.pointer = Some(((*x, *y), self.size));
         }
@@ -320,6 +327,9 @@ impl<'w, H: Host> Shell<'w, H> {
             return;
         }
         self.controls.event(e, &self.keys);
+        if let Some((x, y)) = self.input.take_missed() {
+            self.event(&Event::Pointer { x, y });
+        }
     }
 
     fn request(&mut self, r: Request) {
@@ -734,7 +744,16 @@ impl<'w, H: Host> Shell<'w, H> {
         let free = self.interface.wants_pointer(&game!(self, phase_now));
         let pointer = self.scene.camera.mouse_look && !free;
         self.controls.mouse_look = self.scene.camera.mouse_look;
-        self.host.hold_pointer(pointer);
+        if let Some(at) = self.input.set_mouse_look_mode(pointer, self.size) {
+            self.host.hold_pointer(pointer);
+            self.controls.mouse_look_switched(&self.keys);
+            if let Some((x, y)) = at {
+                // Past the gate: the pointer is held now, and it is the shell that moved it.
+                self.scene.pointer = Some(((x, y), self.size));
+                let game = game!(self, phase_now);
+                self.interface.event(&Event::Pointer { x, y }, &game);
+            }
+        }
         if now - self.title_at > 0.5 {
             self.title_at = now;
             let t = self.title();

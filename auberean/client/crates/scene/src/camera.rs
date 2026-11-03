@@ -1446,7 +1446,7 @@ impl CameraControl {
     /// Mouse motion in mouse look, in counts (x right, y toward the player), smoothed over the
     /// newest ten samples: the camera turns about the player and tilts. With steering the
     /// character turns by the degrees returned, so the camera stays behind it.
-    // D2-10722, D2-09639
+    // D2-10722, D2-09639, D2-04866
     pub fn mouse(&mut self, dx: f32, dy: f32) -> Steer {
         if !self.mouse_look {
             return Steer::default();
