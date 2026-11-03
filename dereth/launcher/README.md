@@ -206,7 +206,7 @@ tries again next start. A launcher built from the repository never checks.
 When the release's `latest.json` names a newer version, the launcher downloads this platform's file
 in the background and checks its signature against the update key (`plugins.updater.pubkey` in
 `tauri.conf.json`) before offering a restart. `latest.json` has a `url` and a minisign `signature`
-per platform (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`); `cargo xtask
+per platform (`windows-x86_64`, `darwin-aarch64`, `linux-x86_64`); `cargo xtask
 package dereth` makes both ([RELEASING.md](RELEASING.md)). On macOS and Linux the updater replaces
 `Dereth.app` or the AppImage. On Windows the file is the release zip, which the launcher installs
 itself: it unpacks it into `.dereth-update`, renames each file it replaces aside (`dereth.exe`

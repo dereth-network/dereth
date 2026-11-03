@@ -599,7 +599,7 @@ fn the_merged_sha256sums_and_manifest_cover_every_machines_files() {
     let mut fake = FakeGitHub::with_tag(&tag);
     let machines: [&[&str]; 3] = [
         &["x86_64-pc-windows-msvc"],
-        &["aarch64-apple-darwin", "x86_64-apple-darwin"],
+        &["aarch64-apple-darwin"],
         &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"],
     ];
     let mut archives = Vec::new();
@@ -694,13 +694,12 @@ fn the_finish_lists_every_missing_file_by_name_and_writes_nothing() {
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
         "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
     ] {
         let file = format!("empyrean-{v}-{triple}.tar.gz");
         assert!(e.contains(&format!("{file} (a release file)")), "{e}");
         assert!(e.contains(&format!("{file}.manifest (its lines")), "{e}");
     }
-    assert!(e.contains("lacks 8 of the files"), "{e}");
+    assert!(e.contains("lacks 6 of the files"), "{e}");
     assert!(!e.contains("windows"), "{e}");
     assert_eq!(fake.writes.len(), writes);
 }
@@ -725,7 +724,6 @@ fn a_launcher_without_its_update_signature_is_missing_from_the_release() {
         lacking,
         [
             "latest-darwin-aarch64.json (its platform's update signature, uploaded with the launcher)",
-            "latest-darwin-x86_64.json (its platform's update signature, uploaded with the launcher)",
             "latest-linux-x86_64.json (its platform's update signature, uploaded with the launcher)",
             "latest-windows-x86_64.json (its platform's update signature, uploaded with the launcher)",
         ]
@@ -1024,7 +1022,7 @@ fn the_token_is_never_shown() {
 /// A query value keeps only the unreserved characters.
 #[test]
 fn labels_and_names_are_percent_encoded_in_the_upload_address() {
-    let label = "Dereth · macOS Intel (x)";
+    let label = "Dereth · macOS Apple silicon (x)";
     let encoded = github::query_value(label);
     assert!(encoded.starts_with("Dereth%20"), "{encoded}");
     assert!(
@@ -1035,8 +1033,8 @@ fn labels_and_names_are_percent_encoded_in_the_upload_address() {
     );
     assert_eq!(percent_decode(&encoded), label);
     assert_eq!(
-        github::query_value("Dereth-0.2.0-macos-x86_64.app.tar.gz"),
-        "Dereth-0.2.0-macos-x86_64.app.tar.gz"
+        github::query_value("Dereth-0.2.0-macos-aarch64.app.tar.gz"),
+        "Dereth-0.2.0-macos-aarch64.app.tar.gz"
     );
 }
 

@@ -57,7 +57,7 @@ from.
 | product | system | the release file |
 |---|---|---|
 | Auberean | Windows (x86-64) | `auberean-<v>-windows-x86_64.zip`: `auberean-<v>/` holding the launcher `dereth.exe`, `auberean.exe`, `launcher-defaults.json`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer |
-| | macOS (Apple silicon, Intel) | `Auberean-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, the launcher and `auberean` in `Contents/MacOS`, `launcher-defaults.json` and the notices in `Contents/Resources` |
+| | macOS (Apple silicon) | `Auberean-<v>-macos-aarch64.app.tar.gz`: `Dereth.app`, the launcher and `auberean` in `Contents/MacOS`, `launcher-defaults.json` and the notices in `Contents/Resources` |
 | | Linux (x86-64) | `Auberean-<v>-linux-x86_64.AppImage`: the launcher's AppImage, with `auberean` and `launcher-defaults.json` in its `usr/bin` |
 | Athenaeum | Windows | `athenaeum-<v>-windows-x86_64.zip`: `athenaeum-editor.exe`, `athenaeum.exe`, `yalain.exe`, `auberean.exe`, the documents and the notices |
 | | macOS | `Athenaeum-<v>-macos-<arch>.app.tar.gz`: `Athenaeum.app`, the four programs in `Contents/MacOS` |
@@ -72,7 +72,7 @@ client (`<launcher>+auberean.<client>`).
 | Product | Target | Built on | Runs on |
 |---|---|---|---|
 | Auberean, Athenaeum | `x86_64-pc-windows-msvc` | Windows | Windows 10 or newer |
-| | `aarch64-apple-darwin`, `x86_64-apple-darwin` | macOS | macOS 11 or newer |
+| | `aarch64-apple-darwin` | macOS | macOS 11 or newer |
 | | `x86_64-unknown-linux-gnu` | Linux (the workflow uses Ubuntu 22.04) | glibc 2.35 or newer |
 | Yalain | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | any host, with `cargo zigbuild` | glibc 2.28 or newer |
 | | Windows, macOS | its own system | as Auberean |

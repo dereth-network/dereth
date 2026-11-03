@@ -39,7 +39,6 @@ fn release_files_are_named_as_the_launcher_fetches_them_and_read_back() {
             "auberean-0.1.0-windows-x86_64.zip",
             "Auberean-0.1.0-linux-x86_64.AppImage",
             "Auberean-0.1.0-macos-aarch64.app.tar.gz",
-            "Auberean-0.1.0-macos-x86_64.app.tar.gz",
         ]
     );
     for (name, triple) in names.iter().zip(targets::DESKTOP_TRIPLES) {

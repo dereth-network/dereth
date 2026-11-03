@@ -7,6 +7,8 @@ not how it was done.
 
 ## Unreleased
 
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+
 ## 0.1.2 (2026-11-02)
 
 - Fix macOS packaging

@@ -8,6 +8,8 @@ see, not how it was done.
 
 ## Unreleased
 
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+
 ## 0.1.1 (2026-11-02)
 
 - New `athenaeum` command: reads, lists and checks Asheron's Call 2 data files.

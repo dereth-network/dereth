@@ -263,7 +263,7 @@ Before starting, on every machine: a checkout of the tag with its whole history 
 | machine | builds | command |
 |---|---|---|
 | Windows | `x86_64-pc-windows-msvc` | `cargo xtask package dereth --out dist` |
-| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | `cargo xtask package dereth --target aarch64-apple-darwin --target x86_64-apple-darwin --moltenvk <dir> --out dist` |
+| macOS | `aarch64-apple-darwin` | `cargo xtask package dereth --target aarch64-apple-darwin --moltenvk <dir> --out dist` |
 | Linux (Ubuntu 22.04) | `x86_64-unknown-linux-gnu` | `cargo xtask package dereth --out dist` |
 
 On each machine in turn, `cargo xtask publish dereth <version> --upload dist`, then the same with
@@ -278,7 +278,7 @@ workflow runs them, `cargo test --locked --profile test-release -p 'empyrean-*'`
 | machine | builds | command |
 |---|---|---|
 | Windows | `x86_64-pc-windows-msvc` | `cargo xtask package empyrean --out dist` |
-| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | `cargo xtask package empyrean --target aarch64-apple-darwin --target x86_64-apple-darwin --out dist` |
+| macOS | `aarch64-apple-darwin` | `cargo xtask package empyrean --target aarch64-apple-darwin --out dist` |
 | Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | `cargo xtask package empyrean --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu --out dist` |
 
 Then `cargo xtask publish empyrean <version> --upload dist` (and `--yes`) on each, `--finish` on

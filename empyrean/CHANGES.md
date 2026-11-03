@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+
 ## 0.3.8 (2026-11-02)
 
 ## 0.3.7 (2026-11-01)

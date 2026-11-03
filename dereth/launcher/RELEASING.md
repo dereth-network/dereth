@@ -63,15 +63,15 @@ The programs answer `--version`: `dereth <version>` (or `dereth-client <version>
 | system | the release file | its label |
 |---|---|---|
 | Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client and `dereth-plugin` in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
+| macOS (Apple silicon) | `Dereth-<v>-macos-aarch64.app.tar.gz`: `Dereth.app`, with the client and `dereth-plugin` in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon |
 | Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client and `dereth-plugin` inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
-| each of the four, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release on its own (each release file above carries it too); plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · macOS Intel, · Linux x86-64 (glibc 2.35+) |
+| each of the three, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release on its own (each release file above carries it too); plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · Linux x86-64 (glibc 2.35+) |
 
 Every launcher download holds the client, so the client is not published on its own. A release
 carries no plugins: players install Dereth's from its plugin source. Beside them:
 
 - `latest.json` (Updater manifest): what launchers read, one entry per platform
-  (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`), each the download
+  (`windows-x86_64`, `darwin-aarch64`, `linux-x86_64`), each the download
   address and its update signature. The signatures are published there only, not as separate
   `.sig` files: the updater reads nothing else;
 - `MANIFEST.txt` (Release manifest): every file in every package, with its size, SHA-256 and what
@@ -84,7 +84,7 @@ The labels are what GitHub shows on the release page; the file names are unchang
 | Target | Built on | Runs on |
 |---|---|---|
 | `x86_64-pc-windows-msvc` | Windows | Windows 10 or newer, with the WebView2 runtime (Windows 11 has it; the launcher says where to get it when it is missing) |
-| `aarch64-apple-darwin`, `x86_64-apple-darwin` | macOS | macOS 11 or newer |
+| `aarch64-apple-darwin` | macOS | macOS 11 or newer |
 | `x86_64-unknown-linux-gnu` | Linux (the workflow uses Ubuntu 22.04) | glibc 2.35 or newer (Ubuntu 22.04 and later), with WebKitGTK 4.1 and a Vulkan driver |
 
 Each target builds on its own operating system: the launcher links that system's web view.
@@ -216,8 +216,7 @@ What it needs, and says when missing, before building anything:
 - **macOS:** Xcode's command-line tools (Xcode itself for the layered icon), and **MoltenVK**:
   its macOS release, `MoltenVK-macos.tar` from
   <https://github.com/KhronosGroup/MoltenVK/releases>, unpacked, named with `--moltenvk <dir>` or
-  `DERETH_MOLTENVK_DIR`. The workflow pins the version and its SHA-256. For the Intel target on an
-  Apple-silicon Mac, `rustup target add x86_64-apple-darwin`.
+  `DERETH_MOLTENVK_DIR`. The workflow pins the version and its SHA-256.
 - **Linux:** Tauri's build dependencies and ALSA's headers, on Debian and Ubuntu
   `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
   libasound2-dev build-essential pkg-config curl wget file patchelf`. The glibc of the build host
@@ -266,14 +265,13 @@ tier-2 modules the release touches on a hardware GPU.
    release would get) and keeps them as the `release-notes-dereth` artifact; they are on the run's
    summary page too.
 2. **the friends library**, on Windows: `cargo xtask package friends-dll`, kept as an artifact.
-   **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS for
-   both Apple silicon and Intel): installs the build dependencies, cargo-about and the Tauri CLI
+   **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS):
+   installs the build dependencies, cargo-about and the Tauri CLI
    (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
    `cargo xtask package dereth --target <target> --friends-dll <the library>` with the signing
    secrets, checks the package holds that same library, and smoke-runs the
    packaged programs' `--version`, the plugin author's tool's too (the AppImage unpacked; the
-   macOS bundle's signature verified;
-   Intel macOS under Rosetta when the runner has it). The launcher has no headless mode, so its
+   macOS bundle's signature verified). The launcher has no headless mode, so its
    window is not opened there. A tag's run fails if the launcher file is not signed.
 3. **gather the release:** downloads every runner's files, runs `cargo xtask package dereth --gather`
    (every file scanned and every signature verified again; `latest.json` merged), and keeps the

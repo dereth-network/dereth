@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+
 ## 0.2.2 (2026-10-28)
 
 - Moving code; no material changes

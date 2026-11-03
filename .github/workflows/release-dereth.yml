@@ -135,7 +135,6 @@ jobs:
           # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     defaults:
@@ -200,15 +199,6 @@ jobs:
         run: |
           mkdir smoke
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           case "$TARGET" in
             *windows*)
               (cd smoke && 7z x "../dist/dereth-$VERSION-windows-x86_64.zip" > /dev/null)
@@ -336,12 +326,12 @@ jobs:
 
           ## Downloads
 
-          Dereth $VERSION: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+          Dereth $VERSION: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           | system | download | |
           |---|---|---|
           | Windows | \`dereth-$VERSION-windows-x86_64.zip\` | unzip anywhere and run \`dereth.exe\`; no installer |
-          | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Dereth.app\` to Applications |
+          | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Dereth.app\` to Applications |
           | Linux | \`Dereth-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
 
           The launcher keeps itself and the client up to date from this repository's newest Dereth release.
@@ -369,7 +359,6 @@ jobs:
                 case "${f#"dereth-plugin-$VERSION-"}" in
                   windows-x86_64.zip) label="Dereth Plugin Tools · Windows x64" ;;
                   macos-aarch64.tar.gz) label="Dereth Plugin Tools · macOS Apple silicon" ;;
-                  macos-x86_64.tar.gz) label="Dereth Plugin Tools · macOS Intel" ;;
                   linux-x86_64.tar.gz) label="Dereth Plugin Tools · Linux x86-64 (glibc 2.35+)" ;;
                 esac ;;
               "dereth-$VERSION-"*)
@@ -379,7 +368,6 @@ jobs:
               "Dereth-$VERSION-"*)
                 case "${f#"Dereth-$VERSION-"}" in
                   macos-aarch64.app.tar.gz) label="Dereth · macOS Apple silicon" ;;
-                  macos-x86_64.app.tar.gz) label="Dereth · macOS Intel" ;;
                   linux-x86_64.AppImage) label="Dereth · Linux x86-64 AppImage (glibc 2.35+)" ;;
                 esac ;;
             esac

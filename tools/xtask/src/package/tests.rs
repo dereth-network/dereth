@@ -17,7 +17,6 @@ const WINDOWS: &str = "x86_64-pc-windows-msvc";
 const LINUX_X64: &str = "x86_64-unknown-linux-gnu";
 const LINUX_ARM: &str = "aarch64-unknown-linux-gnu";
 const MAC_ARM: &str = "aarch64-apple-darwin";
-const MAC_X64: &str = "x86_64-apple-darwin";
 
 // ---------------------------------------------------------------- the allowlist
 
@@ -472,9 +471,9 @@ fn archives_are_named_for_version_and_target_and_the_release_folder_holds_nothin
         target(MAC_ARM).archive_root("0.1.0"),
         "empyrean-0.1.0-aarch64-apple-darwin"
     );
-    assert_eq!(
-        classify("empyrean-0.1.0-x86_64-apple-darwin.tar.gz", "0.1.0"),
-        Ok(Asset::Archive(target(MAC_X64)))
+    assert!(
+        classify("empyrean-0.1.0-x86_64-apple-darwin.tar.gz", "0.1.0").is_err(),
+        "Intel Macs are no longer released for"
     );
     assert_eq!(
         classify(
@@ -619,7 +618,7 @@ fn each_host_builds_what_it_can_and_says_why_it_cannot() {
         Ok(Builder::Cargo)
     );
     assert_eq!(
-        targets::plan(target(MAC_X64), &host(Os::Mac, false)),
+        targets::plan(target(MAC_ARM), &host(Os::Mac, false)),
         Ok(Builder::Cargo)
     );
     assert_eq!(
@@ -1073,8 +1072,7 @@ const SYSTEM: &[&str] = &[
     "/System/Library/Frameworks/Security.framework/Versions/A/Security",
 ];
 
-/// A signed arm64 binary linking only system libraries at macOS 11 passes; an unsigned x86-64
-/// one passes too (only Apple silicon demands the signature).
+/// A signed arm64 binary linking only system libraries at macOS 11 passes.
 #[test]
 fn a_macho_linking_only_the_system_at_the_floor_passes() {
     let arm = macho(headers::CPU_TYPE_ARM64, SYSTEM, Some((11, 0)), true);
@@ -1082,8 +1080,6 @@ fn a_macho_linking_only_the_system_at_the_floor_passes() {
     assert_eq!(parsed.dylibs, SYSTEM);
     assert_eq!(parsed.min_os, Some((11, 0, 0)));
     assert!(headers::check_binary(&arm, target(MAC_ARM), Role::Server).is_ok());
-    let intel = macho(headers::CPU_TYPE_X86_64, SYSTEM, Some((10, 12)), false);
-    assert!(headers::check_binary(&intel, target(MAC_X64), Role::Server).is_ok());
 }
 
 /// A Homebrew library, an unsigned arm64 binary, a minimum above the floor and the wrong CPU are

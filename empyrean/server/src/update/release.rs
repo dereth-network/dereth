@@ -81,7 +81,6 @@ pub fn target_triple() -> String {
         ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
         ("aarch64", "linux") => "aarch64-unknown-linux-gnu".to_owned(),
         ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
-        ("x86_64", "macos") => "x86_64-apple-darwin".to_owned(),
         (arch, os) => format!("{arch}-{os}"),
     }
 }

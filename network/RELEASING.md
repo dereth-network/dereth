@@ -5,7 +5,7 @@ client's:
 
 | tag | workflow | version from | release files |
 |---|---|---|---|
-| `network-hub-v<version>` | `.github/workflows/release-network-hub.yml` | `network/hub/Cargo.toml` | the hub for Linux (x86-64 and arm64, glibc 2.28+), Windows and macOS (Apple silicon and Intel), each with its licences, `README.md`, `DEPLOY.md` and `THIRD-PARTY-LICENSES.html`; the container image for `linux/amd64` and `linux/arm64` as an OCI archive; `SHA256SUMS` |
+| `network-hub-v<version>` | `.github/workflows/release-network-hub.yml` | `network/hub/Cargo.toml` | the hub for Linux (x86-64 and arm64, glibc 2.28+), Windows and macOS (Apple silicon), each with its licences, `README.md`, `DEPLOY.md` and `THIRD-PARTY-LICENSES.html`; the container image for `linux/amd64` and `linux/arm64` as an OCI archive; `SHA256SUMS` |
 | `network-ace-v<version>` | `.github/workflows/release-network-ace.yml` | `network/ace-mod/Dereth.Network/Meta.json` (`Version`), which `Dereth.Network.csproj`'s `<Version>` must equal | `Dereth.Network-<version>.zip` (the `Dereth.Network` mod folder); `SHA256SUMS` |
 
 ## Cutting a release

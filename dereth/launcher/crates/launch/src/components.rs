@@ -135,8 +135,7 @@ impl Product {
                     "x86_64-pc-windows-msvc" => "zip",
                     "x86_64-unknown-linux-gnu"
                     | "aarch64-unknown-linux-gnu"
-                    | "aarch64-apple-darwin"
-                    | "x86_64-apple-darwin" => "tar.gz",
+                    | "aarch64-apple-darwin" => "tar.gz",
                     _ => return None,
                 };
                 Some(format!("{}-{version}-{triple}.{ext}", self.name()))
@@ -149,7 +148,6 @@ impl Product {
                         format!("{title}-{version}-linux-x86_64.AppImage")
                     }
                     "aarch64-apple-darwin" => format!("{title}-{version}-macos-aarch64.app.tar.gz"),
-                    "x86_64-apple-darwin" => format!("{title}-{version}-macos-x86_64.app.tar.gz"),
                     _ => return None,
                 })
             }
@@ -157,7 +155,6 @@ impl Product {
                 "x86_64-pc-windows-msvc" => format!("lyceum-{version}-windows-x86_64.zip"),
                 "x86_64-unknown-linux-gnu" => format!("lyceum-{version}-linux-x86_64.tar.gz"),
                 "aarch64-apple-darwin" => format!("Lyceum-{version}-macos-aarch64.app.tar.gz"),
-                "x86_64-apple-darwin" => format!("Lyceum-{version}-macos-x86_64.app.tar.gz"),
                 _ => return None,
             }),
         }
@@ -597,11 +594,6 @@ mod tests {
                 "aarch64-apple-darwin",
                 "empyrean-0.3.3-aarch64-apple-darwin.tar.gz",
                 Some("Lyceum-0.3.3-macos-aarch64.app.tar.gz"),
-            ),
-            (
-                "x86_64-apple-darwin",
-                "empyrean-0.3.3-x86_64-apple-darwin.tar.gz",
-                Some("Lyceum-0.3.3-macos-x86_64.app.tar.gz"),
             ),
         ] {
             assert_eq!(
