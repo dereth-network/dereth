@@ -171,6 +171,9 @@ to others.
 | `--no-referral` | keep each client on its login connection instead of sending it to the world's port |
 | `--listed-accounts` | admit only accounts made with `--add-account` (section 5) |
 | `--add-account <name>:<ticket>` | make an account with that ticket, then carry on (section 5) |
+| `--admin <name>` | make an account an admin's when this start makes it with `--add-account` (section 5) |
+| `--admin-command <command>:<group,group>` | keep an account-level admin command to named groups (section 5) |
+| `--serve-admin-library` | serve admin accounts' retail clients the library their admin commands need (section 5) |
 | `--secret-cost <n>` | the bcrypt cost tickets are kept at, 4 to 31 (default 8; section 5) |
 | `--save-interval <s>` | save each character in the world every that many seconds, 1 or more (default 300; section 3.3) |
 | `--shutdown-interval <s>` | how long `shutdown` counts down, 0 to 99999 seconds (default 120; section 3.3) |
@@ -365,6 +368,9 @@ shard_db_path = "yalain.sqlite"
 | `[server.accounts] allow_auto_account_creation` | `--listed-accounts` when false | |
 | `[server.accounts] password_hash_work_factor` | `--secret-cost` | |
 | `[server.accounts] accounts` | `--add-account` | Yalain only; a list of `name:ticket` |
+| `[server.accounts] admins` | `--admin` | Yalain only; a list of account names, each raised only as `accounts` makes it |
+| `[server.accounts] admin_commands` | `--admin-command` | Yalain only; a list of `command:group,group` |
+| `[server.accounts] serve_admin_library` | `--serve-admin-library` | Yalain only |
 | `[server.accounts] banned_names_path` | `--banned-names` | Yalain only |
 | `[status] udp_ping` | `--no-status-ping` when false | the status ping (section 3.9) |
 | `[status] hellos_per_minute`, `asks_per_minute`, `replies_per_second` | `--status-ping-hellos`, `--status-ping-asks`, `--status-ping-replies` | default 4, 4 and 50 |
@@ -646,11 +652,52 @@ one who cannot is refused there as well.
 ticket: it takes the first ticket it logs in with. A world of listed accounts makes no account
 for it; make the account first with `--add-account`, in the same command if you like.
 
-**Access levels.** Each account has a level, as Empyrean numbers them: 0 Player (every new
-account), 1 Advocate, 2 Sentinel, 3 Envoy, 4 Developer, 5 Admin. Only the console raises one
-(`set-accountaccess`, or `accountcreate` with a level); unlike Empyrean, the first account made is
-not made an admin, since an open world makes an account for anyone who logs in. Staff (an advocate
-or above) can give the moderation commands in game (section 6.1).
+**Admins.** Asheron's Call 2 has one kind of admin and no levels. An account either is an admin's
+or is a player's; every new account is a player's, and only you raise one: `set-accountadmin <name>`
+at the console, `accountcreate <name> <ticket> admin`, or `--add-account <name>:<ticket> --admin <name>`
+(`[server.accounts] accounts` and `admins`) at start. No account is made an admin for being the first.
+
+`--admin` raises a name only on the start that makes its account from a ticket in the same
+configuration: only then is the account's secret surely yours. It does nothing for an account already
+there, and logs a warning, because on an open world anyone may have logged in with that name first and
+holds it with their own ticket. That goes for a name whose account a later start lists, and for one
+named ahead of its account. To raise an account that already exists, check it is yours and use
+`set-accountadmin <name>` at the console. So the list never undoes the console: `set-accountadmin <name>
+off` lasts through restarts, and taking a name off the list changes nothing.
+
+**Admin characters.** An admin plays an ordinary character like anyone else, and keeps a separate
+admin character for admin work: `set-characteradmin <name>` at the console makes one of an admin
+account's characters an admin character (`off` undoes it), and it takes effect when the character
+next enters the world. A client that can ask for one at creation gets one on an admin's account; any
+other account is refused with the client's own answer. An admin character is drawn from the game's
+admin template, so the client gives it the game's admin commands. It stays an admin character only
+while its account is an admin's: on any other account it enters as a player.
+
+What makes an admin stays yours: `set-accountadmin`, `set-characteradmin`, `set-accountgroups` and
+`accountcreate ... admin` work only at the console, and an admin in game cannot give another admin's
+account a new password.
+
+**Named groups.** Eight commands act on accounts or the whole server: `ban`, `boot`, `fingerchar`,
+`fingerid`, `fingeraccount`, `serverparam`, `userlimit` and `dumpadmintable`. Each is open to every
+admin unless you keep it to named groups with `--admin-command ban:moderators,leads` (`[server.accounts]
+admin_commands`). `set-accountgroups <account> moderators,leads` puts an account in its groups, and
+`set-accountgroups <account>` takes it out of them all. What does the same work follows the same
+groups: `set-accountpassword`, `unban` and `banlist` follow `ban`, and `accountget` and `accountlist`
+follow `fingeraccount`. The console is never refused.
+
+**A retail client's admin commands.** The original client sends its admin commands encrypted, under a
+key only the original servers could read. `--serve-admin-library` (`[server.accounts]
+serve_admin_library`) serves an admin account's client a script library that sends them in the clear,
+through the login's data download: about 7 MB, once. That client must run with `-rodat off` and on a
+copy of the install kept for this world, since the download writes into its data files. Auberean
+sends them in the clear already and needs none of this. Without the option, the `@` commands work from
+any client.
+
+**Upgrading from access levels.** A database from before this keeps its accounts. One at the highest
+level (5, Admin) with a ticket becomes an admin. One in between (Advocate, Sentinel, Envoy or Developer),
+or at the highest with no ticket yet, becomes a player and is named in a warning at the first start, for
+you to raise if you want it to be an admin.
+The file is backed up first, as for any upgrade.
 
 **Bans.** A banned account cannot log in until its ban ends: the client says the account is
 banned, at its friends login and at its game login. A ban that has run out is lifted at the
@@ -677,7 +724,7 @@ command, in any case. Answers appear in the log (section 7).
 | `place <name> to <where>` | set where a character out of the world enters next (section 6.2) |
 | `make-character <file>`, `apply-build <file>`, `deletecharacter <name> [now]`, `forcelogoff <name>`, `export-character <name> <file>`, `import-character <file> <account> [new name]` | the operator's characters (section 6.2) |
 | `dn`, `dn block ...`, `dn unblock ...`, `dn verify <token>`, `dn help` | the Dereth Network (section 8.3) |
-| `accountcreate`, `accountget`, `accountlist`, `set-accountpassword`, `set-accountaccess`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`, `gamecast` | accounts, moderation and messages to everyone (section 6.1) |
+| `accountcreate`, `accountget`, `accountlist`, `set-accountpassword`, `set-accountadmin`, `set-characteradmin`, `set-accountgroups`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`, `gamecast` | accounts, moderation and messages to everyone (section 6.1) |
 | `help` or `?` | list the commands |
 
 A word that is no command is answered with a warning that lists them. Each command's answer is
@@ -715,20 +762,22 @@ These are Empyrean's console commands, with its answers. Each change is saved at
 command's answer is logged (in the form of section 6.3 at the console, with who gave it in game); a
 ticket typed into one is never logged.
 
-| Command | What it does | Level |
-| --- | --- | --- |
-| `accountcreate <name> <ticket> [level]` | make an account, a player's unless a level is given (a number or a name) | Admin |
-| `accountget <name>` | an account's id, level and any ban | Admin |
-| `accountlist` | every account, with its id, level and any ban | Admin |
-| `set-accountpassword <name> <ticket>` | give an account a new ticket; the old one no longer logs in | Admin |
-| `set-accountaccess <name> [level]` | set an account's level (a player's when none is given); a logged-in account has it at once | Admin |
-| `ban <account> <days> <hours> <minutes> [reason]` | keep an account out for that long; a logged-in account is booted | Sentinel |
-| `unban <account>` | lift a ban | Sentinel |
-| `banlist` | the accounts banned now, who banned them, until when and why | Sentinel |
-| `gag <character>` | stop a character's chat for five minutes of its time in the world | Sentinel |
-| `ungag <character>` | let it talk again | Sentinel |
-| `boot char <name>`, `boot account <name>`, `boot iid <0x id>`, each with `, <reason>` if you like | end a login; its character leaves the world as when a client goes away | Sentinel |
-| `gamecast <message>` | show every player in the world `Broadcast from System> <message>` | Envoy |
+| Command | What it does |
+| --- | --- |
+| `accountcreate <name> <ticket> [admin]` | make an account, a player's unless given the word `admin` |
+| `accountget <name>` | an account's id, whether it is an admin's, and any ban |
+| `accountlist` | every account, the same |
+| `set-accountpassword <name> <ticket>` | give an account a new ticket; the old one no longer logs in |
+| `set-accountadmin <name> [on\|off]` | make an account an admin's, or a player's again; a logged-in account has it at once |
+| `set-characteradmin <name> [on\|off]` | make a character of an admin's account an admin character, or a player again |
+| `set-accountgroups <name> [group,group...]` | put an account in its named groups (none when none are given) |
+| `ban <account> <days> <hours> <minutes> [reason]` | keep an account out for that long; a logged-in account is booted |
+| `unban <account>` | lift a ban |
+| `banlist` | the accounts banned now, who banned them, until when and why |
+| `gag <character>` | stop a character's chat for five minutes of its time in the world |
+| `ungag <character>` | let it talk again |
+| `boot char <name>`, `boot account <name>`, `boot iid <0x id>`, each with `, <reason>` if you like | end a login; its character leaves the world as when a client goes away |
+| `gamecast <message>` | show every player in the world `Broadcast from System> <message>` |
 
 A gagged character is told so, and then says, tells (in the game and through the friends
 service), emotes and speaks into rooms to nobody. Its gag counts down only while it is in the
@@ -739,16 +788,16 @@ A booted player's client shows that its character was booted from the world, and
 closes a second later. Its character lingers as when a client goes away; to take it out of the
 world at once, use `forcelogoff` (section 6.2).
 
-`gamecast` said in game by staff shows the message as from their character
+`gamecast` said in game by an admin shows the message as from their character
 (`Broadcast from Kara> Back in five minutes.`).
 
-**In game.** Staff say the same commands in game after `@` (`@boot char Kara, spamming`), aloud or
-into a chat room, up to their own level. Nobody hears the line, and the answer appears in the
-speaker's chat window. A player's line beginning with `@ban` is just said. Any player can say
+**In game.** Any character of an admin's account can say the same commands after `@` (`@boot char
+Kara, spamming`), aloud or into a chat room. Nobody hears the line, and the answer appears in the
+speaker's chat window. A player's line beginning with `@ban` is just said, and the attempt is logged. Any player can say
 `@passwd <old> <new>` to change their own account's password, at most once every five seconds; the
-old one must match. The client's own admin
-commands (`/boot`, `/ban`) do not reach Yalain: the client sends them encrypted with a key only
-the original servers had.
+old one must match. An admin character's own commands (`/boot`, `/ban`) reach Yalain from Auberean, and from
+a retail client given the library above; a retail client without it sends them encrypted, and they are
+not read.
 
 ### 6.2 Characters
 
@@ -1018,7 +1067,7 @@ store, across restarts.
 
 **Verifying the world.** The site gives the world's operator a token (`dnv_...`) to prove the
 world is theirs. Type `dn verify <token>` at the console, or say `@dn verify <token>` in game from
-an admin's account (staff below an admin are told the command needs an admin's access). The world
+an admin's account. The world
 asks the hub, which sends a challenge to the world's login port; the world answers it over
 HTTPS, so the login port must be reachable from the internet. One line then says how it went: the
 world is verified and on the network, or why not. A second `dn verify` before the hub answers is

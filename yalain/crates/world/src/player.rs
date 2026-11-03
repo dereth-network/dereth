@@ -20,6 +20,12 @@ pub const PLAYER_ENTITY: u32 = 0x4700_0530;
 pub const PLAYER_QUALITIES: u32 = 0x8100_0530;
 pub const PLAYER_PACKAGE: u32 = 0x37F;
 
+/// The admin template: the same three for an admin character. A client gives a player of this
+/// template the admin's commands.
+pub const ADMIN_ENTITY: u32 = 0x4700_0531;
+pub const ADMIN_QUALITIES: u32 = 0x8100_0531;
+pub const ADMIN_PACKAGE: u32 = 0x298;
+
 /// The player template's physics type, movement ethereality and placement ethereality (low
 /// words; the high words are 0), from its qualities record.
 pub const PLAYER_NUMBERS: [i32; 6] = [0x0480_0020, 0, 0x0620_0010, 0, 0x03E0_0090, 0];
@@ -85,6 +91,20 @@ pub fn world_name(name: &str, sex: u32) -> String {
         .next()
         .is_some_and(|c| "AEIOUaeiou".contains(c));
     format!("{name} [{s}{}]", if vowel { "v" } else { "" })
+}
+
+/// Make a player's encoded qualities name the admin template's record, or the player's.
+pub fn set_template(qualities: &mut Vec<u8>, admin: bool) {
+    let mut q = crate::quals::read(qualities);
+    let did = if admin {
+        ADMIN_QUALITIES
+    } else {
+        PLAYER_QUALITIES
+    };
+    if q.did != did {
+        q.did = did;
+        *qualities = crate::quals::write(&q);
+    }
 }
 
 /// The weenie numbers' mask bits, in [`WeenieDesc::NUMBER_BITS`] order from the physics type's
@@ -195,11 +215,12 @@ pub fn physics_at(
 }
 
 /// What a player's object shows of its qualities: its kingdom (none for a character that never
-/// joined one) and its six physics words.
+/// joined one), its six physics words, and whether it is of the admin template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Marks {
     pub kingdom: Option<u32>,
     pub numbers: [i32; 6],
+    pub admin: bool,
 }
 
 impl Default for Marks {
@@ -207,6 +228,7 @@ impl Default for Marks {
         Self {
             kingdom: None,
             numbers: PLAYER_NUMBERS,
+            admin: false,
         }
     }
 }
@@ -224,6 +246,7 @@ impl Marks {
         Self {
             kingdom: crate::kingdoms::of_qualities(q),
             numbers,
+            admin: q.did == ADMIN_QUALITIES,
         }
     }
 }
@@ -242,8 +265,16 @@ pub fn player_object(
     let mut weenie = weenie_with_numbers(
         WeenieDesc {
             mask: WeenieDesc::PACKAGE | WeenieDesc::NAME | WeenieDesc::ENTITY,
-            package_id: PLAYER_PACKAGE,
-            entity_did: PLAYER_ENTITY,
+            package_id: if marks.admin {
+                ADMIN_PACKAGE
+            } else {
+                PLAYER_PACKAGE
+            },
+            entity_did: if marks.admin {
+                ADMIN_ENTITY
+            } else {
+                PLAYER_ENTITY
+            },
             name: StringInfo::literal(&world_name(name, sex)),
             ..WeenieDesc::default()
         },

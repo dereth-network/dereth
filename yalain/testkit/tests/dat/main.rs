@@ -3,6 +3,7 @@
 //! server's question and its script library runs both the server's calls and the player's own
 //! requests.
 
+mod admin;
 mod dye_plants;
 mod effects;
 mod interactions;

@@ -64,6 +64,11 @@ pub struct Player {
     pub name: String,
     pub race: u32,
     pub sex: u32,
+    /// It entered as an admin character: of the admin template, from an admin's account. Admin
+    /// calls also need the account's flag at the time of the call.
+    pub admin_character: bool,
+    /// What an admin's commands have set on it, while it is in the world.
+    pub admin: crate::admin_calls::AdminState,
     /// How it looks, as the character list shows it.
     pub look: VisualDesc,
     /// The instance stamp of its object.
@@ -321,6 +326,11 @@ pub fn enter<S: Store>(
         );
         Options::new_character(&s.start.skills.get(&c.race).cloned().unwrap_or_default())
     });
+    // The template follows the account's flag at every entry: an admin character of an account no
+    // longer an admin's enters as a player.
+    let admin_character = c.entity_did == player::ADMIN_ENTITY
+        && s.sessions.get(&login).is_some_and(|x| x.account.admin);
+    player::set_template(&mut st.qualities, admin_character);
     let qualities = Qualities::read(&mut Reader::new(&st.qualities)).unwrap_or_default();
     let look = VisualDesc::read(&mut Reader::new(&c.look)).unwrap_or_default();
     // A connection that carried a character before (no referral) numbers its private messages
@@ -332,6 +342,8 @@ pub fn enter<S: Store>(
         name: c.name.clone(),
         race: c.race,
         sex: c.sex,
+        admin_character,
+        admin: crate::admin_calls::AdminState::default(),
         look: look.clone(),
         instance: st.instances,
         visual: player::PLAYER_VISUAL_STAMP,

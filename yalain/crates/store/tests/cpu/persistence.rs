@@ -749,7 +749,87 @@ fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
     assert_eq!(again.world_state(5).expect("reads"), Some(world()));
 }
 
-/// The operator's moderation is kept, in SQLite and in memory alike: an account's access level
+/// A file kept with access levels takes the admin flag in their place: the highest level (5) with a
+/// secret is an admin; every level below it, and the highest with no secret, a player; and the levels
+/// themselves are gone from the file; the
+/// backup taken before the upgrade keeps them. A character's template is kept with it.
+/// Behaviour: server.operator.access-levels-become-the-admin-flag
+#[test]
+fn a_file_with_access_levels_takes_the_admin_flag_in_their_place() {
+    let file = temp("levels");
+    earlier_store(&file.0);
+    {
+        let mut sql = SqliteStore::open(&file.0).expect("to the current version");
+        sql.create_account("sentinel", None, 1).expect("made");
+        sql.create_account("admin", Some(vec![1]), 1).expect("made");
+        sql.create_account("above", Some(vec![1]), 1).expect("made");
+        sql.create_account("unclaimed", None, 1).expect("made");
+    }
+    {
+        // Put the file back as version 2 kept it, levels and all.
+        let db = rusqlite::Connection::open(&file.0).expect("opens");
+        db.execute_batch(
+            "ALTER TABLE account DROP COLUMN admin;
+             ALTER TABLE account DROP COLUMN admin_groups;
+             ALTER TABLE account ADD COLUMN access INTEGER NOT NULL DEFAULT 0;
+             UPDATE account SET access = 2 WHERE name = 'sentinel';
+             UPDATE account SET access = 5 WHERE name = 'admin';
+             UPDATE account SET access = 9 WHERE name = 'above';
+             UPDATE account SET access = 5 WHERE name = 'unclaimed';
+             PRAGMA user_version = 2;",
+        )
+        .expect("the earlier schema");
+    }
+    let mut sql = SqliteStore::open(&file.0).expect("an earlier file opens");
+    let admin = |sql: &mut SqliteStore, name: &str| {
+        sql.account_by_name(name)
+            .expect("reads")
+            .expect("kept")
+            .admin
+    };
+    assert!(!admin(&mut sql, "tester"), "a player stays one");
+    assert!(!admin(&mut sql, "sentinel"), "a level between is a player");
+    assert!(admin(&mut sql, "admin"), "the highest level is an admin");
+    assert!(admin(&mut sql, "above"), "a level above it too");
+    assert!(
+        !admin(&mut sql, "unclaimed"),
+        "the highest with no secret is a player"
+    );
+    sql.set_character_entity(7, 0x4700_0531).expect("kept");
+    assert!(
+        sql.set_character_entity(99, 1).is_err(),
+        "no such character"
+    );
+    assert_eq!(
+        sql.character(7).expect("reads").expect("kept").entity_did,
+        0x4700_0531
+    );
+    drop(sql);
+    assert_eq!(holds(&file.0).0, SCHEMA_VERSION);
+    let db = rusqlite::Connection::open(&file.0).expect("opens");
+    let levels: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('account') WHERE name = 'access'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("reads");
+    assert_eq!(levels, 0, "the levels are gone");
+    let backup = backups(&file.0).pop().expect("a backup");
+    let old = rusqlite::Connection::open(&backup).expect("opens");
+    let kept: i64 = old
+        .query_row(
+            "SELECT access FROM account WHERE name = 'sentinel'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("the backup keeps the levels");
+    assert_eq!(kept, 2);
+    drop(old);
+    std::fs::remove_file(&backup).expect("removed");
+}
+
+/// The operator's moderation is kept, in SQLite and in memory alike: an account's admin flag
 /// and ban (with who made it, when it ends and why), each change at once, a ban lifted; a
 /// character's gag with the seconds it has still to run, lifted, and forgotten with the character.
 /// The accounts list by name without regard to case. A file kept before them gains them: every
@@ -764,7 +844,7 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         .account_by_name("tester")
         .expect("reads")
         .expect("the earlier account");
-    assert_eq!((tester.access, tester.ban.clone()), (0, None));
+    assert_eq!((tester.admin, tester.ban.clone()), (false, None));
     assert_eq!(sql.gag(7).expect("reads"), None);
     let ban = Ban {
         at: 1_000,
@@ -779,10 +859,16 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         .expect("kept");
     for store in [&mut sql as &mut dyn Store, &mut memory] {
         store.create_account("alma", None, 5).expect("made");
-        store.set_account_access(1, 2).expect("set");
+        store.set_account_admin(1, true).expect("set");
+        store
+            .set_account_groups(1, &["leads".to_owned(), "support".to_owned()])
+            .expect("set");
         store.set_account_ban(1, Some(&ban)).expect("banned");
         store.set_gag(7, Some(250.5)).expect("gagged");
-        assert!(store.set_account_access(99, 1).is_err(), "no such account");
+        assert!(
+            store.set_account_admin(99, true).is_err(),
+            "no such account"
+        );
         assert!(store.set_account_ban(99, None).is_err(), "no such account");
         let names: Vec<String> = store
             .accounts()
@@ -799,7 +885,8 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
             .account_by_name("TESTER")
             .expect("reads")
             .expect("kept");
-        assert_eq!((a.access, a.ban), (2, Some(ban.clone())), "kept");
+        assert_eq!(a.groups, ["leads", "support"], "kept");
+        assert_eq!((a.admin, a.ban), (true, Some(ban.clone())), "kept");
         assert_eq!(store.gag(7).expect("reads"), Some(250.5));
         store.set_account_ban(1, None).expect("lifted");
         store.set_gag(7, None).expect("ungagged");

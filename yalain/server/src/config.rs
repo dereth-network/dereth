@@ -178,6 +178,17 @@ const KEYS: &[(&str, &str, Takes)] = &[
         Takes::Value("--secret-cost"),
     ),
     ("server.accounts", "accounts", Takes::Many("--add-account")),
+    ("server.accounts", "admins", Takes::Many("--admin")),
+    (
+        "server.accounts",
+        "serve_admin_library",
+        Takes::Flag("--serve-admin-library"),
+    ),
+    (
+        "server.accounts",
+        "admin_commands",
+        Takes::Many("--admin-command"),
+    ),
     (
         "server.accounts",
         "banned_names_path",
@@ -577,6 +588,9 @@ mod tests {
             [server.accounts]
             allow_auto_account_creation = false
             accounts = ["a:one", "b:two"]
+            admins = ["a"]
+            serve_admin_library = true
+            admin_commands = ["ban:moderators"]
             banned_names_path = "/etc/yalain/banned.txt"
 
             [database]
@@ -614,6 +628,8 @@ mod tests {
             ["--motd", "Welcome.\nBe kind."],
             ["--add-account", "a:one"],
             ["--add-account", "b:two"],
+            ["--admin", "a"],
+            ["--admin-command", "ban:moderators"],
             ["--banned-names", "/etc/yalain/banned.txt"],
             ["--data", data.as_str()],
         ] {
@@ -644,6 +660,7 @@ mod tests {
         assert_eq!(o.max_sessions, 40);
         assert_eq!(o.motd, "Welcome.\nBe kind.");
         assert!(o.memory && o.listed && !o.referral);
+        assert!(o.serve_admin_library);
         assert_eq!(o.add_accounts.len(), 3, "the file's and the command line's");
         assert_eq!(o.dats.as_deref(), Some(folder.join("ac2").as_path()));
 

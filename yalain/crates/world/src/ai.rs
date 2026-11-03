@@ -80,6 +80,7 @@
 //! - **Idling.** At rest and standing, a creature of a class of behavior now and then plays one of
 //!   its two idle behaviors (2017: about 8 an hour near players, the second a little more often).
 
+use crate::admin_calls::Attackable;
 use auberean_protocol::physics::ObjectPosition;
 use auberean_protocol::types::ObjectStamp;
 use dereth_primitives::num::math;
@@ -210,11 +211,18 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 fn notice<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
     s.players
         .values()
-        .filter(|p| fightable(p))
+        .filter(|p| fightable(p) && p.admin.attackable == Attackable::Normal)
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p.character)))
         .filter(|(d, _)| *d <= radius)
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id)
+}
+
+/// [`notice`] for tests of who is passed over.
+#[doc(hidden)]
+#[must_use]
+pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+    notice(s, at, radius)
 }
 
 fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, now: f64) {
@@ -458,7 +466,11 @@ fn speed_scale<S: Store>(s: &Server<S>, id: u64) -> f32 {
 /// Is a player one a creature may fight: in the world, out of portal space, alive and not under
 /// lifestone protection?
 fn fightable(p: &crate::world::Player) -> bool {
-    p.scene_drawn && p.trip.is_none() && !crate::combat::is_dead(p) && !crate::effects::protected(p)
+    p.scene_drawn
+        && p.trip.is_none()
+        && !crate::combat::is_dead(p)
+        && !crate::effects::protected(p)
+        && p.admin.attackable != Attackable::Super
 }
 
 /// At one of its attacks (once for each), a creature fighting a player may draw its target again:

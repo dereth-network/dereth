@@ -290,7 +290,8 @@ pub fn admits<S: Store>(
         return None;
     }
     match (policy, store.account_by_name(name)) {
-        (AccountPolicy::Open, Ok(Some(mut a))) if a.secret.is_none() => {
+        // An admin's account is never claimed: with no secret it logs in with none.
+        (AccountPolicy::Open, Ok(Some(mut a))) if a.secret.is_none() && !a.admin => {
             let secret = secret_for(ticket, cost)?;
             store.set_account_secret(a.id, secret.clone()).ok()?;
             a.secret = Some(secret);
@@ -577,6 +578,14 @@ fn create<S: Store>(
         });
         send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
     };
+    if c.entity_did == crate::player::ADMIN_ENTITY && !account.admin {
+        tracing::warn!(?conn, account = %account.name, name = %typed, "refused: an admin character asked for by a player's account");
+        return answer(
+            net,
+            CharacterCreated::ADMIN_REFUSED,
+            CharacterIdentity::default(),
+        );
+    }
     let name = match s.names.check(&typed) {
         Ok(name) => name,
         Err(why) => {
@@ -874,7 +883,19 @@ pub(crate) fn message<S: Store>(
         }
     };
     match m {
-        ClientMessage::DataHeld(_) => {
+        ClientMessage::DataHeld(held) => {
+            let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
+            if let Some(lib) = s
+                .admin_library
+                .as_ref()
+                .filter(|l| admin && !l.held_by(&held.files))
+            {
+                tracing::info!(?conn, "serving an admin's account the script library");
+                send(net, conn, queue::DATABASE, BlobKind::LOGIN, &lib.begins);
+                send(net, conn, queue::DATABASE, BlobKind::LOGIN, &lib.record);
+                s.storing_library.insert(conn);
+                return;
+            }
             send(
                 net,
                 conn,
@@ -889,7 +910,19 @@ pub(crate) fn message<S: Store>(
         ClientMessage::DeleteCharacter(d) => delete(s, net, conn, d.character, clock),
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
-        ClientMessage::DownloadEnds(_) => {}
+        ClientMessage::DownloadEnds(_) => {
+            // It has stored the library it was sent; its characters follow.
+            if s.storing_library.remove(&conn) {
+                send(
+                    net,
+                    conn,
+                    queue::DATABASE,
+                    BlobKind::LOGIN,
+                    &ServerMessage::DownloadEnds(Empty),
+                );
+                send_lists(s, net, conn, clock);
+            }
+        }
         ClientMessage::Chat(p) => crate::chat::service(s, net, conn, &p.0, clock),
         other => s.unhandled.note(format!(
             "message {:#x} on the login connection",
@@ -961,6 +994,7 @@ pub(crate) fn closed<S: Store>(
         }
         return;
     }
+    s.storing_library.remove(&conn);
     if let Some(session) = s.sessions.remove(&conn) {
         tracing::info!(?conn, ?why, account = %session.account.name, "login connection closed");
         if let Stage::InWorld { world, character } = session.stage {

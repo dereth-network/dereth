@@ -386,7 +386,7 @@ fn resurrected(h: &mut Harness) -> (usize, u64, u32, usize) {
     assert_eq!(slots[23], (0x02, *eid), "its id in the record");
     let state = v[0]
         .entry(slots[14].1)
-        .map(|n| matches!(n, yalain_world::calls::Node::Other));
+        .map(|n| matches!(n, yalain_world::calls::Node::Singleton(_)));
     assert_eq!(state, Some(true), "the effect a saved state's singleton");
     let raw = h.bots[b].inbox[from..]
         .iter()

@@ -202,6 +202,22 @@ password_hash_work_factor = 8
 # default: [] (--add-account; Yalain only)
 # Accounts made at start, as "name:ticket".
 accounts = []
+# default: [] (--admin; Yalain only)
+# Accounts to make admins', by name, on the start that makes them from `accounts` above. It does
+# nothing for an account already there, which may be a stranger's who logged in with that name: at the
+# console, set-accountadmin <name> raises one, and off makes one a player for good.
+admins = []
+
+# default: false (--serve-admin-library; Yalain only)
+# Serve admin accounts' retail clients the script library that sends their admin commands in the
+# clear. Such a client must run with -rodat off, on a copy of the install kept for this world.
+serve_admin_library = false
+
+# default: [] (--admin-command; Yalain only)
+# The account-level admin commands kept to named groups, as "command:group,group": ban, boot,
+# fingerchar, fingerid, fingeraccount, serverparam, userlimit, dumpadmintable. A command not listed is
+# open to every admin. The console's set-accountgroups puts an account in its groups.
+admin_commands = []
 
 # default: "" (--banned-names; Yalain only)
 # A file of patterns new character names may not hold, one a line ("*" for any letters). Empty

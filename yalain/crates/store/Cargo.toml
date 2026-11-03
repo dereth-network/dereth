@@ -15,6 +15,7 @@ sqlite = ["dep:rusqlite"]
 [dependencies]
 # The online backup copies a database file before its schema is migrated.
 rusqlite = { workspace = true, optional = true, features = ["backup"] }
+tracing.workspace = true
 
 [dev-dependencies]
 auberean-testkit.workspace = true

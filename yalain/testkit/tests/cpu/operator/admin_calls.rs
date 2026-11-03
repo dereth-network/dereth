@@ -1,0 +1,969 @@
+//! What admin characters send: plain script calls of the admin family, each for admin characters
+//! only. Fixture: new players in the world; an admin character is one of an admin's account made so
+//! at the console before it entered.
+
+use auberean_protocol::login::Empty;
+use auberean_protocol::{queue, ClientMessage, ServerMessage};
+use auberean_script::args::Arg;
+use auberean_script::native_object::{NativeObject, TextInfo};
+use yalain_store::Store as _;
+use yalain_testkit::play::server_call;
+use yalain_testkit::{Harness, TEST_CREATURE, TEST_ITEM};
+use yalain_world::admin::{self, Issuer};
+use yalain_world::admin_calls::{self, ethereal_value, other, LOG_EVENT};
+use yalain_world::calls::{Node, Value};
+use yalain_world::graph::Builder;
+use yalain_world::player::quality;
+use yalain_world::quals;
+
+/// The natives that send an event encrypted and in the clear.
+const SEND_ENCRYPTED: u32 = 0x7F << 16 | 0x37;
+const SEND_PLAIN: u32 = 0x7F << 16 | 0x36;
+
+/// Run a console command: its answer.
+fn console(h: &mut Harness, line: &str) -> Vec<String> {
+    let c = admin::parse(line)
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    admin::run(&mut h.server, &mut h.net, clock, &Issuer::Console, &c)
+}
+
+/// A character of an admin's account that entered as an admin character.
+fn admin_in_world(h: &mut Harness, account: &str, name: &str) -> (usize, u64) {
+    let b = h.at_character_list(account);
+    let id = h.create_character(b, account, name);
+    console(h, &format!("set-accountadmin {account}"));
+    console(h, &format!("set-characteradmin {name}"));
+    h.enter_world(b, account, id);
+    (b, id)
+}
+
+/// A string as a call's value.
+fn text(t: &str) -> Arg {
+    let mut b = Builder::new();
+    b.native(118, NativeObject::Text(t.encode_utf16().collect()));
+    Arg::Object(b.graph())
+}
+
+/// A string reference as a call's value.
+fn info(t: &str) -> Arg {
+    let mut b = Builder::new();
+    b.native(
+        106,
+        NativeObject::TextInfo(TextInfo {
+            has_literal: 1,
+            literal: Some(t.encode_utf16().collect()),
+            ..TextInfo::default()
+        }),
+    );
+    Arg::Object(b.graph())
+}
+
+/// Send a call, its parameters as declared (they travel last first).
+fn send(h: &mut Harness, b: usize, f: u32, args: &[Arg]) {
+    let args: Vec<Arg> = args.iter().rev().cloned().collect();
+    h.bots[b].send(true, queue::WEENIE, &server_call(f, &args));
+    h.run(10);
+}
+
+/// The answers a client was sent since `from`: the lines for the admin's log.
+fn answers(h: &Harness, b: usize, from: usize) -> Vec<String> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == LOG_EVENT)
+        .filter_map(|(_, v)| match v.first().and_then(Value::root) {
+            Some(Node::Text(t)) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A health of a player.
+fn health(h: &Harness, id: u64) -> i32 {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    quals::int(&p.qualities, quality::HEALTH).unwrap_or(0)
+}
+
+/// Every call of the admin family and the admin's calls of the other families: from a player's
+/// account, and from an ordinary character of an admin's account, each is refused and counted and
+/// nothing comes back; a call that does not even read is refused the same, before it is read. An
+/// admin character's is let through.
+/// Behaviour: server.admin.calls-refused-for-anyone-else
+#[test]
+fn every_admin_call_is_refused_for_anyone_but_an_admin_character() {
+    let mut h = Harness::new();
+    let (player, _) = h.player_in_world("one", "Elara");
+    let (ordinary, _) = h.player_in_world("two", "Babyfare");
+    console(&mut h, "set-accountadmin two");
+    let mut all = admin_calls::admin_family();
+    all.extend(other::ALL);
+    for b in [player, ordinary] {
+        for f in &all {
+            let before = h.server.admin_calls.refused.get(f).copied().unwrap_or(0);
+            let from = h.bots[b].inbox.len();
+            h.bots[b].send(true, queue::WEENIE, &server_call(*f, &[]));
+            h.run(2);
+            assert_eq!(
+                h.server.admin_calls.refused.get(f).copied().unwrap_or(0),
+                before + 1,
+                "{f:#x}"
+            );
+            assert!(answers(&h, b, from).is_empty(), "{f:#x} is not answered");
+        }
+    }
+    let (me, _) = admin_in_world(&mut h, "three", "Cara");
+    let refused = h.server.admin_calls.refused.clone();
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_002F, &[]);
+    assert_eq!(h.server.admin_calls.refused, refused, "not refused");
+    assert_eq!(answers(&h, me, from).len(), 1);
+}
+
+/// A family of real commands, each with values that would do harm: none has any effect from a
+/// player's account, or from an ordinary character of an admin's. Boot, ban, smite, exterminate,
+/// money, a make, a teleport, a gamecast and a rename each do what they say from an admin character,
+/// so the tests would see the harm.
+/// Behaviour: server.admin.commands-do-nothing-for-anyone-else
+#[test]
+fn a_players_admin_calls_do_nothing_and_an_admins_do_what_they_say() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (victim, victim_id) = h.player_in_world("zero", "Victim");
+    let (player, _) = h.player_in_world("one", "Elara");
+    let (ordinary, _) = h.player_in_world("two", "Babyfare");
+    console(&mut h, "set-accountadmin two");
+    h.run(30);
+    let creatures = |h: &Harness| h.server.things.placed().filter(|t| t.health > 0).count();
+    let before = creatures(&h);
+    assert!(before > 0, "a creature to exterminate");
+    let harm = |h: &mut Harness, b: usize| {
+        let victim_arg = Arg::LongInt(victim_id);
+        send(
+            h,
+            b,
+            0x8201_0092,
+            &[Arg::Int(0), text("zero"), text(""), Arg::LongInt(0)],
+        );
+        send(
+            h,
+            b,
+            0x8201_0016,
+            &[
+                Arg::Int(0),
+                text("zero"),
+                Arg::Int(1),
+                Arg::Int(0),
+                Arg::Int(0),
+            ],
+        );
+        send(h, b, other::SMITE, std::slice::from_ref(&victim_arg));
+        send(h, b, 0x8201_013B, &[]);
+        send(h, b, other::MONEY, &[Arg::Int(1000)]);
+        send(h, b, 0x8201_006A, &[text(&format!("{TEST_ITEM:08X}"))]);
+        send(h, b, 0x8201_006F, &[text(&format!("{TEST_CREATURE:08X}"))]);
+        send(h, b, 0x8201_0058, &[text("Victim"), text("10.0n 10.0e")]);
+        send(h, b, 0x8201_0134, &[info("Hello from a player.")]);
+        send(h, b, 0x8201_0130, &[victim_arg, text("Stolen")]);
+    };
+    for b in [player, ordinary] {
+        let items = h
+            .server
+            .players
+            .values()
+            .map(|p| p.play.items.len())
+            .sum::<usize>();
+        let shown = h.bots[victim].inbox.len();
+        harm(&mut h, b);
+        let kept = h
+            .server
+            .store
+            .account_by_name("zero")
+            .expect("reads")
+            .expect("kept");
+        assert_eq!(kept.ban, None, "not banned");
+        assert!(
+            h.server.sessions.values().any(|x| x.account.name == "zero"),
+            "not booted"
+        );
+        assert!(health(&h, victim_id) > 0, "not smitten");
+        assert_eq!(creatures(&h), before, "nothing exterminated or made");
+        assert_eq!(
+            h.server
+                .players
+                .values()
+                .map(|p| p.play.items.len())
+                .sum::<usize>(),
+            items,
+            "nothing made in a pack"
+        );
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.name == "Elara")
+            .expect("in the world");
+        assert_eq!(yalain_world::store::money(&p.qualities), 0, "no money made");
+        assert!(
+            h.server.players.values().all(|p| p.trip.is_none()),
+            "nobody sent anywhere"
+        );
+        assert!(
+            !h.bots[victim].inbox[shown..]
+                .iter()
+                .any(|r| matches!(r.message(), Some(ServerMessage::Notice(_)))),
+            "nothing shown"
+        );
+        assert_eq!(
+            h.server
+                .store
+                .character(victim_id)
+                .expect("reads")
+                .expect("kept")
+                .name,
+            "Victim",
+            "not renamed"
+        );
+    }
+    // And the same commands, from an admin character.
+    let (me, _) = admin_in_world(&mut h, "three", "Cara");
+    let shown = h.bots[victim].inbox.len();
+    send(&mut h, me, 0x8201_0134, &[info("Hello from an admin.")]);
+    assert!(
+        h.bots[victim].inbox[shown..]
+            .iter()
+            .any(|r| matches!(r.message(), Some(ServerMessage::Notice(_)))),
+        "the gamecast is shown"
+    );
+    send(&mut h, me, other::MONEY, &[Arg::Int(1000)]);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.name == "Cara")
+        .expect("in the world");
+    assert_eq!(yalain_world::store::money(&p.qualities), 1000);
+    send(
+        &mut h,
+        me,
+        0x8201_006A,
+        &[text(&format!("{TEST_ITEM:08X}"))],
+    );
+    send(
+        &mut h,
+        me,
+        0x8201_0130,
+        &[Arg::LongInt(victim_id), text("Renamed")],
+    );
+    assert_eq!(
+        h.server
+            .store
+            .character(victim_id)
+            .expect("reads")
+            .expect("kept")
+            .name,
+        "Renamed"
+    );
+    send(
+        &mut h,
+        me,
+        0x8201_0058,
+        &[text("Renamed"), text("10.0n 10.0e")],
+    );
+    assert!(h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == victim_id && p.trip.is_some()));
+    send(&mut h, me, 0x8201_013B, &[]);
+    let creature_alive = |h: &Harness| {
+        h.server
+            .things
+            .placed()
+            .any(|t| t.kind == yalain_world::things::Kind::Creature && t.health > 0)
+    };
+    assert!(!creature_alive(&h), "exterminated");
+    send(
+        &mut h,
+        me,
+        0x8201_0016,
+        &[
+            Arg::Int(0),
+            text("zero"),
+            Arg::Int(1),
+            Arg::Int(0),
+            Arg::Int(0),
+        ],
+    );
+    let kept = h
+        .server
+        .store
+        .account_by_name("zero")
+        .expect("reads")
+        .expect("kept");
+    assert!(kept.ban.is_some(), "banned");
+}
+
+/// An admin character's rights end at once: when its account is no longer an admin's, and when it is
+/// no longer an admin character; each call from then on is refused.
+/// Behaviour: server.admin.rights-end-at-once
+#[test]
+fn an_admin_characters_rights_end_at_once() {
+    let mut h = Harness::new();
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    const LIST: u32 = 0x8201_002F;
+    let count = |h: &Harness| {
+        h.server
+            .admin_calls
+            .refused
+            .get(&LIST)
+            .copied()
+            .unwrap_or(0)
+    };
+    send(&mut h, me, LIST, &[]);
+    assert_eq!(count(&h), 0);
+    console(&mut h, "set-accountadmin one off");
+    send(&mut h, me, LIST, &[]);
+    assert_eq!(count(&h), 1, "the account's flag, at the time of the call");
+    console(&mut h, "set-accountadmin one");
+    send(&mut h, me, LIST, &[]);
+    assert_eq!(count(&h), 1, "back");
+    console(&mut h, "set-characteradmin Elara off");
+    send(&mut h, me, LIST, &[]);
+    assert_eq!(count(&h), 2, "the character");
+}
+
+/// The moderation calls from an admin character: who an account or a character is, the world's limit,
+/// what is shown a player, and a call without a counterpart answered that this server has none.
+/// Behaviour: server.admin.moderation-calls
+#[test]
+fn the_moderation_calls_answer_and_act() {
+    let mut h = Harness::new();
+    let (other_b, other_id) = h.player_in_world("zero", "Victim");
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_001B, &[Arg::Int(0), text("Victim")]);
+    send(
+        &mut h,
+        me,
+        0x8201_0023,
+        &[Arg::Int(0), Arg::LongInt(other_id)],
+    );
+    send(&mut h, me, 0x8201_0027, &[Arg::Int(0), text("zero")]);
+    send(&mut h, me, 0x8201_008B, &[Arg::Int(0), Arg::Int(99)]);
+    let said = answers(&h, me, from);
+    assert!(said[0].contains("on account zero"), "{said:?}");
+    assert!(said[1].contains("on account zero"), "{said:?}");
+    assert!(said[2].contains("has 1 characters"), "{said:?}");
+    assert!(said[3].contains("Victim"), "{said:?}");
+    assert_eq!(h.server.cfg.max_sessions, 99);
+    let shown = h.bots[other_b].inbox.len();
+    send(&mut h, me, 0x8201_013F, &[info("Victim"), info("Hello.")]);
+    assert!(h.bots[other_b].inbox[shown..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::Notice(n)) if n.text.literal.as_ref().is_some_and(|l| l.text().trim_end() == "Hello."))));
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_0123, &[]);
+    assert_eq!(
+        answers(&h, me, from),
+        ["This server has no database locks."]
+    );
+}
+
+/// A cloaked admin is seen by no player's client, and those that knew it see it leave; a cloak lifted
+/// shows it again; an admin who sees what is hidden still sees it.
+/// Behaviour: server.admin.cloak-hides-an-admin
+#[test]
+fn a_cloaked_admin_is_seen_by_no_players_client() {
+    let mut h = Harness::new();
+    h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let (second, _) = admin_in_world(&mut h, "two", "Cara");
+    h.run(10);
+    let knows = |h: &Harness, name: &str| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.name == name)
+            .is_some_and(|p| p.known.contains_key(&id))
+    };
+    assert!(knows(&h, "Viewer"));
+    send(&mut h, second, 0x8201_0088, &[Arg::Int(1)]);
+    send(&mut h, me, 0x8201_0017, &[]);
+    assert!(!knows(&h, "Viewer"), "a player's client no longer");
+    assert!(knows(&h, "Cara"), "one who sees what is hidden does");
+    send(&mut h, me, 0x8201_0061, &[]);
+    assert!(knows(&h, "Viewer"), "shown again");
+}
+
+/// Never say die: an admin's health stops at one under a killing blow, and the setting off lets it
+/// fall as usual.
+/// Behaviour: server.admin.never-say-die-keeps-an-admin-alive
+#[test]
+fn never_say_die_holds_an_admins_health_at_one() {
+    let mut h = Harness::new();
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    send(&mut h, me, 0x8201_0057, &[Arg::Int(1)]);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .map(|(w, _)| w)
+        .expect("in");
+    let hit = |h: &mut Harness| {
+        yalain_world::combat::lose_health_for_test(&mut h.server, &mut h.net, world, 1_000_000);
+    };
+    hit(&mut h);
+    assert_eq!(health(&h, id), 1, "stops at one");
+    send(&mut h, me, 0x8201_0057, &[Arg::Int(0)]);
+    hit(&mut h);
+    assert_eq!(health(&h, id), 0, "falls");
+}
+
+/// The attackable setting: a creature does not notice a stealthy admin near it, nor a super one, and
+/// notices one that is normal.
+/// Behaviour: server.admin.attackable-hides-from-creatures
+#[test]
+fn a_stealthy_admin_is_not_noticed_by_creatures() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let stealth = 0x4000_0002;
+    send(&mut h, me, other::AI_ATTACKABLE, &[Arg::Int(stealth)]);
+    h.bots[me].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(Empty),
+    );
+    h.run(10);
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .map(|p| p.position)
+        .expect("in");
+    assert_eq!(yalain_world::ai::notices(&h.server, &at, 1_000.0), None);
+    send(&mut h, me, other::AI_ATTACKABLE, &[Arg::Int(0x4000_0001)]);
+    assert_eq!(yalain_world::ai::notices(&h.server, &at, 1_000.0), Some(id));
+}
+
+/// Ethereality: an override changes what the admin passes through, every client that knows it told
+/// with the movement ethereality quality; moving between areas does not change it, and normal puts
+/// its own back.
+/// Behaviour: server.admin.ethereality-override
+#[test]
+fn an_ethereality_override_is_told_and_lifted() {
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    h.run(10);
+    let told = |h: &Harness, b: usize, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .rev()
+            .find_map(|m| match m {
+                ServerMessage::UpdateIntVisual(q) if q.object.id == id && q.quality == 7 => {
+                    Some(q.value)
+                }
+                _ => None,
+            })
+    };
+    let kept = |h: &Harness| {
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in");
+        yalain_world::kingdoms::kept_ethereality(&p.qualities)
+    };
+    let own = kept(&h);
+    let from = h.bots[viewer].inbox.len();
+    send(
+        &mut h,
+        me,
+        other::ETHEREALITY,
+        &[Arg::Int(ethereal_value::SUPER)],
+    );
+    assert_eq!(told(&h, viewer, from), Some(-1), "another client is told");
+    assert_eq!(kept(&h), -1);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .map(|(w, _)| w)
+        .expect("in");
+    yalain_world::kingdoms::settle_ethereality(&mut h.server, &mut h.net, world);
+    assert_eq!(kept(&h), -1, "stands until lifted");
+    send(
+        &mut h,
+        me,
+        other::ETHEREALITY,
+        &[Arg::Int(ethereal_value::NORMAL)],
+    );
+    assert_eq!(kept(&h), own, "its own again");
+}
+
+/// An admin's own state commands: experience, vitals, teleport to its saved place and back, and an
+/// object made and deleted.
+/// Behaviour: server.admin.character-and-object-calls
+#[test]
+fn the_state_and_object_calls_act() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    h.run(10);
+    send(&mut h, me, 0x8201_008E, &[Arg::Float(5.0_f32.to_bits())]);
+    assert_eq!(health(&h, id), 5, "health set");
+    send(&mut h, me, 0x8201_0051, &[Arg::LongInt(id)]);
+    assert!(health(&h, id) > 5, "and made full");
+
+    send(&mut h, me, 0x8201_0133, &[Arg::LongInt(id), Arg::Int(3)]);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in");
+    assert!(
+        p.places.iter().any(|(k, _)| *k == 602),
+        "slot 3 is the third"
+    );
+
+    let from = h.bots[me].inbox.len();
+    send(
+        &mut h,
+        me,
+        0x8201_006F,
+        &[text(&format!("{TEST_ITEM:08X}"))],
+    );
+    let said = answers(&h, me, from);
+    assert!(said[0].starts_with("Made 0x"), "{said:?}");
+    let made =
+        u64::from_str_radix(said[0][7..].split(' ').next().expect("an id"), 16).expect("hex");
+    assert!(h.server.things.get(made).is_some_and(|t| t.at.is_some()));
+    send(&mut h, me, 0x8201_002E, &[Arg::LongInt(made)]);
+    assert!(h.server.things.get(made).is_none(), "deleted");
+
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_006F, &[text("wizard")]);
+    assert!(answers(&h, me, from)[0].contains("in hex"));
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_006F, &[text("DEADBEEF")]);
+    assert!(answers(&h, me, from)[0].contains("no template"));
+}
+
+/// Every call of the family has an answer from an admin character, whatever comes with it: none
+/// stops the server, and none needs its values to be there.
+/// Behaviour: server.admin.every-call-answers-an-admin
+#[test]
+fn every_admin_call_answers_an_admin_character_even_with_no_values() {
+    let mut h = Harness::new();
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let mut all = admin_calls::admin_family();
+    all.extend(other::ALL);
+    for f in all {
+        // These two end the admin's own session; the others leave it in the world.
+        if f == other::SMITE {
+            continue;
+        }
+        let from = h.bots[me].inbox.len();
+        h.bots[me].send(true, queue::WEENIE, &server_call(f, &[]));
+        h.run(6);
+        assert!(!answers(&h, me, from).is_empty(), "{f:#x} answers");
+    }
+}
+
+/// A command the operator keeps to named groups is refused to an admin in none of them, in game and
+/// as a call, logged and told so; an admin in one may give it, and a command kept to nothing is open
+/// to every admin. The console is never refused; a change of an account's groups holds at once.
+/// Behaviour: server.admin.named-groups-gate-the-account-commands
+#[test]
+fn the_account_level_commands_are_kept_to_their_named_groups() {
+    const USER_LIMIT: u32 = 0x8201_008B;
+    const FINGER: u32 = 0x8201_0027;
+    let mut h = Harness::new();
+    h.server.cfg.admin_commands = vec![("userlimit".to_owned(), vec!["leads".to_owned()])];
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let limit = h.server.cfg.max_sessions;
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, USER_LIMIT, &[Arg::Int(0), Arg::Int(7)]);
+    assert_eq!(h.server.cfg.max_sessions, limit, "refused");
+    assert_eq!(answers(&h, me, from), ["userlimit needs the group leads."]);
+    assert_eq!(h.server.admin_calls.refused.get(&USER_LIMIT), Some(&1));
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, FINGER, &[Arg::Int(0), text("one")]);
+    assert!(
+        answers(&h, me, from)[0].contains("has 1 characters"),
+        "not kept: open"
+    );
+
+    console(&mut h, "set-accountgroups one leads,support");
+    send(&mut h, me, USER_LIMIT, &[Arg::Int(0), Arg::Int(7)]);
+    assert_eq!(h.server.cfg.max_sessions, 7, "in the group");
+    console(&mut h, "set-accountgroups one");
+    send(&mut h, me, USER_LIMIT, &[Arg::Int(0), Arg::Int(9)]);
+    assert_eq!(h.server.cfg.max_sessions, 7, "out of it again, at once");
+
+    h.server.cfg.admin_commands = vec![("ban".to_owned(), vec!["leads".to_owned()])];
+    let clock = h.clock();
+    let c = admin::parse("ban one 1 0 0")
+        .expect("a command")
+        .expect("reads");
+    let by_account = Issuer::Account {
+        name: "two".into(),
+        admin: true,
+        groups: vec![],
+        character: "Two".into(),
+    };
+    assert_eq!(
+        admin::run(&mut h.server, &mut h.net, clock, &by_account, &c),
+        ["ban needs the group leads."]
+    );
+    assert!(
+        console(&mut h, "ban one 1 0 0")
+            .join(" ")
+            .contains("Banned"),
+        "the console"
+    );
+    let table = yalain_world::admin_groups::table(&h.server);
+    assert!(table.contains(&"ban: leads".to_owned()));
+    assert!(table.contains(&"boot: every admin".to_owned()));
+    let kept = h
+        .server
+        .store
+        .account_by_name("one")
+        .expect("reads")
+        .expect("kept");
+    assert!(kept.groups.is_empty());
+}
+
+/// A library record's encrypted sends made plain, aligned pairs only, the rest of its bytes as they
+/// were; too few and it is not the library this was made for.
+/// Behaviour: server.admin.library-sends-admin-calls-in-the-clear
+#[test]
+fn only_aligned_encrypted_sends_are_made_plain() {
+    use yalain_world::admin_library::{plain, AdminLibrary};
+    let word = |w: u32| w.to_le_bytes();
+    let mut b = Vec::new();
+    for w in [7, 0x0C, SEND_ENCRYPTED, 0x0C, SEND_PLAIN, SEND_ENCRYPTED] {
+        b.extend(word(w));
+    }
+    b.extend([0xCC, 0x0C, 0, 0, 0, 0x37, 0, 0x7F, 0]);
+    let (out, n) = plain(&b);
+    assert_eq!(n, 1);
+    assert_eq!(out[8..12], word(SEND_PLAIN));
+    assert_eq!(out[20..], b[20..]);
+    assert!(AdminLibrary::of(&b).is_err());
+}
+
+/// The library goes to an admin's account alone, before its characters: the client told of it, sent
+/// the record, and its list held back until it has stored it. A player's account is sent none; nor is
+/// an admin's that lists the library's iteration.
+/// Behaviour: server.admin.library-served-only-to-admin-accounts
+#[test]
+fn only_an_admins_login_is_served_the_library() {
+    use auberean_protocol::login::{DataFileIterations, DataHeld};
+    use auberean_protocol::types::{IterationRun, IterationSet};
+    use yalain_world::admin_library::{plain, AdminLibrary, ITERATION};
+    use yalain_world::download::PORTAL_FILE;
+    let mut record = Vec::new();
+    for _ in 0..200 {
+        record.extend(0x0C_u32.to_le_bytes());
+        record.extend(SEND_ENCRYPTED.to_le_bytes());
+    }
+    assert_eq!(plain(&record).1, 200);
+    let mut h = Harness::new();
+    h.server.admin_library = Some(AdminLibrary::of(&record).expect("made"));
+    h.server
+        .store
+        .create_account(
+            "one",
+            Some(yalain_world::login::secret_for(b"ticket", 4).expect("made")),
+            1,
+        )
+        .expect("made");
+    console(&mut h, "set-accountadmin one");
+    let listed = |h: &Harness, b: usize| {
+        h.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CharacterList(_)))
+    };
+    let served = |h: &Harness, b: usize| {
+        h.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DataRecord(_)))
+    };
+    // The harness's login sends what the client holds, and waits for its list.
+    let player = h.at_character_list("two");
+    assert!(!served(&h, player), "a player's is not");
+
+    let b = h.logging_in("one");
+    let held = ClientMessage::DataHeld(DataHeld {
+        language: 0x8000_0001,
+        files: Vec::new(),
+    });
+    h.bots[b].send(false, queue::DATABASE, &held);
+    h.run(20);
+    assert!(served(&h, b), "the admin's is");
+    assert!(!listed(&h, b), "its list held back");
+    h.bots[b].send(false, queue::DATABASE, &ClientMessage::DownloadEnds(Empty));
+    h.run(20);
+    assert!(listed(&h, b), "and sent once it has stored it");
+
+    h.server.login_guard = yalain_world::login::LoginGuard::default();
+    let c = h.logging_in("one");
+    let held = ClientMessage::DataHeld(DataHeld {
+        language: 0x8000_0001,
+        files: vec![DataFileIterations {
+            dat_file: PORTAL_FILE,
+            iterations: IterationSet {
+                total: 1,
+                runs: vec![IterationRun::Run {
+                    count: 1,
+                    first: ITERATION,
+                }],
+            },
+        }],
+    });
+    h.bots[c].send(false, queue::DATABASE, &held);
+    h.run(20);
+    assert!(!served(&h, c), "not when it holds the library");
+    assert!(listed(&h, c));
+}
+
+/// What makes an admin is the operator's alone: said in game by an admin, raising an account, making
+/// an admin character, changing groups or a new admin's account are refused and change nothing, as is
+/// another admin's password; a player's password may be set, as before.
+/// Behaviour: server.admin.what-makes-an-admin-is-the-consoles
+#[test]
+fn an_admin_in_game_cannot_make_admins_or_join_groups() {
+    let mut h = Harness::new();
+    h.player_in_world("two", "Babyfare");
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let (_, _) = admin_in_world(&mut h, "three", "Cara");
+    let said = |h: &mut Harness, line: &str| {
+        let from = h.bots[me].inbox.len();
+        let text = line.to_owned();
+        let call = server_call(
+            yalain_world::requests::function::SAY,
+            &[Arg::Int(0), info(&format!("@{text}"))],
+        );
+        h.bots[me].send(true, queue::WEENIE, &call);
+        h.run(20);
+        h.bots[me].inbox[from..]
+            .iter()
+            .filter_map(|r| match r.message() {
+                Some(ServerMessage::Notice(n)) => {
+                    n.text.literal.map(|l| l.text().trim_end().to_owned())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let no = [admin::CONSOLE_ONLY];
+    assert_eq!(said(&mut h, "set-accountadmin two"), no);
+    assert_eq!(said(&mut h, "set-characteradmin Babyfare"), no);
+    assert_eq!(said(&mut h, "set-accountgroups one leads"), no);
+    assert_eq!(said(&mut h, "accountcreate mole pw admin"), no);
+    assert_eq!(said(&mut h, "set-accountpassword three stolen"), no);
+    let kept = |h: &mut Harness, n: &str| h.server.store.account_by_name(n).expect("reads");
+    assert!(!kept(&mut h, "two").expect("kept").admin);
+    assert!(kept(&mut h, "one").expect("kept").groups.is_empty());
+    assert!(kept(&mut h, "mole").is_none());
+    assert_eq!(
+        said(&mut h, "set-accountpassword two fine"),
+        ["Account password for two successfully changed."]
+    );
+    assert!(!console(&mut h, "set-accountadmin two")[0].contains("operator"));
+}
+
+/// A client asking again for a cloaked admin's object by its id is told nothing.
+/// Behaviour: server.admin.cloak-hides-an-admin
+#[test]
+fn a_cloaked_admin_cannot_be_asked_for_by_id() {
+    use auberean_protocol::physics::Target;
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    send(&mut h, me, 0x8201_0017, &[]);
+    let from = h.bots[viewer].inbox.len();
+    h.bots[viewer].send(true, queue::WEENIE, &ClientMessage::ForceCreate(Target(id)));
+    h.run(10);
+    assert_eq!(told(&h, viewer, from, id), None, "not told");
+}
+
+fn told(h: &Harness, b: usize, from: usize, id: u64) -> Option<u64> {
+    h.world_messages(b, from).iter().find_map(|m| match m {
+        ServerMessage::CreateObject(o) if o.id == id => Some(o.id),
+        _ => None,
+    })
+}
+
+/// Set everything an admin's commands set on itself, with a viewer that may not see it and another
+/// admin hidden from all but it.
+fn set_all(h: &mut Harness, me: usize) {
+    send(h, me, 0x8201_0017, &[]);
+    send(h, me, 0x8201_0088, &[Arg::Int(1)]);
+    send(h, me, 0x8201_0057, &[Arg::Int(1)]);
+    send(h, me, other::AI_ATTACKABLE, &[Arg::Int(0x4000_0003)]);
+    send(
+        h,
+        me,
+        other::ETHEREALITY,
+        &[Arg::Int(ethereal_value::SUPER)],
+    );
+    send(h, me, 0x8201_0044, &[Arg::Float(5.0_f32.to_bits())]);
+}
+
+/// All of it is gone at once: the viewer sees it again, it has its own ethereality, and it holds no
+/// admin hidden from players; a killing blow kills it.
+fn assert_all_gone(h: &mut Harness, id: u64, hidden: u64, own: i32) {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    assert_eq!(p.admin, yalain_world::admin_calls::AdminState::default());
+    assert_eq!(
+        yalain_world::kingdoms::kept_ethereality(&p.qualities),
+        own,
+        "its own ethereality"
+    );
+    assert!(
+        !p.known.contains_key(&hidden),
+        "no longer sees what is hidden"
+    );
+    let viewer = h
+        .server
+        .players
+        .values()
+        .find(|p| p.name == "Viewer")
+        .expect("in the world");
+    assert!(viewer.known.contains_key(&id), "seen again");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .map(|(w, _)| w)
+        .expect("in");
+    yalain_world::combat::lose_health_for_test(&mut h.server, &mut h.net, world, 1_000_000);
+    assert_eq!(health(h, id), 0, "it can die");
+}
+
+/// A character made a player again by the console is at once: no longer hidden, killable, noticed,
+/// passing through nothing it should not, at its own speed and blind to what is hidden, whether its
+/// account lost the flag or the character its template.
+/// Behaviour: server.admin.taking-admin-away-ends-what-it-set
+#[test]
+fn taking_admin_away_ends_what_the_admins_commands_set() {
+    for line in ["set-accountadmin one off", "set-characteradmin Elara off"] {
+        let mut h = Harness::new();
+        h.player_in_world("zero", "Viewer");
+        let (me, id) = admin_in_world(&mut h, "one", "Elara");
+        let (second, hidden) = admin_in_world(&mut h, "two", "Cara");
+        h.run(10);
+        let own = {
+            let p = h
+                .server
+                .players
+                .values()
+                .find(|p| p.character == id)
+                .expect("in");
+            yalain_world::kingdoms::kept_ethereality(&p.qualities)
+        };
+        set_all(&mut h, me);
+        send(&mut h, second, 0x8201_0017, &[]);
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in");
+        assert!(p.known.contains_key(&hidden), "it saw the hidden admin");
+        assert_eq!(yalain_world::kingdoms::kept_ethereality(&p.qualities), -1);
+        console(&mut h, line);
+        h.run(5);
+        assert_all_gone(&mut h, id, hidden, own);
+    }
+}
+
+/// What does a kept command's work is kept to its groups: an admin kept from `ban` cannot give a
+/// player a new secret, lift a ban or list them, and one kept from `fingeraccount` cannot read accounts.
+/// Out of those groups an admin keeps every other command; the console all of them.
+/// Behaviour: server.admin.named-groups-gate-the-account-commands
+#[test]
+fn what_does_a_kept_commands_work_follows_its_groups() {
+    let mut h = Harness::new();
+    h.player_in_world("two", "Babyfare");
+    h.server.cfg.admin_commands = vec![
+        ("ban".to_owned(), vec!["leads".to_owned()]),
+        ("fingeraccount".to_owned(), vec!["leads".to_owned()]),
+    ];
+    let by = |groups: &[&str]| Issuer::Account {
+        name: "one".into(),
+        admin: true,
+        groups: groups.iter().map(|g| (*g).to_owned()).collect(),
+        character: "One".into(),
+    };
+    for line in [
+        "set-accountpassword two stolen",
+        "unban two",
+        "banlist",
+        "accountget two",
+        "accountlist",
+    ] {
+        let c = admin::parse(line).expect("a command").expect("reads");
+        let clock = h.clock();
+        let said = admin::run(&mut h.server, &mut h.net, clock, &by(&[]), &c);
+        assert_eq!(said.len(), 1, "{line}");
+        assert!(
+            said[0].contains("needs the group leads"),
+            "{line}: {said:?}"
+        );
+    }
+    let c = admin::parse("accountlist")
+        .expect("a command")
+        .expect("reads");
+    let clock = h.clock();
+    let said = admin::run(&mut h.server, &mut h.net, clock, &by(&["leads"]), &c);
+    assert!(said[0].ends_with("accounts:"), "in the group: {said:?}");
+    let c = admin::parse("gag Babyfare")
+        .expect("a command")
+        .expect("reads");
+    let clock = h.clock();
+    let said = admin::run(&mut h.server, &mut h.net, clock, &by(&[]), &c);
+    assert!(said[0].contains("gagged"), "another command: {said:?}");
+    assert!(
+        console(&mut h, "accountlist")[0].ends_with("accounts:"),
+        "the console"
+    );
+}
+
+/// `/dumpadmintable` answers with the commands and the groups each is kept to, as the operator set
+/// them.
+/// Behaviour: server.admin.dumpadmintable-shows-the-groups
+#[test]
+fn the_admin_table_shows_the_groups_as_set() {
+    let mut h = Harness::new();
+    h.server.cfg.admin_commands = vec![("ban".to_owned(), vec!["leads".to_owned()])];
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    console(&mut h, "set-accountgroups one leads");
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_0075, &[Arg::Int(0)]);
+    let said = answers(&h, me, from);
+    assert!(said.contains(&"ban: leads".to_owned()), "{said:?}");
+    assert!(said.contains(&"boot: every admin".to_owned()), "{said:?}");
+}

@@ -1,0 +1,154 @@
+//! An admin's whole session with the September 2013 data: our client and our server together, an
+//! admin character's commands typed into the client's command line and run by the game's own scripts.
+
+use auberean_client_sdk::Action;
+use yalain_testkit::session::{self as play, Drive, InProcess};
+use yalain_world::admin::{self, Issuer};
+
+fn ok<T>(r: Result<T, String>) -> T {
+    r.unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Run a console command.
+fn console(s: &mut InProcess, line: &str) {
+    let c = admin::parse(line).expect("a command").expect("it reads");
+    let clock = s.h.clock();
+    admin::run(&mut s.h.server, &mut s.h.net, clock, &Issuer::Console, &c);
+}
+
+/// An admin character in the world.
+fn admin_session() -> InProcess {
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Keeper"));
+    console(&mut s, "set-accountadmin ours");
+    console(&mut s, "set-characteradmin Keeper");
+    ok(play::enter(&mut s, me));
+    s
+}
+
+/// Type a line and let it run.
+fn typed(s: &mut InProcess, line: &str) {
+    s.client().act(Action::Say { text: line.into() });
+    play::wait(s, 0.5);
+}
+
+/// The lines the client shows, in order.
+fn shown(s: &InProcess) -> Vec<String> {
+    s.client_ref()
+        .shown
+        .iter()
+        .filter_map(|l| l.text.literal.as_ref())
+        .map(|l| String::from_utf16_lossy(l))
+        .collect()
+}
+
+/// An admin character's client knows the game's admin commands, and typing one that runs on the
+/// client alone reaches every native under it: each runs to its end, none stopping for want of a
+/// port. The commands of the 48 natives only an admin's commands reach: physics properties, the
+/// script machine's tables, the object table, the time, the quests and acts, the places, test scripts,
+/// reading a file of lines, a report, the debugger.
+/// Behaviour: script.admin.client-side-commands-run-the-admin-natives
+#[test]
+fn an_admin_characters_client_side_commands_run_to_their_end() {
+    let mut s = admin_session();
+    for line in [
+        "/cliprops",
+        "/vm query cli",
+        "/vm perf cli",
+        "/vm proc cli",
+        "/vm procall cli",
+        "/queryreference cli",
+        "/time",
+        "/time 12",
+        "/dumpobjmaint",
+        "/qst list client",
+        "/storyquest list client",
+        "/help teleplace",
+        "/trade query cli",
+        "/unlocksql",
+        "/ctest nothing",
+        "/loadfile nothing.txt",
+        "/reportbug code nothing to report",
+        "/cdbg help",
+        "/location",
+        "/myid",
+    ] {
+        typed(&mut s, line);
+    }
+    let stops = s.client_ref().script_stops();
+    assert!(stops.is_empty(), "{stops:#?}");
+    let all = shown(&s).join("\n");
+    assert!(all.contains("Property group"), "{all}");
+    assert!(all.contains("Property name"), "{all}");
+    assert!(all.contains("references:"), "{all}");
+    assert!(all.contains("Object Maintainter Dump"), "{all}");
+}
+
+/// An admin's command that goes to the server runs the game's scripts to a plain call, the server
+/// answers it, and the client's own admin script shows the line.
+/// Behaviour: session.server.an-admins-command-reaches-the-server-and-is-answered
+#[test]
+fn an_admins_server_command_is_answered_in_the_clients_window() {
+    let mut s = admin_session();
+    typed(&mut s, "/serverlist");
+    play::wait(&mut s, 2.0);
+    let all = shown(&s).join("\n");
+    assert!(all.contains("characters in the world"), "{all}");
+    let stops = s.client_ref().script_stops();
+    assert!(stops.is_empty(), "{stops:#?}");
+    assert!(s.h.server.admin_calls.refused.is_empty());
+}
+
+/// What the client has for an admin who wants to be left alone by the world: `/ethereality`,
+/// `/neversaydie` and `/attackable` typed run the game's own scripts to calls the server honors, and
+/// every other client that knows the admin is told what it now passes through.
+/// Behaviour: session.server.an-admin-passes-through-and-cannot-die
+#[test]
+fn an_admin_types_its_way_out_of_harm_and_through_the_world() {
+    let mut s = admin_session();
+    typed(&mut s, "/ethereality super");
+    typed(&mut s, "/neversaydie on");
+    typed(&mut s, "/attackable super");
+    play::wait(&mut s, 1.0);
+    assert!(s.h.server.admin_calls.refused.is_empty());
+    let p = s.h.server.players.values().next().expect("in the world");
+    assert_eq!(
+        p.admin.ethereality,
+        yalain_world::admin_calls::Ethereality::Super
+    );
+    assert!(p.admin.never_say_die);
+    assert_eq!(
+        p.admin.attackable,
+        yalain_world::admin_calls::Attackable::Super
+    );
+    assert_eq!(yalain_world::kingdoms::kept_ethereality(&p.qualities), -1);
+    typed(&mut s, "/ethereality normal");
+    play::wait(&mut s, 1.0);
+    let p = s.h.server.players.values().next().expect("in the world");
+    assert_ne!(yalain_world::kingdoms::kept_ethereality(&p.qualities), -1);
+    let stops = s.client_ref().script_stops();
+    assert!(stops.is_empty(), "{stops:#?}");
+}
+
+/// The library an admin's retail client is served, made from the install's own: every encrypted
+/// send of the 175 the game has becomes a plain one, in the same bytes otherwise.
+/// Behaviour: server.admin.library-sends-admin-calls-in-the-clear
+#[test]
+fn the_admin_library_is_the_installs_with_every_send_in_the_clear() {
+    use yalain_world::admin_library::{plain, AdminLibrary, RECORD};
+    let dir = auberean_dat::testing::require_target_install();
+    let (_, path) = auberean_dat::locate::install_dats(&dir)
+        .expect("list the install")
+        .into_iter()
+        .find(|(name, _)| *name == auberean_dat::locate::DatName::Portal)
+        .expect("the install's portal file");
+    let portal = auberean_dat::DatFile::open(&path).expect("opens");
+    let record = portal.read(RECORD).expect("the library");
+    let (changed, n) = plain(&record);
+    assert_eq!(n, 175);
+    assert_eq!(changed.len(), record.len());
+    let different = changed.iter().zip(&record).filter(|(a, b)| a != b).count();
+    assert_eq!(different, 175, "one byte of each operand");
+    assert!(AdminLibrary::of(&record).is_ok());
+}

@@ -41,6 +41,10 @@ pub fn call<S: Store>(
 ) {
     let f = call.function.0;
     tracing::debug!(?world, "call {f:#010x}");
+    // Before anything is read of it.
+    if crate::admin_calls::is_admin_call(f) {
+        return crate::admin_calls::call(s, net, world, f, &call.args.0, clock);
+    }
     let Ok(values) = calls::values(&call.args.0) else {
         s.unhandled
             .note(format!("script call {f:#010x} whose values do not read"));

@@ -58,6 +58,9 @@
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
 
 pub mod admin;
+pub mod admin_calls;
+pub mod admin_groups;
+pub mod admin_library;
 pub mod ai;
 pub mod allegiance;
 pub mod answers;
@@ -172,6 +175,9 @@ pub struct ServerConfig {
     /// The world's name, shown at login.
     pub world_name: String,
     pub accounts: AccountPolicy,
+    /// The admin commands kept to named groups: each command's word, and the groups that may give
+    /// it. A command listed nowhere is open to every admin account.
+    pub admin_commands: Vec<(String, Vec<String>)>,
     /// How many characters an account may have.
     pub slots: u32,
     /// How long a deleted character stays in the list, greyed out, before it is gone.
@@ -217,6 +223,7 @@ impl Default for ServerConfig {
             secret_cost: login::SECRET_COST,
             save_seconds: saves::SAVE_SECONDS,
             shutdown_seconds: shutdown::LEAD,
+            admin_commands: Vec::new(),
             max_sessions: login::MAX_SESSIONS,
             max_sessions_per_address: None,
             unlimited_addresses: Vec::new(),
@@ -261,6 +268,12 @@ pub struct Server<S: Store> {
     pub login_guard: login::LoginGuard,
     /// The gags of the characters in the world.
     pub gags: admin::Gags,
+    /// The admin calls refused.
+    pub admin_calls: admin_calls::AdminCalls,
+    /// The script library admin accounts' retail clients are served, when the operator serves one,
+    /// and the logins waiting for it to be stored before they see their characters.
+    pub admin_library: Option<admin_library::AdminLibrary>,
+    pub storing_library: std::collections::HashSet<ConnId>,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
@@ -601,6 +614,9 @@ impl<S: Store> Server<S> {
             sessions: HashMap::new(),
             login_guard: login::LoginGuard::default(),
             gags: admin::Gags::default(),
+            admin_calls: admin_calls::AdminCalls::default(),
+            admin_library: None,
+            storing_library: std::collections::HashSet::new(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,

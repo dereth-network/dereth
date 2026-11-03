@@ -1,5 +1,5 @@
 //! The operator's moderation, as Empyrean's: accounts made and changed while the world runs,
-//! bans, gags and boots, at the console and said in game by staff. Fixture: new players in the
+//! bans, gags and boots, at the console and said in game by admins. Fixture: new players in the
 //! world, their accounts logged in with the harness's ticket.
 
 use auberean_protocol::login::{ChatPacket, Text};
@@ -132,20 +132,20 @@ fn logs_in(h: &mut Harness, account: &str) -> (usize, bool) {
     (b, named)
 }
 
-/// Accounts made at the console are kept with a bcrypt secret and the level given (a player's
-/// unless another is), and log in with their ticket; a name taken is refused. A new secret
-/// admits only itself after. A level set reaches the account's login at once; none given makes
-/// it a player's. Accounts are listed with their ids and levels. A level the console does not
-/// know is refused with the levels it does.
+/// Accounts made at the console are kept with a bcrypt secret, a player's unless given the word
+/// `admin`, and log in with their ticket; a name taken is refused. A new secret admits only itself
+/// after. The admin flag set reaches the account's login at once. Accounts are listed with their ids
+/// and whether each is an admin's. The old levels' command answers that they are gone, and a word
+/// other than `admin` where a new account's rights go is how the command is written.
 /// Behaviour: server.operator.accounts-at-the-console
 #[test]
-fn accounts_are_made_rekeyed_given_levels_and_listed_at_the_console() {
+fn accounts_are_made_rekeyed_flagged_and_listed_at_the_console() {
     let mut h = Harness::new();
-    let made = console(&mut h, "accountcreate Kara s3cret sentinel");
+    let made = console(&mut h, "accountcreate Kara s3cret admin");
     assert_eq!(made.len(), 1);
     assert!(
         made[0].starts_with("Account successfully created for Kara (")
-            && made[0].ends_with(") with access rights as a Sentinel."),
+            && made[0].ends_with(") with access rights as an Admin."),
         "{made:?}"
     );
     let kara = h
@@ -154,7 +154,7 @@ fn accounts_are_made_rekeyed_given_levels_and_listed_at_the_console() {
         .account_by_name("kara")
         .expect("reads")
         .expect("made");
-    assert_eq!(kara.access, 2);
+    assert!(kara.admin);
     let secret = kara.secret.expect("a secret");
     assert!(secret.starts_with(b"$2"), "kept as bcrypt");
     assert_ne!(secret, b"s3cret");
@@ -185,26 +185,27 @@ fn accounts_are_made_rekeyed_given_levels_and_listed_at_the_console() {
     let (_, got_in) = logs_in(&mut h, "Kara");
     assert!(got_in);
     assert_eq!(
-        console(&mut h, "set-accountaccess kara 5"),
-        ["Account Kara updated with access rights set as an Admin."]
+        console(&mut h, "set-accountadmin kara off"),
+        ["Account Kara updated with access rights set as a Player."]
     );
     let held = |h: &Harness| {
         h.server
             .sessions
             .values()
             .find(|x| x.account.name == "Kara")
-            .map(|x| x.account.access)
+            .map(|x| x.account.admin)
     };
-    assert_eq!(held(&h), Some(5), "its login holds the new level");
+    assert_eq!(held(&h), Some(false), "its login holds the new flag");
     assert_eq!(
-        console(&mut h, "set-accountaccess kara"),
-        ["Account Kara updated with access rights set as a Player."]
+        console(&mut h, "set-accountadmin kara"),
+        ["Account Kara updated with access rights set as an Admin."]
     );
-    assert_eq!(held(&h), Some(0));
+    assert_eq!(held(&h), Some(true));
     assert_eq!(
-        console(&mut h, "set-accountaccess nobody admin"),
+        console(&mut h, "set-accountadmin nobody on"),
         ["Account nobody does not exist."]
     );
+    console(&mut h, "set-accountadmin kara off");
     assert_eq!(
         console(&mut h, "accountlist"),
         [
@@ -219,11 +220,12 @@ fn accounts_are_made_rekeyed_given_levels_and_listed_at_the_console() {
     );
     assert!(matches!(
         admin::parse("accountcreate a b wizard"),
-        Some(Err(e)) if e.contains("0 = Player | 1 = Advocate")
-    ));
-    assert!(matches!(
-        admin::parse("set-accountaccess a 6"),
         Some(Err(_))
+    ));
+    assert!(matches!(admin::parse("accountcreate a b 5"), Some(Err(_))));
+    assert!(matches!(
+        admin::parse("set-accountaccess a 5"),
+        Some(Err(e)) if e.contains("set-accountadmin")
     ));
     assert_eq!(admin::parse("say hello"), None, "not a moderation command");
 }
@@ -497,16 +499,16 @@ fn a_boot_ends_the_login_and_its_character_leaves_the_world() {
     ));
 }
 
-/// Staff say the moderation commands in game, after `@`, aloud or into a room: a sentinel's
-/// `@gag` gags, is answered in its chat window and heard by nobody; a command beyond its level is
-/// refused, and does nothing. A player's `@ban` line is said as any other, and bans nobody.
-/// Behaviour: server.operator.staff-commands-said-in-game
+/// An admin's account says the moderation commands in game, after `@`, aloud or into a room: its
+/// `@gag` gags, is answered in its chat window and heard by nobody. A player's `@ban` line is said
+/// as any other, and bans nobody; an issuer who is no admin is refused by the command itself too.
+/// Behaviour: server.operator.admin-commands-said-in-game
 #[test]
-fn staff_say_the_commands_in_game_and_a_players_line_is_only_said() {
+fn admins_say_the_commands_in_game_and_a_players_line_is_only_said() {
     let mut h = Harness::new();
     let (a, elara) = h.player_in_world("one", "Elara");
     let (b, babyfare) = h.player_in_world("two", "Babyfare");
-    console(&mut h, "set-accountaccess one sentinel");
+    console(&mut h, "set-accountadmin one");
     let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
     say(&mut h, a, "@gag Babyfare");
     assert!(h.server.gags.gagged(babyfare), "the command runs");
@@ -521,43 +523,41 @@ fn staff_say_the_commands_in_game_and_a_players_line_is_only_said() {
     room_line(&mut h, a, "@ungag babyfare");
     assert!(!h.server.gags.gagged(babyfare), "said into a room too");
     assert_eq!(notices(&h, a, from), ["Babyfare has been ungagged."]);
-    let from = h.bots[a].inbox.len();
-    say(&mut h, a, "@accountcreate mole pw admin");
-    assert_eq!(
-        notices(&h, a, from),
-        ["That command needs an Admin's access."]
-    );
-    assert!(h
-        .server
-        .store
-        .account_by_name("mole")
-        .expect("reads")
-        .is_none());
 
     let from = h.bots[a].inbox.len();
     say(&mut h, b, "@ban one 1 0 0");
     assert_eq!(heard(&h, a, from, babyfare), 1, "a player's line is said");
     let one = h.server.store.account_by_name("one").expect("reads");
     assert_eq!(one.and_then(|x| x.ban), None, "and bans nobody");
+
+    let player = Issuer::Account {
+        name: "two".into(),
+        admin: false,
+        groups: vec![],
+        character: "Babyfare".into(),
+    };
     let c = Command::Gag {
         name: "Elara".into(),
     };
-    assert_eq!(c.needs(), admin::Access::Sentinel);
+    let clock = h.clock();
+    assert_eq!(
+        admin::run(&mut h.server, &mut h.net, clock, &player, &c),
+        [admin::NOT_AN_ADMIN]
+    );
+    assert!(!h.server.gags.gagged(elara), "and gags nobody");
 }
 
-/// `@dn verify <token>` is an admin's: an admin's line is kept for the network's half marked as
-/// an admin's; staff below it are refused as for any command beyond their level, and nothing is
-/// kept; a player's line is kept as any other of its `@dn` words, for the friends service to
-/// answer. Nobody hears any of them.
+/// `@dn verify <token>` needs an admin's account: an admin's line is kept for the network's half
+/// marked as an admin's; a player's line is kept as any other of its `@dn` words, for the friends
+/// service to answer. Nobody hears any of them.
 /// Behaviour: server.network.verify-in-game-for-admins
 #[test]
-fn dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused() {
+fn dn_verify_said_in_game_is_only_an_admins() {
     let mut h = Harness::new();
     let (a, elara) = h.player_in_world("one", "Elara");
     let (b, babyfare) = h.player_in_world("two", "Babyfare");
     let (c, cara) = h.player_in_world("three", "Cara");
-    console(&mut h, "set-accountaccess one admin");
-    console(&mut h, "set-accountaccess two developer");
+    console(&mut h, "set-accountadmin one");
     let token = "dnv_abcdefghijklmnopqrstuvwxyzAB-_01";
     let from = [
         h.bots[a].inbox.len(),
@@ -578,15 +578,12 @@ fn dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused() {
         kept,
         [
             (elara, format!("verify {token}"), true),
+            (babyfare, format!("Verify {token}"), false),
             (cara, format!("verify {token}"), false),
             (babyfare, "on".to_owned(), false),
         ]
     );
     assert_eq!(notices(&h, a, from[0]), Vec::<String>::new());
-    assert_eq!(
-        notices(&h, b, from[1]),
-        ["That command needs an Admin's access."]
-    );
     for (bot, f) in [(a, from[0]), (b, from[1]), (c, from[2])] {
         for speaker in [elara, babyfare, cara] {
             assert_eq!(heard(&h, bot, f, speaker), 0, "nobody hears it");
@@ -596,26 +593,18 @@ fn dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused() {
     assert!(chat::is_verify("VERIFY x") && !chat::is_verify("verified") && !chat::is_verify(""));
 }
 
-/// `@dn admin ...` is an admin's, as `@dn verify` is: an admin's line is kept marked as an admin's;
-/// staff below it are refused as for any command beyond their level, and nothing is kept; a player's
-/// is kept as any other of its `@dn` words, which the friends service answers with its help. Nobody
-/// hears any of them.
+/// `@dn admin ...` needs an admin's account, as `@dn verify` does: an admin's line is kept marked as
+/// an admin's; a player's is kept as any other of its `@dn` words, which the friends service answers
+/// with its help. Nobody hears any of them.
 /// Behaviour: server.network.operator-words-in-game-for-admins
 #[test]
-fn dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused() {
+fn dn_admin_said_in_game_is_only_an_admins() {
     let mut h = Harness::new();
     let (a, elara) = h.player_in_world("one", "Elara");
-    let (b, babyfare) = h.player_in_world("two", "Babyfare");
     let (c, cara) = h.player_in_world("three", "Cara");
-    console(&mut h, "set-accountaccess one admin");
-    console(&mut h, "set-accountaccess two sentinel");
-    let from = [
-        h.bots[a].inbox.len(),
-        h.bots[b].inbox.len(),
-        h.bots[c].inbox.len(),
-    ];
+    console(&mut h, "set-accountadmin one");
+    let from = [h.bots[a].inbox.len(), h.bots[c].inbox.len()];
     say(&mut h, a, "@dn admin block coldeve");
-    say(&mut h, b, "@DN Admin block coldeve");
     room_line(&mut h, c, "@dn admin block coldeve");
     let kept: Vec<(u64, String, bool)> = h
         .server
@@ -630,12 +619,8 @@ fn dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused() {
             (cara, "admin block coldeve".to_owned(), false),
         ]
     );
-    assert_eq!(
-        notices(&h, b, from[1]),
-        ["That command needs an Admin's access."]
-    );
-    for (bot, f) in [(a, from[0]), (b, from[1]), (c, from[2])] {
-        for speaker in [elara, babyfare, cara] {
+    for (bot, f) in [(a, from[0]), (c, from[1])] {
+        for speaker in [elara, cara] {
             assert_eq!(heard(&h, bot, f, speaker), 0, "nobody hears it");
         }
         assert_eq!(room_lines(&h, bot, f), 0, "nor in the room");
@@ -692,9 +677,8 @@ fn a_moderation_commands_answer_says_whether_it_was_done() {
 }
 
 /// `gamecast` shows every player in the world `Broadcast from <who>> <message>`, as Empyrean's:
-/// from the console, `System` and the message as typed; said in game by an envoy, its character's
-/// name. A sentinel's is refused and shows nobody anything, and a gamecast with no message is how
-/// it is written.
+/// from the console, `System` and the message as typed; said in game by an admin, its character's
+/// name. A player's is only said, and a gamecast with no message is how it is written.
 /// Behaviour: server.operator.gamecast-shows-everyone-a-message
 #[test]
 fn gamecast_shows_every_player_in_the_world_the_message() {
@@ -713,8 +697,7 @@ fn gamecast_shows_every_player_in_the_world_the_message() {
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(said[0].contains("2 players"), "{said:?}");
 
-    console(&mut h, "set-accountaccess one envoy");
-    console(&mut h, "set-accountaccess two sentinel");
+    console(&mut h, "set-accountadmin one");
     let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
     say(&mut h, a, "@gamecast Hello, all.");
     assert!(
@@ -725,10 +708,6 @@ fn gamecast_shows_every_player_in_the_world_the_message() {
     let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
     say(&mut h, b, "@gamecast Not mine to say.");
     assert!(notices(&h, a, from[0]).is_empty(), "nothing shown");
-    assert_eq!(
-        notices(&h, b, from[1]),
-        ["That command needs an Envoy's access."]
-    );
     assert!(matches!(admin::parse("gamecast"), Some(Err(_))));
 }
 

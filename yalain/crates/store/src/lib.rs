@@ -63,8 +63,10 @@ pub struct Account {
     pub secret: Option<Vec<u8>>,
     /// Seconds since 1970.
     pub created_at: i64,
-    /// Its access level, as the server numbers them (0, a player's, for a new account).
-    pub access: u32,
+    /// Its account may make admin characters and give admin commands. Only the operator sets it.
+    pub admin: bool,
+    /// The named groups its admin commands are checked against, as the operator set them.
+    pub groups: Vec<String>,
     /// Its ban, while one is kept (it may have run out: the server lifts it at the next login).
     pub ban: Option<Ban>,
 }
@@ -208,17 +210,35 @@ pub trait Store {
     /// The database failed.
     fn accounts(&mut self) -> StoreResult<Vec<Account>>;
 
-    /// Set an account's access level.
+    /// Set whether an account is an admin's.
     ///
     /// # Errors
     /// No account has this id, or the database failed.
-    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()>;
+    fn set_account_admin(&mut self, account: u64, admin: bool) -> StoreResult<()>;
+
+    /// Set an account's named groups.
+    ///
+    /// # Errors
+    /// No account has this id, or the database failed.
+    fn set_account_groups(&mut self, account: u64, groups: &[String]) -> StoreResult<()>;
+
+    /// Set the entity template a character is made from (what makes it an admin character).
+    ///
+    /// # Errors
+    /// No character has this id, or the database failed.
+    fn set_character_entity(&mut self, character: u64, entity: u32) -> StoreResult<()>;
 
     /// Keep an account's ban, or lift it (`None`).
     ///
     /// # Errors
     /// No account has this id, or the database failed.
     fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()>;
+
+    /// Give a character a new name (free: the caller checks).
+    ///
+    /// # Errors
+    /// No character has this id, the name is taken, or the database failed.
+    fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()>;
 
     /// The seconds a character's gag has still to run; `None` when it is not gagged.
     ///

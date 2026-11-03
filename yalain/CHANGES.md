@@ -17,6 +17,11 @@ what they see, not how it was done.
 - An open corpse now closes when you walk away from it.
 - Worlds can take WebSocket connections.
 - Fixed Initiate Moccasins and similar loot going in the weapon slot.
+- Access levels are gone: an account is an admin's or a player's, set with `set-accountadmin` or `--admin`.
+- New admin characters, made with `set-characteradmin`, which enter with the game's admin commands.
+- The game's admin commands now work for admin characters: teleports, bans, making objects and more.
+- New named admin groups, for keeping bans, boots and the like to chosen admins.
+- New `--serve-admin-library`, so an admin's retail client can use its admin commands too.
 
 ## 0.1.2 (2026-11-03)
 

@@ -243,45 +243,26 @@ pub fn is_admin_word(words: &str) -> bool {
         .is_some_and(|w| w.eq_ignore_ascii_case(ADMIN))
 }
 
-/// Keeps a line said as the network's command for the friends service: true when it was one.
-/// The operator's words from staff below an admin are refused here, as any command beyond their
-/// level; a player's are the friends service's, which reads them as no word it knows.
-fn network_command<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    text: &str,
-) -> bool {
+/// Keeps a line said as the network's command for the friends service: true when it was one. The
+/// operator's words from a player's account are logged and go on as the friends service's, which
+/// reads them as no word it knows.
+fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bool {
     let Some(words) = said_network_words(text) else {
         return false;
     };
     let Some(p) = s.players.get(&world) else {
         return true;
     };
-    let access = s
-        .sessions
-        .get(&p.login)
-        .map_or(crate::admin::Access::Player, |x| {
-            crate::admin::Access::from_number(x.account.access)
-        });
-    if (is_verify(&words) || is_admin_word(&words))
-        && access > crate::admin::Access::Player
-        && access < crate::admin::Access::Admin
-    {
-        tracing::info!(character = %p.name, %access, "refused: the network's operator words are an admin's");
-        crate::login::notice(
-            net,
-            world,
-            &crate::admin::beyond(crate::admin::Access::Admin),
-        );
-        return true;
+    let admin = s.sessions.get(&p.login).is_some_and(|x| x.account.admin);
+    if !admin && (is_verify(&words) || is_admin_word(&words)) {
+        tracing::warn!(character = %p.name, "refused: the network's operator words need an admin's account");
     }
     let command = NetworkCommand {
         world,
         character: p.character,
         name: p.name.clone(),
         words,
-        admin: access == crate::admin::Access::Admin,
+        admin,
     };
     s.network_commands.push(command);
     true
@@ -303,7 +284,7 @@ pub fn say<S: Store>(
         .and_then(|t| t.literal)
         .map(|l| String::from_utf16_lossy(&l));
     if let Some(t) = said {
-        if crate::admin::said(s, net, world, &t, clock) || network_command(s, net, world, &t) {
+        if crate::admin::said(s, net, world, &t, clock) || network_command(s, world, &t) {
             return;
         }
     }
@@ -508,7 +489,7 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
 /// The script type of a string.
 const STRING: u16 = 0x76;
 
-fn string_arg(text: &str) -> Arg {
+pub(crate) fn string_arg(text: &str) -> Arg {
     let mut b = Builder::new();
     b.native(STRING, NativeObject::Text(text.encode_utf16().collect()));
     Arg::Object(b.graph())
@@ -1044,7 +1025,7 @@ pub fn service<S: Store>(
     if let Some(world) = world {
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
-            || network_command(s, net, world, &text)
+            || network_command(s, world, &text)
             || crate::admin::refuse_gagged(s, net, world)
         {
             send_chat(

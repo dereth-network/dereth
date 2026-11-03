@@ -35,6 +35,11 @@
 //!   --banned-names FILE   refuse character names holding these words: one pattern a line, `*`
 //!                         for any run of letters (default: none)
 //!   --add-account N:T     make account N with ticket T, then carry on
+//!   --admin N             make account N an admin's when this start makes it (--add-account),
+//!                         then carry on
+//!   --admin-command W:G,G keep the account-level admin command W to the named groups G
+//!   --serve-admin-library serve admin accounts' retail clients the script library that sends
+//!                         their commands in the clear
 //!   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8); a
 //!                         secret kept at another cost is kept again at this one at its next login
 //!   --save-interval S     keep each character in the world every S seconds, 1 or more (default
@@ -210,6 +215,9 @@ struct Options {
     listed: bool,
     banned_names: Option<PathBuf>,
     add_accounts: Vec<(String, String)>,
+    admins: Vec<String>,
+    admin_commands: Vec<(String, Vec<String>)>,
+    serve_admin_library: bool,
     /// The bcrypt cost of account secrets (`--secret-cost`).
     secret_cost: u32,
     /// Seconds between a character's saves (`--save-interval`).
@@ -339,6 +347,9 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         listed: false,
         banned_names: None,
         add_accounts: Vec::new(),
+        admins: Vec::new(),
+        admin_commands: Vec::new(),
+        serve_admin_library: false,
         secret_cost: yalain_world::login::SECRET_COST,
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
@@ -396,6 +407,24 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 let v = value()?;
                 let (n, t) = v.split_once(':').ok_or("--add-account takes NAME:TICKET")?;
                 o.add_accounts.push((n.to_string(), t.to_string()));
+            }
+            "--admin" => o.admins.push(value()?),
+            "--serve-admin-library" => o.serve_admin_library = true,
+            "--admin-command" => {
+                let v = value()?;
+                let (word, groups) = v
+                    .split_once(':')
+                    .ok_or("--admin-command takes COMMAND:GROUP,GROUP")?;
+                if !yalain_world::admin_groups::is_command(word) {
+                    return Err(format!(
+                        "--admin-command: {word} is none of {}",
+                        yalain_world::admin_groups::WORDS.join(", ")
+                    ));
+                }
+                o.admin_commands.push((
+                    word.to_ascii_lowercase(),
+                    yalain_world::admin_groups::read_list(groups),
+                ));
             }
             "--secret-cost" => {
                 let n: u32 = value()?
@@ -602,6 +631,42 @@ fn unix_now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0))
 }
 
+/// The accounts the configuration lists, made with their tickets, and those it names as admins'
+/// raised. A name is raised only on the start that made its account from a ticket given here: only
+/// then is its secret surely the operator's. An account already there may be a stranger's, who
+/// logged in with that name on an open world, whatever ticket the list holds for it; and one the
+/// console has made a player again stays a player. Either is the console's to raise.
+fn seed_accounts<S: Store>(
+    store: &mut S,
+    accounts: &[(String, String)],
+    admins: &[String],
+    cost: u32,
+    now: i64,
+) {
+    let mut made = Vec::new();
+    for (n, t) in accounts {
+        match add_account(store, n, t.as_bytes(), cost, now) {
+            Ok(a) => made.push(a.id),
+            Err(e) => tracing::warn!("account {n}: {e}"),
+        }
+    }
+    for name in admins {
+        match store.account_by_name(name) {
+            Ok(Some(a)) if made.contains(&a.id) => match store.set_account_admin(a.id, true) {
+                Ok(()) => tracing::info!(account = %a.name, "an admin's account"),
+                Err(e) => tracing::warn!(account = %a.name, "not made an admin: {e}"),
+            },
+            Ok(Some(a)) if a.admin => {}
+            Ok(_) => tracing::warn!(
+                account = %name,
+                "not made an admin: the list raises only an account this start makes from its \
+                 ticket (--add-account); at the console, set-accountadmin {name}"
+            ),
+            Err(e) => tracing::warn!(account = %name, "not made an admin: {e}"),
+        }
+    }
+}
+
 /// Make the accounts and characters the command line asks for.
 fn seed<S: Store>(o: &Options, store: &mut S, rules: &CharGenRules) {
     let policy = if o.listed {
@@ -609,11 +674,7 @@ fn seed<S: Store>(o: &Options, store: &mut S, rules: &CharGenRules) {
     } else {
         AccountPolicy::Open
     };
-    for (n, t) in &o.add_accounts {
-        if let Err(e) = add_account(store, n, t.as_bytes(), o.secret_cost, unix_now()) {
-            tracing::warn!("account {n}: {e}");
-        }
-    }
+    seed_accounts(store, &o.add_accounts, &o.admins, o.secret_cost, unix_now());
     for (a, n, race, sex) in &o.add_characters {
         let account = match account_for_command(policy, store, a, unix_now()) {
             Ok(acc) => acc,
@@ -778,6 +839,7 @@ fn run<S: Store>(
         echo_positions: o.echo,
         seed,
         secret_cost: o.secret_cost,
+        admin_commands: o.admin_commands.clone(),
         save_seconds: o.save_seconds,
         shutdown_seconds: o.shutdown_seconds,
         max_sessions: o.max_sessions,
@@ -841,9 +903,19 @@ fn run<S: Store>(
         .with_play(play.catalog, play.spawns, play.loot);
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
-    server.data = Some(Box::new(data::install_files(
-        &o.dats.clone().unwrap_or_default(),
-    )?));
+    let files = data::install_files(&o.dats.clone().unwrap_or_default())?;
+    if o.serve_admin_library {
+        use yalain_world::admin_library::{AdminLibrary, RECORD};
+        use yalain_world::download::DataFiles as _;
+        let record = files
+            .read(auberean_dat::DatKind::Portal, RECORD)
+            .ok_or_else(|| {
+                "--serve-admin-library: no script library in the data files".to_owned()
+            })?;
+        server.admin_library = Some(AdminLibrary::of(&record)?);
+        tracing::info!("serving admin accounts' retail clients the script library");
+    }
+    server.data = Some(Box::new(files));
     server.levels = play.levels;
     server.skill_table = play.skills;
     server.effect_table = play.effects;
@@ -1869,6 +1941,80 @@ fn version_text() -> String {
         option_env!("YALAIN_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("YALAIN_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+#[cfg(test)]
+mod admin_tests {
+    use super::seed_accounts;
+    use yalain_store::{MemoryStore, Store as _};
+    use yalain_world::login::admits;
+    use yalain_world::AccountPolicy;
+
+    const COST: u32 = 4;
+
+    fn list(accounts: &[&str]) -> Vec<(String, String)> {
+        accounts
+            .iter()
+            .map(|a| ((*a).to_owned(), "operators-ticket".to_owned()))
+            .collect()
+    }
+
+    fn names(admins: &[&str]) -> Vec<String> {
+        admins.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    fn is_admin(store: &mut MemoryStore, n: &str) -> Option<bool> {
+        store.account_by_name(n).expect("reads").map(|a| a.admin)
+    }
+
+    /// A stranger who logged in with a name on an open world first.
+    fn stranger(store: &mut MemoryStore, n: &str) {
+        admits(AccountPolicy::Open, COST, store, n, b"strangers-ticket", 1).expect("admitted");
+    }
+
+    /// The list raises an account the same start makes from its ticket, its name in any case.
+    /// Behaviour: server.admin.config-raises-only-what-this-start-makes
+    #[test]
+    fn the_configured_admins_raise_an_account_made_from_its_ticket_at_that_start() {
+        let mut store = MemoryStore::default();
+        seed_accounts(&mut store, &list(&["kara"]), &names(&["KARA"]), COST, 1);
+        assert_eq!(is_admin(&mut store, "kara"), Some(true));
+    }
+
+    /// An account a stranger made first stays a player, whether the list holds a ticket for its name
+    /// (which cannot make it) or not, its name in any case; so does one the list names ahead of it,
+    /// at this start and the next; nothing is made for a name with no account.
+    /// Behaviour: server.admin.config-raises-only-what-this-start-makes
+    #[test]
+    fn the_configured_admins_do_not_raise_a_strangers_account() {
+        let mut store = MemoryStore::default();
+        stranger(&mut store, "kara");
+        seed_accounts(&mut store, &list(&["kara"]), &names(&["kara"]), COST, 1);
+        assert_eq!(is_admin(&mut store, "kara"), Some(false), "ticket listed");
+        seed_accounts(&mut store, &list(&["KARA"]), &names(&["KARA"]), COST, 1);
+        assert_eq!(is_admin(&mut store, "kara"), Some(false), "in other case");
+
+        seed_accounts(&mut store, &[], &names(&["fen"]), COST, 1);
+        assert_eq!(is_admin(&mut store, "fen"), None, "nothing is made");
+        stranger(&mut store, "fen");
+        seed_accounts(&mut store, &[], &names(&["fen"]), COST, 1);
+        assert_eq!(is_admin(&mut store, "fen"), Some(false), "the next start");
+    }
+
+    /// An account the list raised and the console then made a player again stays a player at the
+    /// next start, with the list as it was, even with the ticket the list holds; an admin stays one.
+    /// Behaviour: server.admin.a-restart-keeps-the-consoles-demotion
+    #[test]
+    fn a_restart_does_not_undo_the_consoles_demotion() {
+        let mut store = MemoryStore::default();
+        let (accounts, admins) = (list(&["kara", "ivo"]), names(&["kara", "ivo"]));
+        seed_accounts(&mut store, &accounts, &admins, COST, 1);
+        let kara = store.account_by_name("kara").expect("reads").expect("made");
+        store.set_account_admin(kara.id, false).expect("set");
+        seed_accounts(&mut store, &accounts, &admins, COST, 2);
+        assert_eq!(is_admin(&mut store, "kara"), Some(false), "stays a player");
+        assert_eq!(is_admin(&mut store, "ivo"), Some(true), "stays an admin");
+    }
 }
 
 #[cfg(test)]

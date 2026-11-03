@@ -52,7 +52,8 @@ impl Store for MemoryStore {
             name: name.to_string(),
             secret,
             created_at: now,
-            access: 0,
+            admin: false,
+            groups: Vec::new(),
             ban: None,
         };
         self.accounts.push(a.clone());
@@ -70,8 +71,36 @@ impl Store for MemoryStore {
         Ok(v)
     }
 
-    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
-        self.account_mut(account)?.access = access;
+    fn set_account_admin(&mut self, account: u64, admin: bool) -> StoreResult<()> {
+        self.account_mut(account)?.admin = admin;
+        Ok(())
+    }
+
+    fn set_account_groups(&mut self, account: u64, groups: &[String]) -> StoreResult<()> {
+        self.account_mut(account)?.groups = groups.to_vec();
+        Ok(())
+    }
+
+    fn set_character_entity(&mut self, character: u64, entity: u32) -> StoreResult<()> {
+        let c = self
+            .characters
+            .iter_mut()
+            .find(|c| c.id == character)
+            .ok_or_else(|| StoreError(format!("no character {character}")))?;
+        c.entity_did = entity;
+        Ok(())
+    }
+
+    fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()> {
+        if self.name_taken(name)? {
+            return Err(StoreError(format!("the name {name} is taken")));
+        }
+        let c = self
+            .characters
+            .iter_mut()
+            .find(|c| c.id == character)
+            .ok_or_else(|| StoreError(format!("no character {character}")))?;
+        c.name = name.to_owned();
         Ok(())
     }
 

@@ -21,7 +21,12 @@
 //! 1. makes the tables: a file kept before versions gains those it lacks (the Dereth Network's,
 //!    the friends service's), empty;
 //! 2. the operator's moderation: each account's access level (every account a player's) and its
-//!    ban (none), and the gagged characters (none).
+//!    ban (none), and the gagged characters (none);
+//! 3. the admin flag in place of the levels: an account at the highest level (5) with a secret is an
+//!    admin; one between (1 to 4), or at the highest with no secret (an open world gives such an
+//!    account to the first ticket it sees), is a player, each named in the log, for the operator to
+//!    raise if it should be an admin; the levels are gone from the file (the backup keeps them);
+//! 4. the named groups an account's admin commands are checked against (none).
 
 use std::path::{Path, PathBuf};
 
@@ -121,11 +126,64 @@ fn moderation(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(GAGS)
 }
 
+/// The highest of the levels migration 3 replaces: an admin's.
+const LEVEL_ADMIN: i64 = 5;
+
+fn admin_flag(db: &Connection) -> rusqlite::Result<()> {
+    let columns = |c: &str| -> rusqlite::Result<i64> {
+        db.query_row(
+            "SELECT count(*) FROM pragma_table_info('account') WHERE name = ?1",
+            [c],
+            |r| r.get(0),
+        )
+    };
+    if columns("admin")? == 0 {
+        db.execute_batch("ALTER TABLE account ADD COLUMN admin INTEGER NOT NULL DEFAULT 0")?;
+    }
+    if columns("access")? == 0 {
+        return Ok(());
+    }
+    {
+        let mut between = db.prepare(
+            "SELECT name, access FROM account WHERE access > 0 \
+             AND (access < ?1 OR secret IS NULL) ORDER BY name",
+        )?;
+        let rows = between.query_map([LEVEL_ADMIN], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (name, level) = row?;
+            tracing::warn!(
+                account = %name,
+                level,
+                "access levels are gone: this account is now a player; set-accountadmin makes it                  an admin"
+            );
+        }
+    }
+    db.execute(
+        "UPDATE account SET admin = 1 WHERE access >= ?1 AND secret IS NOT NULL",
+        [LEVEL_ADMIN],
+    )?;
+    db.execute_batch("ALTER TABLE account DROP COLUMN access")
+}
+
+fn admin_groups(db: &Connection) -> rusqlite::Result<()> {
+    let has: i64 = db.query_row(
+        "SELECT count(*) FROM pragma_table_info('account') WHERE name = 'admin_groups'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        db.execute_batch("ALTER TABLE account ADD COLUMN admin_groups TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
+
 /// The schema's migrations, in order: a file at version `n` has had the first `n`.
-const MIGRATIONS: &[Migration] = &[tables, moderation];
+const MIGRATIONS: &[Migration] = &[tables, moderation, admin_flag, admin_groups];
 
 /// The schema version this build keeps its files at.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// How many backups of a file are kept (the newest), as Empyrean keeps.
 pub const KEEP_BACKUPS: usize = 3;
@@ -134,7 +192,7 @@ pub const KEEP_BACKUPS: usize = 3;
 const BACKUP_MARKER: &str = ".backup-";
 
 const ACCOUNT_COLUMNS: &str =
-    "id, name, secret, created_at, access, banned_at, banned_until, banned_by, ban_reason";
+    "id, name, secret, created_at, admin, banned_at, banned_until, banned_by, ban_reason, admin_groups";
 
 const CHARACTER_COLUMNS: &str =
     "id, account, name, race, sex, class, implement, start_area, entity_did, physique, look, created_at, deleted_at, last_played";
@@ -167,7 +225,13 @@ fn account(r: &Row<'_>) -> rusqlite::Result<Account> {
         name: r.get(1)?,
         secret: r.get(2)?,
         created_at: r.get(3)?,
-        access: u32::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+        admin: r.get::<_, i64>(4)? != 0,
+        groups: r
+            .get::<_, String>(9)?
+            .split(',')
+            .filter(|g| !g.is_empty())
+            .map(str::to_owned)
+            .collect(),
         ban: match (at, until) {
             (Some(at), Some(until)) => Some(Ban {
                 at,
@@ -525,7 +589,8 @@ impl Store for SqliteStore {
             name: name.to_string(),
             secret,
             created_at: now,
-            access: 0,
+            admin: false,
+            groups: Vec::new(),
             ban: None,
         })
     }
@@ -552,15 +617,54 @@ impl Store for SqliteStore {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
     }
 
-    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
+    fn set_account_admin(&mut self, account: u64, admin: bool) -> StoreResult<()> {
         let n = self
             .db
             .execute(
-                "UPDATE account SET access = ?2 WHERE id = ?1",
-                params![account as i64, i64::from(access)],
+                "UPDATE account SET admin = ?2 WHERE id = ?1",
+                params![account as i64, i64::from(admin)],
             )
             .map_err(err)?;
         one_account(n, account)
+    }
+
+    fn set_account_groups(&mut self, account: u64, groups: &[String]) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE account SET admin_groups = ?2 WHERE id = ?1",
+                params![account as i64, groups.join(",")],
+            )
+            .map_err(err)?;
+        one_account(n, account)
+    }
+
+    fn set_character_entity(&mut self, character: u64, entity: u32) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE character SET entity_did = ?2 WHERE id = ?1",
+                params![character as i64, i64::from(entity)],
+            )
+            .map_err(err)?;
+        if n == 0 {
+            return Err(StoreError(format!("no character {character}")));
+        }
+        Ok(())
+    }
+
+    fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE character SET name = ?2 WHERE id = ?1",
+                params![character as i64, name],
+            )
+            .map_err(err)?;
+        if n == 0 {
+            return Err(StoreError(format!("no character {character}")));
+        }
+        Ok(())
     }
 
     fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()> {

@@ -1389,12 +1389,24 @@ pub(crate) fn lose_health<S: Store>(
         .unwrap_or(100)
         .max(1);
     let health = quals::int(&p.qualities, quality::HEALTH).unwrap_or(max);
-    let now = (health - damage).max(0);
+    let least = i32::from(p.admin.never_say_die);
+    let now = (health - damage).max(least);
     quals::set_int(&mut p.qualities, quality::HEALTH, now);
     progress::send_int(net, world, quality::HEALTH, now);
     #[allow(clippy::cast_precision_loss)]
     let shares = (now as f32 / max as f32, health as f32 / max as f32);
     shares
+}
+
+/// [`lose_health`] for tests of what bounds it.
+#[doc(hidden)]
+pub fn lose_health_for_test<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    damage: i32,
+) {
+    lose_health(s, net, world, damage);
 }
 
 /// A player has been hurt by a creature or another player: with no health left it dies, `by` its

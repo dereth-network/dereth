@@ -20,6 +20,11 @@ yalain --dats <install folder> [options]
   --banned-names FILE   refuse character names holding these words: one pattern a line, `*`
                         for any run of letters (default: none)
   --add-account N:T     make account N with ticket T, then carry on
+  --admin N             make account N an admin's when this start makes it (--add-account),
+                        then carry on
+  --admin-command W:G,G keep the account-level admin command W to the named groups G
+  --serve-admin-library serve admin accounts' retail clients the script library that sends
+                        their commands in the clear
   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8)
   --save-interval S     keep each character in the world every S seconds (default 300)
   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
