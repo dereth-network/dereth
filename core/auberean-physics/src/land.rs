@@ -83,6 +83,8 @@ pub struct Block {
     /// The placed entities that collide through their setups' cylinders or spheres, each where it
     /// stands ([`crate::object::placed_entity`]).
     pub objects: Placed,
+    /// Whether a body may walk on it: the world's passability map.
+    pub passable: bool,
 }
 
 impl Block {
@@ -135,6 +137,7 @@ impl Block {
             cell_solids: vec![Vec::new(); CELLS_PER_SIDE * CELLS_PER_SIDE],
             water: None,
             objects: Vec::new(),
+            passable: true,
         }
     }
 
@@ -180,11 +183,23 @@ impl HostCell for LandCell {
         Position::new(id, Frame::new(Vec3::ZERO, Quat::IDENTITY))
     }
 
+    // D2-03824
     fn point_in_cell(&self, local: Vec3) -> bool {
-        cell_of(local) == Some((self.cx, self.cy))
+        // The square a point lies over, numbered on from the block's own squares.
+        #[allow(clippy::cast_possible_truncation)]
+        let square = |v: f32| {
+            let k = (f64::from(v) / f64::from(CELL_LENGTH)).floor() as i64;
+            usize::try_from(k.rem_euclid(CELLS_PER_SIDE as i64)).unwrap_or(0)
+        };
+        (square(local.x), square(local.y)) == (self.cx, self.cy)
     }
 
+    // D2-03835
     fn find_env_collisions(&self, ctx: &TransitionCtx<'_>, t: &mut Transition) -> TransitionState {
+        if !self.block.passable {
+            self.turn_back(t);
+            return TransitionState::Adjusted;
+        }
         let off = t.rules.block_offset(t.sphere_path.check_pos.cell, self.id);
         // The ground: the triangle under the sphere's lowest point, when it is in this cell.
         let low = t.sphere_path.global_low_point.sub(off);
@@ -219,6 +234,42 @@ impl HostCell for LandCell {
             }
         }
         TransitionState::Ok
+    }
+}
+
+impl LandCell {
+    /// Turns a move into this cell back at the land cell's edge: by where the body stood against
+    /// the cell (north or south of it, else east or west), the move's part along that axis is
+    /// taken again the other way from where it got to, and that axis is what it collided along.
+    // D2-03833
+    fn turn_back(&self, t: &mut Transition) {
+        #[allow(clippy::cast_precision_loss)]
+        let center = |k: usize| CELL_LENGTH * (k as f32 + 0.5);
+        let half = CELL_LENGTH * 0.5;
+        let cell = Position::new(
+            self.id,
+            Frame::new(
+                Vec3::new(center(self.cx), center(self.cy), 0.0),
+                Quat::IDENTITY,
+            ),
+        );
+        let path = &t.sphere_path;
+        let from = t.rules.get_offset(&cell, &path.curr_pos);
+        let mut d = t.rules.get_offset(&path.curr_pos, &path.check_pos);
+        let normal = if from.y < -half {
+            d.y = -d.y;
+            Vec3::new(0.0, -1.0, 0.0)
+        } else if from.y > half {
+            d.y = -d.y;
+            Vec3::new(0.0, 1.0, 0.0)
+        } else {
+            d.x = -d.x;
+            Vec3::new(if from.x >= -half { 1.0 } else { -1.0 }, 0.0, 0.0)
+        };
+        t.sphere_path.cell_array_valid = false;
+        t.sphere_path.check_pos.frame.origin = t.sphere_path.check_pos.frame.origin.add(d);
+        t.sphere_path.cache_global_sphere(Some(d));
+        t.collision_info.set_collision_normal(normal);
     }
 }
 
@@ -560,6 +611,7 @@ pub fn build(
         cell_solids,
         water,
         objects,
+        passable: region.passable(u32::from(x), u32::from(y)),
     })
 }
 

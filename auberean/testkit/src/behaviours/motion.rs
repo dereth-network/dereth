@@ -77,6 +77,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.collision.a-body-stops-at-the-edge-of-a-block-it-may-not-walk-on",
+        says: "A body running at a block the world's map shuts is turned back at the edge of the \
+               land cell it would enter, told it collided along that axis, and never reaches the \
+               block.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-BLOCK-PASSABILITY"),
+        station: "auberean-physics::cpu::contact::collision::a_body_stops_at_the_edge_of_a_block_it_may_not_walk_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.corpus.a-body-driven-by-recorded-reports-indoors-reaches-the-next-report",
         says: "A body put at a report of a recorded steady run in the rooms of an interior and \
                moved as it asks, at its full speed, reaches the next report over the rooms' floors, \
@@ -97,6 +107,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-REPLAY"),
         station: "auberean-physics::corpus::replay::a_body_driven_by_recorded_reports_reaches_the_next_report",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "motion.corpus.no-recorded-player-stands-on-a-block-the-map-shuts",
+        says: "Every 2017 report from the land, over 1.4 million on over 3,000 blocks, is on a \
+               block the world's passability map lets a body walk on, though the map shuts most \
+               of the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-MAP-CORPUS"),
+        station: "auberean-physics::corpus::replay::no_recorded_player_stands_on_a_block_the_map_shuts",
         tier: Tier::Corpus,
     },
     behaviour! {

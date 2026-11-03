@@ -13,6 +13,7 @@ not how it was done.
 - The screens before the world now stay 4:3 in any window.
 - Fixed your character wobbling while running in mouse look.
 - Fixed falling through the floor in the training ground's second area.
+- The world's closed-off regions now stop you at their edge.
 
 ## 0.1.2 (2026-11-02)
 

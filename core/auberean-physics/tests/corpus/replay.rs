@@ -456,3 +456,46 @@ fn a_body_driven_by_recorded_reports_indoors_reaches_the_next_report() {
     // 92.4% on the same ground, 96.2% heading the reported way.
     judge(&replay(true), 4_000, [0.80, 0.99, 0.90, 0.90]);
 }
+
+/// No recorded player stands outdoors on a block the world's map says may not be walked on:
+/// the 2017 sessions' reports from the land cover thousands of blocks, and every one is on a block
+/// the map lets a body walk on, though the map shuts more blocks than it opens.
+///
+/// Behaviour: motion.corpus.no-recorded-player-stands-on-a-block-the-map-shuts
+#[test]
+fn no_recorded_player_stands_on_a_block_the_map_shuts() {
+    let (_records, region) = world().expect("the September 2013 install's world opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let (mut reports, mut shut) = (0u64, 0u64);
+    let mut blocks = std::collections::BTreeSet::new();
+    auberean_testkit::captures::messages(&index, &[CLIENT_POSITION], &[2017], |m| {
+        if m.to_client {
+            return;
+        }
+        let Ok(ClientMessage::Position(b)) = ClientMessage::decode(&m.raw) else {
+            return;
+        };
+        if b.cell & 0xFFFF >= 0x100 {
+            return;
+        }
+        let (x, y) = (b.cell >> 24, (b.cell >> 16) & 0xFF);
+        reports += 1;
+        blocks.insert((x, y));
+        if !region.passable(x, y) {
+            shut += 1;
+        }
+    })
+    .expect("the capture index reads");
+    assert_eq!(shut, 0);
+    assert!(reports > 1_000_000, "{reports} reports");
+    assert!(blocks.len() > 3_000, "{} blocks", blocks.len());
+    let mut shut_blocks = 0;
+    for x in 0..255 {
+        for y in 0..255 {
+            if !region.passable(x, y) {
+                shut_blocks += 1;
+            }
+        }
+    }
+    assert!(shut_blocks > 30_000, "{shut_blocks} blocks the map shuts");
+}

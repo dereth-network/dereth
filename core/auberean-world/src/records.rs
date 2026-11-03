@@ -26,6 +26,7 @@ use auberean_primitives::DataId;
 use crate::land::{LandConstants, LandError};
 use crate::look::LookRecords;
 use crate::place::{LoadedSetup, PlaceRecords};
+use crate::property::BlockProperties;
 use crate::scenery::SceneSource;
 use crate::terrain::Surfaces;
 use crate::water::WaterSet;
@@ -78,9 +79,18 @@ pub struct RegionSet {
     pub water: Option<WaterSet>,
     /// The fog kinds' block map.
     pub fog_kinds: Option<auberean_assets::region::BlockMap>,
+    /// The properties laid over the world, and the block map of each that has one.
+    pub properties: Option<BlockProperties>,
 }
 
 impl RegionSet {
+    /// Whether a body may walk on block `(x, y)`: the world's passability map; a world without one
+    /// lets it.
+    #[must_use]
+    pub fn passable(&self, x: u32, y: u32) -> bool {
+        self.properties.as_ref().is_none_or(|p| p.passable(x, y))
+    }
+
     /// The surface descriptions, as the terrain builder takes them.
     #[must_use]
     pub fn surfaces(&self) -> Surfaces<'_> {
@@ -216,7 +226,19 @@ impl WorldRecords {
                     desc,
                 })
             });
+        // D2-07487
+        let properties = first(&region.properties)
+            .and_then(|id| self.get::<auberean_assets::region::PropertyDesc>(id))
+            .map(|desc| {
+                let maps = desc
+                    .properties
+                    .iter()
+                    .map(|p| self.get(p.block_map.0))
+                    .collect();
+                BlockProperties { desc, maps }
+            });
         Ok(RegionSet {
+            properties,
             region,
             land,
             terrain,
