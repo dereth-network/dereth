@@ -345,6 +345,12 @@ pub trait Interface {
         false
     }
 
+    /// Whether a text entry has the keys: the world's controls let go of what is held when it
+    /// takes them.
+    fn text_mode(&self) -> bool {
+        false
+    }
+
     /// The settings the client starts with (its preferences file read), and the world's records
     /// that name the preferences: the interface's own preferences are read from them.
     fn set_preferences(

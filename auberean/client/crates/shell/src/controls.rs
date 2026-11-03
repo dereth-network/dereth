@@ -141,6 +141,13 @@ pub struct Controls {
     pub mouse_look: bool,
     /// In mouse look the mouse steers the player (the camera's option): turns strafe.
     pub steers: bool,
+    /// A text entry has the keys.
+    text_mode: bool,
+}
+
+/// Whether an input word is one of the mouse's.
+const fn is_mouse_input(input: u32) -> bool {
+    input >> 24 == LEFT_BUTTON >> 24
 }
 
 const fn button_input(b: Button) -> u32 {
@@ -181,22 +188,58 @@ impl Controls {
                 // Keys let go while the window had no keyboard never come back up.
                 self.meta = 0;
                 self.pressed.clear();
-                self.focus_lost(keys);
+                self.focus_switch(keys, false);
+                false
+            }
+            Event::Focus(true) if self.text_mode => {
+                self.focus_switch(keys, true);
                 false
             }
             _ => false,
         }
     }
 
-    /// The window's keyboard gone: each action in force, in the order they began, let go through
-    /// the action handler as its input would be. A held action ends (and the movement read from
-    /// the actions in force stops, so the body's next report says so); a latched run and a single
-    /// press for this frame stay, as letting go leaves them.
+    /// A text entry takes the keys, or gives them back. Taking them: each keyboard key held that
+    /// names an action is let go as its release would be, and forgotten (its release later finds
+    /// nothing), then the actions in force are let go ([`Self::focus_switch`]) with the keyboard
+    /// still the window's. Giving them back changes nothing in force.
+    // D2-04871, D2-04945, D2-04868
+    pub fn set_text_mode(&mut self, keys: &Keys, on: bool) {
+        if on == self.text_mode {
+            return;
+        }
+        self.text_mode = on;
+        if !on {
+            return;
+        }
+        let held: Vec<(u32, u32)> = self
+            .pressed
+            .iter()
+            .map(|(input, meta)| (*input, *meta))
+            .filter(|(input, _)| !is_mouse_input(*input))
+            .collect();
+        for (input, meta) in held {
+            if let Some(action) = keys.stack.action(input, meta) {
+                self.pressed.remove(&input);
+                self.action_handler(keys, action, 0.0, KEYBOARD, input);
+            }
+        }
+        self.focus_switch(keys, true);
+    }
+
+    /// The window's keyboard gone, or (`focus` kept) a text entry having the keys: each action in
+    /// force, in the order they began, let go through the action handler as its input would be;
+    /// with the keyboard kept, all but the modifier and interface classes'. A held action ends
+    /// (and the movement read from the actions in force stops, so the body's next report says so);
+    /// a latched run and a single press for this frame stay, as letting go leaves them.
     // D2-03459
-    fn focus_lost(&mut self, keys: &Keys) {
+    fn focus_switch(&mut self, keys: &Keys, focus: bool) {
         for a in self.actions.clone() {
             let modifiers = self.modifier_bitfield(keys);
-            if keys.records.values(a.action, modifiers).is_some() {
+            let Some(values) = keys.records.values(a.action, modifiers) else {
+                continue;
+            };
+            if !focus || !matches!(values.class, class::MODIFIER | class::INTERFACE) {
                 self.action_handler(keys, a.action, 0.0, a.device, a.input);
             }
         }

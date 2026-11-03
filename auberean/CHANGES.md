@@ -120,3 +120,4 @@ not how it was done.
 - Attacking with auto-target on now picks the nearest enemy first.
 - Windows you move stay where you put them the next time you log in.
 - Autorun keeps going when the game window loses focus.
+- Starting to type in chat now stops you, even with a movement key held.

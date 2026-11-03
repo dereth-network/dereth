@@ -570,6 +570,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.text-mode-lets-held-actions-go",
+        says: "When a text entry takes the keys, each key held is let go and each held action in \
+               force ends, but those of the modifier and interface classes; a latched run and a \
+               single press stay, and giving the keys back starts nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-TEXT-MODE"),
+        station: "auberean-shell::dat::controls::a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_press",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.the-default-keys-move-the-body",
         says: "W and Up run forward, with Shift walk at 0.339 of running; S, X and Down back up \
                and Shift does not slow them; A and D turn; Z and C strafe.",

@@ -32,6 +32,7 @@ use auberean_client_sdk::Action;
 use auberean_client_sdk::ClientData;
 use auberean_interface::{Login, Retail};
 use auberean_primitives::{Frame, Quat, Vec3};
+use auberean_scene::movement;
 use auberean_scene::WorldData;
 use auberean_shell::host::InputArea;
 use auberean_shell::input::{Button, Event, Key};
@@ -347,6 +348,9 @@ impl Interface for Shared {
     }
     fn draw(&mut self, game: &Game<'_>, overlay: &mut Overlay) {
         self.0.borrow_mut().draw(game, overlay);
+    }
+    fn text_mode(&self) -> bool {
+        self.0.borrow().text_mode()
     }
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
         self.0.borrow().wants_pointer(game)
@@ -699,6 +703,51 @@ fn the_play_screen_follows_the_player_and_takes_war_and_chat() {
         typed,
         Some(vec!["w".to_owned()]),
         "the line went to the player's command line"
+    );
+}
+
+/// W held runs forward; Enter starts a chat line, and the run stops at once with the key still held;
+/// letting W go and ending the line leaves the player standing, and W pressed again runs.
+///
+/// Behaviour: desktop.controls.text-mode-lets-held-actions-go
+#[test]
+fn the_chat_entry_taking_the_keys_stops_a_key_held() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let key = |s: &mut Shell<'_, DoubleHost>, key, down| {
+        s.event(&Event::Key {
+            key,
+            down,
+            repeat: false,
+        });
+        step(s);
+    };
+    key(&mut s, Key::W, true);
+    assert!(
+        s.controls.action_down(movement::FORWARD),
+        "W held runs forward: {:?}",
+        s.controls.actions()
+    );
+    press(&mut s, Key::Enter);
+    assert!(
+        retail.borrow().ui().focus().is_some(),
+        "the entry has the keys"
+    );
+    assert!(
+        !s.controls.action_down(movement::FORWARD),
+        "the run stopped"
+    );
+    key(&mut s, Key::W, false);
+    press(&mut s, Key::Enter);
+    assert!(retail.borrow().ui().focus().is_none(), "the line ended");
+    assert!(!s.controls.action_down(movement::FORWARD), "still standing");
+    key(&mut s, Key::W, true);
+    assert!(
+        s.controls.action_down(movement::FORWARD),
+        "W runs forward again"
     );
 }
 

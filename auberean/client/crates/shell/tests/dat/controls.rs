@@ -14,6 +14,8 @@ use auberean_shell::keys::{KeyFiles, KeyRecords, Keys};
 const WALK: f32 = 0.339;
 /// The base map's interface action for the Up arrow.
 const UP_KEY: u32 = 0x4000_0015;
+/// An action the interface class holds: the same arrow key.
+const HELD_INTERFACE: u32 = UP_KEY;
 
 /// The keys a player with no key map file starts with.
 fn keys() -> &'static Keys {
@@ -297,4 +299,79 @@ fn select_use_and_letting_go_on_focus_loss() {
     down(&mut c, Key::W);
     event(&mut c, &Event::Focus(false));
     assert_eq!(c.intent(keys()).forward, 0.0);
+}
+
+/// A text entry taking the keys lets a held key's action go, as the key's release would, and leaves
+/// a latched run, a single press for this frame and what the modifier and interface classes hold;
+/// the key's release later finds nothing, a press after the entry gives the keys back works, and a
+/// held mouse button is no key: its action stays until its release.
+///
+/// Behaviour: desktop.controls.text-mode-lets-held-actions-go
+#[test]
+fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_press() {
+    let mut c = controls();
+    down(&mut c, Key::W);
+    down(&mut c, Key::Z);
+    assert_eq!(c.intent(keys()).sideways, -1.0, "strafing");
+    c.set_text_mode(keys(), true);
+    let i = c.intent(keys());
+    assert_eq!((i.forward, i.sideways), (0.0, 0.0), "held keys let go");
+    assert!(c.actions().is_empty(), "{:?}", c.actions());
+    up(&mut c, Key::W);
+    up(&mut c, Key::Z);
+    c.set_text_mode(keys(), false);
+    assert_eq!(
+        c.intent(keys()).forward,
+        0.0,
+        "giving the keys back starts nothing"
+    );
+    down(&mut c, Key::W);
+    assert_eq!(c.intent(keys()).forward, 1.0, "the next press runs");
+    up(&mut c, Key::W);
+
+    down(&mut c, Key::Q);
+    up(&mut c, Key::Q);
+    down(&mut c, Key::Space);
+    c.set_text_mode(keys(), true);
+    let i = c.intent(keys());
+    assert_eq!(i.forward, 1.0, "a latched run stays");
+    assert!(i.jump, "a single press stays for its frame");
+    c.set_text_mode(keys(), false);
+    up(&mut c, Key::Space);
+    down(&mut c, Key::W);
+    up(&mut c, Key::W);
+
+    c.action_handler(keys(), HELD_INTERFACE, 1.0, INTERFACE, HELD_INTERFACE);
+    assert!(c.action_down(HELD_INTERFACE), "in force");
+    c.set_text_mode(keys(), true);
+    assert!(c.action_down(HELD_INTERFACE), "the interface class's stays");
+    event(&mut c, &Event::Focus(false));
+    assert!(
+        !c.action_down(HELD_INTERFACE),
+        "the window's keyboard gone takes it"
+    );
+    c.set_text_mode(keys(), false);
+
+    // A mouse button is no key: its action, of the interface class, stays until its own release.
+    event(
+        &mut c,
+        &Event::Button {
+            button: Button::Left,
+            down: true,
+        },
+    );
+    let held: Vec<u32> = c.actions().iter().map(|a| a.action).collect();
+    assert!(!held.is_empty(), "the left button holds an action");
+    c.set_text_mode(keys(), true);
+    for a in &held {
+        assert!(c.action_down(*a), "{a:#x} stays");
+    }
+    event(
+        &mut c,
+        &Event::Button {
+            button: Button::Left,
+            down: false,
+        },
+    );
+    assert!(c.actions().is_empty(), "its release ends it");
 }

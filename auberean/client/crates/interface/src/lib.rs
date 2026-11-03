@@ -2192,6 +2192,10 @@ impl Interface for Retail {
         game.phase != Phase::World || self.typing()
     }
 
+    fn text_mode(&self) -> bool {
+        self.typing()
+    }
+
     fn set_preferences(
         &mut self,
         settings: &auberean_shell::Settings,

@@ -690,6 +690,8 @@ impl<'w, H: Host> Shell<'w, H> {
         }
         // The world's controls.
         let phase = self.phase();
+        self.controls
+            .set_text_mode(&self.keys, self.interface.text_mode());
         self.controls.steers = self.scene.camera.options.mouse_look_steers;
         let intent = self.controls.intent(&self.keys);
         let commands = self.controls.take_commands();
