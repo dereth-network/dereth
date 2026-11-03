@@ -79,8 +79,19 @@ XXYY,...` surveys only those, `--threads` sets the thread count and `--no-thumbn
 pictures. It writes only into the output folder: `models.tsv` (one row per model), `uses.tsv` (one
 row per model and use), `summary.md` (the headline numbers and the rankings), `report.html` (a
 sortable, filterable page that needs only the files beside it) and `thumbs/`. A `tags.tsv` there
-(`id<TAB>tags`, or `--tags <file>`) fills the report's tags column. The pictures and tables
-describe your retail data: keep them to yourself.
+(`id<TAB>tags`, or `--tags <file>`) fills the report's tags column. `pictures.tsv` has a row for
+every retail picture: where it is drawn (dungeon, room or outdoors), which way it faces (wall,
+floor, slope or ceiling), its area, and how large one repeat of it is; `--pixels` also writes the
+pictures themselves to `pictures/`. The pictures and tables describe your retail data: keep them
+to yourself.
+
+`dereth-art mesh <id>` writes the triangles a retail setup or graphics object draws to standard
+output as JSON, by group: its surface, whether it is two-sided, and each corner's position, normal
+and picture coordinates. `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`.
+
+```text
+cargo run --profile test-release -p dereth-art -- mesh 0x0200069D > mesh.json
+```
 
 `dereth-art pack` packs an art pack's folder into one file the client opens as it opens the
 folder (`--art-pack`, `DERETH_ART_PACK` and `[Fidelity] ArtPack` take either), but without

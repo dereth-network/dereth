@@ -9,6 +9,7 @@ use dereth_primitives::{DataId, Vec3};
 use super::character::fold_clothing;
 use super::model::{Collision, Facts, Group, Mesh, Vert};
 use super::output::{models_tsv, report_html, summary_md, uses_tsv};
+use super::pictures::{facing_of, measure, up_of, FACINGS};
 use super::spawns;
 use super::survey::{parse_tags, Survey};
 use super::tally::*;
@@ -179,6 +180,69 @@ fn a_piece_is_drawn_with_the_surfaces_of_its_lowest_numbered_cell() {
         t.piece_surfaces[&p],
         (0x0007_0101, vec![DataId(0x0800_0001)])
     );
+}
+
+#[test]
+fn every_surface_list_a_pieces_cells_use_is_counted() {
+    let p = ModelId::Piece {
+        environment: DataId(0x0D00_0001),
+        cell_struct: 2,
+    };
+    let (a, b) = ([DataId(0x0800_0001)], [DataId(0x0800_0002)]);
+    let mut one = Tally::default();
+    one.cell_list(p, Use::DungeonPiece, 0x0007_0105, &a);
+    one.cell_list(p, Use::DungeonPiece, 0x0007_0109, &b);
+    let mut two = Tally::default();
+    two.cell_list(p, Use::InteriorPiece, 0x0007_0101, &a);
+    one.merge(two);
+    let list = &one.cell_lists[&(p, a.to_vec())];
+    assert_eq!(list.lowest, 0x0007_0101);
+    assert_eq!(list.uses[&Use::DungeonPiece], 1);
+    assert_eq!(list.uses[&Use::InteriorPiece], 1);
+    assert_eq!(one.cell_lists[&(p, b.to_vec())].lowest, 0x0007_0109);
+}
+
+#[test]
+fn a_triangle_tells_its_area_and_how_far_one_repeat_spans() {
+    let vert = |x: f32, z: f32, u: f32, v: f32| Vert {
+        position: [x, 0.0, z],
+        normal: [0.0, 1.0, 0.0],
+        uv: [u, v],
+    };
+    // Eight meters wide over two repeats, three tall over one.
+    let (area, spans) = measure(&[
+        vert(0.0, 0.0, 0.0, 0.0),
+        vert(8.0, 0.0, 2.0, 0.0),
+        vert(0.0, 3.0, 0.0, 1.0),
+    ]);
+    assert!((area - 12.0).abs() < 1e-4, "{area}");
+    let (u, v) = spans.expect("its coordinates change");
+    assert!((u - 4.0).abs() < 1e-4, "{u}");
+    assert!((v - 3.0).abs() < 1e-4, "{v}");
+    let flat = measure(&[
+        vert(0.0, 0.0, 0.5, 0.5),
+        vert(8.0, 0.0, 0.5, 0.5),
+        vert(0.0, 3.0, 0.5, 0.5),
+    ]);
+    assert_eq!(flat.1, None);
+}
+
+#[test]
+fn a_surface_is_a_wall_floor_slope_or_ceiling_by_how_far_up_it_faces() {
+    assert_eq!(FACINGS[facing_of(0.0)], "wall");
+    assert_eq!(FACINGS[facing_of(1.0)], "floor");
+    assert_eq!(FACINGS[facing_of(0.6)], "slope");
+    assert_eq!(FACINGS[facing_of(-1.0)], "ceiling");
+    // Smoothed toward the wall beside it, a floor is still a floor.
+    let vert = |x: f32, y: f32| Vert {
+        position: [x, y, 0.0],
+        normal: [0.7, 0.0, 0.7],
+        uv: [0.0, 0.0],
+    };
+    let floor = [vert(0.0, 0.0), vert(1.0, 0.0), vert(0.0, 1.0)];
+    assert_eq!(FACINGS[facing_of(up_of(&floor))], "floor");
+    let wound_the_other_way = [floor[0], floor[2], floor[1]];
+    assert_eq!(FACINGS[facing_of(up_of(&wound_the_other_way))], "floor");
 }
 
 #[test]
@@ -403,6 +467,7 @@ fn small_survey() -> Survey {
         tally: t,
         facts,
         thumbnails: BTreeMap::from([(obj(0x0200_0001), "thumbs/0x02000001.png".to_owned())]),
+        pictures: BTreeMap::new(),
         tags: BTreeMap::from([(obj(0x0200_0001), "tree </script>".to_owned())]),
         characters: super::character::CharacterCounts::default(),
         spawn_rows: 0,
