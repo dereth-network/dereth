@@ -12,3 +12,5 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 - A Yalain world's settings can turn on WebSocket connections.
 - The launcher now has its own releases and updates apart from the games.
+- macOS: a running game now shows its own name and icon.
+

@@ -93,6 +93,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             optional.push("Contents/Resources/Assets.car".to_owned());
             optional.push("Contents/_CodeSignature/CodeResources".to_owned());
             optional.push(format!("Contents/Resources/{}", dereth::launcher_icns()));
+            optional.extend(dereth::client_icons());
         }
     }
     required.sort();

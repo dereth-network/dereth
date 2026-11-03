@@ -1070,6 +1070,7 @@ fn install_staged(
                 copy_plain(&kept, &executable.with_file_name(name))?;
             }
         }
+        dress_client(&executable, product, version);
         let relative = executable.strip_prefix(&stage).map_err(|e| e.to_string())?;
         let installed = Installed {
             version: version.to_owned(),
@@ -1117,11 +1118,13 @@ fn copy_plain(from: &Path, to: &Path) -> Result<(), String> {
 /// The files a packaged game client in the launcher's folder `here` needs, each with its path below
 /// the component's folder: the program; the plugin author's tool, which the launcher finds beside
 /// the client; a preferences file kept beside it; and on macOS the frameworks, which the program
-/// finds at `../Frameworks` from its own folder, so they keep that place.
+/// finds at `../Frameworks` from its own folder, so they keep that place, in a bundle named for the
+/// game ([`crate::client_bundle`]).
 fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
     let macos = here.ends_with("Contents/MacOS");
+    let app = PathBuf::from(format!("{}.app", product.title()));
     let below = if macos {
-        PathBuf::from("Contents/MacOS")
+        app.join("Contents/MacOS")
     } else {
         PathBuf::new()
     };
@@ -1146,7 +1149,7 @@ fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
             if e.file_type().is_ok_and(|t| t.is_file()) {
                 files.push((
                     e.path(),
-                    Path::new("Contents/Frameworks").join(e.file_name()),
+                    app.join("Contents/Frameworks").join(e.file_name()),
                 ));
             }
         }
@@ -1203,13 +1206,39 @@ pub fn adopt_bundled(
     out
 }
 
-/// [`adopt_bundled`] for a starting launcher, asking each program its version.
+/// [`adopt_bundled`] for a starting launcher, asking each program its version, and each client
+/// installed before its bundle was made its own ([`crate::client_bundle`]) made so.
 pub fn adopt_packaged_client(root: &Path, here: &Path) {
     for failed in adopt_bundled(root, here, &program_version)
         .into_iter()
         .filter_map(Result::err)
     {
         eprintln!("dereth: the packaged client stays in the launcher's bundle: {failed}");
+    }
+    for product in Product::ALL.into_iter().filter(|p| p.is_game_client()) {
+        if let Some(i) = read_installed(root, product) {
+            if crate::client_bundle::needs_dressing(&i.executable, product) {
+                dress_client(&i.executable, product, &i.version);
+            }
+        }
+    }
+}
+
+/// On macOS, make the bundle around a game's client its own, so the Dock shows that game. A failure
+/// is only that: the client runs, drawn wrongly.
+fn dress_client(executable: &Path, product: Product, version: &str) {
+    if !cfg!(target_os = "macos") || !product.is_game_client() {
+        return;
+    }
+    let launcher = std::env::current_exe().ok();
+    let Some(here) = launcher.as_deref().and_then(Path::parent) else {
+        return;
+    };
+    if let Err(e) = crate::client_bundle::dress(executable, product, version, here) {
+        eprintln!(
+            "dereth: {} keeps the bundle it came in: {e}",
+            product.title()
+        );
     }
 }
 
@@ -2783,6 +2812,34 @@ mod tests {
         // Nothing beside it says it's a release any more; it still updates.
         assert!(is_release(false, false));
         assert!(!is_release(true, false));
+    }
+
+    /// On macOS the copy is laid out as a bundle named for its game, so the Dock can draw that game,
+    /// with its library where the program looks for it.
+    #[test]
+    fn a_client_in_the_launcher_s_bundle_is_copied_into_a_bundle_of_its_game() {
+        let temp = tempfile::tempdir().unwrap();
+        let here = temp.path().join("Launcher.app/Contents/MacOS");
+        packaged_at(&here, Product::Auberean);
+        let frameworks = here.join("../Frameworks");
+        std::fs::create_dir_all(&frameworks).unwrap();
+        std::fs::write(frameworks.join("libMoltenVK.dylib"), b"library").unwrap();
+        let below: Vec<PathBuf> = bundled_files(&here, Product::Auberean)
+            .into_iter()
+            .map(|(_, below)| below)
+            .collect();
+        assert!(
+            below.contains(
+                &PathBuf::from("Auberean.app/Contents/MacOS").join(program_file("auberean"))
+            ),
+            "{below:?}"
+        );
+        assert!(
+            below.contains(&PathBuf::from(
+                "Auberean.app/Contents/Frameworks/libMoltenVK.dylib"
+            )),
+            "{below:?}"
+        );
     }
 
     /// The copy lands where [`find_executable`] looks, at the same place in the version's folder as

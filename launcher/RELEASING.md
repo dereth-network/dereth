@@ -154,7 +154,9 @@ date. Dereth's package has no such file, which reads as Dereth. The launcher kee
 folder, since an update replaces the bundle it's in.
 
 **The client is a component.** At its first start a package's launcher copies its client to the
-components folder and runs it from there. It's then updated from its game's own newest release (the
+components folder and runs it from there. On macOS it's in a bundle of its own, `<game>.app`, which
+the launcher writes wherever it installs a client, with that game's name and icon; the launcher
+carries both games' icons for this, compiled from each client's `assets/<game>.icon`. It's then updated from its game's own newest release (the
 release file for this system, checked against that release's `SHA256SUMS`, with the client taken out
 of it; an AppImage unpacks itself to give it up), apart from the launcher: its own game's as soon as
 one is published, the other game's when first wanted and then from the page, as Yalain, Athenaeum,

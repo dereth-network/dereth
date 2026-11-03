@@ -621,8 +621,8 @@ mod tests {
                 "{from}"
             );
         }
-        assert!(build.contains(r#"compile_icon(&assets.join("Network.icon"))"#));
-        assert!(build.contains(r#""--app-icon", "Network""#));
+        assert!(build.contains(r#"compile_icon(&assets.join("Network.icon"), "Network""#));
+        assert!(build.contains(r#""--app-icon", name"#));
     }
 
     /// The icon files hold every size each system asks for: the Windows icon 16 to 256 pixels,

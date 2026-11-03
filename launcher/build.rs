@@ -74,19 +74,31 @@ fn main() {
         "ui/assets/backgrounds.json",
         serde_json::to_string(&sets).unwrap_or_default(),
     );
-    compile_icon(&assets.join("Network.icon"));
+    compile_icon(&assets.join("Network.icon"), "Network", "icons/layered");
+    // Each game's client wears its own icon in a bundle the launcher makes for it, and the launcher
+    // carries them: it installs both clients, at any version.
+    compile_icon(
+        Path::new("../dereth/client/assets/Dereth.icon"),
+        "Dereth",
+        "icons/clients/Dereth",
+    );
+    compile_icon(
+        Path::new("../auberean/client/assets/Auberean.icon"),
+        "Auberean",
+        "icons/clients/Auberean",
+    );
     tauri_build::build();
 }
 
-/// The layered `Network.icon`, compiled the way the clients' bundles compile theirs: Xcode's
-/// `actool` writes `Assets.car`, what macOS 26 draws (with its glass and shading), which the bundle
-/// carries (`tauri.macos.conf.json`, which only a macOS build reads) and `Info.plist` names. Every
-/// earlier macOS draws `Network.icns`. `actool`'s other outputs stay in `icons/layered`.
+/// A layered icon, compiled the way the clients' bundles compile theirs: Xcode's `actool` writes
+/// `Assets.car`, what macOS 26 draws (with its glass and shading), and `<name>.icns` for every
+/// earlier macOS, into `out`. The bundle carries what it needs of them (`tauri.macos.conf.json`,
+/// which only a macOS build reads), and `Info.plist` names them.
 ///
 /// Without Xcode there is no `actool`; `cargo run` needs neither file, so this only warns, and
 /// packaging is what fails, naming the missing file.
-fn compile_icon(source: &Path) {
-    let out = Path::new("icons/layered");
+fn compile_icon(source: &Path, name: &str, out: &str) {
+    let out = Path::new(out);
     if !cfg!(target_os = "macos") || !source.is_dir() {
         return;
     }
@@ -100,7 +112,7 @@ fn compile_icon(source: &Path) {
             "--notices",
             "--warnings",
         ])
-        .args(["--app-icon", "Network", "--output-partial-info-plist"])
+        .args(["--app-icon", name, "--output-partial-info-plist"])
         .arg(&partial)
         .args([
             "--target-device",

@@ -150,6 +150,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/Resources/{}",
                 super::dereth::launcher_icns()
             ));
+            optional.extend(super::dereth::client_icons());
         }
     }
     required.sort();

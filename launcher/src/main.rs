@@ -14,6 +14,7 @@
 
 mod auberean;
 mod backend;
+mod client_bundle;
 mod component_archive;
 mod components;
 mod discord;

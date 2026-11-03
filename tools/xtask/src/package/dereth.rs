@@ -243,6 +243,20 @@ pub fn launcher_icns() -> String {
         .to_owned()
 }
 
+/// What the launcher's macOS bundle holds of each game client's icon, which a client's own bundle
+/// wears: below the bundle, as `tauri.macos.conf.json` lays them out.
+pub fn client_icons() -> Vec<String> {
+    let config: serde_json::Value = serde_json::from_str(LAUNCHER_MACOS_CONFIG).unwrap_or_default();
+    config["bundle"]["macOS"]["files"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, _)| name)
+        .filter(|name| name.starts_with("Resources/clients/"))
+        .map(|name| format!("Contents/{name}"))
+        .collect()
+}
+
 pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     let exe = target.exe_suffix();
     let own = |names: &[&str]| -> Vec<String> { names.iter().map(|n| (*n).to_owned()).collect() };
@@ -275,6 +289,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/_CodeSignature/CodeResources",
             ]));
             optional.push(format!("Contents/Resources/{}", launcher_icns()));
+            optional.extend(client_icons());
         }
     }
     required.sort();

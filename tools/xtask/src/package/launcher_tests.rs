@@ -2,6 +2,7 @@
 
 use super::archive::{self, Member};
 use super::auberean::{self, Asset};
+use super::dereth;
 use super::launcher;
 use super::targets::{self, Target};
 use super::version::Product;
@@ -267,5 +268,37 @@ fn a_games_release_workflow_takes_the_named_launcher_and_cannot_build_one() {
         ] {
             assert!(!w.contains(gone), "{file}: {gone}");
         }
+    }
+}
+
+/// The launcher carries each game client's icon, from that client's own layered source, and every
+/// package with the launcher in it allows them.
+#[test]
+fn the_launcher_carries_each_clients_icon_in_every_package() {
+    let icons = dereth::client_icons();
+    for wanted in [
+        "Contents/Resources/clients/Dereth/Assets.car",
+        "Contents/Resources/clients/Dereth/Dereth.icns",
+        "Contents/Resources/clients/Auberean/Assets.car",
+        "Contents/Resources/clients/Auberean/Auberean.icns",
+    ] {
+        assert!(icons.iter().any(|i| i == wanted), "{wanted}: {icons:?}");
+    }
+    let mac = target("aarch64-apple-darwin");
+    for (package, (_, optional)) in [
+        ("launcher", launcher::contents(mac)),
+        ("dereth", dereth::contents(mac)),
+        ("auberean", auberean::contents(mac)),
+    ] {
+        for icon in &icons {
+            assert!(optional.contains(icon), "{package}: {icon}");
+        }
+    }
+    let ws = workspace_root();
+    for source in [
+        "dereth/client/assets/Dereth.icon",
+        "auberean/client/assets/Auberean.icon",
+    ] {
+        assert!(ws.join(source).is_dir(), "{source}");
     }
 }
