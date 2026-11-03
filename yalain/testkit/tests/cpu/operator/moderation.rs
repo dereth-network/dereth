@@ -770,11 +770,42 @@ fn a_player_changes_its_own_password_in_game_only_with_the_right_old_one() {
     assert_eq!(
         notices(&h, a, fa),
         [
-            "Invalid parameter count, got 1, expected 2!",
-            "@passwd - Change your account password.",
-            "Usage: @passwd oldpassword newpassword",
+            "Invalid parameter count, got 1, expected 2!\n@passwd - Change your account password.\n\
+             Usage: @passwd oldpassword newpassword",
         ]
     );
     assert!(admits(&mut h, b"n3w secret"));
     assert_eq!(heard(&h, b, from[1], ida), 0, "heard by nobody");
+}
+
+/// A long answer to a command said in game is one notice with its lines in order: separate notices
+/// of different lengths sent in a row could overtake each other on the wire.
+/// Behaviour: server.admin.a-long-answer-is-one-message
+#[test]
+fn a_long_ban_list_said_in_game_comes_as_one_notice_in_its_order() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    console(&mut h, "set-accountadmin one");
+    for (i, reason) in [
+        "a long reason given at great length, and then some",
+        "x",
+        "y",
+    ]
+    .iter()
+    .enumerate()
+    {
+        h.at_character_list(&format!("banned{i}"));
+        console(&mut h, &format!("ban banned{i} 1 0 0 {reason}"));
+    }
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    say(&mut h, a, "@banlist");
+    let said = notices(&h, a, from);
+    assert_eq!(said.len(), 1, "one notice: {said:?}");
+    let lines: Vec<&str> = said[0].lines().collect();
+    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert_eq!(lines[0], "The following accounts are banned:");
+    for (i, line) in lines[1..].iter().enumerate() {
+        assert!(line.starts_with(&format!("banned{i} ")), "{line}");
+    }
 }

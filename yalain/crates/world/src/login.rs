@@ -1049,6 +1049,15 @@ pub fn notice(net: &mut ServerNet, conn: ConnId, text: &str) {
     send(net, conn, queue::EVENT, BlobKind::UNORDERED, &m);
 }
 
+/// Tell a player a whole answer, its lines in their order. It goes as one notice with inner line
+/// ends: the transport puts a short message into the room an earlier packet has left, so separate
+/// ones sent in a row can overtake each other.
+pub fn notices(net: &mut ServerNet, conn: ConnId, lines: &[String]) {
+    if !lines.is_empty() {
+        notice(net, conn, &lines.join("\n"));
+    }
+}
+
 /// Make a character outside a client's login (a server command): the account's, with this name,
 /// race and sex, and a middling physique (every slider at its middle, build and height 1).
 ///

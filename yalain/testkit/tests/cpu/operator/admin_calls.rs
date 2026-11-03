@@ -77,6 +77,7 @@ fn answers(h: &Harness, b: usize, from: usize) -> Vec<String> {
             Some(Node::Text(t)) => Some(t.clone()),
             _ => None,
         })
+        .flat_map(|t| t.lines().map(str::to_owned).collect::<Vec<_>>())
         .collect()
 }
 
@@ -1232,4 +1233,23 @@ fn refused_admin_calls_log_one_line_a_stay_however_many_come() {
     h.bots[other].send(true, queue::WEENIE, &server_call(0x8201_0017, &[]));
     h.run(10);
     assert_eq!(h.server.admin_calls.logged, 2, "one for another character");
+}
+
+/// An answer of many lines is one message, its lines in their order, so that none can overtake
+/// another on the wire.
+/// Behaviour: server.admin.a-long-answer-is-one-message
+#[test]
+fn an_answer_of_many_lines_comes_as_one_message_in_its_order() {
+    let mut h = Harness::new();
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, 0x8201_0075, &[Arg::Int(0)]);
+    let sent: Vec<_> = h
+        .calls(me, from)
+        .into_iter()
+        .filter(|(f, _)| *f == LOG_EVENT)
+        .collect();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let said = answers(&h, me, from);
+    assert!(said.len() > 3, "{said:?}");
 }

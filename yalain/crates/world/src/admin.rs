@@ -1277,9 +1277,7 @@ pub(crate) fn said<S: Store>(
         return false;
     };
     if let Some(args) = passwd_args(rest) {
-        for line in passwd(s, world, &account, &args, clock) {
-            crate::login::notice(net, world, &line);
-        }
+        crate::login::notices(net, world, &passwd(s, world, &account, &args, clock));
         return true;
     }
     let Some(parsed) = parse(rest) else {
@@ -1309,9 +1307,7 @@ pub(crate) fn said<S: Store>(
             vec![usage]
         }
     };
-    for line in lines {
-        crate::login::notice(net, world, &line);
-    }
+    crate::login::notices(net, world, &lines);
     true
 }
 

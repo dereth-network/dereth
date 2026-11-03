@@ -255,9 +255,12 @@ pub fn call<S: Store>(
         }
     }
     let lines = dispatch(s, net, world, &by, function, &Args::of(&values), clock);
-    for line in lines {
+    for line in &lines {
         tracing::info!(issuer = %by, "admin: {line}");
-        answer(net, world, &line);
+    }
+    // One message: separate ones of a long answer may overtake each other on the wire.
+    if !lines.is_empty() {
+        answer(net, world, &lines.join("\n"));
     }
 }
 

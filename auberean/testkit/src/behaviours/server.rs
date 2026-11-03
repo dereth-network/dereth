@@ -111,6 +111,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.a-long-answer-is-one-message",
+        says: "An answer of many lines to an admin's command, said in game or called, is one message \
+               with its lines in their order, since separate messages sent in a row can overtake each \
+               other on the wire.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ONE-MESSAGE"),
+        station: "yalain-testkit::cpu::operator::moderation::a_long_ban_list_said_in_game_comes_as_one_notice_in_its_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.a-restart-keeps-the-consoles-demotion",
         says: "An account the console made a player again stays a player at the next start, with the \
                configured list as it was; an admin stays one.",
