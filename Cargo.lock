@@ -2132,6 +2132,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-server-websocket"
+version = "0.0.0"
+dependencies = [
+ "dereth-transport",
+ "rustls",
+ "serde",
+ "tracing",
+ "tungstenite",
+]
+
+[[package]]
 name = "dereth-terrain"
 version = "0.0.0"
 dependencies = [
@@ -2540,6 +2551,7 @@ version = "0.3.8"
 dependencies = [
  "dereth-primitives",
  "dereth-protocol",
+ "dereth-server-websocket",
  "dereth-transport",
  "log",
  "serde",
@@ -2632,6 +2644,7 @@ dependencies = [
  "dereth-network-link",
  "dereth-network-protocol",
  "dereth-server-update",
+ "dereth-server-websocket",
  "dereth-transport",
  "embed-resource",
  "empyrean-command",
@@ -7048,6 +7061,8 @@ dependencies = [
  "dereth-primitives",
  "dereth-protocol",
  "dereth-server-update",
+ "dereth-server-websocket",
+ "dereth-transport",
  "embed-resource",
  "getrandom 0.4.3",
  "rusqlite",
@@ -7104,10 +7119,13 @@ dependencies = [
  "auberean-primitives",
  "dereth-network-protocol",
  "dereth-primitives",
+ "dereth-server-websocket",
  "dereth-transport",
  "hmac",
  "sha2",
  "tracing",
+ "tungstenite",
+ "yalain-net",
 ]
 
 [[package]]

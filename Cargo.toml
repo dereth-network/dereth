@@ -160,6 +160,9 @@ members = [
     # server-update/: the updater both game servers (Empyrean and Yalain) run (MIT), which each
     # gives its own name, releases, databases and world data.
     "server-update",
+    # server-websocket/: the WebSocket endpoint both game servers (Empyrean and Yalain) run (MIT):
+    # its settings, and the listener each gives its own ports.
+    "server-websocket",
     # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
@@ -285,6 +288,7 @@ dereth-network-link = { path = "network/link" }
 dereth-network-hub = { path = "network/hub" }
 dereth-network-conformance = { path = "network/conformance" }
 dereth-server-update = { path = "server-update" }
+dereth-server-websocket = { path = "server-websocket" }
 xtask = { path = "tools/xtask" }
 # Auberean (the Asheron's Call 2 client and its core), Yalain (its server), Athenaeum (its world
 # builder).
