@@ -1108,10 +1108,10 @@ fn a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show() {
     const UPDATE_QUEST: u32 = 0x8213_0024;
     let t = &compiled().tables;
     let sample = given_sample();
-    if !t.quests.steps.iter().any(|s| s.quest == sample[0].0) {
-        println!("this world has no rows for the sample yet: nothing played");
-        return;
-    }
+    assert!(
+        t.quests.steps.iter().any(|s| s.quest == sample[0].0),
+        "the world has rows for the sample"
+    );
     let dir = require_install(TARGET);
     let found = install_dats(&dir).expect("the install");
     let portal = DatFile::open(
@@ -1236,10 +1236,6 @@ fn a_postings_board_gives_one_of_the_quests_it_lists_at_a_time() {
         .filter(|s| s.needs == 0 && s.trigger == yalain_content::quests::Trigger::Use(BOARD))
         .map(|s| s.quest)
         .collect();
-    if listed.is_empty() {
-        println!("this world has no rows for the board yet: nothing played");
-        return;
-    }
     assert!(listed.len() > 5, "{} postings", listed.len());
     let (mut h, b, me) = served(t);
     let o = t
