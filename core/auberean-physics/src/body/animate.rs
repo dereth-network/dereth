@@ -78,6 +78,13 @@ impl Body {
         true
     }
 
+    /// The motion the body was last asked for.
+    // D2-05903
+    #[must_use]
+    pub const fn last_do_motion_values(&self) -> dereth_primitives::Vec3 {
+        self.minterp.asked
+    }
+
     /// The server plays an effect script on the body.
     // D2-05845
     pub fn receive_do_fx_script(&mut self, script: u32) -> bool {

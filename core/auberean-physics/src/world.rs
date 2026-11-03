@@ -555,7 +555,7 @@ impl World {
 
     /// Puts entry `key` at `position`: out of the collision lists it was in, into those of the
     /// cells it reaches there. False when the key is not in the table.
-    // D2-06140, D2-06255
+    // D2-06140, D2-06255, D2-03880, D2-03857
     pub fn place(&mut self, land: &Land, key: BodyKey, position: Position) -> bool {
         let Some(e) = self.entries.get_mut(&key) else {
             return false;
@@ -583,6 +583,65 @@ impl World {
         }
         self.refile(key, position.cell);
         true
+    }
+
+    /// How many cells' collision lists entry `key` is in.
+    // D2-06338
+    #[must_use]
+    pub fn num_shadow_objects(&self, key: BodyKey) -> usize {
+        self.entries.get(&key).map_or(0, |e| e.cells.len())
+    }
+
+    /// Whether entry `key` stands in a cell and every cell it reaches is loaded: none of its
+    /// shadows has lost its cell.
+    // D2-06141
+    #[must_use]
+    pub fn are_shadow_objects_complete(&self, land: &Land, key: BodyKey) -> bool {
+        self.entries.get(&key).is_some_and(|e| {
+            self.objects.get(e.handle).is_some_and(|o| o.cell.is_some())
+                && !e.cells.is_empty()
+                && e.cells.iter().all(|c| detection::cell_loaded(land, *c))
+        })
+    }
+
+    /// Entry `key`'s collision lists made again: from where it stands when it stands anywhere and
+    /// nothing holds it; else it is in none.
+    // D2-06267
+    pub fn recalc_cross_cells(&mut self, land: &Land, key: BodyKey, held: bool) {
+        match self.position(key).filter(|p| !held && p.cell.0 != 0) {
+            Some(at) => {
+                self.place(land, key, at);
+            }
+            None => {
+                let Some(e) = self.entries.get_mut(&key) else {
+                    return;
+                };
+                for c in std::mem::take(&mut e.cells) {
+                    if let Some(rt) = self.cells.get_mut(&c.0) {
+                        rt.shadow_object_list.retain(|&o| o != e.handle);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The objects standing in the cells of landblock `block`: its interior cells', then its land
+    /// cells', only those that move when `moving`.
+    // D2-03648, D2-06101
+    #[must_use]
+    pub fn block_objects(&self, land: &Land, block: CellId, moving: bool) -> Vec<u64> {
+        let lb = block.landblock();
+        let mut out = Vec::new();
+        for c in land.interior_cells_of(block.0 & 0xFFFF_0000) {
+            out.extend(self.cell_objects(c, moving));
+        }
+        for cx in 0..crate::land::CELLS_PER_SIDE {
+            for cy in 0..crate::land::CELLS_PER_SIDE {
+                let c = crate::land::land_cell_id(lb.x(), lb.y(), cx, cy);
+                out.extend(self.cell_objects(c, moving));
+            }
+        }
+        out
     }
 
     /// Takes entry `key` out of the table and every cell's collision list. False when the key is

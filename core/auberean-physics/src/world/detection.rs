@@ -111,7 +111,7 @@ fn narrow(v: f64) -> f32 {
 
 /// Whether cell `cell` is loaded: its landblock for a land cell, the cell itself for an interior
 /// one.
-fn cell_loaded(land: &Land, cell: CellId) -> bool {
+pub(super) fn cell_loaded(land: &Land, cell: CellId) -> bool {
     if cell.0 == 0 {
         return false;
     }
@@ -664,9 +664,25 @@ impl World {
         traced.then_some(place)
     }
 
+    /// The objects standing in cell `cell` (whose own cell it is), only those that move when
+    /// `moving`.
+    // D2-03889, D2-06100
+    #[must_use]
+    pub fn cell_objects(&self, cell: CellId, moving: bool) -> Vec<u64> {
+        self.watching
+            .objects
+            .get(&cell.0)
+            .into_iter()
+            .flatten()
+            .filter_map(|k| self.entries.get(k).map(|e| (*k, e)))
+            .filter(|(_, e)| !moving || !e.is_static)
+            .map(|(k, _)| self.object_id(k))
+            .collect()
+    }
+
     /// Traces line of sight `los` from its first cell through the surroundings and what stands in
     /// them. False, the line untouched, when it has no first cell or that cell is not loaded.
-    // D2-03851
+    // D2-03851, D2-05961
     pub fn los_check(&self, land: &Land, los: &mut SightLine) -> bool {
         let cell = CellId(los.initial_cell);
         if cell.0 == 0 {

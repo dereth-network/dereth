@@ -98,6 +98,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.an-object-takes-up-its-description",
+        says: "An object the server creates goes to the slider values and velocity its description \
+               gives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBJECT-DESCRIPTION"),
+        station: "auberean-shell::dat::session::an_object_takes_up_its_description",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.recorded-heads-turn-to-the-servers-directions",
         says: "In a recorded 2017 session, every other body near the player has its look sliders at \
                the direction the server last sent for it two thirds of a second after it came.",
@@ -114,23 +123,6 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-GAZE-RECORDED-LOOK"),
         station: "auberean-scene::corpus::gaze::a_body_turns_its_head_toward_what_the_server_says_it_looks_at",
         tier: Tier::Corpus,
-    },
-    behaviour! {
-        id: "desktop.bodies.the-players-body-does-what-the-server-asks",
-        says: "A push from the server takes the player's body off the ground; a slider the network                moves goes to its value, one the character template leaves to the client does not.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
-        station: "auberean-shell::dat::session::the_players_body_does_what_the_server_asks",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "desktop.bodies.an-object-takes-up-its-description",
-        says: "An object the server creates goes to the slider values and velocity its description \
-               gives.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
-        station: "auberean-shell::dat::session::an_object_takes_up_its_description",
-        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.bodies.the-player-moves-while-its-body-does-falling-too",
@@ -150,6 +142,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-GAZE-AWAY"),
         station: "auberean-scene::cpu::gaze::the_player_stops_looking_at_an_object_behind_it_for_more_than_two_seconds",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.bodies.the-players-body-does-what-the-server-asks",
+        says: "A push from the server takes the player's body off the ground; a slider the network                moves goes to its value, one the character template leaves to the client does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
+        station: "auberean-shell::dat::session::the_players_body_does_what_the_server_asks",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.bodies.the-players-head-follows-the-camera",
@@ -1293,6 +1293,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-player-in-deep-water-rises-and-swims",
+        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
+        station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.an-object-is-told-the-mode-its-body-goes-into",
         says: "Each body the server asks into a mode, or that a behavior carrying one puts there, \
                tells its object the mode, as a notice about the object; every mode the server asked \
@@ -1420,14 +1428,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-RUNNING-TIME"),
         station: "auberean-shell::dat::session::the_worlds_frame_carries_the_clients_running_time",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "desktop.world.a-player-in-deep-water-rises-and-swims",
-        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
-        station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
         tier: Tier::Dat,
     },
     behaviour! {

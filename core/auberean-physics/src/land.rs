@@ -225,6 +225,7 @@ impl Block {
 
     /// The ground triangles of land cell `(cx, cy)`: its squares taken x-major, two to a square,
     /// none over a hole.
+    // D2-03820, D2-03760
     pub(crate) fn cell_triangles(
         &self,
         cx: usize,
@@ -588,6 +589,24 @@ impl Land {
             .collect();
         ids.sort_by_key(|c| c.0);
         ids
+    }
+
+    /// The interior cell, of those added, that point `at` of its landblock's frame lies in: the
+    /// lowest id of any that hold it.
+    // D2-03568
+    #[must_use]
+    pub fn find_in_visible_cells(&self, at: Vec3) -> Option<CellId> {
+        let cells = self.cells.read().ok()?;
+        let mut ids: Vec<u32> = cells.keys().copied().collect();
+        ids.sort_unstable();
+        ids.into_iter().map(CellId).find(|id| {
+            cells.get(&id.0).is_some_and(|g| {
+                let local = dereth_physics::math::globaltolocal(&g.frame, at);
+                g.cell_bsp
+                    .as_ref()
+                    .is_none_or(|t| t.point_inside_cell_bsp(local))
+            })
+        })
     }
 
     /// The interior cell with this id, when it was added.
@@ -1018,6 +1037,7 @@ impl LandSource for Land {
         self.cell(cell)
     }
 
+    // D2-03842, D2-03843
     fn host_cell(&self, id: CellId) -> Option<Arc<dyn HostCell>> {
         self.land_cell(id).map(|c| Arc::new(c) as Arc<dyn HostCell>)
     }

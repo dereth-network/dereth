@@ -6,7 +6,7 @@ use dereth_physics::cell::CellResolver;
 use dereth_physics::transition::insert::find_valid_position;
 use dereth_physics::transition::Transition;
 use dereth_physics::PhysicsState;
-use dereth_primitives::{CellId, Position, Vec3};
+use dereth_primitives::{CellId, Frame, Position, Vec3};
 
 use super::Body;
 use crate::collision::manager::BodyKey;
@@ -38,7 +38,7 @@ fn names_a_cell(cell: CellId) -> bool {
 /// (none when that is off the map or not loaded); inside, the cell (or one it sees) holding the
 /// point `center` (in the body's frame) lands on, else, for a cell seen from outside, the land
 /// cell outside. None when the place names no cell, or its interior cell is not loaded.
-// D2-06047
+// D2-06047, D2-03593
 pub fn adjust_position(land: &Land, pos: &mut Position, center: Vec3) -> Option<Option<CellId>> {
     if !names_a_cell(pos.cell) {
         return None;
@@ -71,6 +71,39 @@ pub fn adjust_position(land: &Land, pos: &mut Position, center: Vec3) -> Option<
 }
 
 impl Body {
+    /// Where `frame` of the body's own lands, brought into the cell it falls in; the place, and
+    /// the cell it stands in when that is loaded. None when the place names no cell.
+    // D2-06157
+    #[must_use]
+    pub fn local_to_global(
+        &self,
+        land: &Land,
+        frame: &Frame,
+    ) -> Option<(Position, Option<CellId>)> {
+        let mut place = Position::new(
+            self.position.cell,
+            dereth_primitives::frame::combine(&self.position.frame, frame),
+        );
+        let cell = adjust_position(land, &mut place, Vec3::ZERO)?;
+        Some((place, cell))
+    }
+
+    /// `pos` brought into the interior cell its point (or its first sphere's middle, turned with
+    /// it) lies in, when any cell holds it.
+    // D2-06050
+    pub fn find_inside_position(&self, land: &Land, pos: &mut Position) -> bool {
+        let point = self.spheres().first().map_or(pos.frame.origin, |s| {
+            crate::geom::point_to_global(&pos.frame, s.center)
+        });
+        match land.find_in_visible_cells(point) {
+            Some(cell) => {
+                pos.cell = cell;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Puts the body where `s` says. A transition with the body's spheres (see
     /// [`Body::moving_spheres`]) looks for room; the place is kept as the body's placement when `s`
     /// asks and it worked.

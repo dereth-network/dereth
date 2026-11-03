@@ -1511,6 +1511,80 @@ mod rooms {
         assert_eq!(los.trace_result, 0, "a line of doorways passes it: {los:?}");
     }
 
+    /// What stands in a cell and a landblock is asked for by its own cell, the static left out when
+    /// only what moves is asked for; an object knows how many cells' lists it is in, whether each is
+    /// loaded, and with something holding it its lists are emptied.
+    ///
+    /// Behaviour: detection.cells.a-cell-and-its-landblock-answer-for-what-stands-in-them
+    #[test]
+    fn a_cell_and_its_landblock_answer_for_what_stands_in_them() {
+        let land = land();
+        let mut world = table::World::new();
+        let key = world.insert(
+            &land,
+            POST,
+            &WorldObject {
+                shape: post(),
+                position: standing(50.0, 50.0),
+                is_static: true,
+                passable: false,
+            },
+        );
+        let cell = standing(50.0, 50.0).cell;
+        assert_eq!(world.cell_objects(cell, false), vec![POST]);
+        assert!(
+            world.cell_objects(cell, true).is_empty(),
+            "it does not move"
+        );
+        assert_eq!(world.block_objects(&land, cell, false), vec![POST]);
+        assert!(world
+            .cell_objects(standing(10.0, 10.0).cell, false)
+            .is_empty());
+        assert_eq!(world.num_shadow_objects(key), 1);
+        assert!(world.are_shadow_objects_complete(&land, key));
+        world.recalc_cross_cells(&land, key, true);
+        assert_eq!(world.num_shadow_objects(key), 0, "held: in no list");
+        assert!(!world.are_shadow_objects_complete(&land, key));
+        world.recalc_cross_cells(&land, key, false);
+        assert_eq!(world.num_shadow_objects(key), 1, "standing again");
+    }
+
+    /// A point lying in an interior cell finds that cell: the lowest id of those that hold it; a
+    /// point in none finds none.
+    ///
+    /// Behaviour: detection.cells.a-point-finds-the-interior-cell-holding-it
+    #[test]
+    fn a_point_finds_the_interior_cell_holding_it() {
+        let land = land();
+        // Each holds what lies behind its wall (the tree's solid side).
+        let walled = |id: CellId, d: f32| EnvCellGeometry {
+            id,
+            frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
+            portals: Vec::new(),
+            physics_polygons: Vec::new(),
+            physics_bsp: None,
+            cell_bsp: Some(Arc::new(solid_behind(Vec3::new(1.0, 0.0, 0.0), d))),
+            stab_list: Vec::new(),
+            seen_outside: false,
+            holds_without_portals: true,
+            static_objects: Vec::new(),
+        };
+        land.insert_cell(walled(FAR, -10.0));
+        land.insert_cell(walled(NEAR, -20.0));
+        let holds = |x: f32| {
+            let t = solid_behind(Vec3::new(1.0, 0.0, 0.0), -10.0);
+            t.point_inside_cell_bsp(Vec3::new(x, 0.0, 0.0))
+        };
+        let (inside, outside) = if holds(5.0) { (5.0, 40.0) } else { (40.0, 5.0) };
+        assert_eq!(
+            land.find_in_visible_cells(Vec3::new(inside, 0.0, 0.0)),
+            Some(NEAR),
+            "the lowest id"
+        );
+        let beyond = land.find_in_visible_cells(Vec3::new(outside, 0.0, 0.0));
+        assert_ne!(beyond, Some(FAR), "{beyond:?}");
+    }
+
     /// A line of sight leaving a room through a doorway out goes on over the land from the doorway,
     /// and a post standing outside stops it. When the line's start
     /// lies over another land cell than the doorway does, the land traces the line again from its

@@ -3023,7 +3023,8 @@ fn a_player_in_deep_water_rises_and_swims() {
         step(&mut s);
     }
     let swum = s.scene.status.origin;
-    let far = (swum.y - floating.y).hypot(swum.x - floating.x);
+    let (dx, dy) = (swum.x - floating.x, swum.y - floating.y);
+    let far = (dx * dx + dy * dy).sqrt();
     assert!(far > 8.0, "it swam {far} m: {floating:?} to {swum:?}");
     assert!(
         s.scene.status.speed > 4.0 && s.scene.status.speed < 5.0,
