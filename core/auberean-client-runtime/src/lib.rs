@@ -1839,7 +1839,7 @@ impl Client {
     /// A line of text the server sends the player (its kind and a string reference): given to the
     /// player's interface, whose scripts show it as a line of that kind; with no player in the
     /// world, nothing shows.
-    // D2-03960
+    // D2-03960, D2-03977
     fn server_text(&mut self, n: &auberean_protocol::login::Notice) {
         use auberean_protocol::wire::Field as _;
         let Some(player) = self
@@ -2588,7 +2588,7 @@ impl Client {
         }
     }
 
-    // D2-01904, D2-03986, D2-10650, D2-10651, D2-11020, D2-11021
+    // D2-01904, D2-03986, D2-10650, D2-10651, D2-11020, D2-11021, D2-04055
     fn report_scene(&mut self) {
         if self.scene_wanted && !self.portal_space && self.model.player_object().is_some() {
             self.scene_wanted = false;

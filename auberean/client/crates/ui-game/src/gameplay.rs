@@ -983,7 +983,7 @@ impl GamePlay {
     }
 
     /// A line of the client's own errors for the chat windows.
-    // D2-01901
+    // D2-01901, D2-03977
     pub fn set_error_msg(text: &str, out: &mut Vec<Request>) {
         out.push(Request::ErrorLine(text.to_owned()));
     }

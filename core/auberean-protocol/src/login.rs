@@ -523,6 +523,7 @@ impl Field for DataQuery {
 }
 
 /// The iterations a client has of one data file.
+// D2-05165
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataFileIterations {
     pub dat_file: u64,
@@ -530,6 +531,7 @@ pub struct DataFileIterations {
 }
 
 impl Field for DataFileIterations {
+    // D2-12845
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             dat_file: r.u64()?,
@@ -543,6 +545,7 @@ impl Field for DataFileIterations {
 }
 
 /// The client's answer: its language and, per data file, the iterations it has.
+// D2-05129
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataHeld {
     pub language: u32,

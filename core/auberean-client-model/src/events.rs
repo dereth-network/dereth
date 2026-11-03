@@ -141,7 +141,9 @@ pub fn subject(m: &ServerMessage) -> Option<ObjectStamp> {
     })
 }
 
-/// The private stream's order keeper.
+/// The private stream's order keeper: blocking on a gap is the only way it runs, and what it still
+/// holds goes with it.
+// D2-14302, D2-14304
 #[derive(Debug, Default)]
 struct PrivateStream {
     started: bool,
@@ -152,7 +154,7 @@ struct PrivateStream {
 
 impl PrivateStream {
     /// Take a message; what may now take effect goes to `out`, in order.
-    // D2-14307, D2-14306, D2-14303, D2-05618, D2-05630
+    // D2-14307, D2-14306, D2-14303, D2-05618, D2-05630, D2-14308
     fn add(
         &mut self,
         stamp: u32,

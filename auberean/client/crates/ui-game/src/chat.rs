@@ -438,6 +438,7 @@ pub enum Ask {
 /// A line for the chat windows: its kind, its text as written, and the string reference it was
 /// written from when it came as one (the log adds the reference, written once its tables are at
 /// hand).
+// D2-03085
 #[derive(Clone, Debug)]
 struct Line {
     kind: u32,

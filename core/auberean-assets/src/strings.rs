@@ -490,7 +490,7 @@ impl StringState {
     }
 
     /// How many bytes the record packs to.
-    // D2-14187
+    // D2-14187, D2-14194
     #[must_use]
     pub fn pack_size(&self) -> usize {
         crate::encode(0, self).len()
@@ -498,7 +498,7 @@ impl StringState {
 }
 
 impl Encode for StringState {
-    // D2-14189, D2-14207, D2-14188
+    // D2-14189, D2-14207, D2-14188, D2-14195
     fn encode(&self, _id: u32, w: &mut Writer) {
         w.u32(self.version);
         w.u16(self.number_base);
@@ -530,7 +530,7 @@ impl Decode for StringState {
     /// grouping size (16 bits), alignment, four wide strings (numerals and separators), five
     /// singular words, five wide strings of name letters, twenty setting words, a wide string and
     /// a flags word.
-    // D2-14189, D2-14207
+    // D2-14189, D2-14207, D2-14196
     fn decode(r: &mut Reader<'_>, _id: u32, _ctx: &Context) -> Result<Self> {
         let version = r.u32()?;
         let number_base = r.u16()?;

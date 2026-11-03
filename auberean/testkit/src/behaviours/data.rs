@@ -252,6 +252,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.database.every-cached-type-has-a-decoder",
+        says: "Every record type the client's cache start makes an object cache for has a decoder.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DATA-CACHE-TYPES"),
+        station: "auberean-assets::cpu::cache::every_record_type_the_client_makes_a_cache_for_has_a_decoder",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.database.free-list-keeps-released-records",
         says: "A record nobody holds any more stays loaded on its type's free list, so asking for \
                it again finds it in memory; the list keeps at most the type's greatest number, the \

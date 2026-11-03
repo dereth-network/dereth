@@ -91,6 +91,7 @@ pub struct Quest {
     /// The seconds left before it runs out (under way) or may be taken again.
     pub seconds_remaining: i32,
     /// The player may give it up.
+    // D2-12250
     pub cancellable: bool,
 }
 
@@ -830,6 +831,7 @@ impl Child for QuestWindow {
         }
     }
 
+    // D2-02701
     fn close(self: Box<Self>, ui: &mut Ui) {
         if let Some(j) = self.journal {
             Box::new(j).close(ui);

@@ -391,7 +391,7 @@ impl Examination {
     }
 
     /// The rows and the times left gone; the next line at the top left.
-    // D2-02600
+    // D2-02600, D2-02602
     fn cleanup_rows(&mut self, ui: &mut Ui) {
         if let Some(l) = self.list {
             ui.list_flush(l);

@@ -89,6 +89,7 @@ pub struct DamageBlob {
 
 /// A damage text shown: its element, when it began (the interface's clock), how long it lasts,
 /// and the object it rises over.
+// D2-02105
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DamageText {
     pub element: Handle,

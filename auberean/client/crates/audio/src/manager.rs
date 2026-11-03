@@ -246,7 +246,8 @@ impl Playing {
     }
 }
 
-/// The sound manager.
+/// The sound manager; what it plays and holds goes with it.
+// D2-07719
 #[derive(Debug)]
 pub struct SoundPlayer {
     /// The mixer the device plays; `None` with no device, when nothing plays.
@@ -389,7 +390,7 @@ impl SoundPlayer {
 
     /// Play a request: its handle, or `None` when it was refused or one of the same setting that
     /// plays one at a time is already playing.
-    // D2-07723, D2-07721
+    // D2-07723, D2-07721, D2-07722
     pub fn play(&mut self, files: &dyn SoundFiles, req: &PlayRequest) -> Option<u32> {
         self.stats.requests += 1;
         self.mixer.as_ref()?;
@@ -560,7 +561,7 @@ impl SoundPlayer {
 
     /// Stop the sound of `handle`, fading out over `fade` seconds (at once for 0); it is done
     /// when it has stopped.
-    // D2-01716, D2-07783
+    // D2-01716, D2-07783, D2-07698
     pub fn stop(&mut self, handle: u32, fade: f32) {
         if let Some(i) = self.playing.iter().position(|p| p.handle == handle) {
             self.stop_internal(i, fade, true, false);

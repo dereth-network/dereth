@@ -77,6 +77,7 @@ impl ShellStatus {
 }
 
 /// The lines typed, newest first, and where stepping stands (-1: before the newest).
+// D2-07664, D2-07667
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct History {
     lines: Vec<String>,
@@ -160,7 +161,7 @@ impl History {
 /// The commands the player's scripts made known: each name to the function that carries it out
 /// and whether a line naming it is expanded; the names the help knows. The player's own table,
 /// made empty with the player's shell and dropped with it.
-// D2-07679, D2-07678
+// D2-07679, D2-07678, D2-12937, D2-12933
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Commands {
     pub names: BTreeMap<String, u32>,

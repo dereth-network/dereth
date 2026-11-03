@@ -239,7 +239,7 @@ impl Pets {
 
     /// The panel's look: with pets and the option on, shown, as tall as its rows, its buttons lit;
     /// else its no-pets look, hidden, the buttons ghosted.
-    // D2-02371
+    // D2-02371, D2-02372
     fn update_state(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         let Some(r) = self.root else { return };
         let n = self.pets.len();

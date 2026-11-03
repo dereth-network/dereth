@@ -247,7 +247,7 @@ impl Download {
     /// A download begins: `bytes` to come in all, and each file's part. The connecting screen is
     /// told the bytes still to come (less those that came early), the drops are made, and the
     /// waiting begins.
-    // D2-05139
+    // D2-05139, D2-05084, D2-05085
     pub fn on_begin_ddd(&mut self, set: &StoreSet, bytes: u32, missing: Vec<MissingIteration>) {
         self.state = DddState::Patching;
         self.missing = missing;

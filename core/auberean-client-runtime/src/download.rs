@@ -271,6 +271,7 @@ impl DataDownload {
         for o in std::mem::take(&mut self.download.out) {
             match o {
                 Output::Notice { event, value } => self.events.push((event, value)),
+                // D2-12847
                 Output::SendEnd => send.push(ClientMessage::DownloadEnds(Empty)),
                 Output::Request(q) => send.push(ClientMessage::DataRequest(DataRequest {
                     kind: q.kind,

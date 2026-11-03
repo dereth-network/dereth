@@ -99,7 +99,7 @@ impl Footprint {
 
 /// What lies beneath an obstacle: the ground cells it spans, its box, where it stands (not
 /// stored) and the heights probed under it.
-// D2-13672, D2-13670
+// D2-13672, D2-13670, D2-13673
 #[derive(Clone, Debug, PartialEq)]
 pub struct UndersideInfo {
     pub min_x: i32,
@@ -228,7 +228,7 @@ impl ExternalLink {
 }
 
 /// An obstacle description.
-// D2-13648, D2-05060
+// D2-13648, D2-05060, D2-13647
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObstacleShape {
     /// The model it was made from.

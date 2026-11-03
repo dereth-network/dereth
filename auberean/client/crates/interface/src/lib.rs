@@ -212,6 +212,7 @@ impl FlowScreen<Shared> for PlayScreen {
     fn update(&mut self, ui: &mut Ui, data: &mut Shared) {
         if data.in_world && !self.logged_in {
             self.logged_in = true;
+            // D2-03994
             self.play.login_finished(ui, &mut data.out);
         }
         let view = View {

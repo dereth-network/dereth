@@ -67,7 +67,7 @@ impl<H: Copy + PartialEq> Registry<H> {
     }
 
     /// `handler` hears nothing more: it goes.
-    // D2-03972, D2-08108, D2-03973
+    // D2-03972, D2-08108, D2-03973, D2-01905
     pub fn unregister_all(&mut self, handler: H) {
         for list in self.lists.values_mut() {
             list.retain(|h| *h != handler);

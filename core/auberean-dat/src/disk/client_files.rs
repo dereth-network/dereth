@@ -186,7 +186,7 @@ impl ClientFiles {
     /// # Errors
     /// [`NO_LANGUAGE_NOTICE`] when the language has no name or its file is not found; `0` when it
     /// does not open.
-    // D2-05140
+    // D2-05140, D2-12611
     pub fn set_language_internal(
         &mut self,
         files: &mut dyn Files,

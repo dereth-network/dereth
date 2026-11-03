@@ -1257,7 +1257,7 @@ impl<'w> Scene<'w> {
     /// then wanted until the server has the player in the world (it took the player out of it for
     /// a trip, or has not said who the player is yet) and the client has the player's body placed
     /// with the world around it loaded; a teleport of the player wants it again.
-    // D2-01910, D2-01944, D2-01909, D2-10657, D2-10665, D2-10643, D2-10644, D2-11001, D2-11002
+    // D2-01910, D2-01944, D2-01909, D2-10657, D2-10665, D2-10643, D2-10644, D2-11001, D2-11002, D2-04056, D2-04057
     fn follow_portal_space(&mut self, client: &Client, now: f64) {
         let in_session = self.entering || client.model.player.is_some();
         if !in_session {

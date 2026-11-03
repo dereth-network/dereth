@@ -168,7 +168,7 @@ fn region_sub_ids(record: &dyn Any, out: &mut QualifiedIds) {
 }
 
 /// Records loaded from data files, kept in per-type caches.
-// D2-12628, D2-12627, D2-12613, D2-12614, D2-12626
+// D2-12628, D2-12627, D2-12613, D2-12614, D2-12626, D2-12636
 pub struct Database {
     files: Vec<Arc<DatFile>>,
     /// The files as the data cache stores into them, when it does: records are read through them,
@@ -306,6 +306,7 @@ impl Database {
 
     /// Whether one type's cache (`Some`; `false` when the type has none yet) or every type's
     /// keeps free records.
+    // D2-12635
     pub fn keep_free_objects(&self, kind: Option<u32>, keep: bool) -> bool {
         cache::keep_free_objects(&self.caches, kind, keep)
     }
