@@ -475,7 +475,13 @@ impl Service {
         extra: Option<Extra>,
         store: &mut impl Store,
     ) -> Hr {
-        let Some(to) = self.here.get(&name.to_lowercase()).cloned() else {
+        // A hidden character is answered for as one that is offline is.
+        let to = self
+            .here
+            .get(&name.to_lowercase())
+            .filter(|h| !self.hidden.contains(&h.character) || h.character == teller.character)
+            .cloned();
+        let Some(to) = to else {
             return match Self::local_entry(store, name) {
                 Some(_) => Hr::NOT_ONLINE,
                 None => Hr::NO_SUCH_USER,

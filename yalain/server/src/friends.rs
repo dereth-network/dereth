@@ -359,6 +359,14 @@ impl Friends {
             self.service
                 .left(now, account, &mut server.store, fed.as_deref_mut());
         }
+        // After those who left, whom nobody is to see come back on their way out; before those who
+        // entered, whom nobody is to see arrive.
+        self.service.set_hidden(
+            now,
+            yalain_world::presence::cloaked_characters(server),
+            &mut server.store,
+            fed.as_deref_mut(),
+        );
         for (account, (character, name)) in here {
             if self.in_world.contains_key(&account) {
                 continue;
@@ -581,6 +589,108 @@ mod tests {
         assert!(h.now.0 - left > 10.0, "it lingered");
         f.world(at(&h), &mut h.server, None);
         assert_eq!(f.in_world.get(&account), None, "gone with its body");
+    }
+
+    /// A cloak reaches the friends service and the network from the world at its next pass: another
+    /// world's watch sees the character go offline, and it is not shown online on its way out of
+    /// the world, nor as it comes back still cloaked.
+    /// Behaviour: server.friends.hidden-is-not-on-the-network
+    #[test]
+    fn a_cloak_reaches_the_network_and_a_cloaked_character_comes_and_goes_unseen() {
+        use auberean_friends::{Cx, Element, Hello, Request, Ticket, PREAMBLE, PROTO};
+        use dereth_network_protocol::{Address, Message};
+        let frames = |fed: &mut Federation, t: f64| -> Vec<Message> {
+            fed.take_frames(t)
+                .iter()
+                .filter_map(|f| Message::from_json(f).ok())
+                .collect()
+        };
+        let mut h = Harness::new();
+        let (a, elara) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, None);
+        let t = h.now.0;
+        f.service.accept(
+            at(&h),
+            1,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        );
+        let mut bytes = PREAMBLE.to_vec();
+        for e in [
+            Element::Hello(Hello {
+                proto: PROTO,
+                software: "test/1".into(),
+                locale: None,
+            }),
+            Element::Request {
+                cx: Cx(1),
+                request: Request::PresentTicket {
+                    email: String::new(),
+                    ticket: Ticket::new("one", "ticket").encode().expect("a ticket"),
+                },
+            },
+        ] {
+            e.write_frame(&mut bytes).expect("fits");
+        }
+        f.service
+            .on_bytes(at(&h), 1, &bytes, &mut h.server.store, Some(&mut fed));
+        let check = f.service.take_tickets().pop().expect("its ticket");
+        let account = h
+            .server
+            .sessions
+            .values()
+            .find(|x| x.account.name == "one")
+            .map(|x| x.account.id)
+            .expect("its login");
+        f.service.admit(
+            at(&h),
+            check.stream,
+            check.cx,
+            account,
+            &mut h.server.store,
+            Some(&mut fed),
+        );
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        f.world(at(&h), &mut h.server, Some(&mut fed));
+        assert!(f.service.is_present("Elara"));
+        let bob = Address::parse("Bob@coldeve").expect("an address");
+        let told = |online| Message::Presence {
+            to: bob.clone(),
+            of: Address::parse("Elara@dawnsong").expect("an address"),
+            online,
+        };
+        let _ = frames(&mut fed, t);
+        let watch = Message::Watch {
+            owner: bob.clone(),
+            target: Address::parse("Elara@dawnsong").expect("an address"),
+            on: true,
+        };
+        fed.on_frame(&mut f.service, t, &watch.to_json());
+        assert!(frames(&mut fed, t).contains(&told(true)));
+
+        let cloak = |h: &mut Harness| {
+            h.server
+                .players
+                .values_mut()
+                .find(|p| p.character == elara)
+                .expect("in the world")
+                .admin
+                .cloaked = true;
+        };
+        cloak(&mut h);
+        f.world(at(&h), &mut h.server, Some(&mut fed));
+        assert!(frames(&mut fed, t).contains(&told(false)), "cloaked: gone");
+
+        h.bots[a].leave();
+        while h.server.players.values().any(|p| p.character == elara) {
+            h.step();
+        }
+        f.world(at(&h), &mut h.server, Some(&mut fed));
+        assert!(
+            !frames(&mut fed, t).contains(&told(true)),
+            "not online on its way out"
+        );
     }
 
     /// An admin's `@dn admin ...` said in game is the operator's command, answered in its chat

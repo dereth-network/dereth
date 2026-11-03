@@ -9,15 +9,24 @@ use crate::names::{read_entry, world_entry, Target};
 use crate::Service;
 
 impl Friends for Service {
+    // A hidden character is not present to the network: it is shown online to nobody, told nothing
+    // from another world, and watches nobody.
     fn present(&self, name: &str) -> Option<Present> {
-        self.here.get(&name.to_lowercase()).map(|h| Present {
-            name: h.name.clone(),
-            state: h.state.clone(),
-        })
+        self.here
+            .get(&name.to_lowercase())
+            .filter(|h| !self.hidden.contains(&h.character))
+            .map(|h| Present {
+                name: h.name.clone(),
+                state: h.state.clone(),
+            })
     }
 
     fn everyone_present(&self) -> Vec<String> {
-        self.here.values().map(|h| h.name.clone()).collect()
+        self.here
+            .values()
+            .filter(|h| !self.hidden.contains(&h.character))
+            .map(|h| h.name.clone())
+            .collect()
     }
 
     fn remote_friends(&self, character: &str) -> Vec<Address> {

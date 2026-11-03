@@ -28,6 +28,10 @@
 //!   player with a stream has them, on the network or not.
 //! - **Other worlds' characters** need the character on the Dereth Network (`@dn on`, said in
 //!   chat) and the world linked; the link's half does the rest ([`Service::said`]).
+//! - **A hidden character** ([`Service::set_hidden`], a cloaked admin) is not there to anyone: its
+//!   friends here and on other worlds see it offline, a tell to it is answered as one to a
+//!   character offline is, and it stops watching its friends on other worlds, whose watches would
+//!   say it is here. Its client keeps its stream, and it may still tell whom it chooses.
 //! - **A gagged character** ([`Service::set_gagged`]) tells nobody, here or on another world: it
 //!   is shown [`GAGGED`], and its client that the tell could not be sent.
 //! - **Names.** A name whose world part is the world's own name (any case) or its slug is a
@@ -277,6 +281,8 @@ pub struct Service {
     now: Duration,
     /// The characters the world has gagged, as the host says.
     gagged: HashSet<u64>,
+    /// The characters no one is to know are here, as the host says.
+    hidden: HashSet<u64>,
 }
 
 /// The time as the link's half counts it.
@@ -335,6 +341,7 @@ impl Service {
             accounts_changed: true,
             now: Duration::ZERO,
             gagged: HashSet::new(),
+            hidden: HashSet::new(),
         }
     }
 
@@ -579,6 +586,76 @@ impl Service {
         self.gagged = characters;
     }
 
+    /// The characters no one is to know are here, as the world says. Those newly so go offline to
+    /// their friends, here and on other worlds, as if they had left; those no longer so come back
+    /// as if they had entered. One that left the world but stays present after a hand-over stays
+    /// as it was until it goes: it must not show online on its way out.
+    pub fn set_hidden(
+        &mut self,
+        now: Duration,
+        characters: HashSet<u64>,
+        store: &mut impl Store,
+        mut fed: Option<&mut Federation>,
+    ) {
+        self.now = now;
+        let mut next = characters;
+        for h in self.here.values() {
+            let held = self
+                .held
+                .values()
+                .any(|x| x.name.eq_ignore_ascii_case(&h.name));
+            if held && self.hidden.contains(&h.character) {
+                next.insert(h.character);
+            }
+        }
+        if next == self.hidden {
+            return;
+        }
+        let here: Vec<(u64, String, Mode)> = self
+            .here
+            .values()
+            .map(|h| (h.character, h.name.clone(), mode_of(&h.state)))
+            .collect();
+        for (character, name, _) in &here {
+            if next.contains(character) && !self.hidden.contains(character) {
+                self.hide(name, fed.as_deref_mut());
+            }
+        }
+        let lifted = std::mem::replace(&mut self.hidden, next);
+        for (character, name, mode) in &here {
+            if lifted.contains(character) && !self.hidden.contains(character) {
+                self.tell_friends_of(name, *mode);
+                if let Some(f) = fed.as_deref_mut() {
+                    f.arrived(self, name);
+                }
+            }
+        }
+        self.settle(now, store, fed);
+    }
+
+    /// A present character is to be hidden: everyone sees it go. It stops watching its friends on
+    /// other worlds, so what its client shows of them can't stand: it shows them offline too.
+    fn hide(&mut self, name: &str, fed: Option<&mut Federation>) {
+        self.tell_friends_of(name, Mode::OFFLINE);
+        let Some(f) = fed else {
+            return;
+        };
+        let shown: Vec<dereth_network_protocol::Address> =
+            yalain_federation::Friends::remote_friends(self, name)
+                .into_iter()
+                .filter(|a| f.shown(name, a) == Some(true))
+                .collect();
+        f.left(self, name);
+        for friend in shown {
+            yalain_federation::Friends::show_presence(self, name, &friend, false, false);
+        }
+    }
+
+    /// Whether a character of this world is hidden, by its name.
+    fn is_hidden(&self, name: &str) -> bool {
+        self.id_of(name).is_some_and(|id| self.hidden.contains(&id))
+    }
+
     /// The ticket a stream presented is refused (`banned`: the account is banned). Counted
     /// against the address it came from.
     pub fn refuse(
@@ -728,7 +805,7 @@ impl Service {
         );
         self.start(now, id, &w.name, fed.as_deref());
         self.tell_friends_of(&w.name, Mode::ONLINE);
-        if let Some(f) = fed {
+        if let Some(f) = fed.filter(|_| !self.hidden.contains(&w.character)) {
             f.arrived(self, &w.name);
         }
     }
@@ -765,13 +842,17 @@ impl Service {
         }
         self.assumed_offline.retain(|(c, _)| *c != key);
         self.tell_friends_of(&h.name, Mode::OFFLINE);
-        if let Some(f) = fed {
+        if let Some(f) = fed.filter(|_| !self.hidden.contains(&h.character)) {
             f.left(self, &h.name);
         }
     }
 
-    /// Every present character that lists `name` (a character of this world) is told its mode.
+    /// Every present character that lists `name` (a character of this world) is told its mode;
+    /// nobody is told anything of a hidden one.
     fn tell_friends_of(&mut self, name: &str, mode: Mode) {
+        if self.is_hidden(name) {
+            return;
+        }
         let key = name.to_lowercase();
         let user = self.written_local(name);
         let listing: Vec<StreamId> = self
@@ -829,10 +910,11 @@ impl Service {
         }
     }
 
-    /// A character of this world's mode now.
+    /// A character of this world's mode now: a hidden one is offline.
     fn local_mode(&self, name: &str) -> Mode {
         self.here
             .get(&name.to_lowercase())
+            .filter(|h| !self.hidden.contains(&h.character))
             .map_or(Mode::OFFLINE, |h| mode_of(&h.state))
     }
 

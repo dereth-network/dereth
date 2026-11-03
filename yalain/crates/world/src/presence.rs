@@ -330,6 +330,17 @@ pub fn player_named_for<S: Store>(s: &Server<S>, viewer: ConnId, name: &str) -> 
         .map(|(w, _)| *w)
 }
 
+/// The characters in the world that are cloaked admins: the friends service and the network are not
+/// to know they are here.
+#[must_use]
+pub fn cloaked_characters<S: Store>(s: &Server<S>) -> std::collections::HashSet<u64> {
+    s.players
+        .values()
+        .filter(|p| p.admin.cloaked)
+        .map(|p| p.character)
+        .collect()
+}
+
 /// An admin was cloaked, or no longer is: the clients that may no longer see it see it leave, and
 /// those that may now are told of it.
 pub fn cloak_changed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {

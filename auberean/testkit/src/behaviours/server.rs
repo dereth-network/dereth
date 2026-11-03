@@ -2481,6 +2481,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.hidden-is-not-on-the-network",
+        says: "To other worlds a cloaked admin is not there: its watchers see it offline, a watch is \
+               answered offline, a tell is answered as one to a character offline. It stops watching \
+               its friends, so what it shows of them goes offline; entering and leaving cloaked says \
+               nothing. Our design.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NETWORK-HIDDEN"),
+        station: "yalain-friends::cpu::presence::a_hidden_character_is_not_there_to_other_worlds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.hidden-is-offline-to-friends",
+        says: "To its friends in the world a cloaked admin is offline: it goes offline once, its state, \
+               leaving and coming back are not told, added it shows offline, a tell to it is answered \
+               as one to a character offline and shows nothing. Lifted, it is back in the state it \
+               chose. Our design: no recording holds an admin.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-HIDDEN"),
+        station: "yalain-friends::cpu::presence::a_hidden_character_is_offline_to_its_friends_and_tells",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.ignore-list-kept",
         says: "The ignore list keeps characters of this world, which must exist, and other \
                worlds' addresses, lists them back as the client knows them, and answers a name \
