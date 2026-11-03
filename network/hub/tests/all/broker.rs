@@ -2003,6 +2003,7 @@ mod bridge {
         );
         let view = op(&f, &session, "GET", mirrors, &Value::Null).json();
         assert_eq!(view["globalRoom"], "roleplay");
+        assert_eq!(view["roomNames"]["roleplay"], "Roleplay");
         assert_eq!(
             view["rooms"],
             json!(["global", "general", "trade", "lfg"]),

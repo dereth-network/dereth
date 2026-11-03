@@ -1488,7 +1488,8 @@ fn shown(service: &Service, m: &Mirror) -> Value {
 }
 
 /// A world's mirrors, as its operator sees them, with the room that carries the Global room there
-/// (none while the hub holds none), which is not one of the rooms it may mirror.
+/// (none while the hub holds none), which is not one of the rooms it may mirror, and what its
+/// game's players call its rooms.
 fn world_view(shared: &Shared, service: &Service, row: &Row) -> Result<Value, RegistryError> {
     let (mirrors, global) = {
         let reg = shared.registry();
@@ -1500,6 +1501,7 @@ fn world_view(shared: &Shared, service: &Service, row: &Row) -> Result<Value, Re
         "mirrors": mirrors.iter().map(|m| shown(service, m)).collect::<Vec<_>>(),
         "rooms": rooms,
         "globalRoom": global,
+        "roomNames": crate::rooms::room_names(row),
         "invite": invite(shared),
     }))
 }

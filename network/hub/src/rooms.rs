@@ -254,12 +254,19 @@ pub(crate) fn operator_global_room(
         _ => return Err(RegistryError::new(404, "Route not found")),
     }
     let global = shared.registry().global_room_of(&row.id)?;
-    let names: serde_json::Map<String, Value> = OWN_ROOMS
+    Ok((
+        200,
+        json!({ "globalRoom": global, "roomNames": room_names(&row) }),
+    ))
+}
+
+/// What a player of the world `row`'s game calls each of its own rooms.
+pub(crate) fn room_names(row: &crate::registry::Row) -> serde_json::Map<String, Value> {
+    OWN_ROOMS
         .iter()
         .zip(own_room_titles(crate::registry::game_of(&row.registry)))
         .map(|(room, title)| ((*room).to_owned(), json!(title)))
-        .collect();
-    Ok((200, json!({ "globalRoom": global, "roomNames": names })))
+        .collect()
 }
 
 /// A world's rooms changed outside the routing: the mirrors are read again when they changed too,
