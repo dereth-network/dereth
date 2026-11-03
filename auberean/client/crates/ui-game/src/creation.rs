@@ -996,7 +996,10 @@ impl GenerationConfirmation {
             }
             self.ghost_buttons(ui, true);
             self.enter = element == name::ENTER_BUTTON;
-            out.push(Request::Create { name });
+            out.push(Request::Create {
+                name,
+                admin: self.admin,
+            });
             return;
         }
         if element == name::ADMIN_BUTTON {

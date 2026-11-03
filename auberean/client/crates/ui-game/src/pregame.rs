@@ -178,9 +178,10 @@ pub enum Request {
         character: u64,
         name: String,
     },
-    /// Make a character of the avatar chosen with this name.
+    /// Make a character of the avatar chosen with this name, an administrator's when asked.
     Create {
         name: String,
+        admin: bool,
     },
     /// Find the figure under the pointer in the screen's scene: the answer comes in
     /// [`Data::selection`].

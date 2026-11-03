@@ -66,6 +66,19 @@ pub const EMPYREAN: u32 = 16;
 
 /// The entity a player's character is made from.
 pub const PLAYER_ENTITY: u32 = 0x4700_0530;
+/// The entity an administrator's character is made from.
+pub const ADMIN_ENTITY: u32 = 0x4700_0531;
+
+/// The entity a new character is made from: the administrator's when the creation asked for it.
+// D2-11915, D2-01310
+#[must_use]
+pub const fn avatar_entity(admin: bool) -> u32 {
+    if admin {
+        ADMIN_ENTITY
+    } else {
+        PLAYER_ENTITY
+    }
+}
 /// The key of a garment's table that wears it.
 pub const WORN: u32 = 0x10;
 

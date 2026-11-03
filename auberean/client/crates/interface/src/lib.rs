@@ -2216,16 +2216,21 @@ impl Interface for Retail {
     }
 }
 
-/// The character the chosen avatar makes: the player's entity, the race's start area, class and
-/// implement, the race and sex, and every physique value in the order the table lays them out.
+/// The character the chosen avatar makes: the player's entity (an administrator's when asked), the
+/// race's start area, class and implement, the race and sex, and every physique value in the order
+/// the table lays them out.
 // D2-11920
-fn new_character(name: &str, c: &hall::Creation) -> Option<auberean_client_sdk::NewCharacter> {
+fn new_character(
+    name: &str,
+    admin: bool,
+    c: &hall::Creation,
+) -> Option<auberean_client_sdk::NewCharacter> {
     use auberean_client_sdk::protocol::table::{Table, SMALL};
     let (avatar, _) = c.chosen()?;
     let (class, implement, start_area) = avatar.class_implement_start()?;
     Some(auberean_client_sdk::NewCharacter {
         name: name.encode_utf16().collect(),
-        entity: auberean_world::chargen::PLAYER_ENTITY,
+        entity: auberean_world::chargen::avatar_entity(admin),
         start_area,
         race: avatar.race,
         sex: avatar.sex,

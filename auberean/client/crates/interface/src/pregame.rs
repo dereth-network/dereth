@@ -532,11 +532,11 @@ impl Retail {
                 P::Delete { character } => {
                     requests.push(Request::Act(Action::DeleteCharacter { character }));
                 }
-                P::Create { name } => {
+                P::Create { name, admin } => {
                     let choice = self
                         .creation
                         .as_ref()
-                        .and_then(|c| crate::new_character(&name, c));
+                        .and_then(|c| crate::new_character(&name, admin, c));
                     if let Some(c) = choice {
                         requests.push(Request::Act(Action::CreateCharacter(c)));
                     }

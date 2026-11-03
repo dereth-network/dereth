@@ -806,7 +806,8 @@ fn the_name_is_asked_with_cancel_and_enter() {
     assert_eq!(
         r.take(),
         vec![Request::Create {
-            name: "Rowanlightabcde".into()
+            name: "Rowanlightabcde".into(),
+            admin: false,
         }]
     );
     assert!(r.ghosted("EnterButton"), "waits for the server");

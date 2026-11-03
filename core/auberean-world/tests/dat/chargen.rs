@@ -277,7 +277,8 @@ fn label_id(name: &str) -> u32 {
 #[test]
 fn the_native_creation_answers_as_the_character_generators_scripts_do() {
     use auberean_script::native_object::{Item, NativeObject};
-    use auberean_world::chargen::{body_entity, PLAYER_ENTITY, RACES};
+    use auberean_world::chargen::{avatar_entity, body_entity, RACES};
+    const ADMIN_AVATAR: u32 = scripts::PACKAGE << 16 | 0x01;
     const PLAYER_AVATAR: u32 = scripts::PACKAGE << 16 | 0x02;
     const RACE_SEX_DATA: u32 = scripts::PACKAGE << 16 | 0x05;
     const RACE_SEX_INFO: u32 = scripts::PACKAGE << 16 | 0x06;
@@ -302,7 +303,9 @@ fn the_native_creation_answers_as_the_character_generators_scripts_do() {
     };
 
     let a = m.call(PLAYER_AVATAR, 1, &[]);
-    assert_eq!(a.outs[0].0, PLAYER_ENTITY, "the player's avatar");
+    assert_eq!(a.outs[0].0, avatar_entity(false), "the player's avatar");
+    let a = m.call(ADMIN_AVATAR, 1, &[]);
+    assert_eq!(a.outs[0].0, avatar_entity(true), "the administrator's avatar");
 
     // The races and sexes.
     let a = m.call(RACE_SEX_DATA, 1, &[]);
