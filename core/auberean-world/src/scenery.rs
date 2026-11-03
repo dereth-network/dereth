@@ -632,7 +632,7 @@ impl Placer<'_> {
     }
 
     /// Whether a circle about `at` of radius `r` reaches anything already kept clear.
-    // D2-03642, D2-12455
+    // D2-03642, D2-12455, D2-12450
     fn collides(&self, at: Vec3, r: f32, in_3d: bool) -> bool {
         self.clear.iter().any(|c| {
             if c.group && !c.done {
@@ -654,7 +654,7 @@ impl Placer<'_> {
 
     /// Start keeping a group (or a scene's vertex, with no group) clear; frills keep nothing
     /// clear.
-    // D2-03676
+    // D2-03676, D2-12447, D2-12451
     fn start_group(
         &mut self,
         place: &Place,
@@ -676,6 +676,7 @@ impl Placer<'_> {
         Some(self.clear.len() - 1)
     }
 
+    // D2-12449
     fn end_group(&mut self, k: Option<usize>) {
         if let Some(c) = k.and_then(|k| self.clear.get_mut(k)) {
             c.done = true;
@@ -683,7 +684,7 @@ impl Placer<'_> {
     }
 
     /// Place one object: a frill is only drawn; anything else is also kept clear.
-    // D2-03677, D2-03643
+    // D2-03677, D2-03643, D2-12446
     fn entity(&mut self, id: DataId, place: &Place, scale: Vec3, frill: bool) {
         if !frill {
             self.clear.push(Clearance {

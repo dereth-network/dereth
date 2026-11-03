@@ -382,7 +382,7 @@ impl SceneryKind {
 }
 
 impl SceneryKind {
-    // D2-12392, D2-12393, D2-12400
+    // D2-12392, D2-12393, D2-12400, D2-12402
     fn write(&self, w: &mut Writer) {
         w.u32(self.index);
         w.align();

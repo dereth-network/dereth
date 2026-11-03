@@ -5,5 +5,6 @@
 
 mod contact;
 mod geometry;
+mod material;
 mod motion;
 mod paths;

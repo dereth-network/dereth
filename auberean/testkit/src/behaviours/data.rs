@@ -66,6 +66,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.block-property.a-color-blends-between-the-corners",
+        says: "A color property laid over blocks blends channel by channel between the block's four \
+               corners, alpha among them; a corner of another type gives no value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-BLOCK-PROPERTY-COLOR"),
+        station: "auberean-physics::cpu::material::a_color_laid_over_blocks_blends_between_the_corners",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.cache.a-created-objects-state-names-its-records",
         says: "Every saved state a created object's records bring, or name in turn, is asked by the \
                player's scripts which records it needs, and each answer runs to its end. Given the \
@@ -1107,8 +1116,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "data.records.encode-to-their-own-bytes",
         says: "Every property list, physics material, entity, enum map, id map, string table, \
-               string state, landblock's placed objects, light record, interior cell and saved \
-               script state, read and written again, gives back exactly the bytes it was read from.",
+               string state, landblock's placed objects, light record, interior cell, scene description \
+               and saved script state, read and written again, gives back exactly the bytes it was read from.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DAT-ENCODE"),
         station: "auberean-assets::dat::game::encode::every_record_with_a_writer_writes_back_to_its_own_bytes",
