@@ -218,6 +218,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.inside.a-lights-packed-list-reads-as-the-run-length-form",
+        says: "A light's packed list of lit vertices reads as the run-length form: single \
+               indices and runs in order, and a run whose length has its top bit set gives \
+               nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-LIT-LIST-RLE"),
+        station: "auberean-world::cpu::inside::a_lights_packed_list_reads_as_the_run_length_form",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.inside.a-lit-particle-takes-the-first-five-lights-kept",
         says: "A lit particle takes the first five lights its system keeps: a point light its color \
                times its intensity over 1 + 10 d squared / R squared, a directional light the same \

@@ -402,8 +402,7 @@ fn unit(w: f32) -> f32 {
     }
 }
 
-/// The vertex indices a packed list names: each 16-bit word an index, or with its high bit set
-/// the first of a run whose length is the next word.
+/// The vertex indices a packed list names, as 16-bit words in the run-length form.
 // D2-03526
 #[must_use]
 pub fn unpack_indices(packed: &[u8]) -> Vec<u32> {
@@ -413,21 +412,10 @@ pub fn unpack_indices(packed: &[u8]) -> Vec<u32> {
         .iter()
         .map(|w| u16::from_le_bytes(*w))
         .collect();
-    let mut out = Vec::new();
-    let mut k = 0;
-    while k < words.len() {
-        let w = words[k];
-        if w & 0x8000 != 0 {
-            let start = u32::from(w & 0x7FFF);
-            let n = u32::from(words.get(k + 1).copied().unwrap_or(0));
-            out.extend(start..start + n);
-            k += 2;
-        } else {
-            out.push(u32::from(w));
-            k += 1;
-        }
-    }
-    out
+    auberean_assets::rle::decode(&words)
+        .into_iter()
+        .map(u32::from)
+        .collect()
 }
 
 /// The length of a landblock's side, in meters.

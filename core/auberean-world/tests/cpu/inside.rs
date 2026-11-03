@@ -317,3 +317,21 @@ fn carried_lights_join_the_lights_a_draw_keeps_by_their_weight() {
     assert_eq!(p[0].color, Color::new(0.5, 0.25, 0.0, 1.0));
     assert_eq!(p[0].range, Some(8.0));
 }
+
+/// A light's packed list of lit vertices reads as the run-length form: single indices and runs in
+/// order, and a run whose length has its top bit set (not above 0) gives nothing.
+///
+/// Behaviour: world.inside.a-lights-packed-list-reads-as-the-run-length-form
+#[test]
+fn a_lights_packed_list_reads_as_the_run_length_form() {
+    let packed =
+        |words: &[u16]| -> Vec<u8> { words.iter().flat_map(|w| w.to_le_bytes()).collect() };
+    assert_eq!(
+        auberean_world::inside::unpack_indices(&packed(&[7, 0x8002, 3, 40])),
+        [7, 2, 3, 4, 40]
+    );
+    assert_eq!(
+        auberean_world::inside::unpack_indices(&packed(&[0x8005, 0x8000, 9])),
+        [9]
+    );
+}
