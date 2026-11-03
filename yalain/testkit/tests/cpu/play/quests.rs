@@ -549,6 +549,78 @@ fn a_timed_quest_fails_when_its_time_runs_out() {
     );
 }
 
+/// A use of a person or an object whose step leads somewhere tells its update at once and takes the
+/// player after: first the update, then portal space, then the place. A step that does not lead
+/// on, and a use its step does not run for, take no one.
+/// Behaviour: server.quests.a-use-that-leads-on
+#[test]
+fn a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player() {
+    const THERE: u32 = 0x6CB9_0029;
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999)],
+        vec![
+            Step {
+                to: Some(Place {
+                    cell: THERE,
+                    origin: [100.0, 20.0, 50.0],
+                    heading: 0,
+                }),
+                ..step(
+                    HALL_QUEST,
+                    0,
+                    Trigger::Use(EXPLORER_TEMPLATE),
+                    Update::Bestow,
+                )
+            },
+            step(
+                HALL_QUEST,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            ),
+        ],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x1000_0000], "told at once");
+    let until = h.now.0 + 12.0;
+    while h.now.0 < until {
+        h.step();
+    }
+    let calls: Vec<u32> = calls_of(&h, b, from).into_iter().map(|(f, _)| f).collect();
+    let told = calls.iter().position(|f| *f == UPDATE_QUEST);
+    let went = calls.iter().position(|f| *f == ENTER_PORTAL_SPACE);
+    assert!(
+        told.is_some() && went.is_some() && told < went,
+        "the update, then portal space: {calls:08X?}"
+    );
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(p.position.cell, THERE, "at the place");
+    assert!(p.trip.is_none(), "the trip is over");
+    p_walk_back(&mut h);
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x3000_0000], "its last step");
+    let until = h.now.0 + 12.0;
+    while h.now.0 < until {
+        h.step();
+    }
+    assert!(
+        !calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == ENTER_PORTAL_SPACE),
+        "a step that does not lead on takes no one"
+    );
+}
+
+/// Back to where the explorer stands.
+fn p_walk_back(h: &mut Harness) {
+    let at = h.server.content.objects[0].clone();
+    for p in h.server.players.values_mut() {
+        p.position.cell = at.cell;
+        p.position.origin = at.origin;
+    }
+}
+
 /// A step may require another quest free to be given: never had, or its wait over; the quest
 /// done with its wait running, or under way, holds the step back.
 /// Behaviour: server.quests.a-step-requires-a-quest-free

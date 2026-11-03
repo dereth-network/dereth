@@ -6294,6 +6294,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-person-sends-whoever-uses-it-speaks",
+        says: "A person who sends whoever uses it says its line as it does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-SENDS-LINE"),
+        station: "yalain-testkit::cpu::play::talk::a_person_who_sends_whoever_uses_it_says_its_line_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-required-quest-holds-back-a-giving",
         says: "A quest whose setup names a required quest and status is given, by a kill or a step, \
                only to a player with that quest at that status; otherwise nothing is given or said. In \
@@ -6320,6 +6328,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-STRANGER"),
         station: "yalain-testkit::cpu::play::kill_quests::a_kill_moves_nothing_for_a_player_who_is_no_fellow_of_the_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-use-that-leads-on",
+        says: "A use of a person or an object whose step leads somewhere tells its update at \
+               once and takes the player after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-LEADS-ON"),
+        station: "yalain-testkit::cpu::play::quests::a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player",
         tier: Tier::Cpu,
     },
     behaviour! {

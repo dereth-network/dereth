@@ -190,6 +190,9 @@ pub enum Step {
     OutOfScene { scene: u32 },
     /// A story shard's wait is over: its scene, then into portal space.
     Shard { scene: u32 },
+    /// A use of this person or object has moved a quest that leads on: it flashes, into portal
+    /// space.
+    Sent { by: u64 },
 }
 
 /// A use of an object the server is carrying out: the request's description (its slots and its
@@ -1475,6 +1478,12 @@ fn carry_out<S: Store>(
         origin: to.origin,
         rotation: to.rotation,
     };
+    // A person who sends whoever uses it says its line first (2017: 14 of 16 trips from the one
+    // person recorded so came with its line).
+    if let Some(line) = crate::talk::at_use(s, world, o.template, Some(i)) {
+        let speaker = crate::talk::content_speaker(s, i);
+        crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+    }
     if let Some(&scene) = s.story.shards.get(&u.item) {
         crate::scenes::shard_used(s, net, world, u, to, scene, clock);
         return;
@@ -1496,37 +1505,7 @@ pub(crate) fn through_portal<S: Store>(
     to: StoredPosition,
     clock: Clock,
 ) {
-    if s.things.get(u.item).is_some() {
-        let flash = ServerMessage::DoFx(ObjectEvent {
-            sender: crate::inventory::visual(s, u.item),
-            action: Fx {
-                fx: fx::PORTAL_USED,
-                scalar: 1.0,
-            },
-        });
-        crate::combat::to_all_seeing(s, net, u.item, &flash);
-    } else {
-        let flash = ServerMessage::DoFx(ObjectEvent {
-            sender: object_stamp(s, u.item),
-            action: Fx {
-                fx: fx::PORTAL_USED,
-                scalar: 1.0,
-            },
-        });
-        to_knowers(s, net, u.item, &flash);
-    }
-    let teleporting = TextInfo {
-        string_id: text::TELEPORTING.0,
-        table: text::TELEPORTING.1,
-        ..TextInfo::default()
-    };
-    send(
-        net,
-        world,
-        BlobKind::PRIVATE,
-        &crate::chat::show_text(8, teleporting),
-    );
-    enter_portal_space(s, net, world, true);
+    flash_and_go(s, net, world, u.item);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
             to,
@@ -1543,6 +1522,80 @@ pub(crate) fn through_portal<S: Store>(
         Timer::Trip {
             world,
             step: Step::Arrive,
+        },
+    );
+}
+
+/// What was used has sent the player: it flashes, the player is told it is teleporting and goes into
+/// portal space.
+fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    if s.things.get(item).is_some() {
+        let flash = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::inventory::visual(s, item),
+            action: Fx {
+                fx: fx::PORTAL_USED,
+                scalar: 1.0,
+            },
+        });
+        crate::combat::to_all_seeing(s, net, item, &flash);
+    } else {
+        let flash = ServerMessage::DoFx(ObjectEvent {
+            sender: object_stamp(s, item),
+            action: Fx {
+                fx: fx::PORTAL_USED,
+                scalar: 1.0,
+            },
+        });
+        to_knowers(s, net, item, &flash);
+    }
+    let teleporting = TextInfo {
+        string_id: text::TELEPORTING.0,
+        table: text::TELEPORTING.1,
+        ..TextInfo::default()
+    };
+    send(
+        net,
+        world,
+        BlobKind::PRIVATE,
+        &crate::chat::show_text(8, teleporting),
+    );
+    enter_portal_space(s, net, world, true);
+}
+
+/// A use of a person or an object has moved a quest whose step leads somewhere: the update is told
+/// at once, the player is taken 2.5 s later (2017: an obelisk search's 12 steps, 68 of 72 updates
+/// followed by the trip in 1.9 to 11.5 s, most in 2 to 6 s, each step always to the one place).
+pub(crate) fn sends_on<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    by: u64,
+    place: yalain_content::quests::Place,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if p.trip.is_some() {
+        return;
+    }
+    p.trip = Some(Trip {
+        to: StoredPosition {
+            cell: place.cell,
+            origin: place.origin,
+            rotation: crate::world::rotation_of_heading(place.heading),
+        },
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    s.after(
+        clock,
+        OPENS_AFTER,
+        Timer::Trip {
+            world,
+            step: Step::Sent { by },
         },
     );
 }
@@ -1971,6 +2024,20 @@ pub fn step<S: Store>(
                 &crate::chat::show_text(8, teleporting),
             );
             enter_portal_space(s, net, world, true);
+            s.after(
+                clock,
+                IN_PORTAL_SPACE,
+                Timer::Trip {
+                    world,
+                    step: Step::Arrive,
+                },
+            );
+        }
+        Step::Sent { by } => {
+            if s.players.get(&world).is_none_or(|p| p.trip.is_none()) {
+                return;
+            }
+            flash_and_go(s, net, world, by);
             s.after(
                 clock,
                 IN_PORTAL_SPACE,

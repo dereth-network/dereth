@@ -514,3 +514,30 @@ fn an_idle_broadcast_reaches_the_speakers_landblock_and_the_eight_around_it_ever
     assert_eq!(same[0].first(), Some(&Value::Int(BROADCAST_KIND)));
     assert_eq!(first_text(&same[0]).map(|t| t.0), Some(0x0820_4D9C));
 }
+
+/// A person who sends whoever uses it says its line as it does.
+/// Behaviour: server.quests.a-person-sends-whoever-uses-it-speaks
+#[test]
+fn a_person_who_sends_whoever_uses_it_says_its_line_first() {
+    let mut h = Harness::new();
+    let mut o = person([61.0, 241.0, -44.6]);
+    o.destination = Some(yalain_content::Place {
+        cell: 0x0499_0126,
+        origin: [10.0, 20.0, 5.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    });
+    h.server.content = ContentPack {
+        objects: vec![o],
+        ..ContentPack::default()
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(words(0x0000_0B01), Role::Use, When::Use, true)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_person(&mut h, b, me);
+    assert_eq!(tells(&h, b, from), vec![0x0000_0B01], "its line");
+    let until = h.now.0 + 8.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(p.position.cell, 0x0499_0126, "sent");
+}

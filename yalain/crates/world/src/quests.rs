@@ -680,13 +680,16 @@ fn run_triggered<S: Store>(
         Trigger::Use(_) => givings(s, trigger),
         _ => Vec::new(),
     };
+    // A step that leads somewhere is run by a use of a person or an object; an item's use on one is
+    // the trip's first, its update on arrival.
+    let leads_on = matches!(trigger, Trigger::Use(_)) && who.is_some();
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
         let seen = moved.clone();
         let runs = |s: &Server<S>, st: &Step| {
             st.trigger == trigger
-                && st.to.is_none()
+                && (st.to.is_none() || leads_on)
                 && !seen.contains(&st.quest)
                 && !(blocked && st.needs == 0 && several.contains(&st.quest))
                 && may_run(s, world, st, clock.unix)
@@ -708,6 +711,9 @@ fn run_triggered<S: Store>(
         }
         moved.push(step.quest);
         let received = run_with(s, net, world, &step, who, given, clock);
+        if let (Some(place), Some((by, _))) = (step.to, who) {
+            crate::places::sends_on(s, world, by, place, clock);
+        }
         // The item given is kept by the first step that takes it.
         if given.is_some_and(|g| step.takes.contains(&g.template)) {
             given = None;
