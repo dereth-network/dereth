@@ -125,6 +125,10 @@ pub struct AdminCalls {
     pub refused: BTreeMap<u32, u64>,
     /// How many refusals were logged: one a character in each stay in the world.
     pub logged: u64,
+    /// How many command lines typed by anyone but an admin were refused.
+    pub refused_lines: u64,
+    /// How many of those were logged: one a character in each stay in the world.
+    pub logged_lines: u64,
 }
 
 /// What an admin's commands have set on it. A cloak is kept when it leaves the world: one that

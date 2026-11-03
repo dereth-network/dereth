@@ -1262,8 +1262,9 @@ pub fn utc(secs: i64) -> String {
 
 /// A line a character in the world said (aloud or into a room): when it is `@` and a command's
 /// word, from an admin's account, the command is run and answered in its chat window, and nobody
-/// hears the line; true then. From any other account the line is said as usual, and logged: it was
-/// an admin command, refused. Anything else is said as usual.
+/// hears the line; true then. From any other account the line is said as usual and counted: it was
+/// an admin command, refused. The first from a character in each stay in the world is logged too,
+/// since a client can send them as fast as it can talk. Anything else is said as usual.
 pub(crate) fn said<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1301,9 +1302,21 @@ pub(crate) fn said<S: Store>(
         character,
     };
     if !by.is_admin() {
-        // The first word alone: what follows may hold a secret.
-        let word = rest.split_whitespace().next().unwrap_or_default();
-        tracing::warn!(issuer = %by, word, "refused: not an admin's account");
+        s.admin_calls.refused_lines += 1;
+        let first = s
+            .players
+            .get_mut(&world)
+            .is_some_and(|p| !std::mem::replace(&mut p.refused_admin_line, true));
+        if first {
+            s.admin_calls.logged_lines += 1;
+            // The first word alone: what follows may hold a secret.
+            let word = rest.split_whitespace().next().unwrap_or_default();
+            tracing::warn!(
+                issuer = %by,
+                word,
+                "refused: not an admin's account (any more from it this stay are only counted)"
+            );
+        }
         return false;
     }
     let lines = match parsed {

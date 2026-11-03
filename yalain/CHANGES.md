@@ -33,6 +33,7 @@ what they see, not how it was done.
 - `federation.min_character_age_seconds` now works, as it does on Empyrean.
 - Quests now hold to the least levels the game sets for them.
 - Hero-only quests, and quests that need another first, now go only to those who qualify.
+- A player typing admin commands no longer floods the log.
 
 ## 0.1.2 (2026-11-03)
 

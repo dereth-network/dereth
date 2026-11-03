@@ -96,6 +96,8 @@ pub struct Player {
     pub selection: u64,
     /// An admin call of its was refused and logged this stay.
     pub refused_admin_call: bool,
+    /// An admin command it typed was refused and logged this stay.
+    pub refused_admin_line: bool,
     /// When it entered the world this time, on the local clock.
     pub entered_at: f64,
     /// The stamp of its last movement order.
@@ -374,6 +376,7 @@ pub fn enter<S: Store>(
         scene_drawn: false,
         selection: 0,
         refused_admin_call: false,
+        refused_admin_line: false,
         entered_at: clock.local.0,
         move_to_stamp: 0,
         walking_to: None,

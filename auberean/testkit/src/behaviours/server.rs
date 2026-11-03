@@ -367,6 +367,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.refused-lines-log-one-line",
+        says: "An admin command typed by a player is counted and said as usual, but logged only \
+               the first time from a character in each stay in the world, so that a client cannot \
+               fill the log.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-REFUSED-LINES"),
+        station: "yalain-testkit::cpu::operator::admin_calls::refused_admin_lines_log_one_line_a_stay_however_many_come",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.rename-told-at-once",
         says: "A rename reaches the renamed client and every client that knows it at once as a change \
                of its name's quality, and its own description holds the new name at its next entry. Our \

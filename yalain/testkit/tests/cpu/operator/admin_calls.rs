@@ -2099,3 +2099,35 @@ fn a_server_tell_reaches_a_player_by_name() {
     send(&mut h, me, SERVER_TELL, &[text("Nobody"), text("Hello")]);
     assert_eq!(answers(&h, me, said), ["Nobody is not in the world."]);
 }
+/// A player typing admin commands as fast as it can talk fills no log: its first line each stay is
+/// logged, every one is counted, and each is said as usual.
+/// Behaviour: server.admin.refused-lines-log-one-line
+#[test]
+fn refused_admin_lines_log_one_line_a_stay_however_many_come() {
+    let mut h = Harness::new();
+    let (player, _) = h.player_in_world("one", "Elara");
+    let (other, _) = h.player_in_world("two", "Babyfare");
+    let line = |h: &mut Harness, b: usize, text: &str| {
+        let call = server_call(
+            yalain_world::requests::function::SAY,
+            &[Arg::Int(0), info(text)],
+        );
+        h.bots[b].send(true, queue::WEENIE, &call);
+        h.run(10);
+    };
+    for _ in 0..3 {
+        line(&mut h, player, "@accountlist");
+    }
+    assert_eq!(h.server.admin_calls.refused_lines, 3, "all counted");
+    assert_eq!(h.server.admin_calls.logged_lines, 1, "one line");
+    line(&mut h, player, "@nothing");
+    assert_eq!(
+        h.server.admin_calls.refused_lines, 3,
+        "a word that is no command is only said"
+    );
+    line(&mut h, other, "@accountlist");
+    assert_eq!(
+        h.server.admin_calls.logged_lines, 2,
+        "one for another character"
+    );
+}
