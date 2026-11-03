@@ -772,7 +772,7 @@ impl ActionBindings {
 
 impl KeyMap {
     /// Write the record as [`KeyMap`] decodes it.
-    // D2-04889, D2-04899
+    // D2-04889, D2-04899, D2-15350
     pub fn write(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.narrow_string(&self.name);

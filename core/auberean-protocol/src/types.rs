@@ -322,7 +322,7 @@ impl Field for MovementParams {
         })
     }
 
-    // D2-04063
+    // D2-04063, D2-04064
     fn write(&self, w: &mut Writer) {
         let flags = self.flags;
         w.u32(flags);

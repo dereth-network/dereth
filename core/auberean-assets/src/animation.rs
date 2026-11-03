@@ -592,6 +592,7 @@ impl Decode for Animation {
                 let sliders = r.list(8, |r| {
                     Ok(SliderTicks {
                         slider: r.u32()?,
+                        // D2-01875
                         ticks: r.u32_list()?,
                     })
                 })?;

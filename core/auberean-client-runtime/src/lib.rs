@@ -1338,7 +1338,7 @@ impl Client {
 
     /// The waiting calls whose time came go on, earliest first (a sleeping one only while it
     /// still sleeps; see [`latent`]).
-    // D2-08084, D2-08080
+    // D2-08084, D2-08080, D2-00126
     fn wake_due(&mut self) {
         if self.waiting.is_empty() {
             return;

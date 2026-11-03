@@ -52,7 +52,7 @@ pub mod keeps {
 
 /// An option: its form (what it takes and how it keeps it), its letter (0: none), its long name,
 /// its help, and the value a switch sets.
-// D2-17755
+// D2-17755, D2-17754
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Arg {
     pub form: u32,

@@ -687,7 +687,7 @@ impl Decode for WordFilter {
 }
 
 impl crate::Encode for WordFilter {
-    // D2-14281, D2-00372
+    // D2-14281, D2-00372, D2-00382
     fn encode(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.hash_table(self.buckets, &self.audiences, |w, (a, p)| {
@@ -706,7 +706,7 @@ pub struct Conversation {
 }
 
 /// One node of a conversation: its actions are made, copied and dropped with it.
-// D2-16838, D2-16855, D2-16856, D2-16858, D2-16859, D2-16860, D2-16677
+// D2-16838, D2-16855, D2-16856, D2-16858, D2-16859, D2-16860, D2-16677, D2-16837
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DialogueNode {
     pub name: String,

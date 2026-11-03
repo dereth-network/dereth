@@ -1179,6 +1179,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.the-end-of-retail-data-names-no-quality",
+        says: "The enumerations the qualities are named by are in the end-of-retail data and hold \
+               no names, so a dump lists each value under an empty name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NO-NAMES"),
+        station: "auberean-client-runtime::corpus::calls::the_end_of_retail_data_names_no_quality",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.the-ingredient-panel-reads-every-recorded-recipe",
         says: "Before each ingredient a recorded client put in a slot, the recipe opened as the \
                crafting page opens one (the scripts then open the ingredient panel on it) and read \

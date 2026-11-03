@@ -121,6 +121,7 @@ pub struct LitCell {
     pub packed: Vec<u8>,
 }
 
+// D2-03910
 fn lit_cells(r: &mut Reader<'_>) -> Result<Vec<LitCell>> {
     r.list(8, |r| {
         let cell = r.u32()?;
@@ -307,6 +308,7 @@ impl Decode for Cell {
     }
 }
 
+// D2-03910
 fn write_lit_cells(w: &mut Writer, cells: &[LitCell]) {
     w.list(cells, |w, c| {
         w.u32(c.cell);

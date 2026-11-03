@@ -907,3 +907,30 @@ fn a_region_runs_by_its_skys_calendar() {
     let kept = region_clock(cache, 0x7FFF_FFFF, Some(clock));
     assert_eq!(kept.days_per_year(), 360, "the clock it had");
 }
+
+/// The enumerations the qualities are named by are there in the end-of-retail data and hold no
+/// names, so a dump lists each value under an empty name, as the client does on that data.
+///
+/// Behaviour: script.model.the-end-of-retail-data-names-no-quality
+#[test]
+fn the_end_of_retail_data_names_no_quality() {
+    let data = data().expect("the September 2013 install opens");
+    let c = client(&data);
+    let db = c.data_download().cache().database();
+    for e in [
+        0x4000_001F,
+        0x4000_0020,
+        0x4000_0021,
+        0x4000_0022,
+        0x4000_0023,
+        0x4000_0024,
+        0x4000_0025,
+        0x4000_0026,
+        0x4000_0046,
+        0x4000_0050,
+    ] {
+        let did = db.data_id_by_enum(e, auberean_assets::database::ENUM_MAP_MAPPING);
+        assert_ne!(did, 0, "{e:#x} has its record");
+        assert_eq!(db.enum_map_len(did), 0, "{e:#x} holds no names");
+    }
+}

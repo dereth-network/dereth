@@ -1383,7 +1383,7 @@ impl NativeObject {
     }
 
     /// Write this native object's packed form.
-    // D2-16450, D2-01027, D2-01873
+    // D2-16450, D2-01027, D2-01873, D2-01874
     // D2-04486, D2-00757, D2-04276, D2-00756, D2-16449, D2-01063, D2-01067, D2-04590, D2-04594, D2-04371
     pub fn write(&self, w: &mut Out) -> core::result::Result<(), String> {
         match self {
@@ -1434,7 +1434,7 @@ impl NativeObject {
             Self::Act(a) => a.write(w),
             Self::Acts(list) => crate::story::write_acts(w, list),
             Self::Profile { bytes, .. } => w.bytes(bytes),
-            // D2-12268
+            // D2-12268, D2-12269
             Self::QuestList(list) => {
                 w.u32(u32::try_from(list.len()).map_err(|e| e.to_string())?);
                 for q in list {

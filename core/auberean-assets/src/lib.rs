@@ -35,6 +35,7 @@ pub mod property;
 pub mod record;
 pub mod region;
 pub mod requests;
+pub mod rle;
 pub mod script;
 pub mod setup;
 pub mod sound;

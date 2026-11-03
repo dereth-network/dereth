@@ -156,6 +156,7 @@ pub fn shown_name(name: &str) -> String {
 }
 
 /// A pet as the panel keeps it.
+// D2-02373
 #[derive(Clone, Debug, PartialEq)]
 struct PetInfo {
     name: String,

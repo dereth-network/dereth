@@ -779,6 +779,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.light-info.lit-vertices-unpack-to-their-count-and-pack-back",
+        says: "A lit cell's packed vertices unpack to as many numbers as it says, and those numbers \
+               pack back to the same words.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-LIT-LISTS"),
+        station: "auberean-assets::dat::world::landblock::every_lit_list_unpacks_to_its_count_and_packs_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.map-notes.every-record-decodes",
         says: "Every set of map notes reads as a string table and its labels, each a text token, an \
                icon and a position on the map.",
@@ -1235,6 +1244,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.run-length.a-run-unpacks-to-its-rising-numbers",
+        says: "A run-length list keeps a run of two or more rising numbers as its first number with \
+               the top bit set and its length; the largest number and a form past the limit are \
+               refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-RUN-LENGTH"),
+        station: "auberean-assets::cpu::rle::a_run_unpacks_to_its_rising_numbers_and_packs_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.scene-desc.every-record-decodes",
         says: "The region's scenery reads as a version stored before the id and, per kind of \
                scenery, an index, a sound and the scenes it chooses among with their frequencies.",
@@ -1532,6 +1551,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DAT-TEXTURE"),
         station: "auberean-assets::dat::look::picture::every_texture_decodes_exactly",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.tree.a-paths-folder-runs-to-its-last-separator",
+        says: "A path's folder runs up to and including its last backslash, slash or colon, and is \
+               empty without one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DIRECTORY"),
+        station: "auberean-dat::cpu::tree::a_paths_folder_runs_to_its_last_separator",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "data.types.every-record-has-a-type",

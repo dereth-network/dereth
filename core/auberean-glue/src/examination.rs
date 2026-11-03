@@ -363,7 +363,7 @@ impl Profile {
     }
 
     /// The packed form.
-    // D2-12190, D2-12214
+    // D2-12190, D2-12214, D2-12215
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn pack(&self) -> Vec<u8> {

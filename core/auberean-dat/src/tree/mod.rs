@@ -153,6 +153,16 @@ fn whole<T>(s: number::Scan<T>, t: &[u8]) -> Option<T> {
     s.whole(t).then_some(s.value)
 }
 
+/// A path's folder: up to and including its last `\\`, `/` or `:`; empty when it has none.
+// D2-17786
+#[must_use]
+pub fn directory_of(path: &[u8]) -> &[u8] {
+    match path.iter().rposition(|c| matches!(c, b'\\' | b'/' | b':')) {
+        Some(at) => &path[..=at],
+        None => &[],
+    }
+}
+
 /// The text of a binary name: its word and its bytes as two small hexadecimal digits a byte (the
 /// word low byte first), broken into lines of 100 characters, each full line ending in a line
 /// break.
