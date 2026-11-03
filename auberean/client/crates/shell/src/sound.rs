@@ -39,6 +39,14 @@ impl SoundFiles for Files {
     }
 }
 
+/// The rain's steady sound, how loud it was last set, and when the next clap of thunder may come.
+#[derive(Default)]
+struct RainSound {
+    steady: Option<u32>,
+    volume: f32,
+    next_thunder: f64,
+}
+
 /// The shell's sound.
 pub struct Sound {
     pub manager: SoundPlayer,
@@ -54,6 +62,8 @@ pub struct Sound {
     ambient: Ambient,
     ambient_on: bool,
     land_points: HashMap<(u8, u8), Arc<[LandPoint]>>,
+    /// The rain's sounds.
+    rain: RainSound,
     /// The loudest sample the device was handed since last read (as `f32` bits), and the blocks
     /// it was handed and of them those filled with silence because the game held the mixer.
     peak: Arc<AtomicU32>,
@@ -130,6 +140,7 @@ impl Sound {
             ambient: Ambient::new(block_length),
             ambient_on: false,
             land_points: HashMap::new(),
+            rain: RainSound::default(),
             peak,
             blocks,
             underruns,
@@ -239,6 +250,41 @@ impl Sound {
                 }
             }
         }
+    }
+
+    /// The rain's sounds at `amount` of rain heard (0 under cover or out of the world): a steady
+    /// sound as loud as the rain, and over 0.4 a clap of thunder at a random loudness from a
+    /// quarter up every 15 to 60 seconds.
+    // D2-11010
+    pub fn rain(&mut self, amount: f32, now: f64, random: &Random, by_enum: &dyn Fn(u32) -> u32) {
+        use auberean_draw::rain::{STEADY_SOUND, THUNDER};
+        let amount = amount.clamp(0.0, 1.0);
+        if amount > 0.4 && now > self.rain.next_thunder {
+            let k = usize::try_from(random.roll_int(0, 3)).unwrap_or(0);
+            let id = by_enum(THUNDER[k.min(3)]);
+            if id != 0 {
+                let mut req = auberean_audio::request::PlayRequest::new(id);
+                req.volume = random.roll_float(0.25, 1.0);
+                self.manager.play(&self.files, &req);
+            }
+            self.rain.next_thunder = f64::from(random.roll_float(15.0, 60.0)) + now;
+        }
+        if (amount - self.rain.volume).abs() < 0.0002 {
+            return;
+        }
+        match self.rain.steady {
+            None => {
+                let mut req = auberean_audio::request::PlayRequest::new(by_enum(STEADY_SOUND));
+                req.volume = amount;
+                self.rain.steady = self.manager.play(&self.files, &req);
+            }
+            Some(h) if amount.abs() < 0.0002 => {
+                self.manager.stop(h, 0.0);
+                self.rain.steady = None;
+            }
+            Some(h) => self.manager.set_volume(h, amount),
+        }
+        self.rain.volume = amount;
     }
 
     /// Every sound object `object` makes stops: it left the world.

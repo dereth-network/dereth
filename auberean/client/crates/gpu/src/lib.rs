@@ -2284,6 +2284,7 @@ impl Renderer {
         );
 
         let outdoors = frame.outside.as_ref().unwrap_or(&frame.light);
+        // D2-10936
         let skip_sky = (outdoors.fog_sky - 1.0).abs() < 0.0002;
         let veil_textures = self.bind_textures(&self.white, &self.wrap, &self.white, &self.wrap);
         // One pass of the scene, its steps in the frame's order: the sky, its veil, the
@@ -2371,7 +2372,7 @@ impl Renderer {
         // The reflection: the same scene from the camera mirrored about the water plane (its
         // height mirrored, its pitch turned over), everything below the plane left out, the sky
         // round the mirrored camera.
-        // D2-11030, D2-10552, D2-10553
+        // D2-11030, D2-10552, D2-10553, D2-11031
         if let Some(r) = reflection {
             let h = r.height;
             let m_eye = [eye[0], eye[1], 2.0 * h - eye[2]];

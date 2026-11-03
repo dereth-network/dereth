@@ -320,6 +320,8 @@ pub struct ParticleSet {
     lights: Vec<ParticleLight>,
     /// The repulsors pushing its particles this frame.
     repulsors: Vec<Push>,
+    /// It draws whole however far off it is.
+    no_fade: bool,
     /// When the system was first found with nothing more to discharge.
     spent_since: Option<f64>,
 }
@@ -454,6 +456,7 @@ impl ParticleSet {
                 flicker: None,
             }],
             repulsors: Vec::new(),
+            no_fade: false,
             spent_since: None,
         }
     }
@@ -1048,6 +1051,21 @@ impl ParticleSet {
         self.emitters[k].particles.push(p);
     }
 
+    /// One particle of emitter `k` let go at `now` at `at`, whatever it would have discharged by
+    /// itself. An emitter the system does not have lets nothing go.
+    // D2-10262
+    pub fn discharge_at(&mut self, k: usize, now: f64, at: Vec3) {
+        if k < self.emitters.len() {
+            self.discharge(k, now, now, at, Vec3::ZERO);
+        }
+    }
+
+    /// The system draws whole however far off it is.
+    // D2-15840
+    pub fn set_no_fade(&mut self, on: bool) {
+        self.no_fade = on;
+    }
+
     /// The emitter's particles moved to `now`, once a physics step has passed since the last
     /// time; those past their lifespan go (the last one takes the place of each that goes).
     // D2-10261
@@ -1522,12 +1540,12 @@ impl ParticleSet {
     ) -> Vec<ObjectBatch> {
         let place_origin = place.point(Vec3::ZERO);
         let distance = length(sub(place_origin, eye));
-        if distance > self.desc.stop_fade_distance {
+        if !self.no_fade && distance > self.desc.stop_fade_distance {
             return Vec::new();
         }
         let mut opacity = 1.0;
         let span = self.desc.stop_fade_distance - self.desc.start_fade_distance;
-        if distance > self.desc.start_fade_distance && span > EPSILON {
+        if !self.no_fade && distance > self.desc.start_fade_distance && span > EPSILON {
             opacity = 1.0 - (distance - self.desc.start_fade_distance) / span;
         }
         // A system in the world draws its particles where they are; one of its own draws them

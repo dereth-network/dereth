@@ -428,6 +428,20 @@ impl ParticleSystems {
         }
     }
 
+    /// Let one particle of emitter `k` of the system go at `now` at `at`, in the frame of its place.
+    pub fn discharge(&self, system: &SystemRef, k: usize, now: f64, at: Vec3) {
+        if let Some(s) = self.lock().find(system.id) {
+            s.set.discharge_at(k, now, at);
+        }
+    }
+
+    /// The system draws whole however far off it is.
+    pub fn set_no_fade(&self, system: &SystemRef) {
+        if let Some(s) = self.lock().find(system.id) {
+            s.set.set_no_fade(true);
+        }
+    }
+
     /// Draw the system this frame (the client's running time `now`) at `place` in block `home`'s
     /// frame with `scale`, lit by `light`. The first place a frame queues it moves it there (its
     /// emitters placed there the first time) and runs it to `now`.

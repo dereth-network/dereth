@@ -17,6 +17,7 @@ not how it was done.
 - Some dungeon rooms now have their own gravity, as in retail.
 - Far objects and new landblocks fade in instead of popping.
 - Far-off characters draw at lower detail.
+- It rains now, with thunder, on the days it should.
 
 ## 0.1.2 (2026-11-02)
 

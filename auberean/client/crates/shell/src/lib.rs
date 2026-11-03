@@ -806,6 +806,15 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.sound.object_gone(e);
             }
         }
+        let rain = if in_world {
+            self.scene.rain_heard()
+        } else {
+            0.0
+        };
+        let records = &self.world.records;
+        self.sound.rain(rain, now, &self.random, &|value| {
+            records.data_id_by_enum(value, auberean_draw::rain::MAPPING)
+        });
         self.sound
             .frame(now, &self.scene.seen, in_world, self.world, &self.random);
     }

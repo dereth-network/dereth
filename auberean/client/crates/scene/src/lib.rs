@@ -50,6 +50,7 @@ pub mod seen;
 pub mod story;
 mod temporaries;
 pub mod view;
+mod weather;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -282,6 +283,8 @@ pub struct Scene<'w> {
     anims: CachedRecords<'w>,
     builder: SceneBuilder<'w>,
     drawer: BodyDrawer,
+    /// The rain, and how hard it falls.
+    weather: weather::Weather,
     /// The adaptive degrade's bias, with it on.
     adaptive_degrade: Option<f32>,
     /// How fast frames are being drawn.
@@ -413,11 +416,26 @@ impl std::fmt::Debug for Scene<'_> {
 /// How deep under water the camera standing at `at` is: below its cell's water surface by more
 /// than 0.0002 m; `None` above it, or in a cell with no water.
 // D2-10899
+// D2-10881
 fn camera_in_water(land: &Land, at: &Position) -> Option<f32> {
     let plane = land.water_plane(at.cell)?;
     let o = at.frame.origin;
     let side = plane.normal.x * o.x + plane.normal.y * o.y + plane.normal.z * o.z + plane.d;
     (side < -0.0002).then_some(-side)
+}
+
+/// How high the water of cell `cell` lies, when it has any.
+fn water_height(land: &Land, cell: CellId) -> Option<f32> {
+    let plane = land.water_plane(cell)?;
+    (plane.normal.z != 0.0).then(|| -plane.d / plane.normal.z)
+}
+
+/// How high the water of the land cell the camera stands in lies, when it stands in one.
+fn exterior_water(land: &Land, _block: LandblockId, at: &Position) -> Option<f32> {
+    if is_interior(at.cell.0) {
+        return None;
+    }
+    water_height(land, at.cell)
 }
 
 /// The light `light` under the water of cell `cell`'s block, `depth` meters down: the water's fog
@@ -1107,6 +1125,7 @@ impl<'w> Scene<'w> {
             anims: CachedRecords::new(&world.records),
             builder: SceneBuilder::new(&world.records, &world.region),
             drawer: BodyDrawer::default(),
+            weather: weather::Weather::default(),
             adaptive_degrade: None,
             frame_rate: auberean_draw::quality::FrameRate::default(),
             volumes: auberean_draw::volume::VolumeMaker::default(),
@@ -1285,7 +1304,7 @@ impl<'w> Scene<'w> {
     /// water's reflections, the landscape's object and cloud shadows, the dynamic objects'
     /// shadows, the light coronas, the lights effects place (and their pools) and the volumetric
     /// fog effects for the rest of the world's drawing. The world is drawn again by them at once.
-    // D2-10656
+    // D2-10656, D2-10525
     pub fn init_preferences(&mut self, graphics: &auberean_draw::quality::Graphics) {
         use auberean_draw::quality::key;
         let l = Landscape::of(graphics);
@@ -2035,6 +2054,7 @@ impl<'w> Scene<'w> {
     /// The world without a player: the camera forgets where it stood and whom it followed.
     // D2-10660, D2-10765, D2-10807
     fn reset_world_state(&mut self, client: &mut Client) {
+        self.weather.indoors();
         self.cells.release(client.data_download_mut());
         self.camera.reset_camera();
         self.camera_stands = None;
@@ -3183,6 +3203,12 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// How hard the rain the camera can see falls: 0 under cover.
+    #[must_use]
+    pub fn rain_heard(&self) -> f32 {
+        self.weather.heard()
+    }
+
     /// The frames of the interface's viewport scenes, their figures animated over `dt` seconds;
     /// the picks asked are answered in `views.picked`.
     pub fn view_frames(&mut self, scenes: &[view::ViewScene], dt: f32) -> Vec<view::ViewFrame> {
@@ -3397,6 +3423,7 @@ impl<'w> Scene<'w> {
             built.frame.counts = counts;
         }
         let mut noted = Vec::new();
+        let mut player_bones = None;
         if draws_player {
             let poses = p.figure.pose(&self.anims);
             let place = Mat4::from_parts(
@@ -3424,6 +3451,14 @@ impl<'w> Scene<'w> {
                 dv(origin),
                 body_heading,
             ));
+            let water = (!is_interior(pos.cell.0))
+                .then(|| water_height(&self.land, pos.cell))
+                .flatten();
+            player_bones = Some(weather::BodyBones {
+                bones: weather::bones_of(&p.figure, &poses),
+                place,
+                water,
+            });
         }
         let first_other = noted.len();
         self.others.draw_noting(
@@ -3640,6 +3675,7 @@ impl<'w> Scene<'w> {
         );
         // The decals laid before move on; the lights the objects' effects carry lay their pools on
         // the land, and at the simple setting the bodies their discs, each drawn once.
+        // D2-10588
         self.decals.think(now);
         if self.light_effects && !is_interior(view) {
             let frame_block = (bx, by);
@@ -3903,6 +3939,36 @@ impl<'w> Scene<'w> {
                     home, at, &outside, carried, light,
                 )
             });
+        }
+        // The rain, and what it and the water do to the player's body.
+        // D2-11029
+        let sees_out = !is_interior(view)
+            || built
+                .frame
+                .rooms
+                .as_ref()
+                .is_some_and(|r| r.sight(&built.frame.camera, 4.0 / 3.0).outdoors());
+        if sees_out {
+            let day = self.builder.day(&spot);
+            let (right, _, _) = (axes.0, axes.1, axes.2);
+            built.frame.objects.extend(self.weather.frame(
+                &self.world.records,
+                &mut self.builder,
+                &self.systems,
+                &self.land,
+                day.as_ref(),
+                &weather::Viewer {
+                    time_of_day: spot.time_of_day,
+                    home: (bx, by),
+                    eye: dv(eye),
+                    right,
+                    water: exterior_water(&self.land, block, &at),
+                    now,
+                },
+                player_bones.as_ref(),
+            ));
+        } else {
+            self.weather.indoors();
         }
         built.frame.objects.extend(self.systems.batches(
             (bx, by),

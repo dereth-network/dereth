@@ -181,7 +181,7 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
 /// The body a ray from the camera through the pointer meets first, by the triangles drawn for
 /// each body (`drawn`: each body's id and its batches' range in `batches`). The pointer is in
 /// window pixels of a window `size`, taken at the pixel's middle.
-// D2-11014
+// D2-11014, D2-10561, D2-10613, D2-06114
 #[must_use]
 pub fn pick(
     camera: &SeenCamera,

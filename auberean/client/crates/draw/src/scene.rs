@@ -1196,6 +1196,45 @@ impl<'a> SceneBuilder<'a> {
         out
     }
 
+    /// The rain's streaks as the last update left them, one draw for each layer of its material,
+    /// standing right before the particle systems.
+    // D2-10900
+    pub fn rain_batches(&mut self, rain: &crate::rain::Rain) -> Vec<ObjectBatch> {
+        let (vertices, indices) = rain.drawn();
+        if indices.is_empty() {
+            return Vec::new();
+        }
+        let id = self
+            .records
+            .data_id_by_enum(crate::rain::MATERIAL, crate::rain::MAPPING);
+        let detail = self.material_detail;
+        self.material_at(id, detail)
+            .into_iter()
+            .map(|layer| ObjectBatch {
+                vertices: vertices.clone(),
+                indices: indices.clone(),
+                transform: Mat4::IDENTITY,
+                layer,
+                tint: Color::WHITE,
+                points: PointLights::NONE,
+                mesh_type: 0,
+                shade: None,
+                outside: true,
+                cull: Cull::Never,
+                mesh: 0,
+                casts_volume: false,
+                caster: None,
+                seen_through: false,
+                kept_by: None,
+                anchor: None,
+                step: Some(Pass::Particles),
+                visible: None,
+                block: None,
+                far: false,
+            })
+            .collect()
+    }
+
     /// The two triangles of the landscape square holding `at` (a point in the frame of block
     /// `frame_block`), each corner its place in that frame and its normal, as the last frame
     /// outdoors built the detailed blocks; none for a square it did not build or a hole.
@@ -1600,6 +1639,7 @@ impl<'a> SceneBuilder<'a> {
                         .map(move |v| Vec3::new(v.x + ox, v.y + oy, v.z))
                 })
                 .collect();
+            // D2-10999
             ShadowMap::new(light.light_direction, ground, light.shadow_color, batches)
         } else {
             None
@@ -1688,7 +1728,7 @@ impl<'a> SceneBuilder<'a> {
     /// The light and fog at `spot` on day `day`: the day's at the moment (or the light with no
     /// sky), with the region's fog blocks about the viewer combined and blended by where it stands,
     /// in the block it stands in (which may be beside the block `spot` names).
-    // D2-10903, D2-10904, D2-10865, D2-10866
+    // D2-10903, D2-10904, D2-10865, D2-10866, D2-10880
     #[must_use]
     pub fn light(&self, spot: &Spot, day: Option<&auberean_assets::region::DayDesc>) -> DayLight {
         let light = day.map_or(DayLight::NO_SKY, |d| day_light(d, spot.time_of_day));
@@ -2151,7 +2191,7 @@ impl<'a> SceneBuilder<'a> {
                         let p = tb.geometry.vertices[k];
                         let own = tb.terrain[k].color;
                         let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
-                        // D2-10946
+                        // D2-10946, D2-10542
                         let c = auberean_world::sky::lit_vertex(light, tb.normals[k], own, lit);
                         #[allow(clippy::cast_precision_loss)] // vertex indices within a block
                         let (u, v) = ((i + cx) as f32 * t, (j + 1 - cy) as f32 * t);

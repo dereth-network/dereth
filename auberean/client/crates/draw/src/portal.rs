@@ -258,6 +258,7 @@ impl Passage {
         let noise = noise();
         let phase = self.random * std::f32::consts::PI;
         for i in start..start + count {
+            // D2-11045
             let i = i % RINGS;
             let prev = self.rings[(i + RINGS - 1) % RINGS];
             let at = prev.at + SPACING;

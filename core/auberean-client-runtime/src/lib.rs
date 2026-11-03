@@ -2534,7 +2534,7 @@ impl Client {
         }
     }
 
-    // D2-01904, D2-03986
+    // D2-01904, D2-03986, D2-10650, D2-10651, D2-11020, D2-11021
     fn report_scene(&mut self) {
         if self.scene_wanted && !self.portal_space && self.model.player_object().is_some() {
             self.scene_wanted = false;
