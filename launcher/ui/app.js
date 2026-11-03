@@ -1670,7 +1670,7 @@ function worldRow(w) {
     : `<button class="btn icon-btn" data-world-fav="${esc(w.slug)}" title="Add to favorites">☆</button>`;
   return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
       <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
-      <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}${eraNote(w)}</td>
+      <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
       <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
     + (open ? worldDetail(w) : "");
 }
