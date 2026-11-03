@@ -548,3 +548,49 @@ fn a_timed_quest_fails_when_its_time_runs_out() {
         "its whole wait to be taken again"
     );
 }
+
+/// A step may require another quest free to be given: never had, or its wait over; the quest
+/// done with its wait running, or under way, holds the step back.
+/// Behaviour: server.quests.a-step-requires-a-quest-free
+#[test]
+fn a_step_that_requires_a_quest_free_waits_for_that_quests_wait() {
+    let timer = QuestDef {
+        retry: 3600.0,
+        ..quest(NEXT_QUEST, 0, -999)
+    };
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999), timer],
+        vec![Step {
+            requires: vec![(NEXT_QUEST, Need::Free)],
+            ..step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Bestow,
+            )
+        }],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    let now = h.unix;
+    let set = |h: &mut Harness, st: u32, updated: i64| {
+        for p in h.server.players.values_mut() {
+            p.play.quests.clear();
+            p.play.quests.push(QuestState {
+                quest: NEXT_QUEST,
+                status: st,
+                phase: u32::from(st == status::UNDERWAY),
+                started: 0,
+                updated,
+            });
+        }
+    };
+    set(&mut h, status::COMPLETED, now - 60);
+    let from = use_explorer(&mut h, b, me);
+    assert!(updates(&h, b, from).is_empty(), "its wait is running");
+    set(&mut h, status::UNDERWAY, now - 60);
+    let from = use_explorer(&mut h, b, me);
+    assert!(updates(&h, b, from).is_empty(), "it is under way");
+    set(&mut h, status::COMPLETED, now - 7200);
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x1000_0000], "its wait is over");
+}

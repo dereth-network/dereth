@@ -274,11 +274,12 @@ pub enum Trigger {
     Done(u32),
 }
 
-/// What a step requires of another quest: under way at a phase, or done.
+/// What a step requires of another quest: under way at a phase, done, or free to be given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
     Phase(u32),
     Done,
+    Free,
 }
 
 /// The update a step makes.
@@ -1847,13 +1848,14 @@ impl<'a> Fields<'a> {
     fn requires(&mut self, name: &str) -> Vec<(u32, Need)> {
         self.list_of(
             name,
-            "a list of { quest, phase } or { quest, done = true }",
-            &["quest", "phase", "done"],
+            "a list of { quest, phase }, { quest, done = true } or { quest, free = true }",
+            &["quest", "phase", "done", "free"],
             |t| {
                 let quest = as_u32(t.get("quest")?)?;
-                let need = match (t.get("phase"), t.get("done")) {
-                    (Some(p), None) => Need::Phase(as_u32(p)?),
-                    (None, Some(d)) if d.as_bool() == Some(true) => Need::Done,
+                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
+                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
+                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
+                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
                     _ => return None,
                 };
                 Some((quest, need))

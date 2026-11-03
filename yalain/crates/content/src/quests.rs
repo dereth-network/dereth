@@ -20,9 +20,9 @@
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
 //!   given (templates joined by `,`), provenance; then, optionally, what else it requires (other
-//!   quests at a phase or done: `QUEST:N` or `QUEST:done`, joined by `,`), the items it takes from
-//!   the pack (templates joined by `,`), where it takes the player (`CELL:X:Y:Z:HEADING`, the
-//!   update made on arrival), its effects (saved states joined by `,`), the text shown after them
+//!   quests at a phase, done or free to be given: `QUEST:N`, `QUEST:done` or `QUEST:free`, joined by `,`), the items it takes from
+//!   the pack (templates joined by `,`), where it takes the player (`CELL:X:Y:Z:HEADING`; an item's
+//!   use on an object makes the update on arrival), its effects (saved states joined by `,`), the text shown after them
 //!   (`string:table`), and whether its update is made for the player's fellows too (0/1).
 
 use std::fmt::Write as _;
@@ -143,6 +143,8 @@ pub enum Need {
     Phase(u32),
     /// Done.
     Done,
+    /// Free to be given: never had, or its wait to be taken again over.
+    Free,
 }
 
 /// A place a step takes the player to: a cell, a point in its landblock, a heading (degrees
@@ -176,7 +178,8 @@ pub struct Step {
     pub requires: Vec<(u32, Need)>,
     /// The items it takes from the pack.
     pub takes: Vec<u32>,
-    /// Where it takes the player (its update made on arrival).
+    /// Where it takes the player: an item's use on an object makes its update on arrival, a use of
+    /// a person or an object before the trip.
     pub to: Option<Place>,
     /// The races it is for (none: every race).
     pub races: Vec<u32>,
@@ -351,6 +354,7 @@ impl QuestTable {
                 .map(|(q, n)| match n {
                     Need::Phase(p) => format!("{q:08X}:{p}"),
                     Need::Done => format!("{q:08X}:done"),
+                    Need::Free => format!("{q:08X}:free"),
                 })
                 .collect::<Vec<_>>()
                 .join(",");
@@ -478,10 +482,10 @@ impl QuestTable {
                             let (q, n) = x
                                 .split_once(':')
                                 .ok_or_else(|| format!("a requirement is QUEST:N, not {x}"))?;
-                            let need = if n == "done" {
-                                Need::Done
-                            } else {
-                                Need::Phase(num(n)?)
+                            let need = match n {
+                                "done" => Need::Done,
+                                "free" => Need::Free,
+                                _ => Need::Phase(num(n)?),
                             };
                             Ok((hex(q)?, need))
                         })

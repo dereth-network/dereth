@@ -848,6 +848,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                 match n {
                                     Need::Phase(p) => TableNeed::Phase(*p),
                                     Need::Done => TableNeed::Done,
+                                    Need::Free => TableNeed::Free,
                                 },
                             )
                         })

@@ -6305,6 +6305,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-requires-a-quest-free",
+        says: "A step may require another quest free to be given: never had, or its wait \
+               over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-POSTINGS-FREE"),
+        station: "yalain-testkit::cpu::play::quests::a_step_that_requires_a_quest_free_waits_for_that_quests_wait",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-strangers-kill-moves-nothing",
         says: "A kill moves nothing for a player who is no fellow of the killer, whatever it holds \
                and however near it stands.",

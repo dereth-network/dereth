@@ -523,6 +523,12 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
     let requires = st.requires.iter().all(|(q, need)| match need {
         Need::Phase(n) => phase_of(held, *q) == *n,
         Need::Done => done(held, *q),
+        Need::Free => {
+            phase_of(held, *q) == 0
+                && s.quests
+                    .quest(*q)
+                    .is_none_or(|d| given_again(d, held, now_unix))
+        }
     });
     requires
         && st
