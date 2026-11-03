@@ -949,14 +949,15 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
     );
 }
 
-/// In a window larger than 1024 by 768 the screens before the world are still laid out on a 1024
-/// by 768 screen, whose picture fills the window: a click lands on the button drawn under it. The
-/// pointer shows the data's default cursor. Credits opens the credits, which an interface key
+/// In a window of other proportions than 4:3 the screens before the world are still laid out on a
+/// 1024 by 768 screen, shown as large as the window lets it at those proportions, in its middle: a
+/// click lands on the button drawn under it, and one beside the screen on nothing. The pointer shows
+/// the data's default cursor. Credits opens the credits, which an interface key
 /// (Escape) ends, back to the character list; Options the key map, whose Back returns there.
 ///
-/// Behaviour: desktop.interface.the-screens-before-the-world-fill-the-window-at-1024-by-768
+/// Behaviour: desktop.interface.the-screens-before-the-world-keep-1024-by-768-in-any-window
 #[test]
-fn the_screens_before_the_world_fill_the_window_at_1024_by_768() {
+fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
     let (world, client_data, assets) = data();
     let double = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
     let server = double.login_addr();
@@ -1006,7 +1007,17 @@ fn the_screens_before_the_world_fill_the_window_at_1024_by_768() {
     assert_eq!(
         out.overlay.screen,
         Some((1024, 768)),
-        "the screen fills the window"
+        "the screen is told to the host"
+    );
+    assert_eq!(
+        auberean_shell::interface::fitted((1024, 768), window),
+        [240.0, 0.0, 1440.0, 1080.0],
+        "as high as a wide window, in its middle"
+    );
+    assert_eq!(
+        auberean_shell::interface::fitted((1024, 768), (800, 1000)),
+        [0.0, 200.0, 800.0, 600.0],
+        "as wide as a tall window"
     );
     let cursor = out.overlay.cursor.clone().expect("the interface's cursor");
     assert_eq!(
@@ -1019,8 +1030,14 @@ fn the_screens_before_the_world_fill_the_window_at_1024_by_768() {
         "a whole picture"
     );
     #[allow(clippy::cast_precision_loss)]
-    let scaled = |(x, y): (f32, f32)| (x * window.0 as f32 / 1024.0, y * window.1 as f32 / 768.0);
+    let scaled = |(x, y): (f32, f32)| (240.0 + x * 1080.0 / 768.0, y * 1080.0 / 768.0);
     let credits = middle(&retail, "CreditsButton");
+    click(&mut s, (100.0, scaled(credits).1));
+    assert_eq!(
+        retail.borrow().screen(),
+        "select",
+        "a click beside the screen presses nothing"
+    );
     click(&mut s, scaled(credits));
     assert!(
         until(&mut s, 1.0, |_| retail.borrow().screen() == "credits"),

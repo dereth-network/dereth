@@ -15,8 +15,9 @@
 //! session's phase asks for them: the character list when the account's characters are listed,
 //! the play screen when the player enters the world, back to the list when the character logs off.
 //! The screens before the world are laid out on a 1024 by 768 screen whatever the window's size,
-//! as the client sets its display to 1024 by 768 for them, and their pictures fill the window; the
-//! play screen sets the display to the window's own size:
+//! as the client sets its display to 1024 by 768 for them, and show as large as the window lets
+//! them at those proportions, in its middle; the play screen sets the display to the window's own
+//! size:
 //!
 //! - **the character list**: its list from the server's; Create leads through the three creation
 //!   screens (the avatar, its appearance, the name) and the character is made with the server;
@@ -1369,24 +1370,24 @@ impl Retail {
 
     /// The window's pixels per pixel of the screen.
     #[allow(clippy::cast_precision_loss)]
-    fn scale(&self) -> (f32, f32) {
+    fn scale(&self) -> (f32, f32, f32) {
         let size = self.size();
-        let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
-        (self.window.0 as f32 / w, self.window.1 as f32 / h)
+        let [left, top, width, _] = auberean_shell::interface::fitted(size, self.window);
+        (left, top, width / size.0.max(1) as f32)
     }
 
     /// The host's input method follows the entry that has it on: the part of the entry that
     /// shows, in the window's pixels, told to the host when it changes (none once it is off).
     fn follow_input_method(&mut self, requests: &mut Vec<Request>) {
-        let (sx, sy) = self.scale();
+        let (left, top, scale) = self.scale();
         let area = self.ui.ime().map(|ime| {
             let r = ime.area;
             #[allow(clippy::cast_precision_loss)]
             let (x0, y0, x1, y1) = (
-                to_i32((r.x0 as f32 * sx).floor()),
-                to_i32((r.y0 as f32 * sy).floor()),
-                to_i32((r.x1 as f32 * sx).ceil()),
-                to_i32((r.y1 as f32 * sy).ceil()),
+                to_i32((left + r.x0 as f32 * scale).floor()),
+                to_i32((top + r.y0 as f32 * scale).floor()),
+                to_i32((left + r.x1 as f32 * scale).ceil()),
+                to_i32((top + r.y1 as f32 * scale).ceil()),
             );
             InputArea {
                 x: x0,
@@ -1403,8 +1404,11 @@ impl Retail {
 
     /// A point of the window in the screen's pixels.
     fn to_screen(&self, x: f32, y: f32) -> (i32, i32) {
-        let (sx, sy) = self.scale();
-        (to_i32((x / sx).floor()), to_i32((y / sy).floor()))
+        let (left, top, scale) = self.scale();
+        (
+            to_i32(((x - left) / scale).floor()),
+            to_i32(((y - top) / scale).floor()),
+        )
     }
 
     /// The cursor the interface shows, as a picture for the host.

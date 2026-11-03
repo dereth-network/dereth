@@ -473,20 +473,24 @@ impl Presenter {
         shot: Option<&Path>,
     ) {
         let (w, h) = (self.config.width, self.config.height);
-        // A screen laid out smaller than the window fills it: its viewports stretch with it.
+        // A screen laid out at another size shows at its own proportions in the window's middle:
+        // its viewports scale and move with it.
+        let area = overlay
+            .screen
+            .map(|s| auberean_shell::interface::fitted(s, (w, h)));
         #[allow(clippy::cast_precision_loss)]
-        let (sx, sy) = overlay.screen.map_or((1.0, 1.0), |(sw, sh)| {
-            (w as f32 / sw.max(1) as f32, h as f32 / sh.max(1) as f32)
+        let (ox, oy, scale) = overlay.screen.zip(area).map_or((0.0, 0.0, 1.0), |(s, a)| {
+            (a[0], a[1], a[2] / s.0.max(1) as f32)
         });
         // Each viewport's scene into a clear picture of the viewport's size.
         let view_pictures: Vec<([f32; 4], wgpu::TextureView)> = views
             .iter()
             .filter_map(|v| {
                 let [l, t, r, b] = [
-                    v.rect[0] * sx,
-                    v.rect[1] * sy,
-                    v.rect[2] * sx,
-                    v.rect[3] * sy,
+                    ox + v.rect[0] * scale,
+                    oy + v.rect[1] * scale,
+                    ox + v.rect[2] * scale,
+                    oy + v.rect[3] * scale,
                 ];
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let (vw, vh) = ((r - l).round() as u32, (b - t).round() as u32);
@@ -628,8 +632,8 @@ impl Presenter {
             })
         });
         let world_group = world_view.as_ref().map(|v| self.bind(v));
-        // The interface's pictures texel for texel at the window's size; a smaller screen (the
-        // screens before the world, laid out on 1024 by 768) is filtered as it fills the window.
+        // The interface's pictures texel for texel at the window's size; another screen (the
+        // screens before the world, laid out on 1024 by 768) is filtered as it scales.
         let sampler_for = |c: Option<&Canvas>| match c {
             Some(c) if (c.width, c.height) != (w, h) => &self.sampler,
             _ => &self.nearest,
@@ -666,10 +670,19 @@ impl Presenter {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            // The interface's pictures show in the screen's part of the window.
+            #[allow(clippy::cast_precision_loss)]
+            let whole = [0.0, 0.0, w as f32, h as f32];
+            let screen = area.unwrap_or(whole);
+            let set_area = |pass: &mut wgpu::RenderPass<'_>, a: [f32; 4]| {
+                pass.set_viewport(a[0], a[1], a[2], a[3], 0.0, 1.0);
+            };
             if let Some(g) = &behind_group {
+                set_area(&mut pass, screen);
                 pass.set_pipeline(&self.canvas);
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..3, 0..1);
+                set_area(&mut pass, whole);
             }
             if let Some(g) = &world_group {
                 pass.set_pipeline(&self.world);
@@ -693,9 +706,11 @@ impl Presenter {
             // them (a panel's, such as the paper doll's) and over the picture behind them, under
             // the picture in front.
             if let Some(g) = &middle_group {
+                set_area(&mut pass, screen);
                 pass.set_pipeline(&self.canvas);
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..3, 0..1);
+                set_area(&mut pass, whole);
             }
             if let (Some(b), false) = (&buffer, view_groups.is_empty()) {
                 pass.set_pipeline(&self.quads);
@@ -707,9 +722,11 @@ impl Presenter {
                 }
             }
             if let Some(g) = &front_group {
+                set_area(&mut pass, screen);
                 pass.set_pipeline(&self.canvas);
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..3, 0..1);
+                set_area(&mut pass, whole);
             }
             if let Some(b) = &buffer {
                 pass.set_pipeline(&self.quads);

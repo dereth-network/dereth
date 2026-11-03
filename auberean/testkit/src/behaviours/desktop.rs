@@ -707,16 +707,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "desktop.interface.the-screens-before-the-world-fill-the-window-at-1024-by-768",
+        id: "desktop.interface.the-screens-before-the-world-keep-1024-by-768-in-any-window",
         says: "The screens before the world are laid out on a 1024 by 768 screen whatever the \
-               window's size (the client sets its display to 1024 by 768 for them), and their \
-               picture fills the window: a click lands on the button drawn under it. The pointer \
+               window's size (the client sets its display to 1024 by 768 for them), shown as large \
+               as the window lets it at those proportions, in its middle: a click lands on the \
+               button drawn under it, and one beside the screen on nothing. The pointer \
                shows the data's default cursor. Credits shows the credits, which an interface key \
                ends; Options the key map, the client's maps by action in the game's order, whose \
                Back returns to the list.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PREGAME-1024"),
-        station: "auberean-interface::dat::screens::the_screens_before_the_world_fill_the_window_at_1024_by_768",
+        station: "auberean-interface::dat::screens::the_screens_before_the_world_keep_1024_by_768_in_any_window",
         tier: Tier::Dat,
     },
     behaviour! {

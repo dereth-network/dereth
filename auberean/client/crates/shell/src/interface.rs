@@ -257,9 +257,25 @@ pub struct Overlay {
     /// The pointer's picture over the window, when the interface sets one.
     pub cursor: Option<std::sync::Arc<CursorImage>>,
     /// The size the interface lays its screen out at, when it is not the window's: its pictures
-    /// fill the window, and the viewports' rectangles are in its pixels, their scenes stretched
-    /// with it.
+    /// show in the part of the window [`fitted`] gives, and the viewports' rectangles are in its
+    /// pixels, their scenes scaled with it.
     pub screen: Option<(u32, u32)>,
+}
+
+/// Where a screen of size `screen` shows in a window of size `window`, in the window's pixels: as
+/// large as it goes at its own proportions, in the middle (left, top, width, height).
+#[must_use]
+pub fn fitted(screen: (u32, u32), window: (u32, u32)) -> [f32; 4] {
+    #[allow(clippy::cast_precision_loss)]
+    let (sw, sh, ww, wh) = (
+        screen.0.max(1) as f32,
+        screen.1.max(1) as f32,
+        window.0 as f32,
+        window.1 as f32,
+    );
+    let scale = (ww / sw).min(wh / sh);
+    let (w, h) = (sw * scale, sh * scale);
+    [((ww - w) / 2.0).floor(), ((wh - h) / 2.0).floor(), w, h]
 }
 
 /// A pointer's picture: `width * height` texels of red, green, blue, alpha, row by row from the
