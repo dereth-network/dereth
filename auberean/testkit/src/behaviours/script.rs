@@ -163,6 +163,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-creations-choices-are-set-and-read",
+        says: "A creation's race, sex, class and physique values read back what was set; a physique                type with no value reads as -1; setting a physique value, the class or the implement                answers 1, and setting the race, the sex or the starting area answers nothing; through                the null reference each crashes the script.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-CHARGEN-RESULT"),
+        station: "auberean-glue::cpu::natives::a_creations_fields_read_back_what_was_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-line-of-sight-is-set-up-and-read",
         says: "A line of sight is set up through its natives as the engine's own: what it passes through copied, its test kind set, its start from a ray in a cell, a place and an offset, or one place to another across landblocks, objects added to pass through but the invalid id; after a test it answers whether it was unblocked or reached an unloaded landblock, its final ray and cell, and its end less the final cell's landblock offset.",
         since: RETAIL,
@@ -176,6 +184,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-MISSILE-MASK"),
         station: "auberean-glue::cpu::missile::a_mask_changed_by_a_property_is_cleared_first_and_a_whole_mask_is_copied",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-name-is-left-alone-with-no-word-filter",
+        says: "Writing a name for its audience with data files that hold no word filter leaves the \
+               string it goes into alone and answers 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NAME-NO-WORD-FILTER"),
+        station: "auberean-glue::cpu::natives::a_name_is_left_alone_with_no_word_filter",
         tier: Tier::Cpu,
     },
     behaviour! {

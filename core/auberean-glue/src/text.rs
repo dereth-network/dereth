@@ -11,6 +11,7 @@
 //! literal, and carries variables by id; setting the table by enumeration value or by name asks
 //! the host, and keeps only a record id of the string table type.
 
+use auberean_assets::script::WordFilter;
 use auberean_dat::{type_of_id, RecordType};
 use auberean_script::native::{Call, NativeFn, NativeTable, Status, Stop};
 use auberean_script::native_object::{NativeObject, TextInfo, Variable, VariableValue};
@@ -32,8 +33,14 @@ const PS_UTILS: u32 = 0x5D;
 /// The case-insensitive string.
 const CI_TEXT: u32 = 0x1ACF;
 
+/// The word filter's package, and where the data files say its record is.
+const WORD_FILTER: u32 = 0x6B;
+const WORD_FILTER_VALUE: u32 = 0x4000_0005;
+const WORD_FILTER_MAPPING: u32 = 0x4000_0002;
+
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (WORD_FILTER, 3, format_for_audience),
     (BUILD, 1, concat_text),
     (BUILD, 2, concat_int),
     (BUILD, 3, concat_uint),
@@ -327,6 +334,32 @@ fn joined(text: Vec<u16>, number: &str, order: u32) -> Vec<u16> {
     } else {
         n.into_iter().chain(text).collect()
     }
+}
+
+/// A name's written form, given the audience (`fp[-2]`, unused), the name (`fp[-3]`) and an out
+/// reference (`fp[-4]`) to the string it goes into: answers (`fp[-5]`) whether the form differs from
+/// what was typed. Data files with no word filter leave the string alone and answer 0.
+// D2-09005
+fn format_for_audience(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let name = text_arg(c, -3)?;
+    let out = c.cx.at(-4)?;
+    let has_filter = c.host.database().is_some_and(|db| {
+        db.get_by_enum::<WordFilter>(WORD_FILTER_VALUE, WORD_FILTER_MAPPING)
+            .is_some()
+    });
+    if !has_filter {
+        c.write(-5, 0, tag::MIXED)?;
+        return Ok(Status::Success);
+    }
+    let (form, changed) = fmt::names::format_for_audience(&name);
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = form,
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    c.write(-5, u32::from(changed), tag::MIXED)?;
+    Ok(Status::Success)
 }
 
 fn give_text(c: &mut Call<'_>, slot: i64, units: Vec<u16>) -> Result<Status, Stop> {

@@ -70,6 +70,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.chargen.a-new-avatars-defaults-are-what-the-scripts-set",
+        says: "The character generator's scripts, given a creation's race and sex, set its class,                implement and starting area to the race's, every type it has to one of its stops,                build and height to the middle stop, and a type it lacks to 0, as the client's own                creation does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-DEFAULTS"),
+        station: "auberean-world::dat::chargen::a_new_avatars_defaults_are_what_the_scripts_set",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.chargen.a-new-look-is-picked-after-whatever-drew-before",
         says: "A new character's look is picked from the client's one generator, never seeded, after \
                whatever the rest of the program drew from it: with nothing drawn before every run \
@@ -130,6 +138,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-SCRIPTS"),
         station: "auberean-world::dat::chargen::the_native_creation_answers_as_the_character_generators_scripts_do",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.chargen.with-no-word-filter-the-scripts-leave-a-name-alone",
+        says: "The end-of-retail files hold no word filter, so the character generator's scripts \
+               leave a typed name's written form as it was and answer that nothing changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-NAME"),
+        station: "auberean-world::dat::chargen::with_no_word_filter_the_scripts_leave_a_name_alone",
         tier: Tier::Dat,
     },
     behaviour! {

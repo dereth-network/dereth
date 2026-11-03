@@ -13,6 +13,8 @@ use auberean_script::opcode::op;
 use auberean_script::value::{tag, FunctionId, NULL};
 use auberean_script::{Program, Status, Vm};
 
+use auberean_glue::chargen::{CreationChoices, CREATION_CHOICES};
+
 use crate::asm::{i, library, small, w, Pkg, TestHost};
 use crate::call::Bench;
 
@@ -1513,4 +1515,110 @@ mod places {
             )
         );
     }
+}
+
+// A creation's natives, by number.
+const GET_RACE: u32 = 0x03;
+const SET_RACE: u32 = 0x04;
+const GET_SEX: u32 = 0x05;
+const SET_SEX: u32 = 0x06;
+const SET_CLASS: u32 = 0x07;
+const GET_CLASS: u32 = 0x08;
+const SET_IMPLEMENT: u32 = 0x09;
+const SET_VALUE: u32 = 0x0B;
+const GET_VALUE: u32 = 0x0C;
+const SET_START_AREA: u32 = 0x0E;
+
+fn result_of(b: &Bench, r: u32) -> CreationChoices {
+    CreationChoices::of(b.vm.heap.native(r).expect("the object"))
+        .expect("a creation's choices")
+        .clone()
+}
+
+/// Race, sex and class read back what was set; setting the class or the implement answers 1, and
+/// setting the race, the sex or the starting area answers nothing, leaving the slot alone.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_creations_fields_read_back_what_was_set() {
+    let mut b = Bench::new();
+    let r = b.object(CREATION_CHOICES, CreationChoices::default().native());
+    for (set, get, v) in [(SET_RACE, GET_RACE, 4), (SET_SEX, GET_SEX, 0x2000)] {
+        let (status, slots) = b.call(CREATION_CHOICES, set, r, &[v], 1);
+        assert_eq!(status, Status::Success);
+        assert_eq!(slots[0].0, 0, "a setter that answers nothing");
+        assert_eq!(b.answer(CREATION_CHOICES, get, r, &[]), v);
+    }
+    assert_eq!(b.answer(CREATION_CHOICES, SET_CLASS, r, &[7]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, GET_CLASS, r, &[]), 7);
+    assert_eq!(b.answer(CREATION_CHOICES, SET_IMPLEMENT, r, &[9]), 1);
+    let (status, slots) = b.call(CREATION_CHOICES, SET_START_AREA, r, &[3], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+    let got = result_of(&b, r);
+    assert_eq!(
+        (got.race, got.sex, got.class, got.implement, got.start_area),
+        (4, 0x2000, 7, 9, 3)
+    );
+}
+
+/// A physique type with no value reads as -1; setting one answers 1, whether or not the type had a
+/// value, and the last value set is the one read.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_physique_type_with_no_value_reads_as_minus_one() {
+    let mut b = Bench::new();
+    let r = b.object(CREATION_CHOICES, CreationChoices::default().native());
+    let half = 0.5f32.to_bits();
+    let quarter = 0.25f32.to_bits();
+    assert_eq!(
+        b.answer(CREATION_CHOICES, GET_VALUE, r, &[4]),
+        (-1.0f32).to_bits()
+    );
+    assert_eq!(b.answer(CREATION_CHOICES, SET_VALUE, r, &[4, half]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, SET_VALUE, r, &[4, quarter]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, GET_VALUE, r, &[4]), quarter);
+    assert_eq!(
+        b.answer(CREATION_CHOICES, GET_VALUE, r, &[8]),
+        (-1.0f32).to_bits()
+    );
+}
+
+/// Through the null reference, each crashes the script.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_creation_through_the_null_reference_crashes() {
+    let mut b = Bench::new();
+    for n in [
+        GET_RACE,
+        SET_RACE,
+        GET_SEX,
+        SET_SEX,
+        SET_CLASS,
+        GET_CLASS,
+        SET_IMPLEMENT,
+        SET_VALUE,
+        GET_VALUE,
+        SET_START_AREA,
+    ] {
+        let (status, _) = b.call(CREATION_CHOICES, n, NULL, &[1, 2], 1);
+        assert_eq!(status, Status::Crash, "native {n:#x}");
+    }
+}
+
+/// Data files with no word filter leave the string alone and answer 0.
+///
+/// Behaviour: script.glue.a-name-is-left-alone-with-no-word-filter
+#[test]
+fn a_name_is_left_alone_with_no_word_filter() {
+    let mut b = Bench::new();
+    let name = b.text("  jOHN ");
+    let held = b.text("before");
+    let (status, slots) = b.call_with_local(0x6B, 3, NULL, held, &[Some(1), Some(name), None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+    assert_eq!(
+        b.text_of(held),
+        "before".encode_utf16().collect::<Vec<u16>>()
+    );
 }
