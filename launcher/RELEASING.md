@@ -1,10 +1,10 @@
 # Releasing Dereth
 
 A Dereth release is the launcher, with the Dereth client inside it, for Windows, macOS and Linux,
-published as a GitHub release of this repository. Every installed
-launcher lists the repository's releases, picks the newest published `dereth-v<version>` release
-and reads its `latest.json` to update itself and the client ("Updates" below). There are two
-commands and one review:
+published as a GitHub release of this repository. The launcher in it is the release of the launcher
+version in the tree ("The launcher's own release" below): every installed launcher updates itself
+from those, and fetches its game's newer client from that game's releases ("Updates" below). There
+are two commands and one review:
 
 1. **`cargo xtask release dereth <version>`** on a clean `main`: sets the version, dates the
    release's highlights in [`CHANGES.md`](../dereth/CHANGES.md), runs the checks, packages the host's
@@ -110,12 +110,12 @@ libraries, a minimum of macOS 11 and a code signature. MoltenVK must be a Mach-O
 ## Updates: which release, signing and `latest.json`
 
 At start a launcher lists its repository's releases through GitHub's REST API and takes the newest
-**published** release tagged `dereth-v<MAJOR>.<MINOR>.<PATCH>`: drafts, pre-releases (by GitHub's
-flag or by a `-pre` suffix), Empyrean's releases and other tags are passed over, and versions are
-compared as semver, never by date or by their order in the list. It reads that release's
+**published** release tagged `launcher-v<MAJOR>.<MINOR>.<PATCH>`: drafts, pre-releases (by GitHub's
+flag or by a `-pre` suffix), every other product's releases and other tags are passed over, and
+versions are compared as semver, never by date or by their order in the list. It reads that release's
 `latest.json`. Which release GitHub marks "latest" plays no part, so the box of that name on the
-publish page can be left as GitHub sets it, for Dereth's releases and Empyrean's alike. The API
-answers the 100 most recently created releases, which is where the newest Dereth release is. The
+publish page can be left as GitHub sets it. The list is read a page at a time, as far as the newest
+launcher release. The
 repository is the one the build names (`DERETH_BUILD_SOURCE_URL`, below). When the list cannot be
 fetched (no network, GitHub's unauthenticated rate limit) or holds no such release, the launcher
 skips the check quietly and tries again at its next start.
@@ -126,7 +126,7 @@ minisign's, in the form Tauri's signer writes (`cargo tauri signer sign`): base6
 file, whose trusted comment names the file and the version. The updater refuses a signature for
 another version than the one `latest.json` announces.
 
-`cargo xtask package dereth` signs the launcher file itself when `TAURI_SIGNING_PRIVATE_KEY` is set
+`cargo xtask package launcher` and `cargo xtask package dereth` sign their launcher files themselves when `TAURI_SIGNING_PRIVATE_KEY` is set
 (the key file's base64, as `cargo tauri signer generate` writes it, or a path to it) with
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and checks the signature at once the way the updater checks
 it, against the launcher's public key: a key that is not the launcher's fails the package. It
@@ -136,11 +136,11 @@ workflow run refuses that. The Windows entry is the zip itself: the launcher's o
 in (README.md, "Updates"); macOS's is the `.app.tar.gz` and Linux's the AppImage, which the updater
 installs itself.
 
-### Two channels: Dereth's releases and Auberean's
+### Every package's launcher, and each game's client
 
 Every package carries the same launcher. Dereth's release is the launcher with the Dereth client;
-Auberean's release (`auberean-v<version>`, auberean/RELEASING.md) is the same launcher, built the
-same way from its own commit, with the Auberean client beside it and a small file,
+Auberean's release (`auberean-v<version>`, auberean/RELEASING.md) is the same launcher, the release
+its tree names, with the Auberean client beside it and a small file,
 `launcher-defaults.json`:
 
 ```json
@@ -222,10 +222,11 @@ cargo xtask release dereth <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>]
 ```
 
 1. Checks: the checkout is on `main`; no tracked file has uncommitted changes; `<version>` is three
-   numbers, not older than the version the client and the launcher carry, and `dereth-v<version>`
-   exists neither here nor on the remote (default `origin`).
-2. Sets the client's and the launcher's `version` to `<version>`, updates both lock files' entries
-   for their workspaces' own packages (`Cargo.lock`, `launcher/Cargo.lock`), turns the
+   numbers, not older than the version the client carries, and `dereth-v<version>` exists neither
+   here nor on the remote (default `origin`); and the launcher version in the tree has its tag, with
+   the launcher unchanged since ("The launcher's own release" below).
+2. Sets `version` in Dereth's crates to `<version>`, updates `Cargo.lock`'s entries for the
+   workspace's own packages, turns the
    Unreleased section of `dereth/CHANGES.md` into `## <version> (<date>)` under a new empty one
    (not for a pre-release), and commits exactly those files as `Dereth <version>`. When they already carry `<version>`,
    there is nothing to commit, except the highlights when `CHANGES.md` has no section for
@@ -339,4 +340,57 @@ has no tag or the launcher has changed since it. `cargo xtask publish drafts` pu
 before any game's. Its highlights are in [`CHANGES.md`](CHANGES.md).
 
 Every launcher updates from the newest published one.
+
+### Trying a game's package and a launcher update on a Mac
+
+A build needs no signing key, and a local build takes an update by hand: replacing the bundle is what
+the updater would do. It needs cargo-about, the Tauri CLI and a checkout with no uncommitted changes.
+
+MoltenVK, and the friends library, which only Windows links, so it comes from a published release:
+
+```sh
+mkdir -p ~/swap-test && cd ~/swap-test
+curl -fsSLO https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+echo "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e  MoltenVK-macos.tar" | shasum -a 256 -c -
+tar -xf MoltenVK-macos.tar
+export DERETH_MOLTENVK_DIR=$PWD/MoltenVK
+
+v=0.4.12 # any published Dereth release
+curl -fsSLO https://github.com/dereth-network/dereth/releases/download/dereth-v$v/Dereth-$v-macos-aarch64.app.tar.gz
+tar -xzf Dereth-$v-macos-aarch64.app.tar.gz --strip-components 3 Dereth.app/Contents/Resources/auberean_friends.dll
+export DERETH_FRIENDS_DLL=$PWD/auberean_friends.dll
+```
+
+The launcher's release files, then Dereth's package around them, from the checkout:
+
+```sh
+cargo xtask package launcher --target aarch64-apple-darwin --out ~/swap-test/launcher
+cargo xtask package dereth --launcher ~/swap-test/launcher --target aarch64-apple-darwin --out ~/swap-test/dereth
+```
+
+The first start of the package copies its client out. Both folders below keep the test apart from your
+own launcher and client settings, and the program is run directly so that they reach it. Close the
+window when it has opened:
+
+```sh
+cd ~/swap-test && rm -rf Dereth.app
+export DERETH_STATE_DIR=$PWD/state DERETH_SETTINGS_DIR=$PWD/settings
+tar -xzf dereth/Dereth-*.app.tar.gz
+Dereth.app/Contents/MacOS/dereth
+ls state/components/dereth/*/Contents/MacOS   # dereth-client and dereth-plugin
+```
+
+Then the update: the launcher's own bundle in place of the package's, so no client is left in it. Play a
+world from it:
+
+```sh
+rm -rf Dereth.app
+tar -xzf launcher/Launcher-*.app.tar.gz
+ls Dereth.app/Contents/MacOS                  # dereth alone
+Dereth.app/Contents/MacOS/dereth
+```
+
+The client that starts is the copy in `state/components/dereth`. The launcher logs that there is no
+published launcher release until there is one. If a newer Dereth has been published than the checkout's,
+it fetches that client by itself, and the copy is then that version.
 
