@@ -926,6 +926,9 @@ fn set_account_admin<S: Store>(
         for world in worlds {
             crate::admin_calls::revoke(s, net, world);
         }
+        for c in s.store.characters(a.id).unwrap_or_default() {
+            crate::admin_calls::forget_kept(s, c.id);
+        }
     }
     Ok(format!(
         "Account {} updated with access rights set as {}.",
@@ -976,6 +979,9 @@ fn set_character_admin<S: Store>(
             p.admin_character = p.admin_character && admin;
             *w
         });
+    if !admin {
+        crate::admin_calls::forget_kept(s, c.id);
+    }
     let told = in_world.map_or("", |world| {
         if !admin {
             crate::admin_calls::revoke(s, net, world);

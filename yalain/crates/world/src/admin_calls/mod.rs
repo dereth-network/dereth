@@ -124,7 +124,9 @@ pub struct AdminCalls {
     pub logged: u64,
 }
 
-/// What an admin's commands have set on it: nothing is kept past its stay in the world.
+/// What an admin's commands have set on it. A cloak is kept when it leaves the world: one that
+/// silently ended would show an admin who thinks it is hidden. Nothing else is: what keeps it alive
+/// or lets it pass and outrun everyone is better lost than forgotten about, and its loss shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AdminState {
     /// Its health never falls below one.
@@ -188,7 +190,43 @@ pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
     crate::presence::cloak_changed(s, net, world);
     crate::presence::stops_seeing_hidden(s, net, world);
     crate::kingdoms::settle_ethereality(s, net, world);
+    crate::world::keep_player(s, world);
 }
+
+/// A character not in the world is no longer an admin's: a cloak it left with is forgotten, so that
+/// it does not come back should it be made an admin's again.
+pub(crate) fn forget_kept<S: Store>(s: &mut Server<S>, character: u64) {
+    if s.players.values().any(|p| p.character == character) {
+        return;
+    }
+    let Ok(Some(mut st)) = s.store.world_state(character) else {
+        return;
+    };
+    let Ok(mut play) = crate::state::PlayState::from_bytes(&st.play) else {
+        return;
+    };
+    if !std::mem::take(&mut play.cloaked) {
+        return;
+    }
+    st.play = play.to_bytes();
+    if let Err(e) = s.store.set_world_state(character, &st) {
+        tracing::warn!(
+            id = format_args!("{character:#x}"),
+            "the cloak was not forgotten: {e}"
+        );
+    }
+}
+
+/// An admin character entering the world still cloaked is told so.
+pub(crate) fn entered<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId) {
+    if s.players.get(&world).is_some_and(|p| p.admin.cloaked) {
+        crate::login::notice(net, world, STILL_CLOAKED);
+    }
+}
+
+/// What an admin entering the world still cloaked is told.
+pub const STILL_CLOAKED: &str =
+    "You are still cloaked: players do not see you. /cloak off shows you.";
 
 /// Refuse a call: counted, and nothing is answered. The first from a character in each stay in the
 /// world is logged, and those after it only counted: a client can send them as fast as it can send.

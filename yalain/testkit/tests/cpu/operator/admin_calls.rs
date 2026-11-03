@@ -1470,3 +1470,155 @@ fn a_rename_reaches_every_client_at_once_and_lasts() {
         .expect("described");
     assert_eq!(described, new, "its own description, at its next entry");
 }
+
+/// A character leaves the world and comes back on the same client, seen to go.
+fn relog(h: &mut Harness, b: usize, account: &str, id: u64) {
+    h.bots[b].leave_world();
+    assert!(h.run_until(400, |h| !h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == id)));
+    h.run(20);
+    h.enter_world(b, account, id);
+}
+
+/// A cloak outlasts the character's stay, so an admin who thinks it is hidden stays hidden: it enters
+/// seen by no player's client and told it is still cloaked. Nothing else its commands set lasts:
+/// never-say-die, how creatures treat it, what it passes through, its speed and its sight all end.
+/// Lifted, it enters as anyone does.
+/// Behaviour: server.admin.cloak-kept-past-a-stay
+#[test]
+fn a_cloak_lasts_past_a_stay_and_nothing_else_an_admin_set_does() {
+    use yalain_world::admin_calls::{AdminState, STILL_CLOAKED};
+    let mut h = Harness::new();
+    let (viewer, _) = h.player_in_world("zero", "Viewer");
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    h.run(20);
+    set_all(&mut h, me);
+    let seen_create = |h: &Harness, from: usize| {
+        h.world_messages(viewer, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == id))
+    };
+
+    let (from, own) = (h.bots[viewer].inbox.len(), h.bots[me].inbox.len());
+    relog(&mut h, me, "one", id);
+    h.run(20);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    assert_eq!(
+        p.admin,
+        AdminState {
+            cloaked: true,
+            ..AdminState::default()
+        },
+        "the cloak alone"
+    );
+    assert!(!seen_create(&h, from), "no client is told it came back");
+    assert!(h.bots[me].notices(own).iter().any(|n| n == STILL_CLOAKED));
+    let v = h
+        .server
+        .players
+        .values()
+        .find(|p| p.name == "Viewer")
+        .expect("in the world");
+    assert!(!v.known.contains_key(&id));
+
+    send(&mut h, me, 0x8201_0061, &[]);
+    h.run(20);
+    let (from, own) = (h.bots[viewer].inbox.len(), h.bots[me].inbox.len());
+    relog(&mut h, me, "one", id);
+    h.run(20);
+    assert!(seen_create(&h, from), "lifted, it is seen to enter");
+    assert!(!h.bots[me].notices(own).iter().any(|n| n == STILL_CLOAKED));
+}
+
+/// A kept cloak is an admin's: taking admin away ends it whether the character is in the world or out
+/// of it, and it doesn't come back with the rights. A character no longer an admin's that was out of
+/// the world cloaked enters seen.
+/// Behaviour: server.admin.taking-admin-away-ends-what-it-set
+#[test]
+fn taking_admin_away_ends_a_kept_cloak_in_the_world_and_out_of_it() {
+    for (off, on, in_world) in [
+        ("set-accountadmin one off", "set-accountadmin one", true),
+        ("set-accountadmin one off", "set-accountadmin one", false),
+        (
+            "set-characteradmin Elara off",
+            "set-characteradmin Elara",
+            true,
+        ),
+        (
+            "set-characteradmin Elara off",
+            "set-characteradmin Elara",
+            false,
+        ),
+    ] {
+        let mut h = Harness::new();
+        let (me, id) = admin_in_world(&mut h, "one", "Elara");
+        send(&mut h, me, 0x8201_0017, &[]);
+        if in_world {
+            console(&mut h, off);
+        }
+        h.bots[me].leave_world();
+        assert!(h.run_until(400, |h| !h
+            .server
+            .players
+            .values()
+            .any(|p| p.character == id)));
+        h.run(20);
+        if !in_world {
+            console(&mut h, off);
+        }
+        console(&mut h, on);
+        h.enter_world(me, "one", id);
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        assert!(p.admin_character, "{off}: an admin's again");
+        assert!(!p.admin.cloaked, "{off}, in the world {in_world}: no cloak");
+    }
+
+    // Its rights gone when it enters, whatever was kept: not cloaked.
+    let mut h = Harness::new();
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    send(&mut h, me, 0x8201_0017, &[]);
+    h.bots[me].leave_world();
+    assert!(h.run_until(400, |h| !h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == id)));
+    h.run(20);
+    let mut st = h
+        .server
+        .store
+        .world_state(id)
+        .expect("reads")
+        .expect("kept");
+    let mut play = yalain_world::state::PlayState::from_bytes(&st.play).expect("reads");
+    assert!(play.cloaked, "it left cloaked");
+    play.cloaked = true;
+    st.play = play.to_bytes();
+    h.server.store.set_world_state(id, &st).expect("kept");
+    h.server
+        .store
+        .set_character_entity(id, yalain_world::player::PLAYER_ENTITY)
+        .expect("kept");
+    h.enter_world(me, "one", id);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    assert!(!p.admin_character);
+    assert!(!p.admin.cloaked, "an ordinary character is never cloaked");
+}

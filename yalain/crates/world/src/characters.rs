@@ -830,6 +830,8 @@ pub fn import<S: Store>(
             e.item = *new;
         }
     }
+    // A cloak is this world's own admins' business.
+    play.cloaked = false;
     let mut state = file.state.clone();
     if !play.items.is_empty() || !file.state.play.is_empty() {
         state.play = play.to_bytes();

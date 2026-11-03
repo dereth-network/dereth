@@ -199,6 +199,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.cloak-kept-past-a-stay",
+        says: "A cloak outlasts a stay in the world: the admin enters seen by no player's client and is \
+               told it is still cloaked. Never-say-die, how creatures treat it, what it passes through, \
+               its speed and its sight end with the stay. Chosen: nothing of retail's holds these; a \
+               cloak silently ending is worse than one kept, and a kept never-say-die riskier than a \
+               lost one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CLOAK-KEPT"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_cloak_lasts_past_a_stay_and_nothing_else_an_admin_set_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.commands-do-nothing-for-anyone-else",
         says: "Real commands with harmful values do nothing from a player's account or from an ordinary \
                character of an admin's: no boot, ban, smite, extermination, money, made object, teleport, \

@@ -400,6 +400,7 @@ pub fn enter<S: Store>(
         untraining: None,
         conflict,
     };
+    p.admin.cloaked = p.admin_character && p.play.cloaked;
     let me = ObjectStamp {
         id: character,
         instance_stamp: p.instance,
@@ -588,6 +589,7 @@ pub fn enter<S: Store>(
     presence::refresh(s, net, world);
     crate::chat::tell_allegiance_and_channels(s, net, world);
     crate::admin::entered(s, net, world);
+    crate::admin_calls::entered(s, net, world);
     // The operator's message of the day, one notice (its lines in order), as Empyrean shows its
     // own at entry.
     if !s.cfg.motd.trim().is_empty() {
@@ -618,6 +620,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     play.last_used.sort_by_key(|(k, _)| *k);
     play.kept_at = s.game_now;
     play.played_seconds = crate::saves::played_seconds(p, s.saves.now.0);
+    play.cloaked = p.admin.cloaked;
     // What its items carry of their own (their instance stamps, their makers, their wear) is kept
     // with them.
     play.item_states = play

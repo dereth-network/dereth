@@ -606,7 +606,22 @@ mod tests {
                 .collect()
         };
         let mut h = Harness::new();
-        let (a, elara) = h.player_in_world("one", "Elara");
+        let a = h.at_character_list("one");
+        let elara = h.create_character(a, "one", "Elara");
+        let clock = h.clock();
+        for line in ["set-accountadmin one", "set-characteradmin Elara"] {
+            let c = yalain_world::admin::parse(line)
+                .expect("a command")
+                .expect("it reads");
+            yalain_world::admin::run(
+                &mut h.server,
+                &mut h.net,
+                clock,
+                &yalain_world::admin::Issuer::Console,
+                &c,
+            );
+        }
+        h.enter_world(a, "one", elara);
         h.run(10);
         let (mut f, mut fed) = linked(&h, None);
         let t = h.now.0;
@@ -669,20 +684,17 @@ mod tests {
         fed.on_frame(&mut f.service, t, &watch.to_json());
         assert!(frames(&mut fed, t).contains(&told(true)));
 
-        let cloak = |h: &mut Harness| {
-            h.server
-                .players
-                .values_mut()
-                .find(|p| p.character == elara)
-                .expect("in the world")
-                .admin
-                .cloaked = true;
-        };
-        cloak(&mut h);
+        h.server
+            .players
+            .values_mut()
+            .find(|p| p.character == elara)
+            .expect("in the world")
+            .admin
+            .cloaked = true;
         f.world(at(&h), &mut h.server, Some(&mut fed));
         assert!(frames(&mut fed, t).contains(&told(false)), "cloaked: gone");
 
-        h.bots[a].leave();
+        h.bots[a].leave_world();
         while h.server.players.values().any(|p| p.character == elara) {
             h.step();
         }
@@ -690,6 +702,22 @@ mod tests {
         assert!(
             !frames(&mut fed, t).contains(&told(true)),
             "not online on its way out"
+        );
+
+        h.run(400);
+        h.enter_world(a, "one", elara);
+        assert!(
+            h.server
+                .players
+                .values()
+                .any(|p| p.character == elara && p.admin.cloaked),
+            "still cloaked"
+        );
+        f.world(at(&h), &mut h.server, Some(&mut fed));
+        assert!(f.service.is_present("Elara"));
+        assert!(
+            !frames(&mut fed, t).contains(&told(true)),
+            "nor as it comes back"
         );
     }
 

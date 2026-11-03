@@ -144,14 +144,16 @@ pub struct PlayState {
     pub hero_credits: u32,
     /// The seconds it has spent in the world, as of its last save.
     pub played_seconds: u64,
+    /// It left the world cloaked: it enters so, if it is still an admin's.
+    pub cloaked: bool,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits).
-const VERSION: u32 = 12;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played).
+const VERSION: u32 = 13;
 
 /// Which of a treasure item's own properties are kept: its least level, its Arcane Lore, its effect.
 const OWN_MIN_LEVEL: u32 = 0x1;
@@ -322,6 +324,7 @@ impl PlayState {
         }
         w32(&mut out, self.hero_credits);
         w64(&mut out, self.played_seconds);
+        w32(&mut out, u32::from(self.cloaked));
         out
     }
 
@@ -501,6 +504,9 @@ impl PlayState {
         }
         if version >= 12 {
             s.played_seconds = r.u64().ok_or_else(bad)?;
+        }
+        if version >= 13 {
+            s.cloaked = r.u32().ok_or_else(bad)? != 0;
         }
         if !r.0.is_empty() {
             return Err(bad());
