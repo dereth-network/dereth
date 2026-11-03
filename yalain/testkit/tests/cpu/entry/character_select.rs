@@ -9,7 +9,7 @@ use auberean_protocol::text::{NarrowString, WideString};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use yalain_net::{NetConfig, ServerNet, Service};
+use yalain_net::{fixed_stream, NetConfig, ServerNet, Service};
 use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, WORLD_PORT};
 use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE, SECRET_COST};
@@ -324,7 +324,7 @@ fn each_client_is_referred_to_the_world_at_the_address_it_reached_the_login_by()
     let own_on_lan = Ipv4Addr::new(192, 168, 1, 20);
     h.net = ServerNet::new(
         NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
-        0x5EED,
+        fixed_stream(0x5EED),
         1.25e8,
         h.now,
     );
@@ -380,7 +380,7 @@ fn a_client_on_the_worlds_network_enters_by_its_cookie_from_another_address_ther
     let own_on_lan = Ipv4Addr::new(10, 21, 23, 20);
     h.net = ServerNet::new(
         NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
-        0x5EED,
+        fixed_stream(0x5EED),
         1.25e8,
         h.now,
     );

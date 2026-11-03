@@ -34,5 +34,6 @@ pub mod udp;
 pub use blob::BlobKind;
 pub use dereth_primitives::LocalTime;
 pub use server::{
-    CloseReason, ConnId, Datagram, NetConfig, NetEvent, Port, ServerNet, Service, ServiceId,
+    fixed_stream, CloseReason, ConnId, Datagram, NetConfig, NetEvent, Port, ServerNet, Service,
+    ServiceId,
 };

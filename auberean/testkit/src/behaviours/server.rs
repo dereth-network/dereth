@@ -3260,6 +3260,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.cookies-and-seeds-from-the-hosts-source",
+        says: "Every cookie and checksum seed the server sends a client, a login's handshake, a \
+               referral and the world's handshake, is taken from the random source its host gave \
+               it; the server program's is the system's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COOKIES-SOURCE"),
+        station: "yalain-net::cpu::cookies::every_cookie_and_checksum_seed_sent_comes_from_the_source_the_host_gave",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.failed-random-source-makes-no-connection",
+        says: "With the random source failing, a login or world login gets no handshake and makes \
+               no connection, the client's resend being served once it is back and a world \
+               login's cookie staying good, and a referral closes the login, telling the client. \
+               No number of the server's own stands in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COOKIES-FAILED"),
+        station: "yalain-net::cpu::cookies::a_failed_random_source_gives_no_handshake_and_no_number_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.game-clock-held",
         says: "A server set to hold its game clock reads one time from then on, and the clock \
                every connection sends says that time, so every client shows the same moment of \
@@ -3341,6 +3362,27 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NEARBY-WORLD-LOGIN"),
         station: "yalain-testkit::cpu::entry::character_select::a_client_on_the_worlds_network_enters_by_its_cookie_from_another_address_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.referral-cookie-used-once",
+        says: "A referral's cookie lets in one world connection. A resend while its handshake \
+               waits makes no second connection; a world login with it after that makes none and \
+               ends nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COOKIE-ONCE"),
+        station: "yalain-net::cpu::cookies::a_referrals_cookie_lets_in_one_world_connection_and_a_resend_changes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.world-login-from-its-logins-address",
+        says: "A world login from another address than its login's is refused and spends nothing \
+               (but for a referral to a network close by, from that kind of network), so a cookie \
+               read off the wire lets no other address in. A player whose address changed gets in \
+               by logging in again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORLD-LOGIN-ADDRESS"),
+        station: "yalain-net::cpu::cookies::a_world_login_from_another_address_than_its_login_is_refused_and_spends_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {

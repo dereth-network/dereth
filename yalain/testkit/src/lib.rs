@@ -27,7 +27,7 @@ pub mod session;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use yalain_net::memory::MemoryNet;
-use yalain_net::{LocalTime, NetConfig, Port, ServerNet, Service};
+use yalain_net::{fixed_stream, LocalTime, NetConfig, Port, ServerNet, Service};
 use yalain_store::{MemoryStore, Store, StoredPosition};
 use yalain_world::start::StartArea;
 use yalain_world::{CharGenRules, Clock, Server, ServerConfig, StartRules};
@@ -1515,7 +1515,12 @@ impl<S: Store> Harness<S> {
         server.effect_table = test_effects();
         server.crafting = test_crafting();
         Self {
-            net: ServerNet::new(NetConfig::retail_ids(world), 0x5EED, 1.25e8, now),
+            net: ServerNet::new(
+                NetConfig::retail_ids(world),
+                fixed_stream(0x5EED),
+                1.25e8,
+                now,
+            ),
             server,
             wire: MemoryNet::default(),
             bots: Vec::new(),

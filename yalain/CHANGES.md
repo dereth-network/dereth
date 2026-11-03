@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
+- Fixed login cookies that another player could work out.
 
 ## 0.1.2 (2026-11-03)
 

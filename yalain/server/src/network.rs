@@ -621,7 +621,7 @@ mod tests {
         ));
         let mut net = ServerNet::new(
             NetConfig::retail_ids("127.0.0.1:9002".parse().expect("an address")),
-            7,
+            yalain_net::fixed_stream(7),
             0.0,
             LocalTime(1.0),
         );

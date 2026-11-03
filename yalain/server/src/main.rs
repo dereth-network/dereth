@@ -9,7 +9,8 @@
 //! `auberean-world`, `auberean-physics`), with `dereth-primitives`, and the Dereth Network's
 //! protocol (`dereth-network-protocol`) for its heartbeat to a hub, its link
 //! (`dereth-network-link`) and the world's half of it (`yalain-federation`), with the system's
-//! random source (`getrandom`) for the directory's allegiance keys, and the players' friends
+//! random source (`getrandom`) for login cookies, checksum seeds, the world's dice and the
+//! directory's allegiance keys, and the players' friends
 //! service (`yalain-friends`), and `ctrlc` for the system's stop signals, with `serde` and
 //! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files). **Used
 //! by** nothing: it is the `yalain` program.
@@ -142,6 +143,7 @@ mod friends;
 mod help;
 mod hub;
 mod network;
+mod random;
 mod referral;
 mod status;
 mod stop;
@@ -630,12 +632,9 @@ fn run<S: Store>(
     play: Play,
 ) -> Result<(), Failure> {
     seed(o, &mut store, &rules);
-    // Cookies, checksum seeds and the world's dice: the clock's nanoseconds and the process id.
-    #[allow(clippy::cast_possible_truncation)]
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(1, |d| d.as_nanos() as u64)
-        ^ u64::from(std::process::id());
+    // The world's dice. A world whose system has no random source does not start: its cookies come
+    // from the same place, and nothing stands in for it.
+    let seed = random::os_u64()?;
     let cfg = ServerConfig {
         world_name: o.world_name.clone(),
         accounts: if o.listed {
@@ -681,7 +680,7 @@ fn run<S: Store>(
         .unwrap_or_else(|| (unix_now() - GAME_EPOCH) as f64);
     let mut net = ServerNet::new(
         NetConfig::retail_ids(SocketAddrV4::new(advertise, o.world_port)),
-        seed,
+        random::os_u64,
         game_time,
         local(),
     );

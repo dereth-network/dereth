@@ -1,5 +1,5 @@
 //! The world's dice: a small seeded generator, so a run is the same each time for the same seed
-//! and the same events (the tests' seed is fixed; the server takes one from its clock at start).
+//! and the same events (the tests' seed is fixed; the server takes one from the system's random source at start).
 
 /// A seeded generator (xorshift64*).
 #[derive(Debug, Clone, PartialEq, Eq)]

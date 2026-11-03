@@ -9,7 +9,17 @@
 //! **Sans-IO.** The host hands in datagrams with the port they arrived on ([`ServerNet::on_datagram`])
 //! and the time ([`ServerNet::tick`]), and takes out datagrams to send ([`ServerNet::take_datagrams`])
 //! and events ([`ServerNet::poll_event`]). Randomness (cookies and checksum seeds) comes from a
-//! seeded stream the host chooses.
+//! source the host gives ([`ServerNet::new`]): the executable's is the operating system's, and a
+//! test's a fixed stream ([`fixed_stream`]).
+//!
+//! **A source that fails** is never made up for. A login or world login it fails for gets no
+//! handshake and makes no connection (the client's own resend tries again, and a world login's
+//! cookie is not spent); a referral it fails for closes the login, telling the client, so that it
+//! does not wait for a world that will not come. Each is logged as an error.
+//!
+//! **A referral's cookie** lets one world connection in, once, within [`WORLD_LOGIN_TIMEOUT`]. It
+//! travels in the clear, so its being random stops guessing but not reading: a world login must
+//! also come from its login's address (or, sent to a network close by, from that kind of network).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -166,28 +176,33 @@ pub struct Datagram {
     pub bytes: Vec<u8>,
 }
 
-/// A cookie and seed stream: splitmix64 over a seed the host chooses.
-#[derive(Debug, Clone)]
-pub struct Seeds(u64);
-
-impl Seeds {
-    #[must_use]
-    pub const fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
+/// A fixed stream of numbers for [`ServerNet::new`], the same for the same `seed`: for tests alone,
+/// since one number it gives shows every later one (splitmix64).
+pub fn fixed_stream(seed: u64) -> impl FnMut() -> Result<u64, String> + Send {
+    let mut state = seed;
+    move || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
+        Ok(z ^ (z >> 31))
     }
+}
 
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn next_u32(&mut self) -> u32 {
-        (self.next_u64() >> 32) as u32
+/// Where cookies and checksum seeds come from: the host's source of 64 random bits at a time.
+struct Random(Box<dyn FnMut() -> Result<u64, String> + Send>);
+
+impl std::fmt::Debug for Random {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Random")
     }
+}
+
+/// What one handshake draws from the source.
+#[derive(Debug, Clone, Copy)]
+struct HandshakeNumbers {
+    seeds: ConnectSeeds,
+    cookie: u64,
 }
 
 #[derive(Debug)]
@@ -247,7 +262,7 @@ struct PendingReferral {
 #[derive(Debug)]
 pub struct ServerNet {
     cfg: NetConfig,
-    seeds: Seeds,
+    random: Random,
     conns: BTreeMap<ConnId, Conn>,
     next_conn: u32,
     referrals: HashMap<u64, PendingReferral>,
@@ -271,13 +286,18 @@ pub struct ServerNet {
 pub const HUB_CHALLENGES_KEPT: usize = 16;
 
 impl ServerNet {
-    /// The services, with `seed` for cookies and checksum seeds and the game clock reading
-    /// `game_time` at `now`.
+    /// The services, with `random` for cookies and checksum seeds and the game clock reading
+    /// `game_time` at `now`. `random` gives 64 random bits, or says why it has none.
     #[must_use]
-    pub fn new(cfg: NetConfig, seed: u64, game_time: f64, now: LocalTime) -> Self {
+    pub fn new(
+        cfg: NetConfig,
+        random: impl FnMut() -> Result<u64, String> + Send + 'static,
+        game_time: f64,
+        now: LocalTime,
+    ) -> Self {
         Self {
             cfg,
-            seeds: Seeds::new(seed),
+            random: Random(Box::new(random)),
             conns: BTreeMap::new(),
             next_conn: 1,
             referrals: HashMap::new(),
@@ -422,12 +442,33 @@ impl ServerNet {
         })
     }
 
+    /// 64 bits from the source; none, logged, when it fails.
+    fn draw(&mut self) -> Option<u64> {
+        (self.random.0)()
+            .map_err(|e| tracing::error!("the random source failed: {e}"))
+            .ok()
+    }
+
+    /// The seeds and cookie of a handshake; none when the source fails.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handshake_numbers(&mut self) -> Option<HandshakeNumbers> {
+        let seeds = self.draw()?;
+        Some(HandshakeNumbers {
+            seeds: ConnectSeeds {
+                server_to_client: (seeds >> 32) as u32,
+                client_to_server: seeds as u32,
+            },
+            cookie: self.draw()?,
+        })
+    }
+
     fn open(
         &mut self,
         service: Service,
         from: SocketAddr,
         login: Option<GameLogin>,
         via: Option<(ConnId, u64)>,
+        numbers: HandshakeNumbers,
         now: LocalTime,
     ) {
         let Some(client_id) = self.free_client_id(service) else {
@@ -435,11 +476,7 @@ impl ServerNet {
             return;
         };
         let id = self.cfg.service(service);
-        let seeds = ConnectSeeds {
-            server_to_client: self.seeds.next_u32(),
-            client_to_server: self.seeds.next_u32(),
-        };
-        let cookie = self.seeds.next_u64();
+        let HandshakeNumbers { seeds, cookie } = numbers;
         let game_time = self.game_time(now);
         let cr = ConnectRequest::new(game_time, cookie, u32::from(client_id), seeds);
         let packet = standalone(
@@ -619,6 +656,11 @@ impl ServerNet {
             {
                 return; // a resend; the handshake is being resent on its own clock
             }
+        }
+        let Some(numbers) = self.handshake_numbers() else {
+            return;
+        };
+        if let Some(existing) = self.find(Service::Login, from) {
             // A new login from a client already logged in: it started over.
             self.close_with(existing, CloseReason::Replaced, false);
         }
@@ -630,7 +672,7 @@ impl ServerNet {
             tracing::info!(%from, "a login that does not read; ignored");
             return;
         };
-        self.open(Service::Login, from, Some(login), None, now);
+        self.open(Service::Login, from, Some(login), None, numbers, now);
     }
 
     fn world_login_request(&mut self, from: SocketAddr, cookie: u64, now: LocalTime) {
@@ -647,6 +689,7 @@ impl ServerNet {
         let Some(login) = self.conns.get(&r.login) else {
             return;
         };
+        // The cookie travels in the clear: one read off the wire must not let another address in.
         // A client sent to the world on a network close by may come from another address there
         // than its login did: a login through the router's public address arrives from the
         // router's own address on the network, the world login straight from the client's.
@@ -655,11 +698,23 @@ impl ServerNet {
             tracing::info!(%from, "a world login from another address than its login; ignored");
             return;
         }
+        // No numbers, no handshake: the cookie stays good for the client's next resend.
+        let Some(numbers) = self.handshake_numbers() else {
+            return;
+        };
         if let Some(existing) = self.find(Service::World, from) {
             self.close_with(existing, CloseReason::Replaced, false);
         }
+        // Used once: from here a second world login with this cookie is one with an unknown cookie.
         self.referrals.remove(&cookie);
-        self.open(Service::World, from, None, Some((r.login, cookie)), now);
+        self.open(
+            Service::World,
+            from,
+            None,
+            Some((r.login, cookie)),
+            numbers,
+            now,
+        );
     }
 
     fn connect_response(
@@ -825,13 +880,18 @@ impl ServerNet {
     }
 
     /// Send a referral to the world service on a login connection. Returns the cookie the client
-    /// will bring to the world.
+    /// will bring to the world. With no cookie to give (the random source failed) the login is
+    /// closed, telling the client.
     pub fn refer(&mut self, login: ConnId, now: LocalTime) -> Option<u64> {
-        let cookie = self.seeds.next_u64();
         let c = self.conns.get(&login)?;
         if c.service != Service::Login || c.handshake.is_some() {
             return None;
         }
+        let Some(cookie) = self.draw() else {
+            self.close(login);
+            return None;
+        };
+        let c = self.conns.get(&login)?;
         let addr = self.world_addr_for(c.peer.ip());
         let c = self.conns.get_mut(&login)?;
         let r = Referral {

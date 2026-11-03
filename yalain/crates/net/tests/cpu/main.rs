@@ -2,6 +2,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+mod cookies;
 mod hub_challenge;
 mod pace;
 mod status_ping;
