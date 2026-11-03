@@ -2575,10 +2575,7 @@ fn attach_records(scripts: &mut Scripts) {
             scripts
                 .options()
                 .map(|o| auberean_script::native_object::NativeObject::Options(Box::new(o)))
-        } else if n.native == UPDATE_QUESTS
-            && n.words.first() == Some(&ALL_QUESTS)
-            && n.objects.iter().all(Option::is_none)
-        {
+        } else if n.native == UPDATE_QUESTS && n.words.first() == Some(&ALL_QUESTS) {
             scripts
                 .quest_list()
                 .map(|(_, l)| auberean_script::native_object::NativeObject::QuestList(l))

@@ -265,6 +265,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.server.a-character-entering-again-gives-the-journal-its-quests",
+        says: "A character that logged off with a quest under way enters again: the whole-list                notice the scripts send the journal at the session's start carries the quest, as                the journal asks for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-JOURNAL-AT-ENTRY"),
+        station: "yalain-testkit::dat::session::a_character_entering_again_gives_the_journal_its_quests",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
         says: "Our client wields its starting sword on our server, logs off and enters again: its \
                model has the sword hanging from the player and wielded by it, and the server \

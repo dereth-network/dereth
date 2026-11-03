@@ -199,3 +199,78 @@ fn our_clients_kept_window_places_come_back_on_the_next_entry() {
     ok(play::enter(&mut s, me));
     assert_eq!(kept(&mut s).location(RADAR.0, RADAR.1), Some(place));
 }
+
+/// A character that logged off with a quest under way enters again: the whole-list notice the
+/// scripts send the journal at the session's start carries the quest, as the journal asks for it.
+/// Behaviour: session.server.a-character-entering-again-gives-the-journal-its-quests
+#[test]
+fn a_character_entering_again_gives_the_journal_its_quests() {
+    use auberean_script::native_object::NativeObject;
+    use yalain_content::quests::QuestDef;
+    use yalain_content::QuestTable;
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x4000_0088;
+    const UNDER_WAY: u32 = 0x1000_0000;
+    /// The journal's notice, and how it says the whole list is to be read.
+    const UPDATE_QUESTS: u32 = 0x008E << 16 | 0x0001;
+    const WHOLE_LIST: u32 = 0x4000_0002;
+    let mut s = InProcess::new();
+    s.h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            id: QUEST,
+            name: (0xA860_7CEC, 0x2500_17EE),
+            description: (0x6C45_9364, 0x2500_17EE),
+            icon: 0x4100_034B,
+            play_fx: true,
+            journals: vec![(1, 0x2500_17EE)],
+            challenge: -999,
+            duration: 0.0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+        }],
+        steps: Vec::new(),
+    };
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    let p = s.h.server.players.values_mut().next().expect("the player");
+    p.play.quests.push(QuestState {
+        quest: QUEST,
+        status: UNDER_WAY,
+        phase: 1,
+        started: 1,
+        updated: 1,
+    });
+    ok(play::log_off(&mut s));
+    s.client().notices.clear();
+    ok(play::enter(&mut s, me));
+    let whole = s
+        .client_ref()
+        .notices
+        .iter()
+        .find(|n| n.native == UPDATE_QUESTS && n.words.first() == Some(&WHOLE_LIST))
+        .expect("the session's start tells the journal to read its list");
+    let listed: Vec<u32> = whole
+        .objects
+        .iter()
+        .flatten()
+        .filter_map(|o| match o {
+            NativeObject::QuestList(l) => Some(l.iter().map(|q| q.id)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(
+        listed,
+        [QUEST],
+        "the notice carries the quest the player holds"
+    );
+}

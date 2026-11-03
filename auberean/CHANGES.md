@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
+- Fixed the quest journal being empty after logging back in.
 
 ## 0.1.2 (2026-11-02)
 
