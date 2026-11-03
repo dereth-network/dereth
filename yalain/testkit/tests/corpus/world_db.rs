@@ -112,7 +112,10 @@ fn dat_install() -> DatInstall<'static> {
         .collect();
     static LIBRARY: OnceLock<Library> = OnceLock::new();
     let lib = LIBRARY.get_or_init(|| {
-        Library::from_record(&portal.read(RECORD).expect("the library")).expect("the library reads")
+        portal
+            .read_checked(RECORD, Library::from_record)
+            .expect("the library reads")
+            .value
     });
     DatInstall::new(Box::new(move |id| portal.read(id).ok()), ctx, lib, states)
         .expect("install")

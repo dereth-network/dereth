@@ -386,7 +386,9 @@ fn open(
     files.extend(open(&|n| *n == DatName::Local(name.clone())).map(Arc::new));
     files.extend(open(&|n| *n == DatName::Cell(1)).map(Arc::new));
     files.extend(open(&|n| *n == DatName::HighRes).map(Arc::new));
-    let program = auberean_client_sdk::runtime::link_scripts(&portal)?;
+    let program = auberean_client_sdk::runtime::link_scripts_noting(&portal, |r| {
+        tracing::warn!("the script library: {r}");
+    })?;
     let data = ClientData {
         files: DataFiles {
             files,

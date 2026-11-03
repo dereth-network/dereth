@@ -29,6 +29,8 @@ auberean-assets.workspace = true
 auberean-script.workspace = true
 # Rows edited in place, their comments and layout kept.
 toml_edit.workspace = true
+# A record read again after it failed is warned of.
+tracing.workspace = true
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["fs", "test-support"] }

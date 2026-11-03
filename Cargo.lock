@@ -273,6 +273,7 @@ dependencies = [
  "auberean-script",
  "dereth-pack",
  "toml_edit",
+ "tracing",
  "yalain-content",
  "yalain-world-db",
 ]

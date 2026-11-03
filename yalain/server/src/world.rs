@@ -439,7 +439,7 @@ fn safe(path: &str) -> bool {
 /// the install lacks.
 pub fn compile_dir(
     dats: &Path,
-    portal: &data::Portal,
+    p: &data::Portal,
     db_dir: &Path,
     base_dir: Option<&Path>,
 ) -> Result<Tables, String> {
@@ -479,15 +479,15 @@ pub fn compile_dir(
             .and_then(|(_, p)| DatFile::open(p).ok())
     };
     let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
-    let states: Vec<u32> = portal
+    let states: Vec<u32> = p
         .dat
         .entries_in(0x6F00_0000, 0x6FFF_FFFF)
         .map(|e| e.id)
         .collect();
     let mut install = DatInstall::new(
-        Box::new(|id| portal.dat.read(id).ok()),
-        portal.ctx.clone(),
-        data::library(portal)?,
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        data::library(p)?,
         states,
     )?;
     if let Some(local) = &local {

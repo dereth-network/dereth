@@ -1087,6 +1087,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.read.script-library-reads-are-checked",
+        says: "The client and the world builder read the script library as the server does: a library \
+               read wrong once, over a file that did not change, is read again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-READ-LIBRARY"),
+        station: "auberean-client-runtime::corpus::calls::a_script_library_read_wrong_once_is_read_again_and_links",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "data.read.short-reads-are-reported",
         says: "A read the file ends before its buffer is full is reported as a short read, with where it \
                started and how much came back, and nothing it filled is decoded.",

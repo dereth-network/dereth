@@ -53,6 +53,14 @@ impl InstallFiles {
         let portal = open(&|n| *n == DatName::Portal)
             .ok_or_else(|| format!("no portal data file in {}", dir.display()))?;
         let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
+        Self::of(portal, local)
+    }
+
+    /// An install of these open files.
+    ///
+    /// # Errors
+    /// The portal file does not read.
+    pub fn of(portal: DatFile, local: Option<DatFile>) -> Result<Self, String> {
         let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
         let states = portal
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -67,17 +75,20 @@ impl InstallFiles {
         })
     }
 
-    /// The install's script library, read once.
+    /// The install's script library, read once. A read or decode that fails is checked against the
+    /// file and read once more; a second read that succeeds is warned of.
     fn library(&self) -> Result<&Library, String> {
         if let Some(lib) = self.library.get() {
             return Ok(lib);
         }
-        let bytes = self
+        let lib = self
             .portal
-            .read(RECORD)
+            .read_checked(RECORD, Library::from_record)
             .map_err(|e| format!("the script library: {e}"))?;
-        let lib = Library::from_record(&bytes).map_err(|e| format!("the script library: {e}"))?;
-        Ok(self.library.get_or_init(|| lib))
+        if let Some(r) = lib.retried {
+            tracing::warn!("the script library: {r}");
+        }
+        Ok(self.library.get_or_init(|| lib.value))
     }
 
     /// What a compile reads of the install.

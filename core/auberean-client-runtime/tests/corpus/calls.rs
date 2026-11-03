@@ -9,10 +9,10 @@ use auberean_client_contract::Action;
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
 use auberean_client_runtime::{
-    link_scripts, CallResult, CallTally, Client, ClientData, ClientSettings,
+    link_scripts, link_scripts_noting, CallResult, CallTally, Client, ClientData, ClientSettings,
 };
 use auberean_dat::locate::{install_dats, DatName};
-use auberean_dat::testing::require_target_install;
+use auberean_dat::testing::{open_wrong_once, require_target_install};
 use auberean_dat::DatFile;
 use auberean_protocol::{ClientMessage, ServerMessage};
 use auberean_testkit::captures;
@@ -933,4 +933,20 @@ fn the_end_of_retail_data_names_no_quality() {
         assert_ne!(did, 0, "{e:#x} has its record");
         assert_eq!(db.enum_map_len(did), 0, "{e:#x} holds no names");
     }
+}
+
+/// A script library read wrong once, over a file that did not change, is read again and links.
+/// Behaviour: data.read.script-library-reads-are-checked
+#[test]
+fn a_script_library_read_wrong_once_is_read_again_and_links() {
+    let dir = require_target_install();
+    let found = install_dats(&dir).expect("the install");
+    let (_, p) = found
+        .iter()
+        .find(|(n, _)| *n == DatName::Portal)
+        .expect("a portal file");
+    let portal = open_wrong_once(p, auberean_script::library::RECORD);
+    let mut told = false;
+    link_scripts_noting(&portal, |_| told = true).expect("the second read links");
+    assert!(told, "the host is told it took a second read");
 }

@@ -143,7 +143,9 @@ fn data(dir: &std::path::Path) -> Result<ClientData, String> {
     files.extend(open(&|n| *n == DatName::Local("English".into())));
     files.extend(open(&|n| *n == DatName::Cell(1)));
     files.extend(open(&|n| *n == DatName::HighRes));
-    let program = auberean_client_sdk::runtime::link_scripts(&portal)?;
+    let program = auberean_client_sdk::runtime::link_scripts_noting(&portal, |r| {
+        eprintln!("auberean-headless: the script library: {r}");
+    })?;
     Ok(ClientData {
         files: DataFiles {
             files,

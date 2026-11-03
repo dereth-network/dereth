@@ -159,18 +159,35 @@ impl core::fmt::Debug for ClientData {
 /// Link the script library of a portal file against the client's natives: the library is the
 /// record the client's enumeration names (no other is ever chosen: the program's options to read a
 /// library from a named file are kept and ignored), read by the data's own resolver, its natives
-/// dispatched by the client's table and its objects made by the client's factory.
+/// dispatched by the client's table and its objects made by the client's factory. A read or decode
+/// that fails is checked against the file and read once more.
+///
+/// # Errors
+/// The library is not there, or does not load or link.
+pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
+    link_scripts_noting(portal, |_| {})
+}
+
+/// [`link_scripts`], `note` told when the library read right only the second time, for the host to
+/// say so.
 ///
 /// # Errors
 /// The library is not there, or does not load or link.
 // D2-00741, D2-07978, D2-08022, D2-07998, D2-07997, D2-07992, D2-07993, D2-00748, D2-00749
-pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
-    let lib = auberean_script::library::Library::from_record(
-        &portal
-            .read(auberean_script::library::RECORD)
-            .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+pub fn link_scripts_noting(
+    portal: &DatFile,
+    note: impl FnOnce(&auberean_dat::checked::Retried),
+) -> Result<Program, String> {
+    let lib = portal
+        .read_checked(
+            auberean_script::library::RECORD,
+            auberean_script::library::Library::from_record,
+        )
+        .map_err(|e| format!("the script library: {e}"))?;
+    if let Some(r) = &lib.retried {
+        note(r);
+    }
+    let lib = lib.value;
     let natives = host::natives(&lib);
     Program::link(lib, natives).map_err(|e| format!("{e:?}"))
 }

@@ -126,8 +126,10 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn library(&self) -> Library {
-        Library::from_record(&self.dat.read(RECORD).expect("the library"))
+        self.dat
+            .read_checked(RECORD, Library::from_record)
             .expect("the library reads")
+            .value
     }
 
     /// The target install's portal file.
