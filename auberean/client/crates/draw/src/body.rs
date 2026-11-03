@@ -54,6 +54,40 @@ pub struct BodyDrawer {
     scale: f32,
 }
 
+/// How see-through the player's own body has become while the pointer is over it: with the option
+/// on, fading toward 0.3 at ten times its own opacity a second while the pointer is on it, back
+/// toward whole when it is not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoverFade {
+    /// How opaque it is.
+    pub opacity: f32,
+    last: f64,
+}
+
+impl Default for HoverFade {
+    fn default() -> Self {
+        Self {
+            opacity: 1.0,
+            last: 0.0,
+        }
+    }
+}
+
+impl HoverFade {
+    /// Its turn at `now`, seconds, with the pointer on the body or not.
+    // D2-06220
+    pub fn step(&mut self, now: f64, over: bool) {
+        #[allow(clippy::cast_possible_truncation)]
+        let change = (now - self.last) as f32 * self.opacity * 10.0;
+        self.last = now;
+        self.opacity = if over {
+            (self.opacity - change).max(0.3)
+        } else {
+            (self.opacity + change).min(1.0)
+        };
+    }
+}
+
 /// What the distances of a body both mobile and dynamic are scaled by, with the adaptive degrade
 /// on, at `fps` frames a second: 1 at 41 frames a second and up (at a `bias` of 0), falling to
 /// 0.1 at none.

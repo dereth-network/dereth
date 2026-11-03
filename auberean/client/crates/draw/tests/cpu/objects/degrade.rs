@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use auberean_assets::setup::DetailDistances;
-use auberean_draw::body::adaptive_scale;
+use auberean_draw::body::{adaptive_scale, HoverFade};
 use auberean_draw::material::{d3d, DrawLayer, Faded};
 use auberean_draw::mesh::{degrade, scenery_scale};
 use auberean_draw::quality::FrameRate;
@@ -275,4 +275,25 @@ fn the_frame_rate_is_the_mean_of_the_last_forty_frames() {
         (rate.frames_per_second() - 40.0).abs() < 1e-2,
         "the old gone"
     );
+}
+
+/// The player's body under the pointer fades at ten times its opacity a second, down to 0.3 at
+/// the least, and comes back to whole the same way once the pointer leaves.
+///
+/// Behaviour: draw.mesh.the-players-body-turns-see-through-under-the-pointer
+#[test]
+fn the_players_body_turns_see_through_under_the_pointer() {
+    let mut fade = HoverFade::default();
+    fade.step(10.0, false);
+    assert_eq!(fade.opacity, 1.0, "away from it: whole");
+    fade.step(10.01, true);
+    assert!((fade.opacity - 0.9).abs() < 1e-3, "{}", fade.opacity);
+    fade.step(10.02, true);
+    assert!((fade.opacity - 0.81).abs() < 1e-3, "{}", fade.opacity);
+    fade.step(12.0, true);
+    assert_eq!(fade.opacity, 0.3, "no less");
+    fade.step(12.1, false);
+    assert!((fade.opacity - 0.6).abs() < 1e-3, "{}", fade.opacity);
+    fade.step(13.0, false);
+    assert_eq!(fade.opacity, 1.0);
 }

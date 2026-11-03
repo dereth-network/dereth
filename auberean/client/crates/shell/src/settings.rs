@@ -54,6 +54,7 @@ const AVATAR: (&str, &str) = ("Avatar", "AvatarVisibleInFirstPerson");
 const LOOK_AROUND: (&str, &str) = ("Avatar", "AvatarLookAround");
 const LOOK_AT_CAMERA: (&str, &str) = ("Avatar", "AvatarLookAtCamera");
 const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
+const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarMouseHoverTransparency");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");
@@ -145,6 +146,7 @@ impl Settings {
         c.look_around = flag(LOOK_AROUND, c.look_around);
         c.look_at_camera = flag(LOOK_AT_CAMERA, c.look_at_camera);
         c.look_at_selection = flag(LOOK_AT_SELECTION, c.look_at_selection);
+        c.avatar_hover_transparency = flag(HOVER_TRANSPARENCY, c.avatar_hover_transparency);
         // A choice by its name, or by its number.
         let avatar = get(AVATAR.0, AVATAR.1).and_then(|v| {
             [
@@ -266,6 +268,11 @@ impl Settings {
                 LOOK_AT_SELECTION.0,
                 LOOK_AT_SELECTION.1,
                 b(c.look_at_selection),
+            ),
+            (
+                HOVER_TRANSPARENCY.0,
+                HOVER_TRANSPARENCY.1,
+                b(c.avatar_hover_transparency),
             ),
             (
                 DISPLAY_RESOLUTION.0,

@@ -78,8 +78,6 @@ pub(crate) struct Weather {
     rain: Rain,
     systems: Option<[Option<SystemRef>; 3]>,
     heard: f32,
-    /// The wind this moment.
-    wind: Vec3,
 }
 
 impl std::fmt::Debug for Weather {
@@ -94,12 +92,6 @@ impl Weather {
     /// How hard the rain the camera can see falls.
     pub(crate) fn heard(&self) -> f32 {
         self.heard
-    }
-
-    /// The wind this moment.
-    #[allow(dead_code)]
-    pub(crate) fn wind(&self) -> Vec3 {
-        self.wind
     }
 
     /// The world starts afresh, or the camera can see nothing of the outdoors.
@@ -126,7 +118,6 @@ impl Weather {
         let dice = systems.dice();
         let (amount, wind) = day.map_or((0.0, Vec3::ZERO), |d| weather(d, v.time_of_day, &dice));
         self.heard = amount;
-        self.wind = wind;
         let made = self.systems.get_or_insert_with(|| {
             [VAPOR, BUBBLES, RIPPLES].map(|value| {
                 let id = records.data_id_by_enum(value, MAPPING);

@@ -694,6 +694,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.the-players-body-turns-see-through-under-the-pointer",
+        says: "With the option on, the player's body under the pointer fades at ten times its \n               opacity a second down to 0.3, and comes back the same way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-HOVER-FADE"),
+        station: "auberean-draw::cpu::objects::degrade::the_players_body_turns_see_through_under_the_pointer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.the-scenery-draw-distance-draws-placed-objects-in",
         says: "At the scenery draw distance's low and medium settings a placed object's distances \
                are drawn in to 0.4 and 0.7 of themselves (its visible distance never under 20 m); \

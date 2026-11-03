@@ -2358,6 +2358,8 @@ impl Renderer {
                     Pass::Water => water,
                     Pass::Frills => &frill_draws,
                     Pass::Translucent => &translucent_draws,
+                    // D2-11030
+                    Pass::Particles | Pass::Streaks if reflecting => &[],
                     Pass::Particles => &particle_draws,
                     Pass::Streaks => &streak_draws,
                     Pass::LateSky => &late,

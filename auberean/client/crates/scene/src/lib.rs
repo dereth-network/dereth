@@ -285,6 +285,10 @@ pub struct Scene<'w> {
     drawer: BodyDrawer,
     /// The rain, and how hard it falls.
     weather: weather::Weather,
+    /// The player's body seen through under the pointer.
+    hover: auberean_draw::body::HoverFade,
+    /// Where the pointer stands in the window, and the window's size, once known.
+    pub pointer: Option<((f32, f32), (u32, u32))>,
     /// The adaptive degrade's bias, with it on.
     adaptive_degrade: Option<f32>,
     /// How fast frames are being drawn.
@@ -1126,6 +1130,8 @@ impl<'w> Scene<'w> {
             builder: SceneBuilder::new(&world.records, &world.region),
             drawer: BodyDrawer::default(),
             weather: weather::Weather::default(),
+            hover: auberean_draw::body::HoverFade::default(),
+            pointer: None,
             adaptive_degrade: None,
             frame_rate: auberean_draw::quality::FrameRate::default(),
             volumes: auberean_draw::volume::VolumeMaker::default(),
@@ -3551,6 +3557,45 @@ impl<'w> Scene<'w> {
             &mut built.frame.objects,
             &mut noted,
         );
+        // With the option on, the player's body and what it holds turn see-through under the
+        // pointer, with the camera off its eyes.
+        // D2-06220
+        if self.camera.options.avatar_hover_transparency {
+            let mine = noted
+                .iter()
+                .find(|n| n.0 == p.id)
+                .map(|n| vec![(p.id, n.1.clone())])
+                .unwrap_or_default();
+            let over = !at_the_eyes
+                && self.pointer.zip(self.seen.camera.as_ref()).is_some_and(
+                    |((at, size), camera)| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let size = (size.0 as f32, size.1 as f32);
+                        seen::pick(camera, size, at, &built.frame.objects, &mine).is_some()
+                    },
+                );
+            self.hover.step(now, over);
+            let held: Vec<u64> = self
+                .held
+                .holders()
+                .into_iter()
+                .filter(|(_, holder)| *holder == p.id)
+                .map(|(id, _)| id)
+                .collect();
+            for (id, range, _, _) in &noted {
+                if *id == p.id || held.contains(id) {
+                    for b in built
+                        .frame
+                        .objects
+                        .get_mut(range.clone())
+                        .into_iter()
+                        .flatten()
+                    {
+                        b.tint.a *= self.hover.opacity;
+                    }
+                }
+            }
+        }
         // The lights the objects' effects carry, as they stand now (the placed objects', the
         // bodies', what they hold and what the client made), each at its place in its own cell's
         // block: they light what is near them as the lights the cells keep do. They are gathered

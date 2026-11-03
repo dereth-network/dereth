@@ -67,6 +67,7 @@ mod key {
     pub const AVATAR_LOOK_AROUND: u32 = 0x4000_0068;
     pub const AVATAR_LOOK_AT_CAMERA: u32 = 0x4000_0069;
     pub const AVATAR_LOOK_AT_SELECTION: u32 = 0x4000_006A;
+    pub const AVATAR_HOVER_TRANSPARENCY: u32 = 0x4000_006D;
     pub const MOUSE_LOOK_STEERS: u32 = 0x4000_006B;
 }
 
@@ -79,7 +80,7 @@ enum CameraKind {
 /// The camera's preferences, in the order the camera puts them in: each one's section and key,
 /// label and help, and kind.
 // D2-10689
-const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 14] = [
+const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 15] = [
     (
         section::CAMERA,
         key::CAMERA_HEIGHT,
@@ -177,6 +178,13 @@ const CAMERA_PREFERENCES: [(u32, u32, &str, &str, CameraKind); 14] = [
         "ID_Avatar_Look_At_Selection",
         "ID_Avatar_Look_At_Selection_Help",
         CameraKind::Flag(true),
+    ),
+    (
+        section::AVATAR,
+        key::AVATAR_HOVER_TRANSPARENCY,
+        "ID_Avatar_MouseHoverTransparency",
+        "ID_Avatar_MouseHoverTransparency_Help",
+        CameraKind::Flag(false),
     ),
 ];
 
@@ -535,6 +543,8 @@ impl Preferences {
         o.look_around = on(key::AVATAR_LOOK_AROUND).unwrap_or(o.look_around);
         o.look_at_camera = on(key::AVATAR_LOOK_AT_CAMERA).unwrap_or(o.look_at_camera);
         o.look_at_selection = on(key::AVATAR_LOOK_AT_SELECTION).unwrap_or(o.look_at_selection);
+        o.avatar_hover_transparency =
+            on(key::AVATAR_HOVER_TRANSPARENCY).unwrap_or(o.avatar_hover_transparency);
         o
     }
 

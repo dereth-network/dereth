@@ -234,6 +234,8 @@ pub struct Options {
     pub look_at_camera: bool,
     /// The player looks at each new selection.
     pub look_at_selection: bool,
+    /// The player's own body turns see-through under the pointer.
+    pub avatar_hover_transparency: bool,
 }
 
 impl Default for Options {
@@ -256,6 +258,7 @@ impl Default for Options {
             look_around: true,
             look_at_camera: true,
             look_at_selection: true,
+            avatar_hover_transparency: false,
         }
     }
 }

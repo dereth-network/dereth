@@ -2002,6 +2002,148 @@ fn the_bodies_effects_place_lights_among_the_frames() {
     );
 }
 
+/// On a rainy day the rain falls about the camera: 2,500 streaks at the day's whole amount, its
+/// sound heard as loud; on a dry moment none, and the sound stops.
+///
+/// Behaviour: desktop.world.rain-falls-on-a-rainy-day
+#[test]
+fn rain_falls_on_a_rainy_day() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let run = |s: &mut Shell<'_, DoubleHost>, game_time: f64, until: f64| {
+        let mut streaks = 0;
+        let mut drawn = false;
+        while s.host.time < until {
+            let h = &mut s.host;
+            h.time += 1.0 / 60.0;
+            let t = LocalTime(1.0 + h.time);
+            for d in h.double.tick(t) {
+                h.inbox.push_back((d.from, d.bytes));
+            }
+            if let Some(c) = s.client.as_mut() {
+                c.sync_time(game_time);
+            }
+            let out = s.frame();
+            if let Some(f) = out.world {
+                drawn = true;
+                streaks = f
+                    .objects
+                    .iter()
+                    .filter(|b| {
+                        b.mesh == 0 && b.step == Some(auberean_draw::scene::Pass::Particles)
+                    })
+                    .filter(|b| b.vertices.len() == 10_000)
+                    .count();
+            }
+        }
+        assert!(drawn);
+        streaks
+    };
+    // The next moments the day's rain is none and all, by the region's own days.
+    let (world, _) = data();
+    let region = &world.region;
+    let (calendar, sky) = (
+        region.calendar.as_ref().expect("a calendar"),
+        region.sky.as_ref().expect("a sky"),
+    );
+    let rain_at = |at: f64| {
+        let c = auberean_world::sky::day_clock(calendar, at);
+        let day =
+            auberean_world::sky::day_for(sky, c.year * i64::from(calendar.days_per_year) + c.day);
+        day.and_then(|d| world.records.day(d))
+            .map_or(0.0, |d| auberean_world::sky::rain(&d, c.fraction).0)
+    };
+    assert_eq!(run(&mut s, 0.0, 3.0), 0, "whatever the moment, it is drawn");
+    let now = s.scene.game_time + 1000.0;
+    let mut times = (0..2000).map(|k| now + f64::from(k) * 300.0);
+    let dry = times
+        .find(|t| rain_at(*t) == 0.0 && rain_at(*t + 300.0) == 0.0)
+        .expect("a dry moment");
+    assert_eq!(run(&mut s, dry, 6.0), 0);
+    assert_eq!(s.scene.rain_heard(), 0.0);
+    let wet = times
+        .find(|t| rain_at(*t) == 1.0 && rain_at(*t + 300.0) == 1.0)
+        .expect("a wet moment");
+    assert!(run(&mut s, wet, 8.0) >= 1, "it rains");
+    assert_eq!(s.scene.rain_heard(), 1.0);
+}
+
+/// The objects placed on a landblock taken up fade in with it: at the camp, entered from nowhere,
+/// each of the frame's objects standing on the land is drawn no more opaque than its block's
+/// opacity, and whole a second on.
+///
+/// Behaviour: desktop.world.a-blocks-placed-objects-fade-in-with-it
+#[test]
+fn a_blocks_placed_objects_fade_in_with_it() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut faded, mut whole) = (0, 0);
+    while s.host.time < 6.0 {
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let out = s.frame();
+        let Some(f) = out.world else {
+            continue;
+        };
+        let opacity_of = |x: i32, y: i32| {
+            out.fade
+                .iter()
+                .find(|(c, _)| (i32::from(c.0), i32::from(c.1)) == (x, y))
+                .map_or(1.0, |(_, o)| *o)
+        };
+        for b in &f.objects {
+            let Some((x, y)) = b.block else { continue };
+            let o = opacity_of(x, y);
+            assert!(b.tint.a <= o + 1e-4, "{} over {o}", b.tint.a);
+            if o < 1.0 && b.tint.a < 1.0 {
+                faded += 1;
+            }
+            if o >= 1.0
+                && b.visible
+                    .is_none_or(|v| b.distance_from(f.camera.position) < 0.9 * v)
+            {
+                assert_eq!(b.tint.a, 1.0);
+                whole += 1;
+            }
+        }
+    }
+    assert!(faded > 100 && whole > 100, "{faded} faded, {whole} whole");
+}
+
 /// A landblock's objects fade in over the second after the near window takes it up, made or found
 /// again among the free blocks: each frame lists the blocks taken up less than a second before
 /// (not at the very moment) with the time since as their objects' opacity, and a body standing on

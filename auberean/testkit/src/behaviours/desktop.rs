@@ -1246,6 +1246,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-blocks-placed-objects-fade-in-with-it",
+        says: "The objects placed on a landblock taken up fade in with it, whole a second on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-BLOCK-FADE-OBJECTS"),
+        station: "auberean-shell::dat::session::a_blocks_placed_objects_fade_in_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.a-landblock-the-server-sends-is-made-into-the-land",
         says: "A landblock the files lack is asked of the server when the cells' rings reach it; \
                the one it sends is read by the world as the files' own and made into the land the \
@@ -1276,6 +1284,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-MODE-NOTICE"),
         station: "auberean-scene::corpus::objects::an_object_is_told_each_mode_its_body_goes_into",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.world.rain-falls-on-a-rainy-day",
+        says: "On a rainy day the rain falls about the camera as its day says, and none on a \n               dry moment.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-RAIN-WORLD"),
+        station: "auberean-shell::dat::session::rain_falls_on_a_rainy_day",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.world.the-cells-asks-are-the-2017-clients",

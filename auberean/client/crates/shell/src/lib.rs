@@ -296,6 +296,9 @@ impl<'w, H: Host> Shell<'w, H> {
 
     /// One event from the host: the interface first, then the world's controls.
     pub fn event(&mut self, e: &Event) {
+        if let Event::Pointer { x, y } = e {
+            self.scene.pointer = Some(((*x, *y), self.size));
+        }
         match e {
             Event::Resized { width, height } => {
                 self.size = ((*width).max(1), (*height).max(1));
