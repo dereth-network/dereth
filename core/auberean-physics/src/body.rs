@@ -1083,6 +1083,7 @@ impl Owner for Body {
     // D2-06144
     fn set_velocity(&mut self, v: Vec3) {
         self.velocity = v;
+        self.set_movement_active(true);
     }
     // D2-06123
     fn apply_impulse(&mut self, v: Vec3) -> bool {

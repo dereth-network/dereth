@@ -365,6 +365,12 @@ impl World {
         ));
     }
 
+    /// A cell let go of forgets who watched it.
+    // D2-03854, D2-03514
+    pub fn release_cell_watchers(&mut self, cell: CellId) {
+        self.watching.watchers.remove(&cell.0);
+    }
+
     /// Body `watcher` watches `cell` for objects of the kinds `report` names: a watch it already
     /// has is counted again and tells it nothing; a new one tells it of each object standing in the
     /// cell, as entering. False for no body.

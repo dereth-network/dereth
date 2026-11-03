@@ -18,6 +18,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-does-the-rest-of-what-the-server-asks",
+        says: "A body keeps a global and a terrain modifier, clears the terrain modifiers, is moved \n               by a push toward an object, and flies when a missile is launched.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-SERVER-EVENTS-REST"),
+        station: "auberean-shell::dat::session::a_body_does_the_rest_of_what_the_server_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-faded-out-is-not-seen",
         says: "Each body drawn is seen as faded out exactly when its figure's opacity (its fade \
                slider, held to 0..1) is under 0.0002, as the arrow on the string is when let go of; at \
@@ -112,6 +120,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OBJECT-DESCRIPTION"),
         station: "auberean-shell::dat::session::an_object_takes_up_its_description",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.bodies.an-object-takes-up-its-stamps-and-flight-from-its-description",
+        says: "An object takes up its four stamps from its description and, described as a missile, \n               its aim and that it flies.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-DESC-MISSILE"),
+        station: "auberean-shell::dat::session::an_object_takes_up_its_stamps_and_flight_from_its_description",
         tier: Tier::Dat,
     },
     behaviour! {

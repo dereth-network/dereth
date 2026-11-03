@@ -260,6 +260,34 @@ fn a_bodys_collisions_take_its_slowest_impact() {
     assert_eq!((current.min_impact_xy, current.min_impact_z), (xy, z));
 }
 
+/// In a cell's collision list what stands still comes first, in the order it came, then what moves:
+/// so an object standing still put in beside a body already there is still met first.
+///
+/// Behaviour: collision.solid.what-stands-still-is-met-before-what-moves
+#[test]
+fn what_stands_still_is_met_before_what_moves() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut runner = body(70.0, 70.0);
+    let r = world.insert_body(&land, 0x50, &mut runner);
+    let cell = world.position(r).expect("placed").cell;
+    let stand = |world: &mut World, id, y| {
+        world.insert(
+            &land,
+            id,
+            &WorldObject {
+                shape: post(),
+                position: at(70.0, y),
+                is_static: true,
+                passable: false,
+            },
+        );
+    };
+    stand(&mut world, 0x77, 71.0);
+    stand(&mut world, 0x78, 72.0);
+    assert_eq!(world.collision_list(cell), vec![0x77, 0x78, 0x50]);
+}
+
 /// Two bodies agree whether a touch between them is passed through, whichever keeps it: either
 /// finding the other not solid is enough, asked from both sides. A creature that passes through
 /// players, run into by a player that does not pass through creatures, is a touch both keep as

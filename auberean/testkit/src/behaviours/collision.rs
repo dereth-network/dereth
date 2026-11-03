@@ -510,4 +510,12 @@ pub static ROWS: &[Behaviour] = &[
         station: "auberean-physics::cpu::contact::solid::what_a_body_touches_pushes_it",
         tier: Tier::Cpu,
     },
+    behaviour! {
+        id: "collision.solid.what-stands-still-is-met-before-what-moves",
+        says: "In a cell's collision list what stands still comes first, in the order it came, then \n               what moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELL-LIST-ORDER"),
+        station: "auberean-physics::cpu::contact::solid::what_stands_still_is_met_before_what_moves",
+        tier: Tier::Cpu,
+    },
 ];

@@ -222,6 +222,37 @@ impl Scene<'_> {
         self.set_body_collision_state(made, &s);
     }
 
+    /// A slider an effect moved on an object that moves those of what it holds too, each object it
+    /// holds taking it.
+    // D2-06233
+    pub(crate) fn do_sliders_on_children(&mut self) {
+        let mut ids: Vec<u64> = self.player.iter().map(|p| p.id).collect();
+        ids.extend(self.others.ids());
+        ids.extend(self.held.ids());
+        ids.extend(self.temporaries.ids().into_iter().map(|(id, _)| id));
+        for id in ids {
+            let sliders = match self.fx_of(id) {
+                Some(f) if !f.child_sliders.is_empty() => std::mem::take(&mut f.child_sliders),
+                _ => continue,
+            };
+            let children: Vec<u64> = self
+                .held
+                .holders()
+                .into_iter()
+                .filter(|(_, holder)| *holder == id)
+                .map(|(child, _)| child)
+                .chain(self.temporaries.held_by(id))
+                .collect();
+            for child in children {
+                if let Some(f) = self.figure_mut(child) {
+                    for s in &sliders {
+                        f.sliders.do_slider(0, s.slider, s.value, s.time);
+                    }
+                }
+            }
+        }
+    }
+
     /// Aimed effects that have ended show again what they hid and stop what they played on their
     /// targets. An effect that never got to play, or ended within a frame, ends after two frames.
     // D2-06920

@@ -48,6 +48,8 @@ pub(crate) struct BodyFx {
     pub id: u64,
     /// The sounds its effects played or stopped, not yet taken.
     pub sounds: Vec<FxSound>,
+    /// The sliders its effects moved on what it holds too, not yet passed on.
+    pub child_sliders: Vec<auberean_draw::effects::FxSlider>,
 }
 
 impl BodyFx {
@@ -65,6 +67,7 @@ impl BodyFx {
             asked: Vec::new(),
             id: 0,
             sounds: Vec::new(),
+            child_sliders: Vec::new(),
         })
     }
 
@@ -143,6 +146,8 @@ impl BodyFx {
         let asked = self.fx.take_appearance();
         self.sounds.extend(self.fx.take_sounds());
         let sliders = self.fx.take_sliders();
+        self.child_sliders
+            .extend(sliders.iter().filter(|s| s.children).copied());
         if let Some(f) = figure.as_deref_mut() {
             for s in sliders {
                 f.sliders.do_slider(0, s.slider, s.value, s.time);

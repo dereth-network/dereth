@@ -253,6 +253,8 @@ impl Scene<'_> {
         }
         for cell in cells {
             world::release_obj_cell(&client.queue, &client.model, cell, self);
+            self.table
+                .release_cell_watchers(dereth_primitives::CellId(cell));
         }
     }
 

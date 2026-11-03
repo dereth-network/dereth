@@ -3053,6 +3053,227 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// The server asks the rest of what it can of a body, and the body does each: a global modifier and
+/// a terrain modifier are kept (and the terrain modifiers cleared), a new motion description is
+/// taken, a push toward an object gives it that speed away from the object, and a missile launched flies at the velocity given with
+/// a target to fly at. Fixture: a server double playing the messages at set times, the player
+/// standing in the hall, the human figure in the hall's cell.
+///
+/// Behaviour: desktop.bodies.a-body-does-the-rest-of-what-the-server-asks
+#[test]
+fn a_body_does_the_rest_of_what_the_server_asks() {
+    use auberean_client_sdk::protocol::physics::{
+        Missile, NoAction, ObjectEvent, TargetedImpulse, TerrainModifier, Word,
+    };
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    let sender = ObjectStamp {
+        id: CREATURE,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let place = Placement {
+        cell: DRUDGES_CELL,
+        frame: Frame {
+            origin: Vec3 {
+                x: -3.9,
+                y: 337.5,
+                z: -44.7,
+            },
+            rotation: Quat::IDENTITY,
+        },
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: place,
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let event = |t: f64, m: ServerMessage| (t, m);
+    let later = [
+        event(
+            8.0,
+            ServerMessage::GlobalModifier(ObjectEvent {
+                sender,
+                action: Word(7),
+            }),
+        ),
+        event(
+            8.0,
+            ServerMessage::TerrainChange(ObjectEvent {
+                sender,
+                action: TerrainModifier {
+                    terrain: 0x4000_0002,
+                    modifier: 0x4000_0003,
+                },
+            }),
+        ),
+        event(
+            8.5,
+            ServerMessage::ClearTerrainChanges(ObjectEvent {
+                sender,
+                action: NoAction,
+            }),
+        ),
+        event(
+            9.0,
+            ServerMessage::PushToward(ObjectEvent {
+                sender,
+                action: TargetedImpulse {
+                    target: PLAYER,
+                    magnitude: 6.0,
+                    falloff: 0,
+                    vertical: 0.0,
+                },
+            }),
+        ),
+        event(
+            11.0,
+            ServerMessage::InitializeMissile(ObjectEvent {
+                sender,
+                action: Missile {
+                    position: place,
+                    velocity: Vec3::new(0.0, 5.0, 0.0),
+                    target: PLAYER,
+                    target_offset: place,
+                    target_velocity: Vec3::ZERO,
+                    initialized: 1,
+                },
+            }),
+        ),
+    ];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut cleared = false;
+    let mut had_terrain = false;
+    let mut pushed = (0.0f32, 0.0f32);
+    while s.host.time < 11.0 {
+        step(&mut s);
+        if let Some(b) = s.scene.body(CREATURE) {
+            if pushed.0 == 0.0 {
+                pushed = (b.velocity.x, b.velocity.y);
+            }
+            let n = b.minterp.terrain_mods.len();
+            had_terrain |= n != 0;
+            cleared |= had_terrain && n == 0;
+        }
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    assert_eq!(b.minterp.global_mod, 7, "the global modifier");
+    assert!(had_terrain, "the terrain modifier was kept");
+    assert!(cleared, "and cleared");
+    // The player stands 5.9 m east and 7.5 m south of it.
+    assert!(
+        (pushed.0 + 3.71).abs() < 0.01 && (pushed.1 - 4.72).abs() < 0.01,
+        "pushed away from the player at the speed asked: {pushed:?}"
+    );
+    while s.host.time < 13.0 {
+        step(&mut s);
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    let g = b.missile.as_deref().expect("it flies");
+    assert!(g.moving, "in flight");
+    assert_eq!(g.target.object, PLAYER, "at its target");
+}
+
+/// What an object's description says of it beyond its sliders, it takes up: its four stamps, and,
+/// described as a missile, its aim and that it flies. Fixture: an object described so, created in
+/// the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-takes-up-its-stamps-and-flight-from-its-description
+#[test]
+fn an_object_takes_up_its_stamps_and_flight_from_its_description() {
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    let place = Placement {
+        cell: DRUDGES_CELL,
+        frame: Frame {
+            origin: Vec3 {
+                x: -3.9,
+                y: 337.5,
+                z: -44.7,
+            },
+            rotation: Quat::IDENTITY,
+        },
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION
+                | PhysicsDesc::TARGET
+                | PhysicsDesc::TARGET_POSITION
+                | PhysicsDesc::TARGET_OFFSET
+                | PhysicsDesc::MISSILE_MOVING
+                | PhysicsDesc::MISSILE_ACTIVATED,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: place,
+            target: PLAYER,
+            target_position: place,
+            target_offset: Vec3::new(0.0, 0.0, 1.0),
+            stamps: [3, 4, 5, 6],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    assert_eq!(b.update_times, [3, 4, 5, 6], "its stamps");
+    let g = b.missile.as_deref().expect("it flies");
+    assert!(g.activated && g.moving, "lit and in flight");
+    assert_eq!(g.targeting.target, PLAYER, "at the object described");
+    assert_eq!(g.targeting.target_offset.z, 1.0, "and its offset");
+}
+
 /// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
 /// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
 /// at the water's speed, its description's, not the ground's or none.

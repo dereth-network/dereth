@@ -183,6 +183,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-object-going-stops-its-effects",
+        says: "An object going stops every effect it plays, startup or asked for, with the systems \n               they keep going and their sounds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-DESTROY"),
+        station: "auberean-draw::dat::effects::an_object_going_stops_its_effects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-object-plays-its-looks-startup-effects-when-it-is-made",
         says: "An object whose look names startup effects plays them from the moment it is made, from \
                its look's own effect lists before the effect table the look names: a gateway's \

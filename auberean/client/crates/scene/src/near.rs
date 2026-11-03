@@ -150,6 +150,7 @@ impl NearBlocks {
 
     /// A block let go of: no longer found, its land kept at the end of the free blocks.
     // D2-10785
+    // D2-03634
     fn release_block(&mut self, land: &Land, block: (u8, u8)) {
         self.released.push(block);
         self.stamps.remove(&block);

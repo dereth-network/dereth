@@ -19,8 +19,9 @@ impl Body {
     // D2-06124, D2-06117
     pub fn add_impulse(&mut self, v: Vec3) -> bool {
         self.set_contact_state(false);
+        self.set_misc_active(true);
         self.do_element(AIR);
-        self.velocity = v;
+        crate::motion::Owner::set_velocity(self, v);
         true
     }
 
@@ -34,7 +35,7 @@ impl Body {
     /// An impulse of `speed` away from the object `target` (one the host keeps), plus `up` straight
     /// up. With `again`, the push is divided by the distance once more, so it weakens with
     /// distance. Under 0.0002 m from the object only `up` is given; with no such object nothing is.
-    // D2-06125, D2-05844
+    // D2-06125
     pub fn add_targeted_impulse(&mut self, target: u64, speed: f32, again: bool, up: f32) -> bool {
         let Some(t) = self.targets.get(&target).copied() else {
             return false;

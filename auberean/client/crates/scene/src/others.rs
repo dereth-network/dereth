@@ -472,6 +472,8 @@ pub struct Others {
     /// The objects the server described since last asked.
     described: Vec<u64>,
     lost: LostCells,
+    /// The sounds of the effects of objects that went, not yet taken.
+    parting_sounds: Vec<(u64, auberean_draw::effects::FxSound)>,
     /// The bodies that left the world (`false`) or entered it again (`true`) since last taken.
     world_changes: Vec<(u64, bool)>,
     /// What each figure finished and the hooks it fired since last taken, by body.
@@ -504,6 +506,7 @@ fn heading_of(q: Quat) -> f32 {
 impl Others {
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
+        out.append(&mut self.parting_sounds);
         for fx in self.bodies.values_mut().filter_map(|b| b.effects.as_mut()) {
             out.extend(fx.sounds.drain(..).map(|s| (fx.id, s)));
         }
@@ -633,7 +636,14 @@ impl Others {
         if let Some(k) = self.bodies.get(&id).and_then(|b| b.key) {
             world.remove(k);
         }
-        if let Some(b) = self.bodies.remove(&id) {
+        if let Some(mut b) = self.bodies.remove(&id) {
+            if let Some(fx) = b.effects.as_mut() {
+                fx.fx.destroy();
+                self.parting_sounds
+                    .extend(fx.fx.take_sounds().into_iter().map(|s| (id, s)));
+                self.parting_sounds
+                    .extend(fx.sounds.drain(..).map(|s| (id, s)));
+            }
             if let Some(ob) = b.body {
                 let s = &ob.body;
                 self.kept.insert(
@@ -1150,6 +1160,11 @@ impl Others {
             }
         }
         out
+    }
+
+    /// The objects with a body here.
+    pub(crate) fn ids(&self) -> Vec<u64> {
+        self.bodies.keys().copied().collect()
     }
 
     /// The effects body `id` plays, when it has any.

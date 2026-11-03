@@ -668,6 +668,38 @@ fn a_human_running_in_place_parts_the_mist() {
     );
 }
 
+/// An object going stops every effect it plays, startup or asked for, with what they keep going
+/// and the sounds they play.
+///
+/// Behaviour: draw.effects.an-object-going-stops-its-effects
+#[test]
+fn an_object_going_stops_its_effects() {
+    use auberean_draw::effects::FxSound;
+    const WOUNDED: u32 = 0x4100_0002;
+    let r = &install().records;
+    let mut look = Look::default();
+    look.global.fx_table = DataId(0x1E00_012E);
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+    fx.start(&systems, r, spot.home, &spot.place, spot.scale, 0.0);
+    let (took, _) = fx.do_fx(&systems, r, WOUNDED, 0.3, &spot, FxWho::default(), &NoRig);
+    assert!(took, "the wound plays");
+    fx.take_sounds();
+    fx.destroy();
+    assert!(fx.states().is_empty() && fx.systems().is_empty());
+    assert!(
+        fx.take_sounds()
+            .contains(&FxSound::Stop { effect: WOUNDED }),
+        "its sound stops too"
+    );
+}
+
 /// The wounded effect (`0x41000002`) of effect table `0x1E00012E` lays value 2 of four appearance
 /// tables over its object, at the strength it is played at: played at 0.3 the four go on at 0.3;
 /// played again at 0.6 while it plays, again at 0.6 (each time in the effect's order); its time

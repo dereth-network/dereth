@@ -1042,6 +1042,16 @@ impl ObjectEffects {
         true
     }
 
+    /// The object is going: every effect it plays stops, its startup effects too, with the systems
+    /// they keep going, and its sounds with them.
+    // D2-06923, D2-06643
+    pub fn destroy(&mut self) {
+        for effect in std::mem::take(&mut self.states).into_keys() {
+            self.sounds.push(FxSound::Stop { effect });
+        }
+        self.systems.clear();
+    }
+
     /// The effects have their time up to `now` (the client's time; nothing passes the first
     /// time): each whose strength is not yet the one asked moves toward it, at each of its entries
     /// in turn (one that ramps by the time passed over its ramp's time, held at the strength

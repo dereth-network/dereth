@@ -438,10 +438,6 @@ fn recv_on_body(b: &mut auberean_physics::body::Body, m: &ServerMessage) {
         ServerMessage::Push(e) => {
             b.add_impulse(crate::pv(e.action.direction));
         }
-        ServerMessage::PushToward(e) => {
-            let a = &e.action;
-            b.add_targeted_impulse(a.target, a.magnitude, a.falloff != 0, a.vertical);
-        }
         ServerMessage::DoFxScript(e) => {
             b.receive_do_fx_script(e.action.0);
         }
@@ -657,6 +653,7 @@ impl Scene<'_> {
                     }
                 }
                 ServerMessage::InitializeMissile(e) => self.recv_initialize_missile(id, &e.action),
+                ServerMessage::PushToward(e) => self.recv_push_toward(id, &e.action),
                 m => {
                     if let Some(b) = self.body_mut(id) {
                         recv_on_body(b, &m);
@@ -830,6 +827,40 @@ impl Scene<'_> {
                     .map(|(_, c)| *c)
             })
             .is_some_and(|controller| controller == 0)
+    }
+
+    /// The server pushes object `object` away from another: measured from where that object stands
+    /// now; what the body kept of that object for a move stays as it was. None when that object is
+    /// not here.
+    // D2-05844
+    fn recv_push_toward(
+        &mut self,
+        object: u64,
+        a: &auberean_client_sdk::protocol::physics::TargetedImpulse,
+    ) {
+        let Some(at) = self.body(a.target).map(|t| t.position) else {
+            return;
+        };
+        let Some(b) = self.body_mut(object) else {
+            return;
+        };
+        let kept = b.targets.insert(
+            a.target,
+            auberean_physics::motion::moveto::TargetBody {
+                position: at,
+                radius: 0.0,
+                height: 0.0,
+            },
+        );
+        b.add_targeted_impulse(a.target, a.magnitude, a.falloff != 0, a.vertical);
+        match kept {
+            Some(k) => {
+                b.targets.insert(a.target, k);
+            }
+            None => {
+                b.targets.remove(&a.target);
+            }
+        }
     }
 
     /// The server launches object `object` as a missile: it flies at the velocity given toward

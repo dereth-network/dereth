@@ -2687,6 +2687,7 @@ impl<'w> Scene<'w> {
         self.aim_fx(client, &played, night);
         self.ask_body_fx();
         self.end_aimed_fx(now);
+        self.do_sliders_on_children();
         self.status.others = self.others.len();
         self.status.nearest = self.others.nearest(
             figures::global(self.status.cell, self.status.origin),

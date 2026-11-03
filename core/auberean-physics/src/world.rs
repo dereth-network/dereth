@@ -553,6 +553,26 @@ impl World {
         solid::interpermeable(&x, Some(&y), false, &mut t)
     }
 
+    /// Files an object in a cell's collision list: what stands still comes before what moves, each
+    /// in the order it came, so what a move meets first in a cell is what stands still.
+    // D2-03872
+    fn file_in_cell(&mut self, cell: u32, handle: PhysHandle, is_static: bool) {
+        let (by_handle, entries) = (&self.by_handle, &self.entries);
+        let list = &mut self.cells.entry(cell).or_default().shadow_object_list;
+        let moves = |o: &PhysHandle| {
+            by_handle
+                .get(o)
+                .and_then(|k| entries.get(k))
+                .is_some_and(|e| !e.is_static)
+        };
+        let at = if is_static {
+            list.iter().position(moves).unwrap_or(list.len())
+        } else {
+            list.len()
+        };
+        list.insert(at, handle);
+    }
+
     /// Puts entry `key` at `position`: out of the collision lists it was in, into those of the
     /// cells it reaches there. False when the key is not in the table.
     // D2-06140, D2-06255, D2-03880, D2-03857
@@ -570,19 +590,29 @@ impl World {
         } else {
             e.shape.cross_cells(land, &position)
         };
-        for c in &e.cells {
-            self.cells
-                .entry(c.0)
-                .or_default()
-                .shadow_object_list
-                .push(e.handle);
+        let (reached, handle, is_static) = (e.cells.clone(), e.handle, e.is_static);
+        for c in &reached {
+            self.file_in_cell(c.0, handle, is_static);
         }
-        if let Some(o) = self.objects.get_mut(e.handle) {
+        if let Some(o) = self.objects.get_mut(handle) {
             o.position = position;
             o.cell = Some(position.cell);
         }
         self.refile(key, position.cell);
         true
+    }
+
+    /// The objects in a cell's collision list, in the order a move meets them.
+    #[must_use]
+    pub fn collision_list(&self, cell: CellId) -> Vec<u64> {
+        self.cells
+            .get(&cell.0)
+            .map(|c| c.shadow_object_list.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|h| self.by_handle.get(h))
+            .map(|k| self.object_id(*k))
+            .collect()
     }
 
     /// How many cells' collision lists entry `key` is in.
@@ -930,11 +960,7 @@ impl World {
                 // object draws reaches.
                 let reached = cells::find_cells_of_box(land, &s.part.pos, &s.render_box);
                 for c in &reached {
-                    self.cells
-                        .entry(c.0)
-                        .or_default()
-                        .shadow_object_list
-                        .push(h);
+                    self.file_in_cell(c.0, h, true);
                 }
                 let shape = Shape {
                     trees: s.part.physics_bsp.iter().cloned().collect(),
