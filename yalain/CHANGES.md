@@ -7,6 +7,8 @@ what they see, not how it was done.
 
 ## Unreleased
 
+## 0.1.2 (2026-11-03)
+
 - Fixed players on the host's own network being dropped when entering the world.
 - New `dn verify` command, to put the world on the Dereth Network from the console or the game.
 

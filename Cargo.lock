@@ -7016,7 +7016,7 @@ dependencies = [
 
 [[package]]
 name = "yalain"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-assets",
  "auberean-client-sdk",
@@ -7051,14 +7051,14 @@ dependencies = [
 
 [[package]]
 name = "yalain-content"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-assets",
 ]
 
 [[package]]
 name = "yalain-federation"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dereth-network-protocol",
  "serde_json",
@@ -7068,7 +7068,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-friends"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-friends",
  "dereth-network-protocol",
@@ -7079,7 +7079,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-net"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-primitives",
  "dereth-network-protocol",
@@ -7092,7 +7092,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-store"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-testkit",
  "rusqlite",
@@ -7100,7 +7100,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-assets",
  "auberean-client-sdk",
@@ -7128,7 +7128,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-world"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-assets",
  "auberean-dat",
@@ -7153,7 +7153,7 @@ dependencies = [
 
 [[package]]
 name = "yalain-world-db"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "auberean-assets",
  "auberean-pack",
