@@ -35,6 +35,7 @@
 //! **Must never** reach a device, a window, a socket or a clock: time arrives from the shell.
 
 pub mod camera;
+mod camera_object;
 pub mod cells;
 mod figures;
 mod followed;
@@ -331,6 +332,8 @@ pub struct Scene<'w> {
     built: Option<Built>,
     /// The world is shown (it is hidden while the story plays).
     world_shown: bool,
+    /// The camera's own object, made with the first player.
+    camera_object: Option<camera_object::CameraObject>,
     /// When the time of day is next looked at and the world's lighting next worked out again (the
     /// client's own seconds), and how many times it has been.
     sky_at: f64,
@@ -834,7 +837,9 @@ fn turn_held_streaks(
 /// the animations.
 struct CameraWorld<'a, 'w> {
     land: &'a Land,
-    table: &'a World,
+    table: &'a mut World,
+    /// The camera's own object, which keeps it off the world outdoors.
+    object: Option<&'a mut camera_object::CameraObject>,
     others: &'a others::Others,
     anims: &'a CachedRecords<'w>,
     stand_ins: [bool; 2],
@@ -855,7 +860,7 @@ fn place_camera(
     camera: &mut CameraControl,
     stands: &mut Option<camera::Stands>,
     p: &Player,
-    w: &CameraWorld<'_, '_>,
+    w: &mut CameraWorld<'_, '_>,
     dt: f32,
     each_frame: Option<f32>,
 ) {
@@ -902,8 +907,13 @@ fn place_camera(
             wanted: viewer.origin,
             env_only: camera.check_env_only(),
         };
-        auberean_physics::camera::sight_lines(w.table, &lines)
-            .map(|seen| camera::stand(seen.eye.cell, seen.eye.frame.origin, viewer.look))
+        auberean_physics::camera::sight_lines(w.table, &lines).map(|seen| {
+            let eye = match w.object.as_deref_mut() {
+                Some(o) if !is_interior(seen.eye.cell.0) => o.stand(w.land, w.table, seen.eye),
+                _ => seen.eye,
+            };
+            camera::stand(eye.cell, eye.frame.origin, viewer.look)
+        })
     } else {
         Some(camera::stand(pos.cell, viewer.origin, viewer.look))
     };
@@ -1181,6 +1191,7 @@ impl<'w> Scene<'w> {
             drawn: Vec::new(),
             built: None,
             world_shown: true,
+            camera_object: None,
             sky_at: 0.0,
             light_at: 0.0,
             lightings: 0,
@@ -2103,6 +2114,7 @@ impl<'w> Scene<'w> {
         self.sky_at = 0.0;
         self.light_at = 0.0;
         self.built = None;
+        self.camera_object = None;
         // The land let go of, and the objects standing in it with it; the world entered next
         // starts with fresh free blocks.
         self.near.reset_world_state(&self.land);
@@ -2256,6 +2268,12 @@ impl<'w> Scene<'w> {
                 }
             }
             (Some(o), _) => {
+                if self.camera_object.is_none() {
+                    self.camera_object = client
+                        .model
+                        .allocate_temporary_id()
+                        .and_then(|id| camera_object::CameraObject::new(&self.world.records, id));
+                }
                 self.create_player(client, o);
                 if self.player.is_some() {
                     self.follow_player_cell(client, true);
@@ -2403,14 +2421,22 @@ impl<'w> Scene<'w> {
                 // The player's physics updated: the camera is placed for where it now stands
                 // (each frame instead in mouse look).
                 if !self.camera.mouse_look {
-                    let w = CameraWorld {
+                    let mut w = CameraWorld {
                         land: &self.land,
-                        table: &self.table,
+                        table: &mut self.table,
+                        object: self.camera_object.as_mut(),
                         others: &self.others,
                         anims: &self.anims,
                         stand_ins: self.stand_ins,
                     };
-                    place_camera(&mut self.camera, &mut self.camera_stands, p, &w, tick, None);
+                    place_camera(
+                        &mut self.camera,
+                        &mut self.camera_stands,
+                        p,
+                        &mut w,
+                        tick,
+                        None,
+                    );
                 }
             }
             // The player's collisions go to its scripts.
@@ -2499,9 +2525,10 @@ impl<'w> Scene<'w> {
             // In mouse look the camera is placed each frame for where the frame draws the body,
             // and first of all once there is a player to place it for; then a frame of its effects.
             if !still && (self.camera.mouse_look || self.camera_stands.is_none()) {
-                let w = CameraWorld {
+                let mut w = CameraWorld {
                     land: &self.land,
-                    table: &self.table,
+                    table: &mut self.table,
+                    object: self.camera_object.as_mut(),
                     others: &self.others,
                     anims: &self.anims,
                     stand_ins: self.stand_ins,
@@ -2511,7 +2538,7 @@ impl<'w> Scene<'w> {
                     &mut self.camera,
                     &mut self.camera_stands,
                     p,
-                    &w,
+                    &mut w,
                     dt,
                     Some(alpha),
                 );

@@ -333,6 +333,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.outdoors-the-cameras-own-object-keeps-it-off-the-land",
+        says: "Outdoors the camera stands where its own object finds room at the end of its line of sight: its sphere, a quarter of a meter, keeps it off the land and off what it does not pass through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-OWN-OBJECT"),
+        station: "auberean-shell::dat::session::outdoors_the_cameras_own_object_keeps_it_off_the_land",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.solid-objects-stop-the-camera",
         says: "The line from the player's shoulder to where the camera wants to be stops at solid \
                objects, and the camera stands where it met one: beside the start hall's fir, \

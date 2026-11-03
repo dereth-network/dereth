@@ -3505,6 +3505,48 @@ fn the_radars_groove_level_reaches_the_music() {
     assert_eq!(s.sound.manager.groove(), 12);
 }
 
+/// Outdoors the camera's own object keeps its sphere, a quarter of a meter, off the land: tilted to
+/// look up from under the ground, the camera stands that far above where its line of sight met the
+/// land. (The player on the land of block `0xC156`, the mouse pushing the view all the way up.)
+///
+/// Behaviour: desktop.camera.outdoors-the-cameras-own-object-keeps-it-off-the-land
+#[test]
+fn outdoors_the_cameras_own_object_keeps_it_off_the_land() {
+    use auberean_scene::camera::Press;
+    let cell = 0xC156_0035;
+    let at = Vec3 {
+        x: 122.84,
+        y: 87.98,
+        z: 80.2,
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 20.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    s.scene.camera.press(Press::MouseLook);
+    for _ in 0..120 {
+        let _ = s.scene.camera.mouse(0.0, -400.0);
+        step(&mut s);
+    }
+    let camera = s.scene.seen.camera.expect("a camera");
+    let feet = s.scene.status.origin;
+    let above = camera.position.z - feet.z;
+    assert!(camera.pitch > 10.0, "looking up: {}", camera.pitch);
+    // The land falls a little between the feet and the camera.
+    assert!(above > 0.1 && above < 0.5, "{above} m above the feet");
+}
+
 /// The world hidden while a story plays is not drawn, and is drawn again when shown.
 ///
 /// Behaviour: desktop.world.the-world-hidden-is-not-drawn

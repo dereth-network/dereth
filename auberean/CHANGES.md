@@ -30,6 +30,7 @@ not how it was done.
 - Resurrect and Dismount now work.
 - Music now follows what's near you.
 - Attacking keeps your selected target with Auto Target on.
+- The camera stays off the ground.
 
 ## 0.1.2 (2026-11-02)
 
