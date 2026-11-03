@@ -218,10 +218,10 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
         Kind::Dereth => {
             if let Some(platform) = name.strip_prefix(&format!("{}-{version}-", launcher::TOOL)) {
                 match platform {
-                    "windows-x86_64.zip" => "Plugin author's tool · Windows x64",
-                    "macos-aarch64.tar.gz" => "Plugin author's tool · macOS Apple silicon",
-                    "macos-x86_64.tar.gz" => "Plugin author's tool · macOS Intel",
-                    "linux-x86_64.tar.gz" => "Plugin author's tool · Linux x86-64 (glibc 2.35+)",
+                    "windows-x86_64.zip" => "Dereth Plugin Tools · Windows x64",
+                    "macos-aarch64.tar.gz" => "Dereth Plugin Tools · macOS Apple silicon",
+                    "macos-x86_64.tar.gz" => "Dereth Plugin Tools · macOS Intel",
+                    "linux-x86_64.tar.gz" => "Dereth Plugin Tools · Linux x86-64 (glibc 2.35+)",
                     _ => return None,
                 }
             } else {
@@ -271,16 +271,14 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
 /// How a release is published: whether it is a pre-release, and GitHub's `make_latest`.
 ///
 /// A version with a pre-release suffix (`0.2.0-rc.1`) is a pre-release, which is never the
-/// repository's "Latest". The web client's and Lyceum's releases are never "Latest" either: that
-/// stays the launcher's and the server's, which players download by hand, and the web client's
-/// consumers list the releases instead. A final Dereth or Empyrean release is made "Latest", as
-/// publishing a draft by hand does by default.
+/// repository's "Latest". Of the final releases only Dereth's is made "Latest": the launcher is what
+/// players download by hand, and every other product's release leaves "Latest" where it is.
 pub fn publish_flags(kind: Kind, version: &str) -> (bool, &'static str) {
     let pre = version::is_prerelease(version);
-    let latest = if pre || matches!(kind, Kind::Web | Kind::Lyceum) {
-        "false"
-    } else {
+    let latest = if !pre && matches!(kind, Kind::Dereth) {
         "true"
+    } else {
+        "false"
     };
     (pre, latest)
 }
@@ -302,7 +300,7 @@ Dereth {VERSION}: the launcher, with the Dereth client inside it, for Windows (1
 
 The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-For plugin authors: the plugin author's tool, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
+For plugin authors: Dereth Plugin Tools, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
 
 **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 

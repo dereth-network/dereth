@@ -346,7 +346,7 @@ jobs:
 
           The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-          For plugin authors: the plugin author's tool, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
+          For plugin authors: Dereth Plugin Tools, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
 
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
@@ -367,10 +367,10 @@ jobs:
               latest.json) label="Updater manifest" ;;
               "dereth-plugin-$VERSION-"*)
                 case "${f#"dereth-plugin-$VERSION-"}" in
-                  windows-x86_64.zip) label="Plugin author's tool · Windows x64" ;;
-                  macos-aarch64.tar.gz) label="Plugin author's tool · macOS Apple silicon" ;;
-                  macos-x86_64.tar.gz) label="Plugin author's tool · macOS Intel" ;;
-                  linux-x86_64.tar.gz) label="Plugin author's tool · Linux x86-64 (glibc 2.35+)" ;;
+                  windows-x86_64.zip) label="Dereth Plugin Tools · Windows x64" ;;
+                  macos-aarch64.tar.gz) label="Dereth Plugin Tools · macOS Apple silicon" ;;
+                  macos-x86_64.tar.gz) label="Dereth Plugin Tools · macOS Intel" ;;
+                  linux-x86_64.tar.gz) label="Dereth Plugin Tools · Linux x86-64 (glibc 2.35+)" ;;
                 esac ;;
               "dereth-$VERSION-"*)
                 case "${f#"dereth-$VERSION-"}" in
@@ -396,7 +396,9 @@ jobs:
           fi
           PRE=""
           # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
-          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          # A final Dereth release is the repository's Latest; every other product's draft is not.
+          LATEST="--latest"
+          case "$VERSION" in *-*) PRE="--prerelease"; LATEST="--latest=false" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $LATEST $PRE \
             --title "Dereth $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

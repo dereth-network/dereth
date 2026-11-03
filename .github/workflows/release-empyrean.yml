@@ -299,6 +299,6 @@ jobs:
           PRE=""
           # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Empyrean $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

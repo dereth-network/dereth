@@ -761,14 +761,14 @@ fn publish_finished(kind: Kind, version: &str) -> FakeRelease {
     fake.release(&kind.tag(version)).clone()
 }
 
-/// A final Dereth or Empyrean release is published as the repository's "Latest"; a pre-release
-/// is published as one and never "Latest"; the web client's and Lyceum's releases are never
-/// "Latest".
+/// Only a final Dereth release is published as the repository's "Latest"; a pre-release is
+/// published as one and never "Latest"; Empyrean's, the web client's and Lyceum's releases are
+/// never "Latest".
 #[test]
 fn published_releases_follow_the_pre_release_and_latest_rules() {
     for (kind, version, pre, latest) in [
         (Kind::Dereth, "0.2.0", false, "true"),
-        (Kind::Empyrean, "0.2.0", false, "true"),
+        (Kind::Empyrean, "0.2.0", false, "false"),
         (Kind::Web, "0.2.0", false, "false"),
         (Kind::Lyceum, "0.2.0", false, "false"),
         (Kind::Dereth, "0.2.0-rc.1", true, "false"),
