@@ -7,6 +7,8 @@ what they see, not how it was done.
 
 ## Unreleased
 
+- Fixed players on the host's own network being dropped when entering the world.
+
 ## 0.1.1 (2026-11-02)
 
 - First Asheron's Call 2 server: log in, make a character and play a starting area.

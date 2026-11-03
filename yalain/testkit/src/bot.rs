@@ -222,12 +222,7 @@ impl Bot {
         if let Some(r) = inc.referral {
             self.referrals.push(r);
             if self.follow_referrals {
-                self.world = None;
-                self.world_login = Some(WorldLogin {
-                    cookie: r.cookie,
-                    addr: SocketAddr::V4(r.addr),
-                    sent: None,
-                });
+                self.follow(r);
             }
         }
         if inc.disconnect {
@@ -238,6 +233,16 @@ impl Bot {
                 self.dropped = true;
             }
         }
+    }
+
+    /// Follow a referral: log in to the world it names with its cookie.
+    pub fn follow(&mut self, r: Referral) {
+        self.world = None;
+        self.world_login = Some(WorldLogin {
+            cookie: r.cookie,
+            addr: SocketAddr::V4(r.addr),
+            sent: None,
+        });
     }
 
     /// Run the bot's connections for this moment; returns the datagrams to send.

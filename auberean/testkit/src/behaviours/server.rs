@@ -3332,6 +3332,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.nearby-world-login-by-its-cookie",
+        says: "A client the world referred to an address on a network close by enters the world \
+               by the referral's cookie from any address on such a network, though its login came \
+               from another (one through the router's public address arrives from the router); \
+               from elsewhere a world login must come from its login's address, and a cookie \
+               never sent lets no one in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEARBY-WORLD-LOGIN"),
+        station: "yalain-testkit::cpu::entry::character_select::a_client_on_the_worlds_network_enters_by_its_cookie_from_another_address_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.answers-owed-capped",
         says: "A world owed a hundred answers already is not answered again, and its tell not shown, until \
                it is owed fewer; an answer the hub stopped waiting for after thirty seconds is dropped.",

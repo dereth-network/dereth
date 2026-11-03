@@ -238,6 +238,8 @@ impl std::fmt::Debug for Nearby {
 struct PendingReferral {
     login: ConnId,
     sent_at: LocalTime,
+    /// It sent the client to an address on a network close by.
+    nearby: bool,
 }
 
 /// The server's connections.
@@ -595,7 +597,11 @@ impl ServerNet {
         let Some(login) = self.conns.get(&r.login) else {
             return;
         };
-        if login.peer.ip() != from.ip() {
+        // A client sent to the world on a network close by may come from another address there
+        // than its login did: a login through the router's public address arrives from the
+        // router's own address on the network, the world login straight from the client's.
+        let across = r.nearby && crate::referral::is_nearby(from.ip());
+        if login.peer.ip() != from.ip() && !across {
             tracing::info!(%from, "a world login from another address than its login; ignored");
             return;
         }
@@ -790,6 +796,7 @@ impl ServerNet {
             PendingReferral {
                 login,
                 sent_at: now,
+                nearby: crate::referral::is_nearby(IpAddr::V4(*addr.ip())),
             },
         );
         Some(cookie)

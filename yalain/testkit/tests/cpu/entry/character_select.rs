@@ -7,7 +7,7 @@ use auberean_protocol::login::{
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::{NarrowString, WideString};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
-use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use yalain_net::{NetConfig, ServerNet, Service};
 use yalain_store::{MemoryStore, Store as _};
@@ -365,6 +365,66 @@ fn each_client_is_referred_to_the_world_at_the_address_it_reached_the_login_by()
     assert_eq!(to(away), (named, WORLD_PORT), "from elsewhere");
     assert!(h.run_until(STEPS, |h| h.server.sessions.values().any(
         |s| matches!(s.stage, Stage::InWorld { character, .. } if character == ids[0])
+    )));
+}
+
+/// A client on the world's own network that reached the login through the router (its login comes
+/// from the router's address there) and is referred to the machine's address on that network goes
+/// to the world straight across the network, from its own address: its cookie lets it in. A world
+/// login with that cookie from outside the network, or with a cookie never sent, is not let in.
+/// Behaviour: server.net.nearby-world-login-by-its-cookie
+#[test]
+fn a_client_on_the_worlds_network_enters_by_its_cookie_from_another_address_there() {
+    let mut h = Harness::new();
+    let named = Ipv4Addr::new(203, 0, 113, 10);
+    let own_on_lan = Ipv4Addr::new(10, 21, 23, 20);
+    h.net = ServerNet::new(
+        NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
+        0x5EED,
+        1.25e8,
+        h.now,
+    );
+    h.net
+        .refer_nearby(IpAddr::V4(Ipv4Addr::UNSPECIFIED), move |_| Some(own_on_lan));
+    // The router hands the login on from its own address on the network.
+    let b = at_character_list_from(&mut h, "neighbor", Ipv4Addr::new(10, 21, 23, 1));
+    h.bots[b].follow_referrals = false;
+    let id = create(&mut h, b, "Neighbor").identity.id;
+    h.bots[b].send(false, queue::LOGON, &enter(id));
+    assert!(h.run_until(STEPS, |h| !h.bots[b].referrals.is_empty()));
+    let referred = h.bots[b].referrals[0];
+    assert_eq!(
+        *referred.addr.ip(),
+        own_on_lan,
+        "referred to the machine on the network"
+    );
+    // The test's wire reaches the machine at loopback: the same referral, there.
+    let r = dereth_transport::conn::Referral {
+        addr: SocketAddrV4::new(Ipv4Addr::LOCALHOST, WORLD_PORT),
+        ..referred
+    };
+    // From outside the network, the cookie does not let it in.
+    let away = h.add_bot_from(Ipv4Addr::new(198, 51, 100, 7));
+    h.bots[away].follow(r);
+    h.run(60);
+    assert!(!h.bots[away].in_world(), "not from outside the network");
+    // A cookie never sent does not either.
+    let stray = h.add_bot_from(Ipv4Addr::new(10, 21, 23, 157));
+    h.bots[stray].follow(dereth_transport::conn::Referral {
+        cookie: r.cookie ^ 1,
+        ..r
+    });
+    h.run(60);
+    assert!(!h.bots[stray].in_world(), "not with a cookie never sent");
+    // The client itself, straight across the network from its own address.
+    h.bots[b].addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 21, 23, 156), 49_156));
+    h.bots[b].follow(r);
+    assert!(
+        h.run_until(STEPS, |h| h.bots[b].in_world()),
+        "in the world by its cookie"
+    );
+    assert!(h.run_until(STEPS, |h| h.server.sessions.values().any(
+        |s| matches!(s.stage, Stage::InWorld { character, .. } if character == id)
     )));
 }
 
